@@ -55,26 +55,16 @@ jobs:
           retention-days: 30
 
   # ---- 2. build each platform's self-contained zip -------------------------
+  # macOS jobs share bash (macOS runner default shell), so no `shell:` key is
+  # needed and no `matrix` reference appears in a shell property (GitHub does
+  # not allow `matrix` in the `shell:` key).
   build:
     needs: model-fp16
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # macOS: bash -> prepare_python.sh (venv+ffmpeg) then build.sh (zip)
-          - target: mac-arm64
-            runner: macos-14
-            shell: bash
-          - target: mac-x64
-            runner: macos-13
-            shell: bash
-          # Windows: native PowerShell -> build_win.ps1 (does prepare + zip in
-          # one step using built-in Compress-Archive; no Git-Bash zip needed).
-          - target: win-x64
-            runner: windows-latest
-            shell: pwsh
-            use_win_ps1: true
-    runs-on: ${{ matrix.runner }}
+        target: [mac-arm64, mac-x64]
+    runs-on: ${{ matrix.target == 'mac-arm64' && 'macos-14' || 'macos-13' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -89,24 +79,45 @@ jobs:
           path: tools/stage/model-fp16
 
       - name: Prepare runtime (python + ffmpeg)
-        if: ${{ !matrix.use_win_ps1 }}
-        shell: ${{ matrix.shell }}
         run: bash tools/prepare_python.sh
 
-      - name: Assemble + zip (mac)
-        if: ${{ !matrix.use_win_ps1 }}
-        shell: ${{ matrix.shell }}
+      - name: Assemble + zip
         run: bash tools/build.sh ${{ matrix.target }}
-
-      - name: Assemble + zip (Windows)
-        if: ${{ matrix.use_win_ps1 }}
-        shell: pwsh
-        run: powershell -ExecutionPolicy Bypass -File tools/build_win.ps1
 
       - name: Upload zip
         uses: actions/upload-artifact@v4
         with:
           name: amharic-captions-${{ matrix.target }}
           path: dist/amharic-captions-${{ matrix.target }}.zip
+          retention-days: 30
+          if-no-files-found: error
+
+  # Windows build — standalone job so it can use the native PowerShell (pwsh)
+  # shell without needing `matrix` in the `shell:` key.
+  build-win:
+    needs: model-fp16
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download fp16 model
+        uses: actions/download-artifact@v4
+        with:
+          name: model-fp16
+          path: tools/stage/model-fp16
+
+      - name: Assemble + zip
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File tools/build_win.ps1
+
+      - name: Upload zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: amharic-captions-win-x64
+          path: dist/amharic-captions-win-x64.zip
           retention-days: 30
           if-no-files-found: error
