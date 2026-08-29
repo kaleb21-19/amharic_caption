@@ -1,0 +1,112 @@
+name: build-zips
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: build-zips
+  cancel-in-progress: true
+
+# Pin the model to a known-good HF repo; change this only when you intend to
+# rebuild the fp16 weights shipped in the bundle.
+env:
+  HF_MODEL: badrex/Ethio-ASR-amharic
+
+jobs:
+  # ---- 1. build the half-size fp16 model once, upload for reuse ------------
+  # The fp16 conversion is platform-independent and identical for all three
+  # target zips, so we do it a single time (on a cheap ubuntu runner with CPU
+  # torch) and let the platform jobs download the converted artifact.
+  model-fp16:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache HF model download
+        uses: actions/cache@v3
+        with:
+          path: ethio-asr
+          key: ethio-asr-${{ env.HF_MODEL }}
+
+      - name: Install conversion deps
+        run: python -m pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu && python -m pip install --quiet transformers huggingface_hub
+
+      - name: Download fp32 model
+        env:
+          PYTHON_BIN: python
+        run: bash tools/fetch_model.sh
+
+      - name: Convert to fp16
+        env:
+          PYTHON_BIN: python
+        run: bash tools/make_model_fp16.sh
+
+      - name: Upload fp16 model
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-fp16
+          path: tools/stage/model-fp16
+          retention-days: 30
+
+  # ---- 2. build each platform's self-contained zip -------------------------
+  build:
+    needs: model-fp16
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS: bash -> prepare_python.sh (venv+ffmpeg) then build.sh (zip)
+          - target: mac-arm64
+            runner: macos-14
+            shell: bash
+          - target: mac-x64
+            runner: macos-13
+            shell: bash
+          # Windows: native PowerShell -> build_win.ps1 (does prepare + zip in
+          # one step using built-in Compress-Archive; no Git-Bash zip needed).
+          - target: win-x64
+            runner: windows-latest
+            shell: pwsh
+            use_win_ps1: true
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download fp16 model
+        uses: actions/download-artifact@v4
+        with:
+          name: model-fp16
+          path: tools/stage/model-fp16
+
+      - name: Prepare runtime (python + ffmpeg)
+        if: ${{ !matrix.use_win_ps1 }}
+        shell: ${{ matrix.shell }}
+        run: bash tools/prepare_python.sh
+
+      - name: Assemble + zip (mac)
+        if: ${{ !matrix.use_win_ps1 }}
+        shell: ${{ matrix.shell }}
+        run: bash tools/build.sh ${{ matrix.target }}
+
+      - name: Assemble + zip (Windows)
+        if: ${{ matrix.use_win_ps1 }}
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File tools/build_win.ps1
+
+      - name: Upload zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: amharic-captions-${{ matrix.target }}
+          path: dist/amharic-captions-${{ matrix.target }}.zip
+          retention-days: 30
+          if-no-files-found: error

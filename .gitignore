@@ -1,0 +1,18 @@
+# Python / runtime
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Build artifacts (large; built in CI or via tools/*.sh)
+dist/
+tools/stage/
+
+# The fp32 source model is large and fetched from HF in CI (tools/fetch_model.sh).
+ethio-asr/
+
+# Test / scratch output
+output/
+
+# OS cruft
+.DS_Store
