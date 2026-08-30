@@ -82,6 +82,13 @@ class _CT2Engine:
             model_dir, device="cpu", compute_type="int8"
         )
         self.mel = MelExtractor(model_dir)
+        # lm_head projection (1024 hidden -> 411 vocab): CT2's encode() returns
+        # the CTC logits (411) on arm64 but raw hidden states (1024) on
+        # x86_64/Windows, so we project whenever the last dim is 1024.
+        lw = os.path.join(model_dir, "lm_head_w.npy")
+        lb = os.path.join(model_dir, "lm_head_b.npy")
+        self.lm_w = np.load(lw).astype(np.float32) if os.path.isfile(lw) else None
+        self.lm_b = np.load(lb).astype(np.float32) if os.path.isfile(lb) else None
         # glyph id<->token from the HF vocab.json (matches the model output ids)
         raw = json.load(open(os.path.join(model_dir, "vocab.json")))
         self.glyphs = {int(tid): tok for tok, tid in raw.items()}
@@ -91,7 +98,9 @@ class _CT2Engine:
         ctranslate2 = _load_ct2()
         feats = self.mel(wav)  # (1, T', 160)
         out = self.model.encode(ctranslate2.StorageView.from_array(feats))
-        logits = np.asarray(out, dtype=np.float32)  # (1, T', 411)
+        logits = np.asarray(out, dtype=np.float32)  # (1, T', 411 or 1024)
+        if logits.shape[-1] != 411 and self.lm_w is not None:
+            logits = logits @ self.lm_w.T + self.lm_b  # -> (1, T', 411)
         return self._align(wav, logits)
 
     def _align(self, wav, logits):

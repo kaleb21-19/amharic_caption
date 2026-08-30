@@ -57,7 +57,7 @@ for f in os.listdir(tmp):
 shutil.rmtree(tmp, ignore_errors=True)
 
 # ---------- 2. standalone mel assets (numpy, no transformers at runtime) --
-print("[2/3] generating numpy mel filterbank + window ...")
+print("[2/4] generating numpy mel filterbank + window ...")
 from transformers import AutoFeatureExtractor
 fe = AutoFeatureExtractor.from_pretrained(src)
 mel_filters = np.asarray(fe.mel_filters, dtype=np.float32)
@@ -66,11 +66,27 @@ np.save(os.path.join(dst, "mel_filters.npy"), mel_filters)
 np.save(os.path.join(dst, "window.npy"), window)
 print("    mel_filters", mel_filters.shape, "window", window.shape)
 
+# ---------- 3. lm_head projection weights -----------------------------------
+# CTranslate2's Wav2Vec2Bert.encode() returns the CTC logits (411) on arm64 but
+# the raw hidden states (1024) on x86_64/Windows. To decode correctly on every
+# platform we always project through lm_head when the output dim is 1024, so we
+# ship the projection matrix here.
+print("[3/4] extracting lm_head projection weights ...")
+from safetensors import safe_open
+with safe_open(os.path.join(src, "model.safetensors"), framework="np") as f:
+    lm_w = np.asarray(f.get_tensor("lm_head.weight"), dtype=np.float32)  # (411,1024)
+    lm_b = np.asarray(f.get_tensor("lm_head.bias"), dtype=np.float32)    # (411,)
+np.save(os.path.join(dst, "lm_head_w.npy"), lm_w)
+np.save(os.path.join(dst, "lm_head_b.npy"), lm_b)
+print("    lm_head_w", lm_w.shape, "lm_head_b", lm_b.shape, "vocab", lm_w.shape[0])
+print("    (CT2 encode() returns 411 logits on arm64, 1024 hidden on x86_64;")
+print("     runtime projects via lm_head whenever the last dim is 1024)")
+
 # HF vocab (id<->token) for the standalone decoder + alignment.
 shutil.copy(os.path.join(src, "vocab.json"), os.path.join(dst, "vocab.json"))
 
-# ---------- 3. write a marker + config ------------------------------------
-print("[3/3] writing model metadata ...")
+# ---------- 4. write a marker + config ------------------------------------
+print("[4/4] writing model metadata ...")
 with open(os.path.join(dst, "model_meta.json"), "w") as f:
     json.dump({
         "engine": "ctranslate2",
