@@ -10,16 +10,17 @@ concurrency:
   cancel-in-progress: true
 
 # Pin the model to a known-good HF repo; change this only when you intend to
-# rebuild the fp16 weights shipped in the bundle.
+# rebuild the CT2 int8 weights shipped in the bundle.
 env:
   HF_MODEL: badrex/Ethio-ASR-amharic
 
 jobs:
-  # ---- 1. build the half-size fp16 model once, upload for reuse ------------
-  # The fp16 conversion is platform-independent and identical for all three
+  # ---- 1. build the CTranslate2 INT8 model once, upload for reuse ----------
+  # The CT2 int8 conversion is platform-independent and identical for all three
   # target zips, so we do it a single time (on a cheap ubuntu runner with CPU
-  # torch) and let the platform jobs download the converted artifact.
-  model-fp16:
+  # torch + ctranslate2) and let the platform jobs download the converted
+  # model. Shipping int8 lets the runtime drop torch/transformers (~-1.7GB).
+  model-ct2:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,23 +36,23 @@ jobs:
           key: ethio-asr-${{ env.HF_MODEL }}
 
       - name: Install conversion deps
-        run: python -m pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu && python -m pip install --quiet transformers huggingface_hub
+        run: python -m pip install --quiet "ctranslate2==4.8.1" torch --index-url https://download.pytorch.org/whl/cpu && python -m pip install --quiet transformers huggingface_hub scipy
 
       - name: Download fp32 model
         env:
           PYTHON_BIN: python
         run: bash tools/fetch_model.sh
 
-      - name: Convert to fp16
+      - name: Convert to CT2 int8
         env:
           PYTHON_BIN: python
-        run: bash tools/make_model_fp16.sh
+        run: bash tools/make_model_ct2_int8.sh
 
-      - name: Upload fp16 model
+      - name: Upload CT2 int8 model
         uses: actions/upload-artifact@v4
         with:
-          name: model-fp16
-          path: tools/stage/model-fp16
+          name: model-ct2-int8
+          path: tools/stage/model-ct2-int8
           retention-days: 30
 
   # ---- 2. build each platform's self-contained zip -------------------------
@@ -59,7 +60,7 @@ jobs:
   # needed and no `matrix` reference appears in a shell property (GitHub does
   # not allow `matrix` in the `shell:` key).
   build:
-    needs: model-fp16
+    needs: model-ct2
     strategy:
       fail-fast: false
       matrix:
@@ -72,11 +73,11 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Download fp16 model
+      - name: Download CT2 int8 model
         uses: actions/download-artifact@v4
         with:
-          name: model-fp16
-          path: tools/stage/model-fp16
+          name: model-ct2-int8
+          path: tools/stage/model-ct2-int8
 
       - name: Prepare runtime (python + ffmpeg)
         run: bash tools/prepare_python.sh
@@ -95,7 +96,7 @@ jobs:
   # Windows build — standalone job so it can use the native PowerShell (pwsh)
   # shell without needing `matrix` in the `shell:` key.
   build-win:
-    needs: model-fp16
+    needs: model-ct2
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -104,11 +105,15 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Download fp16 model
+      - name: Download CT2 int8 model
         uses: actions/download-artifact@v4
         with:
-          name: model-fp16
-          path: tools/stage/model-fp16
+          name: model-ct2-int8
+          path: tools/stage/model-ct2-int8
+
+      - name: Prepare runtime (python + ffmpeg)
+        shell: bash
+        run: bash tools/prepare_python.sh
 
       - name: Assemble + zip
         shell: pwsh
@@ -121,3 +126,34 @@ jobs:
           path: dist/amharic-captions-win-x64.zip
           retention-days: 30
           if-no-files-found: error
+
+  # ---- 3. attach the three zips to a GitHub Release (one-click downloads) ----
+  # Runs after all zips build; creates/updates a Release and uploads each zip
+  # as a downloadable asset (no need to dig through Actions artifacts).
+  release:
+    needs: [build, build-win]
+    runs-on: ubuntu-latest
+    if: ${{ always() && needs.build.result == 'success' && needs.build-win.result == 'success' }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all three zips
+        uses: actions/download-artifact@v4
+        with:
+          path: zips
+          merge-multiple: true
+
+      - name: Create/update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="build-${GITHUB_RUN_ID}"
+          RELEASE="Amharic Captions CT2 int8 build (${TAG})"
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" zips/*.zip \
+            --title "Amharic Captions build" \
+            --notes "CT2 int8 build. Download the zip for your platform and extract into Adobe CEP extensions." \
+            || { echo "release create failed"; exit 1; }

@@ -1,38 +1,163 @@
 #!/usr/bin/env python3
 """Transcribe Amharic audio -> accurate text + SRT using badrex/Ethio-ASR-amharic.
 
+Two engines, auto-selected by what the model directory contains:
+
+  * CTranslate2 INT8  (default / shipped): model dir has model_meta.json.
+      - tiny runtime (ctranslate2 + numpy + soundfile only; no torch)
+      - per-frame CTC logits come straight out of CT2's Wav2Vec2Bert.encode()
+      - mel features via amh_mel.MelExtractor (pure numpy)
+  * Torch/transformers (dev fallback): model dir has config.json + safetensors.
+      - original pipeline (AutoModelForCTC); kept so the dev repo and CI work
+        without a pre-converted CT2 model.
+
 CTC model has no native timestamps, so we derive word timings via CTC
 frame-level forced alignment (collapse repeats, drop blank frames).
 """
 import sys
 import os
+import json
 import warnings
 
 warnings.filterwarnings("ignore")
 
 import numpy as np  # noqa: E402
-import torch  # noqa: E402
 import soundfile as sf  # noqa: E402
-from transformers import AutoProcessor, AutoModelForCTC  # noqa: E402
 
-# Locate the ASR model relative to this script. The file layout differs
-# between the dev repo (ethio_srt.py + ./ethio-asr) and the self-contained
-# runtime bundle (ethio_srt.py + ./model). An explicit AMH_MODEL_DIR env var
-# overrides everything (the panel can point it at an exact location).
+
 def _find_model():
+    """Locate the ASR model relative to this script. AMH_MODEL_DIR overrides."""
     env = os.environ.get("AMH_MODEL_DIR")
     if env and os.path.isdir(env):
         return env
     base = os.path.dirname(os.path.abspath(__file__))
     for cand in ("model", "ethio-asr"):
         p = os.path.join(base, cand)
-        if os.path.isfile(os.path.join(p, "config.json")):
+        if os.path.isfile(os.path.join(p, "config.json")) or os.path.isfile(
+            os.path.join(p, "model_meta.json")
+        ):
             return p
     return os.path.join(base, "model")
+
 
 MODEL_DIR = _find_model()
 
 
+# --------------------------------------------------------------------------
+# engine selection
+# --------------------------------------------------------------------------
+def _use_ct2():
+    return os.path.isfile(os.path.join(MODEL_DIR, "model_meta.json"))
+
+
+# load numpy/ct2 lazily; torch only if needed (dev fallback keeps the repo's
+# dev venv usable, but the shipped CT2 runtime never imports torch).
+def _load_ct2():
+    import ctranslate2  # noqa: E402
+    return ctranslate2
+
+
+def _load_torch():
+    import torch  # noqa: E402
+    from transformers import AutoProcessor, AutoModelForCTC  # noqa: E402
+    return torch, AutoProcessor, AutoModelForCTC
+
+
+def load_pipeline():
+    """Return an engine handler object with a `.transcribe(wav)` method."""
+    if _use_ct2():
+        return _CT2Engine(MODEL_DIR)
+    return _TorchEngine(MODEL_DIR)
+
+
+class _CT2Engine:
+    """CTranslate2 INT8 engine (shipped runtime)."""
+
+    def __init__(self, model_dir):
+        ctranslate2 = _load_ct2()
+        from amh_mel import MelExtractor  # noqa: E402
+        meta = json.load(open(os.path.join(model_dir, "model_meta.json")))
+        self.blank_id = int(meta.get("blank_id", 408))
+        self.model = ctranslate2.models.Wav2Vec2Bert(
+            model_dir, device="cpu", compute_type="int8"
+        )
+        self.mel = MelExtractor(model_dir)
+        # glyph id<->token from the HF vocab.json (matches the model output ids)
+        raw = json.load(open(os.path.join(model_dir, "vocab.json")))
+        self.glyphs = {int(tid): tok for tok, tid in raw.items()}
+        self._skip = {"[PAD]", "[UNK]", "<s>", "</s>"}
+
+    def transcribe(self, wav):
+        ctranslate2 = _load_ct2()
+        feats = self.mel(wav)  # (1, T', 160)
+        out = self.model.encode(ctranslate2.StorageView.from_array(feats))
+        logits = np.asarray(out, dtype=np.float32)  # (1, T', 411)
+        return self._align(wav, logits)
+
+    def _align(self, wav, logits):
+        T = logits.shape[1]
+        frame_dur = (len(wav) / 16000) / T
+        spans, _ = ctc_align(logits, self.blank_id, frame_dur, None)
+        argmax = np.argmax(logits[0], axis=-1).tolist()
+        text = self._decode(argmax)
+        return text, spans, frame_dur
+
+    def _decode(self, ids):
+        # CTC decoding: collapse consecutive identical tokens before joining.
+        out = []
+        prev = None
+        for i in ids:
+            t = self.glyphs.get(int(i), "")
+            if t in self._skip or not t:
+                prev = None
+                continue
+            if t == prev:
+                continue
+            prev = t
+            out.append(t)
+        s = "".join(out).replace("|", " ")
+        return " ".join(s.split())
+
+
+class _TorchEngine:
+    """Original transformers/torch engine (dev fallback)."""
+
+    def __init__(self, model_dir):
+        torch, AutoProcessor, AutoModelForCTC = _load_torch()
+        self.device = "mps" if torch.backends.mps.is_available() else "cpu"
+        self.processor = AutoProcessor.from_pretrained(model_dir)
+        model = AutoModelForCTC.from_pretrained(model_dir)
+        if os.environ.get("AMH_USE_FP32") != "1":
+            model = model.half()
+        self.model = model.to(self.device).eval()
+        self.blank_id = self.processor.tokenizer.pad_token_id
+        self.torch = torch
+        self.glyphs = {
+            int(tid): ch for ch, tid in self.processor.tokenizer.get_vocab().items()
+        }
+
+    def transcribe(self, wav):
+        inputs = self.processor(wav, sampling_rate=16000, return_tensors="pt")
+        key = "input_features" if "input_features" in inputs else "input_values"
+        feats = inputs[key].to(self.device)
+        try:
+            feats = feats.to(next(self.model.parameters()).dtype)
+        except StopIteration:
+            pass
+        with self.torch.no_grad():
+            logits = self.model(**{key: feats}).logits
+        logits = logits.detach().cpu().numpy()
+        T = logits.shape[1]
+        frame_dur = (len(wav) / 16000) / T
+        spans, _ = ctc_align(logits, self.blank_id, frame_dur, None)
+        argmax = np.argmax(logits[0], axis=-1).tolist()
+        text = self.processor.tokenizer.decode(argmax)
+        return text, spans, frame_dur
+
+
+# --------------------------------------------------------------------------
+# SRT / timing helpers (identical for both engines)
+# --------------------------------------------------------------------------
 def format_ts(seconds: float) -> str:
     seconds = max(0.0, seconds)
     ms = int(round((seconds - int(seconds)) * 1000))
@@ -47,7 +172,7 @@ def format_ts(seconds: float) -> str:
 
 def ctc_align(logits, blank_id, frame_dur, text):
     """Return list of (char, start_sec, end_sec) from CTC logits + decoded text."""
-    pred_ids = logits.argmax(dim=-1)[0].tolist()
+    pred_ids = np.asarray(logits).argmax(axis=-1)[0].tolist()
     spans = []
     i = 0
     n = len(pred_ids)
@@ -65,7 +190,6 @@ def ctc_align(logits, blank_id, frame_dur, text):
 
 
 def get_words(spans, frame_dur, glyphs):
-    # Build final char sequence + per-char timing
     units = []
     for tok, s, e in spans:
         ch = glyphs.get(tok)
@@ -73,8 +197,7 @@ def get_words(spans, frame_dur, glyphs):
             continue
         units.append((ch, s * frame_dur, (e + 1) * frame_dur))
 
-    # Group chars into words using the vocab's space token (encoded as "|")
-    words = []  # (text, start, end)
+    words = []
     cur = ""
     cur_start = None
     for ch, s, e in units:
@@ -93,10 +216,6 @@ def get_words(spans, frame_dur, glyphs):
 
 
 def group_word_cues(words, max_chars=200):
-    # One caption entry per word (karaoke style), each with its own timing.
-    # Clamp each word's duration so trailing silence doesn't stretch a single
-    # word across the whole remainder of the clip. Also truncate any single
-    # word longer than max_chars so a very long word can't blow out a caption.
     max_chars = int(max_chars)
     cues = []
     MAX_DUR = 1.5
@@ -113,9 +232,6 @@ def group_word_cues(words, max_chars=200):
 
 
 def group_n_cues(words, n, max_chars=200):
-    # Group up to n words per caption entry, enforcing a hard max-chars cap:
-    # flush before adding a word that would exceed the length, and truncate a
-    # single over-long word so no caption ever exceeds max_chars.
     max_chars = int(max_chars)
     cues = []
     buf = []
@@ -133,7 +249,6 @@ def group_n_cues(words, n, max_chars=200):
         txt = w_text.strip()
         if not txt:
             continue
-        # A single word longer than the cap: truncate it to fit.
         if len(txt) > max_chars:
             txt = txt[:max_chars]
         if buf_chars > 0 and buf_chars + len(txt) > max_chars:
@@ -149,63 +264,6 @@ def group_n_cues(words, n, max_chars=200):
     return cues
 
 
-def transcribe_audio(model, processor, device, wav):
-    """Run transcription on a 16k mono float32 ndarray. Returns (text, spans, frame_dur)."""
-    inputs = processor(wav, sampling_rate=16000, return_tensors="pt")
-    key = "input_features" if "input_features" in inputs else "input_values"
-    feats = inputs[key].to(device)
-    try:
-        feats = feats.to(next(model.parameters()).dtype)
-    except StopIteration:
-        pass
-    with torch.no_grad():
-        logits = model(**{key: feats}).logits
-    blank_id = processor.tokenizer.pad_token_id
-    frame_dur = (len(wav) / 16000) / logits.shape[1]
-    spans, _ = ctc_align(logits, blank_id, frame_dur, None)
-    text = processor.batch_decode(logits.argmax(dim=-1))[0]
-    return text, spans, frame_dur
-
-
-def make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=42):
-    """Build cues for the given mode once the model output is available."""
-    if mode == "words":
-        words = get_words(spans, frame_dur, glyphs)
-        return group_word_cues(words, max_chars=max_chars)
-    if mode == "grouped" and group_size > 0:
-        return group_n_cues(get_words(spans, frame_dur, glyphs), group_size, max_chars=max_chars)
-    return group_cues(spans, frame_dur, None, glyphs, max_chars=max_chars)
-
-
-def load_pipeline():
-    """Load the processor + model once (expensive) so callers can reuse it."""
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
-    print(f"[info] device: {device}")
-    print("[info] loading model from", MODEL_DIR)
-    processor = AutoProcessor.from_pretrained(MODEL_DIR)
-    model = AutoModelForCTC.from_pretrained(MODEL_DIR)
-    if os.environ.get("AMH_USE_FP32") != "1":
-        model = model.half()
-    model = model.to(device)
-    model.eval()
-    return model, processor, device
-
-
-def read_wav(path):
-    """Read + resample any soundfile-supported file to 16k mono float32."""
-    wav, sr = sf.read(path, dtype="float32")
-    if wav.ndim > 1:
-        wav = wav.mean(axis=1)
-    if sr != 16000:
-        ratio = 16000 / sr
-        n = int(len(wav) * ratio)
-        wav = np.interp(np.linspace(0, len(wav) - 1, n), np.arange(len(wav)), wav).astype("float32")
-    return wav
-
-
-# Gender-neutral helper: split a sentence-grouped pass into readable cues.
-# MAX_CHARS caps how long a single caption gets so dense speech doesn't render
-# as one huge wall of text (see A2).
 def group_cues(spans, frame_dur, text_chars, glyphs, max_chars=42):
     words = get_words(spans, frame_dur, glyphs)
     MAX_CHARS = int(max_chars)
@@ -231,7 +289,6 @@ def group_cues(spans, frame_dur, text_chars, glyphs, max_chars=42):
         buf_end = w_e
         buf_words.append(w_text)
         buf_chars += len(w_text)
-        # break on sentence end OR when the cue is long enough to split
         if is_sentence_end(w_text) and buf_chars >= 12:
             flush()
         elif buf_chars >= MAX_CHARS:
@@ -240,8 +297,27 @@ def group_cues(spans, frame_dur, text_chars, glyphs, max_chars=42):
     return cues
 
 
+def make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=42):
+    if mode == "words":
+        return group_word_cues(get_words(spans, frame_dur, glyphs), max_chars=max_chars)
+    if mode == "grouped" and group_size > 0:
+        return group_n_cues(get_words(spans, frame_dur, glyphs), group_size, max_chars=max_chars)
+    return group_cues(spans, frame_dur, None, glyphs, max_chars=max_chars)
+
+
+def read_wav(path):
+    """Read + resample any soundfile-supported file to 16k mono float32."""
+    wav, sr = sf.read(path, dtype="float32")
+    if wav.ndim > 1:
+        wav = wav.mean(axis=1)
+    if sr != 16000:
+        ratio = 16000 / sr
+        n = int(len(wav) * ratio)
+        wav = np.interp(np.linspace(0, len(wav) - 1, n), np.arange(len(wav)), wav).astype("float32")
+    return wav
+
+
 def write_srt(out_path, cues, offset):
-    """Write cues as an SRT, applying the given time offset. Returns cue count."""
     idx = 0
     with open(out_path, "w", encoding="utf-8") as f:
         for text_cue, start, end in cues:
@@ -254,18 +330,26 @@ def write_srt(out_path, cues, offset):
     return idx
 
 
+def _glyphs_of(engine):
+    return engine.glyphs
+
+
+def _run_file(engine, wav, mode, group_size, max_chars, offset):
+    glyphs = engine.glyphs
+    text, spans, frame_dur = engine.transcribe(wav)
+    cues = make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=max_chars)
+    return text, cues
+
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: python ethio_srt.py <audio.wav|mp3|m4a> [out.srt] [--words] "
               "[--group NUM] [--batch requests.json out.srt]")
         sys.exit(1)
 
-    # Batch mode is invoked with --batch in argv[1]; handle it before the
-    # single-file parser (which starts scanning at argv[2]).
     if sys.argv[1] == "--batch":
         return run_batch()
 
-    # --- single-file mode ---
     audio_path = sys.argv[1]
     out_path = "captions.srt"
     mode = "grouped"
@@ -296,15 +380,11 @@ def main():
     if mode == "batch":
         return run_batch()
 
-    model, processor, device = load_pipeline()
-    glyphs = {}
-    for ch, tid in processor.tokenizer.get_vocab().items():
-        glyphs[tid] = ch
-
+    engine = load_pipeline()
+    print(f"[info] engine: {'CTranslate2 int8' if _use_ct2() else 'transformers/torch'}")
     print("[info] loading audio:", audio_path)
     wav = read_wav(audio_path)
-    text, spans, frame_dur = transcribe_audio(model, processor, device, wav)
-    cues = make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=max_chars)
+    text, cues = _run_file(engine, wav, mode, group_size, max_chars, offset)
 
     print("--- full transcription ---")
     print(text)
@@ -316,15 +396,6 @@ def main():
 
 
 def run_batch():
-    """--batch requests.json out.srt  (A1: one model load for many clips)
-
-    requests.json is a JSON list of { wav, offset }. A single Python process
-    loads the model exactly once, transcribes every clip, and writes one merged,
-    timeline-aligned SRT (offsets applied per clip). Progress markers are
-    printed on [batch] lines between blocks so the caller can show per-clip
-    progress and keep the huge per-run model-load tax near zero.
-    """
-    # requested file path comes AFTER --batch: scan argv left-to-right.
     req_path = None
     out_srt = None
     args = sys.argv[1:]
@@ -358,19 +429,15 @@ def run_batch():
         if m + 1 < len(args):
             max_chars = int(args[m + 1])
 
-    model, processor, device = load_pipeline()
-    glyphs = {}
-    for ch, tid in processor.tokenizer.get_vocab().items():
-        glyphs[tid] = ch
-
+    engine = load_pipeline()
+    glyphs = engine.glyphs
     total = len(requests)
     all_cues = []
     for n, req in enumerate(requests, start=1):
-        print(f"\n[batch] %% {n}/{total} {req.get('wav', '')}")
+        print(f"\n[batch] % {n}/{total} {req.get('wav', '')}")
         wav = read_wav(req["wav"])
-        text, spans, frame_dur = transcribe_audio(model, processor, device, wav)
+        text, spans, frame_dur = engine.transcribe(wav)
         cues = make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=max_chars)
-        # timeline offset for this clip
         off = float(req.get("offset") or 0.0)
         for c in cues:
             all_cues.append((c[0], c[1] + off, c[2] + off))

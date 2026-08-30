@@ -14,9 +14,10 @@ com.amharic.captions/          <- copy this whole folder into Adobe CEP extensio
   jsx/host.jsx  jsx/json2.jsx
   runtime/                     <- self-contained (built per platform)
     ethio_srt.py
+    amh_mel.py                 <- standalone numpy mel extractor (no torch)
     bin/ffmpeg[.exe]           <- STATIC build required
-    python/                    <- Python 3.11 + torch/transformers/soundfile/numpy
-    model/                     <- fp16 model (~1.1 GB) or fp32 ethio-asr (~2.3 GB)
+    python/                    <- relocatable Python 3.11 + ctranslate2/numpy/soundfile
+    model/                     <- CTranslate2 INT8 model (~582 MB) + mel/vocab assets
 ```
 
 `js/main.js` detects the platform (Windows/Mac) at load, resolves these paths
@@ -26,7 +27,7 @@ pill. If any piece is missing it reports `runtime incomplete` and names the gap.
 ## 1. Build the 3 target zips
 
 Ship three separate zips (the panel files are identical in each; only the
-`runtime/` content differs because **torch is platform- and arch-specific**):
+`runtime/` content differs because **ctranslate2 is platform- and arch-specific**):
 
 | Zip | Target | Runtime built on |
 |-----|--------|------------------|
@@ -37,37 +38,57 @@ Ship three separate zips (the panel files are identical in each; only the
 The pipeline is split into two steps so a single shared repo builds all three —
 you only need to run step 1 on each OS, and step 2 (the zip) on any machine.
 
+### Step 0 — build the CTranslate2 INT8 model once (any machine)
+
+```
+# downloads badrex/Ethio-ASR-amharic (fp32) and converts to CTranslate2 int8,
+# writing tools/stage/model-ct2-int8 (~582 MB) + numpy mel/vocab assets.
+tools/make_model_ct2_int8.sh
+```
+
+Requires a dev venv with `transformers` + `torch` + `ctranslate2` + `scipy`
+(the conversion only; none of these ship in the runtime).
+
 ### Step 1 — prepare the runtime (run ON each target OS/arch)
 
 ```
 # macOS (Apple Silicon or Intel)
 bash tools/prepare_python.sh
 
-# Windows (native)
-powershell -ExecutionPolicy Bypass -File tools\build_win.ps1
+# Windows (native build, assemble-only)
+bash tools/prepare_python.sh     # under Git-Bash/WSL: python + ffmpeg + ctranslate2
+powershell -ExecutionPolicy Bypass -File tools\build_win.ps1   # then assemble + zip
 ```
 
-This builds a fresh Python venv with the ML deps, prunes dead-weight packages
-(keeps `sympy`/`mpmath`/`networkx` — `torch.fx` needs them), and fetches a
-**static** ffmpeg, all into `tools/stage/<target>/`.
+`prepare_python.sh` downloads a **relocatable CPython**
+(python-build-standalone) for the target, pip-installs the tiny ML runtime
+(`ctranslate2` + `numpy` + `soundfile`, ~50 MB), prunes pip/setuptools, and
+fetches a **static** ffmpeg, all into `tools/stage/<target>/`.
+
+> **Why not a system `python3 -m venv`?** macOS's system/Xcode python is not
+> relocatable (`bin/python3` symlinks to `/Applications/Xcode.app`), so a venv
+> it creates breaks once the bundle is moved to another machine. The bundled
+> standalone interpreter uses relative loader paths and runs from any directory,
+> which is what makes the copy-anywhere extension work.
 
 ### Step 2 — assemble + zip (any machine, just needs the staged artifacts)
 
 ```
 bash tools/sync_panel.sh      # once: copy the live panel into panel/
-tools/make_model_fp16.sh      # once: build the half-size fp16 model (see below)
 bash tools/build.sh mac-arm64 # or mac-x64 / win-x64
 ```
 
-Output: `dist/amharic-captions-<target>.zip`.
+On Windows the assemble step is `tools\build_win.ps1` (native PowerShell). Both
+assemble + zip steps copy `tools/stage/<target>/python` + ffmpeg + the CT2 int8
+model into a fresh `runtime/` and zip to `dist/amharic-captions-<target>.zip`.
 
-> **Model.** The shipped weights are the **fp16** half-size model, built into
-> `tools/stage/model-fp16` (~1.1 GB) by `tools/make_model_fp16.sh` from the full
-> fp32 source (`~/Documents/amharic-captions/ethio-asr`, 2.3 GB). Shipping fp16
-> cuts the bundle roughly in half, and inference output is **byte-identical** to
-> fp32 (the runtime applies `.half()` either way). If `tools/stage/model-fp16`
-> is absent, `build.sh` falls back to bundling `ethio-asr/` (fp32) automatically.
-> The dev venv must contain `transformers` + `torch` for the conversion step.
+> **Model.** The shipped weights are **CTranslate2 INT8** (~582 MB, from
+> `tools/stage/model-ct2-int8`). This is what lets the runtime drop
+> torch/transformers entirely — the final zip is ~0.6 GB vs ~1.4 GB for the old
+> fp16/torch build. `build.sh` prefers the CT2 model but falls back to
+> `tools/stage/model-fp16` or `ethio-asr/` (torch dev path) if the CT2 model is
+> absent. `ethio_srt.py` auto-selects the engine by probing the model dir for
+> `model_meta.json` (CT2) vs `config.json`+safetensors (torch).
 
 ### Build on GitHub Actions (no need to own all 3 machines)
 
@@ -76,20 +97,18 @@ Output: `dist/amharic-captions-<target>.zip`.
 push to `main` or via **Actions → "build-zips" → "Run workflow"** (manual).
 
 ```
-job model-fp16   ubuntu  download badrex/Ethio-ASR-amharic -> convert to fp16 -> upload artifact
-job build        x3      download fp16 artifact -> prepare_runtime -> build.sh / build_win.ps1 -> upload zip
+job model-ct2    ubuntu  download badrex/Ethio-ASR-amharic -> convert to CT2 int8 -> upload artifact
+job build        x3      download CT2 int8 artifact -> prepare_python.sh -> build.sh / build_win.ps1 -> upload zip
 ```
 
 Notes:
-- The fp16 conversion happens **once** (on a cheap ubuntu runner with CPU
-  torch), then the three platform jobs reuse that artifact — no repeated 2.3 GB
-  conversions.
+- The CT2 int8 conversion happens **once** (on a cheap ubuntu runner with CPU
+  torch + ctranslate2), then the three platform jobs reuse that artifact — no
+  repeated 2.3 GB conversions.
 - The 2.3 GB source download is cached via `actions/cache` on `ethio-asr/`.
-- The Windows job runs `build_win.ps1` (native PowerShell, built-in
-  `Compress-Archive`) rather than Git-Bash, for reliable zipping.
 - The zips are uploaded as **artifacts** (Artifacts → download), available for
   30 days. Grab them from the Actions run page.
-- To rebuild the fp16 weights, bump `HF_MODEL` in the workflow.
+- To rebuild the CT2 int8 weights, bump `HF_MODEL` in the workflow.
 
 ## 2. Enable CEP extensions (PlayerDebugMode)
 
@@ -128,12 +147,13 @@ panel alone is not enough — ExtendScript and CEF cache at load).**
 
 | Zip | Status |
 |-----|--------|
-| `dist/amharic-captions-mac-arm64.zip` | ✅ **built & verified** (~1.3 GB, fp16 model — was 2.3 GB fp32) |
+| `dist/amharic-captions-mac-arm64.zip` | ✅ **built & verified** (~0.6 GB, CT2 int8 model; was ~1.4 GB fp16/torch) |
 | `dist/amharic-captions-mac-x64.zip` | ⏳ run `prepare_python.sh` on an Intel Mac, then `build.sh mac-x64` |
-| `dist/amharic-captions-win-x64.zip` | ⏳ run `build_win.ps1` on a Windows PC |
+| `dist/amharic-captions-win-x64.zip` | ⏳ run `prepare_python.sh` (Git-Bash) + `build_win.ps1` on a Windows PC |
 
-The **mac-arm64** bundle was verified end-to-end (static ffmpeg → python →
-fp16 model, all from inside `runtime/`, no dev paths) and produces output
-byte-identical to the fp32 reference. The scripts for the other two targets are
-ready — they just need to be executed on machines of that OS/arch. No panel code
-changes are required; `js/main.js` already handles all platforms.
+The **mac-arm64** bundle was verified end-to-end (static ffmpeg → relocatable
+python → ctranslate2 int8 model, all from inside `runtime/`, no dev paths) and
+produces output matching the fp32 reference. The scripts for the other two
+targets are ready — they just need to be executed on machines of that OS/arch,
+and the user re-verifies output on Windows. No panel code changes are required;
+`js/main.js` already handles all platforms and both engines.

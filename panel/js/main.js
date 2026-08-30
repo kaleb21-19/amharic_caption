@@ -30,9 +30,10 @@ const path = nodeRequire('path');
 //
 //   <extension>/runtime/
 //     bin/ffmpeg[.exe]
-//     python/                       <- python 3.11 + site-packages
+//     python/                       <- relocatable python 3.11 + site-packages
 //     ethio_srt.py
-//     model/                        <- ethio-asr (safetensors, vocab.json, ...)
+//     amh_mel.py                    <- standalone numpy mel extractor
+//     model/                        <- CTranslate2 int8 (model_meta.json) or ethio-asr
 //
 // mac/win only differ in the binary names and the python/ffmpeg executables;
 // the panel code is identical. In development (no bundled runtime) we fall

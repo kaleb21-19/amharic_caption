@@ -42,20 +42,24 @@ trap 'rm -rf "$BUILD_DIR"' EXIT
 
 echo "== building runtime for: $TARGET =="
 
-# ethio_srt.py
+# ethio_srt.py + standalone numpy mel extractor
 cp "$ROOT/ethio_srt.py" "$RT/ethio_srt.py"
-echo "  [ok] ethio_srt.py"
+cp "$ROOT/amh_mel.py" "$RT/amh_mel.py"
+echo "  [ok] ethio_srt.py + amh_mel.py"
 
-# model — prefer the fp16 half-size model (tools/make_model_fp16.sh); the
-# runtime applies .half() either way, but shipping fp16 ~halves the bundle.
-if [[ -d "$ROOT/tools/stage/model-fp16" && -f "$ROOT/tools/stage/model-fp16/config.json" ]]; then
+# model — prefer the CTranslate2 INT8 model (tools/make_model_ct2_int8.sh):
+# ~600MB, no torch/transformers at runtime. Dev fallback: fp16/fp32.
+if [[ -d "$ROOT/tools/stage/model-ct2-int8" && -f "$ROOT/tools/stage/model-ct2-int8/model_meta.json" ]]; then
+  MODEL_SRC="$ROOT/tools/stage/model-ct2-int8"
+  echo "  [model] CTranslate2 int8"
+elif [[ -d "$ROOT/tools/stage/model-fp16" && -f "$ROOT/tools/stage/model-fp16/config.json" ]]; then
   MODEL_SRC="$ROOT/tools/stage/model-fp16"
   echo "  [model] fp16 source"
 elif [[ -d "$ROOT/ethio-asr" && -f "$ROOT/ethio-asr/config.json" ]]; then
   MODEL_SRC="$ROOT/ethio-asr"
   echo "  [model] fp32 source"
 else
-  echo "  [FAIL] no model found (tools/stage/model-fp16 or ethio-asr)"; exit 1
+  echo "  [FAIL] no model found (tools/stage/model-ct2-int8, model-fp16, or ethio-asr)"; exit 1
 fi
 mkdir -p "$RT/model"
 cp -R "$MODEL_SRC/." "$RT/model/"
