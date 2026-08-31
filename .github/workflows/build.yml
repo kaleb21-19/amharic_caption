@@ -60,14 +60,12 @@ jobs:
   # ---- 2. build each platform's self-contained zip -------------------------
   # macOS jobs share bash (macOS runner default shell), so no `shell:` key is
   # needed and no `matrix` reference appears in a shell property (GitHub does
-  # not allow `matrix` in the `shell:` key).
-  build:
+  # not allow `matrix` in the `shell:` key). Each platform is its own job so
+  # the slow Intel-mac (macos-13) build does NOT block the Release for the
+  # other platforms.
+  build-ar:
     needs: model-ct2
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [mac-arm64, mac-x64]
-    runs-on: ${{ matrix.target == 'mac-arm64' && 'macos-14' || 'macos-13' }}
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
 
@@ -85,13 +83,44 @@ jobs:
         run: bash tools/prepare_python.sh
 
       - name: Assemble + zip
-        run: bash tools/build.sh ${{ matrix.target }}
+        run: bash tools/build.sh mac-arm64
 
       - name: Upload zip
         uses: actions/upload-artifact@v4
         with:
-          name: amharic-captions-${{ matrix.target }}
-          path: dist/amharic-captions-${{ matrix.target }}.zip
+          name: amharic-captions-mac-arm64
+          path: dist/amharic-captions-mac-arm64.zip
+          retention-days: 30
+          if-no-files-found: error
+
+  # Intel Mac — kept as its own non-blocking job; not part of the Release gate.
+  build-x64:
+    needs: model-ct2
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Download CT2 int8 model
+        uses: actions/download-artifact@v4
+        with:
+          name: model-ct2-int8
+          path: tools/stage/model-ct2-int8
+
+      - name: Prepare runtime (python + ffmpeg)
+        run: bash tools/prepare_python.sh
+
+      - name: Assemble + zip
+        run: bash tools/build.sh mac-x64
+
+      - name: Upload zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: amharic-captions-mac-x64
+          path: dist/amharic-captions-mac-x64.zip
           retention-days: 30
           if-no-files-found: error
 
@@ -129,13 +158,14 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-  # ---- 3. attach the three zips to a GitHub Release (one-click downloads) ----
-  # Runs after all zips build; creates/updates a Release and uploads each zip
-  # as a downloadable asset (no need to dig through Actions artifacts).
+  # ---- 3. attach zips to a GitHub Release (one-click downloads) -------------
+  # Runs after win-x64 + mac-arm64 finish (the platforms we ship now). The
+  # Intel-mac (mac-x64) job is NOT part of this gate — it builds in the
+  # background so it never blocks buyers' downloads.
   release:
-    needs: [build, build-win]
+    needs: [build-ar, build-win]
     runs-on: ubuntu-latest
-    if: ${{ always() && needs.build.result == 'success' && needs.build-win.result == 'success' }}
+    if: ${{ always() && needs.build-ar.result == 'success' && needs.build-win.result == 'success' }}
     permissions:
       contents: write
     steps:
