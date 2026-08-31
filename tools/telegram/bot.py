@@ -264,19 +264,29 @@ def admin_keyboard(action, payload):
 #: each menu handler returns a (text, keyboard) tuple.
 #: sub-menus always carry a "◀ ዋና ማውጫ" (back) button so the user never gets stuck.
 
+def base_nav():
+    """Navigation row for sub-pages: back to the menu."""
+    return [
+        [{"text": "1️⃣ Install", "callback_data": "menu:install"}],
+        [{"text": "2️⃣ Pay", "callback_data": "menu:pay"}],
+        [{"text": "3️⃣ Machine ID", "callback_data": "menu:guide"}],
+        [{"text": "4️⃣ Help", "callback_data": "menu:help"}],
+        [{"text": "◀ Menu", "callback_data": "menu:home"}],
+    ]
+
+
 def home_keyboard(extra=None):
     kb = [
-        [{"text": "🛒 መግዛት / How to Buy", "callback_data": "menu:buy"}],
-        [{"text": "📍 Machine ID የት ነው?", "callback_data": "menu:guide"}],
-        [{"text": "📸 ስክሪን ሾት እንዴት እንደሚላኩ", "callback_data": "menu:screenshot_help"}],
-        [{"text": "❓ ጥያቄዎች (FAQ)", "callback_data": "menu:faq"}],
-        [{"text": "👤 ድጋፍ ያነጋግሩ", "callback_data": "menu:support"}],
+        [{"text": "1️⃣ Install", "callback_data": "menu:install"}],
+        [{"text": "2️⃣ Pay", "callback_data": "menu:pay"}],
+        [{"text": "3️⃣ Machine ID", "callback_data": "menu:guide"}],
+        [{"text": "4️⃣ Help", "callback_data": "menu:help"}],
     ]
     return kb if extra is None else kb + extra
 
 
 def back_row():
-    return [[{"text": "◀ ዋና ማውጫ", "callback_data": "menu:home"}]]
+    return [[{"text": "◀ Menu", "callback_data": "menu:home"}]]
 
 
 def menu_how():
@@ -325,14 +335,16 @@ def hero(first=""):
         f"2️⃣ <b>Pay</b> — {PRICE} (Telebirr {TELEBIRR})\n"
         "3️⃣ <b>Machine ID</b>\n"
         "4️⃣ <b>Help</b>\n\n"
-        "👇 Choose (Only Pay has steps):"
+        "👇 Tap one:"
     )
 
 
 def hero_keyboard():
     return [
+        [{"text": "1️⃣ Install", "callback_data": "menu:install"}],
         [{"text": "2️⃣ Pay", "callback_data": "menu:pay"}],
-        [{"text": "🏠 Start", "callback_data": "menu:home"}],
+        [{"text": "3️⃣ Machine ID", "callback_data": "menu:guide"}],
+        [{"text": "4️⃣ Help", "callback_data": "menu:help"}],
     ]
 
 
@@ -350,45 +362,37 @@ def menu_pay():
         "3️⃣ Send screenshot + your <b>Machine ID</b> here\n"
         "4️⃣ We verify → send your <b>license key</b> here ✅"
     )
-    kb = [
-        [{"text": "3️⃣ Machine ID", "callback_data": "menu:guide"}],
-        [{"text": "1️⃣ Install", "callback_data": "menu:install"}],
-        [{"text": "🏠 Start", "callback_data": "menu:home"}],
-    ]
-    return text, kb
+    return text, base_nav()
 
 
 def menu_help():
     text = (
-        "4️⃣ <b>HELP — እገዛ</b>\n\n"
-        "👇 Choose a topic:"
+        "4️⃣ <b>Help</b>\n\n"
+        "❓ Questions?\n"
+        "👤 Support: DM the seller — @AmharicCaptionsBot\n\n"
+        "• 2 free captions to try\n"
+        "• One-time ETB 1,500, forever license\n"
+        "• Needs Premiere Pro 2024+"
     )
-    kb = [
-        [{"text": "❓ Common questions (FAQ)", "callback_data": "menu:faq"}],
-        [{"text": "📸 ስክሪን ሾት እንዴት?", "callback_data": "menu:screenshot_help"}],
-        [{"text": "🛠 Install help", "callback_data": "menu:install"}],
-        [{"text": "👤 Talk to support", "callback_data": "menu:support"}],
-        [{"text": "🏠 ዋና ማውጫ", "callback_data": "menu:home"}],
-    ]
-    return text, kb
+    return text, base_nav()
 
 
 def menu_install():
     text = (
-        "🛠 <b>እንዴት ይጫናሉ?</b>\n\n"
-        "⚠️ Premiere Pro <b>2024 (v24)</b> ወይም ከዚያ <b>አዲስ</b> ያስፈልጋል። "
-        "(የቆዩ እትሞች አይደገፉም)\n\n"
-        "<b>①</b> ፋይሉን ከዚህ ያውርዱ:\n"
+        "🛠 <b>Install</b>\n\n"
+        "⚠️ Needs Premiere Pro <b>2024 (v24)</b> or newer.\n\n"
+        "<b>1.</b> Download:\n"
         "   github.com/kaleb21-19/amharic_caption/releases/latest\n"
         "   (Windows → amharic-captions-win-x64.zip)\n\n"
-        "<b>②</b> ፋይሉን ያውጡ (extract)። ፎልደሩን እዚህ ያስቀምጡ:\n"
+        "<b>2.</b> Extract.\n\n"
+        "<b>3.</b> Copy the folder to:\n"
         "   <code>C:\\Program Files (x86)\\Common Files\\Adobe\\CEP\\extensions\\</code>\n"
-        "   (ስሙ com.amharic.captions መሆን አለበት)\n\n"
-        "<b>③</b> Premiere Pro ይክፈቱ → Windows > Extensions > \"Amharic Captions\"\n\n"
-        "<b>④</b> License ለማግኘት በፓነሉ ውስጥ ያለውን Machine ID ይቅዱ\n\n"
-        "✅ ከተጫነ በኋላ <b>2 ነጻ</b> የመጠቀም እድል ይኖርዎታል!"
+        "   (must be named <code>com.amharic.captions</code>)\n\n"
+        "<b>4.</b> Open Premiere → Windows > Extensions > \"Amharic Captions\"\n\n"
+        "✅ Then you get <b>2 free</b> captions to try!"
     )
-    return text, home_keyboard(back_row())
+    return text, base_nav()
+
 
 
 def menu_faq():
@@ -432,18 +436,15 @@ def menu_key_welcome(uid):
 def menu_guide():
     """Explain where the Machine ID lives + send the annotated screenshot."""
     text = (
-        "📍 <b>Machine ID የት ይገኛል?</b>\n\n"
-        "Machine ID የእርስዎ ኮምፒውተር ልዩ ቁጥር ነው — <b>8 ቁምፊ</b> "
-        "(ለምሳሌ <code>a1b2c3d4</code>)።\n\n"
-        "ለማግኘት:\n"
-        "<b>①</b> ሶፍትዌሩን ጭነዋል እንደሆነ ያረጋግጡ (ካልጫኑ \"🛠 እንዴት እንደሚጫኑ\")\n"
-        "<b>②</b> Premiere Pro ይክፈቱ → <b>Windows > Extensions > \"Amharic Captions\"</b>\n"
-        "<b>③</b> ፓነሉ ከተከፈተ → ወደ <b>License</b> ክፍል ይሂዱ\n"
-        "<b>④</b> \"Your Machine ID\" የሚለውን 8 ቁምፊ ይቅዱ\n\n"
-        "በታች ያለውን ሥዕል ይመልከቱ (በየት እንደሆነ ያሳያል) 👇"
+        "3️⃣ <b>Machine ID</b>\n\n"
+        "Your unique computer number — <b>8 characters</b> (e.g. <code>a1b2c3d4</code>).\n\n"
+        "<b>Where to find it:</b>\n"
+        "1. Open Premiere → Windows > Extensions > \"Amharic Captions\"\n"
+        "2. In the panel, open the <b>License</b> section\n"
+        "3. Copy the \"Your Machine ID\" box\n\n"
+        "⚙️ You need it when paying (step 2)."
     )
-    kb = home_keyboard(back_row())
-    return text, kb
+    return text, base_nav()
 
 
 def menu_screenshot_help():
