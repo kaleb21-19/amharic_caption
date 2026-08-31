@@ -609,7 +609,12 @@ async function runSelectedClip() {
 
   if (c.duration <= 0) { log('ERROR: Selected clip has zero duration.'); return; }
 
-  const outSrt = OUT_DIR + '/' + (c.name.replace(/\.[^.]+$/, '') || 'captions') + '.srt';
+  // Clean base name WITHOUT any media extension ("mehari", not "mehari.mp3").
+  // Embedding ".mp3" in the temp SRT filename confuses Premiere's media-type
+  // detection so it stops importing the file as a caption track.
+  const cleanName = (c.name.replace(/\.[^.]+$/, '') || 'captions');
+
+  const outSrt = OUT_DIR + '/' + cleanName + '.srt';
   try { fs.mkdirSync(OUT_DIR, { recursive: true }); } catch (e) {}
   log('Extracting ' + c.duration.toFixed(2) + 's of audio and transcribing (Ethio-ASR)…');
   setProgress(0.4, 'Transcribing…');
@@ -630,11 +635,10 @@ async function runSelectedClip() {
   // Import via a UNIQUELY named copy so Premiere is forced to create a fresh
   // caption item on every run instead of reusing a stale/cached one (which was
   // why the timeline kept showing the previous transcription). The canonical
-  // output/mehari.srt is still saved for the user's reference.
-  const importSrt = OUT_DIR + '/_import_' + Date.now() + '_' +
-    (c.name.replace(/\.[^.]+$/, '') || 'captions') + '.srt';
+  // output/<cleanName>.srt is still saved for the user's reference.
+  const importSrt = OUT_DIR + '/_import_' + Date.now() + '_' + cleanName + '.srt';
   try { fs.copyFileSync(outSrt, importSrt); } catch (e) {}
-  await finishImport(importSrt, c.name, 0);
+  await finishImport(importSrt, cleanName, 0);
   try { fs.unlinkSync(importSrt); } catch (e) {}
 }
 
@@ -719,15 +723,16 @@ async function runFile(filePath, fileName) {
   try {
     const base = filePath.replace(/\.[^.]+$/, '');
     const outSrt = base + '.srt';
+    const cleanName = (fileName || path.basename(base) || 'captions').replace(/\.[^.]+$/, '');
     log('Transcribing (local Ethio-ASR)… this can take a while.');
     setProgress(0.4, 'Transcribing…');
     const r = await transcribe(filePath, outSrt);
     setProgress(0.9, 'Transcription complete');
     log('Transcription complete. ' + (fs.statSync(outSrt).size) + ' bytes -> ' + outSrt);
     showTranscript(r.transcript);
-    const importSrt = path.join(os.tmpdir(), '_amh_import_' + Date.now() + '_' + path.basename(outSrt));
+    const importSrt = path.join(os.tmpdir(), '_amh_import_' + Date.now() + '_' + cleanName + '.srt');
     try { fs.copyFileSync(outSrt, importSrt); } catch (e) {}
-    await finishImport(importSrt, fileName);
+    await finishImport(importSrt, cleanName);
     try { fs.unlinkSync(importSrt); } catch (e) {}
   } catch (e) {
     if (!cancelRequested) log('ERROR: ' + (e && e.message ? e.message : e));
