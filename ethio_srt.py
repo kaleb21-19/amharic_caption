@@ -308,10 +308,39 @@ def group_cues(spans, frame_dur, text_chars, glyphs, max_chars=42):
 
 def make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=42):
     if mode == "words":
-        return group_word_cues(get_words(spans, frame_dur, glyphs), max_chars=max_chars)
-    if mode == "grouped" and group_size > 0:
-        return group_n_cues(get_words(spans, frame_dur, glyphs), group_size, max_chars=max_chars)
-    return group_cues(spans, frame_dur, None, glyphs, max_chars=max_chars)
+        cues = group_word_cues(get_words(spans, frame_dur, glyphs), max_chars=max_chars)
+    elif mode == "grouped" and group_size > 0:
+        cues = group_n_cues(get_words(spans, frame_dur, glyphs), group_size, max_chars=max_chars)
+    else:
+        cues = group_cues(spans, frame_dur, None, glyphs, max_chars=max_chars)
+    return enforce_min_duration(cues)
+
+
+def enforce_min_duration(cues, min_dur=1.0, max_dur=5.0, tail_room=0.15):
+    """Guarantee every caption stays on screen at least min_dur (readable)
+    but never more than max_dur (so a last word with a long trailing CTC
+    span doesn't hang on screen). The END of a too-short cue is extended to
+    min_dur; a too-long cue is trimmed to max_dur. A small gap (tail_room)
+    before the next cue prevents overlap. Returns a new (text, start, end)
+    list.
+    """
+    min_dur = float(min_dur)
+    max_dur = float(max_dur)
+    tail_room = float(tail_room)
+    n = len(cues)
+    out = []
+    for idx, (txt, s, e) in enumerate(cues):
+        if max_dur > 0 and e - s > max_dur:
+            e = s + max_dur
+        if e - s < min_dur:
+            e = s + min_dur
+        if idx + 1 < n:
+            nxt_s = cues[idx + 1][1]
+            limit = nxt_s - tail_room
+            if e > limit and limit > s:
+                e = limit
+        out.append((txt, s, e))
+    return out
 
 
 def read_wav(path):

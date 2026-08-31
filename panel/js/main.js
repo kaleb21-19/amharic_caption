@@ -338,7 +338,7 @@ function saveSettings(over) {
 }
 
 let SOURCE = 'clip';
-let CAP = 'words';
+let CAP = 'grouped';
 let GROUP_SIZE = 3;
 let MAX_CHARS = 42;
 let cancelRequested = false;
