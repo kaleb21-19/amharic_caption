@@ -598,7 +598,7 @@ async function runSelectedClip() {
   if (!c.ok || !c.sourcePath) throw new Error(c.error || 'No selected clip.');
   log('Clip: ' + c.name);
   log('Source: ' + c.sourcePath);
-  log('Range: in=' + c.sourceIn.toFixed(2) + 's  dur=' + c.duration.toFixed(2) +
+  log('Selected range -> source in=' + c.sourceIn.toFixed(2) + 's  duration=' + c.duration.toFixed(2) +
       's  timeline@' + c.timelineStart.toFixed(2) + 's');
 
   if (c.duration <= 0) { log('ERROR: Selected clip has zero duration.'); return; }
