@@ -320,59 +320,40 @@ MENU_KEYBOARD = home_keyboard()
 def hero(first=""):
     name = f"{first}, " if first else ""
     return (
-        f"{name}ሰላም! 👋 ወደ <b>አማርኛ ካፕሽን</b> እንኳን በደህና መጡ!\n\n"
-        "ቪዲዮዎን በPremiere Pro ላይ <b>በአማርኛ ንዑስ ርዕስ</b> በራስ-ሰር ያስቀምጡ። "
-        "ሙሉ በሙሉ በኮምፒውተርዎ ላይ ይሰራል (offline)።\n\n"
-        f"💰 <b>{PRICE}</b> (አንድ ጊዜ) · 🎁 2 ነጻ trial\n\n"
-        "👉 <b>“🛒 መግዛት / How to Buy”</b> ይንኩ — 1. Install, 2. Try, "
-        "3. Pay, 4. Get key በቀላሉ እንመራዎታለን።"
+        f"{name}Welcome to <b>Amharic Captions</b> 👋\n\n"
+        "1️⃣ <b>Install</b>\n"
+        f"2️⃣ <b>Pay</b> — {PRICE} (Telebirr {TELEBIRR})\n"
+        "3️⃣ <b>Machine ID</b>\n"
+        "4️⃣ <b>Help</b>\n\n"
+        "👇 Choose (Only Pay has steps):"
     )
 
 
 def hero_keyboard():
-    return [[
-        {"text": "🛒 መግዛት / How to Buy", "callback_data": "menu:buy"},
-    ], [
-        {"text": "📍 Machine ID የት ነው?", "callback_data": "menu:guide"},
-    ], [
-        {"text": "❓ ጥያቄዎች", "callback_data": "menu:faq"},
-        {"text": "👤 ድጋፍ", "callback_data": "menu:support"},
-    ]]
+    return [
+        [{"text": "2️⃣ Pay", "callback_data": "menu:pay"}],
+        [{"text": "🏠 Start", "callback_data": "menu:home"}],
+    ]
 
 
 def menu_buy():
-    text = (
-        "💳 <b>HOW TO BUY — እንዴት ይገዛሉ</b>\n\n"
-        "1️⃣ <b>Install</b>\n"
-        "2️⃣ <b>Pay</b> — ETB 1,500 (Telebirr 0907 628 809)\n"
-        "3️⃣ <b>Machine ID</b>\n"
-        "4️⃣ <b>Help</b>\n\n"
-        "👇 Only <b>Pay</b> has steps. Tap to start:"
-    )
-    kb = [
-        [{"text": "2️⃣ Pay — ይክፈሉ", "callback_data": "menu:pay"}],
-        [{"text": "🏠 ዋና ማውጫ", "callback_data": "menu:home"}],
-    ]
-    return text, kb
+    return hero(), hero_keyboard()
 
 
 def menu_pay():
     text = (
-        "💰 <b>PAY — ይክፈሉ</b>\n\n"
-        f"Amount: <b>{PRICE}</b> (one-time, forever license)\n"
+        "💰 <b>Pay — Steps</b>\n\n"
+        f"Amount: <b>{PRICE}</b>\n"
         f"Telebirr: <b>{TELEBIRR}</b>\n\n"
-        "Steps:\n"
         "1️⃣ Send <b>ETB 1,500</b> via Telebirr to <b>0907 628 809</b>\n"
-        "2️⃣ Take a <b>screenshot</b> of the payment\n"
-        "3️⃣ Send the screenshot + your <b>Machine ID</b> here\n"
-        "4️⃣ We verify, then send your <b>license key</b> here ✅\n\n"
-        "📍 Don't have a Machine ID yet? Install first, then tap below."
+        "2️⃣ Screenshot the payment\n"
+        "3️⃣ Send screenshot + your <b>Machine ID</b> here\n"
+        "4️⃣ We verify → send your <b>license key</b> here ✅"
     )
     kb = [
-        [{"text": "📍 Machine ID የት ነው?", "callback_data": "menu:guide"}],
-        [{"text": "📸 ስክሪን ሾት እንዴት?", "callback_data": "menu:screenshot_help"}],
+        [{"text": "3️⃣ Machine ID", "callback_data": "menu:guide"}],
         [{"text": "1️⃣ Install", "callback_data": "menu:install"}],
-        [{"text": "🏠 ዋና ማውጫ", "callback_data": "menu:home"}],
+        [{"text": "🏠 Start", "callback_data": "menu:home"}],
     ]
     return text, kb
 
