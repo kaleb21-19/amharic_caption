@@ -553,7 +553,10 @@ async function finishImport(outSrt, label) {
   if (imp.ok) {
     log('Imported: ' + imp.captionItemName + ' (placement: ' + imp.placement + ')');
     if (!imp.placed && imp.note) log('Note: ' + imp.note);
-    log('Done. Style captions in Essential Graphics (font: Abyssinica SIL).');
+    log('Captions added to the CC (caption) track. If you can\'t see them:');
+    log('  expand the caption track at the bottom of the timeline, and');
+    log('  turn on the CC toggle in the Program Monitor.');
+    log('Style captions in Essential Graphics (font: Abyssinica SIL).');
   } else {
     log('Import warning: ' + (imp.error || 'unknown'));
   }
