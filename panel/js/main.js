@@ -882,7 +882,12 @@ function setup() {
     log('Expected it at:');
     log('  ' + path.join(EXT_DIR, 'runtime'));
     log('  or ' + DEV_RUNTIME);
-    log('Install the runtime folder next to the extension, then restart Premiere.');
+    log('');
+    log('This extension folder is: ' + EXT_DIR);
+    log('If this path is NOT the ...\\extensions\\com.amharic.captions folder,');
+    log('or if runtime/ is missing/nested inside another folder, re-extract the');
+    log('zip so that js/, runtime/, jsx/ and CSXS/ sit directly inside the');
+    log('com.amharic.captions folder. Then restart Premiere.');
   } else if (!fs.existsSync(PYTHON) || !fs.existsSync(FFMPEG) || !fs.existsSync(MODEL_DIR)) {
     setStatus('err', 'runtime incomplete');
     log('ERROR: runtime found at ' + RUNTIME + ' but is incomplete.');
