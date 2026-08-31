@@ -106,8 +106,6 @@ PENDING_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pending
 # Machine ID). Consumed the moment their Machine ID completes the order.
 DRAFT_PHOTOS = {}
 
-# in-memory: buyer uid -> current guided-wizard step (1..4). Reset on /start.
-WIZ_STEP = {}
 
 
 def save_pending():
@@ -268,7 +266,7 @@ def admin_keyboard(action, payload):
 
 def home_keyboard(extra=None):
     kb = [
-        [{"text": "⛳መግዛት ጀምር — እስከ 4 ደረጃ (Buy step by step)", "callback_data": "menu:buy"}],
+        [{"text": "🛒 መግዛት / How to Buy", "callback_data": "menu:buy"}],
         [{"text": "📍 Machine ID የት ነው?", "callback_data": "menu:guide"}],
         [{"text": "📸 ስክሪን ሾት እንዴት እንደሚላኩ", "callback_data": "menu:screenshot_help"}],
         [{"text": "❓ ጥያቄዎች (FAQ)", "callback_data": "menu:faq"}],
@@ -279,76 +277,6 @@ def home_keyboard(extra=None):
 
 def back_row():
     return [[{"text": "◀ ዋና ማውጫ", "callback_data": "menu:home"}]]
-
-
-# ── Guided buy wizard (one step at a time) ─────────────────────────────────
-# Shows ONE numbered step per message so "what comes first" is never in doubt.
-# The user advances by tapping a continue button; state is tracked in WIZ_STEP.
-WIZ_TOTAL = 4
-
-def _wiz_buttons(step, extra=None):
-    """Progress header + forward/back/home buttons for a wizard step."""
-    rows = []
-    if step < WIZ_TOTAL:
-        rows.append([{"text": "✅ ጨርሼአለሁ — ቀጣይ ደረጃ ➡️", "callback_data": f"wiz:next:{step}"}])
-    else:
-        rows.append([{"text": "✅ ብቻ ነበር — ተረድቻለሁ", "callback_data": "wiz:done"}])
-    if extra:
-        rows += extra
-    nav = []
-    if step > 1:
-        nav.append({"text": "⬅️ ተመለስ", "callback_data": f"wiz:prev:{step}"})
-    nav.append({"text": "🏠 ዋና ማውጫ", "callback_data": "menu:home"})
-    rows.append(nav)
-    return rows
-
-
-def wizard_step(step):
-    """Return (text, keyboard) for the given wizard step (1..4)."""
-    if step == 1:
-        text = (
-            f"{wiz_progress_bar(1)}\n\n"
-            "🟦 <b>ደረጃ 1/4 — ሶፍትዌሩን ጫኑ</b> (Install)\n\n"
-            "👉 በመጀመሪያ ሶፍትዌሩን ጫኑ።\n"
-            "Machine ID የሚታየው ሶፍትዌሩ <b>ከተጫነ</b> በኋላ ብቻ ነው።\n\n"
-            "ማውረድያ/መጫኛ እገዛ ከፈለጉ \"🛠 እንዴት እንደሚጫኑ\" ይንኩ።"
-        )
-        extra = [[{"text": "🛠 እንዴት እንደሚጫኑ", "callback_data": "menu:install"}]]
-        return text, _wiz_buttons(1, extra)
-    if step == 2:
-        text = (
-            f"{wiz_progress_bar(2)}\n\n"
-            "🟦 <b>ደረጃ 2/4 — ነጻ ይሞክሩ</b> (Try free)\n\n"
-            "👉 ከተጫነ በኋላ፣ ፓነሉን ከፍተው <b>2 ነጻ</b> ካፕሽን ይስሩ።\n"
-            "\"Generate Captions\" ይጫኑ።\n\n"
-            "እርካታ ካላስተኛዎት አይግዙም — ነጻ ይሞክራሉ!"
-        )
-        return text, _wiz_buttons(2)
-    if step == 3:
-        text = (
-            f"{wiz_progress_bar(3)}\n\n"
-            "🟦 <b>ደረጃ 3/4 — ይክፈሉ</b> (Pay)\n\n"
-            f"👉 <b>{PRICE}</b> በ<b>Telebirr</b> ወደ <b>{TELEBIRR}</b> ይላኩ።\n\n"
-            "➡️ የክፍያ ማረጋገጫ <b>ስክሪን ሾት</b> ያንሱ (screenshot)። "
-            "(ለሚቀጥለው ደረጃ ያስፈልጋል)"
-        )
-        return text, _wiz_buttons(3)
-    # step 4
-    text = (
-        f"{wiz_progress_bar(4)}\n\n"
-        "🟦 <b>ደረጃ 4/4 — ቁልፍ ያግኙ</b> (Get key)\n\n"
-        "👉 <b>2 ነገር</b> እዚህ ይላኩ፡-\n\n"
-        "<b>1.</b> <b>Machine ID</b> — ከፓነሉ License ክፍል ቅድው (8 ቁምፊ)\n"
-        "<b>2.</b> የክፍያ <b>ስክሪን ሾት</b>\n\n"
-        "እንደደረሰን፣ ከተረጋገጠ በኋላ ቁልፍዎ <b>በዚህ ቦት</b> ይደርስዎታል ✅"
-    )
-    extra = [[{"text": "📍 Machine ID የት ነው?", "callback_data": "menu:guide"}]]
-    return text, _wiz_buttons(4, extra)
-
-
-def wiz_progress_bar(step):
-    dots = "".join("🔵" if i <= step else "⚪" for i in range(1, WIZ_TOTAL + 1))
-    return f"ግስግሻ: {dots}"
 
 
 def menu_how():
@@ -396,13 +324,14 @@ def hero(first=""):
         "ቪዲዮዎን በPremiere Pro ላይ <b>በአማርኛ ንዑስ ርዕስ</b> በራስ-ሰር ያስቀምጡ። "
         "ሙሉ በሙሉ በኮምፒውተርዎ ላይ ይሰራል (offline)።\n\n"
         f"💰 <b>{PRICE}</b> (አንድ ጊዜ) · 🎁 2 ነጻ trial\n\n"
-        "👉 <b>“⛳ መግዛት ጀምር”</b> ብቻ ይንኩ — በ4 ቀላል ደረጃ እንመራዎታለን።"
+        "👉 <b>“🛒 መግዛት / How to Buy”</b> ይንኩ — 1. Install, 2. Try, "
+        "3. Pay, 4. Get key በቀላሉ እንመራዎታለን።"
     )
 
 
 def hero_keyboard():
     return [[
-        {"text": "⛳ መግዛት ጀምር (4 ደረጃ)", "callback_data": "menu:buy"},
+        {"text": "🛒 መግዛት / How to Buy", "callback_data": "menu:buy"},
     ], [
         {"text": "📍 Machine ID የት ነው?", "callback_data": "menu:guide"},
     ], [
@@ -413,25 +342,24 @@ def hero_keyboard():
 
 def menu_buy():
     text = (
-        "💳 <b>እንዴት ይገዛሉ?</b>\n\n"
-        "📌 <b>በመጀመሪያ ሶፍትዌሩን መጫን አለብዎት!</b>\n"
-        "Machine ID የሚታየው ሶፍትዌሩ ከተጫነ <b>በኋላ</b> ብቻ ነው። "
-        "ካልጫኑት እስካሁን ድረስ Machine ID የለዎትም። "
-        "መጀመሪያ \"🛠 እንዴት እንደሚጫኑ\" ይንኩ።\n\n"
-        "ሶፍትዌሩ ከተጫነ በኋላ፡-\n"
-        "<b>①</b> የሶፍትዌሩን ፓነል ይክፈቱ → በ \"License\" ክፍል ውስጥ ያለውን "
-        "<b>Machine ID</b> ይቅዱ (8 ቁምፊ)\n"
-        f"<b>②</b> <b>{PRICE}</b> በTelebirr ወደ <b>{TELEBIRR}</b> ይላኩ\n"
-        "<b>③</b> የክፍያ ማረጋገጫ (screenshot) ከ Machine ID ጋር ይላኩ\n"
-        "<b>④</b> ሊሰንስ ቁልፍ እንልክልዎታለን → በፓነሉ License ውስጥ "
-        "ያስገቡ → <b>Activate</b> ይጫኑ\n\n"
-        "🎁 ከመግዛትዎ በፊት <b>2 ነጻ</b> ካፕሽን የመስራት እድል አለዎት።\n\n"
-        "👉 \"📍 Machine ID የት ነው?\" የሚለውን ይንኩ ሥዕሉን ለማየት፣ "
-        "ወይም Machine ID ይላኩ"
+        "💳 <b>HOW TO BUY — እንዴት ይገዛሉ</b>\n\n"
+        "Just 4 simple steps, one at a time:\n\n"
+        "<b>1. Install</b> the extension ⇢ 📥\n"
+        "<b>2. Try</b> 2 free captions ⇢ 🎁\n"
+        f"<b>3. Pay</b> <b>{PRICE}</b> (Telebirr {TELEBIRR}) ⇢ 💰\n"
+        "<b>4. Get</b> your license key ⇢ 🔑\n\n"
+        "👇 Start with a step below. Use English or Amharic.\n"
+        "<i>Machine ID appears AFTER you install (Licence section).</i>"
     )
-    kb = home_keyboard(back_row())
-    # put the "where is my machine id" guide button right after the menu
-    kb = [[{"text": "📍 Machine ID የት ነው?", "callback_data": "menu:guide"}]] + kb
+    kb = [
+        [{"text": "1️⃣ Install — ሶፍትዌሩ ይጫኑ", "callback_data": "menu:install"}],
+        [{"text": "4️⃣ Get key — ቁልፍ ያግኙ", "callback_data": "menu:key"}],
+        [{"text": "📍 Machine ID የት ነው?", "callback_data": "menu:guide"}],
+        [{"text": "📸 ስክሪን ሾት እንዴት?", "callback_data": "menu:screenshot_help"}],
+        [{"text": "❓ FAQ", "callback_data": "menu:faq"},
+         {"text": "👤 ድጋፍ", "callback_data": "menu:support"}],
+        [{"text": "🏠 ዋና ማውጫ", "callback_data": "menu:home"}],
+    ]
     return text, kb
 
 
@@ -716,15 +644,13 @@ def handle_callback(cb):
         answer_cb(cb_id, "ok")
         kind = data.split(":", 1)[1]
         if kind == "home":
-            WIZ_STEP.pop(from_uid, None)
             edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"],
                       MENU, MENU_KEYBOARD)
         elif kind == "how":
             text, kb = menu_how()
             edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"], text, kb)
         elif kind == "buy":
-            WIZ_STEP[from_uid] = 1
-            text, kb = wizard_step(1)
+            text, kb = menu_buy()
             edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"], text, kb)
         elif kind == "install":
             text, kb = menu_install()
@@ -766,35 +692,6 @@ def handle_callback(cb):
             text, kb = menu_screenshot_help()
             chat = cb["message"]["chat"]["id"]
             edit_text(chat, cb["message"]["message_id"], text, kb)
-        return
-
-    # guided buy wizard navigation (any user)
-    if data.startswith("wiz:"):
-        action = data.split(":")[1]
-        cur = WIZ_STEP.get(from_uid, 1)
-        chat = cb["message"]["chat"]["id"]
-        answer_cb(cb_id, "ok")
-        if action == "next":
-            nxt = min(cur + 1, WIZ_TOTAL)
-            WIZ_STEP[from_uid] = nxt
-            text, kb = wizard_step(nxt)
-            edit_text(chat, cb["message"]["message_id"], text, kb)
-        elif action == "prev":
-            prv = max(1, cur - 1)
-            WIZ_STEP[from_uid] = prv
-            text, kb = wizard_step(prv)
-            edit_text(chat, cb["message"]["message_id"], text, kb)
-        else:  # done (finished all steps -> now send the Machine ID)
-            WIZ_STEP.pop(from_uid, None)
-            edit_text(chat, cb["message"]["message_id"],
-                      "✍️ <b>አሁን Machine IDዎን ይላኩ</b> — ከፓነሉ License ክፍል ያለውን 8 ቁምፊ።\n"
-                      "ከዚያ የክፍያ ስክሪን ሾትዎን ይላኩ ።",
-                      [[{"text": "📍 Machine ID የት ነው?", "callback_data": "menu:guide"}],
-                       [{"text": "◀ ዋና ማውጫ", "callback_data": "menu:home"}]])
-            # show the persistent "type your Machine ID here" hint keyboard
-            send_with_hint(chat,
-                           "✍️ ከታች ባለው ሳጥን ✍️ ውስጥ Machine ID ዎን ይቅዱ/ይጻፉ እና ይላኩ።",
-                           "Machine ID እዚህ ይጻፉ (ለምሳሌ a1b2c3d4)...")
         return
 
     # admin-only actions
@@ -987,8 +884,6 @@ def main():
 
                     if text.lower() in ("/start", "/start@amhariccaptionsbot", "/menu", "menu"):
                         if chat_type == "private":
-                            uid = str(msg.get("from", {}).get("id", ""))
-                            WIZ_STEP.pop(uid, None)
                             send_text(chat["id"], hero(first), hero_keyboard())
                         else:
                             send_text(chat["id"], WELCOME, MENU_KEYBOARD)
@@ -999,9 +894,7 @@ def main():
                         send_text(chat["id"], t, kb)
                         continue
                     if text.lower() in ("/buy", "/buy@amhariccaptionsbot"):
-                        uid = str(msg.get("from", {}).get("id", ""))
-                        WIZ_STEP[uid] = 1
-                        t, kb = wizard_step(1)
+                        t, kb = menu_buy()
                         send_text(chat["id"], t, kb)
                         continue
                     if text.lower() in ("/install", "/install@amhariccaptionsbot"):
