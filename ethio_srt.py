@@ -307,8 +307,7 @@ def group_n_cues(words, n, max_chars=200):
     return cues
 
 
-def group_cues(spans, frame_dur, text_chars, glyphs, max_chars=42):
-    words = get_words(spans, frame_dur, glyphs)
+def group_cues(words, frame_dur=None, text_chars=None, glyphs=None, max_chars=42):
     MAX_CHARS = int(max_chars)
 
     cues = []
@@ -341,12 +340,21 @@ def group_cues(spans, frame_dur, text_chars, glyphs, max_chars=42):
 
 
 def make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=42):
+    # Pull the raw word stream ONCE and run the conservative post-correction
+    # pass on it, so every caption mode (words/grouped/sentence) benefits and
+    # the corrected words match the same timing as the original.
+    raw_words = get_words(spans, frame_dur, glyphs)
+    try:
+        from amh_correct import correct_words
+        words = correct_words(raw_words)
+    except Exception:
+        words = raw_words
     if mode == "words":
-        cues = group_word_cues(get_words(spans, frame_dur, glyphs), max_chars=max_chars)
+        cues = group_word_cues(words, max_chars=max_chars)
     elif mode == "grouped" and group_size > 0:
-        cues = group_n_cues(get_words(spans, frame_dur, glyphs), group_size, max_chars=max_chars)
+        cues = group_n_cues(words, group_size, max_chars=max_chars)
     else:
-        cues = group_cues(spans, frame_dur, None, glyphs, max_chars=max_chars)
+        cues = group_cues(words, frame_dur, None, glyphs, max_chars=max_chars)
     return enforce_min_duration(cues)
 
 

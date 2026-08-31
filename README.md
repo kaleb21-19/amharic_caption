@@ -51,6 +51,7 @@ Or let CI do it: push to `main` and the GitHub Actions workflow builds all 3 zip
 - CEP panel (HTML/JS) for Adobe Premiere Pro
 - CTranslate2 int8 Amharic ASR model (local inference)
 - CTC prefix beam search decoder (better than greedy; `AMH_BEAM=0` reverts to greedy)
+- Conservative Amharic post-correction pass (fixes glued words + verified misrecognitions; extend via `AMH_CORRECT_EXTRA` JSON)
 - Pure-numpy Kaldi-style mel spectrogram
 - Relocatable python-build-standalone (no system Python needed)
 - ffmpeg for audio extraction

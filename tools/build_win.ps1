@@ -66,6 +66,7 @@ Copy-Item $ModelSrc (Join-Path $BNAME "runtime\model") -Recurse
 Copy-Item "$ROOT\ethio_srt.py" (Join-Path $BNAME "runtime\ethio_srt.py")
 Copy-Item "$ROOT\amh_mel.py" (Join-Path $BNAME "runtime\amh_mel.py")
 Copy-Item "$ROOT\ctc_beam.py" (Join-Path $BNAME "runtime\ctc_beam.py")
+Copy-Item "$ROOT\amh_correct.py" (Join-Path $BNAME "runtime\amh_correct.py")
 
 # ffmpeg + python
 Copy-Item $FF (Join-Path $BNAME "runtime\bin\ffmpeg.exe")
