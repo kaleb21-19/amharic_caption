@@ -306,7 +306,19 @@ const SCRIPT   = RUNTIME     ? runtimePath('ethio_srt.py')     : runtimePath('et
 const MODEL_DIR= (RUNTIME && RUNTIME !== DEV_RUNTIME)
                    ? runtimePath('model')                       // shipped layout
                    : runtimePath('ethio-asr');                  // dev layout
-const OUT_DIR  = RUNTIME     ? runtimePath('output')           : runtimePath('output');
+// Where generated .srt files are written. MUST be a user-writable location:
+// the shipped install on Windows lives under C:\Program Files (x86) which is
+// read-only for non-admin processes, so we cannot write output/ inside the
+// install folder there. Use %LOCALAPPDATA% on Windows; keep the runtime/output
+// location elsewhere.
+const OUT_DIR = IS_WIN
+  ? path.join(process.env['LOCALAPPDATA'] || os.homedir(), 'AmharicCaptions', 'output')
+  : (RUNTIME ? runtimePath('output') : runtimePath('output'));
+
+function ensureOutDir() {
+  try { fs.mkdirSync(OUT_DIR, { recursive: true }); } catch (e) {}
+  return OUT_DIR;
+}
 
 // Where the runtime folder actually is (for the status pill / diagnostics).
 const RUNTIME_LABEL = RUNTIME ? RUNTIME : '(not found)';
@@ -677,8 +689,7 @@ async function runSelectedClip() {
   // detection so it stops importing the file as a caption track.
   const cleanName = (c.name.replace(/\.[^.]+$/, '') || 'captions');
 
-  const outSrt = OUT_DIR + '/' + cleanName + '.srt';
-  try { fs.mkdirSync(OUT_DIR, { recursive: true }); } catch (e) {}
+  const outSrt = ensureOutDir() + '/' + cleanName + '.srt';
   log('Extracting ' + c.duration.toFixed(2) + 's of audio and transcribing (Ethio-ASR)…');
   setProgress(0.4, 'Transcribing…');
   // Bake the clip's absolute timeline position into the SRT timestamps (so the
@@ -722,7 +733,7 @@ async function runWorkArea() {
   log('Found ' + clips.length + ' clip(s) to transcribe (' + rangeLabel + ').');
   log('Extracting audio per clip, then transcribing all in one pass (model loaded once).');
 
-  const outSrt = OUT_DIR + '/sequence_captions.srt';
+  const outSrt = ensureOutDir() + '/sequence_captions.srt';
   const stamp = Date.now();
 
   const items = [];
