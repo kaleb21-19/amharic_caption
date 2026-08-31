@@ -198,12 +198,17 @@
     </div>
 
     <div class="section-title">License</div>
-    <div class="field">
-      <label class="field-label">Your Machine ID (send this with payment)</label>
-      <div class="mono" id="machineIdDisplay" style="cursor:pointer;user-select:all;" title="Click to select all">loading…</div>
+    <div class="field" style="border:1px solid var(--warn);border-radius:var(--radius);padding:8px;background:var(--bg-elev);">
+      <label class="field-label" style="color:var(--warn);font-weight:600;">👇 ይህን ይቅዱና ወደ ቦቱ ይላኩ — Your Machine ID (send this with payment)</label>
+      <div class="row" style="align-items:stretch;">
+        <div class="mono" id="machineIdDisplay" style="flex:1;margin-bottom:0;min-height:34px;display:flex;align-items:center;cursor:pointer;user-select:all;border-color:var(--warn);font-size:15px;font-weight:600;" title="Click to select all">loading…</div>
+        <button type="button" id="machineIdCopy" class="btn btn-neutral" style="flex:0 0 auto;min-width:64px;" title="Copy Machine ID">📋 Copy</button>
+      </div>
       <div style="font-size:10px;color:var(--text-secondary);line-height:1.4;margin-top:4px;">
-        Pay <b>ETB 1,500</b> via Telebirr to <b>0907 628 809</b>, then send this
-        Machine ID + your payment screenshot to receive your license key.
+        <b>1)</b> Tap <b>📋 Copy</b> above → open the Telegram bot →
+        <b>paste</b> it.<br>
+        <b>2)</b> Pay <b>ETB 1,500</b> via Telebirr to <b>0907 628 809</b>.<br>
+        <b>3)</b> Send this Machine ID <b>+ your payment screenshot</b> in the bot → you'll get your key <b>there (in the bot)</b>.
       </div>
     </div>
     <div class="field">

@@ -661,12 +661,34 @@ def handle_callback(cb):
         uname = p.get("username", "buyer")
         ctype = p.get("chat_type", "private")
         save_to_ledger(mid, f"@{uname}", exp, key, "sold")
-        # deliver to buyer
-        send_text(buyer_chat, key_delivery_message(key, exp, ctype))
+
+        # Deliver the key to the buyer's PRIVATE DM (this bot) when possible.
+        # If the buyer bought from a group and hasn't started a private chat
+        # with the bot, fall back to the chat they used and mark it private.
+        delivered_dm = False
+        try:
+            r = send_text(uid, key_delivery_message(key, exp, "private"))
+            if r and r.get("ok"):
+                delivered_dm = True
+        except Exception as e:
+            print(f"[approve] DM to {uid} failed: {e}", file=sys.stderr)
+
+        if delivered_dm:
+            if ctype != "private":
+                # still acknowledge in the group they bought from (no key shown)
+                send_text(buyer_chat,
+                          "🔑 የመግዛት እና የመክፈያ ሂደት ተጠናቋል ✅\n"
+                          "@" + uname + " ቁልፍዎ በ<b>ግለ ቻት (DM)</b> ወደ እርስዎ ጋር "
+                          "ወደዚህ ቦት ተልኳል። እዚያ ይፈልጉት።")
+        else:
+            # fall back to the chat they used (group) with privacy note
+            send_text(buyer_chat, key_delivery_message(key, exp, ctype if ctype != "private" else "private"))
+
         # confirm to admin
         edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"],
                   f"✅ ሊሰንስ ቁልፍ ተልኳል እና ተመዝግቧል።\n"
-                  f"ተጠቃሚ: @{uname}\nMachine ID: <code>{mid}</code>")
+                  f"ተጠቃሚ: @{uname}\nMachine ID: <code>{mid}</code>\n"
+                  f"ቦት (DM): {'✅' if delivered_dm else '⚠️ ወደ ቡድን ተልኳል'}")
         answer_cb(cb_id, "ቁልፍ ተልኳል")
         PENDING.pop(uid, None)
         save_pending()

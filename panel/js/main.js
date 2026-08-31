@@ -184,6 +184,29 @@ async function activateLicense() {
 (function initLicense() {
   const licBtn = document.getElementById('licenseActivate');
   if (licBtn) licBtn.addEventListener('click', activateLicense);
+  const copyBtn = document.getElementById('machineIdCopy');
+  const midEl = document.getElementById('machineIdDisplay');
+  if (copyBtn && midEl) {
+    copyBtn.addEventListener('click', (e) => {
+      try {
+        const mid = midEl.textContent.trim();
+        if (mid && mid !== 'loading…') {
+          const ta = document.createElement('textarea');
+          ta.value = mid;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+          const old = copyBtn.textContent;
+          copyBtn.textContent = '✓ Copied';
+          setTimeout(() => { copyBtn.textContent = old; }, 1600);
+        }
+      } catch (err) { /* ignore */ }
+      e.stopPropagation();
+    });
+  }
   updateLicenseUI();
 })();
 // ─────────────────────────────────────────────────────────────────────────────
