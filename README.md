@@ -18,6 +18,9 @@ Pay **ETB 1,500** via Telebirr to **0907 628 809**.
 4. Send payment via Telebirr to **0907 628 809**, then send your **Machine ID** + payment screenshot to get your license key
 5. Paste the key into the panel → **Activate** → done. One key per machine (hardware-locked).
 
+> **Free trial:** every new machine gets **2 free transcriptions** before a
+> license key is required, so buyers can try it on their own Premiere first.
+
 ## Developer tools
 
 ### Generate a license key

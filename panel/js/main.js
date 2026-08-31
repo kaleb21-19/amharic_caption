@@ -71,6 +71,34 @@ function validateLicense(key, machineId) {
 
 let LICENSED = false;
 
+// Free-trial credits: an unlicensed user may run this many transcriptions
+// before being asked to enter a license key. Count is stored per-machine.
+const TRIAL_ALLOWED = 2;
+function getTrialUsed() {
+  try { return parseInt(localStorage.getItem('amh.trial.used') || '0', 10) || 0; }
+  catch (e) { return 0; }
+}
+function setTrialUsed(n) {
+  try { localStorage.setItem('amh.trial.used', String(Math.max(0, n))); } catch (e) {}
+}
+function trialRemaining() {
+  return Math.max(0, TRIAL_ALLOWED - getTrialUsed());
+}
+// Called once when an unlicensed user successfully places a transcription.
+// Counts toward the free-trial limit; licensed users are unaffected.
+function consumeTrialCredit() {
+  if (LICENSED) return;
+  setTrialUsed(getTrialUsed() + 1);
+  const used = getTrialUsed();
+  const left = trialRemaining();
+  if (left > 0) {
+    log('Trial: ' + used + '/' + TRIAL_ALLOWED + ' used. ' + left + ' free transcription' +
+        (left === 1 ? '' : 's') + ' left.');
+  } else {
+    log('Trial used up (' + TRIAL_ALLOWED + '/' + TRIAL_ALLOWED + '). Enter a license key to continue.');
+  }
+}
+
 function updateLicenseUI() {
   const lic = getLicense();
   const midEl = document.getElementById('machineIdDisplay');
@@ -92,11 +120,21 @@ function updateLicenseUI() {
     if (licBtn) licBtn.style.display = 'none';
   } else {
     LICENSED = false;
-    if (licStatus) {
-      licStatus.textContent = 'Unlicensed — enter your license key below';
-      licStatus.style.color = 'var(--warn)';
+    const rem = trialRemaining();
+    if (rem > 0) {
+      // Free trial: allow running, but the Generate button is enabled.
+      if (licStatus) {
+        licStatus.textContent = 'Trial: ' + rem + ' free transcription' + (rem === 1 ? '' : 's') + ' left';
+        licStatus.style.color = 'var(--warn)';
+      }
+      if (runBtn) runBtn.disabled = false;
+    } else {
+      if (licStatus) {
+        licStatus.textContent = 'Trial used. Enter your license key to continue.';
+        licStatus.style.color = 'var(--warn)';
+      }
+      if (runBtn) runBtn.disabled = true;
     }
-    if (runBtn) runBtn.disabled = true;
   }
 }
 
@@ -553,6 +591,9 @@ async function finishImport(outSrt, label, startSeconds) {
   log('Importing onto caption track (requested start ' + (startSeconds || 0).toFixed(2) + 's)…');
   const imp = await importCaptions(outSrt, startSeconds || 0, label);
   if (imp.ok) {
+    // A transcript was produced and placed: for an unlicensed trial user this
+    // counts as one free use.
+    consumeTrialCredit();
     log('Imported: ' + imp.captionItemName + ' (placement: ' + imp.placement + ')');
     if (imp.requestedStart !== undefined && imp.landedStart !== undefined &&
         imp.landedStart !== null) {
@@ -582,8 +623,9 @@ async function run() {
   clearLog();
   cancelRequested = false;
   setProgress(0, '');
-  if (!LICENSED) {
-    log('ERROR: License required. Paste your license key in the License section above and click Activate.');
+  if (!LICENSED && trialRemaining() <= 0) {
+    log('ERROR: Your free trial (2 transcriptions) is used up. ');
+    log('Enter your license key in the License section and click Activate to continue.');
     return;
   }
   setBusy(true);
@@ -595,6 +637,7 @@ async function run() {
   } finally {
     setBusy(false);
     setProgress(0, '');
+    updateLicenseUI();
   }
 }
 
