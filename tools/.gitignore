@@ -1,2 +1,6 @@
 customers.csv
 __pycache__/
+telegram/.env
+telegram/bot.env
+telegram/pending.json
+telegram/*.token
