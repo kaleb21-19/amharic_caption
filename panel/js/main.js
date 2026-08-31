@@ -8,11 +8,143 @@
 
 const csi = new CSInterface();
 
+// ─────────────────────────────────────────────────────────────────────────────
+// License system (runs FIRST, independently of CEP Node, so it also works in a
+// plain browser for testing). Machine ID = random 8-char hex, stored locally.
+// License key = AMH-XXXX-XXXX-XXXX-XXXX, HMAC-SHA256 signed.
+// ─────────────────────────────────────────────────────────────────────────────
+const LICENSE_SECRET = '7JBrcWoJAXZYNDczdPjIn1Kyv2Wynqz1_d73_-fdC4g=';
+
+function getOrCreateMachineId() {
+  const key = 'amh.machineId';
+  let id = localStorage.getItem(key);
+  if (id && /^[0-9a-f]{8}$/.test(id)) return id;
+  id = Array.from(crypto.getRandomValues(new Uint8Array(4)))
+    .map((b) => b.toString(16).padStart(2, '0')).join('');
+  localStorage.setItem(key, id);
+  return id;
+}
+
+const MACHINE_ID = getOrCreateMachineId();
+
+function getLicense() {
+  try { return JSON.parse(localStorage.getItem('amh.license') || 'null'); }
+  catch (e) { return null; }
+}
+
+function setLicense(licenseObj) {
+  try { localStorage.setItem('amh.license', JSON.stringify(licenseObj)); }
+  catch (e) {}
+}
+
+function validateLicense(key, machineId) {
+  const clean = key.replace(/AMH-/g, '').replace(/-/g, '').toLowerCase();
+  if (clean.length !== 24) return { ok: false, error: 'Invalid key length' };
+
+  const mid  = clean.substring(0, 8);
+  const exp  = clean.substring(8, 16);
+  const sig  = clean.substring(16, 24);
+
+  if (mid !== machineId.toLowerCase()) return { ok: false, error: 'Key is for a different machine' };
+
+  // Check expiry
+  if (exp !== '00000000') {
+    const expDate = new Date(exp.substring(0,4) + '-' + exp.substring(4,6) + '-' + exp.substring(6,8));
+    if (isNaN(expDate.getTime()) || Date.now() > expDate.getTime()) {
+      return { ok: false, error: 'License expired on ' + exp.substring(0,4) + '-' + exp.substring(4,6) + '-' + exp.substring(6,8) };
+    }
+  }
+
+  // HMAC verification (via SubtleCrypto)
+  const msg = mid + '|' + exp;
+  const encoder = new TextEncoder();
+  return crypto.subtle.importKey(
+    'raw', encoder.encode(LICENSE_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  ).then((keyObj) => {
+    return crypto.subtle.sign('HMAC', keyObj, encoder.encode(msg));
+  }).then((buf) => {
+    const computed = Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('').substring(0, 8);
+    if (computed === sig) return { ok: true, expiry: exp };
+    return { ok: false, error: 'Invalid license key' };
+  });
+}
+
+let LICENSED = false;
+
+function updateLicenseUI() {
+  const lic = getLicense();
+  const midEl = document.getElementById('machineIdDisplay');
+  const licInput = document.getElementById('licenseInput');
+  const licBtn = document.getElementById('licenseActivate');
+  const licStatus = document.getElementById('licenseStatus');
+  const runBtn = document.getElementById('runBtn');
+
+  if (midEl) midEl.textContent = MACHINE_ID;
+
+  if (lic && lic.valid) {
+    LICENSED = true;
+    if (licStatus) {
+      licStatus.textContent = 'Licensed' + (lic.expiry && lic.expiry !== '00000000' ? ' (expires ' + lic.expiry + ')' : '');
+      licStatus.style.color = 'var(--ok)';
+    }
+    if (runBtn) runBtn.disabled = false;
+    if (licInput) licInput.style.display = 'none';
+    if (licBtn) licBtn.style.display = 'none';
+  } else {
+    LICENSED = false;
+    if (licStatus) {
+      licStatus.textContent = 'Unlicensed — enter your license key below';
+      licStatus.style.color = 'var(--warn)';
+    }
+    if (runBtn) runBtn.disabled = true;
+  }
+}
+
+async function activateLicense() {
+  const licInput = document.getElementById('licenseInput');
+  const licStatus = document.getElementById('licenseStatus');
+  if (!licInput) return;
+
+  const key = licInput.value.trim();
+  if (!key) {
+    if (licStatus) { licStatus.textContent = 'Paste a license key first'; licStatus.style.color = 'var(--err)'; }
+    return;
+  }
+
+  if (licStatus) { licStatus.textContent = 'Validating…'; licStatus.style.color = 'var(--text-secondary)'; }
+
+  try {
+    const result = await validateLicense(key, MACHINE_ID);
+    if (result.ok) {
+      setLicense({ key: key, valid: true, expiry: result.expiry, activated: Date.now() });
+      updateLicenseUI();
+      const logBox = document.getElementById('logBox');
+      if (logBox && logBox.textContent) logBox.textContent += '\nLicense activated successfully.';
+    } else {
+      if (licStatus) { licStatus.textContent = result.error || 'Invalid key'; licStatus.style.color = 'var(--err)'; }
+    }
+  } catch (e) {
+    if (licStatus) { licStatus.textContent = 'Validation error'; licStatus.style.color = 'var(--err)'; }
+  }
+}
+
+// Initialize license UI immediately (works in plain browser AND CEP).
+(function initLicense() {
+  const licBtn = document.getElementById('licenseActivate');
+  if (licBtn) licBtn.addEventListener('click', activateLicense);
+  updateLicenseUI();
+})();
+// ─────────────────────────────────────────────────────────────────────────────
+// End license system
+// ─────────────────────────────────────────────────────────────────────────────
+
 const nodeRequire = window.require || (window.cep_node && window.cep_node.require);
 if (!nodeRequire) {
-  document.getElementById('logBox').textContent =
-    'Node.js integration is not enabled. Reinstall the extension so the ' +
-    'CEFCommandLine flags take effect, then restart Premiere Pro.';
+  const logBox = document.getElementById('logBox');
+  if (logBox && logBox.textContent) {
+    logBox.textContent = 'Node.js integration is not enabled. Reinstall the extension so the ' +
+      'CEFCommandLine flags take effect, then restart Premiere Pro.';
+  }
   throw new Error('CEP Node integration unavailable');
 }
 
@@ -584,130 +716,6 @@ function exportCaptions() {
   log('Exported ' + fmt.toUpperCase() + ': ' + dest);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// License system (one-time purchase, ETB 1,500)
-// Machine ID = random 8-char hex, stored in localStorage.
-// License key = AMH-XXXX-XXXX-XXXX-XXXX, HMAC-SHA256 signed.
-// ─────────────────────────────────────────────────────────────────────────────
-const LICENSE_SECRET = '7JBrcWoJAXZYNDczdPjIn1Kyv2Wynqz1_d73_-fdC4g=';
-
-function getOrCreateMachineId() {
-  const key = 'amh.machineId';
-  let id = localStorage.getItem(key);
-  if (id && /^[0-9a-f]{8}$/.test(id)) return id;
-  id = Array.from(crypto.getRandomValues(new Uint8Array(4)))
-    .map((b) => b.toString(16).padStart(2, '0')).join('');
-  localStorage.setItem(key, id);
-  return id;
-}
-
-const MACHINE_ID = getOrCreateMachineId();
-
-function getLicense() {
-  try { return JSON.parse(localStorage.getItem('amh.license') || 'null'); }
-  catch (e) { return null; }
-}
-
-function setLicense(licenseObj) {
-  try { localStorage.setItem('amh.license', JSON.stringify(licenseObj)); }
-  catch (e) {}
-}
-
-function validateLicense(key, machineId) {
-  const clean = key.replace(/AMH-/g, '').replace(/-/g, '').toLowerCase();
-  if (clean.length !== 24) return { ok: false, error: 'Invalid key length' };
-
-  const mid  = clean.substring(0, 8);
-  const exp  = clean.substring(8, 16);
-  const sig  = clean.substring(16, 24);
-
-  if (mid !== machineId.toLowerCase()) return { ok: false, error: 'Key is for a different machine' };
-
-  // Check expiry
-  if (exp !== '00000000') {
-    const expDate = new Date(exp.substring(0,4) + '-' + exp.substring(4,6) + '-' + exp.substring(6,8));
-    if (isNaN(expDate.getTime()) || Date.now() > expDate.getTime()) {
-      return { ok: false, error: 'License expired on ' + exp.substring(0,4) + '-' + exp.substring(4,6) + '-' + exp.substring(6,8) };
-    }
-  }
-
-  // HMAC verification (via SubtleCrypto)
-  const msg = mid + '|' + exp;
-  const encoder = new TextEncoder();
-  return crypto.subtle.importKey(
-    'raw', encoder.encode(LICENSE_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
-  ).then((keyObj) => {
-    return crypto.subtle.sign('HMAC', keyObj, encoder.encode(msg));
-  }).then((buf) => {
-    const computed = Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('').substring(0, 8);
-    if (computed === sig) return { ok: true, expiry: exp };
-    return { ok: false, error: 'Invalid license key' };
-  });
-}
-
-let LICENSED = false;
-let MACHINE_ID_DISPLAYED = false;
-
-function updateLicenseUI() {
-  const lic = getLicense();
-  const midEl = document.getElementById('machineIdDisplay');
-  const licInput = document.getElementById('licenseInput');
-  const licBtn = document.getElementById('licenseActivate');
-  const licStatus = document.getElementById('licenseStatus');
-  const runBtn = $('runBtn');
-
-  if (midEl) midEl.textContent = MACHINE_ID;
-
-  if (lic && lic.valid) {
-    LICENSED = true;
-    if (licStatus) {
-      licStatus.textContent = 'Licensed' + (lic.expiry && lic.expiry !== '00000000' ? ' (expires ' + lic.expiry + ')' : '');
-      licStatus.style.color = 'var(--ok)';
-    }
-    if (runBtn) runBtn.disabled = false;
-    if (licInput) licInput.style.display = 'none';
-    if (licBtn) licBtn.style.display = 'none';
-  } else {
-    LICENSED = false;
-    if (licStatus) {
-      licStatus.textContent = 'Unlicensed — enter your license key below';
-      licStatus.style.color = 'var(--warn)';
-    }
-    if (runBtn) runBtn.disabled = true;
-  }
-}
-
-async function activateLicense() {
-  const licInput = document.getElementById('licenseInput');
-  const licStatus = document.getElementById('licenseStatus');
-  if (!licInput) return;
-
-  const key = licInput.value.trim();
-  if (!key) {
-    if (licStatus) { licStatus.textContent = 'Paste a license key first'; licStatus.style.color = 'var(--err)'; }
-    return;
-  }
-
-  if (licStatus) { licStatus.textContent = 'Validating…'; licStatus.style.color = 'var(--text-secondary)'; }
-
-  try {
-    const result = await validateLicense(key, MACHINE_ID);
-    if (result.ok) {
-      setLicense({ key: key, valid: true, expiry: result.expiry, activated: Date.now() });
-      updateLicenseUI();
-      log('License activated successfully.');
-    } else {
-      if (licStatus) { licStatus.textContent = result.error || 'Invalid key'; licStatus.style.color = 'var(--err)'; }
-    }
-  } catch (e) {
-    if (licStatus) { licStatus.textContent = 'Validation error'; licStatus.style.color = 'var(--err)'; }
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// End license system
-// ─────────────────────────────────────────────────────────────────────────────
-
 // ------------------------------------------------------------------ wiring
 function setup() {
   applySettings();
@@ -770,11 +778,6 @@ function setup() {
       log('ERROR: ' + (r.error || 'unknown'));
     }
   });
-
-  // License activation
-  const licBtn = document.getElementById('licenseActivate');
-  if (licBtn) licBtn.addEventListener('click', activateLicense);
-  updateLicenseUI();
 
   // Disclosures
   $('logDisc').addEventListener('click', () => {
