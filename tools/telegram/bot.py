@@ -347,13 +347,10 @@ def menu_buy():
         "2️⃣ <b>Pay</b> — ETB 1,500 (Telebirr 0907 628 809)\n"
         "3️⃣ <b>Machine ID</b>\n"
         "4️⃣ <b>Help</b>\n\n"
-        "👇 Tap to start:"
+        "👇 Only <b>Pay</b> has steps. Tap to start:"
     )
     kb = [
-        [{"text": "1️⃣ Install", "callback_data": "menu:install"}],
         [{"text": "2️⃣ Pay — ይክፈሉ", "callback_data": "menu:pay"}],
-        [{"text": "3️⃣ Machine ID", "callback_data": "menu:guide"}],
-        [{"text": "4️⃣ Help — እገዛ", "callback_data": "menu:help"}],
         [{"text": "🏠 ዋና ማውጫ", "callback_data": "menu:home"}],
     ]
     return text, kb
