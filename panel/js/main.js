@@ -596,7 +596,7 @@ async function runSelectedClip() {
   log('Reading selected timeline clip…');
   const c = await getSelectedClip();
   if (!c.ok || !c.sourcePath) throw new Error(c.error || 'No selected clip.');
-  log('Clip: ' + c.name);
+  log('Clip: ' + c.name + (c.via ? ('  [' + c.via + ']') : ''));
   log('Source: ' + c.sourcePath);
   log('Selected range -> source in=' + c.sourceIn.toFixed(2) + 's  duration=' + c.duration.toFixed(2) +
       's  timeline@' + c.timelineStart.toFixed(2) + 's');

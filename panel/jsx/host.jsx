@@ -247,39 +247,68 @@ function amharic_getSelectedClip() {
         var seq = app.project.activeSequence;
         if (!seq) { return amhErr("No active sequence. Open one first."); }
 
-        // Find the clip: prefer an explicitly selected clip across video + audio
-        // tracks; otherwise fall back to the clip under the playhead.
+        // Find the clip. We do this in two passes:
+        //   Pass 1 — only clips that are EXPLICITLY selected (across all
+        //            video+audio tracks) qualify. This must not consult the
+        //            playhead, otherwise an earlier unselected clip under the
+        //            playhead can "win" before we reach the real selection.
+        //   Pass 2 — only if nothing was selected, fall back to the clip
+        //            under the playhead.
         var picked = null;
+        var pickedVia = "";
         var collections = [];
         try { collections.push(seq.videoTracks); } catch (e) {}
         try { collections.push(seq.audioTracks); } catch (e) {}
-        var playhead = null;
-        try { playhead = seq.getPlayerPosition().seconds; } catch (e) { playhead = null; }
 
-        for (var k = 0; k < collections.length; k++) {
-            try {
-                for (var t = 0; t < collections[k].numTracks; t++) {
-                    var track = collections[k][t];
-                    for (var c = 0; c < track.clips.numItems; c++) {
-                        var clip = track.clips[c];
-                        var isSel = false;
-                        try {
-                            if (clip.selected) { isSel = true; }
-                        } catch (e) {}
-                        if (isSel) { picked = clip; break; }
-                        if (playhead !== null && playhead !== undefined) {
-                            try {
-                                var cs = clip.start.seconds;
-                                var cd = clip.duration.seconds;
-                                if (playhead >= cs && playhead <= cs + cd + 0.05) { picked = clip; break; }
-                            } catch (e) {}
+        // Pass 1: explicit selection only.
+        var findSelected = function () {
+            for (var k = 0; k < collections.length; k++) {
+                try {
+                    for (var t = 0; t < collections[k].numTracks; t++) {
+                        var track = collections[k][t];
+                        for (var c = 0; c < track.clips.numItems; c++) {
+                            var clip = track.clips[c];
+                            var isSel = false;
+                            try { if (clip.selected) { isSel = true; } } catch (e) {}
+                            if (isSel) { return { clip: clip, via: "selected" }; }
                         }
                     }
-                    if (picked) { break; }
-                }
-            } catch (e) {}
-            if (picked) { break; }
+                } catch (e) {}
+            }
+            return null;
+        };
+        var sel = findSelected();
+        if (sel) {
+            picked = sel.clip;
+            pickedVia = sel.via;
         }
+
+        // Pass 2: playhead fallback only when nothing was explicitly selected.
+        if (!picked) {
+            var playhead = null;
+            try { playhead = seq.getPlayerPosition().seconds; } catch (e) { playhead = null; }
+            if (playhead !== null && playhead !== undefined) {
+                for (var k2 = 0; k2 < collections.length && !picked; k2++) {
+                    try {
+                        for (var t2 = 0; t2 < collections[k2].numTracks && !picked; t2++) {
+                            var track2 = collections[k2][t2];
+                            for (var c2 = 0; c2 < track2.clips.numItems && !picked; c2++) {
+                                var clip2 = track2.clips[c2];
+                                try {
+                                    var cs = clip2.start.seconds;
+                                    var cd = clip2.duration.seconds;
+                                    if (playhead >= cs && playhead <= cs + cd + 0.05) {
+                                        picked = clip2;
+                                        pickedVia = "playhead (no explicit selection found)";
+                                    }
+                                } catch (e) {}
+                            }
+                        }
+                    } catch (e) {}
+                }
+            }
+        }
+
         if (!picked || !picked.projectItem) {
             return amhErr("No clip found. Select a clip on the timeline OR place the " +
                           "playhead on it, then try again.");
@@ -328,7 +357,8 @@ function amharic_getSelectedClip() {
             duration: dur,
             timelineStart: tlStart,
             name: picked.projectItem.name,
-            mode: "clip"
+            mode: "clip",
+            via: pickedVia
         });
     });
 }
