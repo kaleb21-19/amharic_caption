@@ -145,10 +145,17 @@ def send_text(chat_id, text, keyboard=None, parse_mode="HTML"):
 
 def edit_text(chat_id, message_id, text, keyboard=None, parse_mode="HTML"):
     params = {"chat_id": chat_id, "message_id": message_id, "text": text, "parse_mode": parse_mode}
-    if keyboard:
+    if keyboard is not None:
         params["reply_markup"] = json.dumps({"inline_keyboard": keyboard})
     try:
         return api("editMessageText", **params)
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace") if hasattr(e, "read") else ""
+        # Telegram returns 400 "message is not modified" when the new text is
+        # identical (e.g. double-tapping a button). That's benign, not a failure.
+        if "not modified" in body:
+            return None
+        print(f"[edit] HTTP {e.code} -> {body[:300]}", file=sys.stderr)
     except Exception as e:
         print(f"[edit] error: {e}", file=sys.stderr)
     return None
@@ -168,104 +175,175 @@ def answer_cb(callback_query_id, text=None):
 def admin_keyboard(action, payload):
     uid = str(payload["uid"])
     return [[
-        {"text": "✅ አረጋግጥ (Approve)", "callback_data": f"approve:{uid}"},
-        {"text": "❌ አትስጥ (Reject)", "callback_data": f"reject:{uid}"},
-        {"text": "✏️ ቀነ-ገደብ (Expire)", "callback_data": f"expiry:{uid}"},
+        {"text": "✅ አረጋግጥ", "callback_data": f"approve:{uid}"},
+        {"text": "❌ ውድቅ", "callback_data": f"reject:{uid}"},
+        {"text": "⏰ ጊዜ ስጥ", "callback_data": f"expiry:{uid}"},
     ]]
 
 
-# ── messages (from selling.md / POSTS.md) ───────────────────────────────────
+# ── user-facing copy (natural, correct Amharic) ─────────────────────────────
+#: each menu handler returns a (text, keyboard) tuple.
+#: sub-menus always carry a "◀ ዋና ማውጫ" (back) button so the user never gets stuck.
+
+def home_keyboard(extra=None):
+    kb = [
+        [{"text": "💳 መግዛት", "callback_data": "menu:buy"}],
+        [{"text": "🛠 እንዴት እንደሚጫኑ", "callback_data": "menu:install"}],
+        [{"text": "❓ ጥያቄዎች", "callback_data": "menu:faq"}],
+        [{"text": "🔑 ሊሰንስ ቁልፍ ያግኙ", "callback_data": "menu:key"}],
+        [{"text": "👤 ድጋፍ ያነጋግሩ", "callback_data": "menu:support"}],
+    ]
+    return kb if extra is None else kb + extra
+
+
+def back_row():
+    return [[{"text": "◀ ዋና ማውጫ", "callback_data": "menu:home"}]]
+
+
 WELCOME = (
-    "👋 እንኳን ወደ <b>አማርኛ ካፕሽን</b> በደህና መጡ!\n\n"
-    "ይህ ሶፍትዌር Premiere Pro ላይ ቪዲዮዎን በነጻ የአማርኛ ንዑስ ርዕስ (subtitle/caption) "
-    "ያስቀምጥልዎታል — በኮምፒውተርዎ ላይ ብቻ ይሰራል (offline, on-device)።\n\n"
-    f"💰 <b>{PRICE}</b> (one-time) · 📲 Telebirr <b>{TELEBIRR}</b> · 🖥 Windows & Mac\n\n"
-    "🔍 ለመግዛት እና ለ2 ነጻ trial → ከታች ያለውን ይንኩ 👇"
+    "ሰላም! ወደ <b>አማርኛ ካፕሽን</b> እንኳን በደህና መጡ 👋\n\n"
+    "ይህ ሶፍትዌር፣ Premiere Pro ላይ ቪዲዮዎን በራስ-ሰር በ<b>አማርኛ ንዑስ ርዕስ</b> "
+    "(subtitle) ያስቀምጥልዎታል። ሙሉ በሙሉ በኮምፒውተርዎ ላይ ነው የሚሰራው (offline)።\n\n"
+    f"💰 ዋጋ: <b>{PRICE}</b> (አንድ ጊዜ)\n"
+    f"📲 Telebirr: <b>{TELEBIRR}</b>\n"
+    "🖥 Windows & Mac\n"
+    "🎁 2 ነጻ trial\n\n"
+    "ከታች ያሉትን አዝራሮች ይጠቀሙ 👇"
 )
 
 MENU = (
-    "መረጃ ይምረጡ (select an option):"
+    "ሰላም! 👋 ምን ማድረግ ይፈልጋሉ? ከታች ይምረጡ:"
 )
-MENU_KEYBOARD = [
-    [{"text": "💳 እንዴት እንደሚገዙ (How to buy)", "callback_data": "menu:buy"}],
-    [{"text": "🛠 እንዴት እንደሚጫኑ (Install)", "callback_data": "menu:install"}],
-    [{"text": "❓ ጥያቄዎች (FAQ)", "callback_data": "menu:faq"}],
-    [{"text": "🔑 ሊሰንስ ኬይ አግኝ (Get my key)", "callback_data": "menu:key"}],
-]
+MENU_KEYBOARD = home_keyboard()
 
-#: each handler returns a (text, keyboard_or_None) tuple
+
+def hero(first=""):
+    name = f"{first}, " if first else ""
+    return (
+        f"{name}ሰላም! 👋 ወደ <b>አማርኛ ካፕሽን</b> እንኳን በደህና መጡ!\n\n"
+        "በ Premiere Pro ላይ ቪዲዮዎን በራስ-ሰር <b>በአማርኛ ንዑስ ርዕስ</b> "
+        "(subtitle) ያስቀምጡ። ሙሉ በሙሉ በኮምፒውተርዎ ላይ ይሰራል (offline)።\n\n"
+        f"💰 ዋጋ: <b>{PRICE}</b> (አንድ ጊዜ)\n"
+        f"📲 Telebirr: <b>{TELEBIRR}</b>\n"
+        "🖥 Windows & Mac · 🎁 2 ነጻ trial\n\n"
+        "ምን ማድረግ ይፈልጋሉ? ከታች ይምረጡ 👇"
+    )
+
+
+def hero_keyboard():
+    return [[
+        {"text": "💳 መግዛት", "callback_data": "menu:buy"},
+        {"text": "🛠 መጫን", "callback_data": "menu:install"},
+    ], [
+        {"text": "❓ ጥያቄዎች", "callback_data": "menu:faq"},
+        {"text": "🔑 ቁልፍ ያግኙ", "callback_data": "menu:key"},
+    ], [
+        {"text": "👤 ድጋፍ", "callback_data": "menu:support"},
+    ]]
+
+
 def menu_buy():
     text = (
-        "📌 <b>እንዴት እንደሚገዙ</b>\n\n"
-        "1. የሶፍትዌሩን ፓነል ይክፈቱና \"Your Machine ID\" የሚለውን ቁጥር ይቅዱ\n"
-        "   (Copy the Machine ID in the panel's License section).\n\n"
-        f"2. <b>{PRICE}</b> በTelebirr ወደ <b>{TELEBIRR}</b> ይላኩ\n\n"
-        "3. የTelebirr ማረጋገጫ (screenshot) እና Machine ID ይላኩ\n\n"
-        "4. ሊሰንስ ኬይ ወደ እርስዎ ይላካል። በፓነሉ License field ውስጥ "
-        "ተጭነው \"Activate\" ይጫኑ\n\n"
-        "✅ ሁሉም ሰው ከመግዛቱ በፊት <b>2 ነጻ</b> ካፕሽን የመስራት ዕድል አለው።\n\n"
-        "👉 ኬይ ለማግኘት \"🔑 ሊሰንስ ኬይ አግኝ\" ይንኩ (በፍጥነት: Machine ID ብቻ ይላኩ)"
+        "💳 <b>እንዴት ይገዛሉ?</b>\n\n"
+        "<b>①</b> የሶፍትዌሩን ፓነል ይክፈቱ → በ \"License\" ክፍል ውስጥ ያለውን "
+        "<b>Machine ID</b> ይቅዱ\n"
+        f"<b>②</b> <b>{PRICE}</b> በTelebirr ወደ <b>{TELEBIRR}</b> ይላኩ\n"
+        "<b>③</b> የክፍያ ማረጋገጫ (screenshot) ከ Machine ID ጋር ይላኩ\n"
+        "<b>④</b> ሊሰንስ ቁልፍ እንልክልዎታለን → በፓነሉ License ውስጥ "
+        "ያስገቡ → <b>Activate</b> ይጫኑ\n\n"
+        "🎁 ከመግዛትዎ በፊት <b>2 ነጻ</b> ካፕሽን የመስራት እድል አለዎት።\n\n"
+        "👉 ቁልፍ ለማግኘት \"🔑 ሊሰንስ ቁልፍ ያግኙ\" ይንኩ፣ ወይም "
+        "Machine ID ብቻ ይላኩ"
     )
-    return text, MENU_KEYBOARD
+    return text, home_keyboard(back_row())
 
 
 def menu_install():
     text = (
-        "🛠 <b>እንዴት እንደሚጫኑ</b>\n\n"
-        "⚠️ Premiere Pro <b>2024 (v24) or newer</b> ያስፈልጋል (older are NOT supported).\n\n"
-        "1. ለኮምፒውተርዎ የሚሆነውን ፋይል ከ\n"
-        "   https://github.com/kaleb21-19/amharic_caption/releases/latest አውርድ\n"
+        "🛠 <b>እንዴት ይጫናሉ?</b>\n\n"
+        "⚠️ Premiere Pro <b>2024 (v24)</b> ወይም ከዚያ <b>አዲስ</b> ያስፈልጋል። "
+        "(የቆዩ እትሞች አይደገፉም)\n\n"
+        "<b>①</b> ፋይሉን ከዚህ ያውርዱ:\n"
+        "   github.com/kaleb21-19/amharic_caption/releases/latest\n"
         "   (Windows → amharic-captions-win-x64.zip)\n\n"
-        "2. ይዘቱን አውጣ። ፎልደሩን በ:\n"
+        "<b>②</b> ፋይሉን ያውጡ (extract)። ፎልደሩን እዚህ ያስቀምጡ:\n"
         "   <code>C:\\Program Files (x86)\\Common Files\\Adobe\\CEP\\extensions\\</code>\n"
-        "   ስር አስቀምጥ (ስሙ com.amharic.captions መሆን አለበት)\n\n"
-        "3. Premiere Pro ከፍት → Windows > Extensions > \"Amharic Captions\" ክፈት\n\n"
-        "4. License ለማግኘት Machine ID ቅዳ።\n\n"
-        "✅ ከተጫነ በኋላ 2 ነጻ trial አለ!"
+        "   (ስሙ com.amharic.captions መሆን አለበት)\n\n"
+        "<b>③</b> Premiere Pro ይክፈቱ → Windows > Extensions > \"Amharic Captions\"\n\n"
+        "<b>④</b> License ለማግኘት በፓነሉ ውስጥ ያለውን Machine ID ይቅዱ\n\n"
+        "✅ ከተጫነ በኋላ <b>2 ነጻ</b> የመጠቀም እድል ይኖርዎታል!"
     )
-    return text, MENU_KEYBOARD
+    return text, home_keyboard(back_row())
 
 
 def menu_faq():
     text = (
         "❓ <b>ጥያቄዎች (FAQ)</b>\n\n"
-        "<b>ከመግዛት በፊት እንዴት መሞከር እችላለሁ?</b>\n"
-        "Every new user can run 2 free transcriptions. Open the panel → Generate "
-        "Captions → see the result, then buy.\n\n"
-        "<b>ሊሰንስ ኬይ ለብዙ ኮምፒውተር ይሰራል?</b>\n"
-        "No. Each key is locked to one computer (hardware ID).\n\n"
-        "<b>መቼ ነው የሚቆየው?</b> One-time purchase, permanent (no subscription).\n\n"
-        "<b>Telebirr ብቻ?</b> Yes, Telebirr to 0907 628 809.\n\n"
-        "<b>ኮምፒውተሬን ቀይሬያለሁ / key አጣሁ?</b> DM admin — we can reactivate "
-        "(with proof of purchase).\n\n"
-        "<b>ምን አይነት ኮምፒውተር ያስፈልጋል?</b> Windows/Mac with Premiere Pro 2024 (v24) or newer."
+        "<b>Q: ከመግዛት በፊት መሞከር እችላለሁ?</b>\n"
+        "A: አዎ! እያንዳንዱ አዲስ ተጠቃሚ <b>2 ነጻ</b> ካፕሽን የመስራት እድል አለው። "
+        "ፓነሉን ይክፈቱ → \"Generate Captions\" ይጫኑ።\n\n"
+        "<b>Q: ቁልፉ ለብዙ ኮምፒውተር ይሰራል?</b>\n"
+        "A: አይሰራም። እያንዳንዱ ቁልፍ ለ<b>አንድ</b> ኮምፒውተር ብቻ "
+        "(hardware ID) ነው። ለሌላ ኮምፒውተር የተለየ ቁልፍ ያስፈልጋል።\n\n"
+        "<b>Q: ቁልፉ መቼ ነው የሚያበቃው?</b>\n"
+        "A: አያበቃም! <b>አንድ ጊዜ ክፍያ</b> ነው — subscription የለም።\n\n"
+        "<b>Q: ክፍያው Telebirr ብቻ ነው?</b>\n"
+        f"A: አዎ። Telebirr ወደ <b>{TELEBIRR}</b>።\n\n"
+        "<b>Q: ኮምፒውተሬን ቀየርኩ / ቁልፍ አጣሁ?</b>\n"
+        "A: አስተዳዳሪውን ያነጋግሩ። የግዢ ማረጋገጫ ካለ (proof of purchase) "
+        "ወደነበረው እንዲመለስ እንረዳለን።\n\n"
+        "<b>Q: ምን ኮምፒውተር ያስፈልጋል?</b>\n"
+        "A: Windows / Mac ከ <b>Premiere Pro 2024 (v24)</b> ወይም ከዚያ አዲስ ጋር። "
+        "የአማርኛ ሞዴሉ በራስዎ ኮምፒውተር ላይ ይሰራል — ኢንተርኔት አያስፈልገውም።"
     )
-    return text, MENU_KEYBOARD
+    return text, home_keyboard(back_row())
 
 
 def menu_key_welcome(uid):
     text = (
-        "🔑 <b>ሊሰንስ ኬይ አግኝ</b>\n\n"
-        "አጭር ጎዳና (fast): በቀጥታ የ<b>Machine ID</b>ዎን ያስገቡ ብቻ።\n"
-        "Machine ID ከፓነሉ License ክፍል ይቅዱታል (8 characters, e.g. a1b2c3d4).\n\n"
-        "ኬይ ከተከፈለ በኋላ ብቻ ይላካል — ማረጋገጫ ከወጣ በኋላ።"
+        "🔑 <b>ሊሰንስ ቁልፍ ያግኙ</b>\n\n"
+        "ፈጣን መንገድ፡ የ<b>Machine ID</b>ዎን ብቻ ይላኩ።\n\n"
+        "Machine ID በፓነሉ \"License\" ክፍል ውስጥ ይገኛል — <b>8 ቁምፊ</b> ብቻ "
+        "(ለምሳሌ a1b2c3d4)።\n\n"
+        "ቁልፍዎ የሚላከው ክፍያው ከተረጋገጠ <b>በኋላ</b> ብቻ ነው።"
     )
-    return text, None
+    return text, home_keyboard(back_row())
 
 
-def key_delivery_message(key, expiry="00000000"):
+def menu_support():
+    text = (
+        "👤 <b>ድጋፍ</b>\n\n"
+        "ችግር ካጋጠመዎት ወይም ጥያቄ ካለዎት፣ አስተዳዳሪውን በቀጥታ ያነጋግሩ።\n\n"
+        "💬 ተጠቃሚዎች ግዢ፣ መጫኛ ወይም ቁልፍ ችግር ካጋጠማቸው እዚህ ይጽፋሉ።\n\n"
+        "በ<code>/start</code> በመጠቀም ወደ ዋና ማውጫ መመለስ ይችላሉ።"
+    )
+    return text, home_keyboard(back_row())
+
+
+def machine_id_request(mid):
+    return (
+        "📥 Machine ID ተቀብለናል: <code>{mid}</code>\n\n"
+        "እባክዎ <b>{price}</b> በTelebirr ወደ <b>{telebirr}</b> ይላኩ።\n\n"
+        "ከክፍያው በኋላ የማረጋገጫ ስክሪን ሾት (screenshot) ይላኩ። "
+        "ክፍያውን ካረጋገጥን በኋላ ቁልፍዎ ወደዚህ ይደርስዎታል።"
+    ).format(mid=mid, price=PRICE, telebirr=TELEBIRR)
+
+
+def key_delivery_message(key, expiry="00000000", chat_type="private"):
     lines = [
-        "✅ የእርስዎ license key ተዘጋጅቷል!",
+        "✅ ሊሰንስ ቁልፍዎ ዝግጁ ነው!",
         "",
         f"<code>{key}</code>",
         "",
-        "1. ይህን ኬይ ቅዳ (copy)",
-        "2. Premiere Pro ውስጥ ፓነሉን ክፈት → License",
-        "3. ኬዩን paste አድርግ → <b>Activate</b> ተጫን",
+        "<b>①</b> ቁልፉን ይቅዱ (copy)",
+        "<b>②</b> Premiere Pro → ፓነሉን ይክፈቱ → License",
+        "<b>③</b> ቁልፉን ያስገቡ (paste) → <b>Activate</b> ይጫኑ",
     ]
     if expiry != "00000000":
-        lines += ["", f"⏰ የሚቆይበት ጊዜ: እስከ {expiry}"]
-    lines += ["", "አመሰግናለሁ! 🙏 ችግር ካለ DM ይጻፉ።"]
+        lines += ["", f"⏰ የሚያበቃበት ቀን: {expiry}"]
+    if chat_type != "private":
+        lines += ["", "🔒 ለግላዊነት፣ ቁልፍዎን በግል (DM) ይጠይቁ።"]
+    lines += ["", "አመሰግናለሁ! 🙏 ችግር ካጋጠመዎት ይጻፉ።"]
     return "\n".join(lines)
 
 
@@ -296,29 +374,27 @@ def handle_buyer_message(message):
     existing = find_key(mid)
     if existing:
         send_text(chat_id,
-                  f"⚠️ ይህ Machine ID ({mid}) ሊሰንስ አለው አስቀድሞ። ኬይ ከተጠየቀ ወይም እንደገና ከፈለጉ ይጻፉ።")
+                  f"⚠️ ይህ Machine ID (ለ<code>{mid}</code>) ቪዲዮ ቀድሞውኑ ቁልፍ አለው። "
+                  "ቁልፍ ማግኘት ካልቻሉ ወይም እንደገና ማግኘት ከፈለጉ አስተዳዳሪውን ያነጋግሩ።")
         return True
 
     # build pending
     default_expiry = "00000000"
     PENDING[uid] = {"machine_id": mid, "expiry": default_expiry,
-                    "username": uname, "chat_id": str(chat_id)}
+                    "username": uname, "chat_id": str(chat_id),
+                    "chat_type": message["chat"]["type"]}
     save_pending()
 
-    send_text(chat_id,
-        f"📥 Machine ID ተቀብለናል: <code>{mid}</code>\n"
-        f"📲 እባክዎ <b>{PRICE}</b> በTelebirr ወደ <b>{TELEBIRR}</b> ይላኩ።\n"
-        "ማረጋገጫ (screenshot) ይላኩ — ከተረጋገጠ በኋላ ኬይዎ ይደርስዎታል።",
-        keyboard=None)
+    send_text(chat_id, machine_id_request(mid), keyboard=None)
 
     # notify admin
     if ADMIN_ID:
         send_text(ADMIN_ID,
-            "🧾 <b>አዲስ ግዢ ጥያቄ (new order)</b>\n\n"
+            "🧾 <b>አዲስ ገዢ (New order)</b>\n\n"
             f"Machine ID: <code>{mid}</code>\n"
-            f"Bot user: @{uname} (id {uid})\n"
-            f"Chat: {'private DM' if is_pm else 'group'}\n\n"
-            "ማረጋገጫ ይመልከቱ (check Telebirr payment) ከዚያ ከታች ይንኩ:",
+            f"ተጠቃሚ: @{uname} (id {uid})\n"
+            f"ምንጭ: {'ግል (private DM)' if is_pm else 'ቡድን (group)'}\n\n"
+            "ክፍያውን (Telebirr) ያረጋግጡ፣ ከዚያ ከታች ይንኩ:",
             keyboard=admin_keyboard("pending", {"uid": uid}))
     return True
 
@@ -334,7 +410,10 @@ def handle_callback(cb):
     if data.startswith("menu:"):
         answer_cb(cb_id, "ok")
         kind = data.split(":", 1)[1]
-        if kind == "buy":
+        if kind == "home":
+            edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"],
+                      MENU, MENU_KEYBOARD)
+        elif kind == "buy":
             text, kb = menu_buy()
             edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"], text, kb)
         elif kind == "install":
@@ -346,31 +425,36 @@ def handle_callback(cb):
         elif kind == "key":
             text, kb = menu_key_welcome(from_uid)
             edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"], text, kb)
+        elif kind == "support":
+            text, kb = menu_support()
+            edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"], text, kb)
         return
 
     # admin-only actions
     if ADMIN_ID and from_uid != ADMIN_ID:
-        answer_cb(cb_id, "Only the admin can do this")
+        answer_cb(cb_id, "ይህን የሚያደርገው አስተዳዳሪው ብቻ ነው")
         return
 
     if data.startswith("approve:"):
         uid = data.split(":", 1)[1]
         p = PENDING.get(uid)
         if not p:
-            answer_cb(cb_id, "No pending order")
+            answer_cb(cb_id, "የሚጠበቅ ትዕዛዝ የለም")
             return
         mid = p["machine_id"]
         exp = p["expiry"]
         key = generate_key(mid, exp)
         buyer_chat = p.get("chat_id") or uid
         uname = p.get("username", "buyer")
+        ctype = p.get("chat_type", "private")
         save_to_ledger(mid, f"@{uname}", exp, key, "sold")
         # deliver to buyer
-        send_text(buyer_chat, key_delivery_message(key, exp))
+        send_text(buyer_chat, key_delivery_message(key, exp, ctype))
         # confirm to admin
         edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"],
-                  f"✅ ኬይ ለ @{uname} (Machine <code>{mid}</code>) ተልኳል እና ተመዝግቧል።")
-        answer_cb(cb_id, "Key sent")
+                  f"✅ ሊሰንስ ቁልፍ ተልኳል እና ተመዝግቧል።\n"
+                  f"ተጠቃሚ: @{uname}\nMachine ID: <code>{mid}</code>")
+        answer_cb(cb_id, "ቁልፍ ተልኳል")
         PENDING.pop(uid, None)
         save_pending()
         return
@@ -380,11 +464,12 @@ def handle_callback(cb):
         p = PENDING.pop(uid, None)
         save_pending()
         edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"],
-                  "❌ ጥያቄ ተሰርዟል (rejected).")
-        answer_cb(cb_id, "Rejected")
+                  "❌ ጥያቄው ተሰርዟል።")
+        answer_cb(cb_id, "ውድቅ ተደርጓል")
         if p:
             send_text(p.get("chat_id") or uid,
-                      "በቅጽበት የክፍያ ማረጋገጫ ስላልተገኘ ኬይ አልተላከም። ጥያቄ ካለ ይጻፉ።")
+                      "ይቅርታ፣ የክፍያ ማረጋገጫ ስላልተገኘ ቁልፍ አልተላከም። "
+                      "ጥያቄ ካለዎት አስተዳዳሪውን ያነጋግሩ።")
         return
 
     if data.startswith("expiry:"):
@@ -393,9 +478,9 @@ def handle_callback(cb):
         if p and p["expiry"] == "00000000":
             p["expiry"] = "20301231"
             save_pending()
-            answer_cb(cb_id, "Expiry set to 2030-12-31")
+            answer_cb(cb_id, "ቁልፍ እስከ 2030-12-31 ይሰራል")
         else:
-            answer_cb(cb_id, "Already has expiry / no pending")
+            answer_cb(cb_id, "ጊዜ አልተቀመጠም / የሚጠበቅ የለም")
         return
 
 
@@ -469,6 +554,24 @@ def main():
         print("Note: AMH_ADMIN_ID not set yet. Bot still runs; buyer messages will only be logged.",
               file=sys.stderr)
 
+    # register the command menu (/ menu button) + bot description/about
+    try:
+        api("setMyCommands", commands=json.dumps([
+            {"command": "start", "description": "ዋና ማውጫ / ጀምር"},
+            {"command": "buy", "description": "እንዴት እንደሚገዙ"},
+            {"command": "install", "description": "እንዴት እንደሚጫኑ"},
+            {"command": "faq", "description": "ተደጋጋሚ ጥያቄዎች"},
+            {"command": "support", "description": "ድጋፍ ማግኘት"},
+        ]))
+        api("setMyDescription",
+            description="Premiere Pro ሶፍትዌር ላይ በአማርኛ ካፕሽን (ንዑስ ርዕስ) "
+                        "በራስ-ሰር የሚያስቀምጥ ፕሮግራም ገዢዎች የሚጠቀሙበት ቦት። "
+                        "Telebirr → 0907 628 809።")
+        api("setMyShortDescription", short_description="የአማርኛ ካፕሽን ግዢ እና ድጋፍ ቦት")
+        print("Commands/description registered.")
+    except Exception as e:
+        print(f"[setup] could not register commands/description: {e}", file=sys.stderr)
+
     load_pending()
     print("Amharic Captions bot started. Ctrl-C to stop.")
     offset = 0
@@ -479,24 +582,50 @@ def main():
                 if "message" in upd:
                     msg = upd["message"]
                     chat = msg.get("chat", {})
+                    chat_type = chat.get("type", "private")
                     text = (msg.get("text") or "").strip()
-                    if text in ("/start", "/menu", "menu"):
-                        send_text(chat["id"], MENU, MENU_KEYBOARD)
+                    first = msg.get("from", {}).get("first_name", "")
+
+                    # new members (group welcome)
+                    nms = msg.get("new_chat_members")
+                    if nms:
+                        send_text(chat["id"], WELCOME, MENU_KEYBOARD)
                         continue
-                    if text in ("/help", "/faq"):
+
+                    if text.lower() in ("/start", "/start@amhariccaptionsbot", "/menu", "menu"):
+                        if chat_type == "private":
+                            send_text(chat["id"], hero(first), hero_keyboard())
+                        else:
+                            send_text(chat["id"], WELCOME, MENU_KEYBOARD)
+                        continue
+
+                    if text.lower() in ("/help", "/faq", "/faq@amhariccaptionsbot"):
                         t, kb = menu_faq()
+                        send_text(chat["id"], t, kb)
+                        continue
+                    if text.lower() in ("/buy", "/buy@amhariccaptionsbot"):
+                        t, kb = menu_buy()
+                        send_text(chat["id"], t, kb)
+                        continue
+                    if text.lower() in ("/install", "/install@amhariccaptionsbot"):
+                        t, kb = menu_install()
+                        send_text(chat["id"], t, kb)
+                        continue
+                    if text.lower() in ("/support", "/support@amhariccaptionsbot"):
+                        t, kb = menu_support()
                         send_text(chat["id"], t, kb)
                         continue
                     # buyer Machine ID?
                     if handle_buyer_message(msg):
                         continue
-                    # new member welcome
-                    nms = msg.get("new_chat_members") or msg.get("left_chat_member")
-                    if nms:
-                        send_text(chat["id"], WELCOME, MENU_KEYBOARD)
-                        continue
-                    # unknown text -> show menu
-                    send_text(chat["id"], MENU, MENU_KEYBOARD)
+                    if chat_type == "private":
+                        # unknown input -> graceful acknowledgment + menu
+                        send_text(chat["id"],
+                                  f"😊 {first}፣ ያገባኝ አልመሰለኝም። ምን ማድረግ ይፈልጋሉ? "
+                                  "ከታች ይምረጡ:",
+                                  MENU_KEYBOARD)
+                    else:
+                        send_text(chat["id"], MENU, MENU_KEYBOARD)
                 elif "callback_query" in upd:
                     try:
                         handle_callback(upd["callback_query"])
