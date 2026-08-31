@@ -197,8 +197,25 @@
       words per caption. Max chars caps how long any caption can be.
     </div>
 
+    <div class="section-title">License</div>
+    <div class="field">
+      <label class="field-label">Your Machine ID (send this with payment)</label>
+      <div class="mono" id="machineIdDisplay" style="cursor:pointer;user-select:all;" title="Click to select all">loading…</div>
+      <div style="font-size:10px;color:var(--text-secondary);line-height:1.4;margin-top:4px;">
+        Send this ID with your Telebirr payment proof to receive your license key.
+      </div>
+    </div>
+    <div class="field">
+      <label class="field-label" for="licenseInput">License Key</label>
+      <div class="row">
+        <input type="text" id="licenseInput" placeholder="AMH-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" style="flex:1;">
+        <button id="licenseActivate" class="btn btn-neutral" style="flex:0 0 auto;">Activate</button>
+      </div>
+      <div id="licenseStatus" style="font-size:10px;margin-top:4px;">Checking license…</div>
+    </div>
+
     <div class="section-title">Run</div>
-    <button id="runBtn" class="btn btn-primary">Generate Captions</button>
+    <button id="runBtn" class="btn btn-primary" disabled>Generate Captions</button>
 
     <div class="section-title">Output</div>
     <div class="row" style="margin-bottom:8px;">
@@ -234,6 +251,7 @@
 
   <div class="panel-footer">
     Set the captions font to <b>Abyssinica SIL</b> in Essential Graphics.
+    License: ETB 1,500 one-time via Telebirr ·
     Diagnostics: <a href="#" id="diag" style="color:var(--text-secondary);">dump project tree</a>
   </div>
 
