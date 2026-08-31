@@ -172,6 +172,80 @@ def answer_cb(callback_query_id, text=None):
     return None
 
 
+def send_photo(chat_id, photo_path, caption=None, keyboard=None, parse_mode="HTML"):
+    """Send a photo via multipart/form-data (stdlib only).
+    The photo can be a file path, an existing Telegram file_id, or a URL."""
+    params = {"chat_id": chat_id}
+    if caption:
+        params["caption"] = caption
+        params["parse_mode"] = parse_mode
+    if keyboard:
+        params["reply_markup"] = json.dumps({"inline_keyboard": keyboard})
+    boundary = "----AmhBotBoundary" + uuid.uuid4().hex
+    body = b""
+    if isinstance(photo_path, str) and (photo_path.startswith("http") or photo_path.endswith(".jpg") is False and ":" in photo_path and not os.path.isfile(photo_path)):
+        pass  # placeholder, treated below
+    # Build the multipart body: first any text params, then the photo file.
+    text_parts = {k: v for k, v in params.items() if k != "photo"}
+    for k, v in text_parts.items():
+        body += (f"--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n"
+                 f"{v}\r\n").encode("utf-8")
+    if isinstance(photo_path, str) and os.path.isfile(photo_path):
+        filename = os.path.basename(photo_path)
+        with open(photo_path, "rb") as f:
+            fdata = f.read()
+        body += (f"--{boundary}\r\nContent-Disposition: form-data; name=\"photo\"; "
+                 f"filename=\"{filename}\"\r\nContent-Type: image/jpeg\r\n\r\n").encode("utf-8")
+        body += fdata
+        body += b"\r\n"
+    else:
+        body += (f"--{boundary}\r\nContent-Disposition: form-data; name=\"photo\"\r\n\r\n"
+                 f"{photo_path}\r\n").encode("utf-8")
+    body += f"--{boundary}--\r\n".encode("utf-8")
+    url = API + TOKEN + "/sendPhoto"
+    req = urllib.request.Request(url, data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        print(f"[photo] HTTP {e.code} -> {e.read().decode('utf-8','replace')[:300]}", file=sys.stderr)
+    except Exception as e:
+        print(f"[photo] error: {e}", file=sys.stderr)
+    return None
+
+
+def send_with_hint(chat_id, text, hint, keyboard=None, parse_mode="HTML"):
+    """Send a message with a persistent reply-keyboard that carries a
+    placeholder hint in the input box (input_field_placeholder) telling the
+    user WHAT to type (e.g. their Machine ID). This is the modern 'where do I
+    type this?' affordance."""
+    params = {"chat_id": chat_id, "text": text, "parse_mode": parse_mode}
+    reply = {"keyboard": [[{"text": "📍 ማስተማሪያ / እገዛ"}]],
+             "input_field_placeholder": hint, "resize_keyboard": True,
+             "one_time_keyboard": False, "selective": False}
+    params["reply_markup"] = json.dumps(reply)
+    try:
+        return api("sendMessage", **params)
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace") if hasattr(e, "read") else ""
+        print(f"[send] HTTP {e.code} -> {body[:300]}", file=sys.stderr)
+    except Exception as e:
+        print(f"[send] error: {e}", file=sys.stderr)
+    return None
+
+
+def remove_reply_keyboard(chat_id, text=""):
+    """Clear the persistent reply keyboard (go back to normal input)."""
+    params = {"chat_id": chat_id, "text": text or "."}
+    params["reply_markup"] = json.dumps({"remove_keyboard": True})
+    try:
+        return api("sendMessage", **params)
+    except Exception as e:
+        print(f"[kb] error: {e}", file=sys.stderr)
+    return None
+
+
 def admin_keyboard(action, payload):
     uid = str(payload["uid"])
     return [[
@@ -245,17 +319,25 @@ def hero_keyboard():
 def menu_buy():
     text = (
         "💳 <b>እንዴት ይገዛሉ?</b>\n\n"
+        "📌 <b>በመጀመሪያ ሶፍትዌሩን መጫን አለብዎት!</b>\n"
+        "Machine ID የሚታየው ሶፍትዌሩ ከተጫነ <b>በኋላ</b> ብቻ ነው። "
+        "ካልጫኑት እስካሁን ድረስ Machine ID የለዎትም። "
+        "መጀመሪያ \"🛠 እንዴት እንደሚጫኑ\" ይንኩ።\n\n"
+        "ሶፍትዌሩ ከተጫነ በኋላ፡-\n"
         "<b>①</b> የሶፍትዌሩን ፓነል ይክፈቱ → በ \"License\" ክፍል ውስጥ ያለውን "
-        "<b>Machine ID</b> ይቅዱ\n"
+        "<b>Machine ID</b> ይቅዱ (8 ቁምፊ)\n"
         f"<b>②</b> <b>{PRICE}</b> በTelebirr ወደ <b>{TELEBIRR}</b> ይላኩ\n"
         "<b>③</b> የክፍያ ማረጋገጫ (screenshot) ከ Machine ID ጋር ይላኩ\n"
         "<b>④</b> ሊሰንስ ቁልፍ እንልክልዎታለን → በፓነሉ License ውስጥ "
         "ያስገቡ → <b>Activate</b> ይጫኑ\n\n"
         "🎁 ከመግዛትዎ በፊት <b>2 ነጻ</b> ካፕሽን የመስራት እድል አለዎት።\n\n"
-        "👉 ቁልፍ ለማግኘት \"🔑 ሊሰንስ ቁልፍ ያግኙ\" ይንኩ፣ ወይም "
-        "Machine ID ብቻ ይላኩ"
+        "👉 \"📍 Machine ID የት ነው?\" የሚለውን ይንኩ ሥዕሉን ለማየት፣ "
+        "ወይም Machine ID ይላኩ"
     )
-    return text, home_keyboard(back_row())
+    kb = home_keyboard(back_row())
+    # put the "where is my machine id" guide button right after the menu
+    kb = [[{"text": "📍 Machine ID የት ነው?", "callback_data": "menu:guide"}]] + kb
+    return text, kb
 
 
 def menu_install():
@@ -302,12 +384,33 @@ def menu_faq():
 def menu_key_welcome(uid):
     text = (
         "🔑 <b>ሊሰንስ ቁልፍ ያግኙ</b>\n\n"
-        "ፈጣን መንገድ፡ የ<b>Machine ID</b>ዎን ብቻ ይላኩ።\n\n"
-        "Machine ID በፓነሉ \"License\" ክፍል ውስጥ ይገኛል — <b>8 ቁምፊ</b> ብቻ "
-        "(ለምሳሌ a1b2c3d4)።\n\n"
+        "📌 <b>ሶፍትዌሩ ካልተጫነ Machine ID የለዎትም!</b>\n"
+        "Machine ID ማየት የሚችሉት ሶፍትዌሩን ጭነው ፓነሉን ከከፈቱ <b>በኋላ</b> ብቻ ነው። "
+        "ካልጫኑት መጀመሪያ \"🛠 እንዴት እንደሚጫኑ\" ይንኩ።\n\n"
+        "ሶፍትዌሩ ከተጫነ፡-\n"
+        "ፓነሉን ይክፈቱ → \"License\" ክፍል → ያለውን <b>Machine ID</b> (8 ቁምፊ) ይቅዱ → ይላኩ።\n\n"
         "ቁልፍዎ የሚላከው ክፍያው ከተረጋገጠ <b>በኋላ</b> ብቻ ነው።"
     )
-    return text, home_keyboard(back_row())
+    kb = home_keyboard(back_row())
+    kb = [[{"text": "📍 Machine ID የት ነው?", "callback_data": "menu:guide"}]] + kb
+    return text, kb
+
+
+def menu_guide():
+    """Explain where the Machine ID lives + send the annotated screenshot."""
+    text = (
+        "📍 <b>Machine ID የት ይገኛል?</b>\n\n"
+        "Machine ID የእርስዎ ኮምፒውተር ልዩ ቁጥር ነው — <b>8 ቁምፊ</b> "
+        "(ለምሳሌ <code>a1b2c3d4</code>)።\n\n"
+        "ለማግኘት:\n"
+        "<b>①</b> ሶፍትዌሩን ጭነዋል እንደሆነ ያረጋግጡ (ካልጫኑ \"🛠 እንዴት እንደሚጫኑ\")\n"
+        "<b>②</b> Premiere Pro ይክፈቱ → <b>Windows > Extensions > \"Amharic Captions\"</b>\n"
+        "<b>③</b> ፓነሉ ከተከፈተ → ወደ <b>License</b> ክፍል ይሂዱ\n"
+        "<b>④</b> \"Your Machine ID\" የሚለውን 8 ቁምፊ ይቅዱ\n\n"
+        "በታች ያለውን ሥዕል ይመልከቱ (በየት እንደሆነ ያሳያል) 👇"
+    )
+    kb = home_keyboard(back_row())
+    return text, kb
 
 
 def menu_support():
@@ -386,6 +489,8 @@ def handle_buyer_message(message):
     save_pending()
 
     send_text(chat_id, machine_id_request(mid), keyboard=None)
+    # The buyer typed a valid Machine ID — remove the "type here" hint keyboard.
+    remove_reply_keyboard(chat_id)
 
     # notify admin
     if ADMIN_ID:
@@ -424,10 +529,34 @@ def handle_callback(cb):
             edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"], text, kb)
         elif kind == "key":
             text, kb = menu_key_welcome(from_uid)
-            edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"], text, kb)
+            chat = cb["message"]["chat"]["id"]
+            edit_text(chat, cb["message"]["message_id"], text, kb)
+            # Persistent reply keyboard: tells the buyer EXACTLY what to type
+            # and where (input_field_placeholder shown in the input box).
+            send_with_hint(chat,
+                           "✍️ ከታች ባለው ሳጥን ✍️ ውስጥ Machine ID ዎን ይቅዱ/ይጻፉ እና ይላኩ።",
+                           "Machine ID እዚህ ይጻፉ (ለምሳሌ a1b2c3d4)...")
         elif kind == "support":
             text, kb = menu_support()
             edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"], text, kb)
+        elif kind == "guide":
+            text, kb = menu_guide()
+            chat = cb["message"]["chat"]["id"]
+            edit_text(chat, cb["message"]["message_id"], text, kb)
+            guide = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "guide_machine_id.jpg")
+            if os.path.isfile(guide):
+                send_photo(chat, guide,
+                           caption="⬆️ ከላይ ባለው ሥዕል ላይ \"Your Machine ID\" የሚለውን ይፈልጉ። "
+                                   "8 ቁምፊውን ቅድው ይላኩ።",
+                           keyboard=[[{"text": "🛠 እንዴት እንደሚጫኑ", "callback_data": "menu:install"}],
+                                     [{"text": "◀ ዋና ማውጫ", "callback_data": "menu:home"}]])
+            else:
+                send_text(chat,
+                          "🖼 በቅርቡ የMachine ID ቦታ ሥዕል ይኖራል። "
+                          "ስካሁን ደግሞ \"🛠 እንዴት እንደሚጫኑ\" ይንኩ።",
+                          keyboard=[[{"text": "🛠 እንዴት እንደሚጫኑ", "callback_data": "menu:install"}],
+                                    [{"text": "◀ ዋና ማውጫ", "callback_data": "menu:home"}]])
         return
 
     # admin-only actions
