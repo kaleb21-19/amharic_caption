@@ -120,6 +120,10 @@ function updateLicenseUI() {
     if (licBtn) licBtn.style.display = 'none';
   } else {
     LICENSED = false;
+    // Ensure the license entry fields are always visible while unlicensed,
+    // including right after the trial runs out.
+    if (licInput) licInput.style.display = '';
+    if (licBtn) licBtn.style.display = '';
     const rem = trialRemaining();
     if (rem > 0) {
       // Free trial: allow running, but the Generate button is enabled.
@@ -130,7 +134,7 @@ function updateLicenseUI() {
       if (runBtn) runBtn.disabled = false;
     } else {
       if (licStatus) {
-        licStatus.textContent = 'Trial used. Enter your license key to continue.';
+        licStatus.textContent = 'Trial used. Enter your license key below to continue.';
         licStatus.style.color = 'var(--warn)';
       }
       if (runBtn) runBtn.disabled = true;
