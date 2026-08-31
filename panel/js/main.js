@@ -239,15 +239,27 @@ function runtimeComplete(base) {
 }
 
 function pickRuntime() {
-  const candidates = [
-    path.join(EXT_DIR, 'runtime'),     // bundled, self-contained (shipped)
-    DEV_RUNTIME                        // dev fallback (author machine)
-  ];
-  for (const base of candidates) {
-    if (runtimeComplete(base)) {
-      return base;
-    }
+  // CEP's __dirname is not reliably the same across OSes/builds: it may be the
+  // extension root OR the js/ folder. So we probe several candidate "extension
+  // root" locations and, for each, look for a complete runtime/ among them.
+  const here = (typeof __dirname !== 'undefined' && __dirname) ? __dirname : EXT_DIR;
+  const roots = [];
+  // If here is .../extensions/com.amharic.captions (root) and also if it is js/
+  const dirs = [here, path.dirname(here), path.join(path.dirname(here), 'js'),
+                path.join(path.dirname(here), '..')];
+  for (const d of dirs) {
+    if (!d || roots.indexOf(d) >= 0) continue;
+    roots.push(d);
   }
+  const seen = {};
+  for (const base of roots) {
+    if (seen[base]) continue;
+    seen[base] = true;
+    const cand = path.join(base, 'runtime');
+    if (runtimeComplete(cand)) return cand;
+  }
+  const devRt = path.join(DEV_RUNTIME, 'runtime');
+  if (runtimeComplete(devRt)) return devRt;
   // Dev fallback uses the .venv, so it doesn't need bin/ffmpeg.
   if (fs.existsSync(path.join(DEV_RUNTIME, 'ethio_srt.py'))) {
     return DEV_RUNTIME;
