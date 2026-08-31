@@ -343,21 +343,53 @@ def hero_keyboard():
 def menu_buy():
     text = (
         "💳 <b>HOW TO BUY — እንዴት ይገዛሉ</b>\n\n"
-        "Just 4 simple steps, one at a time:\n\n"
-        "<b>1. Install</b> the extension ⇢ 📥\n"
-        "<b>2. Try</b> 2 free captions ⇢ 🎁\n"
-        f"<b>3. Pay</b> <b>{PRICE}</b> (Telebirr {TELEBIRR}) ⇢ 💰\n"
-        "<b>4. Get</b> your license key ⇢ 🔑\n\n"
-        "👇 Start with a step below. Use English or Amharic.\n"
-        "<i>Machine ID appears AFTER you install (Licence section).</i>"
+        "1️⃣ <b>Install</b>\n"
+        "2️⃣ <b>Pay</b> — ETB 1,500 (Telebirr 0907 628 809)\n"
+        "3️⃣ <b>Machine ID</b>\n"
+        "4️⃣ <b>Help</b>\n\n"
+        "👇 Tap to start:"
     )
     kb = [
-        [{"text": "1️⃣ Install — ሶፍትዌሩ ይጫኑ", "callback_data": "menu:install"}],
-        [{"text": "4️⃣ Get key — ቁልፍ ያግኙ", "callback_data": "menu:key"}],
+        [{"text": "1️⃣ Install", "callback_data": "menu:install"}],
+        [{"text": "2️⃣ Pay — ይክፈሉ", "callback_data": "menu:pay"}],
+        [{"text": "3️⃣ Machine ID", "callback_data": "menu:guide"}],
+        [{"text": "4️⃣ Help — እገዛ", "callback_data": "menu:help"}],
+        [{"text": "🏠 ዋና ማውጫ", "callback_data": "menu:home"}],
+    ]
+    return text, kb
+
+
+def menu_pay():
+    text = (
+        "💰 <b>PAY — ይክፈሉ</b>\n\n"
+        f"Amount: <b>{PRICE}</b> (one-time, forever license)\n"
+        f"Telebirr: <b>{TELEBIRR}</b>\n\n"
+        "Steps:\n"
+        "1️⃣ Send <b>ETB 1,500</b> via Telebirr to <b>0907 628 809</b>\n"
+        "2️⃣ Take a <b>screenshot</b> of the payment\n"
+        "3️⃣ Send the screenshot + your <b>Machine ID</b> here\n"
+        "4️⃣ We verify, then send your <b>license key</b> here ✅\n\n"
+        "📍 Don't have a Machine ID yet? Install first, then tap below."
+    )
+    kb = [
         [{"text": "📍 Machine ID የት ነው?", "callback_data": "menu:guide"}],
         [{"text": "📸 ስክሪን ሾት እንዴት?", "callback_data": "menu:screenshot_help"}],
-        [{"text": "❓ FAQ", "callback_data": "menu:faq"},
-         {"text": "👤 ድጋፍ", "callback_data": "menu:support"}],
+        [{"text": "1️⃣ Install", "callback_data": "menu:install"}],
+        [{"text": "🏠 ዋና ማውጫ", "callback_data": "menu:home"}],
+    ]
+    return text, kb
+
+
+def menu_help():
+    text = (
+        "4️⃣ <b>HELP — እገዛ</b>\n\n"
+        "👇 Choose a topic:"
+    )
+    kb = [
+        [{"text": "❓ Common questions (FAQ)", "callback_data": "menu:faq"}],
+        [{"text": "📸 ስክሪን ሾት እንዴት?", "callback_data": "menu:screenshot_help"}],
+        [{"text": "🛠 Install help", "callback_data": "menu:install"}],
+        [{"text": "👤 Talk to support", "callback_data": "menu:support"}],
         [{"text": "🏠 ዋና ማውጫ", "callback_data": "menu:home"}],
     ]
     return text, kb
@@ -651,6 +683,12 @@ def handle_callback(cb):
             edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"], text, kb)
         elif kind == "buy":
             text, kb = menu_buy()
+            edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"], text, kb)
+        elif kind == "pay":
+            text, kb = menu_pay()
+            edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"], text, kb)
+        elif kind == "help":
+            text, kb = menu_help()
             edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"], text, kb)
         elif kind == "install":
             text, kb = menu_install()
