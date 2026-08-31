@@ -549,9 +549,9 @@ function showTranscript(text) {
   box.value = text || '';
 }
 
-async function finishImport(outSrt, label) {
-  log('Importing onto caption track…');
-  const imp = await importCaptions(outSrt, 0);
+async function finishImport(outSrt, label, startSeconds) {
+  log('Importing onto caption track (start ' + (startSeconds || 0).toFixed(2) + 's)…');
+  const imp = await importCaptions(outSrt, startSeconds || 0);
   if (imp.ok) {
     log('Imported: ' + imp.captionItemName + ' (placement: ' + imp.placement + ')');
     if (!imp.placed && imp.note) log('Note: ' + imp.note);
@@ -605,17 +605,21 @@ async function runSelectedClip() {
 
   const outSrt = OUT_DIR + '/' + (c.name.replace(/\.[^.]+$/, '') || 'captions') + '.srt';
   try { fs.mkdirSync(OUT_DIR, { recursive: true }); } catch (e) {}
-
   log('Extracting ' + c.duration.toFixed(2) + 's of audio and transcribing (Ethio-ASR)…');
   setProgress(0.4, 'Transcribing…');
+  // SRT is written in times RELATIVE to the clip start (starts at 00:00:00),
+  // then the caption band is placed at the clip's timeline position, so the
+  // cues land at the correct spot on the timeline. Passing timelineStart here
+  // (instead of as the transcription offset) avoids double-shifting the times.
   const r = await transcribe(c.sourcePath, outSrt,
-    { sourceIn: c.sourceIn, duration: c.duration }, c.timelineStart);
+    { sourceIn: c.sourceIn, duration: c.duration }, 0);
   setProgress(0.9, 'Transcription complete');
+
   log('Done. ' + (fs.statSync(outSrt).size) + ' bytes -> ' + outSrt);
-  log('Captions placed at timeline position ' + c.timelineStart.toFixed(2) + 's.');
+  log('Placing caption band at timeline position ' + c.timelineStart.toFixed(2) + 's.');
   showTranscript(r.transcript);
 
-  await finishImport(outSrt, c.name);
+  await finishImport(outSrt, c.name, c.timelineStart);
 }
 
 async function runWorkArea() {
