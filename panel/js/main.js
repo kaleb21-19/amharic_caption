@@ -613,19 +613,21 @@ async function runSelectedClip() {
   try { fs.mkdirSync(OUT_DIR, { recursive: true }); } catch (e) {}
   log('Extracting ' + c.duration.toFixed(2) + 's of audio and transcribing (Ethio-ASR)…');
   setProgress(0.4, 'Transcribing…');
-  // SRT is written in times RELATIVE to the clip start (starts at 00:00:00),
-  // then the caption band is placed at the clip's timeline position, so the
-  // cues land at the correct spot on the timeline. Passing timelineStart here
-  // (instead of as the transcription offset) avoids double-shifting the times.
+  // Bake the clip's absolute timeline position into the SRT timestamps (so the
+  // cues carry their real timeline times), then place the caption band at 0.
+  // This is robust to Premiere either honoring or ignoring createCaptionTrack's
+  // start argument: absolute timestamps land correctly either way, exactly like
+  // the Whole-Edit path (which works). Relative-to-clip times + a nonzero start
+  // were being dropped to timeline 0 on some builds, showing the first cut.
   const r = await transcribe(c.sourcePath, outSrt,
-    { sourceIn: c.sourceIn, duration: c.duration }, 0);
+    { sourceIn: c.sourceIn, duration: c.duration }, c.timelineStart);
   setProgress(0.9, 'Transcription complete');
 
   log('Done. ' + (fs.statSync(outSrt).size) + ' bytes -> ' + outSrt);
-  log('Placing caption band at timeline position ' + c.timelineStart.toFixed(2) + 's.');
+  log('Placing caption band at timeline position 0 (SRT has absolute times).');
   showTranscript(r.transcript);
 
-  await finishImport(outSrt, c.name, c.timelineStart);
+  await finishImport(outSrt, c.name, 0);
 }
 
 async function runWorkArea() {

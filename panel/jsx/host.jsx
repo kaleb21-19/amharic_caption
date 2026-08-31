@@ -498,8 +498,14 @@ function amh_importCaptions(argsJSON) {
                 var t0 = cts[0];
                 var sc = t0.clips.numItems > 0 ? t0.clips[0] : null;
                 if (sc) {
-                    try { landedStart = sc.start.seconds; } catch (e) {}
-                    try { landedEnd = sc.end.seconds; } catch (e) {}
+                    var rd = function (to) {
+                        if (!to) { return null; }
+                        try { var s = Number(to.seconds); if (!isNaN(s)) { return s; } } catch (e) {}
+                        try { var tk = Number(to.ticks); if (!isNaN(tk)) { return tk / AMH_TICKS_PER_SECOND; } } catch (e) {}
+                        return null;
+                    };
+                    landedStart = rd(sc.start);
+                    landedEnd = rd(sc.end);
                 }
             }
         } catch (e) {}
