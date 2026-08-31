@@ -476,11 +476,13 @@ function pyFlags() {
 // offset shifts cue times to the timeline.
 function transcribe(sourcePath, outSrt, range, offset) {
   const wav = path.join(os.tmpdir(), 'amharic_' + Date.now() + '.wav');
-  const killActive = () => { try { if (activeChild) activeChild.kill(); } catch (e) {} };
   return new Promise((resolve, reject) => {
     const ffArgs = ['-v', 'error', '-y', '-i', sourcePath];
+    // For a trimmed clip we must start from sourceIn AND stop after duration.
+    // Put -ss after -i (accurate seek) so the extracted segment matches the
+    // timeline trim exactly, not a keyframe-aligned approximation.
     if (range && range.duration > 0) {
-      ffArgs.push('-ss', String(range.sourceIn), '-t', String(range.duration));
+      ffArgs.push('-ss', String(range.sourceIn || 0), '-t', String(range.duration));
     }
     ffArgs.push('-ac', '1', '-ar', '16000', wav);
     activeChild = execFile(FFMPEG, ffArgs, (err) => {

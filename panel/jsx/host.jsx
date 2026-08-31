@@ -290,19 +290,41 @@ function amharic_getSelectedClip() {
             return amhErr("The selected clip has no on-disk source path.");
         }
 
+        // Read a Premiere time object (Tick) to seconds. Tick objects expose
+        // .seconds in most versions, but that can be unreliable across builds;
+        // fall back to .ticks / ticks-per-second. (254016000000 ticks/sec on
+        // Mac, 254016000000 on Win too — Premiere uses a fixed 60fps timebase.)
         var toSec = function (timeObj) {
-            try { return Number(timeObj.seconds); } catch (e) { return null; }
+            if (timeObj === null || timeObj === undefined) { return null; }
+            try {
+                var s = Number(timeObj.seconds);
+                if (!isNaN(s)) { return s; }
+            } catch (e) {}
+            try {
+                var tk = Number(timeObj.ticks);
+                if (!isNaN(tk)) { return tk / AMH_TICKS_PER_SECOND; }
+            } catch (e) {}
+            return null;
         };
+
+        // For a trimmed/razored track clip the SOURCE range we must transcribe
+        // is [inPoint, outPoint] in the media's timebase, and the TIMELINE
+        // length is outPoint - inPoint. Reading .duration directly is less
+        // reliable after trims on some versions, so prefer inPoint/outPoint.
         var sourceIn = toSec(picked.inPoint);
+        var outPt    = toSec(picked.outPoint);
+        if (outPt === null) { outPt = (sourceIn === null ? 0 : sourceIn) + toSec(picked.duration); }
         if (sourceIn === null) { sourceIn = 0; }
-        var dur = toSec(picked.duration);
-        if (dur === null) { dur = 0; }
+        if (outPt === null) { outPt = sourceIn + toSec(picked.duration); }
+        var dur = outPt - sourceIn;
+        if (!(dur > 0)) { dur = toSec(picked.duration); if (!(dur > 0)) { dur = 0; } }
         var tlStart = toSec(picked.start);
         if (tlStart === null) { tlStart = 0; }
 
         return amhOk({
             sourcePath: src,
             sourceIn: sourceIn,
+            sourceOut: outPt,
             duration: dur,
             timelineStart: tlStart,
             name: picked.projectItem.name,
@@ -326,7 +348,16 @@ function amharic_getSequenceInfo(all) {
         if (!seq) { return amhErr("No active sequence. Open one first."); }
 
         var toSec = function (timeObj) {
-            try { return Number(timeObj.seconds); } catch (e) { return null; }
+            if (timeObj === null || timeObj === undefined) { return null; }
+            try {
+                var s = Number(timeObj.seconds);
+                if (!isNaN(s)) { return s; }
+            } catch (e) {}
+            try {
+                var tk = Number(timeObj.ticks);
+                if (!isNaN(tk)) { return tk / AMH_TICKS_PER_SECOND; }
+            } catch (e) {}
+            return null;
         };
 
         // Work-area in/out (fall back to 0 / huge so everything is included).
@@ -352,10 +383,11 @@ function amharic_getSequenceInfo(all) {
                             var clip = track.clips[c];
                             if (!clip || !clip.projectItem) { continue; }
                             var tlStart = toSec(clip.start);
-                            var dur = toSec(clip.duration);
                             var sIn = toSec(clip.inPoint);
+                            var outPt = toSec(clip.outPoint);
+                            var dur = (outPt !== null && sIn !== null) ? (outPt - sIn) : toSec(clip.duration);
                             var src = amhMediaPath(clip.projectItem);
-                            if (tlStart === null || dur === null || dur <= 0) { continue; }
+                            if (tlStart === null || dur === null || !(dur > 0)) { continue; }
                             if (!src) { continue; }
                             // skip clips entirely outside the work area
                             if (filterByWorkArea && ((tlStart + dur) < inP || tlStart > outP)) { continue; }
