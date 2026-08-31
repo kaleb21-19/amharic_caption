@@ -102,6 +102,10 @@ PENDING = {}
 # optional file so pending survives a restart
 PENDING_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pending.json")
 
+# in-memory: buyer uid -> payment-proof photo file_id (sent before their
+# Machine ID). Consumed the moment their Machine ID completes the order.
+DRAFT_PHOTOS = {}
+
 
 def save_pending():
     try:
@@ -261,10 +265,12 @@ def admin_keyboard(action, payload):
 
 def home_keyboard(extra=None):
     kb = [
+        [{"text": "🎬 እንዴት እንደሚሰራ (How it works)", "callback_data": "menu:how"}],
         [{"text": "💳 መግዛት", "callback_data": "menu:buy"}],
         [{"text": "🛠 እንዴት እንደሚጫኑ", "callback_data": "menu:install"}],
-        [{"text": "❓ ጥያቄዎች", "callback_data": "menu:faq"}],
+        [{"text": "📍 Machine ID የት ነው?", "callback_data": "menu:guide"}],
         [{"text": "🔑 ሊሰንስ ቁልፍ ያግኙ", "callback_data": "menu:key"}],
+        [{"text": "❓ ጥያቄዎች", "callback_data": "menu:faq"}],
         [{"text": "👤 ድጋፍ ያነጋግሩ", "callback_data": "menu:support"}],
     ]
     return kb if extra is None else kb + extra
@@ -272,6 +278,27 @@ def home_keyboard(extra=None):
 
 def back_row():
     return [[{"text": "◀ ዋና ማውጫ", "callback_data": "menu:home"}]]
+
+
+def menu_how():
+    text = (
+        "🎬 <b>እንዴት እንደሚሰራ (How it works)</b>\n\n"
+        "ሙሉ ሂደቱን በ5 ደረጃ ይመልከቱ — ቀላል ነው! 👇\n\n"
+        "<b>① ይጫኑ (Install)</b>\n"
+        "ሶፍትዌሩን ያውርዱና ይጫኑ። ችግር ካለ \"🛠 እንዴት እንደሚጫኑ\" ይንኩ።\n\n"
+        "<b>② ይሞክሩ (Try) — ነጻ</b>\n"
+        "ከመግዛትዎ በፊት <b>2 ነጻ</b> ካፕሽን ይስሩ። እርካታ ካላስተኛ አይግዙም።\n\n"
+        "<b>③ ይክፈሉ (Pay)</b>\n"
+        f"<b>{PRICE}</b> በTelebirr ወደ <b>{TELEBIRR}</b> ይላኩ። "
+        "የክፍያ ማረጋገጫ ስክሪን ሾት ያንሱ (screenshot)።\n\n"
+        "<b>④ ያስገቡ (Send ID + proof)</b>\n"
+        "የክፍያ ስክሪን ሾትዎን እና <b>Machine ID</b>ዎን ይላኩ።\n\n"
+        "<b>⑤ ያግኙ (Get key)</b>\n"
+        "ክፍያዎን ካረጋገጥን በኋላ ሊሰንስ ቁልፍ ወደዚህ እንልክልዎታለን → "
+        "በፓነሉ License ውስጥ አስገብተው <b>Activate</b> ይጫኑ።\n\n"
+        "👉 ለመጀመር \"🛠 እንዴት እንደሚጫኑ\" ይንኩ።"
+    )
+    return text, home_keyboard(back_row())
 
 
 WELCOME = (
@@ -425,10 +452,12 @@ def menu_support():
 
 def machine_id_request(mid):
     return (
-        "📥 Machine ID ተቀብለናል: <code>{mid}</code>\n\n"
-        "እባክዎ <b>{price}</b> በTelebirr ወደ <b>{telebirr}</b> ይላኩ።\n\n"
-        "ከክፍያው በኋላ የማረጋገጫ ስክሪን ሾት (screenshot) ይላኩ። "
-        "ክፍያውን ካረጋገጥን በኋላ ቁልፍዎ ወደዚህ ይደርስዎታል።"
+        "📥 Machine ID ተቀብለናል: <code>{mid}</code> ✅\n\n"
+        "ሊሰንስ ቁልፍዎን ለማግኘት <b>2 ነገር</b> ብቻ ያስፈልጋል:\n\n"
+        "<b>① ይክፈሉ</b> — <b>{price}</b> በTelebirr ወደ <b>{telebirr}</b> ይላኩ።\n"
+        "<b>② የክፍያ ማረጋገጫ ስክሪን ሾት ይላኩ</b> — የ pay/confirmation ስክሪን ሾቱን "
+        "በዚህ ቻት ይላኩ።\n\n"
+        "እንደደረሰን፣ ክፍያዎን እናረጋግጣለን እና ቁልፍዎ ወደዚህ ይደርስዎታል ✅"
     ).format(mid=mid, price=PRICE, telebirr=TELEBIRR)
 
 
@@ -492,15 +521,67 @@ def handle_buyer_message(message):
     # The buyer typed a valid Machine ID — remove the "type here" hint keyboard.
     remove_reply_keyboard(chat_id)
 
+    # If the buyer already sent their payment screenshot, forward it now.
+    draft_photo = DRAFT_PHOTOS.pop(uid, None)
+
     # notify admin
     if ADMIN_ID:
-        send_text(ADMIN_ID,
+        order = (
             "🧾 <b>አዲስ ገዢ (New order)</b>\n\n"
             f"Machine ID: <code>{mid}</code>\n"
             f"ተጠቃሚ: @{uname} (id {uid})\n"
-            f"ምንጭ: {'ግል (private DM)' if is_pm else 'ቡድን (group)'}\n\n"
-            "ክፍያውን (Telebirr) ያረጋግጡ፣ ከዚያ ከታች ይንኩ:",
-            keyboard=admin_keyboard("pending", {"uid": uid}))
+            f"ምንጭ: {'ግል (private DM)' if is_pm else 'ቡድን (group)'}\n"
+            f"ክፍያ ማረጋገጫ: {'✅ ተቀብለናል' if draft_photo else '⚠️ ገና አልደረሰም'}\n\n"
+            "ክፍያውን (Telebirr) ያረጋግጡ፣ ከዚያ ከታች ይንኩ:"
+        )
+        kb = admin_keyboard("pending", {"uid": uid})
+        if draft_photo:
+            send_photo(ADMIN_ID, draft_photo, caption=order, keyboard=kb)
+        else:
+            send_text(ADMIN_ID, order, keyboard=kb)
+    return True
+
+
+def handle_buyer_photo(message):
+    """Accept a payment-proof screenshot and link it to the buyer's order."""
+    photos = message.get("photo")
+    if not photos:
+        return False
+    file_id = photos[-1]["file_id"]  # largest resolution
+    user = message.get("from", {})
+    uid = str(user.get("id"))
+    uname = user.get("username") or user.get("first_name") or ""
+    chat_id = message["chat"]["id"]
+    is_pm = message["chat"]["type"] in ("private",)
+
+    pending = PENDING.get(uid)
+    if not pending:
+        # No Machine ID yet — hold the photo, then ask for the Machine ID.
+        DRAFT_PHOTOS[uid] = file_id
+        send_text(chat_id,
+                  "🖼 የክፍያ ማረጋገጫ ተቀብለናል ✅\n\n"
+                  "አሁን እባክዎ የ<b>Machine ID</b>ዎን (8 ቁምፊ) ይላኩ።\n"
+                  "ፓነሉን ይክፈቱ → License → \"Your Machine ID\" ይቅዱ → ይላኩ።",
+                  keyboard=[[{"text": "📍 Machine ID የት ነው?", "callback_data": "menu:guide"}]])
+        return True
+
+    # They already sent a Machine ID — reassure and forward the proof to admin.
+    send_text(chat_id,
+              "✅ የክፍያ ማረጋገጫ ስክሪን ሾት ተቀብለናል!\n\n"
+              "አሁን ክፍያዎን እየፈተሽን ነው። ከተረጋገጠ በኋላ ሊሰንስ ቁልፍዎ "
+              "ወደዚህ ይደርስዎታል ✅ ስለታገሱ እናመሰግናለን!",
+              keyboard=None)
+    if ADMIN_ID:
+        mid = pending["machine_id"]
+        cap = (
+            "💳 <b>የክፍያ ማረጋገጫ (Payment proof)</b>\n\n"
+            f"Machine ID: <code>{mid}</code>\n"
+            f"ተጠቃሚ: @{uname} (id {uid})\n"
+            f"ምንጭ: {'ግል (DM)' if is_pm else 'ቡድን (group)'}\n\n"
+            "ስክሪን ሾቱን ይፈትሹ፣ ከዚያ ከታች ይንኩ:"
+        )
+        send_photo(ADMIN_ID, file_id, caption=cap,
+                   keyboard=admin_keyboard("pending", {"uid": uid}))
     return True
 
 
@@ -518,6 +599,9 @@ def handle_callback(cb):
         if kind == "home":
             edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"],
                       MENU, MENU_KEYBOARD)
+        elif kind == "how":
+            text, kb = menu_how()
+            edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"], text, kb)
         elif kind == "buy":
             text, kb = menu_buy()
             edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"], text, kb)
@@ -719,6 +803,10 @@ def main():
                     nms = msg.get("new_chat_members")
                     if nms:
                         send_text(chat["id"], WELCOME, MENU_KEYBOARD)
+                        continue
+
+                    # payment-proof screenshot?
+                    if msg.get("photo") and handle_buyer_photo(msg):
                         continue
 
                     if text.lower() in ("/start", "/start@amhariccaptionsbot", "/menu", "menu"):
