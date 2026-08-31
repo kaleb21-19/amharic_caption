@@ -344,6 +344,7 @@ let MAX_CHARS = 42;
 let cancelRequested = false;
 let lastSrtPath = null;
 let lastCues = [];
+let activeChild = null;
 
 function applySettings() {
   const s = loadSettings();
@@ -475,19 +476,24 @@ function pyFlags() {
 // offset shifts cue times to the timeline.
 function transcribe(sourcePath, outSrt, range, offset) {
   const wav = path.join(os.tmpdir(), 'amharic_' + Date.now() + '.wav');
+  const killActive = () => { try { if (activeChild) activeChild.kill(); } catch (e) {} };
   return new Promise((resolve, reject) => {
     const ffArgs = ['-v', 'error', '-y', '-i', sourcePath];
     if (range && range.duration > 0) {
       ffArgs.push('-ss', String(range.sourceIn), '-t', String(range.duration));
     }
     ffArgs.push('-ac', '1', '-ar', '16000', wav);
-    execFile(FFMPEG, ffArgs, (err) => {
-      if (err) { reject(new Error('ffmpeg failed: ' + (err.message || err))); return; }
+    activeChild = execFile(FFMPEG, ffArgs, (err) => {
+      if (err) {
+        try { fs.unlinkSync(wav); } catch (e) {}
+        reject(new Error('ffmpeg failed: ' + (err.message || err))); return;
+      }
       const pyArgs = [SCRIPT, wav, outSrt].concat(pyFlags());
       if (offset && offset !== 0) pyArgs.push('--offset', String(offset));
-      execFile(PYTHON, pyArgs, { maxBuffer: 32 * 1024 * 1024, env: AMH_ENV }, (perr, stdout) => {
-        if (perr) { reject(new Error('Python failed: ' + (perr.message || perr))); return; }
+      activeChild = execFile(PYTHON, pyArgs, { maxBuffer: 32 * 1024 * 1024, env: AMH_ENV }, (perr, stdout) => {
+        try { fs.unlinkSync(wav); } catch (e) {}
         if (cancelRequested) { reject(new Error('Cancelled')); return; }
+        if (perr) { reject(new Error('Python failed: ' + (perr.message || perr))); return; }
         const transcript = extractTranscripts(stdout).join('\n');
         let cues = [];
         try { cues = parseSrt(fs.readFileSync(outSrt, 'utf8')); } catch (e) {}
@@ -496,7 +502,7 @@ function transcribe(sourcePath, outSrt, range, offset) {
         resolve({ outSrt, cues, transcript });
       });
     });
-  });
+  }).finally(() => { activeChild = null; });
 }
 
 // Transcribe several extracted wavs in ONE Python process (one model load).
@@ -759,7 +765,10 @@ function setup() {
 
   $('runBtn').addEventListener('click', run);
   $('exportBtn').addEventListener('click', exportCaptions);
-  $('cancelBtn').addEventListener('click', () => { cancelRequested = true; });
+  $('cancelBtn').addEventListener('click', () => {
+    cancelRequested = true;
+    try { if (activeChild) activeChild.kill(); } catch (e) {}
+  });
 
   $('choose').addEventListener('click', () => $('fileInput').click());
   $('fileInput').addEventListener('change', () => runFromFile($('fileInput')));
