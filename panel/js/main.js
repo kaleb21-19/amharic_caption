@@ -308,8 +308,8 @@ function evalScript(jsx) {
 }
 
 function findFootage()      { return evalScript('amharic_findFootage()'); }
-function importCaptions(srtPath, startSeconds) {
-  const args = JSON.stringify({ srtPath, startSeconds: startSeconds || 0 });
+function importCaptions(srtPath, startSeconds, baseName) {
+  const args = JSON.stringify({ srtPath, startSeconds: startSeconds || 0, baseName: baseName || '' });
   return evalScript(`amh_importCaptions(${JSON.stringify(args)})`);
 }
 function getSelectedClip()  { return evalScript('amharic_getSelectedClip()'); }
@@ -551,7 +551,7 @@ function showTranscript(text) {
 
 async function finishImport(outSrt, label, startSeconds) {
   log('Importing onto caption track (requested start ' + (startSeconds || 0).toFixed(2) + 's)…');
-  const imp = await importCaptions(outSrt, startSeconds || 0);
+  const imp = await importCaptions(outSrt, startSeconds || 0, label);
   if (imp.ok) {
     log('Imported: ' + imp.captionItemName + ' (placement: ' + imp.placement + ')');
     if (imp.requestedStart !== undefined && imp.landedStart !== undefined &&
@@ -627,7 +627,15 @@ async function runSelectedClip() {
   log('Placing caption band at timeline position 0 (SRT has absolute times).');
   showTranscript(r.transcript);
 
-  await finishImport(outSrt, c.name, 0);
+  // Import via a UNIQUELY named copy so Premiere is forced to create a fresh
+  // caption item on every run instead of reusing a stale/cached one (which was
+  // why the timeline kept showing the previous transcription). The canonical
+  // output/mehari.srt is still saved for the user's reference.
+  const importSrt = OUT_DIR + '/_import_' + Date.now() + '_' +
+    (c.name.replace(/\.[^.]+$/, '') || 'captions') + '.srt';
+  try { fs.copyFileSync(outSrt, importSrt); } catch (e) {}
+  await finishImport(importSrt, c.name, 0);
+  try { fs.unlinkSync(importSrt); } catch (e) {}
 }
 
 async function runWorkArea() {
@@ -673,7 +681,10 @@ async function runWorkArea() {
   log('Sequence captions written: ' + outSrt + ' (' + r.cues.length + ' cues).');
   showTranscript(r.transcript);
 
-  await finishImport(outSrt, 'sequence');
+  const importSrt = OUT_DIR + '/_import_' + Date.now() + '_sequence.srt';
+  try { fs.copyFileSync(outSrt, importSrt); } catch (e) {}
+  await finishImport(importSrt, 'sequence');
+  try { fs.unlinkSync(importSrt); } catch (e) {}
 }
 
 // ------------------------------------------------------------ choose file
@@ -714,7 +725,10 @@ async function runFile(filePath, fileName) {
     setProgress(0.9, 'Transcription complete');
     log('Transcription complete. ' + (fs.statSync(outSrt).size) + ' bytes -> ' + outSrt);
     showTranscript(r.transcript);
-    await finishImport(outSrt, fileName);
+    const importSrt = path.join(os.tmpdir(), '_amh_import_' + Date.now() + '_' + path.basename(outSrt));
+    try { fs.copyFileSync(outSrt, importSrt); } catch (e) {}
+    await finishImport(importSrt, fileName);
+    try { fs.unlinkSync(importSrt); } catch (e) {}
   } catch (e) {
     if (!cancelRequested) log('ERROR: ' + (e && e.message ? e.message : e));
   } finally {

@@ -462,7 +462,10 @@ function amh_importCaptions(argsJSON) {
 
         var srt = new File(args.srtPath);
         if (!srt.exists) { return amhErr("Caption file not found: " + args.srtPath); }
-        var baseName = srt.name.replace(/\.srt$/i, "");
+        // baseName is the clean, human-facing label used to find/remove caption
+        // items (e.g. "mehari"), so recreating with a uniquely-named temp SRT
+        // file never leaves stale or duplicate items in the bin.
+        var baseName = (args.baseName || "").replace(/\.srt$/i, "") || "captions";
         var bin = amhFindOrCreateBin(AMH_CAPTION_BIN);
         // Remove any pre-existing caption item with this name so a re-run
         // always lands a single, freshly-updated caption item (no duplicates,
@@ -523,17 +526,20 @@ function amh_importCaptions(argsJSON) {
 }
 
 function amhFindCaptionItem(bin, baseName) {
+    // Return the LAST (most recently added) matching child so we never pick a
+    // stale caption item from a previous run.
+    var found = null;
     try {
         for (var i = 0; i < bin.children.numItems; i++) {
             var ch = bin.children[i];
             var nm = "";
             try { nm = String(ch.name); } catch (e) {}
             if (nm.toLowerCase().indexOf(baseName.toLowerCase()) >= 0) {
-                return ch;
+                found = ch;
             }
         }
     } catch (e) {}
-    return null;
+    return found;
 }
 
 function amhRemoveCaptionItems(bin, baseName) {
@@ -542,10 +548,12 @@ function amhRemoveCaptionItems(bin, baseName) {
             var ch = bin.children[i];
             var nm = "";
             try { nm = String(ch.name); } catch (e) {}
-            if (nm.toLowerCase().indexOf(baseName.toLowerCase()) >= 0) {
-                try { ch.deleteMatchingFootage(); } catch (e) {}
-                try { ch.deleteSelf(); } catch (e) {}
-            }
+            if (nm.toLowerCase().indexOf(baseName.toLowerCase()) < 0) { continue; }
+            // Try every plausible delete method; caption items sometimes only
+            // respond to one of them.
+            try { ch.deleteMatchingFootage(); } catch (e) {}
+            try { ch.deleteSelf(); } catch (e) {}
+            try { ch.media.detach(); } catch (e) {}
         }
     } catch (e) {}
 }
