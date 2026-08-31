@@ -70,6 +70,7 @@ function validateLicense(key, machineId) {
 }
 
 let LICENSED = false;
+let LICENSED_REFRESH = false;
 
 // Free-trial credits: an unlicensed user may run this many transcriptions
 // before being asked to enter a license key. Count is stored per-machine.
@@ -106,11 +107,13 @@ function updateLicenseUI() {
   const licBtn = document.getElementById('licenseActivate');
   const licStatus = document.getElementById('licenseStatus');
   const runBtn = document.getElementById('runBtn');
+  const banner = document.getElementById('trialBanner');
 
   if (midEl) midEl.textContent = MACHINE_ID;
 
   if (lic && lic.valid) {
     LICENSED = true;
+    if (banner) banner.style.display = 'none';
     if (licStatus) {
       licStatus.textContent = 'Licensed' + (lic.expiry && lic.expiry !== '00000000' ? ' (expires ' + lic.expiry + ')' : '');
       licStatus.style.color = 'var(--ok)';
@@ -127,19 +130,26 @@ function updateLicenseUI() {
     const rem = trialRemaining();
     if (rem > 0) {
       // Free trial: allow running, but the Generate button is enabled.
+      if (banner) banner.style.display = 'none';
       if (licStatus) {
         licStatus.textContent = 'Trial: ' + rem + ' free transcription' + (rem === 1 ? '' : 's') + ' left';
         licStatus.style.color = 'var(--warn)';
       }
       if (runBtn) runBtn.disabled = false;
     } else {
+      // Trial used up: make the path to purchase unmistakable.
+      if (banner) banner.style.display = 'block';
+      if (banner && typeof banner.scrollIntoView === 'function' && !LICENSED_REFRESH) {
+        try { banner.scrollIntoView({ block: 'center' }); } catch (e) {}
+      }
       if (licStatus) {
-        licStatus.textContent = 'Trial used. Enter your license key below to continue.';
+        licStatus.textContent = 'Trial used. Enter your license key above to continue.';
         licStatus.style.color = 'var(--warn)';
       }
       if (runBtn) runBtn.disabled = true;
     }
   }
+  LICENSED_REFRESH = false;
 }
 
 async function activateLicense() {
