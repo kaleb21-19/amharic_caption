@@ -440,6 +440,22 @@ def menu_guide():
     return text, kb
 
 
+def menu_screenshot_help():
+    text = (
+        "📸 <b>የክፍያ ስክሪን ሾት እንዴት ይላካል?</b>\n\n"
+        "በTelebirr <b>{price}</b> ወደ <b>{telebirr}</b> ከከፈሉ በኋላ፣ "
+        "በስልክዎ ላይ የታየውን \"<b>ክፍያ ተሳክቷል / Success</b>\" ስክሪን "
+        "ሾት ይንሱ (screenshot ይውሰዱ)።\n\n"
+        "በTelegram ላይ ሾቱን ለመላክ:\n"
+        "<b>①</b> ከታች ባለው <b>📎 (paperclip)</b> ምልክት ይንኩ\n"
+        "<b>②</b> ስክሪን ሾቱን ይምረጡ (Gallery/Photos)\n"
+        "<b>③</b> <b>Send</b> ይጫኑ\n\n"
+        "ሾቱ እዚህ እንደደረሰ፣ የክፍያዎን ማረጋገጫ እናረጋግጣለን እና ቁልፍዎን "
+        "በዚህ ቦት እንልክልዎታለን ✅"
+    ).format(price=PRICE, telebirr=TELEBIRR)
+    return text, home_keyboard(back_row())
+
+
 def menu_support():
     text = (
         "👤 <b>ድጋፍ</b>\n\n"
@@ -452,12 +468,13 @@ def menu_support():
 
 def machine_id_request(mid):
     return (
-        "📥 Machine ID ተቀብለናል: <code>{mid}</code> ✅\n\n"
-        "ሊሰንስ ቁልፍዎን ለማግኘት <b>2 ነገር</b> ብቻ ያስፈልጋል:\n\n"
-        "<b>① ይክፈሉ</b> — <b>{price}</b> በTelebirr ወደ <b>{telebirr}</b> ይላኩ።\n"
-        "<b>② የክፍያ ማረጋገጫ ስክሪን ሾት ይላኩ</b> — የ pay/confirmation ስክሪን ሾቱን "
-        "በዚህ ቻት ይላኩ።\n\n"
-        "እንደደረሰን፣ ክፍያዎን እናረጋግጣለን እና ቁልፍዎ ወደዚህ ይደርስዎታል ✅"
+        "📥 <b>Machine ID ተቀብለናል:</b> <code>{mid}</code> ✅\n\n"
+        "ትዕዛዝዎ (order) <b>3 ደረጃ</b> አለው — እስካሁን <b>1ቱን</b> አጠናቀዋል:\n\n"
+        "1⃣ Machine ID — <code>{mid}</code>  ✅ <b>ተቀብለናል</b>\n"
+        "2⃣ ክፍያ (Pay) — <b>{price}</b> → Telebirr <b>{telebirr}</b>  ⬅️ <b>አሁን ይክፈሉ</b>\n"
+        "3⃣ ስክሪን ሾት — የክፍያ ማረጋገጫ (receipt) ይላኩ  (ከክፍያው በኋላ)\n\n"
+        "👉 መጀመሪያ <b>ይክፈሉ</b>፣ ከዚያ የክፍያ ማረጋገጫ <b>ስክሪን ሾቱን</b> በዚህ ቻት ይላኩ።\n"
+        "ክፍያዎ ከተረጋገጠ በኋላ ሊሰንስ ቁልፍዎ በዚህ ቦት ይደርስዎታል ✅"
     ).format(mid=mid, price=PRICE, telebirr=TELEBIRR)
 
 
@@ -482,6 +499,25 @@ def key_delivery_message(key, expiry="00000000", chat_type="private"):
 # ── helpers ─────────────────────────────────────────────────────────────────
 MACHINE_ID_RE = re.compile(r"\b[a-f0-9]{8}\b")
 
+def _suspicious_mid(mid):
+    """Reject obviously-fake IDs that match the pattern by coincidence."""
+    mid = mid.lower()
+    if len(mid) != 8:
+        return True
+    if len(set(mid)) == 1:            # aaaaaaaa, 00000000, ffffffff
+        return True
+    if mid in ("00000000", "11111111", "12345678", "abcdefgh",
+               "abcdef01", "deadbeef", "feedface", "cafebabe"):
+        return True
+    # sequential like 12345678 / abcdef etc.
+    seq = "0123456789abcdef"
+    for i in range(len(seq) - 7):
+        if mid == seq[i:i + 8]:
+            return True
+        if mid == seq[i:i + 8][::-1]:
+            return True
+    return False
+
 def mid_of_pending_or_none(uid):
     p = PENDING.get(str(uid))
     return p["machine_id"] if p else None
@@ -502,6 +538,17 @@ def handle_buyer_message(message):
     chat_id = message["chat"]["id"]
     is_pm = message["chat"]["type"] in ("private",)
 
+    # Reject an obviously-fake Machine ID (00000000, aaaaaaaa, etc.) so the
+    # buyer is re-prompted instead of being booked as a real order.
+    if _suspicious_mid(mid):
+        send_text(chat_id,
+                  f"⚠️ <code>{mid}</code> እርግጠኛ የሆነ <b>Machine ID</b> አይመስልም።\n\n"
+                  "Machine ID በሶፍትዌሩ ፓነል ውስጥ \"<b>Your Machine ID</b>\" በሚለው "
+                  "ሳጥን ውስጥ የታየው <b>8 ቁምፊ ብቻ</b> ነው (ለምሳሌ <code>a1b2c3d4</code>)።\n"
+                  "እባክዎ እውነተኛውን ይቅዱና ይላኩ።",
+                  keyboard=[[{"text": "📍 Machine ID የት ነው?", "callback_data": "menu:guide"}]])
+        return True
+
     # Already delivered a key for this machine?
     existing = find_key(mid)
     if existing:
@@ -518,8 +565,12 @@ def handle_buyer_message(message):
     save_pending()
 
     send_text(chat_id, machine_id_request(mid), keyboard=None)
-    # The buyer typed a valid Machine ID — remove the "type here" hint keyboard.
-    remove_reply_keyboard(chat_id)
+    # Next action is crystal clear: send the payment screenshot.
+    send_with_hint(chat_id,
+                   "📸 የክፍያዎን ማረጋገጫ ስክሪን ሾት አሁን ይላኩ (ከክፍያው በኋላ)።",
+                   "የክፍያ ስክሪን ሾትን እዚህ ይላኩ...",
+                   keyboard=[[{"text": "🖼 ስክሪን ሾት እንዴት እንደሚላኩ", "callback_data": "menu:screenshot_help"}],
+                             [{"text": "◀ ዋና ማውጫ", "callback_data": "menu:home"}]])
 
     # If the buyer already sent their payment screenshot, forward it now.
     draft_photo = DRAFT_PHOTOS.pop(uid, None)
@@ -639,8 +690,12 @@ def handle_callback(cb):
                 send_text(chat,
                           "🖼 በቅርቡ የMachine ID ቦታ ሥዕል ይኖራል። "
                           "ስካሁን ደግሞ \"🛠 እንዴት እንደሚጫኑ\" ይንኩ።",
-                          keyboard=[[{"text": "🛠 እንዴት እንደሚጫኑ", "callback_data": "menu:install"}],
-                                    [{"text": "◀ ዋና ማውጫ", "callback_data": "menu:home"}]])
+                    keyboard=[[{"text": "🛠 እንዴት እንደሚጫኑ", "callback_data": "menu:install"}],
+                              [{"text": "◀ ዋና ማውጫ", "callback_data": "menu:home"}]])
+        elif kind == "screenshot_help":
+            text, kb = menu_screenshot_help()
+            chat = cb["message"]["chat"]["id"]
+            edit_text(chat, cb["message"]["message_id"], text, kb)
         return
 
     # admin-only actions
