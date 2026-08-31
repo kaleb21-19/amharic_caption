@@ -550,10 +550,16 @@ function showTranscript(text) {
 }
 
 async function finishImport(outSrt, label, startSeconds) {
-  log('Importing onto caption track (start ' + (startSeconds || 0).toFixed(2) + 's)…');
+  log('Importing onto caption track (requested start ' + (startSeconds || 0).toFixed(2) + 's)…');
   const imp = await importCaptions(outSrt, startSeconds || 0);
   if (imp.ok) {
     log('Imported: ' + imp.captionItemName + ' (placement: ' + imp.placement + ')');
+    if (imp.requestedStart !== undefined && imp.landedStart !== undefined &&
+        imp.landedStart !== null) {
+      log('Caption landed at timeline ' + imp.landedStart.toFixed(2) + 's → ' +
+          (imp.landedEnd !== null ? imp.landedEnd.toFixed(2) + 's' : '?') +
+          '  (requested ' + imp.requestedStart.toFixed(2) + 's)');
+    }
     if (!imp.placed && imp.note) log('Note: ' + imp.note);
     log('Captions added to the CC (caption) track. If you can\'t see them:');
     log('  expand the caption track at the bottom of the timeline, and');

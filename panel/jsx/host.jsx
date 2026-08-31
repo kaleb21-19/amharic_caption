@@ -489,10 +489,28 @@ function amh_importCaptions(argsJSON) {
 
         var result = amhPlaceCaptions(seq, captionItem, ticks, startSeconds);
 
+        // Diagnostic: read back where the caption actually landed on the
+        // timeline so we can correlate "requested start" vs "real start".
+        var landedStart = null, landedEnd = null;
+        try {
+            var cts = seq.captionTracks;
+            if (cts && cts.numTracks > 0) {
+                var t0 = cts[0];
+                var sc = t0.clips.numItems > 0 ? t0.clips[0] : null;
+                if (sc) {
+                    try { landedStart = sc.start.seconds; } catch (e) {}
+                    try { landedEnd = sc.end.seconds; } catch (e) {}
+                }
+            }
+        } catch (e) {}
+
         return amhOk({
             captionItemName: captionItem.name,
             placement: result.how,
             placed: result.placed,
+            requestedStart: startSeconds,
+            landedStart: landedStart,
+            landedEnd: landedEnd,
             note: result.note || ""
         });
     });
