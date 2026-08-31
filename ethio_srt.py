@@ -21,6 +21,19 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
+# Windows console/stdio may default to cp1252, which cannot encode the Amharic
+# transcript we print to stdout. Force UTF-8 so the panel can read it back.
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+try:
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 import numpy as np  # noqa: E402
 import soundfile as sf  # noqa: E402
 

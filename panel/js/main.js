@@ -312,7 +312,15 @@ const OUT_DIR  = RUNTIME     ? runtimePath('output')           : runtimePath('ou
 const RUNTIME_LABEL = RUNTIME ? RUNTIME : '(not found)';
 
 // Environment passed to the transcription process so it finds the model.
-const AMH_ENV = Object.assign({}, process.env, { AMH_MODEL_DIR: MODEL_DIR });
+// Child Python must emit UTF-8. On Windows the console code page is often
+// cp1252, which cannot encode Amharic and would crash when the transcript is
+// printed to stdout. Force UTF-8 for stdout/stderr and locale.
+const AMH_ENV = Object.assign({}, process.env, {
+  AMH_MODEL_DIR: MODEL_DIR,
+  PYTHONIOENCODING: 'utf-8',
+  PYTHONUTF8: '1',
+  PYTHONUNBUFFERED: '1'
+});
 
 const $ = (id) => document.getElementById(id);
 
