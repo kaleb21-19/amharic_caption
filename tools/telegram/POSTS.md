@@ -65,6 +65,8 @@ Copy-paste ready. Post these when you launch, and reuse later for reach.
 
 > 🛠 **እንዴት እንደሚጫኑ** (Install steps)
 >
+> ⚠️ Premiere Pro **2024 (v24) or newer** ያስፈልጋል (older versions are NOT supported).
+>
 > 1. ለኮምፒውተርህ የሚሆነውን ፋይል ከ
 >    https://github.com/kaleb21-19/amharic_caption/releases/latest አውርድ
 >    (Windows → `amharic-captions-win-x64.zip`)

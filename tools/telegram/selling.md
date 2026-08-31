@@ -84,8 +84,11 @@ computer you need a separate key.
 **ኮምፒውተሬን ቀይሬያለሁ / key አጣሁ?** DM admin — we can reactivate for the same
 account (proof of purchase needed).
 
-**ምን አይነት ኮምፒውተር ያስፈልጋል?** Windows or Mac with Premiere Pro 2021 or newer.
-The Amharic model runs fully on your machine (no internet needed).
+**ምን አይነት ኮምፒውተር ያስፈልጋል?** Windows or Mac with **Premiere Pro 2024 (v24) or newer** (the manifest
+only registers on PPRO v24.0+). The Amharic model runs fully on your machine (no internet).
+
+> ⚠️ Buyers: **Premiere Pro 2024+ (v24) is required.** Older versions (2021/2022/2023) are NOT
+> supported — the extension will not appear in the Extensions menu there.
 
 ---
 

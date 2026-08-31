@@ -8,6 +8,12 @@ Local Amharic speech-to-text captions for Adobe Premiere Pro. Runs entirely on-d
 - **Payment:** Telebirr (mobile money)
 - **License:** Per-machine, hardware-locked (one key per PC)
 
+## Requirements
+
+- **Adobe Premiere Pro 2024 or newer (v24.0+)** — the manifest only registers on
+  PPRO 24.0+. It does **not** load on Premiere 2021/2022/2023.
+- Windows 10/11 or macOS (Apple Silicon or Intel). No internet needed at runtime.
+
 ## Buy
 
 Pay **ETB 1,500** via Telebirr to **0907 628 809**.
