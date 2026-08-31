@@ -8,14 +8,15 @@ Local Amharic speech-to-text captions for Adobe Premiere Pro. Runs entirely on-d
 - **Payment:** Telebirr (mobile money)
 - **License:** Per-machine, hardware-locked (one key per PC)
 
-## How buyers purchase
+## Buy
+
+Pay **ETB 1,500** via Telebirr to **0907 628 809**.
 
 1. Install the extension (unzip → copy `com.amharic.captions` to `C:\Program Files (x86)\Common Files\Adobe\CEP\extensions\`)
 2. Restart Premiere Pro → Extensions → Amharic Captions
 3. Copy the **Machine ID** shown in the License section
-4. Send payment via Telebirr to **[YOUR TELEBIRR NUMBER]** with the Machine ID as reference
-5. You (developer) receive payment, run `keygen.py <machine_id>`, send the license key back
-6. Buyer pastes the key into the panel → Activate → done
+4. Send payment via Telebirr to **0907 628 809**, then send your **Machine ID** + payment screenshot to get your license key
+5. Paste the key into the panel → **Activate** → done. One key per machine (hardware-locked).
 
 ## Developer tools
 

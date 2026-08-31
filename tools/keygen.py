@@ -54,6 +54,7 @@ def main():
     print(f"License key: {key}")
     print()
     print("Send this key to the buyer. They paste it into the panel's License section.")
+    print("Buyer pays ETB 1,500 via Telebirr to 0907 628 809 to unlock.")
 
 
 if __name__ == "__main__":
