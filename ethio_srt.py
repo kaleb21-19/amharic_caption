@@ -119,9 +119,30 @@ class _CT2Engine:
     def _align(self, wav, logits):
         T = logits.shape[1]
         frame_dur = (len(wav) / 16000) / T
-        spans, _ = ctc_align(logits, self.blank_id, frame_dur, None)
+        # CTC prefix beam search: better text than greedy argmax, and the
+        # returned token segments (from the same winning path) give timing
+        # that stays consistent with that text.
+        #   AMH_BEAM=0 disables beam search (pure greedy, faster).
+        #   AMH_BEAM_TOP_K bounds per-frame candidates for speed.
+        if os.environ.get("AMH_BEAM", "1") != "0":
+            try:
+                from ctc_beam import ctc_beam_decode
+                top_k = int(os.environ.get("AMH_BEAM_TOP_K", "40"))
+                beam_text, segs = ctc_beam_decode(
+                    np.asarray(logits, dtype=np.float32),
+                    self.blank_id,
+                    glyphs=self.glyphs,
+                    beam_width=40,
+                    top_k=top_k,
+                )
+                spans = list(segs)
+                return beam_text, spans, frame_dur
+            except Exception:
+                # Fall back to greedy if beam search is unavailable/unexpected.
+                pass
         argmax = np.argmax(logits[0], axis=-1).tolist()
         text = self._decode(argmax)
+        spans, _ = ctc_align(logits, self.blank_id, frame_dur, None)
         return text, spans, frame_dur
 
     def _decode(self, ids):

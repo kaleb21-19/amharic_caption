@@ -42,10 +42,11 @@ trap 'rm -rf "$BUILD_DIR"' EXIT
 
 echo "== building runtime for: $TARGET =="
 
-# ethio_srt.py + standalone numpy mel extractor
+# ethio_srt.py + standalone numpy mel extractor + beam-search decoder
 cp "$ROOT/ethio_srt.py" "$RT/ethio_srt.py"
 cp "$ROOT/amh_mel.py" "$RT/amh_mel.py"
-echo "  [ok] ethio_srt.py + amh_mel.py"
+cp "$ROOT/ctc_beam.py" "$RT/ctc_beam.py"
+echo "  [ok] ethio_srt.py + amh_mel.py + ctc_beam.py"
 
 # model — prefer the CTranslate2 INT8 model (tools/make_model_ct2_int8.sh):
 # ~600MB, no torch/transformers at runtime. Dev fallback: fp16/fp32.
