@@ -40,6 +40,7 @@ def _env(key, default=""):
 
 TOKEN = _env("AMH_TG_TOKEN", "").strip()
 ADMIN_ID = _env("AMH_ADMIN_ID", "").strip()
+GROUP_ID = _env("AMH_GROUP_ID", "").strip()
 PRICE = "ETB 1,500"
 TELEBIRR = "0907 628 809"
 LEDGER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "customers.csv")
@@ -116,7 +117,9 @@ CONTACTS = {}
 CONTACTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "contacts.json")
 
 # Admin-only: when True, the admin's next private text is a broadcast message.
+# ANNOUNCE_TO says where to send it: "dm" (all known buyers) or "group" (sales group).
 BROADCASTING = False
+ANNOUNCE_TO = None
 
 
 
@@ -681,17 +684,20 @@ def _render_or_edit(chat_id, message_id, text, keyboard):
 def _admin_panel(chat_id, message_id):
     """Build the admin dashboard (pending orders + broadcast)."""
     n = len(PENDING)
+    group_note = f" · group set" if GROUP_ID else ""
     text = (
         "🛠 <b>Admin</b>\n\n"
         f"Pending orders: <b>{n}</b>\n"
-        f"Broadcast recipients: <b>{len(CONTACTS)}</b>\n\n"
+        f"Broadcast recipients: <b>{len(CONTACTS)}</b>{group_note}\n\n"
         "Book the Telebirr payment for each order, then Approve."
     )
     kb = [
         [{"text": f"📋 Pending orders ({n})", "callback_data": "admin:pending"}],
-        [{"text": "📢 Broadcast", "callback_data": "admin:broadcast"}],
-        [{"text": "◀ Menu", "callback_data": "menu:home"}],
+        [{"text": "📢 Broadcast to buyers", "callback_data": "admin:broadcast"}],
     ]
+    if GROUP_ID:
+        kb.append([{"text": "📣 Announce to group", "callback_data": "admin:announce"}])
+    kb.append([{"text": "◀ Menu", "callback_data": "menu:home"}])
     _render_or_edit(chat_id, message_id, text, kb)
 
 
@@ -718,10 +724,24 @@ def _admin_list_pending(chat_id, message_id):
 
 def _admin_broadcast(chat_id, message_id):
     """Ask the admin for the broadcast message text."""
-    global BROADCASTING
+    global BROADCASTING, ANNOUNCE_TO
     BROADCASTING = True
+    ANNOUNCE_TO = "dm"
     text = ("📢 <b>Broadcast</b>\n\n"
-            f"This will send a message to all {len(CONTACTS)} known buyers.\n"
+            f"This will DM all {len(CONTACTS)} known buyers.\n"
+            "Reply with the message text to send, or /cancel.")
+    _render_or_edit(chat_id, message_id, text,
+                    keyboard=[[{"text": "✖ Cancel", "callback_data": "admin:cancel"}]])
+    return text
+
+
+def _admin_announce(chat_id, message_id):
+    """Ask the admin for the group announcement text."""
+    global BROADCASTING, ANNOUNCE_TO
+    BROADCASTING = True
+    ANNOUNCE_TO = "group"
+    text = ("📣 <b>Announce to group</b>\n\n"
+            "This will post a message to your sales group.\n"
             "Reply with the message text to send, or /cancel.")
     _render_or_edit(chat_id, message_id, text,
                     keyboard=[[{"text": "✖ Cancel", "callback_data": "admin:cancel"}]])
@@ -741,6 +761,18 @@ def _broadcast_send(text):
         except Exception:
             continue
     return n
+
+
+def _announce_group(text):
+    """Post a message to the configured sales group (GROUP_ID)."""
+    if not GROUP_ID:
+        return False
+    try:
+        r = send_text(GROUP_ID, text, keyboard=None)
+        return bool(r and r.get("ok"))
+    except Exception as e:
+        print(f"[announce] error: {e}", file=sys.stderr)
+        return False
 
 
 def handle_buyer_message(message):
@@ -878,7 +910,7 @@ def handle_buyer_photo(message):
 
 # ── callback handling ───────────────────────────────────────────────────────
 def handle_callback(cb):
-    global BROADCASTING
+    global BROADCASTING, ANNOUNCE_TO
     data = cb.get("data", "")
     cb_id = cb["id"]
     from_user = cb.get("from", {})
@@ -988,8 +1020,11 @@ def handle_callback(cb):
             _admin_list_pending(chat, mid)
         elif action == "broadcast":
             _admin_broadcast(chat, mid)
+        elif action == "announce":
+            _admin_announce(chat, mid)
         elif action == "cancel":
             BROADCASTING = False
+            ANNOUNCE_TO = None
             _admin_panel(chat, mid)
         return
 
@@ -1085,7 +1120,7 @@ def main():
                          "and print the last private chat id (your admin id). DM the bot "
                          "first, then run this.")
     args = ap.parse_args()
-    global BROADCASTING
+    global BROADCASTING, ANNOUNCE_TO
 
     if args.check_token:
         try:
@@ -1206,14 +1241,26 @@ def main():
                             and str(msg.get("from", {}).get("id")) == ADMIN_ID:
                         if text.lower() in ("/cancel", "/cancel@amhariccaptionsbot"):
                             BROADCASTING = False
+                            ANNOUNCE_TO = None
                             send_text(chat["id"], "Broadcast cancelled.", keyboard=None)
                             continue
                         if text:
-                            n = _broadcast_send(text)
-                            BROADCASTING = False
-                            send_text(chat["id"],
-                                      f"📢 Broadcast sent to {n} recipient(s).",
-                                      keyboard=None)
+                            target = ANNOUNCE_TO
+                            if target == "group":
+                                ok = _announce_group(text)
+                                BROADCASTING = False
+                                ANNOUNCE_TO = None
+                                send_text(chat["id"],
+                                          "📣 Posted to the sales group." if ok
+                                          else "⚠️ Couldn't post to the group.",
+                                          keyboard=None)
+                            else:
+                                n = _broadcast_send(text)
+                                BROADCASTING = False
+                                ANNOUNCE_TO = None
+                                send_text(chat["id"],
+                                          f"📢 Broadcast sent to {n} recipient(s).",
+                                          keyboard=None)
                             continue
                         continue
 

@@ -3,4 +3,5 @@ __pycache__/
 telegram/.env
 telegram/bot.env
 telegram/pending.json
+telegram/contacts.json
 telegram/*.token
