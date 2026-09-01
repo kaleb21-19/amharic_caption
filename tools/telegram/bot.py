@@ -106,6 +106,10 @@ PENDING_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pending
 # Machine ID). Consumed the moment their Machine ID completes the order.
 DRAFT_PHOTOS = {}
 
+# in-memory: buyer uid -> proof session for the "send proof" flow.
+# { "mid": str|None, "photo": file_id|None }
+PROOF = {}
+
 
 
 def save_pending():
@@ -354,15 +358,41 @@ def menu_buy():
 
 def menu_pay():
     text = (
-        "💰 <b>Pay — Steps</b>\n\n"
-        f"Amount: <b>{PRICE}</b>\n"
+        "💰 <b>Pay</b>\n\n"
+        f"Amount: <b>{PRICE}</b> (one-time, forever license)\n"
         f"Telebirr: <b>{TELEBIRR}</b>\n\n"
         "1️⃣ Send <b>ETB 1,500</b> via Telebirr to <b>0907 628 809</b>\n"
-        "2️⃣ Screenshot the payment\n"
-        "3️⃣ Send screenshot + your <b>Machine ID</b> here\n"
-        "4️⃣ We verify → send your <b>license key</b> here ✅"
+        "2️⃣ Screenshot the payment\n\n"
+        "Then tap the button below to send your proof."
     )
-    return text, base_nav()
+    kb = [
+        [{"text": "📤 I've paid — send proof", "callback_data": "pay:proof"}],
+    ] + base_nav()
+    return text, kb
+
+
+def menu_payproof(uid):
+    """Live checklist screen for the 'send proof' flow (already started)."""
+    p = PROOF.get(uid, {"mid": None, "photo": None})
+    mid = "✅ received" if p["mid"] else "⏳ waiting"
+    photo = "✅ received" if p["photo"] else "⏳ waiting"
+    done = bool(p["mid"] and p["photo"])
+    text = (
+        "📤 <b>Send proof</b>\n\n"
+        "Send your <b>Machine ID</b> (text) and your <b>Telebirr screenshot</b> "
+        "(photo) here — <b>any order</b>.\n\n"
+        f"• Machine ID: {mid}\n"
+        f"• Telebirr screenshot: {photo}\n\n"
+        + ("✅ <b>All received!</b> We're checking now — your key will arrive here shortly."
+           if done else "👇 Send whatever is still missing:"
+           )
+    )
+    kb = [
+        [{"text": "📍 Where is my Machine ID?", "callback_data": "menu:guide"}],
+        [{"text": "1️⃣ Pay", "callback_data": "menu:pay"}],
+        [{"text": "◀ Menu", "callback_data": "menu:home"}],
+    ]
+    return text, kb
 
 
 def menu_help():
@@ -530,6 +560,48 @@ def mid_of_pending_or_none(uid):
     return p["machine_id"] if p else None
 
 
+def _send_proof_checklist(chat_id, uid):
+    """Send the buyer's live 'send proof' checklist (used when not complete)."""
+    text, kb = menu_payproof(uid)
+    body = text.rsplit("\n", 1)[0]  # drop the trailing hint line
+    hint = "⏳ Send what's still missing ⏳"
+    send_text(chat_id, body + "\n\n" + hint, keyboard=kb)
+    return
+
+
+def _complete_proof(uid, chat_id, uname, is_pm):
+    """Both Machine ID + screenshot received -> build order + notify admin."""
+    p = PROOF.pop(uid, None)
+    mid = p["mid"] if p else None
+    photo = p.get("photo") if p else None
+    if not mid:
+        return
+    default_expiry = "00000000"
+    PENDING[uid] = {"machine_id": mid, "expiry": default_expiry,
+                    "username": uname, "chat_id": str(chat_id),
+                    "chat_type": "private" if is_pm else "group"}
+    save_pending()
+    send_text(chat_id,
+              "✅ <b>All received!</b>\n\n"
+              f"Machine ID: <code>{mid}</code>\n"
+              "Telebirr screenshot: ✅\n\n"
+              "We're checking now. Your license key will be sent here once verified 🙏")
+    if ADMIN_ID:
+        cap = (
+            "🧾 <b>New order — payment proof</b>\n\n"
+            f"Machine ID: <code>{mid}</code>\n"
+            f"User: @{uname} (id {uid})\n"
+            f"Source: {'DM' if is_pm else 'Group'}\n\n"
+            "Check the Telebirr screenshot, then Approve or Reject:"
+        )
+        kb = admin_keyboard("pending", {"uid": uid})
+        if photo:
+            send_photo(ADMIN_ID, photo, caption=cap, keyboard=kb)
+        else:
+            send_text(ADMIN_ID, cap, keyboard=kb)
+
+
+
 def handle_buyer_message(message):
     """Return True if a message was treated as a Machine ID submission."""
     text = (message.get("text") or "").strip()
@@ -562,6 +634,15 @@ def handle_buyer_message(message):
         send_text(chat_id,
                   f"⚠️ ይህ Machine ID (ለ<code>{mid}</code>) ቪዲዮ ቀድሞውኑ ቁልፍ አለው። "
                   "ቁልፍ ማግኘት ካልቻሉ ወይም እንደገና ማግኘት ከፈለጉ አስተዳዳሪውን ያነጋግሩ።")
+        return True
+
+    # Is the buyer in the 'send proof' flow? Track the Machine ID piece.
+    if PROOF.get(uid):
+        PROOF[uid]["mid"] = mid
+        if PROOF[uid].get("photo"):
+            _complete_proof(uid, chat_id, uname, is_pm)
+        else:
+            _send_proof_checklist(chat_id, uid)
         return True
 
     # build pending
@@ -611,6 +692,18 @@ def handle_buyer_photo(message):
     uname = user.get("username") or user.get("first_name") or ""
     chat_id = message["chat"]["id"]
     is_pm = message["chat"]["type"] in ("private",)
+
+    # 'send proof' flow: track the Telebirr screenshot piece.
+    if PROOF.get(uid):
+        PROOF[uid]["photo"] = file_id
+        if PROOF[uid].get("mid"):
+            _complete_proof(uid, chat_id, uname, is_pm)
+        else:
+            send_text(chat_id,
+                      "📸 Screenshot received ✅\n\n"
+                      "Now send your <b>Machine ID</b> (8 characters) to finish.",
+                      keyboard=[[{"text": "📍 Where is my Machine ID?", "callback_data": "menu:guide"}]])
+        return True
 
     pending = PENDING.get(uid)
     if not pending:
@@ -709,6 +802,20 @@ def handle_callback(cb):
             text, kb = menu_screenshot_help()
             chat = cb["message"]["chat"]["id"]
             edit_text(chat, cb["message"]["message_id"], text, kb)
+        return
+
+    # 'send proof' flow (any buyer)
+    if data.startswith("pay:"):
+        action = data.split(":", 1)[1]
+        chat = cb["message"]["chat"]["id"]
+        answer_cb(cb_id, "ok")
+        if action == "proof":
+            PROOF.setdefault(from_uid, {"mid": None, "photo": None})
+            text, kb = menu_payproof(from_uid)
+            edit_text(chat, cb["message"]["message_id"], text, kb)
+            send_with_hint(chat,
+                           "📤 Send your <b>Machine ID</b> and <b>Telebirr screenshot</b> here — any order.",
+                           "Send Machine ID / screenshot...")
         return
 
     # admin-only actions
