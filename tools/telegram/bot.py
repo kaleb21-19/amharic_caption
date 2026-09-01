@@ -372,20 +372,11 @@ def menu_pay():
 
 
 def menu_payproof(uid):
-    """Live checklist screen for the 'send proof' flow (already started)."""
-    p = PROOF.get(uid, {"mid": None, "photo": None})
-    mid = "✅ received" if p["mid"] else "⏳ waiting"
-    photo = "✅ received" if p["photo"] else "⏳ waiting"
-    done = bool(p["mid"] and p["photo"])
+    """Single-ask 'send proof' starting screen: first request = Machine ID."""
     text = (
-        "📤 <b>Send proof</b>\n\n"
-        "Send your <b>Machine ID</b> (text) and your <b>Telebirr screenshot</b> "
-        "(photo) here — <b>any order</b>.\n\n"
-        f"• Machine ID: {mid}\n"
-        f"• Telebirr screenshot: {photo}\n\n"
-        + ("✅ <b>All received!</b> We're checking now — your key will arrive here shortly."
-           if done else "👇 Send whatever is still missing:"
-           )
+        "📤 <b>Send proof — Step 1 of 2</b>\n\n"
+        "Send your <b>Machine ID</b> (8 characters).\n"
+        "It's in the panel's <b>License</b> section."
     )
     kb = [
         [{"text": "📍 Where is my Machine ID?", "callback_data": "menu:guide"}],
@@ -560,12 +551,12 @@ def mid_of_pending_or_none(uid):
     return p["machine_id"] if p else None
 
 
-def _send_proof_checklist(chat_id, uid):
-    """Send the buyer's live 'send proof' checklist (used when not complete)."""
-    text, kb = menu_payproof(uid)
-    body = text.rsplit("\n", 1)[0]  # drop the trailing hint line
-    hint = "⏳ Send what's still missing ⏳"
-    send_text(chat_id, body + "\n\n" + hint, keyboard=kb)
+def _ask_screenshot(chat_id):
+    """Step 2: Machine ID is in, ask for the Telebirr screenshot."""
+    send_text(chat_id,
+              "✅ Machine ID received!\n\n"
+              "📤 <b>Step 2 of 2</b> — now send your <b>Telebirr screenshot</b> (photo).",
+              keyboard=[[{"text": "◀ Menu", "callback_data": "menu:home"}]])
     return
 
 
@@ -642,7 +633,7 @@ def handle_buyer_message(message):
         if PROOF[uid].get("photo"):
             _complete_proof(uid, chat_id, uname, is_pm)
         else:
-            _send_proof_checklist(chat_id, uid)
+            _ask_screenshot(chat_id)
         return True
 
     # build pending
@@ -788,16 +779,8 @@ def handle_callback(cb):
                                  "guide_machine_id.jpg")
             if os.path.isfile(guide):
                 send_photo(chat, guide,
-                           caption="⬆️ ከላይ ባለው ሥዕል ላይ \"Your Machine ID\" የሚለውን ይፈልጉ። "
-                                   "8 ቁምፊውን ቅድው ይላኩ።",
-                           keyboard=[[{"text": "🛠 እንዴት እንደሚጫኑ", "callback_data": "menu:install"}],
-                                     [{"text": "◀ ዋና ማውጫ", "callback_data": "menu:home"}]])
-            else:
-                send_text(chat,
-                          "🖼 በቅርቡ የMachine ID ቦታ ሥዕል ይኖራል። "
-                          "ስካሁን ደግሞ \"🛠 እንዴት እንደሚጫኑ\" ይንኩ።",
-                    keyboard=[[{"text": "🛠 እንዴት እንደሚጫኑ", "callback_data": "menu:install"}],
-                              [{"text": "◀ ዋና ማውጫ", "callback_data": "menu:home"}]])
+                           caption="⬆️ \"Your Machine ID\" in the Licensed section — copy the 8 characters and send it.",
+                           keyboard=[[{"text": "◀ Menu", "callback_data": "menu:home"}]])
         elif kind == "screenshot_help":
             text, kb = menu_screenshot_help()
             chat = cb["message"]["chat"]["id"]
@@ -814,8 +797,8 @@ def handle_callback(cb):
             text, kb = menu_payproof(from_uid)
             edit_text(chat, cb["message"]["message_id"], text, kb)
             send_with_hint(chat,
-                           "📤 Send your <b>Machine ID</b> and <b>Telebirr screenshot</b> here — any order.",
-                           "Send Machine ID / screenshot...")
+                           "📤 Send your <b>Machine ID</b> (8 characters).",
+                           "Send Machine ID (e.g. a1b2c3d4)...")
         return
 
     # admin-only actions
