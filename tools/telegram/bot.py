@@ -556,7 +556,7 @@ def _ask_screenshot(chat_id):
     send_text(chat_id,
               "✅ Machine ID received!\n\n"
               "📤 <b>Step 2 of 2</b> — now send your <b>Telebirr screenshot</b> (photo).",
-              keyboard=[[{"text": "◀ Menu", "callback_data": "menu:home"}]])
+              keyboard=None)
     return
 
 
