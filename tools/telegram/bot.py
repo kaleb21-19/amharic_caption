@@ -102,13 +102,21 @@ PENDING = {}
 # optional file so pending survives a restart
 PENDING_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pending.json")
 
-# in-memory: buyer uid -> payment-proof photo file_id (sent before their
-# Machine ID). Consumed the moment their Machine ID completes the order.
-DRAFT_PHOTOS = {}
+# ── per-user finite state machine for the "send proof" buy flow ──────────────
+# Every buyer is in exactly ONE of these states at a time:
+#   absent        -> not in the buy flow (idle)
+#   "mid"         -> waiting for their Machine ID (8 hex chars)
+#   "photo"       -> waiting for their Telebirr screenshot (photo)
+# FSM: uid -> {"step": "mid"|"photo", "mid": str|None, "photo": file_id|None}
+FSM = {}
 
-# in-memory: buyer uid -> proof session for the "send proof" flow.
-# { "mid": str|None, "photo": file_id|None }
-PROOF = {}
+# Every buyer who ever messaged the bot privately, so the admin can broadcast.
+# contact: uid -> {"chat_id", "username", "name", "first_seen"}
+CONTACTS = {}
+CONTACTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "contacts.json")
+
+# Admin-only: when True, the admin's next private text is a broadcast message.
+BROADCASTING = False
 
 
 
@@ -127,6 +135,46 @@ def load_pending():
             PENDING = json.load(f)
     except Exception:
         PENDING = {}
+
+
+def save_contacts():
+    try:
+        with open(CONTACTS_FILE, "w", encoding="utf-8") as f:
+            json.dump(CONTACTS, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+def load_contacts():
+    global CONTACTS
+    CONTACTS = {}
+    try:
+        with open(CONTACTS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            CONTACTS = data if isinstance(data, dict) else {}
+    except Exception:
+        CONTACTS = {}
+
+
+def remember_contact(message):
+    """Track any buyer who messaged the bot privately so /admin can broadcast."""
+    user = message.get("from", {})
+    uid = user.get("id")
+    if not uid:
+        return
+    uid = str(uid)
+    chat = message.get("chat", {})
+    if chat.get("type") != "private":
+        return
+    existing = CONTACTS.get(uid)
+    CONTACTS[uid] = {
+        "chat_id": str(chat.get("id", uid)),
+        "username": user.get("username") or existing.get("username") if existing else (user.get("username") or ""),
+        "name": user.get("first_name") or existing.get("name", "") if existing else (user.get("first_name") or ""),
+        "first_seen": existing.get("first_seen") if existing
+                      else datetime.now().strftime("%Y-%m-%d %H:%M"),
+    }
+    save_contacts()
 
 
 # ── Telegram API helpers (stdlib only) ──────────────────────────────────────
@@ -244,17 +292,6 @@ def send_with_hint(chat_id, text, hint, keyboard=None, parse_mode="HTML"):
     return None
 
 
-def remove_reply_keyboard(chat_id, text=""):
-    """Clear the persistent reply keyboard (go back to normal input)."""
-    params = {"chat_id": chat_id, "text": text or "."}
-    params["reply_markup"] = json.dumps({"remove_keyboard": True})
-    try:
-        return api("sendMessage", **params)
-    except Exception as e:
-        print(f"[kb] error: {e}", file=sys.stderr)
-    return None
-
-
 def admin_keyboard(action, payload):
     uid = str(payload["uid"])
     return [[
@@ -275,6 +312,7 @@ def base_nav():
         [{"text": "2️⃣ Pay", "callback_data": "menu:pay"}],
         [{"text": "3️⃣ Machine ID", "callback_data": "menu:guide"}],
         [{"text": "4️⃣ Help", "callback_data": "menu:help"}],
+        [{"text": "🔑 My Key", "callback_data": "menu:mykey"}],
         [{"text": "◀ Menu", "callback_data": "menu:home"}],
     ]
 
@@ -285,6 +323,7 @@ def home_keyboard(extra=None):
         [{"text": "2️⃣ Pay", "callback_data": "menu:pay"}],
         [{"text": "3️⃣ Machine ID", "callback_data": "menu:guide"}],
         [{"text": "4️⃣ Help", "callback_data": "menu:help"}],
+        [{"text": "🔑 My Key", "callback_data": "menu:mykey"}],
     ]
     return kb if extra is None else kb + extra
 
@@ -338,7 +377,8 @@ def hero(first=""):
         "1️⃣ <b>Install</b>\n"
         f"2️⃣ <b>Pay</b> — {PRICE} (Telebirr {TELEBIRR})\n"
         "3️⃣ <b>Machine ID</b>\n"
-        "4️⃣ <b>Help</b>\n\n"
+        "4️⃣ <b>Help</b>\n"
+        "🔑 <b>My Key</b>\n\n"
         "👇 Tap one:"
     )
 
@@ -349,6 +389,7 @@ def hero_keyboard():
         [{"text": "2️⃣ Pay", "callback_data": "menu:pay"}],
         [{"text": "3️⃣ Machine ID", "callback_data": "menu:guide"}],
         [{"text": "4️⃣ Help", "callback_data": "menu:help"}],
+        [{"text": "🔑 My Key", "callback_data": "menu:mykey"}],
     ]
 
 
@@ -371,17 +412,17 @@ def menu_pay():
     return text, kb
 
 
-def menu_payproof(uid):
+def menu_payproof():
     """Single-ask 'send proof' starting screen: first request = Machine ID."""
     text = (
-        "📤 <b>Send proof — Step 1 of 2</b>\n\n"
-        "Send your <b>Machine ID</b> (8 characters).\n"
+        "📤 <b>Send proof</b>\n\n"
+        "Almost done! Two steps:\n\n"
+        "<b>Step 1 of 2</b> — send your <b>Machine ID</b> (8 characters).\n"
         "It's in the panel's <b>License</b> section."
     )
     kb = [
         [{"text": "📍 Where is my Machine ID?", "callback_data": "menu:guide"}],
-        [{"text": "1️⃣ Pay", "callback_data": "menu:pay"}],
-        [{"text": "◀ Menu", "callback_data": "menu:home"}],
+        [{"text": "✖ Cancel", "callback_data": "proof:cancel"}],
     ]
     return text, kb
 
@@ -494,33 +535,21 @@ def menu_support():
     return text, home_keyboard(back_row())
 
 
-def machine_id_request(mid):
-    return (
-        "📥 <b>Machine ID ተቀብለናል:</b> <code>{mid}</code> ✅\n\n"
-        "ትዕዛዝዎ (order) <b>3 ደረጃ</b> አለው — እስካሁን <b>1ቱን</b> አጠናቀዋል:\n\n"
-        "1⃣ Machine ID — <code>{mid}</code>  ✅ <b>ተቀብለናል</b>\n"
-        "2⃣ ክፍያ (Pay) — <b>{price}</b> → Telebirr <b>{telebirr}</b>  ⬅️ <b>አሁን ይክፈሉ</b>\n"
-        "3⃣ ስክሪን ሾት — የክፍያ ማረጋገጫ (receipt) ይላኩ  (ከክፍያው በኋላ)\n\n"
-        "👉 መጀመሪያ <b>ይክፈሉ</b>፣ ከዚያ የክፍያ ማረጋገጫ <b>ስክሪን ሾቱን</b> በዚህ ቻት ይላኩ።\n"
-        "ክፍያዎ ከተረጋገጠ በኋላ ሊሰንስ ቁልፍዎ በዚህ ቦት ይደርስዎታል ✅"
-    ).format(mid=mid, price=PRICE, telebirr=TELEBIRR)
-
-
 def key_delivery_message(key, expiry="00000000", chat_type="private"):
     lines = [
-        "✅ ሊሰንስ ቁልፍዎ ዝግጁ ነው!",
+        "✅ <b>Your license key is ready!</b>",
         "",
         f"<code>{key}</code>",
         "",
-        "<b>①</b> ቁልፉን ይቅዱ (copy)",
-        "<b>②</b> Premiere Pro → ፓነሉን ይክፈቱ → License",
-        "<b>③</b> ቁልፉን ያስገቡ (paste) → <b>Activate</b> ይጫኑ",
+        "<b>①</b> Copy the key",
+        "<b>②</b> Premiere Pro → open the panel → License",
+        "<b>③</b> Paste it → tap <b>Activate</b>",
     ]
     if expiry != "00000000":
-        lines += ["", f"⏰ የሚያበቃበት ቀን: {expiry}"]
+        lines += ["", f"⏰ Expires: {expiry}"]
     if chat_type != "private":
-        lines += ["", "🔒 ለግላዊነት፣ ቁልፍዎን በግል (DM) ይጠይቁ።"]
-    lines += ["", "አመሰግናለሁ! 🙏 ችግር ካጋጠመዎት ይጻፉ።"]
+        lines += ["", "🔒 For privacy, ask for your key in a private DM."]
+    lines += ["", "Thank you! 🙏 If you have any trouble, message the admin."]
     return "\n".join(lines)
 
 
@@ -552,19 +581,20 @@ def mid_of_pending_or_none(uid):
 
 
 def _ask_screenshot(chat_id):
-    """Step 2: Machine ID is in, ask for the Telebirr screenshot."""
+    """Step 2: Machine ID is in, ask for the Telebirr screenshot (a photo)."""
     send_text(chat_id,
               "✅ Machine ID received!\n\n"
-              "📤 <b>Step 2 of 2</b> — now send your <b>Telebirr screenshot</b> (photo).",
-              keyboard=None)
+              "📤 <b>Step 2 of 2</b> — now send your <b>Telebirr screenshot</b> "
+              "as a <b>photo</b> (the \"payment success\" screen).",
+              keyboard=[[{"text": "✖ Cancel", "callback_data": "proof:cancel"}]])
     return
 
 
 def _complete_proof(uid, chat_id, uname, is_pm):
     """Both Machine ID + screenshot received -> build order + notify admin."""
-    p = PROOF.pop(uid, None)
-    mid = p["mid"] if p else None
-    photo = p.get("photo") if p else None
+    s = FSM.pop(uid, None)
+    mid = s.get("mid") if s else None
+    photo = s.get("photo") if s else None
     if not mid:
         return
     default_expiry = "00000000"
@@ -592,88 +622,221 @@ def _complete_proof(uid, chat_id, uname, is_pm):
             send_text(ADMIN_ID, cap, keyboard=kb)
 
 
+def _find_keys_for_user(user):
+    """Return the sold-key ledger rows belonging to this Telegram user.
+
+    The ledger stores the buyer as '@username' in the 'name' column, so we match
+    on the user's current username when available. This is the only identity
+    signal we persist at sale time.
+    """
+    username = (user.get("username") or "").strip().lstrip("@").lower()
+    if not username:
+        return []
+    rows = []
+    for r in read_ledger():
+        if r.get("status") != "sold":
+            continue
+        name = (r.get("name") or "").strip().lstrip("@").lower()
+        if name == username:
+            rows.append(r)
+    return rows
+
+
+def _show_my_key(user, chat_id, message_id=None):
+    """Let a buyer recall their own license key from the ledger. NEVER exposes
+    another buyer's key."""
+    rows = _find_keys_for_user(user)
+    if rows:
+        lines = []
+        for r in rows:
+            exp = r.get("expiry", "00000000")
+            exp_note = " (perpetual)" if exp in ("", "00000000") else f" (until {exp})"
+            lines.append(f"• <code>{r.get('key')}</code>{exp_note}")
+        text = ("🔑 <b>My Key</b>\n\n" +
+                "License key(s) for your account:\n\n" +
+                "\n".join(lines) +
+                "\n\nNeed help activating? DM the admin.")
+    else:
+        text = ("🔑 <b>My Key</b>\n\n"
+                "I couldn't find a key linked to <b>this Telegram account</b> "
+                "yet.\n\n"
+                "It will appear here automatically after your purchase is "
+                "approved. If you paid and don't see it, DM the admin with your "
+                "Machine ID.")
+    if message_id is not None:
+        edit_text(chat_id, message_id, text,
+                  keyboard=[[{"text": "◀ Menu", "callback_data": "menu:home"}]])
+    else:
+        send_text(chat_id, text,
+                  keyboard=[[{"text": "◀ Menu", "callback_data": "menu:home"}]])
+
+
+def _render_or_edit(chat_id, message_id, text, keyboard):
+    """Send a new message if message_id is None, else edit in place."""
+    if message_id is None:
+        return send_text(chat_id, text, keyboard=keyboard)
+    return edit_text(chat_id, message_id, text, keyboard=keyboard)
+
+
+def _admin_panel(chat_id, message_id):
+    """Build the admin dashboard (pending orders + broadcast)."""
+    n = len(PENDING)
+    text = (
+        "🛠 <b>Admin</b>\n\n"
+        f"Pending orders: <b>{n}</b>\n"
+        f"Broadcast recipients: <b>{len(CONTACTS)}</b>\n\n"
+        "Book the Telebirr payment for each order, then Approve."
+    )
+    kb = [
+        [{"text": f"📋 Pending orders ({n})", "callback_data": "admin:pending"}],
+        [{"text": "📢 Broadcast", "callback_data": "admin:broadcast"}],
+        [{"text": "◀ Menu", "callback_data": "menu:home"}],
+    ]
+    _render_or_edit(chat_id, message_id, text, kb)
+
+
+def _admin_list_pending(chat_id, message_id):
+    """Show all pending orders with approve/reject buttons."""
+    if not PENDING:
+        text = ("📋 <b>No pending orders.</b>\n\n"
+                "When a buyer submits proof, their order appears here.")
+        _render_or_edit(chat_id, message_id, text,
+                        keyboard=[[{"text": "🛠 Admin", "callback_data": "admin:panel"}]])
+        return
+    for uid, p in list(PENDING.items()):
+        cap = (
+            f"🧾 <b>Order @{p.get('username','?')}</b>\n"
+            f"Machine ID: <code>{p.get('machine_id')}</code>\n"
+            f"Source: {p.get('chat_type','private')}"
+        )
+        kb = admin_keyboard("pending", {"uid": uid})
+        send_text(chat_id, cap, keyboard=kb)
+    text = "📋 Showing all pending orders."
+    _render_or_edit(chat_id, message_id, text,
+                    keyboard=[[{"text": "🛠 Admin", "callback_data": "admin:panel"}]])
+
+
+def _admin_broadcast(chat_id, message_id):
+    """Ask the admin for the broadcast message text."""
+    global BROADCASTING
+    BROADCASTING = True
+    text = ("📢 <b>Broadcast</b>\n\n"
+            f"This will send a message to all {len(CONTACTS)} known buyers.\n"
+            "Reply with the message text to send, or /cancel.")
+    _render_or_edit(chat_id, message_id, text,
+                    keyboard=[[{"text": "✖ Cancel", "callback_data": "admin:cancel"}]])
+    return text
+
+
+def _broadcast_send(text):
+    """Send a message to every known private buyer. Returns delivered count."""
+    n = 0
+    for uid, c in list(CONTACTS.items()):
+        if not text:
+            break
+        try:
+            r = send_text(c["chat_id"], text, keyboard=None)
+            if r and r.get("ok"):
+                n += 1
+        except Exception:
+            continue
+    return n
+
 
 def handle_buyer_message(message):
-    """Return True if a message was treated as a Machine ID submission."""
+    """Return True if a message was treated as part of the buy/proof flow."""
     text = (message.get("text") or "").strip()
-    if not text:
-        return False
-    m = MACHINE_ID_RE.search(text)
-    if not m:
-        return False
-    mid = m.group(0)
     user = message.get("from", {})
     uid = str(user.get("id"))
     uname = user.get("username") or user.get("first_name") or ""
     chat_id = message["chat"]["id"]
     is_pm = message["chat"]["type"] in ("private",)
 
-    # Reject an obviously-fake Machine ID (00000000, aaaaaaaa, etc.) so the
-    # buyer is re-prompted instead of being booked as a real order.
+    s = FSM.get(uid)
+    step = s.get("step") if s else None
+
+    # ── FSM step "photo": we're waiting for the screenshot, not text ─────────
+    if step == "photo":
+        send_text(chat_id,
+                  "📸 I'm waiting for your <b>screenshot</b> — please send the "
+                  "Telebirr payment screenshot as a <b>photo</b>.",
+                  keyboard=[[{"text": "✖ Cancel", "callback_data": "proof:cancel"}]])
+        return True
+
+    # ── FSM step "mid": waiting for the Machine ID text ─────────────────────
+    if step == "mid":
+        m = MACHINE_ID_RE.search(text)
+        if not m:
+            send_text(chat_id,
+                      "⚠️ You sent a message, but right now I need your "
+                      "<b>Machine ID</b> — the <b>8-character</b> code from the "
+                      "panel's <b>License</b> section (e.g. <code>a1b2c3d4</code>).",
+                      keyboard=[[{"text": "📍 Where is my Machine ID?", "callback_data": "menu:guide"}],
+                                [{"text": "✖ Cancel", "callback_data": "proof:cancel"}]])
+            return True
+        mid = m.group(0).lower()
+
+        # Reject an obviously-fake Machine ID so we re-prompt instead of booking.
+        if _suspicious_mid(mid):
+            send_text(chat_id,
+                      f"⚠️ <code>{mid}</code> doesn't look like a real <b>Machine ID</b>.\n\n"
+                      "Your Machine ID is the <b>8 characters</b> shown under "
+                      "\"Your Machine ID\" in the panel's License section "
+                      "(e.g. <code>a1b2c3d4</code>).\n"
+                      "Please copy and send the real one.",
+                      keyboard=[[{"text": "📍 Where is my Machine ID?", "callback_data": "menu:guide"}],
+                                [{"text": "✖ Cancel", "callback_data": "proof:cancel"}]])
+            return True
+
+        # Already delivered a key for this machine? Re-surface it instead of
+        # booking a duplicate order. This runs INSIDE the flow so it can't
+        # short-circuit the rest of the proof handling.
+        existing = find_key(mid)
+        if existing:
+            send_text(chat_id,
+                      f"🔑 This Machine ID (<code>{mid}</code>) already has a key.\n\n"
+                      "Tap <b>My Key</b> below (or the 🔑 button in the menu) to "
+                      "see it again, or contact the admin if it's not working.",
+                      keyboard=[[{"text": "🔑 My Key", "callback_data": "proof:mykey"}],
+                                [{"text": "✖ Cancel", "callback_data": "proof:cancel"}]])
+            FSM.pop(uid, None)
+            return True
+
+        # Valid Machine ID -> save it, move to the screenshot step.
+        s["mid"] = mid
+        s["step"] = "photo"
+        _ask_screenshot(chat_id)
+        return True
+
+    # ── Not in the FSM: only react to a bare Machine ID that's not part of the
+    #    guided flow, but DON'T create a half-baked order from random text.
+    m = MACHINE_ID_RE.search(text)
+    if not m:
+        return False
+    mid = m.group(0)
+
     if _suspicious_mid(mid):
         send_text(chat_id,
-                  f"⚠️ <code>{mid}</code> እርግጠኛ የሆነ <b>Machine ID</b> አይመስልም።\n\n"
-                  "Machine ID በሶፍትዌሩ ፓነል ውስጥ \"<b>Your Machine ID</b>\" በሚለው "
-                  "ሳጥን ውስጥ የታየው <b>8 ቁምፊ ብቻ</b> ነው (ለምሳሌ <code>a1b2c3d4</code>)።\n"
-                  "እባክዎ እውነተኛውን ይቅዱና ይላኩ።",
-                  keyboard=[[{"text": "📍 Machine ID የት ነው?", "callback_data": "menu:guide"}]])
+                  f"⚠️ <code>{mid}</code> doesn't look like a real Machine ID.\n\n"
+                  "Send the <b>8 characters</b> shown under \"Your Machine ID\" "
+                  "in the panel (e.g. <code>a1b2c3d4</code>), or tap <b>2️⃣ Pay</b> "
+                  "to start the guided purchase.",
+                  keyboard=[[{"text": "2️⃣ Pay", "callback_data": "menu:pay"}],
+                            [{"text": "📍 Where is my Machine ID?", "callback_data": "menu:guide"}]])
         return True
 
-    # Already delivered a key for this machine?
-    existing = find_key(mid)
-    if existing:
-        send_text(chat_id,
-                  f"⚠️ ይህ Machine ID (ለ<code>{mid}</code>) ቪዲዮ ቀድሞውኑ ቁልፍ አለው። "
-                  "ቁልፍ ማግኘት ካልቻሉ ወይም እንደገና ማግኘት ከፈለጉ አስተዳዳሪውን ያነጋግሩ።")
-        return True
-
-    # Is the buyer in the 'send proof' flow? Track the Machine ID piece.
-    if PROOF.get(uid):
-        PROOF[uid]["mid"] = mid
-        if PROOF[uid].get("photo"):
-            _complete_proof(uid, chat_id, uname, is_pm)
-        else:
-            _ask_screenshot(chat_id)
-        return True
-
-    # build pending
-    default_expiry = "00000000"
-    PENDING[uid] = {"machine_id": mid, "expiry": default_expiry,
-                    "username": uname, "chat_id": str(chat_id),
-                    "chat_type": message["chat"]["type"]}
-    save_pending()
-
-    send_text(chat_id, machine_id_request(mid), keyboard=None)
-    # Next action is crystal clear: send the payment screenshot.
-    send_with_hint(chat_id,
-                   "📸 የክፍያዎን ማረጋገጫ ስክሪን ሾት አሁን ይላኩ (ከክፍያው በኋላ)።",
-                   "የክፍያ ስክሪን ሾትን እዚህ ይላኩ...",
-                   keyboard=[[{"text": "🖼 ስክሪን ሾት እንዴት እንደሚላኩ", "callback_data": "menu:screenshot_help"}],
-                             [{"text": "◀ ዋና ማውጫ", "callback_data": "menu:home"}]])
-
-    # If the buyer already sent their payment screenshot, forward it now.
-    draft_photo = DRAFT_PHOTOS.pop(uid, None)
-
-    # notify admin
-    if ADMIN_ID:
-        order = (
-            "🧾 <b>አዲስ ገዢ (New order)</b>\n\n"
-            f"Machine ID: <code>{mid}</code>\n"
-            f"ተጠቃሚ: @{uname} (id {uid})\n"
-            f"ምንጭ: {'ግል (private DM)' if is_pm else 'ቡድን (group)'}\n"
-            f"ክፍያ ማረጋገጫ: {'✅ ተቀብለናል' if draft_photo else '⚠️ ገና አልደረሰም'}\n\n"
-            "ክፍያውን (Telebirr) ያረጋግጡ፣ ከዚያ ከታች ይንኩ:"
-        )
-        kb = admin_keyboard("pending", {"uid": uid})
-        if draft_photo:
-            send_photo(ADMIN_ID, draft_photo, caption=order, keyboard=kb)
-        else:
-            send_text(ADMIN_ID, order, keyboard=kb)
+    # Tell them to use the guided flow rather than firing a raw order.
+    send_text(chat_id,
+              "👋 Got it — that looks like a Machine ID. To pay, please use the "
+              "guided flow:\n\n"
+              "1️⃣ Tap <b>2️⃣ Pay</b>\n"
+              "2️⃣ Tap <b>I've paid — send proof</b>",
+              keyboard=[[{"text": "2️⃣ Pay", "callback_data": "menu:pay"}]])
     return True
 
 
 def handle_buyer_photo(message):
-    """Accept a payment-proof screenshot and link it to the buyer's order."""
+    """Accept a payment-proof screenshot and link it to the buyer's FSM state."""
     photos = message.get("photo")
     if not photos:
         return False
@@ -684,51 +847,38 @@ def handle_buyer_photo(message):
     chat_id = message["chat"]["id"]
     is_pm = message["chat"]["type"] in ("private",)
 
-    # 'send proof' flow: track the Telebirr screenshot piece.
-    if PROOF.get(uid):
-        PROOF[uid]["photo"] = file_id
-        if PROOF[uid].get("mid"):
-            _complete_proof(uid, chat_id, uname, is_pm)
-        else:
-            send_text(chat_id,
-                      "📸 Screenshot received ✅\n\n"
-                      "Now send your <b>Machine ID</b> (8 characters) to finish.",
-                      keyboard=[[{"text": "📍 Where is my Machine ID?", "callback_data": "menu:guide"}]])
+    s = FSM.get(uid)
+    step = s.get("step") if s else None
+
+    # ── FSM step "photo": this screenshot completes the order. ──────────────
+    if step == "photo":
+        s["photo"] = file_id
+        _complete_proof(uid, chat_id, uname, is_pm)
         return True
 
-    pending = PENDING.get(uid)
-    if not pending:
-        # No Machine ID yet — hold the photo, then ask for the Machine ID.
-        DRAFT_PHOTOS[uid] = file_id
+    # ── FSM step "mid": they sent a photo, but we asked for a Machine ID. ───
+    if step == "mid":
+        s["photo"] = file_id
         send_text(chat_id,
-                  "🖼 የክፍያ ማረጋገጫ ተቀብለናል ✅\n\n"
-                  "አሁን እባክዎ የ<b>Machine ID</b>ዎን (8 ቁምፊ) ይላኩ።\n"
-                  "ፓነሉን ይክፈቱ → License → \"Your Machine ID\" ይቅዱ → ይላኩ።",
-                  keyboard=[[{"text": "📍 Machine ID የት ነው?", "callback_data": "menu:guide"}]])
+                  "📸 Screenshot saved! Now please send your <b>Machine ID</b> "
+                  "(8 characters) to finish Step 1.",
+                  keyboard=[[{"text": "📍 Where is my Machine ID?", "callback_data": "menu:guide"}],
+                            [{"text": "✖ Cancel", "callback_data": "proof:cancel"}]])
         return True
 
-    # They already sent a Machine ID — reassure and forward the proof to admin.
+    # Not in the buy flow: kindly point them at the guided payment flow.
     send_text(chat_id,
-              "✅ የክፍያ ማረጋገጫ ስክሪን ሾት ተቀብለናል!\n\n"
-              "አሁን ክፍያዎን እየፈተሽን ነው። ከተረጋገጠ በኋላ ሊሰንስ ቁልፍዎ "
-              "ወደዚህ ይደርስዎታል ✅ ስለታገሱ እናመሰግናለን!",
-              keyboard=None)
-    if ADMIN_ID:
-        mid = pending["machine_id"]
-        cap = (
-            "💳 <b>የክፍያ ማረጋገጫ (Payment proof)</b>\n\n"
-            f"Machine ID: <code>{mid}</code>\n"
-            f"ተጠቃሚ: @{uname} (id {uid})\n"
-            f"ምንጭ: {'ግል (DM)' if is_pm else 'ቡድን (group)'}\n\n"
-            "ስክሪን ሾቱን ይፈትሹ፣ ከዚያ ከታች ይንኩ:"
-        )
-        send_photo(ADMIN_ID, file_id, caption=cap,
-                   keyboard=admin_keyboard("pending", {"uid": uid}))
+              "🖼 Thanks — but to place an order please start the guided flow "
+              "and send your <b>Machine ID</b> first:\n\n"
+              "1️⃣ Tap <b>2️⃣ Pay</b>\n"
+              "2️⃣ Tap <b>I've paid — send proof</b>",
+              keyboard=[[{"text": "2️⃣ Pay", "callback_data": "menu:pay"}]])
     return True
 
 
 # ── callback handling ───────────────────────────────────────────────────────
 def handle_callback(cb):
+    global BROADCASTING
     data = cb.get("data", "")
     cb_id = cb["id"]
     from_user = cb.get("from", {})
@@ -785,6 +935,11 @@ def handle_callback(cb):
             text, kb = menu_screenshot_help()
             chat = cb["message"]["chat"]["id"]
             edit_text(chat, cb["message"]["message_id"], text, kb)
+        elif kind == "mykey":
+            chat = cb["message"]["chat"]["id"]
+            mid = cb["message"]["message_id"]
+            answer_cb(cb_id, "ok")
+            _show_my_key(from_user, chat, mid)
         return
 
     # 'send proof' flow (any buyer)
@@ -793,17 +948,49 @@ def handle_callback(cb):
         chat = cb["message"]["chat"]["id"]
         answer_cb(cb_id, "ok")
         if action == "proof":
-            PROOF.setdefault(from_uid, {"mid": None, "photo": None})
-            text, kb = menu_payproof(from_uid)
+            FSM[from_uid] = {"step": "mid", "mid": None, "photo": None}
+            text, kb = menu_payproof()
             edit_text(chat, cb["message"]["message_id"], text, kb)
             send_with_hint(chat,
                            "📤 Send your <b>Machine ID</b> (8 characters).",
                            "Send Machine ID (e.g. a1b2c3d4)...")
         return
 
+    # 'send proof' cancel / my-key (any buyer)
+    if data.startswith("proof:"):
+        action = data.split(":", 1)[1]
+        chat = cb["message"]["chat"]["id"]
+        mid = cb["message"]["message_id"]
+        if action == "cancel":
+            FSM.pop(from_uid, None)
+            answer_cb(cb_id, "ተሰርዟል")
+            edit_text(chat, mid, MENU, MENU_KEYBOARD)
+            return
+        if action == "mykey":
+            answer_cb(cb_id, "ok")
+            _show_my_key(from_user, chat, mid)
+            return
+        return
+
     # admin-only actions
     if ADMIN_ID and from_uid != ADMIN_ID:
         answer_cb(cb_id, "ይህን የሚያደርገው አስተዳዳሪው ብቻ ነው")
+        return
+
+    if data.startswith("admin:"):
+        action = data.split(":", 1)[1]
+        chat = cb["message"]["chat"]["id"]
+        mid = cb["message"]["message_id"]
+        answer_cb(cb_id, "ok")
+        if action == "panel":
+            _admin_panel(chat, mid)
+        elif action == "pending":
+            _admin_list_pending(chat, mid)
+        elif action == "broadcast":
+            _admin_broadcast(chat, mid)
+        elif action == "cancel":
+            BROADCASTING = False
+            _admin_panel(chat, mid)
         return
 
     if data.startswith("approve:"):
@@ -898,6 +1085,7 @@ def main():
                          "and print the last private chat id (your admin id). DM the bot "
                          "first, then run this.")
     args = ap.parse_args()
+    global BROADCASTING
 
     if args.check_token:
         try:
@@ -966,6 +1154,7 @@ def main():
         print(f"[setup] could not register commands/description: {e}", file=sys.stderr)
 
     load_pending()
+    load_contacts()
     print("Amharic Captions bot started. Ctrl-C to stop.")
     offset = 0
     while True:
@@ -985,6 +1174,9 @@ def main():
                         send_text(chat["id"], WELCOME, MENU_KEYBOARD)
                         continue
 
+                    # Track private contacts so /admin can broadcast to buyers.
+                    remember_contact(msg)
+
                     # payment-proof screenshot?
                     if msg.get("photo") and handle_buyer_photo(msg):
                         continue
@@ -994,6 +1186,35 @@ def main():
                             send_text(chat["id"], hero(first), hero_keyboard())
                         else:
                             send_text(chat["id"], WELCOME, MENU_KEYBOARD)
+                        continue
+
+                    if text.lower() in ("/mykey", "/mykey@amhariccaptionsbot"):
+                        if chat_type == "private":
+                            _show_my_key(msg.get("from", {}), chat["id"])
+                        continue
+
+                    # /admin (private, admin-only) -> admin dashboard
+                    if text.lower() in ("/admin", "/admin@amhariccaptionsbot"):
+                        if chat_type == "private" and ADMIN_ID and str(msg.get("from", {}).get("id")) == ADMIN_ID:
+                            _admin_panel(chat["id"], None)
+                        else:
+                            send_text(chat["id"], "🔒 Admin only.")
+                        continue
+
+                    # admin broadcast reply
+                    if BROADCASTING and ADMIN_ID and chat_type == "private" \
+                            and str(msg.get("from", {}).get("id")) == ADMIN_ID:
+                        if text.lower() in ("/cancel", "/cancel@amhariccaptionsbot"):
+                            BROADCASTING = False
+                            send_text(chat["id"], "Broadcast cancelled.", keyboard=None)
+                            continue
+                        if text:
+                            n = _broadcast_send(text)
+                            BROADCASTING = False
+                            send_text(chat["id"],
+                                      f"📢 Broadcast sent to {n} recipient(s).",
+                                      keyboard=None)
+                            continue
                         continue
 
                     if text.lower() in ("/help", "/faq", "/faq@amhariccaptionsbot"):
