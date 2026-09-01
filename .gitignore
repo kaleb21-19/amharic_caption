@@ -14,5 +14,8 @@ ethio-asr/
 # Test / scratch output
 output/
 
+# ad-hoc panel backups (large)
+backup_installed_*/
+
 # OS cruft
 .DS_Store

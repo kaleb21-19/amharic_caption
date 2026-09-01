@@ -4,4 +4,6 @@ telegram/.env
 telegram/bot.env
 telegram/pending.json
 telegram/contacts.json
+telegram/fsm.json
+telegram/funnel.csv
 telegram/*.token
