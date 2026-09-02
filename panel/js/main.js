@@ -121,12 +121,24 @@ function updateLicenseUI() {
     if (runBtn) runBtn.disabled = false;
     if (licInput) licInput.style.display = 'none';
     if (licBtn) licBtn.style.display = 'none';
+    // Licensed: lock the Machine ID so it can't be copied or changed anymore.
+    const midSection = document.getElementById('machineIdSection');
+    if (midSection) {
+      midSection.style.display = 'none';
+    }
+    const licNote = document.getElementById('licensedNote');
+    if (licNote) licNote.style.display = 'block';
   } else {
     LICENSED = false;
     // Ensure the license entry fields are always visible while unlicensed,
     // including right after the trial runs out.
     if (licInput) licInput.style.display = '';
     if (licBtn) licBtn.style.display = '';
+    // Unlicensed: show the Machine ID again and hide the licensed note.
+    const midSectionU = document.getElementById('machineIdSection');
+    if (midSectionU) midSectionU.style.display = '';
+    const licNoteU = document.getElementById('licensedNote');
+    if (licNoteU) licNoteU.style.display = 'none';
     const rem = trialRemaining();
     if (rem > 0) {
       // Free trial: allow running, but the Generate button is enabled.
@@ -341,21 +353,9 @@ const PYTHON = resolvePython();
 
 const SCRIPT   = RUNTIME     ? runtimePath('ethio_srt.py')     : runtimePath('ethio_srt.py');
 const MODEL_DIR= (RUNTIME && RUNTIME !== DEV_RUNTIME)
-                   ? runtimePath('model')                       // shipped layout
-                   : runtimePath('ethio-asr');                  // dev layout
-// Where generated .srt files are written. MUST be a user-writable location:
-// the shipped install on Windows lives under C:\Program Files (x86) which is
-// read-only for non-admin processes, so we cannot write output/ inside the
-// install folder there. Use %LOCALAPPDATA% on Windows; keep the runtime/output
-// location elsewhere.
-const OUT_DIR = IS_WIN
-  ? path.join(process.env['LOCALAPPDATA'] || os.homedir(), 'AmharicCaptions', 'output')
-  : (RUNTIME ? runtimePath('output') : runtimePath('output'));
+                    ? runtimePath('model')                       // shipped layout
+                    : runtimePath('ethio-asr');                  // dev layout
 
-function ensureOutDir() {
-  try { fs.mkdirSync(OUT_DIR, { recursive: true }); } catch (e) {}
-  return OUT_DIR;
-}
 
 // Where the runtime folder actually is (for the status pill / diagnostics).
 const RUNTIME_LABEL = RUNTIME ? RUNTIME : '(not found)';
@@ -726,7 +726,7 @@ async function runSelectedClip() {
   // detection so it stops importing the file as a caption track.
   const cleanName = (c.name.replace(/\.[^.]+$/, '') || 'captions');
 
-  const outSrt = ensureOutDir() + '/' + cleanName + '.srt';
+  const outSrt = path.join(os.tmpdir(), 'amh_captions_' + Date.now() + '.srt');
   log('Extracting ' + c.duration.toFixed(2) + 's of audio and transcribing (Ethio-ASR)…');
   setProgress(0.4, 'Transcribing…');
   // Bake the clip's absolute timeline position into the SRT timestamps (so the
@@ -739,18 +739,15 @@ async function runSelectedClip() {
     { sourceIn: c.sourceIn, duration: c.duration }, c.timelineStart);
   setProgress(0.9, 'Transcription complete');
 
-  log('Done. ' + (fs.statSync(outSrt).size) + ' bytes -> ' + outSrt);
+  log('Done. ' + (fs.statSync(outSrt).size) + ' bytes of captions (temporary).');
   log('Placing caption band at timeline position 0 (SRT has absolute times).');
   showTranscript(r.transcript);
 
-  // Import via a UNIQUELY named copy so Premiere is forced to create a fresh
+  // Import via a UNIQUELY named temp file so Premiere is forced to create a fresh
   // caption item on every run instead of reusing a stale/cached one (which was
-  // why the timeline kept showing the previous transcription). The canonical
-  // output/<cleanName>.srt is still saved for the user's reference.
-  const importSrt = OUT_DIR + '/_import_' + Date.now() + '_' + cleanName + '.srt';
-  try { fs.copyFileSync(outSrt, importSrt); } catch (e) {}
-  await finishImport(importSrt, cleanName, 0);
-  try { fs.unlinkSync(importSrt); } catch (e) {}
+  // why the timeline kept showing the previous transcription).
+  await finishImport(outSrt, cleanName, 0);
+  try { fs.unlinkSync(outSrt); } catch (e) {}
 }
 
 async function runWorkArea() {
@@ -770,7 +767,7 @@ async function runWorkArea() {
   log('Found ' + clips.length + ' clip(s) to transcribe (' + rangeLabel + ').');
   log('Extracting audio per clip, then transcribing all in one pass (model loaded once).');
 
-  const outSrt = ensureOutDir() + '/sequence_captions.srt';
+  const outSrt = path.join(os.tmpdir(), 'amh_sequence_' + Date.now() + '.srt');
   const stamp = Date.now();
 
   const items = [];
@@ -793,13 +790,11 @@ async function runWorkArea() {
 
   for (const it of items) { try { fs.unlinkSync(it.wav); } catch (e) {} }
 
-  log('Sequence captions written: ' + outSrt + ' (' + r.cues.length + ' cues).');
+  log('Sequence captions written (' + r.cues.length + ' cues).');
   showTranscript(r.transcript);
 
-  const importSrt = OUT_DIR + '/_import_' + Date.now() + '_sequence.srt';
-  try { fs.copyFileSync(outSrt, importSrt); } catch (e) {}
-  await finishImport(importSrt, 'sequence');
-  try { fs.unlinkSync(importSrt); } catch (e) {}
+  await finishImport(outSrt, 'sequence');
+  try { fs.unlinkSync(outSrt); } catch (e) {}
 }
 
 // ------------------------------------------------------------ choose file
@@ -833,18 +828,16 @@ async function runFile(filePath, fileName) {
   setProgress(0, '');
   try {
     const base = filePath.replace(/\.[^.]+$/, '');
-    const outSrt = base + '.srt';
+    const outSrt = path.join(os.tmpdir(), 'amh_file_' + Date.now() + '.srt');
     const cleanName = (fileName || path.basename(base) || 'captions').replace(/\.[^.]+$/, '');
     log('Transcribing (local Ethio-ASR)… this can take a while.');
     setProgress(0.4, 'Transcribing…');
     const r = await transcribe(filePath, outSrt);
     setProgress(0.9, 'Transcription complete');
-    log('Transcription complete. ' + (fs.statSync(outSrt).size) + ' bytes -> ' + outSrt);
+    log('Transcription complete.');
     showTranscript(r.transcript);
-    const importSrt = path.join(os.tmpdir(), '_amh_import_' + Date.now() + '_' + cleanName + '.srt');
-    try { fs.copyFileSync(outSrt, importSrt); } catch (e) {}
-    await finishImport(importSrt, cleanName);
-    try { fs.unlinkSync(importSrt); } catch (e) {}
+    await finishImport(outSrt, cleanName);
+    try { fs.unlinkSync(outSrt); } catch (e) {}
   } catch (e) {
     if (!cancelRequested) log('ERROR: ' + (e && e.message ? e.message : e));
   } finally {
