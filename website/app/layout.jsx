@@ -1,22 +1,19 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Amharic Captions — የአማርኛ ትርጉም አድራጊ ለPremiere Pro",
+  title: "Amharic Captions — Amharic Speech-to-Text for Premiere Pro",
   description:
-    "በAdobe Premiere Pro ውስጥ የአማርኛ ንግግርን በራስ ወደ ትርጉም (captions) ይለውጡ። በመሣሪያዎ ላይ ብቻ ይሠራል — በይነመረብ አያስፈልግም። የአንድ ጊዜ ክፍያ ETB 1,500።",
+    "Turn Amharic speech into perfectly timed, editable captions inside Adobe Premiere Pro. Runs 100% on-device — no internet, no uploads, no cloud. One-time fee ETB 1,500.",
   openGraph: {
-    title: "Amharic Captions — ለPremiere Pro",
+    title: "Amharic Captions — Amharic Speech-to-Text for Premiere Pro",
     description:
-      "የአማርኛ ንግግርን በቀላሉ ወደ ትርጉም ይለውጡ። በመሣሪያዎ ላይ ብቻ፣ በይነመረብ ሳያስፈልግ። ETB 1,500 የአንድ ጊዜ ክፍያ።",
+      "Auto-caption Amharic speech right in Premiere Pro. Fully on-device, editable timelines, one-time price.",
     type: "website",
-    locale: "am_ET",
+    locale: "en_US",
+    url: "/",
   },
   alternates: {
     canonical: "/",
-    languages: {
-      "am-ET": "/",
-      en: "/en/",
-    },
   },
 };
 
@@ -31,13 +28,13 @@ export default function RootLayout({ children }) {
       "@type": "Offer",
       price: "1500",
       priceCurrency: "ETB",
-      description: "One-time lifetime license for Amharic speech-to-text captions in Adobe Premiere Pro.",
+      description: "One-time lifetime license.",
     },
     description:
       "Amharic speech-to-text captions for Adobe Premiere Pro. Runs on-device with no internet required.",
   };
   return (
-    <html lang="am" dir="ltr">
+    <html lang="en">
       <head>
         <script
           type="application/ld+json"

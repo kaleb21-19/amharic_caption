@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f6b3a"/>
+      <stop offset="1" stop-color="#062a18"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="720" fill="url(#bg)"/>
+  <rect x="60" y="60" width="1160" height="600" rx="20" fill="#08130d"/>
+  <rect x="60" y="60" width="300" height="600" rx="20" fill="#0c1f15"/>
+  <circle cx="150" cy="110" r="26" fill="#15874c"/>
+  <rect x="410" y="90" width="740" height="30" rx="8" fill="#12281c"/>
+  <rect x="410" y="150" width="620" height="16" rx="8" fill="#12281c" opacity="0.6"/>
+  <g transform="translate(410,260)">
+    <rect x="0" y="0" width="740" height="120" rx="12" fill="#0f6b3a"/>
+    <text x="30" y="45" font-family="Helvetica,Arial" font-size="30" fill="#ffffff" font-weight="bold">አንድ ሰው በጥሩ ሁኔታ ይናገራል</text>
+    <text x="30" y="85" font-family="Helvetica,Arial" font-size="22" fill="#bfe5cf">Amharic caption on the timeline</text>
+  </g>
+  <rect x="410" y="560" width="220" height="64" rx="32" fill="#15874c"/>
+  <text x="520" y="600" font-family="Helvetica,Arial" font-size="24" fill="#ffffff" text-anchor="middle" font-weight="bold">Generate</text>
+</svg>

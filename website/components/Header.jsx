@@ -1,26 +1,21 @@
 import Link from "next/link";
+import { BOT_URL } from "@/lib/site";
 
-export default function Header({ lang = "am" }) {
-  const t = {
-    features: lang === "am" ? "ገጽታዎች" : "Features",
-    pricing: lang === "am" ? "ዋጋ" : "Pricing",
-    install: lang === "am" ? "መጫን" : "Install",
-    buy: lang === "am" ? "ግዛ" : "Buy",
-  };
-
+export default function Header() {
   return (
     <header className="site-header">
       <div className="container header-inner">
-        <Link href={lang === "am" ? "/" : "/en/"} className="brand">
+        <Link href="/" className="brand" aria-label="Amharic Captions home">
           <span className="brand-mark">አ</span>
-          <span className="brand-name">Amharic Captions</span>
+          <span className="brand-name">Amharic <em>Captions</em></span>
         </Link>
-        <nav className="nav" aria-label={lang === "am" ? "ዋና አሰሳ" : "Main"}>
-          <Link href="#features">{t.features}</Link>
-          <Link href="#pricing">{t.pricing}</Link>
-          <Link href="#install">{t.install}</Link>
-          <a className="btn btn-primary" href="https://t.me/sumpak6">
-            {t.buy}
+        <nav className="nav" aria-label="Primary">
+          <Link href="#features">Features</Link>
+          <Link href="#how">How it works</Link>
+          <Link href="#pricing">Pricing</Link>
+          <Link href="#faq">FAQ</Link>
+          <a className="btn btn-primary" href={BOT_URL} target="_blank" rel="noopener">
+            Get started
           </a>
         </nav>
       </div>
