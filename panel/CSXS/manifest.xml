@@ -35,16 +35,24 @@
         <Lifecycle>
           <AutoVisible>true</AutoVisible>
         </Lifecycle>
-        <UI>
-          <Type>Panel</Type>
-          <Menu>Amharic Captions</Menu>
-          <Geometry>
-            <Size>
-              <Height>560</Height>
-              <Width>340</Width>
-            </Size>
-          </Geometry>
-        </UI>
+          <UI>
+            <Type>Panel</Type>
+            <Menu>Amharic Captions</Menu>
+            <Geometry>
+              <Size>
+                <Height>560</Height>
+                <Width>340</Width>
+              </Size>
+              <MinSize>
+                <Height>340</Height>
+                <Width>260</Width>
+              </MinSize>
+              <MaxSize>
+                <Height>900</Height>
+                <Width>560</Width>
+              </MaxSize>
+            </Geometry>
+          </UI>
       </DispatchInfo>
     </Extension>
   </DispatchInfoList>
