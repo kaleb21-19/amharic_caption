@@ -26,13 +26,13 @@
     --warn-soft:rgba(232,168,61,.12);
     --err:      #e5484d;
     --err-soft: rgba(229,72,77,.12);
-    --font-s: 11px;
-    --font-m: 12.5px;
-    --font-l: 14px;
-    --control-h: 30px;
-    --radius: 8px;
-    --radius-sm: 6px;
-    --gap: 10px;
+    --font-s: 10px;
+    --font-m: 11.5px;
+    --font-l: 13px;
+    --control-h: 26px;
+    --radius: 7px;
+    --radius-sm: 5px;
+    --gap: 7px;
     --shadow: 0 1px 2px rgba(0,0,0,.3), 0 4px 14px rgba(0,0,0,.18);
   }
   html, body { height: 100%; margin: 0; }
@@ -49,32 +49,32 @@
   /* ---------- Header ---------- */
   .panel-header {
     flex: 0 0 auto;
-    padding: 10px 14px;
+    padding: 6px 10px;
     border-bottom: 1px solid var(--divider);
     background: var(--bg-elev);
-    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
     box-shadow: var(--shadow);
     position: relative; z-index: 2;
   }
-  .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .brand-mark {
-    flex: 0 0 auto; width: 34px; height: 34px; border-radius: 8px;
+    flex: 0 0 auto; width: 26px; height: 26px; border-radius: 6px;
     background: linear-gradient(135deg, var(--accent), #ff8a4c);
     display: flex; align-items: center; justify-content: center;
-    font-size: 17px; font-weight: 800; color: #fff;
+    font-size: 13px; font-weight: 800; color: #fff;
     box-shadow: 0 2px 6px rgba(255,92,51,.35);
   }
-  .brand .title { font-size: var(--font-l); font-weight: 700; line-height: 1.15; letter-spacing: .01em; }
-  .brand .sub { font-size: 10.5px; color: var(--text-secondary); line-height: 1.3; margin-top: 2px; }
+  .brand .title { font-size: var(--font-m); font-weight: 700; line-height: 1.15; letter-spacing: .01em; }
+  .brand .sub { font-size: 9.5px; color: var(--text-secondary); line-height: 1.3; margin-top: 1px; }
 
   #statusPill {
-    flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px;
-    font-size: 10px; color: var(--text-secondary);
+    flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px;
+    font-size: 9.5px; color: var(--text-secondary);
     background: var(--bg-field); border: 1px solid var(--border);
-    border-radius: 20px; padding: 4px 11px; white-space: nowrap;
+    border-radius: 20px; padding: 3px 9px; white-space: nowrap;
     font-weight: 500;
   }
-  #statusPill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-disabled); }
+  #statusPill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-disabled); }
   #statusPill.ready { color: var(--ok); border-color: rgba(62,207,122,.4); background: var(--ok-soft); }
   #statusPill.ready .dot { background: var(--ok); }
   #statusPill.busy { color: var(--warn); border-color: rgba(232,168,61,.4); background: var(--warn-soft); }
@@ -83,8 +83,8 @@
   #statusPill.err .dot { background: var(--err); }
 
   /* ---------- Body ---------- */
-  .panel-body { flex: 1 1 auto; overflow-y: auto; padding: 14px; }
-  .panel-body::-webkit-scrollbar { width: 10px; }
+  .panel-body { flex: 1 1 auto; overflow-y: auto; padding: 9px; }
+  .panel-body::-webkit-scrollbar { width: 8px; }
   .panel-body::-webkit-scrollbar-track { background: transparent; }
   .panel-body::-webkit-scrollbar-thumb { background: #3a3c41; border-radius: 5px; }
   .panel-body::-webkit-scrollbar-thumb:hover { background: #4a4c52; }
@@ -92,29 +92,29 @@
   /* ---------- Step cards ---------- */
   .card {
     background: var(--bg-card); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px;
+    border-radius: var(--radius); padding: 9px 10px; margin-bottom: 8px;
   }
   .card-head {
-    display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+    display: flex; align-items: center; gap: 7px; margin-bottom: 7px;
   }
   .step-num {
-    flex: 0 0 auto; width: 20px; height: 20px; border-radius: 50%;
+    flex: 0 0 auto; width: 17px; height: 17px; border-radius: 50%;
     background: var(--accent-soft); color: var(--accent);
-    font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;
   }
   .card-head .card-title { font-size: var(--font-m); font-weight: 700; letter-spacing: .01em; }
-  .card-head .card-hint { font-size: 10.5px; color: var(--text-secondary); margin-left: auto; }
+  .card-head .card-hint { font-size: 9.5px; color: var(--text-secondary); margin-left: auto; }
 
-  .field { margin-bottom: 10px; }
+  .field { margin-bottom: 7px; }
   .field:last-child { margin-bottom: 0; }
-  .field-label { display: block; font-size: var(--font-s); color: var(--text-secondary); margin-bottom: 5px; font-weight: 500; }
+  .field-label { display: block; font-size: var(--font-s); color: var(--text-secondary); margin-bottom: 3px; font-weight: 500; }
 
   /* Segmented control */
   .seg { display: flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: var(--bg-field); }
   .seg button {
     flex: 1; height: var(--control-h); background: transparent;
     color: var(--text-secondary); border: none; cursor: pointer; font-size: var(--font-m);
-    font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 6px;
+    font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 5px;
   }
   .seg button + button { border-left: 1px solid var(--border); }
   .seg button:hover { background: var(--bg-hover); color: var(--text-primary); }
@@ -123,18 +123,18 @@
   input[type="text"], input[type="number"], select, textarea {
     width: 100%; box-sizing: border-box; height: var(--control-h);
     background: var(--bg-field); color: var(--text-primary);
-    border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0 9px;
+    border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0 8px;
     font-size: var(--font-m);
   }
   input[type="number"] { -moz-appearance: textfield; }
-  textarea { height: 100px; padding: 8px 9px; resize: vertical; line-height: 1.45; }
+  textarea { height: 80px; padding: 6px 8px; resize: vertical; line-height: 1.4; }
   input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
   input:disabled, select:disabled { background: var(--bg-disabled); color: var(--text-disabled); }
   input::placeholder { color: var(--text-disabled); }
 
-  .row { display: flex; gap: 10px; }
+  .row { display: flex; gap: 8px; }
   .row > * { flex: 1; min-width: 0; }
-  .hint { font-size: 10.5px; color: var(--text-secondary); line-height: 1.5; }
+  .hint { font-size: 9.5px; color: var(--text-secondary); line-height: 1.45; }
   .hint b { color: var(--text-primary); font-weight: 600; }
 
   /* ---------- Buttons ---------- */
@@ -147,7 +147,7 @@
   .btn:disabled { cursor: not-allowed; }
   .btn-primary {
     width: 100%; background: linear-gradient(135deg, var(--accent), var(--accent-hover));
-    color: #fff; font-weight: 700; height: 38px; font-size: var(--font-l);
+    color: #fff; font-weight: 700; height: 32px; font-size: var(--font-m);
     border-radius: var(--radius); letter-spacing: .01em;
     box-shadow: 0 2px 8px rgba(255,92,51,.3);
   }
@@ -162,32 +162,32 @@
   /* ---------- License ---------- */
   .license-box {
     border: 1px solid var(--warn); border-radius: var(--radius);
-    padding: 12px 14px; background: var(--warn-soft);
+    padding: 9px 10px; background: var(--warn-soft);
   }
   .license-box label { color: var(--warn); font-weight: 600; }
   .machine-id {
-    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: var(--font-s);
+    font-family: ui-monospace, Menlo, Consolas, monospace;
     color: var(--text-primary); background: var(--bg-field); border: 1px solid var(--border);
-    border-radius: var(--radius-sm); padding: 8px; white-space: pre-wrap; word-break: break-all;
-    display: flex; align-items: center; min-height: 34px; cursor: pointer; user-select: all;
-    font-size: 14px; font-weight: 600; flex: 1;
+    border-radius: var(--radius-sm); padding: 6px; white-space: pre-wrap; word-break: break-all;
+    display: flex; align-items: center; min-height: 28px; cursor: pointer; user-select: all;
+    font-size: 12.5px; font-weight: 600; flex: 1;
   }
   .licensed-note {
-    border: 1px solid var(--ok); border-radius: var(--radius); padding: 12px 14px;
-    background: var(--ok-soft); font-size: 12px; line-height: 1.5; margin-bottom: 12px;
+    border: 1px solid var(--ok); border-radius: var(--radius); padding: 9px 12px;
+    background: var(--ok-soft); font-size: 11px; line-height: 1.45; margin-bottom: 8px;
     display: none;
   }
 
   /* ---------- Progress ---------- */
-  .progress-wrap { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
-  .progress { flex: 1; height: 7px; background: var(--bg-field); border: 1px solid var(--border);
-    border-radius: 7px; overflow: hidden; }
+  .progress-wrap { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .progress { flex: 1; height: 6px; background: var(--bg-field); border: 1px solid var(--border);
+    border-radius: 6px; overflow: hidden; }
   .progress > div { height: 100%; background: linear-gradient(90deg, var(--accent), #ff8a4c); width: 0%; transition: width .2s; }
-  #progLabel { font-size: 10.5px; color: var(--text-secondary); white-space: nowrap; }
+  #progLabel { font-size: 9.5px; color: var(--text-secondary); white-space: nowrap; }
 
   #picked {
     display: none; background: var(--bg-field); border: 1px solid var(--border);
-    border-radius: var(--radius-sm); padding: 8px 10px; margin-top: 10px; font-size: 11px;
+    border-radius: var(--radius-sm); padding: 6px 8px; margin-top: 6px; font-size: 10px;
     color: var(--text-secondary); word-break: break-all;
   }
   #picked::before { content: "📎 "; }
@@ -196,22 +196,22 @@
   .disclosure {
     display: flex; align-items: center; gap: 6px; width: 100%; cursor: pointer;
     background: none; border: none; color: var(--text-primary); font-size: var(--font-m);
-    font-weight: 600; padding: 8px 0; border-bottom: 1px solid var(--divider); text-align: left;
+    font-weight: 600; padding: 6px 0; border-bottom: 1px solid var(--divider); text-align: left;
   }
   .disclosure .chevron { transition: transform .15s; color: var(--text-secondary); font-size: 10px; }
   .disclosure.open .chevron { transform: rotate(90deg); }
-  .disclosure-content { display: none; margin: 6px 0 0; }
+  .disclosure-content { display: none; margin: 5px 0 0; }
   .disclosure.open + .disclosure-content { display: block; }
 
   .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: var(--font-s);
     color: var(--text-primary); background: var(--bg-field); border: 1px solid var(--border);
-    border-radius: var(--radius-sm); padding: 8px 10px; white-space: pre-wrap; word-break: break-word; }
-  #logBox { height: 110px; overflow-y: auto; line-height: 1.45; }
-  #transcriptBox { width: 100%; height: 110px; resize: vertical; font-size: 14px;
+    border-radius: var(--radius-sm); padding: 6px 8px; white-space: pre-wrap; word-break: break-word; }
+  #logBox { height: 80px; overflow-y: auto; line-height: 1.4; }
+  #transcriptBox { width: 100%; height: 80px; resize: vertical; font-size: 13px;
     font-family: 'Abyssinica SIL', 'Kefa', serif; }
 
   #cancelBtn {
-    flex: 0 0 auto; height: 24px; padding: 0 12px; font-size: 11px; font-weight: 600;
+    flex: 0 0 auto; height: 22px; padding: 0 11px; font-size: 10.5px; font-weight: 600;
     border: 0; border-radius: var(--radius-sm); background: var(--err); color: #fff; cursor: pointer;
     display: none;
   }
@@ -219,9 +219,9 @@
 
   /* ---------- Footer ---------- */
   .panel-footer {
-    flex: 0 0 auto; padding: 8px 14px; border-top: 1px solid var(--divider);
-    background: var(--bg-elev); font-size: 10.5px; color: var(--text-secondary); line-height: 1.5;
-    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    flex: 0 0 auto; padding: 5px 10px; border-top: 1px solid var(--divider);
+    background: var(--bg-elev); font-size: 9.5px; color: var(--text-secondary); line-height: 1.4;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
   }
   .panel-footer a { color: inherit; text-decoration: none; }
   .panel-footer a:hover { color: var(--text-primary); text-decoration: underline; }
@@ -253,7 +253,7 @@
         <button id="srcWork" data-src="work">Work Area</button>
         <button id="srcWhole" data-src="whole">Whole Edit</button>
       </div>
-      <div style="height:10px;"></div>
+      <div style="height:4px;"></div>
       <button id="choose" class="btn-neutral" style="width:100%;">Choose Audio / Video File…</button>
       <input type="file" id="fileInput" accept="audio/*,video/*,.mp3,.wav,.m4a,.aac,.mp4,.mov,.mkv,.wmv" style="display:none;">
       <div id="picked"></div>
@@ -312,7 +312,7 @@
           <div class="machine-id" id="machineIdDisplay" title="Click to select all">loading…</div>
           <button type="button" id="machineIdCopy" class="btn btn-neutral" style="flex:0 0 auto;min-width:70px;" title="Copy Machine ID">📋 Copy</button>
         </div>
-        <div class="hint" style="margin-top:8px;line-height:1.6;">
+        <div class="hint" style="margin-top:6px;line-height:1.5;">
           <b style="color:var(--text-primary);">1)</b> Tap <b>📋 Copy</b> → open the Telegram bot → <b>paste</b> it.<br>
           <b style="color:var(--text-primary);">2)</b> Pay <b>ETB 1,500</b> via Telebirr to <b>0907 628 809</b>.<br>
           <b style="color:var(--text-primary);">3)</b> Send this Machine ID <b>+ your payment screenshot</b> in the bot →
@@ -325,7 +325,7 @@
         The Machine ID is hidden because your license is bound to this machine.
       </div>
 
-      <div class="field" style="margin-bottom:8px;">
+      <div class="field" style="margin-bottom:6px;">
         <label class="field-label" for="licenseInput">License Key</label>
         <div class="row">
           <input type="text" id="licenseInput" placeholder="AMH-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" style="flex:1;">
@@ -336,14 +336,14 @@
     </div>
 
     <div id="trialBanner"
-         style="display:none;margin-top:12px;padding:12px 14px;border:1px solid var(--warn);border-radius:var(--radius);background:var(--warn-soft);font-size:12px;line-height:1.5;">
+         style="display:none;margin-top:8px;padding:9px 12px;border:1px solid var(--warn);border-radius:var(--radius);background:var(--warn-soft);font-size:11px;line-height:1.45;">
       <b>Free trials used up.</b> To keep generating captions, purchase a license and
       activate it with the Machine ID and key above. Pay <b>ETB 1,500</b> via Telebirr to
       <b>0907 628 809</b>, then send your Machine ID + payment screenshot to get your key.
     </div>
 
     <!-- Output / details -->
-    <div class="card" style="margin-top:4px;">
+    <div class="card" style="margin-top:2px;">
       <div class="card-head">
         <div class="step-num">4</div>
         <span class="card-title">Output</span>
@@ -363,7 +363,7 @@
         </div>
       </div>
 
-      <div style="height:8px;"></div>
+      <div style="height:4px;"></div>
 
       <button class="disclosure" id="transcriptDisc"><span class="chevron">▶</span> Full transcript</button>
       <div class="disclosure-content">
