@@ -1,24 +1,5 @@
-import Header from "@/components/Header";
-import Footer from "@/components/Footer";
+import Link from "next/link";
 import { BOT_URL } from "@/lib/site";
-
-const steps = [
-  {
-    n: "01",
-    title: "Pick your clip",
-    text: "Select a clip on your timeline or the whole edit in Premiere Pro.",
-  },
-  {
-    n: "02",
-    title: "Generate",
-    text: "Hit Generate — the Amharic ASR runs locally on your machine.",
-  },
-  {
-    n: "03",
-    title: "Edit & export",
-    text: "Captions land on a caption track, fully editable and repositionable.",
-  },
-];
 
 const features = [
   {
@@ -53,11 +34,15 @@ const features = [
   },
 ];
 
+const steps = [
+  { n: "01", title: "Install", text: "Unzip and drop into your Adobe CEP extensions folder — takes a couple of minutes." },
+  { n: "02", title: "Pick your clip", text: "Select a clip on your timeline or the whole edit in Premiere Pro." },
+  { n: "03", title: "Generate", text: "Captions land on a caption track, ready to edit and export." },
+];
+
 export default function HomePage() {
   return (
     <>
-      <Header />
-
       <section className="hero">
         <div className="container">
           <p className="eyebrow">For Adobe Premiere Pro · Windows & macOS</p>
@@ -70,9 +55,9 @@ export default function HomePage() {
             <a className="btn btn-primary btn-lg" href={BOT_URL} target="_blank" rel="noopener">
               Get started via Telegram
             </a>
-            <a className="btn btn-ghost btn-lg" href="#how">
-              See how it works
-            </a>
+            <Link className="btn btn-ghost btn-lg" href="/install/">
+              Install now
+            </Link>
           </div>
           <p className="hero-note">2 free captions to start · One-time ETB 1,500 · No subscription</p>
 
@@ -111,7 +96,7 @@ export default function HomePage() {
 
       <section className="how section" id="how">
         <div className="container">
-          <h2>From speech to captions in three steps.</h2>
+          <h2>From install to captions in minutes.</h2>
           <p className="section-sub">No export-import dance. Captions appear right on your timeline.</p>
           <div className="steps">
             {steps.map((s) => (
@@ -123,60 +108,9 @@ export default function HomePage() {
             ))}
           </div>
           <div className="center">
-            <a className="btn btn-primary btn-lg" href={BOT_URL} target="_blank" rel="noopener">
-              Get Amharic Captions
-            </a>
-          </div>
-        </div>
-      </section>
-
-      <section className="pricing section" id="pricing">
-        <div className="container">
-          <h2>Simple, honest pricing.</h2>
-          <p className="section-sub">Pay once. Own it forever.</p>
-          <div className="pricing-card">
-            <p className="price-label">Lifetime license</p>
-            <p className="price"><span className="cur">ETB</span> 1,500</p>
-            <p className="price-sub">≈ $30 · One-time payment</p>
-            <ul className="price-features">
-              <li>Unlimited captions — no per-minute fees</li>
-              <li>Premiere Pro 2024+ · Windows & macOS</li>
-              <li>2 free captions before you pay</li>
-              <li>Editable, native caption tracks</li>
-              <li>Support from the team on Telegram</li>
-            </ul>
-            <a className="btn btn-primary btn-lg btn-block" href={BOT_URL} target="_blank" rel="noopener">
-              Buy now via Telegram
-            </a>
-            <p className="tiny">Secure order &amp; license delivery through our Telegram bot</p>
-          </div>
-        </div>
-      </section>
-
-      <section className="faq section" id="faq">
-        <div className="container">
-          <h2>Frequently asked questions.</h2>
-          <div className="faq-list">
-            <details>
-              <summary>Do I need internet to use it?</summary>
-              <p>No. Transcription runs fully on your machine. You only need internet to install and receive your license key.</p>
-            </details>
-            <details>
-              <summary>Is my footage uploaded anywhere?</summary>
-              <p>Never. Everything happens locally — your video and audio never leave your computer.</p>
-            </details>
-            <details>
-              <summary>Which Premiere Pro versions work?</summary>
-              <p>Premiere Pro 2024 (v24) and newer, on Windows 10/11 and macOS (Intel or Apple Silicon).</p>
-            </details>
-            <details>
-              <summary>How does the license work?</summary>
-              <p>One license per machine, hardware-locked to your computer. A free 2-caption trial lets you test before buying.</p>
-            </details>
-            <details>
-              <summary>How do I pay and get my key?</summary>
-              <p>Order through our Telegram bot, pay ETB 1,500 via Telebirr, and the bot delivers your license key instantly.</p>
-            </details>
+            <Link className="btn btn-primary btn-lg" href="/install/">
+              See the install guide
+            </Link>
           </div>
         </div>
       </section>
@@ -190,8 +124,6 @@ export default function HomePage() {
           </a>
         </div>
       </section>
-
-      <Footer />
     </>
   );
 }

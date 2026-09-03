@@ -10,10 +10,10 @@ export default function Header() {
           <span className="brand-name">Amharic <em>Captions</em></span>
         </Link>
         <nav className="nav" aria-label="Primary">
-          <Link href="#features">Features</Link>
-          <Link href="#how">How it works</Link>
-          <Link href="#pricing">Pricing</Link>
-          <Link href="#faq">FAQ</Link>
+          <Link href="/">Home</Link>
+          <Link href="/pricing/">Pricing</Link>
+          <Link href="/install/">Install</Link>
+          <Link href="/faq/">FAQ</Link>
           <a className="btn btn-primary" href={BOT_URL} target="_blank" rel="noopener">
             Get started
           </a>
