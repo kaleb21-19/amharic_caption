@@ -466,22 +466,36 @@ function amh_importCaptions(argsJSON) {
         // items (e.g. "mehari"), so recreating with a uniquely-named temp SRT
         // file never leaves stale or duplicate items in the bin.
         var baseName = (args.baseName || "").replace(/\.srt$/i, "") || "captions";
+        // Premiere names the imported caption item after the SRT *file's* base
+        // name (e.g. "amh_captions_169387..."), NOT after our human label. So we
+        // must also match by the file base name, otherwise the lookup fails and
+        // the captions never get placed (Selected Clip bug).
+        var srtBase = (String(args.srtPath || "").replace(/\\/g, "/").split("/").pop() || "")
+                          .replace(/\.srt$/i, "");
         var bin = amhFindOrCreateBin(AMH_CAPTION_BIN);
         // Remove any pre-existing caption item with this name so a re-run
         // always lands a single, freshly-updated caption item (no duplicates,
-        /// no stale content).
+        /// no stale content). Match the human label AND any leftover generated
+        // items (amh_captions_*, amh_sequence_*, amh_file_*) so re-runs stay
+        // clean even though Premiere names imported items after the temp file.
         amhRemoveCaptionItems(bin, baseName);
+        amhRemoveCaptionItems(bin, "amh_captions_");
+        amhRemoveCaptionItems(bin, "amh_sequence_");
+        amhRemoveCaptionItems(bin, "amh_file_");
 
         // Import the SRT.
         var imported = app.project.importFiles([args.srtPath], true, bin, false);
-        if (!imported && !amhFindCaptionItem(bin, baseName)) {
+        if (!imported && !amhFindCaptionItem(bin, baseName) && !amhFindCaptionItem(bin, srtBase)) {
             return amhErr("Premiere refused to import the caption file.");
         }
 
-        var captionItem = amhFindCaptionItem(bin, baseName);
+        // Find the imported item by (in order) human label, SRT file base name,
+        // or the most recently added caption item as a last resort.
+        var captionItem = amhFindCaptionItem(bin, baseName) || amhFindCaptionItem(bin, srtBase)
+                       || amhFindLastCaptionItem(bin);
         if (!captionItem) {
             return amhErr("Import reported success but no caption item was found in '" +
-                          AMH_CAPTION_BIN + "' (looked for '" + baseName + "').");
+                          AMH_CAPTION_BIN + "' (looked for '" + baseName + "' / '" + srtBase + "').");
         }
 
         var startSeconds = (args.startSeconds || 0);
@@ -536,6 +550,40 @@ function amhFindCaptionItem(bin, baseName) {
             try { nm = String(ch.name); } catch (e) {}
             if (nm.toLowerCase().indexOf(baseName.toLowerCase()) >= 0) {
                 found = ch;
+            }
+        }
+    } catch (e) {}
+    return found;
+}
+
+function amhIsCaptionItem(ch) {
+    try {
+        // Caption items in PPRO have a media type/tapeline of caption; inspect
+        // the footage type if exposed, else fall back to name heuristics below.
+        var ft = ch.footage ? ch.footage.type : null;
+        if (ft !== null && ft !== undefined) {
+            var t = String(ft);
+            if (t.toLowerCase().indexOf("caption") >= 0) { return true; }
+        }
+    } catch (e) {}
+    try {
+        var et = ch.videoComponent ? String(ch.videoComponent.name).toLowerCase() : "";
+        if (et.indexOf("caption") >= 0) { return true; }
+    } catch (e) {}
+    return false;
+}
+
+function amhFindLastCaptionItem(bin) {
+    // Last resort: return the most recently added caption-matching item.
+    var found = null;
+    try {
+        for (var i = bin.children.numItems - 1; i >= 0; i--) {
+            var ch = bin.children[i];
+            var nm = "";
+            try { nm = String(ch.name).toLowerCase(); } catch (e) {}
+            if (amhIsCaptionItem(ch) || nm.indexOf("caption") >= 0 || nm.indexOf(".srt") >= 0) {
+                found = ch;
+                break;
             }
         }
     } catch (e) {}
