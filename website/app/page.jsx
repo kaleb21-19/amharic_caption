@@ -30,7 +30,7 @@ const features = [
   {
     icon: "∞",
     title: "One-time price",
-    text: "A single ETB 1,500 payment. No subscriptions, no recurring fees, no lock-in.",
+    text: "A single ETB 2,000 payment. No subscriptions, no recurring fees, no lock-in.",
   },
 ];
 
@@ -59,7 +59,7 @@ export default function HomePage() {
               Install now
             </Link>
           </div>
-          <p className="hero-note">2 free captions to start · One-time ETB 1,500 · No subscription</p>
+          <p className="hero-note">2 free captions to start · One-time ETB 2,000 · No subscription</p>
 
           <div className="hero-shot">
             <div className="shot-frame">

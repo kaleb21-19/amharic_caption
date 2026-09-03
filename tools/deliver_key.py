@@ -13,7 +13,7 @@ Examples:
     python3 deliver_key.py --list                # show the whole ledger
 
 Machine IDs are 8-char hex strings shown in the panel's License section.
-Buyer already pays ETB 1,500 via Telebirr to 0907 628 809 before this runs.
+Buyer already pays ETB 2,000 via Telebirr to 0907 628 809 before this runs.
 """
 import argparse
 import csv
@@ -26,7 +26,7 @@ import sys
 SECRET = b"7JBrcWoJAXZYNDczdPjIn1Kyv2Wynqz1_d73_-fdC4g="
 LEDGER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "customers.csv")
 TELEBIRR = "0907 628 809"
-PRICE = "ETB 1,500"
+PRICE = "ETB 2,000"
 
 
 def generate_key(machine_id: str, expiry: str = "00000000") -> str:

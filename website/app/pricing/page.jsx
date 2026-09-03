@@ -1,13 +1,15 @@
 import Link from "next/link";
-import { BOT_URL, BOT_USERNAME, PAYMENT } from "@/lib/site";
+import { BOT_URL, BOT_USERNAME, PAYMENT, PRICE, PRICE_NUM } from "@/lib/site";
 
 export const metadata = {
   title: "Pricing — Amharic Captions for Premiere Pro",
   description:
-    "One-time ETB 1,500 lifetime license for Amharic speech-to-text captions in Premiere Pro. No subscription. Order through our Telegram bot and receive your key instantly.",
+    `One-time ${PRICE} lifetime license for Amharic speech-to-text captions in Premiere Pro. No subscription. Order through our Telegram bot and receive your key instantly.`,
 };
 
 export default function PricingPage() {
+  const priceLbl = Number(PRICE_NUM).toLocaleString("en-US");
+  const usd = Math.round(Number(PRICE_NUM) / 50);
   return (
     <>
       <section className="page-hero">
@@ -22,8 +24,8 @@ export default function PricingPage() {
         <div className="container">
           <div className="pricing-card">
             <p className="price-label">Lifetime license</p>
-            <p className="price"><span className="cur">ETB</span> 1,500</p>
-            <p className="price-sub">≈ $30 USD · One-time payment</p>
+            <p className="price"><span className="cur">ETB</span> {priceLbl}</p>
+            <p className="price-sub">≈ ${usd} USD · One-time payment</p>
             <ul className="price-features">
               <li>Unlimited captions — no per-minute fees</li>
               <li>Premiere Pro 2024+ · Windows &amp; macOS</li>
@@ -54,7 +56,7 @@ export default function PricingPage() {
             </div>
             <div className="card">
               <h3>2 · Pay</h3>
-              <p>Pay ETB 1,500 via Telebirr, right from the conversation.</p>
+              <p>Pay {PRICE} via Telebirr, right from the conversation.</p>
             </div>
             <div className="card">
               <h3>3 · Get your key</h3>

@@ -1,11 +1,12 @@
 import "./globals.css";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import { PRICE } from "@/lib/site";
 
 export const metadata = {
   title: "Amharic Captions — Amharic Speech-to-Text for Premiere Pro",
   description:
-    "Turn Amharic speech into perfectly timed, editable captions inside Adobe Premiere Pro. Runs 100% on-device — no internet, no uploads, no cloud. One-time fee ETB 1,500.",
+    `Turn Amharic speech into perfectly timed, editable captions inside Adobe Premiere Pro. Runs 100% on-device — no internet, no uploads, no cloud. One-time fee ${PRICE}.`,
   openGraph: {
     title: "Amharic Captions — Amharic Speech-to-Text for Premiere Pro",
     description:
@@ -28,7 +29,7 @@ export default function RootLayout({ children }) {
     operatingSystem: "Windows, macOS",
     offers: {
       "@type": "Offer",
-      price: "1500",
+      price: "2000",
       priceCurrency: "ETB",
       description: "One-time lifetime license.",
     },

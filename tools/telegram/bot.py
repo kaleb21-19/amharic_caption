@@ -42,7 +42,7 @@ def _env(key, default=""):
 TOKEN = _env("AMH_TG_TOKEN", "").strip()
 ADMIN_ID = _env("AMH_ADMIN_ID", "").strip()
 GROUP_ID = _env("AMH_GROUP_ID", "").strip()
-PRICE = "ETB 1,500"
+PRICE = "ETB 2,000"
 TELEBIRR = "0907 628 809"
 LEDGER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "customers.csv")
 SECRET = b"7JBrcWoJAXZYNDczdPjIn1Kyv2Wynqz1_d73_-fdC4g="
@@ -437,7 +437,7 @@ WELCOME = (
     f"💰 ዋጋ: <b>{PRICE}</b> (አንድ ጊዜ — እስከመጨረሻው)\n"
     f"📲 Telebirr: <b>{TELEBIRR}</b>\n"
     "🖥 Windows & Mac\n"
-    "⏰ የማስጀመሪያ ዋጋ: 1,500 አሁን — በኋላ <b>1,999</b>! አሁኑኑ ይጠቀሙ።\n\n"
+    "⏰ የማስጀመሪያ ዋጋ: 2,000 አሁን — በኋላ <b>2,499</b>! አሁኑኑ ይጠቀሙ።\n\n"
     "ከታች ያሉትን አዝራሮች ይጠቀሙ 👇"
 )
 
@@ -494,7 +494,7 @@ def menu_pay():
         f"🏦 Paid to: <b>{TELEBIRR}</b> (Telebirr)\n"
         "🔑 You get: your license key <b>in this chat</b>\n"
         f"{proof}"
-        "⏰ <b>Launch price</b> — 1,500 now, <b>ETB 1,999</b> after launch. "
+        "⏰ <b>Launch price</b> — 2,000 now, <b>ETB 2,499</b> after launch. "
         "Lock it in now.\n\n"
         "👇 Tap below <b>only after</b> you've sent the money via Telebirr."
     )
@@ -529,7 +529,7 @@ def menu_help():
         "❓ Questions?\n"
         "👤 Support: DM the seller — @AmharicCaptionsBot\n\n"
         "• 2 free captions to try\n"
-        "• One-time ETB 1,500, forever license\n"
+        "• One-time ETB 2,000, forever license\n"
         "• Needs Premiere Pro 2024+"
     )
     return text, base_nav()
@@ -885,7 +885,7 @@ def _admin_sales(chat_id, message_id):
     """Revenue + buy-flow funnel from funnel.csv and the ledger."""
     rows = read_ledger()
     sold = [r for r in rows if r.get("status") == "sold"]
-    revenue = len(sold) * 1500
+    revenue = len(sold) * 2000
     uid_events = {}  # uid -> set of funnel events
     try:
         with open(FUNNEL_FILE, "r", encoding="utf-8") as f:
@@ -911,7 +911,7 @@ def _admin_sales(chat_id, message_id):
 
     text = (
         "📈 <b>Sales & Funnel</b>\n\n"
-        f"💵 <b>Revenue</b>: {len(sold)} keys × ETB 1,500 = <b>ETB {revenue:,}</b>\n"
+        f"💵 <b>Revenue</b>: {len(sold)} keys × ETB 2,000 = <b>ETB {revenue:,}</b>\n"
         f"👥 Buyers reached (DM): {len(CONTACTS)}\n\n"
         "<b>Funnel — all-time:</b>\n"
         f"🟦 Started buy flow: {started}\n"

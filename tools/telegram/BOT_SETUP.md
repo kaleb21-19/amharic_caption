@@ -82,7 +82,7 @@ key delivery).
 1. Buyer joins your group (or DMs the bot) → bot sends the welcome + menu:
    **💳 How to buy · 🛠 Install · ❓ FAQ · 🔑 Get my key**
 2. Buyer sends their **Machine ID** (8 hex chars from the panel's License section).
-3. Bot replies: "Machine ID received — please send ETB 1,500 via Telebirr to
+3. Bot replies: "Machine ID received — please send ETB 2,000 via Telebirr to
    0907 628 809" and **notifies you** with an Approve / Reject / Expire keyboard.
 4. **You check the Telebirr payment manually.** If paid, press **✅ Approve**.
 5. Bot DM's the buyer their license key and logs the sale in `customers.csv`.
