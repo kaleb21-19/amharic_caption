@@ -34,8 +34,10 @@ export default function RootLayout({ children }) {
       "Amharic speech-to-text captions for Adobe Premiere Pro. Runs on-device with no internet required.",
   };
   return (
-    <html lang="en">
+    <html lang="en" style={{ backgroundColor: "#0b1110" }}>
       <head>
+        <meta name="theme-color" content="#0b1110" />
+        <meta name="color-scheme" content="dark" />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
