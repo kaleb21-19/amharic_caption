@@ -6,7 +6,7 @@ export default function Footer() {
     <footer className="site-footer">
       <div className="container footer-grid">
         <div className="footer-brand-col">
-          <p className="footer-brand"><span className="brand-mark sm">አ</span> Amharic Captions</p>
+          <p className="footer-brand"><img className="brand-logo" src="/amharic_caption/images/logo@2x.png" alt="Amharic Captions logo" width="82" height="120" /> Amharic Captions</p>
           <p className="footer-tag">
             Amharic speech-to-text captions for Adobe Premiere Pro. Runs fully
             on your machine.

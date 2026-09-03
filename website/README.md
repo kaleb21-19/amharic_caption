@@ -21,10 +21,14 @@ Telegram bot (`@AmharicCaptionsBot`). Change it once there.
 - `PRICE` = `ETB 1,500`
 - `PAYMENT` = `Telebirr 0907 628 809`
 
-## Product screenshot
-The hero shows `public/images/screenshot.svg`. To use a real screenshot:
-save your panel/demo capture as `public/images/screenshot.png` and update the
-`<img src>` in `app/page.jsx`.
+## Product assets
+- **Header/Footer logo:** `public/images/logo@2x.png` (web-optimized from the
+  `~/Desktop/assets/logo.png` source)
+- **Hero product screenshot:** `public/images/panel-hi.png` (web-optimized from
+  the `~/Desktop/assets/panel.png` source)
+
+To update, drop the new files into `public/images/` (as `logo@2x.png` /
+`panel-hi.png`) and push. Originals live in `~/Desktop/assets/`.
 
 ## Develop locally
 ```

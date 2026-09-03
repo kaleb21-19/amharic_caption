@@ -77,16 +77,12 @@ export default function HomePage() {
           <p className="hero-note">2 free captions to start · One-time ETB 1,500 · No subscription</p>
 
           <div className="hero-shot">
-            <a className="shot" href="#demo">
-              <div className="shot-frame">
-                {/* Swap public/images/screenshot.svg for your real panel screenshot
-                    (save as public/images/screenshot.png and update src below). */}
-                <img
-                  src="/amharic_caption/images/screenshot.svg"
-                  alt="Amharic Captions panel in Premiere Pro with generated captions"
-                />
-              </div>
-            </a>
+            <div className="shot-frame">
+              <img
+                src="/amharic_caption/images/panel-hi.png"
+                alt="Amharic Captions panel in Premiere Pro with generated Amharic captions"
+              />
+            </div>
           </div>
         </div>
       </section>
