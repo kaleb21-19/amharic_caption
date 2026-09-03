@@ -6,7 +6,7 @@ export default function Header() {
     <header className="site-header">
       <div className="container header-inner">
         <Link href="/" className="brand" aria-label="Amharic Captions home">
-          <img className="brand-logo" src="/amharic_caption/images/logo@2x.png" alt="Amharic Captions logo" width="164" height="240" />
+          <img className="brand-logo" src="/amharic_caption/images/logo@2x.png" srcSet="/amharic_caption/images/logo@2x.png 2x, /amharic_caption/images/logo@1x.png 1x" alt="Amharic Captions logo" width="34" height="34" />
           <span className="brand-name">Amharic <em>Captions</em></span>
         </Link>
         <nav className="nav" aria-label="Primary">

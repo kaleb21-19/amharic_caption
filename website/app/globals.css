@@ -57,6 +57,7 @@ a { color: var(--brand); }
 .brand { display: flex; align-items: center; gap: 11px; font-size: 1.05rem; font-weight: 800; color: var(--ink); text-decoration: none; }
 .brand em { font-style: normal; color: var(--brand); }
 .brand-logo { height: 34px; width: auto; display: block; }
+.footer-brand .brand-logo { height: 40px; width: auto; }
 .brand-mark.sm { width: 30px; height: 30px; font-size: 1rem; border-radius: 9px; }
 .nav { display: flex; align-items: center; gap: 26px; }
 .nav a:not(.btn) { color: var(--muted); font-weight: 600; text-decoration: none; font-size: 0.96rem; }
