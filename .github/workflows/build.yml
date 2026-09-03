@@ -93,7 +93,8 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-  # Intel Mac — kept as its own non-blocking job; not part of the Release gate.
+  # Intel Mac — builds in parallel; included in the release gate so every
+  # release ships all three platforms.
   build-x64:
     needs: model-ct2
     runs-on: macos-13
@@ -159,13 +160,12 @@ jobs:
           if-no-files-found: error
 
   # ---- 3. attach zips to a GitHub Release (one-click downloads) -------------
-  # Runs after win-x64 + mac-arm64 finish (the platforms we ship now). The
-  # Intel-mac (mac-x64) job is NOT part of this gate — it builds in the
-  # background so it never blocks buyers' downloads.
+  # Runs after all three platform builds finish so every release ships
+  # mac-arm64, mac-x64, and win-x64.
   release:
-    needs: [build-ar, build-win]
+    needs: [build-ar, build-x64, build-win]
     runs-on: ubuntu-latest
-    if: ${{ always() && needs.build-ar.result == 'success' && needs.build-win.result == 'success' }}
+    if: ${{ always() && needs.build-ar.result == 'success' && needs.build-x64.result == 'success' && needs.build-win.result == 'success' }}
     permissions:
       contents: write
     steps:
