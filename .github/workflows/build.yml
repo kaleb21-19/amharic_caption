@@ -93,8 +93,9 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-  # Intel Mac — builds in parallel; included in the release gate so every
-  # release ships all three platforms.
+  # Intel Mac — builds in the background; NOT in the release gate (macos-13
+  # is slow/limited). If it finishes before the release job, its zip is
+  # included automatically. Otherwise we upload it manually.
   build-x64:
     needs: model-ct2
     runs-on: macos-13
@@ -160,12 +161,13 @@ jobs:
           if-no-files-found: error
 
   # ---- 3. attach zips to a GitHub Release (one-click downloads) -------------
-  # Runs after all three platform builds finish so every release ships
-  # mac-arm64, mac-x64, and win-x64.
+  # Does NOT wait for build-x64 (macos-13 is slow/limited). If the Intel
+  # build finishes in time, its zip is included automatically. If not, we
+  # attach it manually after.
   release:
-    needs: [build-ar, build-x64, build-win]
+    needs: [build-ar, build-win]
     runs-on: ubuntu-latest
-    if: ${{ always() && needs.build-ar.result == 'success' && needs.build-x64.result == 'success' && needs.build-win.result == 'success' }}
+    if: ${{ always() && needs.build-ar.result == 'success' && needs.build-win.result == 'success' }}
     permissions:
       contents: write
     steps:
