@@ -51,6 +51,174 @@ function getOrCreateMachineId() {
 
 const MACHINE_ID = getOrCreateMachineId();
 
+// ── Host theme detection (Premiere dark/light) ──────────────────────────────
+function hostTheme() {
+  try {
+    const env = JSON.parse(window.__adobe_cep__.getHostEnvironment());
+    const bg = env.appSkinInfo && env.appSkinInfo.appBackgroundColor;
+    if (bg && typeof bg.red === 'number') {
+      // 0..255; bright background => light theme, dark => dark theme.
+      const lum = (bg.red + bg.green + bg.blue) / 3;
+      return lum > 140 ? 'light' : 'dark';
+    }
+  } catch (e) {}
+  return null;
+}
+
+function applyTheme() {
+  const t = hostTheme();
+  if (t) document.documentElement.setAttribute('data-theme', t);
+}
+// Inline-applied ASAP so there's no dark->light flash when CEP starts up.
+applyTheme();
+
+// Stay in sync when the user toggles Premiere's brightness.
+try {
+  if (window.__adobe_cep__ && window.__adobe_cep__.addEventListener) {
+    window.__adobe_cep__.addEventListener('com.adobe.csxs.events.ThemeColorChanged', applyTheme);
+  }
+} catch (e) {}
+
+// ── Amharic font detection: which installed font renders አማርኛ well? ───────
+// The caption track in Premiere uses the operating system's default for the
+// Ethiopic script; we surface the best available font so users know what they
+// will see (and can install Abyssinica SIL for the nicest result).
+const AMH_CANDIDATE_FONTS = [
+  'Abyssinica SIL',        // best glyphs, most popular Ethiopic-capable font
+  'Noto Sans Ethiopic',
+  'Noto Serif Ethiopic',
+  'Kefa',
+  'Ebrima',
+  'Nyala',
+  'Visual Geez Unicode',
+];
+
+function detectAmharicFont() {
+  // document.fonts.check('16px "NAME"') returns true only when that named font
+  // is actually installed and layout can use it for the given glyph/script.
+  if (typeof document === 'undefined' || !document.fonts || typeof document.fonts.check !== 'function') {
+    return { ok: true, font: null, support: false }; // can't tell => don't block
+  }
+  const probe = '\u1200\u1228'; // "ሀረ" — Ethiopic-required codepoints
+  for (const name of AMH_CANDIDATE_FONTS) {
+    try {
+      if (document.fonts.check('16px "' + name + '"', probe)) {
+        return { ok: true, font: name, support: true };
+      }
+    } catch (e) {}
+  }
+  return { ok: false, font: null, support: true };
+}
+
+let AMH_FONT = detectAmharicFont();
+
+function renderFontPill(info) {
+  const pill = document.getElementById('fontPill');
+  const txt = document.getElementById('fontText');
+  if (!pill || !txt) return;
+  if (!info.support) {
+    pill.className = 'warn';
+    txt.textContent = 'font: unknown';
+    pill.title = 'Could not detect installed fonts on this system.';
+    return;
+  }
+  if (info.ok && info.font) {
+    pill.className = 'ok';
+    txt.textContent = info.font;
+    pill.title = 'Captions will render in ' + info.font + '.' +
+      ' For the clearest Amharic, install "Abyssinica SIL" for free.';
+  } else {
+    pill.className = 'warn';
+    txt.textContent = 'font: install';
+    pill.title = 'No Ethiopic-capable font detected. Install "Abyssinica SIL" ' +
+      '(free) so captions render correctly in Premiere.';
+  }
+}
+renderFontPill(AMH_FONT);
+
+// ── First-run onboarding ────────────────────────────────────────────────────
+const ONBOARD_KEY = 'amh.onboarded';
+function needsOnboarding() {
+  try { return !localStorage.getItem(ONBOARD_KEY); } catch (e) { return false; }
+}
+function showOnboarding() {
+  const ob = document.getElementById('onboard');
+  if (!ob) return;
+  ob.classList.add('show');
+}
+function hideOnboarding() {
+  const ob = document.getElementById('onboard');
+  if (ob) ob.classList.remove('show');
+  try { localStorage.setItem(ONBOARD_KEY, '1'); } catch (e) {}
+}
+
+// Health checks (also reused by diagnostics later).
+function healthChecks() {
+  let runtime = false, python = false, ffmpeg = false, model = false;
+  try {
+    runtime = !!RUNTIME && fs.existsSync(PYTHON) && fs.existsSync(FFMPEG) && fs.existsSync(MODEL_DIR);
+    python = !!RUNTIME && fs.existsSync(PYTHON);
+    ffmpeg = !!RUNTIME && fs.existsSync(FFMPEG);
+    model = !!RUNTIME && fs.existsSync(MODEL_DIR);
+  } catch (e) {}
+  return { runtime, python, ffmpeg, model, font: AMH_FONT.ok };
+}
+
+function renderHealthList() {
+  const h = healthChecks();
+  const map = {
+    runtime: ['Transcription engine', h.runtime],
+    model:   ['Amharic model',        h.model],
+    ffmpeg:  ['Audio extractor',      h.ffmpeg],
+    python:  ['Python runtime',       h.python],
+    font:    ['Amharic font',         AMH_FONT.ok],
+  };
+  document.querySelectorAll('#healthList .row-check').forEach((row) => {
+    const key = row.getAttribute('data-check');
+    const state = row.querySelector('.state');
+    const [label, good] = map[key] || [key, false];
+    row.querySelector('span:first-child').textContent = label;
+    row.classList.toggle('ok', good);
+    row.classList.toggle('bad', !good);
+    state.textContent = good ? 'OK' : 'Check';
+  });
+}
+
+function initOnboarding() {
+  const btn = document.getElementById('onboardStart');
+  if (btn) btn.addEventListener('click', hideOnboarding);
+
+  // Health checks depend on RUNTIME etc. which are resolved later in the file;
+  // so render when the environment is ready (after setup()) via a resechedule.
+  // We simply re-render on every open and after setup is wired.
+  renderHealthList();
+
+  if (needsOnboarding() && typeof RUNTIME !== 'undefined') {
+    // Small delay so RUNTIME/PYTHON/FFMPEG (declared further down) are defined.
+    setTimeout(() => { showOnboarding(); renderHealthList(); }, 60);
+  }
+}
+
+// Support link: open Telegram DM to the seller, pre-filling the machine ID.
+function initSupport() {
+  const a = document.getElementById('supportLink');
+  if (a) {
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      const msg = encodeURIComponent('Hello! I need help with Amharic Captions.\nMachine ID: ' + MACHINE_ID);
+      const url = 'https://t.me/sumpak6?text=' + msg;
+      try { window.__adobe_cep__ && window.cep.util.openURLInDefaultBrowser(url); }
+      catch (err) { window.open(url, '_blank'); }
+    });
+  }
+}
+
+// ── Version badge in footer (keep in sync with CSXS manifest.xml) ──────────
+function initVersion() {
+  const el = document.getElementById('panelVersion');
+  if (el) el.textContent = '1.1.0';
+}
+
 function getLicense() {
   try { return JSON.parse(localStorage.getItem('amh.license') || 'null'); }
   catch (e) { return null; }
@@ -122,10 +290,9 @@ async function consumeTrialCredit() {
     setTrialUsed(serverResult.used);
     const left = serverResult.remaining;
     if (left > 0) {
-      log('Trial: ' + serverResult.used + '/' + TRIAL_ALLOWED + ' used. ' + left + ' free transcription' +
-          (left === 1 ? '' : 's') + ' left.');
+      log('Free trial: ' + serverResult.used + '/' + TRIAL_ALLOWED + ' used, ' + left + ' left.');
     } else {
-      log('Trial used up (' + TRIAL_ALLOWED + '/' + TRIAL_ALLOWED + '). Enter a license key to continue.');
+      log('Free trial used up (' + TRIAL_ALLOWED + '/' + TRIAL_ALLOWED + '). Enter a license key to continue.');
     }
     return;
   }
@@ -135,10 +302,9 @@ async function consumeTrialCredit() {
   const used = getTrialUsed();
   const left = trialRemaining();
   if (left > 0) {
-    log('Trial: ' + used + '/' + TRIAL_ALLOWED + ' used. ' + left + ' free transcription' +
-        (left === 1 ? '' : 's') + ' left.');
+    log('Free trial: ' + used + '/' + TRIAL_ALLOWED + ' used, ' + left + ' left.');
   } else {
-    log('Trial used up (' + TRIAL_ALLOWED + '/' + TRIAL_ALLOWED + '). Enter a license key to continue.');
+    log('Free trial used up (' + TRIAL_ALLOWED + '/' + TRIAL_ALLOWED + '). Enter a license key to continue.');
   }
 }
 
@@ -738,24 +904,23 @@ function showTranscript(text) {
 }
 
 async function finishImport(outSrt, label, startSeconds) {
-  log('Importing onto caption track (requested start ' + (startSeconds || 0).toFixed(2) + 's)…');
+  log('Placing captions on your timeline…');
   const imp = await importCaptions(outSrt, startSeconds || 0, label);
   if (imp.ok) {
     // A transcript was produced and placed: for an unlicensed trial user this
     // counts as one free use.
     consumeTrialCredit();
-    log('Imported: ' + imp.captionItemName + ' (placement: ' + imp.placement + ')');
+    log('✓ Captions added: ' + imp.captionItemName);
     if (imp.requestedStart !== undefined && imp.landedStart !== undefined &&
         imp.landedStart !== null) {
-      log('Caption landed at timeline ' + imp.landedStart.toFixed(2) + 's → ' +
+      log('Timeline position ' + imp.landedStart.toFixed(2) + 's → ' +
           (imp.landedEnd !== null ? imp.landedEnd.toFixed(2) + 's' : '?') +
           '  (requested ' + imp.requestedStart.toFixed(2) + 's)');
     }
     if (!imp.placed && imp.note) log('Note: ' + imp.note);
-    log('Captions added to the CC (caption) track. If you can\'t see them:');
-    log('  expand the caption track at the bottom of the timeline, and');
+    log('Can\'t see them? Expand the caption track (bottom of the timeline) and');
     log('  turn on the CC toggle in the Program Monitor.');
-    log('Style captions in Essential Graphics (font: Abyssinica SIL).');
+    log('To restyle, open Essential Graphics and set the caption font.');
   } else {
     log('Import warning: ' + (imp.error || 'unknown'));
   }
@@ -784,7 +949,7 @@ async function run() {
     return;
   }
   if (!LICENSED && trialRemaining() <= 0) {
-    log('ERROR: Your free trial (2 transcriptions) is used up. ');
+    log('Your free trial (2 transcriptions) is used up.');
     log('Enter your license key in the License section and click Activate to continue.');
     return;
   }
@@ -802,13 +967,11 @@ async function run() {
 }
 
 async function runSelectedClip() {
-  log('Reading selected timeline clip…');
+  log('Checking your selected clip…');
   const c = await getSelectedClip();
   if (!c.ok || !c.sourcePath) throw new Error(c.error || 'No selected clip.');
-  log('Clip: ' + c.name + (c.via ? ('  [' + c.via + ']') : ''));
-  log('Source: ' + c.sourcePath);
-  log('Selected range -> source in=' + c.sourceIn.toFixed(2) + 's  duration=' + c.duration.toFixed(2) +
-      's  timeline@' + c.timelineStart.toFixed(2) + 's');
+  log('✓ Clip: ' + c.name + (c.via ? ('  [' + c.via + ']') : ''));
+  log('Listening to ' + c.duration.toFixed(1) + 's of audio…');
 
   if (c.duration <= 0) { log('ERROR: Selected clip has zero duration.'); return; }
 
@@ -818,31 +981,24 @@ async function runSelectedClip() {
   const cleanName = (c.name.replace(/\.[^.]+$/, '') || 'captions');
 
   const outSrt = path.join(os.tmpdir(), 'amh_captions_' + Date.now() + '.srt');
-  log('Extracting ' + c.duration.toFixed(2) + 's of audio and transcribing (Ethio-ASR)…');
   setProgress(0.4, 'Transcribing…');
   // Bake the clip's absolute timeline position into the SRT timestamps (so the
   // cues carry their real timeline times), then place the caption band at 0.
-  // This is robust to Premiere either honoring or ignoring createCaptionTrack's
-  // start argument: absolute timestamps land correctly either way, exactly like
-  // the Whole-Edit path (which works). Relative-to-clip times + a nonzero start
-  // were being dropped to timeline 0 on some builds, showing the first cut.
   const r = await transcribe(c.sourcePath, outSrt,
     { sourceIn: c.sourceIn, duration: c.duration }, c.timelineStart);
   setProgress(0.9, 'Transcription complete');
 
-  log('Done. ' + (fs.statSync(outSrt).size) + ' bytes of captions (temporary).');
-  log('Placing caption band at timeline position 0 (SRT has absolute times).');
+  log('Done writing captions.');
   showTranscript(r.transcript);
 
   // Import via a UNIQUELY named temp file so Premiere is forced to create a fresh
-  // caption item on every run instead of reusing a stale/cached one (which was
-  // why the timeline kept showing the previous transcription).
+  // caption item on every run instead of reusing a stale/cached one.
   await finishImport(outSrt, cleanName, 0);
   try { fs.unlinkSync(outSrt); } catch (e) {}
 }
 
 async function runWorkArea() {
-  log('Reading active sequence…');
+  log('Reading your edit area…');
   const info = await getSequenceInfo(SOURCE === 'whole');
   if (!info.ok || !info.clips) throw new Error(info.error || 'No sequence info.');
   const clips = info.clips;
@@ -856,7 +1012,7 @@ async function runWorkArea() {
     : 'work area ' + info.inPoint.toFixed(2) + 's → ' +
       (info.outPoint >= 1e10 ? 'end' : info.outPoint.toFixed(2)) + 's';
   log('Found ' + clips.length + ' clip(s) to transcribe (' + rangeLabel + ').');
-  log('Extracting audio per clip, then transcribing all in one pass (model loaded once).');
+  log('Extracting audio per clip, then writing captions in one pass…');
 
   const outSrt = path.join(os.tmpdir(), 'amh_sequence_' + Date.now() + '.srt');
   const stamp = Date.now();
@@ -881,7 +1037,7 @@ async function runWorkArea() {
 
   for (const it of items) { try { fs.unlinkSync(it.wav); } catch (e) {} }
 
-  log('Sequence captions written (' + r.cues.length + ' cues).');
+  log('Done — ' + r.cues.length + ' captions written.');
   showTranscript(r.transcript);
 
   await finishImport(outSrt, 'sequence');
@@ -921,11 +1077,11 @@ async function runFile(filePath, fileName) {
     const base = filePath.replace(/\.[^.]+$/, '');
     const outSrt = path.join(os.tmpdir(), 'amh_file_' + Date.now() + '.srt');
     const cleanName = (fileName || path.basename(base) || 'captions').replace(/\.[^.]+$/, '');
-    log('Transcribing (local Ethio-ASR)… this can take a while.');
+    log('Writing captions… this can take a minute.');
     setProgress(0.4, 'Transcribing…');
     const r = await transcribe(filePath, outSrt);
     setProgress(0.9, 'Transcription complete');
-    log('Transcription complete.');
+    log('Done writing captions.');
     showTranscript(r.transcript);
     await finishImport(outSrt, cleanName);
     try { fs.unlinkSync(outSrt); } catch (e) {}
@@ -940,7 +1096,7 @@ async function runFile(filePath, fileName) {
 // ----------------------------------------------------------------- export
 function exportCaptions() {
   if (!lastCues || lastCues.length === 0) {
-    log('No generated captions yet. Run a transcription first.');
+    log('Nothing to export yet. Generate captions first.');
     return;
   }
   const cwd = os.homedir() + '/Desktop/AmharicCaptions';
@@ -1050,6 +1206,12 @@ function setup() {
   } else {
     setStatus('ready', IS_WIN ? 'ready · win' : 'ready · mac');
   }
+
+  // P0 polish: token theme applied already; keep health + onboarding in sync.
+  renderHealthList();
+  initOnboarding();
+  initSupport();
+  initVersion();
 }
 
 setup();
