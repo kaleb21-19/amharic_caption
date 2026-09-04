@@ -370,9 +370,9 @@ def send_with_hint(chat_id, text, hint, keyboard=None, parse_mode="HTML"):
 def admin_keyboard(action, payload):
     uid = str(payload["uid"])
     return [[
-        {"text": "✅ አረጋግጥ", "callback_data": f"approve:{uid}"},
-        {"text": "❌ ውድቅ", "callback_data": f"reject:{uid}"},
-        {"text": "⏰ ጊዜ ስጥ", "callback_data": f"expiry:{uid}"},
+        {"text": "✅ Approve", "callback_data": f"approve:{uid}"},
+        {"text": "❌ Reject", "callback_data": f"reject:{uid}"},
+        {"text": "⏰ Set expiry", "callback_data": f"expiry:{uid}"},
     ]]
 
 
@@ -409,21 +409,23 @@ def back_row():
 
 def menu_how():
     text = (
-        "🎬 <b>እንዴት እንደሚሰራ (How it works)</b>\n\n"
-        "ሙሉ ሂደቱን በ5 ደረጃ ይመልከቱ — ቀላል ነው! 👇\n\n"
-        "<b>① ይጫኑ (Install)</b>\n"
-        "ሶፍትዌሩን ያውርዱና ይጫኑ። ችግር ካለ \"🛠 እንዴት እንደሚጫኑ\" ይንኩ።\n\n"
-        "<b>② ይሞክሩ (Try) — ነጻ</b>\n"
-        "ከመግዛትዎ በፊት <b>2 ነጻ</b> ካፕሽን ይስሩ። እርካታ ካላስተኛ አይግዙም።\n\n"
-        "<b>③ ይክፈሉ (Pay)</b>\n"
-        f"<b>{PRICE}</b> በTelebirr ወደ <b>{TELEBIRR}</b> ይላኩ። "
-        "የክፍያ ማረጋገጫ ስክሪን ሾት ያንሱ (screenshot)።\n\n"
-        "<b>④ ያስገቡ (Send ID + proof)</b>\n"
-        "የክፍያ ስክሪን ሾትዎን እና <b>Machine ID</b>ዎን ይላኩ።\n\n"
-        "<b>⑤ ያግኙ (Get key)</b>\n"
-        "ክፍያዎን ካረጋገጥን በኋላ ሊሰንስ ቁልፍ ወደዚህ እንልክልዎታለን → "
-        "በፓነሉ License ውስጥ አስገብተው <b>Activate</b> ይጫኑ።\n\n"
-        "👉 ለመጀመር \"🛠 እንዴት እንደሚጫኑ\" ይንኩ።"
+        "🎬 <b>How it works</b>\n\n"
+        "🚫🔌 <b>NO INTERNET NEEDED</b> after install.\n"
+        "Runs <b>100% offline</b> on your own computer.\n\n"
+        "Simple 5 steps — here's the full picture: 👇\n\n"
+        "<b>① Install</b>\n"
+        "Download and set up the plugin. Stuck? Tap \"🛠 Install\".\n\n"
+        "<b>② Try — FREE</b>\n"
+        "Make <b>2 free</b> captions before buying. No commitment.\n\n"
+        "<b>③ Pay</b>\n"
+        f"<s>ETB 3,500</s> → <b>{PRICE}</b> via Telebirr to <b>{TELEBIRR}</b>. "
+        "Take a screenshot of the payment confirmation.\n\n"
+        "<b>④ Send ID + proof</b>\n"
+        "Send your payment screenshot and <b>Machine ID</b> here.\n\n"
+        "<b>⑤ Get your key</b>\n"
+        "After we verify payment, we'll send your license key here → "
+        "paste it in the panel's License section and tap <b>Activate</b>.\n\n"
+        "👉 To start, tap \"🛠 Install\"."
     )
     return text, home_keyboard(back_row())
 
@@ -434,15 +436,15 @@ WELCOME = (
     "የሚከፍሉት።\n\n"
     "ይህ ሶፍትዌር፣ Premiere Pro ላይ ቪዲዮዎን በራስ-ሰር በ<b>አማርኛ ንዑስ ርዕስ</b> "
     "(subtitle) ያስቀምጥልዎታል። ሙሉ በሙሉ በኮምፒውተርዎ ላይ ነው የሚሰራው (offline)።\n\n"
-    f"💰 ዋጋ: <b>{PRICE}</b> (አንድ ጊዜ — እስከመጨረሻው)\n"
+    f"💰 ዋጋ: <s>ETB 3,500</s> → <b>{PRICE}</b> (አንድ ጊዜ — እስከመጨረሻው)\n"
     f"📲 Telebirr: <b>{TELEBIRR}</b>\n"
     "🖥 Windows & Mac\n"
-    "⏰ የማስጀመሪያ ዋጋ: 2,000 አሁን — በኋላ <b>2,499</b>! አሁኑኑ ይጠቀሙ።\n\n"
+    "⏰ <b>መግቢያ ዋጋ</b> — አሁኑኑ ይጠቀሙ!\n\n"
     "ከታች ያሉትን አዝራሮች ይጠቀሙ 👇"
 )
 
 MENU = (
-    "ሰላም! 👋 ምን ማድረግ ይፈልጋሉ? ከታች ይምረጡ:"
+    "Hello! 👋 What would you like to do? Choose below:"
 )
 MENU_KEYBOARD = home_keyboard()
 
@@ -451,18 +453,20 @@ def hero(first=""):
     name = f"{first}, " if first else ""
     return (
         f"{name}Welcome to <b>Amharic Captions</b> 👋\n\n"
+        "🚫🔌 <b>NO INTERNET NEEDED.</b>\n"
+        "This runs <b>100% OFFLINE</b> on your own computer — after install, you "
+        "don't need Wi-Fi or mobile data to make captions.\n\n"
         "🎁 <b>Try BEFORE you pay</b> — your first <b>2 captions are free</b>.\n\n"
-        "1️⃣ <b>Install</b> → make 2 free captions\n"
-        f"2️⃣ <b>Pay</b> — {PRICE} (forever license)\n"
-        "3️⃣ <b>Machine ID</b>\n"
-        "4️⃣ <b>Help</b>\n"
-        "🔑 <b>My Key</b>\n\n"
+        "📌 <b>How it works</b> (simple, 3 steps):\n"
+        "1️⃣ <b>Install</b> the plugin\n"
+        f"2️⃣ <b>Pay</b> once — <s>ETB 3,500</s> now <b>{PRICE}</b> (forever key)\n"
+        "3️⃣ <b>Make captions</b> forever, offline\n\n"
         "🤝 <b>Buy with confidence</b>\n"
-        "• You key your captions offline on your own machine — nothing is shared\n"
+        "• You keep your captions offline on your own machine — nothing is shared\n"
         "• Your license key is delivered <b>right in this chat</b> after we confirm "
         "your Telebirr payment\n"
         "• Real support via DM — get unstuck fast\n\n"
-        "👇 Tap <b>1️⃣ Install</b> to taste it first:"
+        "👇 Tap <b>1️⃣ Install</b> to taste it free first:"
     )
 
 
@@ -482,20 +486,19 @@ def menu_buy():
 
 def menu_pay():
     served = len([r for r in read_ledger() if r.get("status") == "sold"])
-    proof = (f"\n🤝 <b>Trusted:</b> {served} creator(s) are already running with "
-             f"a forever license.\n" if served else "")
+    proof = (f"\n🤝 <b>Trusted:</b> {served} creator(s) already running a forever license.\n"
+             if served else "")
     text = (
         "💰 <b>Pay</b>\n\n"
         "🎁 <b>Did you try your 2 free captions first?</b>\n"
         "Install → make 2 free captions → if you love it, come back and pay. "
         "No risk.\n\n"
         "<b>Before you send — here's the deal:</b>\n"
-        f"💵 Amount: <b>{PRICE}</b> — one-time, forever license, no extra fees\n"
+        f"💵 Amount: <s>ETB 3,500</s> → <b>{PRICE}</b> — one-time, forever license, no extra fees\n"
         f"🏦 Paid to: <b>{TELEBIRR}</b> (Telebirr)\n"
         "🔑 You get: your license key <b>in this chat</b>\n"
         f"{proof}"
-        "⏰ <b>Launch price</b> — 2,000 now, <b>ETB 2,499</b> after launch. "
-        "Lock it in now.\n\n"
+        "⏰ <b>Introductory price</b> — lock it in now.\n\n"
         "👇 Tap below <b>only after</b> you've sent the money via Telebirr."
     )
     kb = [
@@ -524,32 +527,39 @@ def menu_payproof():
 
 
 def menu_help():
-    text = (
-        "4️⃣ <b>Help</b>\n\n"
-        "❓ Questions?\n"
-        "👤 Support: DM the seller — @AmharicCaptionsBot\n\n"
-        "• 2 free captions to try\n"
-        "• One-time ETB 2,500, forever license\n"
-        "• Needs Premiere Pro 2024+"
-    )
-    return text, base_nav()
+    text, kb = menu_faq()
+    return text, kb
 
 
 def menu_install():
     text = (
-        "🛠 <b>Install</b>\n\n"
+        "🛠 <b>Install — 2 FREE captions</b>\n\n"
+        "🔒 <b>Runs 100% OFFLINE</b> on your computer after install.\n"
         "⚠️ Needs Premiere Pro <b>2024 (v24)</b> or newer.\n\n"
-        "<b>1.</b> Download:\n"
-        "   github.com/kaleb21-19/amharic_caption/releases/latest\n"
-        "   (Windows → amharic-captions-win-x64.zip)\n\n"
-        "<b>2.</b> Extract.\n\n"
-        "<b>3.</b> Copy the folder to:\n"
-        "   <code>C:\\Program Files (x86)\\Common Files\\Adobe\\CEP\\extensions\\</code>\n"
-        "   (must be named <code>com.amharic.captions</code>)\n\n"
-        "<b>4.</b> Open Premiere → Windows > Extensions > \"Amharic Captions\"\n\n"
-        "🎁 <b>Your first 2 captions are FREE.</b>\n"
-        "Open the panel → type your line → Generate. If you love it, come back "
-        "here to Pay. Nothing to lose."
+        "⬇️ <b>Step 1 — download for your computer:</b>\n"
+        "• <b>Mac (Apple Silicon M1/M2/M3…):</b>\n"
+        "   <a href=\"https://github.com/kaleb21-19/amharic_caption/releases/latest/download/amharic-captions-mac-arm64.zip\">"
+        "⬇️ Download Mac (Apple Silicon)</a>\n\n"
+        "• <b>Windows:</b>\n"
+        "   <a href=\"https://github.com/kaleb21-19/amharic_caption/releases/latest/download/amharic-captions-win-x64.zip\">"
+        "⬇️ Download Windows</a>\n\n"
+        "⬇️ <b>Step 2 — put the plugin in place:</b>\n"
+        "After unzipping, copy the folder named <code>com.amharic.captions</code> into:\n\n"
+        "• <b>Mac:</b>\n"
+        "<code>~/Library/Application Support/Adobe/CEP/extensions/</code>\n\n"
+        "• <b>Windows:</b>\n"
+        "<code>C:\\Program Files (x86)\\Common Files\\Adobe\\CEP\\extensions\\</code>\n\n"
+        "⬇️ <b>Step 3 — tell Adobe it's OK to run:</b>\n\n"
+        "• <b>Mac:</b> open <b>Terminal</b> (⌘+Space → type <code>Terminal</code> → Enter), "
+        "then paste this and press Enter:\n"
+        "<code>defaults write com.adobe.CSXS.9 PlayerDebugMode \"1\"</code>\n\n"
+        "• <b>Windows:</b> press <b>Win+R</b> → paste the path → Enter → double-click "
+        "<code>PlayerDebugMode</code> → set it to <b>1</b>:\n"
+        "<code>HKEY_CURRENT_USER\\Software\\Adobe\\CSXS.9</code>\n\n"
+        "⬇️ <b>Step 4 — use it:</b>\n"
+        "Restart Premiere → Windows > Extensions > \"Amharic Captions\" → make "
+        "<b>2 free captions</b>!\n\n"
+        "🎉 Made your 2 free ones and loved it? Tap <b>2️⃣ Pay</b> to buy your forever key:"
     )
     return text, base_nav()
 
@@ -557,39 +567,45 @@ def menu_install():
 
 def menu_faq():
     text = (
-        "❓ <b>ጥያቄዎች (FAQ)</b>\n\n"
-        "<b>Q: ከመግዛት በፊት መሞከር እችላለሁ?</b>\n"
-        "A: አዎ! እያንዳንዱ አዲስ ተጠቃሚ <b>2 ነጻ</b> ካፕሽን የመስራት እድል አለው። "
-        "ፓነሉን ይክፈቱ → \"Generate Captions\" ይጫኑ።\n\n"
-        "<b>Q: ቁልፉ ለብዙ ኮምፒውተር ይሰራል?</b>\n"
-        "A: አይሰራም። እያንዳንዱ ቁልፍ ለ<b>አንድ</b> ኮምፒውተር ብቻ "
-        "(hardware ID) ነው። ለሌላ ኮምፒውተር የተለየ ቁልፍ ያስፈልጋል።\n\n"
-        "<b>Q: ቁልፉ መቼ ነው የሚያበቃው?</b>\n"
-        "A: አያበቃም! <b>አንድ ጊዜ ክፍያ</b> ነው — subscription የለም።\n\n"
-        "<b>Q: ክፍያው Telebirr ብቻ ነው?</b>\n"
-        f"A: አዎ። Telebirr ወደ <b>{TELEBIRR}</b>።\n\n"
-        "<b>Q: ኮምፒውተሬን ቀየርኩ / ቁልፍ አጣሁ?</b>\n"
-        "A: አስተዳዳሪውን ያነጋግሩ። የግዢ ማረጋገጫ ካለ (proof of purchase) "
-        "ወደነበረው እንዲመለስ እንረዳለን።\n\n"
-        "<b>Q: ምን ኮምፒውተር ያስፈልጋል?</b>\n"
-        "A: Windows / Mac ከ <b>Premiere Pro 2024 (v24)</b> ወይም ከዚያ አዲስ ጋር። "
-        "የአማርኛ ሞዴሉ በራስዎ ኮምፒውተር ላይ ይሰራል — ኢንተርኔት አያስፈልገውም።"
+        "❓ <b>FAQ</b>\n\n"
+        "<b>Q: Can I try before buying?</b>\n"
+        "A: Yes! Every new user gets <b>2 free</b> captions. Open the panel → "
+        "\"Generate Captions\".\n\n"
+        "<b>Q: Does the key work on multiple computers?</b>\n"
+        "A: No. Each key is tied to <b>one</b> computer (hardware ID). A separate "
+        "key is needed for a different computer.\n\n"
+        "<b>Q: When does the key expire?</b>\n"
+        "A: It never expires! <b>One-time payment</b> — no subscription.\n\n"
+        "<b>Q: Is Telebirr the only payment method?</b>\n"
+        f"A: Yes. Telebirr to <b>{TELEBIRR}</b>.\n\n"
+        "<b>Q: I changed my computer / lost my key?</b>\n"
+        "A: Contact the seller. With proof of purchase, we'll help transfer "
+        "to your new machine.\n\n"
+        "<b>Q: What computer do I need?</b>\n"
+        "A: Windows or Mac with <b>Premiere Pro 2024 (v24)</b> or newer. "
+        "The Amharic model runs on your own computer — no internet needed.\n\n"
+        f"💰 <b>Price:</b> <s>ETB 3,500</s> → <b>{PRICE}</b> one-time.\n"
+        f"📲 <b>Pay via Telebirr:</b> {TELEBIRR}\n\n"
+        "👤 <b>Need help? Message the seller:</b>\n"
+        "💬 <a href=\"https://t.me/sumpak6\">@sumpak6</a>"
     )
     return text, home_keyboard(back_row())
 
 
 def menu_key_welcome(uid):
     text = (
-        "🔑 <b>ሊሰንስ ቁልፍ ያግኙ</b>\n\n"
-        "📌 <b>ሶፍትዌሩ ካልተጫነ Machine ID የለዎትም!</b>\n"
-        "Machine ID ማየት የሚችሉት ሶፍትዌሩን ጭነው ፓነሉን ከከፈቱ <b>በኋላ</b> ብቻ ነው። "
-        "ካልጫኑት መጀመሪያ \"🛠 እንዴት እንደሚጫኑ\" ይንኩ።\n\n"
-        "ሶፍትዌሩ ከተጫነ፡-\n"
-        "ፓነሉን ይክፈቱ → \"License\" ክፍል → ያለውን <b>Machine ID</b> (8 ቁምፊ) ይቅዱ → ይላኩ።\n\n"
-        "ቁልፍዎ የሚላከው ክፍያው ከተረጋገጠ <b>በኋላ</b> ብቻ ነው።"
+        "🔑 <b>Get your license key</b>\n\n"
+        "📌 <b>No Machine ID until the software is installed!</b>\n"
+        "You can only see your Machine ID <b>after</b> you install the plugin "
+        "and open the panel. If you haven't installed it yet, tap "
+        "\"🛠 Install\" first.\n\n"
+        "Once installed:\n"
+        "Open the panel → \"License\" section → copy your <b>Machine ID</b> "
+        "(8 characters) → send it here.\n\n"
+        "Your key is only sent <b>after</b> your payment is verified."
     )
     kb = home_keyboard(back_row())
-    kb = [[{"text": "📍 Machine ID የት ነው?", "callback_data": "menu:guide"}]] + kb
+    kb = [[{"text": "📍 Where is my Machine ID?", "callback_data": "menu:guide"}]] + kb
     return text, kb
 
 
@@ -617,33 +633,37 @@ def _send_guide(chat_id, uid):
                          "guide_machine_id.jpg")
     if os.path.isfile(guide):
         send_photo(chat_id, guide,
-                   caption="⬆️ \"Your Machine ID\" in the Licensed section — copy the 8 characters and send it.",
+                   caption="⬆️ \"Your Machine ID\" in the License section — copy the 8 characters and send it.",
                    keyboard=[[{"text": "◀ Menu", "callback_data": "menu:home"}]])
     return None
 
 
 def menu_screenshot_help():
     text = (
-        "📸 <b>የክፍያ ስክሪን ሾት እንዴት ይላካል?</b>\n\n"
-        "በTelebirr <b>{price}</b> ወደ <b>{telebirr}</b> ከከፈሉ በኋላ፣ "
-        "በስልክዎ ላይ የታየውን \"<b>ክፍያ ተሳክቷል / Success</b>\" ስክሪን "
-        "ሾት ይንሱ (screenshot ይውሰዱ)።\n\n"
-        "በTelegram ላይ ሾቱን ለመላክ:\n"
-        "<b>①</b> ከታች ባለው <b>📎 (paperclip)</b> ምልክት ይንኩ\n"
-        "<b>②</b> ስክሪን ሾቱን ይምረጡ (Gallery/Photos)\n"
-        "<b>③</b> <b>Send</b> ይጫኑ\n\n"
-        "ሾቱ እዚህ እንደደረሰ፣ የክፍያዎን ማረጋገጫ እናረጋግጣለን እና ቁልፍዎን "
-        "በዚህ ቦት እንልክልዎታለን ✅"
-    ).format(price=PRICE, telebirr=TELEBIRR)
+        "📸 <b>How do I send the payment screenshot?</b>\n\n"
+        f"After paying <b>{PRICE}</b> via Telebirr to <b>{TELEBIRR}</b>, "
+        "take a screenshot of the \"<b>Payment Successful</b>\" screen on your phone.\n\n"
+        "To send it in Telegram:\n"
+        "<b>①</b> Tap the <b>📎 (paperclip)</b> icon below\n"
+        "<b>②</b> Select the screenshot from your Gallery/Photos\n"
+        "<b>③</b> Tap <b>Send</b>\n\n"
+        "Once we receive it, we'll verify your payment and send your key "
+        "right here in this bot ✅"
+    )
     return text, home_keyboard(back_row())
 
 
 def menu_support():
     text = (
-        "👤 <b>ድጋፍ</b>\n\n"
-        "ችግር ካጋጠመዎት ወይም ጥያቄ ካለዎት፣ አስተዳዳሪውን በቀጥታ ያነጋግሩ።\n\n"
-        "💬 ተጠቃሚዎች ግዢ፣ መጫኛ ወይም ቁልፍ ችግር ካጋጠማቸው እዚህ ይጽፋሉ።\n\n"
-        "በ<code>/start</code> በመጠቀም ወደ ዋና ማውጫ መመለስ ይችላሉ።"
+        "👤 <b>Support</b>\n\n"
+        "Having trouble or have a question? Message the seller directly:\n\n"
+        "💬 <a href=\"https://t.me/sumpak6\">@sumpak6</a>\n\n"
+        "We help with:\n"
+        "• Installation issues\n"
+        "• License key problems\n"
+        "• Computer transfers\n"
+        "• General questions\n\n"
+        "Use <code>/start</code> to go back to the main menu."
     )
     return text, home_keyboard(back_row())
 
@@ -715,8 +735,7 @@ def _ask_reference(chat_id, uid, msg_id=None):
     text = (
         "✅ Screenshot received!\n\n"
         "📤 <b>Step 3/3</b> — type the payment <b>reference number</b> "
-        "from your Telebirr receipt (the long number/ID under the amount "
-        "on the \"payment success\" screen).\n\n"
+        "from your Telebirr receipt (the long number under the amount).\n\n"
         "This helps us match your payment instantly 🎯\n\n"
         "<i>Don't have it handy? Tap skip — we'll verify manually.</i>"
     )
@@ -739,7 +758,7 @@ def _review_confirm(uid, chat_id):
     text = (
         "🧾 <b>Review your order</b>\n\n"
         f"🤖 Machine ID: <code>{mid}</code>\n"
-        f"💵 Amount: <b>{PRICE}</b> (one-time, +0 fees)\n"
+        f"💵 Amount: <s>ETB 3,500</s> → <b>{PRICE}</b> (one-time, +0 fees)\n"
         f"🏦 Paid to: <b>{TELEBIRR}</b>\n"
         f"🧾 Reference: {ref_line}\n\n"
         "🔑 On approval, your key arrives <b>right here</b>.\n"
@@ -778,7 +797,7 @@ def _complete_proof(uid, chat_id, uname, is_pm):
     status = (
         "📦 <b>Order received — now pending</b>\n\n"
         f"🤖 Machine ID: <code>{mid}</code>\n"
-        f"💵 Amount: <b>{PRICE}</b>\n"
+        f"💵 Amount: <s>ETB 3,500</s> → <b>{PRICE}</b>\n"
         f"🧾 Reference: {('<code>' + ref + '</code>') if ref else '<i>skipped</i>'}\n\n"
         f"⏳ <b>Status: Pending</b> — you're <b>#{pos}</b> of {n_total} in line.\n"
         "Keys are usually issued <b>within a few hours</b> (Ethiopian working "
@@ -865,10 +884,10 @@ def _admin_panel(chat_id, message_id):
     n = len(PENDING)
     group_note = f" · group set" if GROUP_ID else ""
     text = (
-        "🛠 <b>Admin</b>\n\n"
-        f"Pending orders: <b>{n}</b>\n"
-        f"Broadcast recipients: <b>{len(CONTACTS)}</b>{group_note}\n\n"
-        "Book the Telebirr payment for each order, then Approve."
+        "🛠 <b>Admin Panel</b>\n\n"
+        f"📋 Pending orders: <b>{n}</b>\n"
+        f"👥 Known buyers: <b>{len(CONTACTS)}</b>{group_note}\n\n"
+        "Review each order below, then Approve or Reject."
     )
     kb = [
         [{"text": f"📋 Pending orders ({n})", "callback_data": "admin:pending"}],
@@ -885,7 +904,7 @@ def _admin_sales(chat_id, message_id):
     """Revenue + buy-flow funnel from funnel.csv and the ledger."""
     rows = read_ledger()
     sold = [r for r in rows if r.get("status") == "sold"]
-    revenue = len(sold) * 2500
+    revenue = len(sold) * int(PRICE.replace(",", "").replace("ETB ", "").strip())
     uid_events = {}  # uid -> set of funnel events
     try:
         with open(FUNNEL_FILE, "r", encoding="utf-8") as f:
@@ -911,7 +930,7 @@ def _admin_sales(chat_id, message_id):
 
     text = (
         "📈 <b>Sales & Funnel</b>\n\n"
-        f"💵 <b>Revenue</b>: {len(sold)} keys × ETB 2,500 = <b>ETB {revenue:,}</b>\n"
+        f"💵 <b>Revenue</b>: {len(sold)} keys × {PRICE} = <b>ETB {revenue:,}</b>\n"
         f"👥 Buyers reached (DM): {len(CONTACTS)}\n\n"
         "<b>Funnel — all-time:</b>\n"
         f"🟦 Started buy flow: {started}\n"
@@ -956,7 +975,7 @@ def _admin_broadcast(chat_id, message_id):
     global BROADCASTING, ANNOUNCE_TO
     BROADCASTING = True
     ANNOUNCE_TO = "dm"
-    text = ("📢 <b>Broadcast</b>\n\n"
+    text = ("📢 <b>Broadcast to buyers</b>\n\n"
             f"This will DM all {len(CONTACTS)} known buyers.\n"
             "Reply with the message text to send, or /cancel.")
     _render_or_edit(chat_id, message_id, text,
@@ -1040,9 +1059,9 @@ def handle_buyer_message(message):
     if step == "mid":
         m = MACHINE_ID_RE.search(text)
         if not m:
-            msg_ = ("⚠️ You sent a message, but right now I need your "
-                    "<b>Machine ID</b> — the <b>8-character</b> code from the "
-                    "panel's <b>License</b> section (e.g. <code>a1b2c3d4</code>).")
+            msg_ = ("⚠️ I need your <b>Machine ID</b> — the <b>8-character</b> "
+                    "code from the panel's <b>License</b> section "
+                    "(e.g. <code>a1b2c3d4</code>).")
             if not _dup_reply(uid, msg_):
                 send_text(chat_id, msg_,
                           keyboard=[[{"text": "📍 Where is my Machine ID?", "callback_data": "menu:guide"}],
@@ -1069,8 +1088,8 @@ def handle_buyer_message(message):
         existing = find_key(mid)
         if existing:
             msg_ = (f"🔑 This Machine ID (<code>{mid}</code>) already has a key.\n\n"
-                    "Tap <b>My Key</b> below (or the 🔑 button in the menu) to "
-                    "see it again, or contact the admin if it's not working.")
+                    "Tap <b>My Key</b> below to see it, or contact the seller if "
+                    "it's not working.")
             if not _dup_reply(uid, msg_):
                 send_text(chat_id, msg_,
                           keyboard=[[{"text": "🔑 My Key", "callback_data": "proof:mykey"}],
@@ -1112,7 +1131,7 @@ def handle_buyer_message(message):
     mid = m.group(0)
 
     if _suspicious_mid(mid):
-        msg_ = (f"⚠️ <code>{mid}</code> doesn't look like a real Machine ID.\n\n"
+        msg_ = (f"⚠️ <code>{mid}</code> doesn't look like a real <b>Machine ID</b>.\n\n"
                 "Send the <b>8 characters</b> shown under \"Your Machine ID\" "
                 "in the panel (e.g. <code>a1b2c3d4</code>), or tap <b>2️⃣ Pay</b> "
                 "to start the guided purchase.")
@@ -1183,8 +1202,8 @@ def handle_buyer_photo(message):
         if is_document:
             if not mime.startswith("image/"):
                 msg_ = ("📁 That came through as a <b>file</b>, not a photo.\n\n"
-                        "Send the <b>Telebirr screenshot</b> as a real "
-                        "<b>photo/image</b> so we can verify it better.")
+                        "Send the Telebirr screenshot as a <b>photo/image</b> so "
+                        "we can verify it.")
                 if not _dup_reply(uid, msg_):
                     send_text(chat_id, msg_,
                               keyboard=[[{"text": "✖ Cancel", "callback_data": "proof:cancel"}]])
@@ -1215,8 +1234,8 @@ def handle_buyer_photo(message):
     if step == "mid":
         s["photo"] = file_id
         save_fsm()
-        msg_ = ("📸 Screenshot saved! Now please send your <b>Machine ID</b> "
-                "(8 characters) to finish Step 1.")
+        msg_ = ("📸 Screenshot saved! Now send your <b>Machine ID</b> "
+                "(8 characters from the panel's License section).")
         if not _dup_reply(uid, msg_):
             send_text(chat_id, msg_,
                       keyboard=[[{"text": "📍 Where is my Machine ID?", "callback_data": "menu:guide"}],
@@ -1244,14 +1263,14 @@ def handle_callback(cb):
     # Admin-only buttons: warn outsiders immediately (before any other work).
     if ADMIN_ID and from_uid != ADMIN_ID and any(
             data.startswith(p) for p in ("admin:", "approve:", "reject:", "expiry:")):
-        answer_cb(cb_id, "ይህን የሚያደርገው አስተዳዳሪው ብቻ ነው")
+        answer_cb(cb_id, "🔒 Admin only")
         return
 
     # Debounce + instant feedback: every tap is answered right away so the
     # button's loading spinner clears and the user feels a response. Rapid
     # repeat taps on the same button collapse to ONE action.
     ready = _cb_ready(from_uid)
-    answer_cb(cb_id, "ok" if ready else "One moment…")
+    answer_cb(cb_id, "ok" if ready else "Please wait…")
     if not ready:
         return
 
@@ -1292,8 +1311,8 @@ def handle_callback(cb):
                 save_fsm()
                 _funnel(from_uid, "proof_start")
                 send_with_hint(chat,
-                               "✍️ ከታች ባለው ሳጥን ✍️ ውስጥ Machine ID ዎን ይቅዱ/ይጻፉ እና ይላኩ።",
-                               "Machine ID እዚህ ይጻፉ (ለምሳሌ a1b2c3d4)...")
+                               "✍️ Type your <b>Machine ID</b> in the box below ✍️",
+                               "Type Machine ID here (e.g. a1b2c3d4)...")
         elif kind == "support":
             text, kb = menu_support()
             edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"], text, kb)
@@ -1305,7 +1324,7 @@ def handle_callback(cb):
                                  "guide_machine_id.jpg")
             if os.path.isfile(guide):
                 send_photo(chat, guide,
-                           caption="⬆️ \"Your Machine ID\" in the Licensed section — copy the 8 characters and send it.",
+                           caption="⬆️ \"Your Machine ID\" in the License section — copy the 8 characters and send it.",
                            keyboard=[[{"text": "◀ Menu", "callback_data": "menu:home"}]])
         elif kind == "screenshot_help":
             text, kb = menu_screenshot_help()
@@ -1406,7 +1425,7 @@ def handle_callback(cb):
         uid = data.split(":", 1)[1]
         p = PENDING.get(uid)
         if not p:
-            answer_cb(cb_id, "የሚጠበቅ ትዕዛዝ የለም")
+            answer_cb(cb_id, "Order not found")
             return
         mid = p["machine_id"]
         exp = p["expiry"]
@@ -1447,18 +1466,18 @@ def handle_callback(cb):
             if ctype != "private":
                 # still acknowledge in the group they bought from (no key shown)
                 send_text(buyer_chat,
-                          "🔑 የመግዛት እና የመክፈያ ሂደት ተጠናቋል ✅\n"
-                          "@" + uname + " ቁልፍዎ በ<b>ግለ ቻት (DM)</b> ወደ እርስዎ ጋር "
-                          "ወደዚህ ቦት ተልኳል። እዚያ ይፈልጉት።")
+                          "🔑 Purchase & activation complete ✅\n"
+                          "@" + uname + " your key has been sent via <b>DM</b>. "
+                          "Check your private messages with this bot.")
         else:
             # fall back to the chat they used (group) with privacy note
             send_text(buyer_chat, key_delivery_message(key, exp, ctype if ctype != "private" else "private"))
 
         # confirm to admin
         edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"],
-                  f"✅ ሊሰንስ ቁልፍ ተልኳል እና ተመዝግቧል።\n"
-                  f"ተጠቃሚ: @{uname}\nMachine ID: <code>{mid}</code>\n"
-                  f"ቦት (DM): {'✅' if delivered_dm else '⚠️ ወደ ቡድን ተልኳል'}")
+                  f"✅ Key delivered & logged.\n"
+                  f"Buyer: @{uname}\nMachine ID: <code>{mid}</code>\n"
+                  f"DM: {'✅' if delivered_dm else '⚠️ sent to group'}")
         PENDING.pop(uid, None)
         save_pending()
         return
@@ -1470,11 +1489,11 @@ def handle_callback(cb):
         if p:
             _funnel(uid, "rejected")
         edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"],
-                  "❌ ጥያቄው ተሰርዟል።")
+                  "❌ Order rejected.")
         if p:
             send_text(p.get("chat_id") or uid,
-                      "ይቅርታ፣ የክፍያ ማረጋገጫ ስላልተገኘ ቁልፍ አልተላከም። "
-                      "ጥያቄ ካለዎት አስተዳዳሪውን ያነጋግሩ።")
+                      "Sorry — payment proof not verified. No key was sent. "
+                      "If you believe this is an error, contact the seller.")
         return
 
     if data.startswith("expiry:"):
@@ -1483,9 +1502,9 @@ def handle_callback(cb):
         if p and p["expiry"] == "00000000":
             p["expiry"] = "20301231"
             save_pending()
-            answer_cb(cb_id, "ቁልፍ እስከ 2030-12-31 ይሰራል")
+            answer_cb(cb_id, "⏰ Key set to expire 2030-12-31")
         else:
-            answer_cb(cb_id, "ጊዜ አልተቀመጠም / የሚጠበቅ የለም")
+            answer_cb(cb_id, "⏰ Expiry already set or no pending order")
         return
 
 
@@ -1563,17 +1582,18 @@ def main():
     # register the command menu (/ menu button) + bot description/about
     try:
         api("setMyCommands", commands=json.dumps([
-            {"command": "start", "description": "ዋና ማውጫ / ጀምር"},
-            {"command": "buy", "description": "እንዴት እንደሚገዙ"},
-            {"command": "install", "description": "እንዴት እንደሚጫኑ"},
-            {"command": "faq", "description": "ተደጋጋሚ ጥያቄዎች"},
-            {"command": "support", "description": "ድጋፍ ማግኘት"},
+            {"command": "start", "description": "Main menu / Start"},
+            {"command": "buy", "description": "How to purchase"},
+            {"command": "install", "description": "Installation instructions"},
+            {"command": "faq", "description": "Frequently asked questions"},
+            {"command": "support", "description": "Get help"},
+            {"command": "mykey", "description": "View your license key"},
         ]))
         api("setMyDescription",
-            description="Premiere Pro ሶፍትዌር ላይ በአማርኛ ካፕሽን (ንዑስ ርዕስ) "
-                        "በራስ-ሰር የሚያስቀምጥ ፕሮግራም ገዢዎች የሚጠቀሙበት ቦት። "
-                        "Telebirr → 0907 628 809።")
-        api("setMyShortDescription", short_description="የአማርኛ ካፕሽን ግዢ እና ድጋፍ ቦት")
+            description="Premiere Pro plugin that auto-generates Amharic captions "
+                        "(subtitles) offline. One-time payment via Telebirr → "
+                        f"{TELEBIRR}.")
+        api("setMyShortDescription", short_description="Amharic Captions — sales & support bot")
         print("Commands/description registered.")
     except Exception as e:
         print(f"[setup] could not register commands/description: {e}", file=sys.stderr)
@@ -1637,7 +1657,7 @@ def main():
                         if text.lower() in ("/cancel", "/cancel@amhariccaptionsbot"):
                             BROADCASTING = False
                             ANNOUNCE_TO = None
-                            send_text(chat["id"], "Broadcast cancelled.", keyboard=None)
+                            send_text(chat["id"], "📢 Broadcast cancelled.", keyboard=None)
                             continue
                         if text:
                             target = ANNOUNCE_TO
@@ -1681,8 +1701,8 @@ def main():
                     if chat_type == "private":
                         # unknown input -> graceful acknowledgment + menu
                         send_text(chat["id"],
-                                  f"😊 {first}፣ ያገባኝ አልመሰለኝም። ምን ማድረግ ይፈልጋሉ? "
-                                  "ከታች ይምረጡ:",
+                                  f"😊 {first}, I didn't understand that. "
+                                  "What would you like to do? Choose below:",
                                   MENU_KEYBOARD)
                     else:
                         send_text(chat["id"], MENU, MENU_KEYBOARD)

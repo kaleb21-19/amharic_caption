@@ -110,8 +110,12 @@ function heroText(first = '') {
     '🎁 <b>Try BEFORE you pay</b> — your first <b>2 captions are free</b>.\n\n' +
     '📌 <b>How it works</b> (simple, 3 steps):\n' +
     '1️⃣ <b>Install</b> the plugin\n' +
-    '2️⃣ <b>Pay</b> once — get your forever key\n' +
+    `2️⃣ <b>Pay</b> once — <s>ETB 3,500</s> now <b>${PRICE}</b> (forever key)` + '\n' +
     '3️⃣ <b>Make captions</b> forever, offline\n\n' +
+    '🤝 <b>Buy with confidence</b>\n' +
+    '\u2022 You keep your captions offline on your own machine \u2014 nothing is shared\n' +
+    '\u2022 Your license key is delivered <b>right in this chat</b> after we confirm your Telebirr payment\n' +
+    '\u2022 Real support via DM \u2014 get unstuck fast\n\n' +
     '👇 Tap <b>1️⃣ Install</b> to taste it free first:'
   );
 }
@@ -146,11 +150,11 @@ function payText(served) {
     '🎁 <b>Did you try your 2 free captions first?</b>\n' +
     'Install → make 2 free captions → come back and pay. No risk.\n\n' +
     `<b>Before you send — here's the deal:</b>\n` +
-    `💵 Amount: <b>${PRICE}</b> — one-time, forever license\n` +
+    `💵 Amount: <s>ETB 3,500</s> → <b>${PRICE}</b> — one-time, forever license, no extra fees`
     `🏦 Paid to: <b>${TELEBIRR}</b> (Telebirr)\n` +
     '🔑 You get: your license key <b>in this chat</b>\n' +
     proof +
-    '⏰ <b>Introductory price</b> — <s>ETB 3,500</s> now <b>ETB 2,500</b>.\n\n' +
+    '⏰ <b>Introductory price</b> — lock it in now.\n\n' +
     '👇 Tap below <b>only after</b> you sent the money via Telebirr.'
   );
 }
@@ -159,7 +163,7 @@ const payKeyboard = () => [
   [{ text: '🎁 Try free first (2 captions)', callback_data: 'menu:install' }],
 ];
 
-const MENU = 'ሰላም! 👋 ምን ማድረግ ይፈልጋሉ? ከታች ይምረጡ:';
+const MENU = 'Hello! 👋 What would you like to do? Choose below:';
 const MENU_KEYBOARD = [
   [{ text: '1️⃣ Install', callback_data: 'menu:install' }],
   [{ text: '2️⃣ Pay', callback_data: 'menu:pay' }],
@@ -230,8 +234,8 @@ async function apiCall(method, params) {
 // ── inline keyboard for pending orders (admin approve/reject) ───────────────
 function adminKeyboardPend(orderId) {
   return [[
-    { text: '✅ አረጋግጥ', callback_data: `approve:${orderId}` },
-    { text: '❌ ውድቅ', callback_data: `reject:${orderId}` },
+    { text: '✅ Approve', callback_data: `approve:${orderId}` },
+    { text: '❌ Reject', callback_data: `reject:${orderId}` },
   ]];
 }
 
@@ -314,17 +318,22 @@ async function handleMessage(msg, env) {
 function groupWelcome() {
   return (
     'ሰላም! ወደ <b>አማርኛ ካፕሽን</b> እንኳን በደህና መጡ 👋\n\n' +
-    '🎁 <b>2 ነጻ (free) ካፕሽን</b> በመጀመሪያ ይሞክሩ — እወደው ከሆነ ብቻ ነው የሚከፍሉት።\n\n' +
-    `💰 ዋጋ: <b>${PRICE}</b> (አንድ ጊዜ)\n` +
+    '🎁 <b>2 ነጻ (free) ካፕሽን በመጀመሪያ ይሞክሩ</b> — እወደው ከሆነ ብቻ ነው ' +
+    'የሚከፍሉት።\n\n' +
+    'ይህ ሶፍትዌር፣ Premiere Pro ላይ ቪዲዮዎን በራስ-ሰር በ<b>አማርኛ ንዑስ ርዕስ</b> ' +
+    '(subtitle) ያስቀምጥልዎታል። ሙሉ በሙሉ በኮምፒውተርዎ ላይ ነው የሚሰራው (offline)።\n\n' +
+    `💰 ዋጋ: <s>ETB 3,500</s> → <b>${PRICE}</b> (አንድ ጊዜ)\n` +
     `📲 Telebirr: <b>${TELEBIRR}</b>\n` +
-    '⏰ የማስጀመሪያ ዋጋ: <s>3,500</s> አሁን <b>2,500</b>!'
+    '🖥 Windows & Mac\n' +
+    '⏰ <b>መግቢያ ዋጋ</b> — አሁኑኑ ይጠቀሙ!'
   );
 }
 function installText() {
   const dl = 'https://github.com/kaleb21-19/amharic_caption/releases/latest/download';
   return (
     '1️⃣ <b>Install — 2 FREE captions</b>\n\n' +
-    '🔒 <b>Runs 100% OFFLINE</b> on your computer after install.\n\n' +
+    '🔒 <b>Runs 100% OFFLINE</b> on your computer after install.\n' +
+    '⚠️ Needs Premiere Pro <b>2024 (v24)</b> or newer.\n\n' +
     '⬇️ <b>Step 1 — download for your computer:</b>\n' +
     '• <b>Mac (Apple Silicon M1/M2/M3…):</b>\n' +
     `<a href="${dl}/amharic-captions-mac-arm64.zip">⬇️ Download Mac (Apple Silicon)</a>\n\n` +
@@ -350,19 +359,27 @@ function installText() {
 }
 function faqText() {
   return (
-    '4️⃣ <b>Help / FAQ</b>\n\n' +
-    '🔑 <b>How do I get my license key?</b>\n' +
-    'Pay via Telebirr → send the screenshot in this bot → key is delivered here instantly.\n\n' +
-    '🔁 <b>What if I change my computer?</b>\n' +
-    'Each key is tied to one Machine ID. Contact support to transfer to a new computer.\n\n' +
-    '❓ <b>Something not working?</b>\n' +
-    '1. Make sure you completed <b>Step 3</b> in the install instructions (PlayerDebugMode).\n' +
-    '2. Restart Premiere.\n' +
-    '3. If still stuck — DM support below.\n\n' +
-    `💰 <b>Price:</b> ${PRICE} one-time — no subscription, no monthly fees.\n` +
+    '❓ <b>FAQ</b>\n\n' +
+    '<b>Q: Can I try before buying?</b>\n' +
+    'A: Yes! Every new user gets <b>2 free</b> captions. Open the panel → ' +
+    '"Generate Captions".\n\n' +
+    '<b>Q: Does the key work on multiple computers?</b>\n' +
+    'A: No. Each key is tied to <b>one</b> computer (hardware ID). A separate ' +
+    'key is needed for a different computer.\n\n' +
+    '<b>Q: When does the key expire?</b>\n' +
+    'A: It never expires! <b>One-time payment</b> — no subscription.\n\n' +
+    '<b>Q: Is Telebirr the only payment method?</b>\n' +
+    `A: Yes. Telebirr to <b>${TELEBIRR}</b>.\n\n` +
+    '<b>Q: I changed my computer / lost my key?</b>\n' +
+    "A: Contact the seller. With proof of purchase, we'll help transfer " +
+    'to your new machine.\n\n' +
+    '<b>Q: What computer do I need?</b>\n' +
+    'A: Windows or Mac with <b>Premiere Pro 2024 (v24)</b> or newer. ' +
+    'The Amharic model runs on your own computer — no internet needed.\n\n' +
+    `💰 <b>Price:</b> <s>ETB 3,500</s> → <b>${PRICE}</b> one-time.\n` +
     `📲 <b>Pay via Telebirr:</b> ${TELEBIRR}\n\n` +
-    '👤 <b>Need help? Message the seller:</b>' +
-    `\n${SUPPORT_URL}`
+    '👤 <b>Need help? Message the seller:</b>\n' +
+    `<a href="${SUPPORT_URL}">@sumpak6</a>`
   );
 }
 function guideText() {
@@ -371,7 +388,7 @@ function guideText() {
     'Your unique computer number — <b>8 characters</b> (e.g. <code>a1b2c3d4</code>).\n\n' +
     '<b>Where to find it:</b>\n' +
     '1. Open Premiere → Windows > Extensions > "Amharic Captions"\n' +
-    '2. Open the <b>License</b> section\n' +
+    '2. In the panel, open the <b>License</b> section\n' +
     '3. Copy the "Your Machine ID" box\n\n' +
     '⚙️ You need it when paying (step 2).'
   );
@@ -408,21 +425,21 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
     const m = text.match(MACHINE_ID_RE);
     if (!m) {
       await sendText(chatId,
-        `⚠️ You sent a message, but right now I need your <b>Machine ID</b> — the <b>8-character</b> code (e.g. <code>a1b2c3d4</code>).`,
+        `⚠️ I need your <b>Machine ID</b> — the <b>8-character</b> code from the panel's <b>License</b> section (e.g. <code>a1b2c3d4</code>).`,
         [[{ text: '📍 Where is my Machine ID?', callback_data: 'menu:guide' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
       return;
     }
     const mid = m[0].toLowerCase();
     if (suspiciousMid(mid)) {
       await sendText(chatId,
-        `⚠️ <code>${mid}</code> doesn’t look like a real <b>Machine ID</b>.\n\nYour Machine ID is the <b>8 characters</b> shown under "Your Machine ID" in the panel.`,
+        `⚠️ <code>${mid}</code> doesn’t look like a real <b>Machine ID</b>.\n\nYour Machine ID is the <b>8 characters</b> shown under "Your Machine ID" in the panel’s License section (e.g. <code>a1b2c3d4</code>).`,
         [[{ text: '📍 Where is my Machine ID?', callback_data: 'menu:guide' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
       return;
     }
     const existing = await findKey(mid);
     if (existing) {
       await sendText(chatId,
-        `🔑 This Machine ID (<code>${mid}</code>) already has a key.\n\nTap <b>My Key</b> below to see it again.`,
+        `🔑 This Machine ID (<code>${mid}</code>) already has a key.\n\nTap <b>My Key</b> below to see it, or contact the seller if it's not working.`,
         [[{ text: '🔑 My Key', callback_data: 'proof:mykey' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
       await setFsm(uid, null);
       return;
@@ -454,7 +471,7 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
   const m = text.match(MACHINE_ID_RE);
   if (!m) {
     // unknown input
-    if (privateChat) await sendText(chatId, `😊 ${first}, ያገባኝ አልመሰለኝም። ከታች ይምረጡ:`, MENU_KEYBOARD);
+    if (privateChat) await sendText(chatId, `😊 ${first}, I didn't understand that. What would you like to do? Choose below:`, MENU_KEYBOARD);
     else await sendText(chatId, MENU, MENU_KEYBOARD);
     return;
   }
@@ -469,28 +486,41 @@ async function handlePhoto(msg, uid, chatId, privateChat, text) {
   const step = s ? s.step : null;
   const fileId = msg.photo ? msg.photo[msg.photo.length - 1].file_id
     : (msg.document && msg.document.file_id) || '';
+  const isDocument = !msg.photo && !!msg.document;
+  const mime = (msg.document && msg.document.mime_type) || '';
 
   if (!fileId) return;
 
   if (step === 'photo') {
-    // download to D1 (base64)
+    if (isDocument && !mime.startsWith('image/')) {
+      await sendText(chatId,
+        '📁 That came through as a <b>file</b>, not a photo.\n\nSend the Telebirr screenshot as a <b>photo/image</b> so we can verify it.',
+        [[{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
+      return;
+    }
     const objectKey = await storeProof(fileId);
     await setFsm(uid, { ...s, photo_key: objectKey, step: 'ref' });
     await addFunnel(uid, 'screenshot_sent');
     await sendText(chatId,
-      '✅ Screenshot received!\n\n📤 <b>Step 3/3</b> — type the payment <b>reference number</b> from your Telebirr receipt (the long number under the amount).\n\n<i>Don’t have it handy? Tap skip — we’ll verify manually.</i>',
+      '✅ Screenshot received!\n\n📤 <b>Step 3/3</b> — type the payment <b>reference number</b> from your Telebirr receipt (the long number under the amount).\n\nThis helps us match your payment instantly 🎯\n\n<i>Don\'t have it handy? Tap skip — we\'ll verify manually.</i>',
+      [[{ text: '↪ Skip — confirm anyway', callback_data: 'proof:skipref' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
+    return;
+  }
+  if (step === 'ref' || step === 'confirm') {
+    await sendText(chatId,
+      '✅ We already have your screenshot! Just type the <b>reference number</b> from your Telebirr receipt — or tap one of the buttons below.',
       [[{ text: '↪ Skip — confirm anyway', callback_data: 'proof:skipref' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
     return;
   }
   if (step === 'mid') {
     const objectKey = await storeProof(fileId);
     await setFsm(uid, { ...s, photo_key: objectKey });
-    await sendText(chatId, '📸 Screenshot saved! Now please send your <b>Machine ID</b> (8 characters) to finish Step 1.',
+    await sendText(chatId, '📸 Screenshot saved! Now send your <b>Machine ID</b> (8 characters from the panel\'s License section).',
       [[{ text: '📍 Where is my Machine ID?', callback_data: 'menu:guide' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
     return;
   }
   await sendText(chatId,
-    '🖼 Thanks — but to place an order, start the guided flow and send your <b>Machine ID</b> first:\n\n1️⃣ Tap <b>2️⃣ Pay</b>',
+    '🖼 Thanks — but to place an order please start the guided flow and send your <b>Machine ID</b> first:\n\n1️⃣ Tap <b>2️⃣ Pay</b>\n2️⃣ Tap <b>I\'ve paid — send proof</b>',
     [[{ text: '2️⃣ Pay', callback_data: 'menu:pay' }]]);
 }
 
@@ -587,7 +617,7 @@ function keyDeliveryMessage(key, expiry, chatType, ref) {
   if (ref) lines.push('', '🧾 <b>Receipt</b>', `• Amount: <b>${PRICE}</b>`, `• Paid to: ${TELEBIRR}`, `• Reference: <code>${ref}</code>`);
   if (expiry !== '00000000') lines.push('', `⏰ Expires: ${expiry}`);
   if (chatType !== 'private') lines.push('', '🔒 For privacy, ask for your key in a private DM.');
-  lines.push('', 'Thank you! 🙏');
+  lines.push('', 'Thank you! 🙏 If you have any trouble, message the seller.');
   return lines.join('\n');
 }
 
@@ -602,7 +632,7 @@ async function showMyKey(msg, chatId, messageId) {
   ).bind(uid).all();
   const list = rows.results || [];
   if (!list.length) {
-    const text = '🔑 <b>My Key</b>\n\nNo license key found for this account yet. If you just ordered, it’s pending approval — check again shortly, or DM the seller.';
+    const text = '🔑 <b>My Key</b>\n\nI couldn\'t find a key linked to <b>this Telegram account</b> yet.\n\nIt will appear here automatically after your purchase is approved. If you paid and don\'t see it, DM the seller with your Machine ID.';
     if (messageId) await editText(chatId, messageId, text, undefined);
     else await sendText(chatId, text, undefined);
     return;
@@ -615,7 +645,7 @@ async function showMyKey(msg, chatId, messageId) {
 // ── admin panel ─────────────────────────────────────────────────────────────
 async function adminPanel(chatId, messageId) {
   const n = await pendingCount();
-  const text = `🛠 <b>Admin</b>\n\nPending orders: <b>${n}</b>\n\nBook the Telebirr payment for each order, then Approve.`;
+  const text = `🛠 <b>Admin Panel</b>\n\n📋 Pending orders: <b>${n}</b>\n\nReview each order below, then Approve or Reject.`;
   const kb = [
     [{ text: `📋 Pending orders (${n})`, callback_data: 'admin:pending' }],
     [{ text: '📈 Sales & funnel', callback_data: 'admin:sales' }],
@@ -646,7 +676,7 @@ async function adminPending(chatId, messageId) {
 async function adminSales(chatId, messageId) {
   const sold = await DB.prepare("SELECT COUNT(*) AS n FROM customers WHERE status='sold'").first();
   const nSold = sold ? sold.n : 0;
-  const rev = nSold * 2500;
+  const rev = nSold * parseInt(PRICE.replace(/,/g, '').replace('ETB ', ''), 10);
   const counts = {};
   const events = ['proof_start', 'mid_sent', 'screenshot_sent', 'ref_typed', 'ref_skipped', 'order_confirmed', 'approved', 'rejected'];
   for (const ev of events) {
@@ -657,7 +687,7 @@ async function adminSales(chatId, messageId) {
   const started = counts.proof_start;
   const text =
     '📈 <b>Sales & Funnel</b>\n\n' +
-    `💵 <b>Revenue</b>: ${nSold} keys × ETB 2,500 = <b>ETB ${rev.toLocaleString()}</b>\n\n` +
+    `💵 <b>Revenue</b>: ${nSold} keys × ${PRICE} = <b>ETB ${rev.toLocaleString()}</b>\n\n` +
     '<b>Funnel — all-time:</b>\n' +
     `🟦 Started: ${started}\n` +
     `🟩 Machine ID: ${counts.mid_sent} (${pct(started, counts.mid_sent)} of started)\n` +
@@ -674,7 +704,7 @@ async function adminSales(chatId, messageId) {
 // ── approve / reject (admin callbacks) ─────────────────────────────────────
 async function approve(chatId, messageId, orderId, cbId) {
   const o = await DB.prepare('SELECT * FROM orders WHERE id=?').bind(orderId).first();
-  if (!o) { await answerCb(cbId, 'የሚጠበቅ ትዕዛዝ የለም'); return; }
+  if (!o) { await answerCb(cbId, 'Order not found.'); return; }
   if (o.status !== 'pending') { await answerCb(cbId, 'Already handled'); return; }
 
   // generate the key (async because HMAC)
@@ -693,7 +723,7 @@ async function approve(chatId, messageId, orderId, cbId) {
   const buyerStatusMsg = o.status_msg_id;
   if (buyerStatusMsg) {
     await editText(o.chat_id || o.uid, buyerStatusMsg,
-      '✅ <b>Order approved — key on the way!</b>\n\n' +
+      '✅ <b>Order approved \u2014 key on the way!</b>\n\n' +
       `🤖 Machine ID: <code>${o.machine_id}</code>\n🟢 <b>Status: Approved</b> ✓`);
   }
 
@@ -701,7 +731,7 @@ async function approve(chatId, messageId, orderId, cbId) {
   await sendText(o.uid, keyDeliveryMessage(key, o.expiry, 'private', o.ref || ''));
   // confirm to admin
   await editText(chatId, messageId,
-    `✅ ሊሰንስ ቁልፍ ተልኳል እና ተመዝግቧል።\nMachine ID: <code>${o.machine_id}</code>\nቦት (DM): ✅`);
+    `✅ Key delivered & logged.\nMachine ID: <code>${o.machine_id}</code>\nDM: ✅`);
 }
 
 async function reject(chatId, messageId, orderId, cbId) {
@@ -709,8 +739,8 @@ async function reject(chatId, messageId, orderId, cbId) {
   if (!o) return;
   await DB.prepare("UPDATE orders SET status='rejected' WHERE id=?").bind(orderId).run();
   await addFunnel(o.uid, 'rejected');
-  await editText(chatId, messageId, '❌ ጥያቄው ተሰርዟል።');
-  if (o.chat_id) await sendText(o.chat_id, 'ይቅርታ፣ የክፍያ ማረጋገጫ ስላልተገኘ ቁልፍ አልተላከም። አስተዳዳሪውን ያነጋግሩ።');
+  await editText(chatId, messageId, '❌ Order rejected.');
+  if (o.chat_id) await sendText(o.chat_id, 'Sorry \u2014 payment proof not verified. No key was sent. If you believe this is an error, contact the seller.');
 }
 
 // ── callback handler ────────────────────────────────────────────────────────
@@ -726,7 +756,7 @@ async function handleCallback(cb) {
   // admin-only gates
   const adminPrefixes = ['admin:', 'approve:', 'reject:'];
   if (data.startsWith('approve:') || data.startsWith('reject:') || data.startsWith('admin:')) {
-    if (fromUid !== ADMIN_ID) { await answerCb(cbId, 'Admin only'); return; }
+    if (fromUid !== ADMIN_ID) { await answerCb(cbId, '🔒 Admin only'); return; }
   }
 
   // menu navigation
@@ -786,7 +816,7 @@ async function handleCallback(cb) {
     }
     if (action === 'reref') {
       const s = await getFsm(fromUid);
-      if (s) { await setFsm(fromUid, { ...s, step: 'ref' }); await sendText(chatId, '📤 Type your <b>reference number</b> (or tap skip).', [[{ text: '↪ Skip — confirm anyway', callback_data: 'proof:skipref' }]]); }
+      if (s) { await setFsm(fromUid, { ...s, step: 'ref' }); await sendText(chatId, '📤 Type your <b>reference number</b> (or tap skip).', [[{ text: '↪ Skip \u2014 confirm anyway', callback_data: 'proof:skipref' }]]); }
       return;
     }
     if (action === 'confirm') {
