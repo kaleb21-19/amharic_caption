@@ -473,6 +473,11 @@ function amh_importCaptions(argsJSON) {
         var srtBase = (String(args.srtPath || "").replace(/\\/g, "/").split("/").pop() || "")
                           .replace(/\.srt$/i, "");
         var bin = amhFindOrCreateBin(AMH_CAPTION_BIN);
+        // Clear OUR old caption track from a previous run so the timeline is
+        // clean before we remove old bin items (a deleted item's projectItem
+        // becomes unresolvable, so track identification must happen while the
+        // old clips still exist). Other user caption tracks are untouched.
+        amhClearCaptionTrack(seq, baseName, srtBase);
         // Remove any pre-existing caption item with this name so a re-run
         // always lands a single, freshly-updated caption item (no duplicates,
         /// no stale content). Match the human label AND any leftover generated
@@ -500,9 +505,6 @@ function amh_importCaptions(argsJSON) {
 
         var startSeconds = (args.startSeconds || 0);
         var ticks = amhSecondsToTicks(startSeconds);
-
-        // Clear an old caption track from a previous run so re-running is clean.
-        amhClearCaptionTrack(seq);
 
         var result = amhPlaceCaptions(seq, captionItem, ticks, startSeconds);
 
@@ -606,13 +608,43 @@ function amhRemoveCaptionItems(bin, baseName) {
     } catch (e) {}
 }
 
-function amhClearCaptionTrack(seq) {
+// Non-destructive: only remove OUR caption tracks from a previous run, leaving
+// any other user caption tracks untouched. A track is "ours" when at least one
+// of its clips references our bin item (imported SRT base names amh_captions_*,
+// amh_sequence_*, amh_file_*, or the human label baseName / srtBase).
+function amhCaptionTrackIsOurs(t, baseName, srtBase) {
+    try {
+        var clips = t.clips;
+        if (clips && clips.numItems > 0) {
+            for (var i = 0; i < clips.numItems; i++) {
+                var ci = clips[i];
+                var pj = null;
+                try { pj = ci.projectItem; } catch (e) { pj = null; }
+                var nm = pj ? String(pj.name || "") : "";
+                if (nm === "") {
+                    try { nm = String(ci.name || ""); } catch (e) { nm = ""; }
+                }
+                if (nm.length > 0) {
+                    if (nm.indexOf("amh_captions_") === 0) return true;
+                    if (nm.indexOf("amh_sequence_") === 0) return true;
+                    if (nm.indexOf("amh_file_") === 0) return true;
+                    if (nm === baseName || nm === srtBase) return true;
+                }
+            }
+        }
+    } catch (e) {}
+    return false;
+}
+
+function amhClearCaptionTrack(seq, baseName, srtBase) {
     try {
         var tracks = seq.captionTracks;
         if (tracks && tracks.numTracks > 0) {
             for (var i = 0; i < tracks.numTracks; i++) {
                 var t = tracks[i];
-                try { t.remove(); } catch (e) {}
+                try {
+                    if (amhCaptionTrackIsOurs(t, baseName, srtBase)) t.remove();
+                } catch (e) {}
             }
         }
     } catch (e) {}

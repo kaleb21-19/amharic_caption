@@ -242,7 +242,23 @@
     color: var(--text-primary); background: var(--bg-field); border: 1px solid var(--border);
     border-radius: var(--radius-sm); padding: 6px 8px; white-space: pre-wrap; word-break: break-word; }
   #logBox { height: 80px; overflow-y: auto; line-height: 1.4; }
+  .transcriptWrap { display: flex; flex-direction: column; }
+  #transcriptLabel { font-size: var(--font-s); color: var(--text-secondary); margin-bottom: 4px; }
+  #captionsPreview {
+    display: none; flex-direction: column; gap: 4px;
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 6px; background: var(--bg-card); max-height: 120px; overflow-y: auto;
+  }
+  #captionsPreview.show { display: flex; }
+  .prev-cue {
+    display: flex; gap: 8px; align-items: baseline;
+    padding: 4px 6px; border-radius: var(--radius-sm); background: var(--bg-field);
+  }
+  .prev-time { font-size: 9px; color: var(--text-secondary); white-space: nowrap; font-family: var(--mono, monospace); }
+  .prev-text { font-size: var(--font-m); color: var(--text-primary); word-break: break-word; }
   #transcriptBox { width: 100%; height: 80px; resize: vertical; font-size: 13px;
+    background: var(--bg-field); color: var(--text-primary); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 6px 8px;
     font-family: 'Abyssinica SIL', 'Kefa', serif; }
 
   #cancelBtn {
@@ -488,8 +504,11 @@
       <div style="height:4px;"></div>
 
       <button class="disclosure" id="transcriptDisc"><span class="chevron">▶</span> Full transcript</button>
-      <div class="disclosure-content">
+      <div class="disclosure-content transcriptWrap">
+        <div id="transcriptLabel">Amharic text (editable before export)</div>
         <textarea id="transcriptBox" readonly></textarea>
+        <div style="height:4px;"></div>
+        <div id="captionsPreview"></div>
       </div>
 
       <button class="disclosure" id="logDisc"><span class="chevron">▶</span> Log</button>

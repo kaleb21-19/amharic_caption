@@ -482,7 +482,8 @@ if (!nodeRequire) {
   throw new Error('CEP Node integration unavailable');
 }
 
-const { execFile } = nodeRequire('child_process');
+const { execFile, spawn } = nodeRequire('child_process');
+const crypto = nodeRequire('crypto');
 const fs = nodeRequire('fs');
 const os = nodeRequire('os');
 const path = nodeRequire('path');
@@ -826,43 +827,320 @@ function pyFlags() {
   return f;
 }
 
-// Transcribe a single source (already a file path). range = {sourceIn, duration};
-// offset shifts cue times to the timeline.
-function transcribe(sourcePath, outSrt, range, offset) {
-  const wav = path.join(os.tmpdir(), 'amharic_' + Date.now() + '.wav');
+const WARM_TRANSPORT_ERRS = new Set(['worker error', 'worker exited', 'worker write failed']);
+
+// --------------------------------------------------------------------------
+// Warm ASR worker: ONE long-lived Python process keeps the model loaded.
+// Requests are JSON lines on stdin; replies (and per-clip progress) are JSON
+// lines on stdout tagged with the same id. Falls back to one-shot mode below
+// if the server cannot start.
+// --------------------------------------------------------------------------
+const WARM_IDLE_MS = 20 * 60 * 1000; // kill the worker after 20 min idle
+let warmChild = null;
+let warmReady = false;
+let warmIdleTimer = null;
+let warmSeq = 0;
+const warmPending = new Map(); // id -> {resolve, reject, onProgress}
+
+function warmStart() {
+  if (warmChild && !warmChild.killed) return true;
+  try {
+    warmChild = spawn(PYTHON, [SCRIPT, '--server'], {
+      env: AMH_ENV,
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+  } catch (e) { return false; }
+  warmReady = false;
+  warmChild.stdout.setEncoding('utf8');
+  let buf = '';
+  warmChild.stdout.on('data', (d) => {
+    buf += d;
+    let nl = buf.indexOf('\n');
+    while (nl >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (line) warmOnLine(line);
+      nl = buf.indexOf('\n');
+    }
+  });
+  warmChild.on('error', () => { warmDiscard('worker error'); });
+  warmChild.on('exit', () => { warmDiscard('worker exited'); });
+  return true;
+}
+
+function warmDiscard(reason) {
+  try { if (warmChild) warmChild.kill(); } catch (e) {}
+  warmChild = null;
+  warmReady = false;
+  const rejectReason = cancelRequested ? new Error('Cancelled') : new Error(reason);
+  for (const [, p] of warmPending) {
+    try { p.reject(rejectReason); } catch (e) {}
+  }
+  warmPending.clear();
+}
+
+function warmOnLine(line) {
+  let msg = null;
+  try { msg = JSON.parse(line); } catch (e) { return; }
+  if (msg.type === 'ready') { warmReady = true; return; }
+  if (typeof msg.id !== 'number') return;
+  const p = warmPending.get(msg.id);
+  if (!p) return;
+  if (msg.type === 'prog' && p.onProgress) { p.onProgress(msg); return; }
+  if ('ok' in msg) {
+    warmPending.delete(msg.id);
+    if (cancelRequested) { p.reject(new Error('Cancelled')); return; }
+    if (msg.ok) p.resolve(msg); else p.reject(new Error(msg.error || 'Worker error'));
+  }
+}
+
+function warmSend(req) {
+  req.id = ++warmSeq;
+  return new Promise((resolve, reject) => {
+    const p = { resolve, reject, onProgress: req.onProgress };
+    warmPending.set(req.id, p);
+    if (warmIdleTimer) { clearTimeout(warmIdleTimer); warmIdleTimer = null; }
+    try {
+      const ok = warmChild.stdin.write(JSON.stringify(req) + '\n');
+      if (!ok) setImmediate(warmDiscard, 'worker write failed');
+    } catch (e) { warmPending.delete(req.id); reject(e); }
+  });
+}
+
+function warmIdleKill() {
+  if (warmChild && !warmChild.killed) { try { warmChild.kill(); } catch (e) {} }
+  warmChild = null;
+  warmReady = false;
+}
+// Idle GC so a warm python doesn't linger forever after the user stops using
+// the panel. Killed only after 20 min of NO transcription activity.
+function warmTouch() {
+  if (warmIdleTimer) clearTimeout(warmIdleTimer);
+  warmIdleTimer = setTimeout(warmIdleKill, WARM_IDLE_MS);
+}
+
+// Always reap the warm worker when the panel closes (CEP unload).
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('beforeunload', () => {
+    try { if (warmChild && !warmChild.killed) warmChild.kill(); } catch (e) {}
+    warmChild = null;
+  });
+}
+
+// --------------------------------------------------------------------------
+// Transcript cache: skip re-transcribing the exact same (source, range, style).
+// Keyed on media path + trim + caption style + model dir + file size + mtime,
+// so edited files and caption-style changes invalidate naturally.
+// --------------------------------------------------------------------------
+const CACHE_FILE = path.join(os.tmpdir(), 'amh_transcript_cache.json');
+let transcriptCache = null;
+
+function cacheLoad() {
+  if (transcriptCache) return transcriptCache;
+  try {
+    transcriptCache = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8')) || {};
+  } catch (e) { transcriptCache = {}; }
+  return transcriptCache;
+}
+function cacheSave() {
+  try { fs.writeFileSync(CACHE_FILE, JSON.stringify(transcriptCache)); } catch (e) {}
+}
+
+function cacheKey(sourcePath, range, offset) {
+  const h = crypto.createHash('sha1');
+  h.update(sourcePath);
+  if (range) {
+    h.update(':' + String(range.sourceIn || 0));
+    h.update(':' + String(range.duration || 0));
+  }
+  h.update(':' + CAP + ':' + GROUP_SIZE + ':' + MAX_CHARS);
+  h.update(':' + MODEL_DIR);
+  h.update(':' + String(offset || 0));
+  try {
+    const st = fs.statSync(sourcePath);
+    h.update(':' + st.size + ':' + Math.floor(st.mtimeMs));
+  } catch (e) {}
+  return h.digest('hex').slice(0, 24);
+}
+
+// Same as cacheKey but for a merged batch (all clips + their offsets).
+function batchCacheKey(items) {
+  const h = crypto.createHash('sha1');
+  h.update('batch:' + CAP + ':' + GROUP_SIZE + ':' + MAX_CHARS + ':' + MODEL_DIR);
+  for (const it of items) {
+    h.update('|');
+    h.update(it.sourcePath || '');
+    h.update(':' + String(it.offset || 0));
+    if (it.sourceIn !== undefined || it.duration !== undefined) {
+      h.update(':' + String(it.sourceIn || 0));
+      h.update(':' + String(it.duration || 0));
+    }
+    try {
+      const st = fs.statSync(it.sourcePath);
+      h.update(':' + st.size + ':' + Math.floor(st.mtimeMs));
+    } catch (e) {}
+  }
+  return h.digest('hex').slice(0, 24);
+}
+
+function cacheLookup(key) {
+  const c = cacheLoad()[key];
+  if (!c || !c.srt) return null;
+  let cues = [];
+  try { cues = parseSrt(c.srt); } catch (e) { cues = []; }
+  if (!cues.length) return null;
+  return { srt: c.srt, cues, transcript: c.transcript || '' };
+}
+
+async function cacheStore(key, srt, transcript) {
+  cacheLoad()[key] = { srt, transcript, at: Date.now() };
+  // Keep the file bounded: drop oldest entries beyond 60.
+  const keys = Object.keys(cacheLoad());
+  if (keys.length > 60) {
+    const olds = keys.map((k) => ({ k, at: cacheLoad()[k].at || 0 }))
+      .sort((a, b) => a.at - b.at);
+    for (const o of olds.slice(0, keys.length - 60)) delete cacheLoad()[o.k];
+  }
+  cacheSave();
+}
+
+// --------------------------------------------------------------------------
+// Transcription entry points. Both check the transcript cache first, then go
+// through the WARM worker (one model load), falling back to one-shot Python.
+// --------------------------------------------------------------------------
+
+// Warm-worker style options.
+function warmStyle() {
+  return { mode: CAP === 'words' ? 'words' : 'grouped',
+           group: CAP === 'grouped' ? GROUP_SIZE : 0,
+           max_chars: MAX_CHARS };
+}
+
+// Extract a trimmed source segment to 16k mono wav.
+function extractToWav(sourcePath, range) {
+  const wav = path.join(os.tmpdir(), 'amharic_warm_' + Date.now() + '_' + Math.floor(Math.random() * 1e5) + '.wav');
   return new Promise((resolve, reject) => {
     const ffArgs = ['-v', 'error', '-y', '-i', sourcePath];
-    // For a trimmed clip we must start from sourceIn AND stop after duration.
-    // Put -ss after -i (accurate seek) so the extracted segment matches the
-    // timeline trim exactly, not a keyframe-aligned approximation.
     if (range && range.duration > 0) {
       ffArgs.push('-ss', String(range.sourceIn || 0), '-t', String(range.duration));
     }
     ffArgs.push('-ac', '1', '-ar', '16000', wav);
     activeChild = execFile(FFMPEG, ffArgs, (err) => {
+      activeChild = null;
       if (err) {
         try { fs.unlinkSync(wav); } catch (e) {}
-        reject(new Error('ffmpeg failed: ' + (err.message || err))); return;
-      }
-      const pyArgs = [SCRIPT, wav, outSrt].concat(pyFlags());
-      if (offset && offset !== 0) pyArgs.push('--offset', String(offset));
-      activeChild = execFile(PYTHON, pyArgs, { maxBuffer: 32 * 1024 * 1024, env: AMH_ENV }, (perr, stdout) => {
-        try { fs.unlinkSync(wav); } catch (e) {}
-        if (cancelRequested) { reject(new Error('Cancelled')); return; }
-        if (perr) { reject(new Error('Python failed: ' + (perr.message || perr))); return; }
-        const transcript = extractTranscripts(stdout).join('\n');
-        let cues = [];
-        try { cues = parseSrt(fs.readFileSync(outSrt, 'utf8')); } catch (e) {}
-        lastCues = cues;
-        lastSrtPath = outSrt;
-        resolve({ outSrt, cues, transcript });
-      });
+        reject(new Error('ffmpeg failed: ' + (err.message || err)));
+      } else resolve(wav);
     });
-  }).finally(() => { activeChild = null; });
+  });
 }
 
-// Transcribe several extracted wavs in ONE Python process (one model load).
-function transcribeBatch(items, outSrt, onProgress) {
+// Transcribe a single source (already a file path). range = {sourceIn, duration};
+// offset shifts cue times to the timeline. Result: { outSrt, cues, transcript }.
+async function transcribe(sourcePath, outSrt, range, offset) {
+  const key = cacheKey(sourcePath, range, offset);
+  const hit = cacheLookup(key);
+  if (hit) {
+    fs.writeFileSync(outSrt, hit.srt, 'utf8');
+    lastCues = hit.cues;
+    lastSrtPath = outSrt;
+    log('Found these captions in the session cache — skipping transcription.');
+    return { outSrt, cues: hit.cues, transcript: hit.transcript, cached: true };
+  }
+
+  const wav = await extractToWav(sourcePath, range);
+  try {
+    if (!warmStart()) {
+      // Server unavailable → one-shot process.
+      return transcribeOneShot(sourcePath, outSrt, range, offset, wav, () => {});
+    }
+    const r = await warmSend(Object.assign({
+      wav, out_srt: outSrt, offset: offset || 0
+    }, warmStyle()));
+    warmTouch();
+    let cues = [];
+    try { cues = parseSrt(fs.readFileSync(outSrt, 'utf8')); } catch (e) {}
+    lastCues = cues;
+    lastSrtPath = outSrt;
+    await cacheStore(key, fs.readFileSync(outSrt, 'utf8'), r.text || '');
+    return { outSrt, cues, transcript: r.text || '', cached: false };
+  } catch (e) {
+    if (e && e.message === 'Cancelled') throw e;
+    if (!e || !WARM_TRANSPORT_ERRS.has(e.message)) throw e;
+    // One-shot fallback (worker missing or failed this request).
+    log('Warm worker dropped — falling back to a fresh transcription process.');
+    return transcribeOneShot(sourcePath, outSrt, range, offset, wav, () => {});
+  } finally {
+    try { fs.unlinkSync(wav); } catch (e) {}
+  }
+}
+
+// Original per-run python process (fallback when the warm worker is absent).
+function transcribeOneShot(sourcePath, outSrt, range, offset, wav, onProgress) {
+  return new Promise((resolve, reject) => {
+    const pyArgs = [SCRIPT, wav, outSrt].concat(pyFlags());
+    if (offset && offset !== 0) pyArgs.push('--offset', String(offset));
+    activeChild = execFile(PYTHON, pyArgs, { maxBuffer: 32 * 1024 * 1024, env: AMH_ENV }, (perr, stdout) => {
+      activeChild = null;
+      if (cancelRequested) { reject(new Error('Cancelled')); return; }
+      if (perr) { reject(new Error('Python failed: ' + (perr.message || perr))); return; }
+      const transcript = extractTranscripts(stdout).join('\n');
+      let cues = [];
+      try { cues = parseSrt(fs.readFileSync(outSrt, 'utf8')); } catch (e) {}
+      lastCues = cues;
+      lastSrtPath = outSrt;
+      resolve({ outSrt, cues, transcript });
+    });
+  });
+}
+
+// Transcribe several extracted wavs in ONE warm-worker batch (one model load).
+// items: [{ sourcePath?, sourceIn?, duration?, wav, offset, name? }].
+async function transcribeBatch(items, outSrt, onProgress) {
+  if (items.every((it) => it.sourcePath)) {
+    const key = batchCacheKey(items);
+    const hit = cacheLookup(key);
+    if (hit) {
+      fs.writeFileSync(outSrt, hit.srt, 'utf8');
+      lastCues = hit.cues;
+      lastSrtPath = outSrt;
+      if (onProgress) onProgress(items.length, items.length, 'cached');
+      log('Found these captions in the session cache — skipping transcription.');
+      return { outSrt, cues: hit.cues, transcript: hit.transcript, cached: true };
+    }
+  }
+
+  try {
+    if (!warmStart()) {
+      // Server unavailable → one-shot process (one load, all clips).
+      return transcribeBatchOneShot(items, outSrt, onProgress);
+    }
+    const req = {
+      batch: items.map((it) => ({ wav: it.wav, offset: it.offset, name: it.name || '' })),
+      out_srt: outSrt
+    };
+    if (onProgress) req.onProgress = onProgress;
+    const withBatch = Object.assign(req, warmStyle());
+    const r = await warmSend(withBatch);
+    warmTouch();
+    let cues = [];
+    try { cues = parseSrt(fs.readFileSync(outSrt, 'utf8')); } catch (e) {}
+    lastCues = cues;
+    lastSrtPath = outSrt;
+    if (items.every((it) => it.sourcePath)) {
+      await cacheStore(batchCacheKey(items), fs.readFileSync(outSrt, 'utf8'), r.text || '');
+    }
+    return { outSrt, cues, transcript: r.text || '', cached: false };
+  } catch (e) {
+    if (e && e.message === 'Cancelled') throw e;
+    if (!e || !WARM_TRANSPORT_ERRS.has(e.message)) throw e;
+    log('Warm worker dropped — falling back to a fresh transcription process.');
+    return transcribeBatchOneShot(items, outSrt, onProgress);
+  }
+}
+
+// Original multi-clip one-shot fallback (one process, one model load).
+function transcribeBatchOneShot(items, outSrt, onProgress) {
   const reqPath = path.join(os.tmpdir(), 'amharic_batch_' + Date.now() + '.json');
   fs.writeFileSync(reqPath, JSON.stringify(items.map((it) => ({
     wav: it.wav, offset: it.offset
@@ -876,9 +1154,10 @@ function transcribeBatch(items, outSrt, onProgress) {
       const lines = String(stdout || '').split('\n');
       let inBlock = false, buf = [];
       for (const ln of lines) {
-        const prog = ln.match(/^\[batch\] %% (\d+)\/(\d+) (.+)$/);
+        const prog = ln.match(/^\[batch\] %+ (\d+)\/(\d+) (.+)$/);
         if (prog) {
-          if (onProgress) onProgress(parseInt(prog[1], 10), parseInt(prog[2], 10), prog[3]);
+          const name = String(prog[3]).replace(/\\/g, '/').split('/').pop() || prog[3];
+          if (onProgress) onProgress(parseInt(prog[1], 10), parseInt(prog[2], 10), name);
           continue;
         }
         if (ln.indexOf('--- full transcription ---') === 0) { inBlock = true; buf = []; continue; }
@@ -901,6 +1180,42 @@ function showTranscript(text) {
   const box = $('transcriptBox');
   if (!box) return;
   box.value = text || '';
+}
+
+// P1: live caption preview card — show the first few cues as they'll appear,
+// so the user sees what landed before they even look at the timeline.
+function showCaptionPreview(cues) {
+  const wrap = $('captionsPreview');
+  if (!wrap) return;
+  const list = cues && cues.length ? cues.slice(0, 6) : null;
+  if (!list) { wrap.classList.remove('show'); wrap.textContent = ''; return; }
+  wrap.textContent = '';
+  const ts = (sec) => {
+    sec = sec || 0;
+    const m = String(Math.floor(sec / 60)).padStart(2, '0');
+    const s = String(Math.floor(sec % 60)).padStart(2, '0');
+    return m + ':' + s;
+  };
+  for (const cue of list) {
+    const row = document.createElement('div');
+    row.className = 'prev-cue';
+    const t = document.createElement('span');
+    t.className = 'prev-time';
+    t.textContent = ts(cue.start) + ' → ' + ts(cue.end);
+    const x = document.createElement('span');
+    x.className = 'prev-text';
+    x.textContent = cue.text || '';
+    row.appendChild(t);
+    row.appendChild(x);
+    wrap.appendChild(row);
+  }
+  if (cues.length > 6) {
+    const more = document.createElement('div');
+    more.className = 'prev-time';
+    more.textContent = '… and ' + (cues.length - 6) + ' more';
+    wrap.appendChild(more);
+  }
+  wrap.classList.add('show');
 }
 
 async function finishImport(outSrt, label, startSeconds) {
@@ -990,6 +1305,7 @@ async function runSelectedClip() {
 
   log('Done writing captions.');
   showTranscript(r.transcript);
+  showCaptionPreview(r.cues);
 
   // Import via a UNIQUELY named temp file so Premiere is forced to create a fresh
   // caption item on every run instead of reusing a stale/cached one.
@@ -1017,6 +1333,29 @@ async function runWorkArea() {
   const outSrt = path.join(os.tmpdir(), 'amh_sequence_' + Date.now() + '.srt');
   const stamp = Date.now();
 
+  // Fast path: if every clip (by path+offset+mtime) is in the transcript cache,
+  // skip audio extraction AND transcription entirely.
+  const cacheItems = clips.map((clip) => ({
+    sourcePath: clip.sourcePath,
+    sourceIn: clip.sourceIn,
+    duration: clip.duration,
+    offset: clip.timelineStart
+  }));
+  const batchCacheHit = cacheLookup(batchCacheKey(cacheItems));
+  if (batchCacheHit) {
+    log('Found these captions in the session cache — skipping transcription.');
+    setProgress(0.95, 'Cached captions');
+    fs.writeFileSync(outSrt, batchCacheHit.srt, 'utf8');
+    lastCues = batchCacheHit.cues;
+    lastSrtPath = outSrt;
+    showTranscript(batchCacheHit.transcript);
+    showCaptionPreview(batchCacheHit.cues);
+    log('Done — ' + batchCacheHit.cues.length + ' captions written.');
+    await finishImport(outSrt, 'sequence');
+    try { fs.unlinkSync(outSrt); } catch (e) {}
+    return;
+  }
+
   const items = [];
   for (let n = 0; n < clips.length; n++) {
     if (cancelRequested) { log('Cancelled by user.'); return; }
@@ -1024,21 +1363,35 @@ async function runWorkArea() {
     setProgress((n + 1) / clips.length / 2, 'Extracting audio ' + (n + 1) + '/' + clips.length);
     const wav = path.join(os.tmpdir(), 'amh_extract_' + stamp + '_' + n + '.wav');
     await extractAudio(clip, wav);
-    items.push({ wav, offset: clip.timelineStart, name: clip.name, duration: clip.duration });
+    items.push({
+      wav, offset: clip.timelineStart, name: clip.name, duration: clip.duration,
+      sourcePath: clip.sourcePath, sourceIn: clip.sourceIn
+    });
   }
 
   if (cancelRequested) { log('Cancelled by user.'); return; }
 
   log('Transcribing ' + items.length + ' clip(s) in one pass…');
-  const r = await transcribeBatch(items, outSrt, (n, total, name) => {
-    setProgress(0.5 + (n / total) * 0.5, 'Transcribing ' + n + '/' + total +
-      (name && name.trim() ? ' (' + path.basename(name) + ')' : ''));
+  const batchStart = Date.now();
+  const r = await transcribeBatch(items, outSrt, (msgOrN, total, name) => {
+    // Warm-worker callback passes {at, of, name}; one-shot passes (n, total, name).
+    const done = typeof msgOrN === 'object' ? msgOrN.at : msgOrN;
+    const ofTotal = typeof msgOrN === 'object' ? msgOrN.of : total;
+    const label = typeof msgOrN === 'object' ? msgOrN.name : name;
+    // Live ETA from measured throughput.
+    const elapsedSec = (Date.now() - batchStart) / 1000;
+    const secPerClip = done > 0 ? elapsedSec / done : 0;
+    const etaSec = secPerClip * (ofTotal - done);
+    const etaText = etaSec > 0 ? (' · ~' + Math.ceil(etaSec) + 's left') : '';
+    setProgress(0.5 + (done / ofTotal) * 0.5, 'Transcribing ' + done + '/' + ofTotal + etaText +
+      (label && label.trim() ? ' (' + path.basename(label) + ')' : ''));
   });
 
   for (const it of items) { try { fs.unlinkSync(it.wav); } catch (e) {} }
 
   log('Done — ' + r.cues.length + ' captions written.');
   showTranscript(r.transcript);
+  showCaptionPreview(r.cues);
 
   await finishImport(outSrt, 'sequence');
   try { fs.unlinkSync(outSrt); } catch (e) {}
@@ -1083,6 +1436,7 @@ async function runFile(filePath, fileName) {
     setProgress(0.9, 'Transcription complete');
     log('Done writing captions.');
     showTranscript(r.transcript);
+    showCaptionPreview(r.cues);
     await finishImport(outSrt, cleanName);
     try { fs.unlinkSync(outSrt); } catch (e) {}
   } catch (e) {
@@ -1155,6 +1509,7 @@ function setup() {
   $('cancelBtn').addEventListener('click', () => {
     cancelRequested = true;
     try { if (activeChild) activeChild.kill(); } catch (e) {}
+    try { if (warmChild && !warmChild.killed) warmChild.kill(); } catch (e) {}
   });
 
   $('choose').addEventListener('click', () => $('fileInput').click());

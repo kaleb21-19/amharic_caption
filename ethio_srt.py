@@ -21,6 +21,11 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
+# A persistent server (--server) holds the model in memory across requests; the
+# heavyweight loaders print tqdm progress that would corrupt our JSON-line
+# stdout protocol, so disable it up front.
+os.environ.setdefault("TQDM_DISABLE", "1")
+
 # Windows console/stdio may default to cp1252, which cannot encode the Amharic
 # transcript we print to stdout. Force UTF-8 so the panel can read it back.
 if hasattr(sys.stdout, "reconfigure"):
@@ -426,8 +431,11 @@ def _run_file(engine, wav, mode, group_size, max_chars, offset):
 def main():
     if len(sys.argv) < 2:
         print("Usage: python ethio_srt.py <audio.wav|mp3|m4a> [out.srt] [--words] "
-              "[--group NUM] [--batch requests.json out.srt]")
+              "[--group NUM] [--batch requests.json out.srt] [--server]")
         sys.exit(1)
+
+    if sys.argv[1] == "--server":
+        return run_server()
 
     if sys.argv[1] == "--batch":
         return run_batch()
@@ -475,6 +483,105 @@ def main():
     for text_cue, s, e in cues:
         if text_cue:
             print(f"{format_ts(s + offset)} --> {format_ts(e + offset)}  {text_cue}")
+
+
+# --------------------------------------------------------------------------
+# persistent worker (--server)
+# --------------------------------------------------------------------------
+# One-shot mode re-spawns Python (and re-loads the ASR model) for every
+# transcription, which costs seconds each run and makes multi-clip batches
+# re-load the model per process. --server keeps ONE warmly-loaded engine alive
+# and serves requests over a line-delimited JSON protocol on stdin/stdout:
+#
+#   in : {"id":1,"wav":"clip.wav","out_srt":"clip.srt","mode":"words",
+#         "group":0,"max_chars":42,"offset":2.5}
+#   out: {"id":1,"ok":true,"text":"...","cues":23,"transcript":"..."}
+#   batch: {"id":2,"batch":[{"wav":...,"offset":...},...],"out_srt":"...",
+#           "mode":"grouped","group":3,"max_chars":42}
+#          emits one {"id":2,"type":"prog","at":N,"of":M,"name":...} per clip
+#          then the {"id":2,"ok":true,...} result line.
+def run_server():
+    engine = load_pipeline()
+    out = sys.stdout
+    emit(out, {"type": "ready", "engine": "ct2" if _use_ct2() else "torch"})
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            req = json.loads(line)
+        except Exception as e:
+            emit(out, {"ok": False, "error": "bad json: %s" % e})
+            continue
+        rid = req.get("id", 0)
+        try:
+            if req.get("type") == "ping":
+                emit(out, {"id": rid, "ok": True, "pong": True})
+            elif "batch" in req and isinstance(req["batch"], list):
+                handle_server_batch(engine, req, rid, out)
+            else:
+                handle_server_one(engine, req, rid, out)
+        except Exception as e:
+            emit(out, {"id": rid, "ok": False, "error": str(e)})
+
+
+def emit(out, obj):
+    out.write(json.dumps(obj, ensure_ascii=False) + "\n")
+    out.flush()
+
+
+def handle_server_one(engine, req, rid, out):
+    wav_path = req.get("wav")
+    if not wav_path or not os.path.isfile(wav_path):
+        emit(out, {"id": rid, "ok": False, "error": "audio file not found: %s" % wav_path})
+        return
+    mode, group, max_chars = request_style(req)
+    offset = float(req.get("offset", 0.0))
+    wav = read_wav(wav_path)
+    text, cues = _run_file(engine, wav, mode, group, max_chars, offset)
+    out_srt = req.get("out_srt")
+    if out_srt:
+        idx = write_srt(out_srt, cues, offset)
+    else:
+        idx = len(cues)
+    emit(out, {"id": rid, "ok": True, "cues": idx, "text": text})
+
+
+def handle_server_batch(engine, req, rid, out):
+    batch = req["batch"]
+    mode, group, max_chars = request_style(req)
+    out_srt = req.get("out_srt")
+    all_cues = []
+    all_text = []
+    total = len(batch)
+    for n, item in enumerate(batch, start=1):
+        wav_path = item.get("wav")
+        if not wav_path or not os.path.isfile(wav_path):
+            emit(out, {"id": rid, "ok": False,
+                       "error": "audio file not found: %s" % (item.get("name") or wav_path)})
+            return
+        off = float(item.get("offset", 0.0))
+        emit(out, {"id": rid, "type": "prog", "at": n, "of": total,
+                   "name": item.get("name", "")})
+        wav = read_wav(wav_path)
+        text, spans, frame_dur = engine.transcribe(wav)
+        all_text.append(text)
+        cues = make_cues(mode, group, spans, frame_dur, text, engine.glyphs,
+                         max_chars=max_chars)
+        for c in cues:
+            all_cues.append((c[0], c[1] + off, c[2] + off))
+    if out_srt:
+        idx = write_srt(out_srt, all_cues, 0.0)
+    else:
+        idx = len(all_cues)
+    emit(out, {"id": rid, "ok": True, "cues": idx, "text": "\n\n".join(all_text)})
+
+
+def request_style(req):
+    mode = req.get("mode", "grouped")
+    group = int(req.get("group", 0) or 0)
+    max_chars = int(req.get("max_chars", 42) or 42)
+    return mode, group, max_chars
 
 
 def run_batch():
