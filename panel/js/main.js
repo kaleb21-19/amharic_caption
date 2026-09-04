@@ -11,9 +11,33 @@ const csi = new CSInterface();
 // ─────────────────────────────────────────────────────────────────────────────
 // License system (runs FIRST, independently of CEP Node, so it also works in a
 // plain browser for testing). Machine ID = random 8-char hex, stored locally.
-// License key = AMH-XXXX-XXXX-XXXX-XXXX, HMAC-SHA256 signed.
+// License key = AMH-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX, HMAC-SHA256 signed.
 // ─────────────────────────────────────────────────────────────────────────────
 const LICENSE_SECRET = '7JBrcWoJAXZYNDczdPjIn1Kyv2Wynqz1_d73_-fdC4g=';
+
+// ── Cloudflare Worker API URL (server-side trial + key validation) ──────────
+// Deployed Worker URL — see tools/telegram-worker/DEPLOY.md.
+const API_URL = 'https://amharic-captions-bot.amhcaps.workers.dev';
+
+async function apiGet(path) {
+  try {
+    const res = await fetch(API_URL + path, { method: 'GET' });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (e) { return null; }
+}
+
+async function apiPost(path, body) {
+  try {
+    const res = await fetch(API_URL + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (e) { return null; }
+}
 
 function getOrCreateMachineId() {
   const key = 'amh.machineId';
@@ -39,11 +63,11 @@ function setLicense(licenseObj) {
 
 function validateLicense(key, machineId) {
   const clean = key.replace(/AMH-/g, '').replace(/-/g, '').toLowerCase();
-  if (clean.length !== 24) return { ok: false, error: 'Invalid key length' };
+  if (clean.length !== 32) return { ok: false, error: 'Invalid key length' };
 
   const mid  = clean.substring(0, 8);
   const exp  = clean.substring(8, 16);
-  const sig  = clean.substring(16, 24);
+  const sig  = clean.substring(16, 32);
 
   if (mid !== machineId.toLowerCase()) return { ok: false, error: 'Key is for a different machine' };
 
@@ -63,7 +87,7 @@ function validateLicense(key, machineId) {
   ).then((keyObj) => {
     return crypto.subtle.sign('HMAC', keyObj, encoder.encode(msg));
   }).then((buf) => {
-    const computed = Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('').substring(0, 8);
+    const computed = Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
     if (computed === sig) return { ok: true, expiry: exp };
     return { ok: false, error: 'Invalid license key' };
   });
@@ -87,8 +111,26 @@ function trialRemaining() {
 }
 // Called once when an unlicensed user successfully places a transcription.
 // Counts toward the free-trial limit; licensed users are unaffected.
-function consumeTrialCredit() {
+// Uses server-side tracking (D1) with localStorage fallback for offline.
+async function consumeTrialCredit() {
   if (LICENSED) return;
+
+  // Try server-side increment first
+  const serverResult = await apiPost('/api/trial/use', { mid: MACHINE_ID });
+  if (serverResult && typeof serverResult.used === 'number') {
+    // Sync local state from server
+    setTrialUsed(serverResult.used);
+    const left = serverResult.remaining;
+    if (left > 0) {
+      log('Trial: ' + serverResult.used + '/' + TRIAL_ALLOWED + ' used. ' + left + ' free transcription' +
+          (left === 1 ? '' : 's') + ' left.');
+    } else {
+      log('Trial used up (' + TRIAL_ALLOWED + '/' + TRIAL_ALLOWED + '). Enter a license key to continue.');
+    }
+    return;
+  }
+
+  // Fallback: local-only (offline or API unreachable)
   setTrialUsed(getTrialUsed() + 1);
   const used = getTrialUsed();
   const left = trialRemaining();
@@ -178,14 +220,46 @@ async function activateLicense() {
   if (licStatus) { licStatus.textContent = 'Validating…'; licStatus.style.color = 'var(--text-secondary)'; }
 
   try {
+    // 1) Local HMAC check (fast shape check)
     const result = await validateLicense(key, MACHINE_ID);
-    if (result.ok) {
-      setLicense({ key: key, valid: true, expiry: result.expiry, activated: Date.now() });
+    if (!result.ok) {
+      if (licStatus) { licStatus.textContent = result.error || 'Invalid key'; licStatus.style.color = 'var(--err)'; }
+      return;
+    }
+
+    // 2) Server-side check: key must exist in D1 for this machine.
+    //    fail-closed: a first activation REQUIRES the server to confirm the key.
+    //    After a key is once confirmed, offline re-activation is allowed via cache.
+    const cached = getLicense();
+    const serverResult = await apiPost('/api/validate', { mid: MACHINE_ID, key: key });
+    if (serverResult && serverResult.valid === false) {
+      const reason = serverResult.reason === 'expired'
+        ? 'License expired'
+        : 'Key not recognized — contact @sumpak6 on Telegram';
+      if (licStatus) { licStatus.textContent = reason; licStatus.style.color = 'var(--err)'; }
+      return;
+    }
+    if (serverResult && serverResult.valid === true) {
+      // confirmed by server today — cache the fact
+      setLicense({ key: key, valid: true, expiry: result.expiry, activated: Date.now(), serverValidated: true });
       updateLicenseUI();
       const logBox = document.getElementById('logBox');
       if (logBox && logBox.textContent) logBox.textContent += '\nLicense activated successfully.';
-    } else {
-      if (licStatus) { licStatus.textContent = result.error || 'Invalid key'; licStatus.style.color = 'var(--err)'; }
+      return;
+    }
+    // Server unreachable:
+    if (cached && cached.valid && cached.serverValidated && cached.key === key) {
+      // previously validated server-side — allow offline
+      setLicense({ key: key, valid: true, expiry: result.expiry, activated: Date.now(), serverValidated: true });
+      updateLicenseUI();
+      const logBox = document.getElementById('logBox');
+      if (logBox && logBox.textContent) logBox.textContent += '\nLicense activated (offline, previously verified).';
+      return;
+    }
+    // Not previously verified and server unreachable → refuse (fail-closed)
+    if (licStatus) {
+      licStatus.textContent = 'Cannot verify license — no connection to the license server. Try again online.';
+      licStatus.style.color = 'var(--err)';
     }
   } catch (e) {
     if (licStatus) { licStatus.textContent = 'Validation error'; licStatus.style.color = 'var(--err)'; }
@@ -220,6 +294,13 @@ async function activateLicense() {
     });
   }
   updateLicenseUI();
+
+  // Sync server-side trial count on load (best effort — silently ignore if offline)
+  if (!getLicense()) {
+    apiGet('/api/trial?mid=' + MACHINE_ID).then((data) => {
+      if (data && typeof data.used === 'number') setTrialUsed(data.used);
+    });
+  }
 })();
 // ─────────────────────────────────────────────────────────────────────────────
 // End license system
@@ -692,6 +773,16 @@ async function run() {
   clearLog();
   cancelRequested = false;
   setProgress(0, '');
+  if (!RUNTIME) {
+    log('ERROR: Transcription runtime not found.');
+    log('Reinstall the extension and restart Premiere.');
+    return;
+  }
+  if (!fs.existsSync(PYTHON) || !fs.existsSync(FFMPEG)) {
+    log('ERROR: Runtime is incomplete — missing python or ffmpeg.');
+    log('Reinstall the correct platform build and restart Premiere.');
+    return;
+  }
   if (!LICENSED && trialRemaining() <= 0) {
     log('ERROR: Your free trial (2 transcriptions) is used up. ');
     log('Enter your license key in the License section and click Activate to continue.');

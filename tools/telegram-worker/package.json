@@ -1,0 +1,16 @@
+{
+  "name": "amharic-captions-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Amharic Captions Telegram sales bot as a stateless Cloudflare Worker (webhook + D1 + R2).",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local",
+    "deploy": "wrangler deploy",
+    "migrate": "wrangler d1 migrations apply amh_bot --remote",
+    "set-webhook": "node scripts/set_webhook.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

@@ -18,7 +18,7 @@ import sys
 SECRET = b"7JBrcWoJAXZYNDczdPjIn1Kyv2Wynqz1_d73_-fdC4g="
 
 def generate_key(machine_id: str, expiry: str = "00000000") -> str:
-    """Return an AMH-XXXX-XXXX-XXXX license key."""
+    """Return an AMH-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX license key."""
     mid = machine_id.strip().lower()
     exp = expiry.strip()
     if len(mid) != 8 or not all(c in "0123456789abcdef" for c in mid):
@@ -27,10 +27,10 @@ def generate_key(machine_id: str, expiry: str = "00000000") -> str:
         raise ValueError(f"Invalid expiry: {exp!r} (need YYYYMMDD or 00000000)")
 
     msg = f"{mid}|{exp}".encode()
-    sig = hmac.new(SECRET, msg, hashlib.sha256).hexdigest()[:8]
+    sig = hmac.new(SECRET, msg, hashlib.sha256).hexdigest()[:16]
 
     raw = f"{mid}{exp}{sig}"
-    # Format as AMH-XXXX-XXXX-XXXX-XXXX (24 chars total)
+    # Format as AMH-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX (32 chars total)
     parts = [raw[i:i+4] for i in range(0, len(raw), 4)]
     return "AMH-" + "-".join(parts)
 

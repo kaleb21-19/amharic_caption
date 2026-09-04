@@ -37,7 +37,7 @@ def generate_key(machine_id: str, expiry: str = "00000000") -> str:
     if len(exp) != 8 or not exp.isdigit():
         raise ValueError(f"Invalid expiry: {exp!r} (need YYYYMMDD or 00000000)")
     msg = f"{mid}|{exp}".encode()
-    sig = hmac.new(SECRET, msg, hashlib.sha256).hexdigest()[:8]
+    sig = hmac.new(SECRET, msg, hashlib.sha256).hexdigest()[:16]
     raw = f"{mid}{exp}{sig}"
     parts = [raw[i:i + 4] for i in range(0, len(raw), 4)]
     return "AMH-" + "-".join(parts)

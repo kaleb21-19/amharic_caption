@@ -63,7 +63,7 @@ async function keyFor(machineId, expiry = '00000000') {
   const mid = String(machineId).toLowerCase();
   if (mid.length !== 8 || !/^[0-9a-f]{8}$/.test(mid)) throw new Error('Invalid Machine ID');
   const sig = await hmacHex(SECRET, `${mid}|${expiry}`);
-  const raw = mid + expiry + sig.slice(0, 8);
+  const raw = mid + expiry + sig.slice(0, 16);
   return 'AMH-' + raw.match(/.{1,4}/g).join('-');
 }
 
@@ -844,6 +844,73 @@ export default {
       });
     }
 
+    // ── Extension API ──────────────────────────────────────────────────────
+    // CORS headers for extension calls (CEP panels run from file:// origins)
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    };
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: corsHeaders });
+    }
+
+    // GET /api/trial?mid=XXXX → {used, max, remaining}
+    if (request.method === 'GET' && url.pathname === '/api/trial') {
+      const mid = url.searchParams.get('mid');
+      if (!mid || !/^[0-9a-f]{8}$/.test(mid)) {
+        return new Response(JSON.stringify({ error: 'bad mid' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+      }
+      const row = await DB.prepare('SELECT used, max_free FROM trials WHERE machine_id = ?').bind(mid).first();
+      const used = row ? row.used : 0;
+      const maxFree = row ? row.max_free : 2;
+      return new Response(JSON.stringify({ used, max: maxFree, remaining: Math.max(0, maxFree - used) }), {
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      });
+    }
+
+    // POST /api/trial/use → {mid} → increment trial usage, return {used, remaining}
+    if (request.method === 'POST' && url.pathname === '/api/trial/use') {
+      let body;
+      try { body = await request.json(); } catch { return new Response(JSON.stringify({ error: 'bad json' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } }); }
+      const mid = body && body.mid;
+      if (!mid || !/^[0-9a-f]{8}$/.test(mid)) {
+        return new Response(JSON.stringify({ error: 'bad mid' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+      }
+      // Upsert: insert if not exists, then increment
+      await DB.prepare('INSERT OR IGNORE INTO trials (machine_id, used, max_free) VALUES (?, 0, 2)').bind(mid).run();
+      await DB.prepare('UPDATE trials SET used = used + 1 WHERE machine_id = ?').bind(mid).run();
+      const row = await DB.prepare('SELECT used, max_free FROM trials WHERE machine_id = ?').bind(mid).first();
+      return new Response(JSON.stringify({ used: row.used, remaining: Math.max(0, row.max_free - row.used) }), {
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      });
+    }
+
+    // POST /api/validate → {mid, key} → {valid, expiry?}
+    if (request.method === 'POST' && url.pathname === '/api/validate') {
+      let body;
+      try { body = await request.json(); } catch { return new Response(JSON.stringify({ error: 'bad json' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } }); }
+      const { mid, key } = body || {};
+      if (!mid || !key) {
+        return new Response(JSON.stringify({ error: 'missing mid or key' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+      }
+      // Check D1: key must be in customers table
+      const row = await DB.prepare('SELECT expiry FROM customers WHERE machine_id = ? AND key = ?').bind(mid, key).first();
+      if (!row) {
+        return new Response(JSON.stringify({ valid: false }), { headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+      }
+      // Check expiry
+      if (row.expiry && row.expiry !== '00000000') {
+        const expDate = new Date(row.expiry.slice(0, 4) + '-' + row.expiry.slice(4, 6) + '-' + row.expiry.slice(6, 8));
+        if (expDate < new Date()) {
+          return new Response(JSON.stringify({ valid: false, reason: 'expired' }), { headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+        }
+      }
+      return new Response(JSON.stringify({ valid: true, expiry: row.expiry }), {
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      });
+    }
+
     // Telegram POSTs updates here
     if (request.method === 'POST') {
       let update;
@@ -856,6 +923,7 @@ export default {
         else if (update.callback_query) await handleCallback(update.callback_query);
       } catch (e) {
         console.error('handler error', e);
+        return new Response('handler error', { status: 500 });
       }
       return new Response('ok', { status: 200 });
     }

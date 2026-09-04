@@ -17,5 +17,14 @@ output/
 # ad-hoc panel backups (large)
 backup_installed_*/
 
+# Node deps
+node_modules/
+
+# Wrangler local scratch
+tools/telegram-worker/.wrangler/
+
+# Telegram bot runtime log
+tools/telegram/bot_live.log
+
 # OS cruft
 .DS_Store

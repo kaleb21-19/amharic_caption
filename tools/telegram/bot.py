@@ -56,7 +56,7 @@ def generate_key(machine_id, expiry="00000000"):
     if len(mid) != 8 or not all(c in "0123456789abcdef" for c in mid):
         raise ValueError("Invalid Machine ID (need 8 hex chars, e.g. a1b2c3d4)")
     msg = f"{mid}|{expiry}".encode()
-    sig = hmac.new(SECRET, msg, hashlib.sha256).hexdigest()[:8]
+    sig = hmac.new(SECRET, msg, hashlib.sha256).hexdigest()[:16]
     raw = f"{mid}{expiry}{sig}"
     parts = [raw[i:i + 4] for i in range(0, len(raw), 4)]
     return "AMH-" + "-".join(parts)

@@ -1,0 +1,26 @@
+name = "amharic-captions-bot"
+main = "src/worker.js"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# ---- Free-tier bindings -------------------------------------------------
+# D1: SQLite database for orders + sold keys (stateful replacement for
+# pending.json + customers.csv).
+[[d1_databases]]
+binding = "DB"
+database_name = "amh_bot"
+database_id = "ba278e9c-b56e-400d-bc1d-53f7c3f8431c"
+
+# NOTE: R2 is intentionally NOT used. Payment-proof screenshots are stored as
+# BLOBs directly in D1 (fine at this bot's tiny volume, and avoids needing a
+# card on file to enable R2).
+
+# ---- Secrets (set via `wrangler secret put`, never in this file) --------
+# AMH_TG_TOKEN : the Telegram bot token
+# AMH_ADMIN_ID : your numeric admin chat id
+# AMH_SECRET   : the HMAC license-key secret
+
+[vars]
+AMH_GROUP_ID = "-1004403686687"
+AMH_PRICE = "ETB 2,000"
+AMH_TELEBIRR = "0907 628 809"
