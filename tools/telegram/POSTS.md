@@ -13,7 +13,7 @@ Copy-paste ready. Post these when you launch, and reuse later for reach.
 > ✅ የአማርኛ ንዑስ ርዕስ በቦታው ይፈጠር
 > ✅ በኮምፒውተርህ ላይ ብቻ ይሰራል — ኢንተርኔት አያስፈልግም, ቅጽበት (offline, on-device)
 > ✅ Windows & Mac
-> ✅ አንድ ጊዜ ክፍያ: **ETB 2,000** (subscription የለም)
+> ✅ አንድ ጊዜ ክፍያ: **ETB 2,500** (subscription የለም)
 >
 > 🎁 **ሁሉም ሰው 2 ነጻ trial** ያገኛል — ሞክር እና እርካታ ከተሰማህ ግዛ!
 >
@@ -40,7 +40,7 @@ Copy-paste ready. Post these when you launch, and reuse later for reach.
 
 ## Post C — Pricing reminder (repeat every few days)
 
-> 💰 **ዋጋ: ETB 2,000 ብቻ** (አንድ ጊዜ ክፍያ)
+> 💰 **ዋጋ: ETB 2,500 ብቻ** (አንድ ጊዜ ክፍያ)
 >
 > • Windows & Mac ላይ ይሰራል
 > • ኢንተርኔት ሳያስፈልግ, በኮምፒውተርህ ላይ ብቻ

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BOT_URL, BOT_USERNAME, PAYMENT, PRICE, PRICE_NUM } from "@/lib/site";
+import { BOT_URL, BOT_USERNAME, PAYMENT, PRICE, PRICE_NUM, PRICE_OLD, PRICE_OLD_NUM } from "@/lib/site";
 
 export const metadata = {
   title: "Pricing — Amharic Captions for Premiere Pro",
@@ -9,6 +9,7 @@ export const metadata = {
 
 export default function PricingPage() {
   const priceLbl = Number(PRICE_NUM).toLocaleString("en-US");
+  const oldPriceLbl = Number(PRICE_OLD_NUM).toLocaleString("en-US");
   const usd = Math.round(Number(PRICE_NUM) / 50);
   return (
     <>
@@ -23,14 +24,19 @@ export default function PricingPage() {
       <section className="pricing-page section">
         <div className="container">
           <div className="pricing-card">
+            <p className="price-badge">Introductory price</p>
             <p className="price-label">Lifetime license</p>
-            <p className="price"><span className="cur">ETB</span> {priceLbl}</p>
+            <p className="price">
+              <span className="price-old">ETB {oldPriceLbl}</span>{" "}
+              <span className="cur">ETB</span> {priceLbl}
+            </p>
             <p className="price-sub">≈ ${usd} USD · One-time payment</p>
             <ul className="price-features">
               <li>Unlimited captions — no per-minute fees</li>
               <li>Premiere Pro 2024+ · Windows &amp; macOS</li>
               <li>2 free captions before you pay</li>
               <li>Editable, native caption tracks</li>
+              <li>Lifetime updates for the current version</li>
               <li>Support from the team on Telegram</li>
             </ul>
             <a className="btn btn-primary btn-lg btn-block" href={BOT_URL} target="_blank" rel="noopener">

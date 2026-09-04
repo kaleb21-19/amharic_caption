@@ -85,7 +85,7 @@ let SECRET = '';
 let TOKEN = '';
 let ADMIN_ID = '';
 let GROUP_ID = '';
-let PRICE = 'ETB 2,000';
+let PRICE = 'ETB 2,500';
 let TELEBIRR = '0907 628 809';
 const SUPPORT_URL = 'https://t.me/sumpak6';
 
@@ -94,7 +94,7 @@ function initEnv(env) {
   TOKEN = env.AMH_TG_TOKEN || '';
   ADMIN_ID = (env.AMH_ADMIN_ID || '1887247213').toString();
   GROUP_ID = env.AMH_GROUP_ID || '';
-  PRICE = env.AMH_PRICE || 'ETB 2,000';
+  PRICE = env.AMH_PRICE || 'ETB 2,500';
   TELEBIRR = env.AMH_TELEBIRR || '0907 628 809';
   SECRET = env.AMH_SECRET || '';
   globalThis.DB = env.DB;
@@ -150,7 +150,7 @@ function payText(served) {
     `🏦 Paid to: <b>${TELEBIRR}</b> (Telebirr)\n` +
     '🔑 You get: your license key <b>in this chat</b>\n' +
     proof +
-    '⏰ <b>Launch price</b> — 2,000 now, <b>ETB 2,499</b> after launch.\n\n' +
+    '⏰ <b>Introductory price</b> — <s>ETB 3,500</s> now <b>ETB 2,500</b>.\n\n' +
     '👇 Tap below <b>only after</b> you sent the money via Telebirr.'
   );
 }
@@ -317,7 +317,7 @@ function groupWelcome() {
     '🎁 <b>2 ነጻ (free) ካፕሽን</b> በመጀመሪያ ይሞክሩ — እወደው ከሆነ ብቻ ነው የሚከፍሉት።\n\n' +
     `💰 ዋጋ: <b>${PRICE}</b> (አንድ ጊዜ)\n` +
     `📲 Telebirr: <b>${TELEBIRR}</b>\n` +
-    '⏰ የማስጀመሪያ ዋጋ: 2,000 አሁን — በኋላ <b>2,499</b>!'
+    '⏰ የማስጀመሪያ ዋጋ: <s>3,500</s> አሁን <b>2,500</b>!'
   );
 }
 function installText() {
@@ -646,7 +646,7 @@ async function adminPending(chatId, messageId) {
 async function adminSales(chatId, messageId) {
   const sold = await DB.prepare("SELECT COUNT(*) AS n FROM customers WHERE status='sold'").first();
   const nSold = sold ? sold.n : 0;
-  const rev = nSold * 2000;
+  const rev = nSold * 2500;
   const counts = {};
   const events = ['proof_start', 'mid_sent', 'screenshot_sent', 'ref_typed', 'ref_skipped', 'order_confirmed', 'approved', 'rejected'];
   for (const ev of events) {
@@ -657,7 +657,7 @@ async function adminSales(chatId, messageId) {
   const started = counts.proof_start;
   const text =
     '📈 <b>Sales & Funnel</b>\n\n' +
-    `💵 <b>Revenue</b>: ${nSold} keys × ETB 2,000 = <b>ETB ${rev.toLocaleString()}</b>\n\n` +
+    `💵 <b>Revenue</b>: ${nSold} keys × ETB 2,500 = <b>ETB ${rev.toLocaleString()}</b>\n\n` +
     '<b>Funnel — all-time:</b>\n' +
     `🟦 Started: ${started}\n` +
     `🟩 Machine ID: ${counts.mid_sent} (${pct(started, counts.mid_sent)} of started)\n` +

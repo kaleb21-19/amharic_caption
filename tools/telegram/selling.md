@@ -19,7 +19,7 @@ the group, post offers, and handle buyers — copy-paste ready.
 > Automatic Amharic captions (subtitles) for Premiere Pro. On-device, offline,
 > one-time price.
 >
-> 💰 ዋጋ: **ETB 2,000** (one-time, per computer)
+> 💰 ዋጋ: **ETB 2,500** (one-time, per computer)
 > 📲 የሚከፈለው: Telebirr → **0907 628 809**
 > 🖥 Windows & Mac
 >
@@ -40,8 +40,8 @@ the group, post offers, and handle buyers — copy-paste ready.
 > **1.** የሶፍትዌሩን ፓነል ይክፈቱና "Your Machine ID" የሚለውን ቁጥር ይቅዱ
 > (Copy the Machine ID shown in the panel's License section).
 >
-> **2.** **ETB 2,000** በTelebirr ወደ **0907 628 809** ይላኩ
-> (Send ETB 2,000 via Telebirr to 0907 628 809).
+> **2.** **ETB 2,500** በTelebirr ወደ **0907 628 809** ይላኩ
+> (Send ETB 2,500 via Telebirr to 0907 628 809).
 >
 > **3.** የTelebirr ማረጋገጫ (screenshot) እና Machine ID በዚህ ግሩፕ ወይም በግል
 > መልእክት ይላኩ (Send the payment screenshot + your Machine ID here or in DM).
@@ -61,7 +61,7 @@ the group, post offers, and handle buyers — copy-paste ready.
 > ይህ ሶፍትዌር Premiere Pro ላይ ቪዲዮዎን በነጻ የአማርኛ ንዑስ ርዕስ (subtitle/caption)
 > ያስቀምጥልዎታል — በኮምፒውተርዎ ላይ ብቻ ይሰራል (offline, on-device)።
 >
-> 💰 **ETB 2,000** (one-time) · 📲 Telebirr **0907 628 809** · 🖥 Windows & Mac
+> 💰 **ETB 2,500** (one-time) · 📲 Telebirr **0907 628 809** · 🖥 Windows & Mac
 >
 > 🔍 ለመግዛት እና ለ2 ነጻ trial → pinned message ይመልከቱ 👇
 

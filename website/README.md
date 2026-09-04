@@ -18,7 +18,7 @@ Telegram bot (`@AmharicCaptionsBot`). Change it once there.
 
 - `BOT_URL` = `https://t.me/AmharicCaptionsBot`
 - `SUPPORT_URL` = `https://t.me/sumpak6`
-- `PRICE` = `ETB 2,000`
+- `PRICE` = `ETB 2,500`
 - `PAYMENT` = `Telebirr 0907 628 809`
 
 ## Product assets

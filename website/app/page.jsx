@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BOT_URL } from "@/lib/site";
+import { BOT_URL, PRICE, PRICE_OLD } from "@/lib/site";
 
 const features = [
   {
@@ -30,7 +30,7 @@ const features = [
   {
     icon: "∞",
     title: "One-time price",
-    text: "A single ETB 2,000 payment. No subscriptions, no recurring fees, no lock-in.",
+    text: `A single ${PRICE} payment. No subscriptions, no recurring fees, no lock-in. Was ${PRICE_OLD}.`,
   },
 ];
 
@@ -59,7 +59,7 @@ export default function HomePage() {
               Install now
             </Link>
           </div>
-          <p className="hero-note">2 free captions to start · One-time ETB 2,000 · No subscription</p>
+          <p className="hero-note">2 free captions to start · One-time <span className="price-old-inline">{PRICE_OLD}</span> → <strong>{PRICE}</strong> · No subscription</p>
 
           <div className="hero-shot">
             <div className="shot-frame">

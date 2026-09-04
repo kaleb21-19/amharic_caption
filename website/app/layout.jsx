@@ -29,9 +29,10 @@ export default function RootLayout({ children }) {
     operatingSystem: "Windows, macOS",
     offers: {
       "@type": "Offer",
-      price: "2000",
+      price: "2500",
       priceCurrency: "ETB",
       description: "One-time lifetime license.",
+      priceValidUntil: "2027-12-31",
     },
     description:
       "Amharic speech-to-text captions for Adobe Premiere Pro. Runs on-device with no internet required.",

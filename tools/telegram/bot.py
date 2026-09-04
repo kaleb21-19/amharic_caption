@@ -42,7 +42,7 @@ def _env(key, default=""):
 TOKEN = _env("AMH_TG_TOKEN", "").strip()
 ADMIN_ID = _env("AMH_ADMIN_ID", "").strip()
 GROUP_ID = _env("AMH_GROUP_ID", "").strip()
-PRICE = "ETB 2,000"
+PRICE = "ETB 2,500"
 TELEBIRR = "0907 628 809"
 LEDGER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "customers.csv")
 SECRET = b"7JBrcWoJAXZYNDczdPjIn1Kyv2Wynqz1_d73_-fdC4g="
@@ -529,7 +529,7 @@ def menu_help():
         "❓ Questions?\n"
         "👤 Support: DM the seller — @AmharicCaptionsBot\n\n"
         "• 2 free captions to try\n"
-        "• One-time ETB 2,000, forever license\n"
+        "• One-time ETB 2,500, forever license\n"
         "• Needs Premiere Pro 2024+"
     )
     return text, base_nav()
@@ -885,7 +885,7 @@ def _admin_sales(chat_id, message_id):
     """Revenue + buy-flow funnel from funnel.csv and the ledger."""
     rows = read_ledger()
     sold = [r for r in rows if r.get("status") == "sold"]
-    revenue = len(sold) * 2000
+    revenue = len(sold) * 2500
     uid_events = {}  # uid -> set of funnel events
     try:
         with open(FUNNEL_FILE, "r", encoding="utf-8") as f:
@@ -911,7 +911,7 @@ def _admin_sales(chat_id, message_id):
 
     text = (
         "📈 <b>Sales & Funnel</b>\n\n"
-        f"💵 <b>Revenue</b>: {len(sold)} keys × ETB 2,000 = <b>ETB {revenue:,}</b>\n"
+        f"💵 <b>Revenue</b>: {len(sold)} keys × ETB 2,500 = <b>ETB {revenue:,}</b>\n"
         f"👥 Buyers reached (DM): {len(CONTACTS)}\n\n"
         "<b>Funnel — all-time:</b>\n"
         f"🟦 Started buy flow: {started}\n"
