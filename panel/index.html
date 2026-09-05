@@ -340,20 +340,10 @@
   .review-head .title { font-size: var(--font-l); font-weight: 700; }
   .review-head .sub { font-size: var(--font-s); color: var(--text-secondary); }
   .review-count { margin-left: auto; font-size: var(--font-s); color: var(--text-secondary); white-space: nowrap; }
-  .review-font-wrap { display: flex; align-items: center; gap: 5px; font-size: var(--font-s); color: var(--text-secondary); }
-  .review-font-wrap select {
-    background: var(--bg-field); color: var(--text-primary); border: 1px solid var(--border);
-    border-radius: var(--radius-sm); padding: 3px 6px; font-size: var(--font-s); max-width: 150px;
-  }
   #reviewSearch {
     flex: 0 0 auto; width: 124px; height: 24px; font-size: var(--font-s); box-sizing: border-box;
     background: var(--bg-field); color: var(--text-primary);
     border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0 7px;
-  }
-  #burnFontSize {
-    flex: 0 0 auto; width: 50px; height: 24px; font-size: var(--font-s); padding: 0 4px;
-    background: var(--bg-field); color: var(--text-primary);
-    border: 1px solid var(--border); border-radius: var(--radius-sm);
   }
   #reviewList {
     flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;
@@ -396,12 +386,6 @@
     white-space: pre-wrap; word-break: break-word;
   }
   #reviewBurn.busy { background: var(--err); color: #fff; border-color: transparent; }
-  .review-font-note {
-    flex: 0 0 auto; font-size: 9.5px; line-height: 1.4; color: var(--text-secondary);
-    margin-top: 6px; background: var(--bg-soft, rgba(127,127,127,.12));
-    border-radius: var(--radius-sm); padding: 6px 8px;
-  }
-  .review-font-note b { color: var(--text-primary); }
 </style>
 </head>
 <body>
@@ -593,7 +577,7 @@
   </div>
 
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.3.3</span> · License ETB 2,500 one-time</span>
+    <span>v<span id="panelVersion">1.3.4</span> · License ETB 2,500 one-time</span>
     <span style="display:flex;gap:10px;align-items:center;">
       <a href="#" id="supportLink" title="Get help in Telegram">💬 Help</a>
       <a href="#" id="diag">Diagnostics</a>
@@ -607,28 +591,15 @@
       <span class="sub">edit text &amp; times, then place or burn</span>
       <input type="text" id="reviewSearch" placeholder="filter captions…" title="Type to filter the caption list">
       <span class="review-count" id="reviewCount"></span>
-      <span class="review-font-wrap">
-        <label for="reviewFont" title="Used only for the 🎬 Burn into video output — Premiere places timeline captions with its own default caption style, which cannot be scripted">burn font</label>
-        <select id="reviewFont"></select>
-      </span>
-      <select id="burnFontSize" title="Burn-to-video font size">
-        <option value="24">24</option>
-        <option value="30">30</option>
-        <option value="34">34</option>
-        <option value="40">40</option>
-        <option value="48">48</option>
-        <option value="64">64</option>
-      </select>
     </div>
     <div id="reviewList"></div>
     <div class="review-foot">
       <button id="reviewAdd" class="btn btn-neutral">+ Add cue</button>
       <button id="reviewDiscard" class="btn-neutral">Discard</button>
-      <button id="reviewBurn" class="btn btn-neutral" title="Render the captions into a video file using the font and size chosen above">🎬 Burn into video…</button>
+      <button id="reviewBurn" class="btn btn-neutral" title="Render the captions into a video file (uses the Amharic caption font)">🎬 Burn into video…</button>
       <button id="reviewPlace" class="btn btn-primary">✓ Place on timeline</button>
     </div>
     <div class="review-status" id="burnStatus"></div>
-    <div class="review-font-note">The font &amp; size above are for <b>🎬 Burn into video</b>. Captions you <b>Place on timeline</b> use Premiere's own default caption style (Premiere does not let a plugin control it), so the font choice won't change what you see on the timeline — only in the burned MP4.</div>
     <input type="file" id="burnFileInput" accept="video/*,audio/*,.mp4,.mov,.mkv,.avi,.wmv,.mp3,.wav,.m4a,.aac" style="display:none;">
   </div>
 

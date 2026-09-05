@@ -269,7 +269,7 @@ function initSupport() {
 // ── Version badge in footer (keep in sync with CSXS manifest.xml) ──────────
 function initVersion() {
   const el = document.getElementById('panelVersion');
-  if (el) el.textContent = '1.3.3';
+  if (el) el.textContent = '1.3.4';
 }
 
 function getLicense() {
@@ -1652,9 +1652,7 @@ function writeBurnSrt(offsetSec) {
 }
 
 function getBurnFontSize() {
-  const el = $('burnFontSize');
-  const v = parseInt(el && el.value, 10);
-  return (v >= 12 && v <= 96) ? v : 34;
+  return 34;
 }
 
 function getMediaDuration(file) {
@@ -1734,8 +1732,7 @@ function doBurn(source) {
   try { srt = writeBurnSrt(REVIEW.burnOffset); }
   catch (e) { finishBurn(false, e && e.message ? e.message : String(e)); return; }
 
-  const fontName = ($('reviewFont') && $('reviewFont').value) ||
-    (AMH_FONT && AMH_FONT.font) || 'Abyssinica SIL';
+  const fontName = (AMH_FONT && AMH_FONT.font) || 'Abyssinica SIL';
   const fontRec = findAmhFontFile(fontName) || (AMH_FONT && AMH_FONT.path
     ? { dir: path.dirname(AMH_FONT.path), family: AMH_FONT.font, path: AMH_FONT.path }
     : null);
@@ -1820,30 +1817,12 @@ function discardReview() {
 }
 
 function initReview() {
-  const sel = $('reviewFont');
-  sel.textContent = '';
-  for (const name of AMH_CANDIDATE_FONTS) {
-    const o = document.createElement('option');
-    o.value = name;
-    o.textContent = name;
-    sel.appendChild(o);
-  }
-  // Default the preview (and burn) font to what the filesystem scan detected.
-  try { sel.value = (AMH_FONT && AMH_FONT.font) || sel.value || 'Abyssinica SIL'; } catch (e) {}
-  (function applyFontChoice() {
-    const font = sel.value || (AMH_FONT && AMH_FONT.font) || '';
-    $('reviewList').style.setProperty('--review-font',
-      font ? '"' + font + '"' : "'Abyssinica SIL', 'Kefa', serif");
-  })();
-  sel.addEventListener('change', () => {
-    $('reviewList').style.setProperty('--review-font', '"' + sel.value + '"');
-  });
-
-  const sizeEl = $('burnFontSize');
-  if (sizeEl) {
-    sizeEl.value = String(loadSettings().burnSize || 34);
-    sizeEl.addEventListener('change', () => saveSettings({ burnSize: parseInt(sizeEl.value, 10) || 34 }));
-  }
+  // Font is fixed for the review preview + burn: uses the detected Amharic
+  // font (or Abyssinica SIL). Premiere's timeline caption style cannot be
+  // scripted, so no font/size pickers are exposed in the panel anymore.
+  const font = (AMH_FONT && AMH_FONT.font) || 'Abyssinica SIL';
+  $('reviewList').style.setProperty('--review-font',
+    '"' + font + '"');
 
   $('reviewPlace').addEventListener('click', placeReview);
   $('reviewDiscard').addEventListener('click', discardReview);
