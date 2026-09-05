@@ -907,9 +907,9 @@ export default {
       if (!mid || !/^[0-9a-f]{8}$/.test(mid)) {
         return new Response(JSON.stringify({ error: 'bad mid' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
       }
-      // Upsert: insert if not exists, then increment
+      // Upsert: insert if not exists, then increment — but never past the cap
       await DB.prepare('INSERT OR IGNORE INTO trials (machine_id, used, max_free) VALUES (?, 0, 2)').bind(mid).run();
-      await DB.prepare('UPDATE trials SET used = used + 1 WHERE machine_id = ?').bind(mid).run();
+      await DB.prepare('UPDATE trials SET used = CASE WHEN used < max_free THEN used + 1 ELSE used END WHERE machine_id = ?').bind(mid).run();
       const row = await DB.prepare('SELECT used, max_free FROM trials WHERE machine_id = ?').bind(mid).first();
       return new Response(JSON.stringify({ used: row.used, remaining: Math.max(0, row.max_free - row.used) }), {
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
