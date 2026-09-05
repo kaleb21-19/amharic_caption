@@ -60,9 +60,8 @@ jobs:
   # ---- 2. build each platform's self-contained zip -------------------------
   # macOS jobs share bash (macOS runner default shell), so no `shell:` key is
   # needed and no `matrix` reference appears in a shell property (GitHub does
-  # not allow `matrix` in the `shell:` key). Each platform is its own job so
-  # the slow Intel-mac (macos-13) build does NOT block the Release for the
-  # other platforms.
+  # not allow `matrix` in the `shell:` key). Each platform is its own job; the
+  # release job waits for all of them so every release carries all 3 zips.
   build-ar:
     needs: model-ct2
     runs-on: macos-14
@@ -93,13 +92,8 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-  # Intel Mac — builds in the background; NOT in the release gate (macos-13
-  # is slow/limited). If it finishes before the release job, its zip is
-  # included automatically. Otherwise we upload it manually.
-  # Intel Mac build. Runs on the arm64 macOS runner (much less queued than
-  # macos-13) and uses AMH_TARGET to stage the x86_64 runtime — same output
-  # zip, just assembled cross-arch. The arm64 image includes Rosetta, so the
-  # staged x86_64 python can pip-install its deps during prepare_python.sh.
+# Intel Mac — runs on the arm64 macOS runner (macos-14, much less queued
+  # than the old macos-13) and uses AMH_TARGET to stage the x86_64 runtime.
   build-x64:
     needs: model-ct2
     runs-on: macos-14
@@ -131,24 +125,6 @@ jobs:
           path: dist/amharic-captions-mac-x64.zip
           retention-days: 30
           if-no-files-found: error
-
-      # The release job does NOT wait for this job, so it may run first and
-      # attach only the win + arm64 zips. Attach the x64 zip here too (belatedly,
-      # if the release already exists; ignore if it hasn't been created yet).
-      - name: Attach x64 zip to release
-        if: success()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -eo pipefail
-          TAG="build-${GITHUB_RUN_ID}"
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/amharic-captions-mac-x64.zip \
-              --repo "$GITHUB_REPOSITORY" --clobber
-            echo "attached mac-x64 zip to release $TAG"
-          else
-            echo "release $TAG not created yet — skipping attach (artifact is retained)"
-          fi
 
   # Windows build — standalone job so it can use the native PowerShell (pwsh)
   # shell without needing `matrix` in the `shell:` key.
@@ -185,13 +161,13 @@ jobs:
           if-no-files-found: error
 
   # ---- 3. attach zips to a GitHub Release (one-click downloads) -------------
-  # Does NOT wait for build-x64 (macos-13 is slow/limited). If the Intel
-  # build finishes in time, its zip is included automatically. If not, we
-  # attach it manually after.
+  # Waits for ALL three platform builds so every release always carries the
+  # win-x64, mac-arm64, and mac-x64 zips (the x64 build runs on macos-14 now,
+  # so it finishes like the others and can be part of the gate).
   release:
-    needs: [build-ar, build-win]
+    needs: [build-ar, build-win, build-x64]
     runs-on: ubuntu-latest
-    if: ${{ always() && needs.build-ar.result == 'success' && needs.build-win.result == 'success' }}
+    if: ${{ always() && needs.build-ar.result == 'success' && needs.build-win.result == 'success' && needs.build-x64.result == 'success' }}
     permissions:
       contents: write
     steps:
