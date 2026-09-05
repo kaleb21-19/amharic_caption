@@ -70,7 +70,10 @@ Copy-Item "$ROOT\amh_correct.py" (Join-Path $BNAME "runtime\amh_correct.py")
 
 # ffmpeg + python
 Copy-Item $FF (Join-Path $BNAME "runtime\bin\ffmpeg.exe")
-Copy-Item $PYDIR (Join-Path $BNAME "runtime\python") -Recurse
+# NOTE: must copy the CONTENTS of $PYDIR (trailing `\*`), NOT the dir itself.
+# Copy-Item -Recurse of a dir into a pre-created target dir nests it as
+# runtime\python\python\... so the panel's runtime check fails on Windows.
+Copy-Item (Join-Path $PYDIR "*") (Join-Path $BNAME "runtime\python") -Recurse
 
 # shared panel
 Copy-Item "$ROOT\panel\*" $BNAME -Recurse
