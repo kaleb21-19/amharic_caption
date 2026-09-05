@@ -269,7 +269,7 @@ function initSupport() {
 // ── Version badge in footer (keep in sync with CSXS manifest.xml) ──────────
 function initVersion() {
   const el = document.getElementById('panelVersion');
-  if (el) el.textContent = '1.3.1';
+  if (el) el.textContent = '1.3.2';
 }
 
 function getLicense() {
@@ -841,6 +841,16 @@ let cancelRequested = false;
 let lastSrtPath = null;
 let lastCues = [];
 let activeChild = null;
+
+// Stable folder for placed caption SRTs. Premiere keeps a file link to the
+// imported caption SRT — deleting it makes Premiere ask to "Locate file"
+// (both right after adding the captions and every time the project reopens).
+// So placed SRTs live here permanently instead of a temp dir that gets wiped.
+const USER_CAPTIONS_DIR = path.join(os.homedir(), 'Desktop', 'AmharicCaptions');
+function ensureCaptionsDir() {
+  try { fs.mkdirSync(USER_CAPTIONS_DIR, { recursive: true }); } catch (e) {}
+  return USER_CAPTIONS_DIR;
+}
 
 function applySettings() {
   const s = loadSettings();
@@ -1600,7 +1610,7 @@ function updateReviewPreview() {
   showCaptionPreview(reviewCues);
 }
 
-function writeReviewSrt() {
+function writeReviewSrt(outDir) {
   const sortable = reviewCues.slice().sort((a, b) => a.start - b.start);
   let out = '';
   let idx = 0;
@@ -1612,7 +1622,8 @@ function writeReviewSrt() {
     out += formatSrtTs(cue.start) + ' --> ' + formatSrtTs(cue.end) + '\n';
     out += text + '\n\n';
   });
-  const dest = path.join(os.tmpdir(), 'amh_review_' + Date.now() + '.srt');
+  const dest = path.join(outDir || os.tmpdir(), 'amh_review_' + Date.now() + '.srt');
+  try { fs.mkdirSync(path.dirname(dest), { recursive: true }); } catch (e) {}
   fs.writeFileSync(dest, out, 'utf8');
   return dest;
 }
@@ -1792,11 +1803,13 @@ async function placeReview() {
   if (reviewCues.length === 0) { log('All captions are empty — nothing to place.'); return; }
   // Commit the edited cues so export/transcript reflect what was placed.
   lastCues = JSON.parse(JSON.stringify(reviewCues));
-  lastSrtPath = path.join(os.tmpdir(), 'amh_review_' + Date.now() + '.srt');
-  const dest = writeReviewSrt();
+  const dest = writeReviewSrt(ensureCaptionsDir());
+  lastSrtPath = dest;
   log('Placing your edited captions (' + reviewCues.length + ')…');
   await finishImport(dest, REVIEW.label || 'captions', REVIEW.startSeconds);
-  try { fs.unlinkSync(dest); } catch (e) {}
+  // Keep the SRT on disk: Premiere's caption item links to this file. Deleting
+  // it triggers the "Locate file" prompt on every project open.
+  log('Captions saved to ' + dest + '  (Premiere keeps a file link to this).');
   closeReview();
 }
 
@@ -2072,8 +2085,7 @@ function exportCaptions() {
     log('Nothing to export yet. Generate captions first.');
     return;
   }
-  const cwd = os.homedir() + '/Desktop/AmharicCaptions';
-  try { fs.mkdirSync(cwd, { recursive: true }); } catch (e) {}
+  const cwd = ensureCaptionsDir();
   const fmt = $('expFmt').value;
   const base = (lastSrtPath ? path.basename(lastSrtPath).replace(/\.srt$/i, '') : 'captions');
   const dest = path.join(cwd, base + '.' + fmt);
