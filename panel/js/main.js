@@ -269,7 +269,7 @@ function initSupport() {
 // ── Version badge in footer (keep in sync with CSXS manifest.xml) ──────────
 function initVersion() {
   const el = document.getElementById('panelVersion');
-  if (el) el.textContent = '1.1.0';
+  if (el) el.textContent = '1.3.0';
 }
 
 function getLicense() {
@@ -575,27 +575,52 @@ const AMH_FONT_FILES = [
 
 function scanAmharicFontFs() {
   try {
-    const found = new Set();
+    const found = {}; // name -> { file, dir }
     for (const dir of AMH_FONT_DIRS) {
       let names;
       try { names = fs.readdirSync(dir); } catch (e) { continue; }
       for (const n of names) {
         const low = n.toLowerCase();
         for (const [name, needles] of AMH_FONT_FILES) {
-          if (!found.has(name) && needles.some((nd) => low.includes(nd))) {
-            found.add(name);
+          if (!found[name] && needles.some((nd) => low.includes(nd))) {
+            found[name] = { file: n, dir };
           }
         }
       }
     }
     for (const [name] of AMH_FONT_FILES) {
-      if (found.has(name)) return { ok: true, font: name, support: true };
+      if (found[name]) {
+        const f = found[name];
+        return Object.assign({ ok: true, font: name, support: true },
+                             { path: path.join(f.dir, f.file), dir: f.dir, file: f.file });
+      }
     }
     // No candidate present, but we did scan at least one real dir => trusted.
     return { ok: false, font: null, support: true };
   } catch (e) {
     return { ok: true, font: null, support: false };
   }
+}
+
+// Locate the on-disk font file for a specific candidate. Used by burn-to-video
+// to point libass at the font directory and tell it the family name.
+function findAmhFontFile(name) {
+  try {
+    const rec = AMH_FONT_FILES.find(([n]) => n === name);
+    if (!rec) return null;
+    const [, needles] = rec;
+    for (const dir of AMH_FONT_DIRS) {
+      let names;
+      try { names = fs.readdirSync(dir); } catch (e) { continue; }
+      for (const n of names) {
+        const low = n.toLowerCase();
+        if (needles.some((nd) => low.includes(nd))) {
+          return { file: n, dir, path: path.join(dir, n), family: name };
+        }
+      }
+    }
+  } catch (e) {}
+  return null;
 }
 
 AMH_FONT_FS = scanAmharicFontFs();
@@ -867,6 +892,25 @@ function formatSrtTs(sec) {
   return p(h, 2) + ':' + p(m, 2) + ':' + p(s, 2) + ',' + p(ms, 3);
 }
 
+// Smart spacing/punctuation cleanup for caption lines (transcript cleanup pass).
+// Runs per line so intended line breaks survive. It only normalizes whitespace,
+// tightens spaces before punctuation, and adds one space after it (never
+// between digits, so numbers like "1.5" and "1,000" are preserved). Ethiopic
+// punctuation (። ፣ ፤ ፥ ፦) is treated the same as Latin punctuation.
+const AMH_PUNCT_CHARS = '.,;:!?\u2026\u060c\u1362\u1363\u1364\u1365\u1366';
+function cleanCueLines(text) {
+  if (!text) return '';
+  return String(text).split('\n').map((ln) => {
+    return ln
+      .replace(/[\u200b\u200c\u200d]/g, '')                       // zero-width
+      .replace(/\s+/g, ' ')                                        // collapse spaces
+      .replace(new RegExp('\\s+([' + AMH_PUNCT_CHARS + '])', 'g'), '$1')   // no space before punct
+      // one space after punct (but not before digits, spaces or more punct)
+      .replace(new RegExp('([' + AMH_PUNCT_CHARS + '])(?![\\s\\d])', 'g'), '$1 ')
+      .trim();
+  }).join('\n');
+}
+
 function writeSrt(outPath) {
   const sortable = lastCues.slice().sort((a, b) => a.start - b.start);
   let out = '';
@@ -875,7 +919,7 @@ function writeSrt(outPath) {
     idx += 1;
     out += idx + '\n';
     out += formatSrtTs(cue.start) + ' --> ' + formatSrtTs(cue.end) + '\n';
-    out += cue.text + '\n\n';
+    out += cleanCueLines(cue.text) + '\n\n';
   }
   fs.writeFileSync(outPath, out, 'utf8');
   lastSrtPath = outPath;
@@ -895,7 +939,7 @@ function writeVtt(outPath) {
   let out = 'WEBVTT\n\n';
   for (const cue of sortable) {
     out += ts(cue.start) + ' --> ' + ts(cue.end) + '\n';
-    out += cue.text + '\n\n';
+    out += cleanCueLines(cue.text) + '\n\n';
   }
   fs.writeFileSync(outPath, out, 'utf8');
   lastSrtPath = outPath;
@@ -1363,7 +1407,7 @@ async function finishImport(outSrt, label, startSeconds) {
 // font, then places (writes the edited SRT to the timeline) or discards.
 // ---------------------------------------------------------------------------
 
-let REVIEW = null; // { outSrt, label, startSeconds, seqStart }
+let REVIEW = null; // { outSrt, label, startSeconds, burnSource, burnOffset }
 let reviewOpen = false;
 
 function fmtReviewTs(sec) {
@@ -1382,20 +1426,40 @@ function parseReviewTs(str) {
 // editable working copy of the cues (the real lastCues is only overwritten on
 // place, so cache/transcript stay pristine if the user discards)
 let reviewCues = [];
+let REVIEW_FILTER = '';
 
-function openReview(outSrt, label, startSeconds) {
-  REVIEW = { outSrt, label, startSeconds: startSeconds || 0 };
-  reviewCues = JSON.parse(JSON.stringify(lastCues));
+// Burn-to-video state (ffmpeg + libass renders captions with a chosen font).
+let burnChild = null;
+let burning = false;
+let burnAborted = false;
+let burnDurationSec = null;
+
+function openReview(outSrt, label, startSeconds, opts) {
+  opts = opts || {};
+  REVIEW = {
+    outSrt, label: label || 'captions', startSeconds: startSeconds || 0,
+    burnSource: opts.burnSource || null,
+    burnOffset: opts.burnOffset || 0,
+  };
+  // Transcript cleanup pass: normalize spacing/punctuation in every cue as it
+  // enters the review so the user edits (and we write) tidy Amharic.
+  reviewCues = JSON.parse(JSON.stringify(lastCues)).map((c) =>
+    Object.assign({}, c, { text: cleanCueLines(c.text) }));
   reviewOpen = true;
+  REVIEW_FILTER = '';
+  const search = $('reviewSearch');
+  if (search) search.value = '';
   renderReview();
   $('review').classList.add('show');
   log('Review your captions below — edit, then click "Place on timeline".');
 }
 
 function closeReview() {
+  if (burning) stopBurn();
   reviewOpen = false;
   REVIEW = null;
   reviewCues = [];
+  REVIEW_FILTER = '';
   $('review').classList.remove('show');
 }
 
@@ -1405,8 +1469,16 @@ function renderReview() {
   const list = $('reviewList');
   list.textContent = '';
   const ts = (sec) => fmtReviewTs(sec);
+  const filter = (REVIEW_FILTER || '').toLowerCase();
+  const matchesFilter = (cue) => !filter ||
+    (cue.text || '').toLowerCase().indexOf(filter) >= 0 ||
+    ts(cue.start).indexOf(filter) >= 0 || ts(cue.end).indexOf(filter) >= 0;
+
+  let shown = 0;
   for (let i = 0; i < reviewCues.length; i++) {
     const cue = reviewCues[i];
+    if (!matchesFilter(cue)) continue;
+    shown++;
     const row = document.createElement('div');
     row.className = 'review-row';
 
@@ -1418,6 +1490,26 @@ function renderReview() {
     tOut.className = 't'; tOut.value = ts(cue.end); tOut.title = 'End (m:ss.cc)';
     timeBox.appendChild(tIn);
     timeBox.appendChild(tOut);
+
+    const tools = document.createElement('div');
+    tools.className = 'review-tools';
+    const mk = (label, title, cls) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'tool'; b.textContent = label; b.title = title;
+      if (cls) b.classList.add(cls);
+      tools.appendChild(b);
+      return b;
+    };
+    const nudgeBack = mk('\u25c1', 'Shift this caption −0.1s');
+    const nudgeFwd = mk('\u25b7', 'Shift this caption +0.1s');
+    const splitBtn = mk('\u2702', 'Split this caption into two');
+    const mergeBtn = mk('\u21d3', 'Merge this caption into the next');
+    mergeBtn.disabled = (i >= reviewCues.length - 1);
+    splitBtn.disabled = !(cue.text || '').trim().split(/\s+/).length > 1;
+    nudgeBack.addEventListener('click', () => nudgeReview(i, -0.1));
+    nudgeFwd.addEventListener('click', () => nudgeReview(i, 0.1));
+    splitBtn.addEventListener('click', () => splitReview(i));
+    mergeBtn.addEventListener('click', () => mergeReview(i));
 
     const ta = document.createElement('textarea');
     ta.value = cue.text || ''; ta.placeholder = 'caption text';
@@ -1443,12 +1535,61 @@ function renderReview() {
     del.addEventListener('click', () => { reviewCues.splice(i, 1); renderReview(); });
 
     row.appendChild(timeBox);
+    row.appendChild(tools);
     row.appendChild(ta);
     row.appendChild(del);
     list.appendChild(row);
   }
+
+  if (shown === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'review-empty';
+    empty.textContent = filter
+      ? 'No captions match "' + REVIEW_FILTER + '".'
+      : 'No captions yet — click "+ Add cue".';
+    list.appendChild(empty);
+  }
   updateReviewCount();
   updateReviewPreview();
+}
+
+// Review editor ops: nudge a caption's timing, split its text, merge with the
+// next caption. All operate on the working copy; nothing reaches the timeline
+// until the user places.
+function nudgeReview(i, delta) {
+  const cue = reviewCues[i];
+  if (!cue) return;
+  cue.start = Math.max(0, cue.start + delta);
+  cue.end = Math.max(cue.start + 0.3, cue.end + delta);
+  renderReview();
+}
+
+function splitReview(i) {
+  const cue = reviewCues[i];
+  if (!cue) return;
+  const words = (cue.text || '').trim().split(/\s+/).filter(Boolean);
+  if (words.length < 2) return;
+  const mid = Math.ceil(words.length / 2);
+  const first = words.slice(0, mid).join(' ');
+  const second = words.slice(mid).join(' ');
+  if (!first || !second) return;
+  const frac = (first.length + 1) / ((cue.text || '').trim().length + 2);
+  const cut = cue.start + (cue.end - cue.start) * Math.max(0.1, Math.min(0.9, frac));
+  const original = cue.end;
+  cue.text = first;
+  cue.end = Math.max(cue.start + 0.3, cut);
+  reviewCues.splice(i + 1, 0, { start: cue.end, end: original, text: second });
+  renderReview();
+}
+
+function mergeReview(i) {
+  const cue = reviewCues[i];
+  const next = reviewCues[i + 1];
+  if (!cue || !next) return;
+  cue.text = (cleanCueLines(cue.text) + ' ' + cleanCueLines(next.text)).trim();
+  cue.end = next.end;
+  reviewCues.splice(i + 1, 1);
+  renderReview();
 }
 
 function updateReviewCount() {
@@ -1462,14 +1603,187 @@ function updateReviewPreview() {
 function writeReviewSrt() {
   const sortable = reviewCues.slice().sort((a, b) => a.start - b.start);
   let out = '';
-  sortable.forEach((cue, n) => {
-    out += (n + 1) + '\n';
+  let idx = 0;
+  sortable.forEach((cue) => {
+    const text = cleanCueLines(cue.text);
+    if (!text) return;
+    idx += 1;
+    out += idx + '\n';
     out += formatSrtTs(cue.start) + ' --> ' + formatSrtTs(cue.end) + '\n';
-    out += (cue.text || '').trim() + '\n\n';
+    out += text + '\n\n';
   });
   const dest = path.join(os.tmpdir(), 'amh_review_' + Date.now() + '.srt');
   fs.writeFileSync(dest, out, 'utf8');
   return dest;
+}
+
+// SRT for burn-to-video: times are shifted so they're relative to the SOURCE
+// file the captions get rendered onto (REVIEW.burnOffset subtracts the clip's
+// timeline start that was baked in during transcription).
+function writeBurnSrt(offsetSec) {
+  const offset = offsetSec || 0;
+  const sortable = reviewCues.slice().sort((a, b) => a.start - b.start);
+  let out = '';
+  let idx = 0;
+  sortable.forEach((cue) => {
+    const text = cleanCueLines(cue.text);
+    if (!text) return;
+    idx += 1;
+    out += idx + '\n';
+    out += formatSrtTs(Math.max(0, cue.start - offset)) + ' --> ' +
+           formatSrtTs(Math.max(0, cue.end - offset)) + '\n';
+    out += text + '\n\n';
+  });
+  if (!idx) throw new Error('No non-empty captions to burn.');
+  const dest = path.join(os.tmpdir(), 'amh_burn_' + Date.now() + '.srt');
+  fs.writeFileSync(dest, out, 'utf8');
+  return dest;
+}
+
+function getBurnFontSize() {
+  const el = $('burnFontSize');
+  const v = parseInt(el && el.value, 10);
+  return (v >= 12 && v <= 96) ? v : 34;
+}
+
+function getMediaDuration(file) {
+  return new Promise((resolve) => {
+    try {
+      execFile(FFMPEG, ['-hide_banner', '-i', file], { maxBuffer: 1024 * 1024 },
+        (err, stdout, stderr) => {
+          const m = String(stderr || '').match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+          if (m) resolve(Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]));
+          else resolve(null);
+        });
+    } catch (e) { resolve(null); }
+  });
+}
+
+function setBurnStatus(text) {
+  const el = $('burnStatus');
+  if (el) el.textContent = text || '';
+}
+
+function finishBurn(ok, msg) {
+  burning = false;
+  burnAborted = false;
+  burnDurationSec = null;
+  const btn = $('reviewBurn');
+  if (btn) { btn.classList.remove('busy'); btn.textContent = '🎬 Burn into video…'; }
+  setBurnStatus(ok ? '✓ ' + msg : msg);
+  log((ok ? '✓ ' : 'Burn failed: ') + msg);
+  // Keep the review open so the user can still place or keep editing. Note:
+  // the burn used the captions exactly as they were when it started.
+  ['reviewPlace', 'reviewDiscard', 'reviewAdd'].forEach((id) => {
+    const b = $(id);
+    if (b) b.disabled = false;
+  });
+}
+
+function stopBurn() {
+  burnAborted = true;
+  try { if (burnChild) burnChild.kill(); } catch (e) {}
+}
+
+function burnReview() {
+  if (!reviewOpen || burning) return;
+  const src = REVIEW && REVIEW.burnSource;
+  if (!src || !fs.existsSync(src)) {
+    const fi = $('burnFileInput');
+    if (fi) { fi.click(); }
+    else { setBurnStatus('Choose a video file to burn captions into.'); }
+    return;
+  }
+  doBurn(src);
+}
+
+function burnReviewFromFile(f) {
+  if (!f) return;
+  if (!f.path) {
+    setBurnStatus('Cannot read that file\u2019s path on this Premiere build.');
+    return;
+  }
+  doBurn(f.path);
+}
+
+function doBurn(source) {
+  if (!reviewOpen || burning) return;
+  burning = true;
+  burnAborted = false;
+  const btn = $('reviewBurn');
+  if (btn) { btn.classList.add('busy'); btn.textContent = '■ Stop'; }
+  ['reviewPlace', 'reviewDiscard', 'reviewAdd'].forEach((id) => {
+    const b = $(id);
+    if (b) b.disabled = true;
+  });
+  log('Burning captions into ' + path.basename(source) + ' — you can keep editing, this renderer is separate.');
+  setBurnStatus('Warming up render for ' + path.basename(source) + '…');
+
+  let srt;
+  try { srt = writeBurnSrt(REVIEW.burnOffset); }
+  catch (e) { finishBurn(false, e && e.message ? e.message : String(e)); return; }
+
+  const fontName = ($('reviewFont') && $('reviewFont').value) ||
+    (AMH_FONT && AMH_FONT.font) || 'Abyssinica SIL';
+  const fontRec = findAmhFontFile(fontName) || (AMH_FONT && AMH_FONT.path
+    ? { dir: path.dirname(AMH_FONT.path), family: AMH_FONT.font, path: AMH_FONT.path }
+    : null);
+  if (!fontRec) setBurnStatus('Note: font "' + fontName + '" not found on disk — captions may fall back to a default font.');
+
+  const size = getBurnFontSize();
+  const style = 'FontName=' + (fontRec ? fontRec.family : fontName) +
+    ',FontSize=' + size +
+    ',PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,Alignment=2,MarginV=30';
+  const q = (s) => "'" + String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'";
+  const filter = 'subtitles=' + q(srt) +
+    (fontRec ? ':fontsdir=' + q(fontRec.dir) : '') +
+    ':force_style=' + q(style);
+
+  const base = path.basename(source).replace(/\.[^.]+$/, '') || 'captions';
+  const outDir = path.join(os.homedir(), 'Desktop', 'AmharicCaptions');
+  let out;
+  try {
+    fs.mkdirSync(outDir, { recursive: true });
+    out = path.join(outDir, base + '_captioned_' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '') + '.mp4');
+  } catch (e) {
+    finishBurn(false, 'Cannot create the output folder: ' + outDir);
+    return;
+  }
+
+  const args = ['-v', 'error', '-y', '-i', source, '-vf', filter,
+                '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21', '-pix_fmt', 'yuv420p',
+                '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart',
+                '-progress', 'pipe:1', '-nostats', '-loglevel', 'error', out];
+
+  burnChild = execFile(FFMPEG, args, { maxBuffer: 8 * 1024 * 1024 }, (err) => {
+    burnChild = null;
+    if (burnAborted) { finishBurn(false, 'Stopped — no captioned file was written.'); return; }
+    if (err) {
+      const m = String(err.message || err).split('\n')[0];
+      finishBurn(false, 'ffmpeg: ' + m + '. The source may not be a compatible video file.');
+      return;
+    }
+    finishBurn(true, 'Captions burned in — video saved to:\n  ' + out);
+  });
+  if (burnChild.stdout) {
+    burnChild.stdout.setEncoding('utf8');
+    let buf = '';
+    burnChild.stdout.on('data', (d) => {
+      buf += d;
+      let nl = buf.indexOf('\n');
+      while (nl >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (line.indexOf('out_time_ms=') === 0) {
+          const sec = (parseInt(line.slice(12), 10) || 0) / 1000;
+          setBurnStatus('Burning… ' + Math.floor(sec) + 's' +
+            (burnDurationSec ? '/' + Math.floor(burnDurationSec) + 's' : ''));
+        }
+        nl = buf.indexOf('\n');
+      }
+    });
+  }
+  getMediaDuration(source).then((d) => { burnDurationSec = d; });
 }
 
 async function placeReview() {
@@ -1501,15 +1815,22 @@ function initReview() {
     o.textContent = name;
     sel.appendChild(o);
   }
+  // Default the preview (and burn) font to what the filesystem scan detected.
+  try { sel.value = (AMH_FONT && AMH_FONT.font) || sel.value || 'Abyssinica SIL'; } catch (e) {}
   (function applyFontChoice() {
     const font = sel.value || (AMH_FONT && AMH_FONT.font) || '';
     $('reviewList').style.setProperty('--review-font',
       font ? '"' + font + '"' : "'Abyssinica SIL', 'Kefa', serif");
   })();
   sel.addEventListener('change', () => {
-    $('reviewList').style.setProperty('--review-font',
-      '"' + sel.value + '"');
+    $('reviewList').style.setProperty('--review-font', '"' + sel.value + '"');
   });
+
+  const sizeEl = $('burnFontSize');
+  if (sizeEl) {
+    sizeEl.value = String(loadSettings().burnSize || 34);
+    sizeEl.addEventListener('change', () => saveSettings({ burnSize: parseInt(sizeEl.value, 10) || 34 }));
+  }
 
   $('reviewPlace').addEventListener('click', placeReview);
   $('reviewDiscard').addEventListener('click', discardReview);
@@ -1519,6 +1840,24 @@ function initReview() {
     const end = last ? last.end + 2 : 2;
     reviewCues.push({ start, end, text: '' });
     renderReview();
+  });
+
+  const search = $('reviewSearch');
+  if (search) {
+    search.addEventListener('input', (e) => { REVIEW_FILTER = e.target.value; renderReview(); });
+  }
+
+  $('reviewBurn').addEventListener('click', () => { if (burning) stopBurn(); else burnReview(); });
+  const burnFile = $('burnFileInput');
+  if (burnFile) burnFile.addEventListener('change', () => burnReviewFromFile(burnFile.files && burnFile.files[0]));
+
+  // Keyboard shortcuts while the overlay is open:
+  //   Cmd/Ctrl+Enter → place; Esc → discard (unless a burn is running).
+  document.addEventListener('keydown', (e) => {
+    if (!reviewOpen) return;
+    if (burning) return;
+    if (e.key === 'Escape') { discardReview(); }
+    else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { placeReview(); }
   });
 }
 
@@ -1591,7 +1930,9 @@ async function runSelectedClip() {
   showCaptionPreview(r.cues);
 
   // Review flow: let the user edit before anything hits the timeline.
-  openReview(outSrt, cleanName, 0);
+  // burnSource/burnOffset let "Burn into video…" render onto this clip's
+  // source file (subtracting the timeline position baked into the SRT).
+  openReview(outSrt, cleanName, 0, { burnSource: c.sourcePath, burnOffset: c.timelineStart });
 }
 
 async function runWorkArea() {
@@ -1632,7 +1973,7 @@ async function runWorkArea() {
     showTranscript(batchCacheHit.transcript);
     showCaptionPreview(batchCacheHit.cues);
     log('Done — ' + batchCacheHit.cues.length + ' captions written.');
-    openReview(outSrt, 'sequence');
+    openReview(outSrt, 'sequence', 0, {});
     return;
   }
 
@@ -1673,7 +2014,7 @@ async function runWorkArea() {
   showTranscript(r.transcript);
   showCaptionPreview(r.cues);
 
-  openReview(outSrt, 'sequence');
+  openReview(outSrt, 'sequence', 0, {});
 }
 
 // ------------------------------------------------------------ choose file
@@ -1716,7 +2057,7 @@ async function runFile(filePath, fileName) {
     log('Done writing captions.');
     showTranscript(r.transcript);
     showCaptionPreview(r.cues);
-    openReview(outSrt, cleanName);
+    openReview(outSrt, cleanName, 0, { burnSource: filePath, burnOffset: 0 });
   } catch (e) {
     if (!cancelRequested) log('ERROR: ' + (e && e.message ? e.message : e));
   } finally {
