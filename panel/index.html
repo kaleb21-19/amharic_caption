@@ -324,11 +324,53 @@
     padding: 7px 10px; background: var(--bg-card); border: 1px solid var(--border);
     border-radius: var(--radius-sm);
   }
-  .ob-health .row-check .state { margin-left: auto; font-weight: 600; font-size: var(--font-s); }
+.ob-health .row-check .state { margin-left: auto; font-weight: 600; font-size: var(--font-s); }
   .ob-health .row-check.ok .state { color: var(--ok); }
   .ob-health .row-check.bad .state { color: var(--err); }
-  .ob-health .row-check.warn .state { color: var(--warn); }
   #onboardStart { margin-top: auto; }
+
+  /* ---------- Caption review & edit overlay ---------- */
+  #review {
+    position: fixed; inset: 0; z-index: 110;
+    display: none; flex-direction: column;
+    background: var(--bg-panel); padding: 12px 14px;
+  }
+  #review.show { display: flex; }
+  .review-head { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }
+  .review-head .title { font-size: var(--font-l); font-weight: 700; }
+  .review-head .sub { font-size: var(--font-s); color: var(--text-secondary); }
+  .review-count { margin-left: auto; font-size: var(--font-s); color: var(--text-secondary); white-space: nowrap; }
+  .review-font-wrap { display: flex; align-items: center; gap: 5px; font-size: var(--font-s); color: var(--text-secondary); }
+  .review-font-wrap select {
+    background: var(--bg-field); color: var(--text-primary); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 3px 6px; font-size: var(--font-s); max-width: 150px;
+  }
+  #reviewList {
+    flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--bg-elev); padding: 8px;
+  }
+  .review-row { display: flex; gap: 6px; align-items: stretch; }
+  .review-row .time-box { display: flex; flex-direction: column; gap: 3px; flex: 0 0 86px; }
+  .review-row input.t {
+    background: var(--bg-field); color: var(--text-primary); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 4px 6px; font-size: var(--font-m); font-family: ui-monospace, Menlo, monospace;
+    text-align: center; width: 100%;
+  }
+  .review-row textarea {
+    flex: 1; min-height: 40px; resize: none; background: var(--bg-field); color: var(--text-primary);
+    border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px 6px;
+    font-size: var(--font-m); line-height: 1.4;
+    font-family: var(--review-font, 'Abyssinica SIL', 'Kefa', serif);
+  }
+  .review-row .del {
+    flex: 0 0 22px; height: 22px; align-self: flex-start; border: 0; border-radius: var(--radius-sm);
+    background: var(--err-soft); color: var(--err); font-size: 11px; font-weight: 700; cursor: pointer;
+  }
+  .review-row .del:hover { background: var(--err); color: #fff; }
+  .review-foot { flex: 0 0 auto; display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+  .review-foot .btn { flex: 1; }
+  .review-foot #reviewAdd { flex: 0 0 auto; }
 </style>
 </head>
 <body>
@@ -505,7 +547,7 @@
 
       <button class="disclosure" id="transcriptDisc"><span class="chevron">▶</span> Full transcript</button>
       <div class="disclosure-content transcriptWrap">
-        <div id="transcriptLabel">Amharic text (editable before export)</div>
+        <div id="transcriptLabel">Full transcript (read-only; edit cues in the review step)</div>
         <textarea id="transcriptBox" readonly></textarea>
         <div style="height:4px;"></div>
         <div id="captionsPreview"></div>
@@ -520,11 +562,30 @@
   </div>
 
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.1.0</span> · License ETB 2,500 one-time</span>
+    <span>v<span id="panelVersion">1.2.0</span> · License ETB 2,500 one-time</span>
     <span style="display:flex;gap:10px;align-items:center;">
       <a href="#" id="supportLink" title="Get help in Telegram">💬 Help</a>
       <a href="#" id="diag">Diagnostics</a>
     </span>
+  </div>
+
+  <!-- Review & edit overlay: shown between transcription and placement -->
+  <div id="review">
+    <div class="review-head">
+      <span class="title">Review captions</span>
+      <span class="sub">edit text &amp; times, then place</span>
+      <span class="review-count" id="reviewCount"></span>
+      <span class="review-font-wrap">
+        <label for="reviewFont">preview font</label>
+        <select id="reviewFont"></select>
+      </span>
+    </div>
+    <div id="reviewList"></div>
+    <div class="review-foot">
+      <button id="reviewAdd" class="btn btn-neutral">+ Add cue</button>
+      <button id="reviewDiscard" class="btn-neutral">Discard</button>
+      <button id="reviewPlace" class="btn btn-primary">✓ Place on timeline</button>
+    </div>
   </div>
 
   <script src="./js/CSInterface.js"></script>

@@ -43,7 +43,7 @@ function getOrCreateMachineId() {
   const key = 'amh.machineId';
   let id = localStorage.getItem(key);
   if (id && /^[0-9a-f]{8}$/.test(id)) return id;
-  id = Array.from(crypto.getRandomValues(new Uint8Array(4)))
+  id = Array.from((window.crypto || globalThis.crypto || require('crypto')).getRandomValues(new Uint8Array(4)))
     .map((b) => b.toString(16).padStart(2, '0')).join('');
   localStorage.setItem(key, id);
   return id;
@@ -93,24 +93,76 @@ const AMH_CANDIDATE_FONTS = [
   'Visual Geez Unicode',
 ];
 
+// Authoritative detection: force each candidate font through FontFaceSet.load()
+// and accept the first one that actually produced a matching face. Falls back
+// to a canvas width probe when the FontFaceSet API is missing or lies.
 function detectAmharicFont() {
-  // document.fonts.check('16px "NAME"') returns true only when that named font
-  // is actually installed and layout can use it for the given glyph/script.
-  if (typeof document === 'undefined' || !document.fonts || typeof document.fonts.check !== 'function') {
-    return { ok: true, font: null, support: false }; // can't tell => don't block
-  }
-  const probe = '\u1200\u1228'; // "ሀረ" — Ethiopic-required codepoints
-  for (const name of AMH_CANDIDATE_FONTS) {
-    try {
-      if (document.fonts.check('16px "' + name + '"', probe)) {
-        return { ok: true, font: name, support: true };
+  return new Promise((resolve) => {
+    const probe = '\u1200\u1228';
+    // The filesystem scan is authoritative. When it has already answered, the
+    // weaker browser probe must not clobber it (the probe cannot be trusted in
+    // the embedded Chromium). When fs is unavailable it stays null and the
+    // browser result stands as the best available answer.
+    const finish = (info) => {
+      if (AMH_FONT_FS) { resolve(info); return; }
+      applyFontInfo(info);
+      resolve(info);
+    };
+
+    const tryCanvas = () => {
+      try {
+        const c = document.createElement('canvas');
+        const ctx = c.getContext('2d');
+        ctx.font = '24px "monospace"';
+        const narrow = ctx.measureText(probe).width;
+        for (const name of AMH_CANDIDATE_FONTS) {
+          ctx.font = '24px "' + name + '", "monospace"';
+          // If the named font exists it wins the CSS font stack; if it is
+          // missing, monospace renders the probe (typically tofu, and wider).
+          if (Math.abs(ctx.measureText(probe).width - narrow) > 0.5) {
+            return finish({ ok: true, font: name, support: true });
+          }
+        }
+        return finish({ ok: false, font: null, support: true });
+      } catch (e) {
+        return finish({ ok: true, font: null, support: false });
       }
-    } catch (e) {}
-  }
-  return { ok: false, font: null, support: true };
+    };
+
+    if (typeof document === 'undefined' || !document.fonts ||
+        typeof document.fonts.load !== 'function') {
+      return tryCanvas();
+    }
+
+    const fontToLoad = AMH_CANDIDATE_FONTS.slice();
+    const tryNext = () => {
+      const name = fontToLoad.shift();
+      if (!name) return tryCanvas(); // none loaded → canvas probe
+      let faces;
+      try {
+        faces = document.fonts.load('16px "' + name + '"', probe);
+      } catch (e) { return tryNext(); }
+      if (!faces || typeof faces.then !== 'function') return tryNext();
+      faces.then((list) => {
+        const ok = Array.isArray(list) && list.some((f) => f && f.family === name);
+        if (ok) return finish({ ok: true, font: name, support: true });
+        return tryNext();
+      }).catch(() => tryNext());
+    };
+    tryNext();
+  });
 }
 
-let AMH_FONT = detectAmharicFont();
+let AMH_FONT = { ok: true, font: null, support: false };
+let AMH_FONT_FS = null; // set once the filesystem-backed scan (below) has run
+function applyFontInfo(info) {
+  AMH_FONT = info;
+  renderFontPill(info);
+  renderHealthList();
+}
+// Kick off the browser-based detection (fast, but not authoritative inside the
+// embedded Chromium). It is overridden by the filesystem scan once fs is live.
+detectAmharicFont();
 
 function renderFontPill(info) {
   const pill = document.getElementById('fontPill');
@@ -134,7 +186,8 @@ function renderFontPill(info) {
       '(free) so captions render correctly in Premiere.';
   }
 }
-renderFontPill(AMH_FONT);
+// Drop-in guard: renders 'font: …' placeholder until async detection resolves.
+if (document.getElementById('fontPill')) renderFontPill(AMH_FONT);
 
 // ── First-run onboarding ────────────────────────────────────────────────────
 const ONBOARD_KEY = 'amh.onboarded';
@@ -250,10 +303,11 @@ function validateLicense(key, machineId) {
   // HMAC verification (via SubtleCrypto)
   const msg = mid + '|' + exp;
   const encoder = new TextEncoder();
-  return crypto.subtle.importKey(
+  const webcrypto = (window.crypto || globalThis.crypto || {});
+  return webcrypto.subtle.importKey(
     'raw', encoder.encode(LICENSE_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
   ).then((keyObj) => {
-    return crypto.subtle.sign('HMAC', keyObj, encoder.encode(msg));
+    return webcrypto.subtle.sign('HMAC', keyObj, encoder.encode(msg));
   }).then((buf) => {
     const computed = Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
     if (computed === sig) return { ok: true, expiry: exp };
@@ -489,6 +543,65 @@ const os = nodeRequire('os');
 const path = nodeRequire('path');
 
 // --------------------------------------------------------------------------
+// Amharic font detection (authoritative, filesystem-backed).
+//
+// The browser FontFaceSet/canvas probes cannot be trusted inside the embedded
+// Chromium used by CEP. Node has real filesystem access, so we scan the OS
+// font directories for the candidates instead — deterministic on every rig.
+// --------------------------------------------------------------------------
+
+const AMH_FONT_DIRS = (() => {
+  if (process.platform === 'win32') {
+    return [path.join(process.env.WINDIR || 'C:\\Windows', 'Fonts')];
+  }
+  return [
+    '/System/Library/Fonts',
+    '/System/Library/Fonts/Supplemental',
+    '/Library/Fonts',
+    path.join(os.homedir(), 'Library', 'Fonts'),
+  ];
+})();
+
+// candidate name -> filename substrings that identify it (case-insensitive)
+const AMH_FONT_FILES = [
+  ['Abyssinica SIL',       ['abyssinica']],
+  ['Noto Sans Ethiopic',   ['notosansethiopic', 'noto sans ethiopic']],
+  ['Noto Serif Ethiopic',  ['notoserifethiopic', 'noto serif ethiopic']],
+  ['Kefa',                 ['kefa']],
+  ['Ebrima',               ['ebrima']],
+  ['Nyala',                ['nyala']],
+  ['Visual Geez Unicode',  ['visualgeez', 'visual geez']],
+];
+
+function scanAmharicFontFs() {
+  try {
+    const found = new Set();
+    for (const dir of AMH_FONT_DIRS) {
+      let names;
+      try { names = fs.readdirSync(dir); } catch (e) { continue; }
+      for (const n of names) {
+        const low = n.toLowerCase();
+        for (const [name, needles] of AMH_FONT_FILES) {
+          if (!found.has(name) && needles.some((nd) => low.includes(nd))) {
+            found.add(name);
+          }
+        }
+      }
+    }
+    for (const [name] of AMH_FONT_FILES) {
+      if (found.has(name)) return { ok: true, font: name, support: true };
+    }
+    // No candidate present, but we did scan at least one real dir => trusted.
+    return { ok: false, font: null, support: true };
+  } catch (e) {
+    return { ok: true, font: null, support: false };
+  }
+}
+
+AMH_FONT_FS = scanAmharicFontFs();
+// Applied below, after RUNTIME/etc. are declared (renderHealthList reads them).
+
+// --------------------------------------------------------------------------
 // Cross-platform runtime resolution.
 //
 // The panel is self-contained: everything it needs lives in a "runtime"
@@ -607,6 +720,9 @@ const MODEL_DIR= (RUNTIME && RUNTIME !== DEV_RUNTIME)
 
 // Where the runtime folder actually is (for the status pill / diagnostics).
 const RUNTIME_LABEL = RUNTIME ? RUNTIME : '(not found)';
+
+// Apply the authoritative filesystem font result now that RUNTIME etc. exist.
+if (AMH_FONT_FS) applyFontInfo(AMH_FONT_FS);
 
 // Environment passed to the transcription process so it finds the model.
 // Child Python must emit UTF-8. On Windows the console code page is often
@@ -1241,6 +1357,171 @@ async function finishImport(outSrt, label, startSeconds) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Review & edit step: shown after transcription, before anything hits the
+// timeline. The user edits cue text/times, adds/deletes cues, picks a preview
+// font, then places (writes the edited SRT to the timeline) or discards.
+// ---------------------------------------------------------------------------
+
+let REVIEW = null; // { outSrt, label, startSeconds, seqStart }
+let reviewOpen = false;
+
+function fmtReviewTs(sec) {
+  sec = Math.max(0, sec || 0);
+  const m = Math.floor(sec / 60);
+  const s = sec - m * 60;
+  return m + ':' + s.toFixed(2).padStart(5, '0');
+}
+function parseReviewTs(str) {
+  const t = String(str || '').trim();
+  if (!/^\d{1,3}:\d{1,2}([.,]\d{1,3})?$/.test(t)) return NaN;
+  const [m, rest] = t.split(':');
+  return Number(m) * 60 + Number(rest.replace(',', '.'));
+}
+
+// editable working copy of the cues (the real lastCues is only overwritten on
+// place, so cache/transcript stay pristine if the user discards)
+let reviewCues = [];
+
+function openReview(outSrt, label, startSeconds) {
+  REVIEW = { outSrt, label, startSeconds: startSeconds || 0 };
+  reviewCues = JSON.parse(JSON.stringify(lastCues));
+  reviewOpen = true;
+  renderReview();
+  $('review').classList.add('show');
+  log('Review your captions below — edit, then click "Place on timeline".');
+}
+
+function closeReview() {
+  reviewOpen = false;
+  REVIEW = null;
+  reviewCues = [];
+  $('review').classList.remove('show');
+}
+
+function renderReview() {
+  // Sort by start time so playback order matches what gets written.
+  reviewCues.sort((a, b) => a.start - b.start);
+  const list = $('reviewList');
+  list.textContent = '';
+  const ts = (sec) => fmtReviewTs(sec);
+  for (let i = 0; i < reviewCues.length; i++) {
+    const cue = reviewCues[i];
+    const row = document.createElement('div');
+    row.className = 'review-row';
+
+    const timeBox = document.createElement('div');
+    timeBox.className = 'time-box';
+    const tIn = document.createElement('input');
+    tIn.className = 't'; tIn.value = ts(cue.start); tIn.title = 'Start (m:ss.cc)';
+    const tOut = document.createElement('input');
+    tOut.className = 't'; tOut.value = ts(cue.end); tOut.title = 'End (m:ss.cc)';
+    timeBox.appendChild(tIn);
+    timeBox.appendChild(tOut);
+
+    const ta = document.createElement('textarea');
+    ta.value = cue.text || ''; ta.placeholder = 'caption text';
+
+    const del = document.createElement('button');
+    del.className = 'del'; del.textContent = '✕'; del.title = 'Delete this caption';
+
+    // Time edits re-sort and re-render; text edits update the live cue only.
+    tIn.addEventListener('change', () => {
+      const v = parseReviewTs(tIn.value);
+      if (isNaN(v)) { log('Time format: m:ss.cc (e.g. 1:23.45)'); return; }
+      cue.start = v;
+      if (cue.end < cue.start + 0.3) cue.end = cue.start + 0.3;
+      renderReview();
+    });
+    tOut.addEventListener('change', () => {
+      const v = parseReviewTs(tOut.value);
+      if (isNaN(v)) { log('Time format: m:ss.cc (e.g. 1:23.45)'); return; }
+      cue.end = Math.max(cue.start + 0.3, v);
+      renderReview();
+    });
+    ta.addEventListener('input', () => { cue.text = ta.value; });
+    del.addEventListener('click', () => { reviewCues.splice(i, 1); renderReview(); });
+
+    row.appendChild(timeBox);
+    row.appendChild(ta);
+    row.appendChild(del);
+    list.appendChild(row);
+  }
+  updateReviewCount();
+  updateReviewPreview();
+}
+
+function updateReviewCount() {
+  $('reviewCount').textContent = reviewCues.length + ' caption' + (reviewCues.length === 1 ? '' : 's');
+}
+
+function updateReviewPreview() {
+  showCaptionPreview(reviewCues);
+}
+
+function writeReviewSrt() {
+  const sortable = reviewCues.slice().sort((a, b) => a.start - b.start);
+  let out = '';
+  sortable.forEach((cue, n) => {
+    out += (n + 1) + '\n';
+    out += formatSrtTs(cue.start) + ' --> ' + formatSrtTs(cue.end) + '\n';
+    out += (cue.text || '').trim() + '\n\n';
+  });
+  const dest = path.join(os.tmpdir(), 'amh_review_' + Date.now() + '.srt');
+  fs.writeFileSync(dest, out, 'utf8');
+  return dest;
+}
+
+async function placeReview() {
+  if (!reviewOpen || !REVIEW) return;
+  reviewCues = reviewCues.filter((c) => (c.text || '').trim().length > 0);
+  if (reviewCues.length === 0) { log('All captions are empty — nothing to place.'); return; }
+  // Commit the edited cues so export/transcript reflect what was placed.
+  lastCues = JSON.parse(JSON.stringify(reviewCues));
+  lastSrtPath = path.join(os.tmpdir(), 'amh_review_' + Date.now() + '.srt');
+  const dest = writeReviewSrt();
+  log('Placing your edited captions (' + reviewCues.length + ')…');
+  await finishImport(dest, REVIEW.label || 'captions', REVIEW.startSeconds);
+  try { fs.unlinkSync(dest); } catch (e) {}
+  closeReview();
+}
+
+function discardReview() {
+  if (!reviewOpen) return;
+  log('Discarded — nothing was placed on the timeline.');
+  closeReview();
+}
+
+function initReview() {
+  const sel = $('reviewFont');
+  sel.textContent = '';
+  for (const name of AMH_CANDIDATE_FONTS) {
+    const o = document.createElement('option');
+    o.value = name;
+    o.textContent = name;
+    sel.appendChild(o);
+  }
+  (function applyFontChoice() {
+    const font = sel.value || (AMH_FONT && AMH_FONT.font) || '';
+    $('reviewList').style.setProperty('--review-font',
+      font ? '"' + font + '"' : "'Abyssinica SIL', 'Kefa', serif");
+  })();
+  sel.addEventListener('change', () => {
+    $('reviewList').style.setProperty('--review-font',
+      '"' + sel.value + '"');
+  });
+
+  $('reviewPlace').addEventListener('click', placeReview);
+  $('reviewDiscard').addEventListener('click', discardReview);
+  $('reviewAdd').addEventListener('click', () => {
+    const last = reviewCues.length ? reviewCues[reviewCues.length - 1] : null;
+    const start = last ? last.end : 0;
+    const end = last ? last.end + 2 : 2;
+    reviewCues.push({ start, end, text: '' });
+    renderReview();
+  });
+}
+
 // ---------------------------------------------------------------- runners
 function setProgress(pct, text) {
   const bar = $('progBar');
@@ -1250,6 +1531,8 @@ function setProgress(pct, text) {
 }
 
 async function run() {
+  // A fresh run replaces whatever review/overlay was showing.
+  if (reviewOpen) closeReview();
   clearLog();
   cancelRequested = false;
   setProgress(0, '');
@@ -1307,10 +1590,8 @@ async function runSelectedClip() {
   showTranscript(r.transcript);
   showCaptionPreview(r.cues);
 
-  // Import via a UNIQUELY named temp file so Premiere is forced to create a fresh
-  // caption item on every run instead of reusing a stale/cached one.
-  await finishImport(outSrt, cleanName, 0);
-  try { fs.unlinkSync(outSrt); } catch (e) {}
+  // Review flow: let the user edit before anything hits the timeline.
+  openReview(outSrt, cleanName, 0);
 }
 
 async function runWorkArea() {
@@ -1351,8 +1632,7 @@ async function runWorkArea() {
     showTranscript(batchCacheHit.transcript);
     showCaptionPreview(batchCacheHit.cues);
     log('Done — ' + batchCacheHit.cues.length + ' captions written.');
-    await finishImport(outSrt, 'sequence');
-    try { fs.unlinkSync(outSrt); } catch (e) {}
+    openReview(outSrt, 'sequence');
     return;
   }
 
@@ -1393,8 +1673,7 @@ async function runWorkArea() {
   showTranscript(r.transcript);
   showCaptionPreview(r.cues);
 
-  await finishImport(outSrt, 'sequence');
-  try { fs.unlinkSync(outSrt); } catch (e) {}
+  openReview(outSrt, 'sequence');
 }
 
 // ------------------------------------------------------------ choose file
@@ -1437,8 +1716,7 @@ async function runFile(filePath, fileName) {
     log('Done writing captions.');
     showTranscript(r.transcript);
     showCaptionPreview(r.cues);
-    await finishImport(outSrt, cleanName);
-    try { fs.unlinkSync(outSrt); } catch (e) {}
+    openReview(outSrt, cleanName);
   } catch (e) {
     if (!cancelRequested) log('ERROR: ' + (e && e.message ? e.message : e));
   } finally {
@@ -1567,6 +1845,7 @@ function setup() {
   initOnboarding();
   initSupport();
   initVersion();
+  initReview();
 }
 
 setup();
