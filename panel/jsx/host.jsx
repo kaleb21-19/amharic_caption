@@ -487,6 +487,10 @@ function amh_importCaptions(argsJSON) {
         amhRemoveCaptionItems(bin, "amh_captions_");
         amhRemoveCaptionItems(bin, "amh_sequence_");
         amhRemoveCaptionItems(bin, "amh_file_");
+        // P2+ writes the reviewed SRT with an amh_review_* temp name; Premiere
+        // names the imported caption item after that, so a re-run must also
+        // clean these or the previous run's captions stay on the timeline.
+        amhRemoveCaptionItems(bin, "amh_review_");
 
         // Import the SRT.
         var imported = app.project.importFiles([args.srtPath], true, bin, false);
@@ -628,6 +632,7 @@ function amhCaptionTrackIsOurs(t, baseName, srtBase) {
                     if (nm.indexOf("amh_captions_") === 0) return true;
                     if (nm.indexOf("amh_sequence_") === 0) return true;
                     if (nm.indexOf("amh_file_") === 0) return true;
+                    if (nm.indexOf("amh_review_") === 0) return true;
                     if (nm === baseName || nm === srtBase) return true;
                 }
             }
