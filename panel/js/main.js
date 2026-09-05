@@ -269,7 +269,7 @@ function initSupport() {
 // ── Version badge in footer (keep in sync with CSXS manifest.xml) ──────────
 function initVersion() {
   const el = document.getElementById('panelVersion');
-  if (el) el.textContent = '1.3.4';
+  if (el) el.textContent = '1.3.5';
 }
 
 function getLicense() {
@@ -1869,11 +1869,15 @@ async function run() {
   setProgress(0, '');
   if (!RUNTIME) {
     log('ERROR: Transcription runtime not found.');
-    log('Reinstall the extension and restart Premiere.');
+    log('The extension folder is missing the bundled "runtime" directory.');
+    log('Reinstall the correct platform build, then restart Premiere.');
+    if (typeof EXT_DIR !== 'undefined') log('Looking in: ' + EXT_DIR);
     return;
   }
   if (!fs.existsSync(PYTHON) || !fs.existsSync(FFMPEG)) {
     log('ERROR: Runtime is incomplete — missing python or ffmpeg.');
+    log('python: ' + PYTHON + ' -> ' + (fs.existsSync(PYTHON) ? 'OK' : 'MISSING'));
+    log('ffmpeg: ' + FFMPEG + ' -> ' + (fs.existsSync(FFMPEG) ? 'OK' : 'MISSING'));
     log('Reinstall the correct platform build and restart Premiere.');
     return;
   }
