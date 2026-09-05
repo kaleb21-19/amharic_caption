@@ -96,9 +96,15 @@ jobs:
   # Intel Mac — builds in the background; NOT in the release gate (macos-13
   # is slow/limited). If it finishes before the release job, its zip is
   # included automatically. Otherwise we upload it manually.
+  # Intel Mac build. Runs on the arm64 macOS runner (much less queued than
+  # macos-13) and uses AMH_TARGET to stage the x86_64 runtime — same output
+  # zip, just assembled cross-arch. The arm64 image includes Rosetta, so the
+  # staged x86_64 python can pip-install its deps during prepare_python.sh.
   build-x64:
     needs: model-ct2
-    runs-on: macos-13
+    runs-on: macos-14
+    env:
+      AMH_TARGET: mac-x64
     steps:
       - uses: actions/checkout@v4
 
@@ -125,6 +131,24 @@ jobs:
           path: dist/amharic-captions-mac-x64.zip
           retention-days: 30
           if-no-files-found: error
+
+      # The release job does NOT wait for this job, so it may run first and
+      # attach only the win + arm64 zips. Attach the x64 zip here too (belatedly,
+      # if the release already exists; ignore if it hasn't been created yet).
+      - name: Attach x64 zip to release
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eo pipefail
+          TAG="build-${GITHUB_RUN_ID}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/amharic-captions-mac-x64.zip \
+              --repo "$GITHUB_REPOSITORY" --clobber
+            echo "attached mac-x64 zip to release $TAG"
+          else
+            echo "release $TAG not created yet — skipping attach (artifact is retained)"
+          fi
 
   # Windows build — standalone job so it can use the native PowerShell (pwsh)
   # shell without needing `matrix` in the `shell:` key.
