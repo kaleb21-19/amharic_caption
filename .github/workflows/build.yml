@@ -185,9 +185,9 @@ jobs:
         run: |
           set -euo pipefail
           TAG="build-${GITHUB_RUN_ID}"
-          RELEASE="Amharic Captions CT2 int8 build (${TAG})"
+          VER="$(grep -o 'ExtensionBundleVersion="[^"]*"' panel/CSXS/manifest.xml | head -1 | sed 's/[^"]*"//;s/"//')"
           gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
           gh release create "$TAG" zips/*.zip \
-            --title "Amharic Captions build" \
-            --notes "CT2 int8 build. Download the zip for your platform and extract into Adobe CEP extensions." \
+            --title "Amharic Captions v${VER}" \
+            --notes "Amharic Captions v${VER} — self-contained builds for Windows 10/11, macOS (Apple Silicon), and macOS (Intel). Download the zip for your platform and install into Adobe CEP extensions. See the install guide: https://kaleb21-19.github.io/amharic_caption/install/" \
             || { echo "release create failed"; exit 1; }

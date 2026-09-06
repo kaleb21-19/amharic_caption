@@ -7,8 +7,8 @@ export const metadata = {
 };
 
 const winSteps = [
-  { t: "Download", c: "Get the Windows build below and unzip it anywhere." },
-  { t: "Copy to Extensions", c: "Copy the com.amharic.captions folder into: C:\\Program Files (x86)\\Common Files\\Adobe\\CEP\\extensions\\" },
+  { t: "Download", c: "Get the Windows build below and unzip it (right-click the zip → Extract All). Make sure a folder named com.amharic.captions appears — do not drag files out of the zip by hand." },
+  { t: "Copy to Extensions", c: "Press WIN+R, enter %APPDATA%\\Adobe\\CEP\\extensions, and copy the com.amharic.captions folder in there. No admin rights needed." },
   { t: "Restart Premiere", c: "Fully quit and reopen Premiere Pro, then open Extensions > Amharic Captions." },
   { t: "Activate", c: "Copy your Machine ID, pay via the Telegram bot, and paste your license key to activate." },
 ];
@@ -91,12 +91,26 @@ export default function InstallPage() {
 
       <section className="note-section section">
         <div className="container">
+          <h2>Troubleshooting</h2>
           <div className="tip">
-            <h3>Need help?</h3>
+            <h3>“Runtime missing” after Generate</h3>
             <p>
-              If Premiere doesn&apos;t show the Amharic Captions panel, you may need
-              to enable the CEP debug mode for your version. Message us on Telegram
-              and we&apos;ll walk you through it.
+              The extension couldn’t find its bundled engine. The zip must be
+              extracted whole (right-click → Extract All) so the folder is
+              <code>com.amharic.captions</code> with <code>runtime\python\python.exe</code>
+              and <code>runtime\bin\ffmpeg.exe</code> inside it. A doubled folder
+              like <code>python\python</code>, a truncated download, or Windows
+              Defender quarantining the engine files all cause this. Re-download,
+              allow blocked files, and re-extract into the extension folder.
+            </p>
+          </div>
+          <div className="tip">
+            <h3>Premiere doesn’t show the panel</h3>
+            <p>
+              Third-party extensions need the CEP debug mode enabled for your
+              Premiere version, and on Windows the panel must sit at
+              <code>%APPDATA%\Adobe\CEP\extensions</code> with no extra nesting.
+              Message us on Telegram and we’ll walk you through it.
             </p>
             <a className="btn btn-ghost" href={BOT_URL} target="_blank" rel="noopener">Get help on Telegram</a>
           </div>
