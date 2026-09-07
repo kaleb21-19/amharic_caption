@@ -143,10 +143,7 @@ function adminGreeting() {
   );
 }
 
-function payText(served) {
-  const proof = served > 0
-    ? `🤝 <b>Trusted:</b> ${served} creator(s) already running a forever license.\n`
-    : '';
+function payText() {
   return (
     '💰 <b>Pay</b>\n\n' +
     '🎁 <b>Did you try your 2 free captions first?</b>\n' +
@@ -156,7 +153,6 @@ function payText(served) {
     `🏦 Paid to: <b>${ACCT_NAME}</b> (bank transfer)\n` +
     `🏛 Account: <b>${PAY_ACCOUNTS}</b>\n` +
     '🔑 You get: your license key <b>in this chat</b>\n' +
-    proof +
     '⏰ <b>Introductory price</b> — lock it in now.\n\n' +
     '👇 Tap below <b>only after</b> you sent the money.'
   );
@@ -768,8 +764,7 @@ async function handleCallback(cb) {
     const kind = data.split(':')[1];
     if (kind === 'home') await editText(chatId, messageId, MENU, MENU_KEYBOARD);
     else if (kind === 'pay') {
-      const served = await countSold();
-      await editText(chatId, messageId, payText(served), payKeyboard());
+      await editText(chatId, messageId, payText(), payKeyboard());
     } else if (kind === 'install') await editText(chatId, messageId, installText() + '\n\n🔘 Use the buttons below to continue:', [
       [{ text: '🎁 Try free (2 captions)', callback_data: 'menu:home' }],
       [{ text: '2️⃣ Pay', callback_data: 'menu:pay' }],
