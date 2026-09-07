@@ -47,7 +47,7 @@ ACCT_NAME = "KALEB TEGEGEN"
 PAY_ACCOUNTS = "CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015"
 LEDGER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "customers.csv")
 SECRET = b"7JBrcWoJAXZYNDczdPjIn1Kyv2Wynqz1_d73_-fdC4g="
-
+SITE_URL = "https://amharic-caption-pro.vercel.app"
 API = "https://api.telegram.org/bot"
 
 
@@ -384,51 +384,24 @@ def admin_keyboard(action, payload):
 def base_nav():
     """Navigation row for sub-pages: back to the menu."""
     return [
-        [{"text": "1️⃣ Install", "callback_data": "menu:install"}],
-        [{"text": "2️⃣ Pay", "callback_data": "menu:pay"}],
-        [{"text": "3️⃣ Machine ID", "callback_data": "menu:guide"}],
-        [{"text": "4️⃣ Help", "callback_data": "menu:help"}],
+        [{"text": "💳 Pay", "callback_data": "menu:pay"}],
         [{"text": "🔑 My Key", "callback_data": "menu:mykey"}],
+        [{"text": "📲 Website — install guide", "url": SITE_URL}],
         [{"text": "◀ Menu", "callback_data": "menu:home"}],
     ]
 
 
 def home_keyboard(extra=None):
     kb = [
-        [{"text": "1️⃣ Install", "callback_data": "menu:install"}],
-        [{"text": "2️⃣ Pay", "callback_data": "menu:pay"}],
-        [{"text": "3️⃣ Machine ID", "callback_data": "menu:guide"}],
-        [{"text": "4️⃣ Help", "callback_data": "menu:help"}],
+        [{"text": "💳 Pay", "callback_data": "menu:pay"}],
         [{"text": "🔑 My Key", "callback_data": "menu:mykey"}],
+        [{"text": "📲 Website — install guide", "url": SITE_URL}],
     ]
     return kb if extra is None else kb + extra
 
 
 def back_row():
     return [[{"text": "◀ Menu", "callback_data": "menu:home"}]]
-
-
-def menu_how():
-    text = (
-        "🎬 <b>How it works</b>\n\n"
-        "🚫🔌 <b>NO INTERNET NEEDED</b> after install.\n"
-        "Runs <b>100% offline</b> on your own computer.\n\n"
-        "Simple 5 steps — here's the full picture: 👇\n\n"
-        "<b>① Install</b>\n"
-        "Download and set up the plugin. Stuck? Tap \"🛠 Install\".\n\n"
-        "<b>② Try — FREE</b>\n"
-        "Make <b>2 free</b> captions before buying. No commitment.\n\n"
-        "<b>③ Pay</b>\n"
-        f"<s>ETB 3,500</s> → <b>{PRICE}</b> by bank transfer to <b>{ACCT_NAME}</b>. "
-        "Take a screenshot of the payment confirmation.\n\n"
-        "<b>④ Send ID + proof</b>\n"
-        "Send your payment screenshot and <b>Machine ID</b> here.\n\n"
-        "<b>⑤ Get your key</b>\n"
-        "After we verify payment, we'll send your license key here → "
-        "paste it in the panel's License section and tap <b>Activate</b>.\n\n"
-        "👉 To start, tap \"🛠 Install\"."
-    )
-    return text, home_keyboard(back_row())
 
 
 WELCOME = (
@@ -458,27 +431,20 @@ def hero(first=""):
         "This runs <b>100% OFFLINE</b> on your own computer — after install, you "
         "don't need Wi-Fi or mobile data to make captions.\n\n"
         "🎁 <b>Try BEFORE you pay</b> — your first <b>2 captions are free</b>.\n\n"
-        "📌 <b>How it works</b> (simple, 3 steps):\n"
-        "1️⃣ <b>Install</b> the plugin\n"
-        f"2️⃣ <b>Pay</b> once — <s>ETB 3,500</s> now <b>{PRICE}</b> (forever key)\n"
-        "3️⃣ <b>Make captions</b> forever, offline\n\n"
+        f"📲 <b>Install guide</b> — full step-by-step instructions for Windows & Mac:\n"
+        f"{SITE_URL}/install\n\n"
+        f"💰 <b>Pay</b> once — <s>ETB 3,500</s> now <b>{PRICE}</b> (forever key)\n\n"
         "🤝 <b>Buy with confidence</b>\n"
         "• You keep your captions offline on your own machine — nothing is shared\n"
         "• Your license key is delivered <b>right in this chat</b> after we confirm "
         "your bank-transfer payment\n"
         "• Real support via DM — get unstuck fast\n\n"
-        "👇 Tap <b>1️⃣ Install</b> to taste it free first:"
+        "👇 Choose below:"
     )
 
 
 def hero_keyboard():
-    return [
-        [{"text": "1️⃣ Install", "callback_data": "menu:install"}],
-        [{"text": "2️⃣ Pay", "callback_data": "menu:pay"}],
-        [{"text": "3️⃣ Machine ID", "callback_data": "menu:guide"}],
-        [{"text": "4️⃣ Help", "callback_data": "menu:help"}],
-        [{"text": "🔑 My Key", "callback_data": "menu:mykey"}],
-    ]
+    return home_keyboard()
 
 
 def menu_buy():
@@ -492,8 +458,8 @@ def menu_pay():
     text = (
         "💰 <b>Pay</b>\n\n"
         "🎁 <b>Did you try your 2 free captions first?</b>\n"
-        "Install → make 2 free captions → if you love it, come back and pay. "
-        "No risk.\n\n"
+        f"Install from our website ({SITE_URL}/install) → make 2 free captions → "
+        "come back and pay. No risk.\n\n"
         "<b>Before you send — here's the deal:</b>\n"
         f"💵 Amount: <s>ETB 3,500</s> → <b>{PRICE}</b> — one-time, forever license, no extra fees\n"
         f"🏦 Paid to: <b>{ACCT_NAME}</b> (bank transfer)\n"
@@ -504,7 +470,7 @@ def menu_pay():
     )
     kb = [
         [{"text": "✅ I've paid — send proof", "callback_data": "pay:proof"}],
-        [{"text": "🎁 Try free first (2 captions)", "callback_data": "menu:install"}],
+        [{"text": "🎁 Try free first (2 captions)", "url": f"{SITE_URL}/install"}],
     ] + base_nav()
     return text, kb
 
@@ -521,156 +487,26 @@ def menu_payproof():
         "It's in the panel's <b>License</b> section."
     )
     kb = [
-        [{"text": "📍 Where is my Machine ID?", "callback_data": "menu:guide"}],
+        [{"text": "📍 Where is my Machine ID?", "url": f"{SITE_URL}/install"}],
         [{"text": "✖ Cancel", "callback_data": "proof:cancel"}],
     ]
     return text, kb
-
-
-def menu_help():
-    text, kb = menu_faq()
-    return text, kb
-
-
-def menu_install():
-    text = (
-        "🛠 <b>Install — 2 FREE captions</b>\n\n"
-        "🔒 <b>Runs 100% OFFLINE</b> on your computer after install.\n"
-        "⚠️ Needs Premiere Pro <b>2024 (v24)</b> or newer.\n\n"
-        "⬇️ <b>Step 1 — download for your computer:</b>\n"
-        "• <b>Mac (Apple Silicon M1/M2/M3…):</b>\n"
-        "   <a href=\"https://github.com/kaleb21-19/amharic_caption/releases/latest/download/amharic-captions-mac-arm64.zip\">"
-        "⬇️ Download Mac (Apple Silicon)</a>\n\n"
-        "• <b>Windows:</b>\n"
-        "   <a href=\"https://github.com/kaleb21-19/amharic_caption/releases/latest/download/amharic-captions-win-x64.zip\">"
-        "⬇️ Download Windows</a>\n\n"
-        "⬇️ <b>Step 2 — put the plugin in place:</b>\n"
-        "After unzipping, copy the folder named <code>com.amharic.captions</code> into:\n\n"
-        "• <b>Mac:</b>\n"
-        "<code>~/Library/Application Support/Adobe/CEP/extensions/</code>\n\n"
-        "• <b>Windows:</b>\n"
-        "<code>C:\\Program Files (x86)\\Common Files\\Adobe\\CEP\\extensions\\</code>\n\n"
-        "⬇️ <b>Step 3 — tell Adobe it's OK to run:</b>\n\n"
-        "• <b>Mac:</b> open <b>Terminal</b> (⌘+Space → type <code>Terminal</code> → Enter), "
-        "then paste this and press Enter:\n"
-        "<code>defaults write com.adobe.CSXS.11 PlayerDebugMode \"1\"</code>\n\n"
-        "💡 Using Premiere <b>2025 (v25) or newer?</b> Also run:\n"
-        "<code>defaults write com.adobe.CSXS.12 PlayerDebugMode \"1\"</code>\n\n"
-        "• <b>Windows:</b> press <b>Win+R</b> → type <code>regedit</code> → Enter → paste the "
-        "path below → Enter → double-click <code>PlayerDebugMode</code> → set it to <b>1</b>:\n"
-        "<code>HKEY_CURRENT_USER\\Software\\Adobe\\CSXS.11</code>\n\n"
-        "💡 Using Premiere <b>2025 (v25) or newer?</b> Do the same for "
-        "<code>HKEY_CURRENT_USER\\Software\\Adobe\\CSXS.12</code> too.\n\n"
-        "⬇️ <b>Step 4 — use it:</b>\n"
-        "Restart Premiere → Windows > Extensions > \"Amharic Captions\" → make "
-        "<b>2 free captions</b>!\n\n"
-        "🎉 Made your 2 free ones and loved it? Tap <b>2️⃣ Pay</b> to buy your forever key:"
-    )
-    return text, base_nav()
-
-
-
-def menu_faq():
-    text = (
-        "❓ <b>FAQ</b>\n\n"
-        "<b>Q: Can I try before buying?</b>\n"
-        "A: Yes! Every new user gets <b>2 free</b> captions. Open the panel → "
-        "\"Generate Captions\".\n\n"
-        "<b>Q: Does the key work on multiple computers?</b>\n"
-        "A: No. Each key is tied to <b>one</b> computer (hardware ID). A separate "
-        "key is needed for a different computer.\n\n"
-        "<b>Q: When does the key expire?</b>\n"
-        "A: It never expires! <b>One-time payment</b> — no subscription.\n\n"
-        "<b>Q: How do I pay?</b>\n"
-        f"A: Bank transfer to <b>{ACCT_NAME}</b> — {PAY_ACCOUNTS}.\n\n"
-        "<b>Q: I changed my computer / lost my key?</b>\n"
-        "A: Contact the seller. With proof of purchase, we'll help transfer "
-        "to your new machine.\n\n"
-        "<b>Q: What computer do I need?</b>\n"
-        "A: Windows or Mac with <b>Premiere Pro 2024 (v24)</b> or newer. "
-        "The Amharic model runs on your own computer — no internet needed.\n\n"
-        f"💰 <b>Price:</b> <s>ETB 3,500</s> → <b>{PRICE}</b> one-time.\n"
-        f"🏦 <b>Pay via bank transfer to {ACCT_NAME}:</b> {PAY_ACCOUNTS}\n\n"
-        "👤 <b>Need help? Message the seller:</b>\n"
-        "💬 <a href=\"https://t.me/sumpak6\">@sumpak6</a>"
-    )
-    return text, home_keyboard(back_row())
 
 
 def menu_key_welcome(uid):
     text = (
         "🔑 <b>Get your license key</b>\n\n"
         "📌 <b>No Machine ID until the software is installed!</b>\n"
-        "You can only see your Machine ID <b>after</b> you install the plugin "
-        "and open the panel. If you haven't installed it yet, tap "
-        "\"🛠 Install\" first.\n\n"
+        f"You can only see your Machine ID <b>after</b> you install the plugin "
+        f"(see the guide at {SITE_URL}/install) and open the panel.\n\n"
         "Once installed:\n"
         "Open the panel → \"License\" section → copy your <b>Machine ID</b> "
         "(8 characters) → send it here.\n\n"
         "Your key is only sent <b>after</b> your payment is verified."
     )
     kb = home_keyboard(back_row())
-    kb = [[{"text": "📍 Where is my Machine ID?", "callback_data": "menu:guide"}]] + kb
+    kb = [[{"text": "📍 Where is my Machine ID?", "url": f"{SITE_URL}/install"}]] + kb
     return text, kb
-
-
-def menu_guide():
-    """Explain where the Machine ID lives + send the annotated screenshot."""
-    text = (
-        "3️⃣ <b>Machine ID</b>\n\n"
-        "Your unique computer number — <b>8 characters</b> (e.g. <code>a1b2c3d4</code>).\n\n"
-        "<b>Where to find it:</b>\n"
-        "1. Open Premiere → Windows > Extensions → \"Amharic Captions\"\n"
-        "2. In the panel, open the <b>License</b> section\n"
-        "3. Copy the \"Your Machine ID\" box\n\n"
-        "⚙️ You need it when paying (step 2)."
-    )
-    return text, base_nav()
-
-
-def _send_guide(chat_id, uid):
-    """Show the Machine-ID guide (text + screenshot when available) once per request."""
-    text, kb = menu_guide()
-    if _dup_reply(uid, "guide"):
-        return None
-    send_text(chat_id, text, kb)
-    guide = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                         "guide_machine_id.jpg")
-    if os.path.isfile(guide):
-        send_photo(chat_id, guide,
-                   caption="⬆️ \"Your Machine ID\" in the License section — copy the 8 characters and send it.",
-                   keyboard=[[{"text": "◀ Menu", "callback_data": "menu:home"}]])
-    return None
-
-
-def menu_screenshot_help():
-    text = (
-        "📸 <b>How do I send the payment screenshot?</b>\n\n"
-        f"After paying <b>{PRICE}</b> by bank transfer to <b>{ACCT_NAME}</b>, "
-        "take a screenshot of the \"<b>Payment Successful</b>\" screen on your phone.\n\n"
-        "To send it in Telegram:\n"
-        "<b>①</b> Tap the <b>📎 (paperclip)</b> icon below\n"
-        "<b>②</b> Select the screenshot from your Gallery/Photos\n"
-        "<b>③</b> Tap <b>Send</b>\n\n"
-        "Once we receive it, we'll verify your payment and send your key "
-        "right here in this bot ✅"
-    )
-    return text, home_keyboard(back_row())
-
-
-def menu_support():
-    text = (
-        "👤 <b>Support</b>\n\n"
-        "Having trouble or have a question? Message the seller directly:\n\n"
-        "💬 <a href=\"https://t.me/sumpak6\">@sumpak6</a>\n\n"
-        "We help with:\n"
-        "• Installation issues\n"
-        "• License key problems\n"
-        "• Computer transfers\n"
-        "• General questions\n\n"
-        "Use <code>/start</code> to go back to the main menu."
-    )
-    return text, home_keyboard(back_row())
 
 
 def key_delivery_message(key, expiry="00000000", chat_type="private", ref=""):
@@ -1040,17 +876,6 @@ def handle_buyer_message(message):
     s = FSM.get(uid)
     step = s.get("step") if s else None
 
-    # Tap on the persistent helper button (reply keyboard) -> Machine ID guide.
-    # Accept both the current English label and the older Amharic one so
-    # already-displayed keyboards still work.
-    g = text.lower().lstrip("📍").strip()
-    if g in ("where is my machine id?",
-             "ማስተማሪያ / እገዛ",
-             "machine id", "machine_id",
-             "help"):
-        _send_guide(chat_id, uid)
-        return True
-
     # ── FSM step "photo": we're waiting for the screenshot, not text ─────────
     if step == "photo":
         msg_ = ("📸 I'm waiting for your <b>screenshot</b> — please send the "
@@ -1069,7 +894,7 @@ def handle_buyer_message(message):
                     "(e.g. <code>a1b2c3d4</code>).")
             if not _dup_reply(uid, msg_):
                 send_text(chat_id, msg_,
-                          keyboard=[[{"text": "📍 Where is my Machine ID?", "callback_data": "menu:guide"}],
+                          keyboard=[[{"text": "📍 Where is my Machine ID?", "url": f"{SITE_URL}/install"}],
                                     [{"text": "✖ Cancel", "callback_data": "proof:cancel"}]])
             return True
         mid = m.group(0).lower()
@@ -1083,7 +908,7 @@ def handle_buyer_message(message):
                     "Please copy and send the real one.")
             if not _dup_reply(uid, msg_):
                 send_text(chat_id, msg_,
-                          keyboard=[[{"text": "📍 Where is my Machine ID?", "callback_data": "menu:guide"}],
+                          keyboard=[[{"text": "📍 Where is my Machine ID?", "url": f"{SITE_URL}/install"}],
                                     [{"text": "✖ Cancel", "callback_data": "proof:cancel"}]])
             return True
 
@@ -1138,22 +963,23 @@ def handle_buyer_message(message):
     if _suspicious_mid(mid):
         msg_ = (f"⚠️ <code>{mid}</code> doesn't look like a real <b>Machine ID</b>.\n\n"
                 "Send the <b>8 characters</b> shown under \"Your Machine ID\" "
-                "in the panel (e.g. <code>a1b2c3d4</code>), or tap <b>2️⃣ Pay</b> "
+                "in the panel (e.g. <code>a1b2c3d4</code>), or tap <b>💳 Pay</b> "
                 "to start the guided purchase.")
         if not _dup_reply(uid, msg_):
             send_text(chat_id, msg_,
-                      keyboard=[[{"text": "2️⃣ Pay", "callback_data": "menu:pay"}],
-                                [{"text": "📍 Where is my Machine ID?", "callback_data": "menu:guide"}]])
+                      keyboard=[[{"text": "💳 Pay", "callback_data": "menu:pay"}],
+                                [{"text": "📍 Where is my Machine ID?", "url": f"{SITE_URL}/install"}]])
         return True
 
     # Tell them to use the guided flow rather than firing a raw order.
     msg_ = ("👋 Got it — that looks like a Machine ID. To pay, please use the "
             "guided flow:\n\n"
-            "1️⃣ Tap <b>2️⃣ Pay</b>\n"
+"1️⃣ Tap <b>💳 Pay</b>\n"
             "2️⃣ Tap <b>I've paid — send proof</b>")
     if not _dup_reply(uid, msg_):
         send_text(chat_id, msg_,
-                  keyboard=[[{"text": "2️⃣ Pay", "callback_data": "menu:pay"}]])
+                  keyboard=[[{"text": "💳 Pay", "callback_data": "menu:pay"}]])
+
     return True
 
 
@@ -1243,7 +1069,7 @@ def handle_buyer_photo(message):
                 "(8 characters from the panel's License section).")
         if not _dup_reply(uid, msg_):
             send_text(chat_id, msg_,
-                      keyboard=[[{"text": "📍 Where is my Machine ID?", "callback_data": "menu:guide"}],
+                      keyboard=[[{"text": "📍 Where is my Machine ID?", "url": f"{SITE_URL}/install"}],
                                 [{"text": "✖ Cancel", "callback_data": "proof:cancel"}]])
         return True
 
@@ -1251,9 +1077,9 @@ def handle_buyer_photo(message):
     send_text(chat_id,
               "🖼 Thanks — but to place an order please start the guided flow "
               "and send your <b>Machine ID</b> first:\n\n"
-              "1️⃣ Tap <b>2️⃣ Pay</b>\n"
+              "1️⃣ Tap <b>💳 Pay</b>\n"
               "2️⃣ Tap <b>I've paid — send proof</b>",
-              keyboard=[[{"text": "2️⃣ Pay", "callback_data": "menu:pay"}]])
+              keyboard=[[{"text": "💳 Pay", "callback_data": "menu:pay"}]])
     return True
 
 
@@ -1285,31 +1111,16 @@ def handle_callback(cb):
         if kind == "home":
             edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"],
                       MENU, MENU_KEYBOARD)
-        elif kind == "how":
-            text, kb = menu_how()
-            edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"], text, kb)
         elif kind == "buy":
             text, kb = menu_buy()
             edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"], text, kb)
         elif kind == "pay":
             text, kb = menu_pay()
             edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"], text, kb)
-        elif kind == "help":
-            text, kb = menu_help()
-            edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"], text, kb)
-        elif kind == "install":
-            text, kb = menu_install()
-            edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"], text, kb)
-        elif kind == "faq":
-            text, kb = menu_faq()
-            edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"], text, kb)
         elif kind == "key":
             text, kb = menu_key_welcome(from_uid)
             chat = cb["message"]["chat"]["id"]
             edit_text(chat, cb["message"]["message_id"], text, kb)
-            # Persistent reply keyboard: tells the buyer EXACTLY what to type
-            # and where (input_field_placeholder shown in the input box).
-            # Only send it once per flow start so repeat taps don't stack copies.
             s = FSM.get(from_uid)
             if not (s and s.get("step") == "mid" and s.get("hint")):
                 FSM[from_uid] = {"step": "mid", "mid": None, "photo": None, "hint": True}
@@ -1318,23 +1129,6 @@ def handle_callback(cb):
                 send_with_hint(chat,
                                "✍️ Type your <b>Machine ID</b> in the box below ✍️",
                                "Type Machine ID here (e.g. a1b2c3d4)...")
-        elif kind == "support":
-            text, kb = menu_support()
-            edit_text(cb["message"]["chat"]["id"], cb["message"]["message_id"], text, kb)
-        elif kind == "guide":
-            text, kb = menu_guide()
-            chat = cb["message"]["chat"]["id"]
-            edit_text(chat, cb["message"]["message_id"], text, kb)
-            guide = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                 "guide_machine_id.jpg")
-            if os.path.isfile(guide):
-                send_photo(chat, guide,
-                           caption="⬆️ \"Your Machine ID\" in the License section — copy the 8 characters and send it.",
-                           keyboard=[[{"text": "◀ Menu", "callback_data": "menu:home"}]])
-        elif kind == "screenshot_help":
-            text, kb = menu_screenshot_help()
-            chat = cb["message"]["chat"]["id"]
-            edit_text(chat, cb["message"]["message_id"], text, kb)
         elif kind == "mykey":
             chat = cb["message"]["chat"]["id"]
             mid = cb["message"]["message_id"]
@@ -1684,20 +1478,8 @@ def main():
                             continue
                         continue
 
-                    if text.lower() in ("/help", "/faq", "/faq@amhariccaptionsbot"):
-                        t, kb = menu_faq()
-                        send_text(chat["id"], t, kb)
-                        continue
                     if text.lower() in ("/buy", "/buy@amhariccaptionsbot"):
                         t, kb = menu_buy()
-                        send_text(chat["id"], t, kb)
-                        continue
-                    if text.lower() in ("/install", "/install@amhariccaptionsbot"):
-                        t, kb = menu_install()
-                        send_text(chat["id"], t, kb)
-                        continue
-                    if text.lower() in ("/support", "/support@amhariccaptionsbot"):
-                        t, kb = menu_support()
                         send_text(chat["id"], t, kb)
                         continue
                     # buyer Machine ID?
