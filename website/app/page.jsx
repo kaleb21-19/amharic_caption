@@ -65,7 +65,9 @@ export default function HomePage() {
 
       <section className="logos section">
         <div className="container">
-          <p className="muted-center">Works with the editing tools you already use</p>
+          <p className="muted-center">
+            <span className="price-old-inline">{PRICE_OLD}</span> → <strong>{PRICE}</strong> · One-time payment · 2 free captions to start
+          </p>
         </div>
       </section>
 
