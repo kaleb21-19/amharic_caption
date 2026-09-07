@@ -362,3 +362,28 @@ a { color: var(--brand); }
   animation: floatY 4.5s ease-in-out infinite;
 }
 @keyframes floatY { 0%,100%{ transform: translateY(0);} 50%{ transform: translateY(-6px);} }
+
+/* ── Buy nearly section ───────────────────────────────────────── */
+.safe { background: var(--bg-elevated); border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); }
+.safe-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 22px; }
+.safe-card { background: var(--bg-card); border: 1px solid var(--line); border-radius: var(--radius); padding: 28px;
+  box-shadow: var(--shadow-sm); }
+.safe-icon { width: 46px; height: 46px; display: grid; place-items: center; border-radius: 12px;
+  background: var(--brand-100); color: var(--brand); font-size: 1.4rem; margin-bottom: 16px; }
+.safe-card h3 { margin-bottom: 10px; }
+.safe-card p { color: var(--muted); margin-bottom: 14px; }
+.safe-card p a { color: var(--brand); font-weight: 700; }
+.safe-accounts { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.safe-accounts li { display: flex; align-items: center; gap: 10px; background: var(--bg-soft);
+  border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+.safe-bank { flex: 0 0 auto; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--brand); background: var(--brand-100); padding: 3px 8px; border-radius: 999px; }
+.safe-accounts code { color: var(--ink); font-size: .92rem; letter-spacing: .02em; user-select: all; }
+.safe-note { max-width: 720px; margin: 30px auto 0; text-align: center; color: var(--muted);
+  border-top: 1px dashed var(--line); padding-top: 20px; }
+.safe-note strong { color: var(--ink); }
+.btn-sm { padding: 8px 16px; font-size: .88rem; }
+@media (max-width: 760px) {
+  .safe-grid { grid-template-columns: 1fr; }
+  .safe-card { padding: 22px; }
+}

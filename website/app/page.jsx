@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Reveal from "@/components/Reveal";
+import BuySafely from "@/components/BuySafely";
 import { BOT_URL, PRICE, PRICE_NUM, PRICE_OLD } from "@/lib/site";
 
 const features = [
@@ -85,6 +86,8 @@ export default function HomePage() {
           </Reveal>
         </div>
       </section>
+
+      <BuySafely />
 
       <section className="features section" id="features">
         <div className="container">

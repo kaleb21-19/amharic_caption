@@ -9,6 +9,17 @@ export const PRICE_NUM = "2500";
 export const PRICE_OLD = "ETB 3,500";
 export const PRICE_OLD_NUM = "3500";
 
+// Official payment details. We publish these so buyers can always verify they
+// are paying the real seller — never pay anyone who claims to accept payment
+// to a different account or a different name.
+export const ACCT_NAME = "KALEB TEGEGEN";
+export const ACCOUNTS = [
+  { bank: "CBE", number: "1000504159977" },
+  { bank: "Abyssinia", number: "402393939" },
+  { bank: "Zemen", number: "1031111343277015" },
+];
+export const ACCOUNTS_LABEL = "CBE 1000504159977 · Abyssinia 402393939 · Zemen 1031111343277015";
+
 // Download links. Pointed at "releases/latest/download/..." so they always
 // resolve to the newest release that carries the zip (GitHub redirects the
 // latest tag to the current head of main's build).
