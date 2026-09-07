@@ -4,11 +4,11 @@ import Footer from "@/components/Footer";
 import { PRICE } from "@/lib/site";
 
 export const metadata = {
-  title: "Amharic Captions — Amharic Speech-to-Text for Premiere Pro",
+  title: "Amharic Captions Pro — Amharic Speech-to-Text for Premiere Pro",
   description:
     `Turn Amharic speech into perfectly timed, editable captions inside Adobe Premiere Pro. Runs 100% on-device — no internet, no uploads, no cloud. One-time fee ${PRICE}.`,
   openGraph: {
-    title: "Amharic Captions — Amharic Speech-to-Text for Premiere Pro",
+    title: "Amharic Captions Pro — Amharic Speech-to-Text for Premiere Pro",
     description:
       "Auto-caption Amharic speech right in Premiere Pro. Fully on-device, editable timelines, one-time price.",
     type: "website",
@@ -24,7 +24,7 @@ export default function RootLayout({ children }) {
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
-    name: "Amharic Captions",
+    name: "Amharic Captions Pro",
     applicationCategory: "MultimediaApplication",
     operatingSystem: "Windows, macOS",
     offers: {

@@ -5,9 +5,9 @@ export default function Header() {
   return (
     <header className="site-header">
       <div className="container header-inner">
-        <Link href="/" className="brand" aria-label="Amharic Captions home">
+        <Link href="/" className="brand" aria-label="Amharic Captions Pro home">
           <span className="brand-mark">AC</span>
-          <span className="brand-name">Amharic <em>Captions</em></span>
+          <span className="brand-name">Amharic Captions <em>Pro</em></span>
         </Link>
         <nav className="nav" aria-label="Primary">
           <Link href="/">Home</Link>

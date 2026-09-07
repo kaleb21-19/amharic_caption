@@ -6,7 +6,7 @@ export default function Footer() {
     <footer className="site-footer">
       <div className="container footer-grid">
         <div className="footer-brand-col">
-          <p className="footer-brand"><span className="brand-mark brand-mark-sm">AC</span> Amharic Captions</p>
+          <p className="footer-brand"><span className="brand-mark brand-mark-sm">AC</span> Amharic Captions Pro</p>
           <p className="footer-tag">
             Amharic speech-to-text captions for Adobe Premiere Pro. Runs fully
             on your machine.
@@ -32,7 +32,7 @@ export default function Footer() {
       </div>
       <div className="footer-bottom">
         <div className="container">
-          <p>© {new Date().getFullYear()} Amharic Captions. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} Amharic Captions Pro. All rights reserved.</p>
         </div>
       </div>
     </footer>

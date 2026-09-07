@@ -189,5 +189,5 @@ jobs:
           gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
           gh release create "$TAG" zips/*.zip \
             --title "Amharic Captions v${VER}" \
-            --notes "Amharic Captions v${VER} — self-contained builds for Windows 10/11, macOS (Apple Silicon), and macOS (Intel). Download the zip for your platform and install into Adobe CEP extensions. See the install guide: https://kaleb21-19.github.io/amharic_caption/install/" \
+            --notes "Amharic Captions v${VER} — self-contained builds for Windows 10/11, macOS (Apple Silicon), and macOS (Intel). Download the zip for your platform and install into Adobe CEP extensions. See the install guide: https://amharic-captions-pro.vercel.app/install/" \
             || { echo "release create failed"; exit 1; }

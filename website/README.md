@@ -1,21 +1,24 @@
-# Amharic Captions — Marketing Site
+# Amharic Captions Pro — Marketing Site
 
-Next.js (App Router) static site for the Amharic Captions Premiere extension.
-Builds to fully static HTML/CSS/JS and deploys to GitHub Pages.
+Next.js (App Router) marketing site for the Amharic Captions Pro Premiere
+extension. Runs on Vercel — no GitHub account name in the URL.
 
 - `/` — single English-first landing page
+- `/install/` — platform downloads + step-by-step install (Windows, macOS)
+- `/pricing/`, `/faq/` — sales + help pages
 - `sitemap.xml`, `robots.txt`, JSON-LD `SoftwareApplication` schema — generated
   at build time for SEO
 
 ## Tech
 - Next.js 14 (App Router), React 18, pure JSX (no TypeScript)
-- Static export (`next.config.mjs` → `output: "export"`)
-- Hosted at `https://kaleb21-19.github.io/amharic_caption/` (sub-path → `basePath`)
+- Deployed on Vercel → https://amharic-captions-pro.vercel.app
+- Add your own domain later under Vercel → Project → Settings → Domains
 
 ## Central config
 All buy/contact links live in `lib/site.js`. The entire funnel points to the
 Telegram bot (`@AmharicCaptionsBot`). Change it once there.
 
+- `SITE_NAME` / `SITE_URL` = brand + canonical base
 - `BOT_URL` = `https://t.me/AmharicCaptionsBot`
 - `SUPPORT_URL` = `https://t.me/sumpak6`
 - `PRICE` = `ETB 2,500`
@@ -37,14 +40,7 @@ npm install
 npm run dev        # http://localhost:3000
 ```
 
-## Production build (outputs to `website/out/`)
-```
-NEXT_PUBLIC_SITE_URL=https://kaleb21-19.github.io/amharic_caption \
-NEXT_PUBLIC_BASE_PATH=/amharic_caption \
-npm run build
-```
-
 ## Deploy
-Push to `main` — `.github/workflows/deploy-website.yml` builds and deploys to
-GitHub Pages automatically (or run manually via Actions → "deploy-website" →
-"Run workflow"). GitHub Pages source must be set to **GitHub Actions**.
+Push to `main` — Vercel auto-deploys the `website` project on every change.
+First time only: Vercel → Add New Project → import the GitHub repo → framework
+auto-detects Next.js → project name `amharic-captions-pro` → Deploy.

@@ -1,4 +1,5 @@
-const base = process.env.NEXT_PUBLIC_SITE_URL || "https://kaleb21-19.github.io/amharic_caption";
+import { SITE_URL } from "@/lib/site";
+const base = process.env.NEXT_PUBLIC_SITE_URL || SITE_URL;
 
 export default function sitemap() {
   return [
