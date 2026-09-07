@@ -348,9 +348,15 @@ function installText() {
     '⬇️ <b>Step 3 — tell Adobe it’s OK to run:</b>\n\n' +
     '• <b>Mac:</b> open <b>Terminal</b> (⌘+Space → type <code>Terminal</code> → Enter), then copy & paste this and press Enter:\n\n' +
     '<code>defaults write com.adobe.CSXS.9 PlayerDebugMode "1"</code>\n\n' +
-    '• <b>Windows:</b> press <b>Win+R</b> → paste the path below → Enter → double-click <code>PlayerDebugMode</code> → set it to <b>1</b>:\n\n' +
-    '<code>HKEY_CURRENT_USER\\Software\\Adobe\\CSXS.9</code>\n\n' +
-    '<i>⚠️ Careful: change only <code>PlayerDebugMode</code> to 1. Don’t touch anything else.</i>\n\n' +
+    '• <b>Windows:</b> open the Registry Editor:\n' +
+    '   1. Press <b>Win+R</b> → type <code>regedit</code> → press <b>Enter</b>. Click <b>Yes</b> if asked.\n' +
+    '   2. Paste this into the address bar at the top and press Enter:\n' +
+    '   <code>HKEY_CURRENT_USER\\Software\\Adobe\\CSXS.11</code>\n' +
+    '   3. If you see a <code>PlayerDebugMode</code> entry on the right, double-click it and set the value to <b>1</b>.\n' +
+    '   4. If there is <b>no</b> <code>PlayerDebugMode</code> entry: right-click the empty area on the right → <b>New</b> → <b>DWORD (32-bit) Value</b> → name it exactly <code>PlayerDebugMode</code> → double-click it → set the value to <b>1</b> → OK.\n' +
+    '   5. Close regedit.\n' +
+    '   💡 Using Premiere <b>2025 (v25) or newer?</b> Do the same for <code>HKEY_CURRENT_USER\\Software\\Adobe\\CSXS.12</code> too.\n\n' +
+    '<i>⚠️ Change only <code>PlayerDebugMode</code> to 1. Don’t touch anything else.</i>\n\n' +
     '⬇️ <b>Step 4 — use it:</b>\n' +
     'Restart Premiere → Extensions → Amharic Captions → make <b>2 free captions</b>!\n\n' +
     '🖥 <b>Intel Mac?</b> The Intel-Mac build isn’t published yet — contact the seller for it.\n\n' +
