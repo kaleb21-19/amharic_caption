@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Reveal from "@/components/Reveal";
 import { BOT_URL, BOT_USERNAME, PRICE, PRICE_NUM, PRICE_OLD, PRICE_OLD_NUM } from "@/lib/site";
 
 export const metadata = {
@@ -23,7 +24,8 @@ export default function PricingPage() {
 
       <section className="pricing-page section">
         <div className="container">
-          <div className="pricing-card">
+          <Reveal>
+            <div className="pricing-card">
             <p className="price-badge">Introductory price</p>
             <p className="price-label">Lifetime license</p>
             <p className="price">
@@ -46,7 +48,7 @@ export default function PricingPage() {
               Ordering opens our Telegram bot — you pay and your license key is
               delivered right there.
             </p>
-          </div>
+          </div></Reveal>
         </div>
       </section>
 
@@ -54,26 +56,26 @@ export default function PricingPage() {
         <div className="container">
           <h2>How buying works</h2>
           <div className="grid">
-            <div className="card">
+            <Reveal><div className="card">
               <h3>1 · Open the bot</h3>
               <p>
                 Tap Buy, which opens <strong>@{BOT_USERNAME}</strong> on Telegram.
               </p>
-            </div>
-            <div className="card">
+            </div></Reveal>
+            <Reveal delay={90}><div className="card">
               <h3>2 · Pay</h3>
               <p>Send {PRICE} to one of the bank accounts (CBE, Abyssinia, or Zemen).</p>
-            </div>
-            <div className="card">
+            </div></Reveal>
+            <Reveal delay={180}><div className="card">
               <h3>3 · Get your key</h3>
               <p>Your license key is delivered instantly, locked to your machine.</p>
-            </div>
+            </div></Reveal>
           </div>
-          <div className="center">
+          <Reveal delay={120}><div className="center">
             <Link className="btn btn-ghost btn-lg" href="/install/">
               Need to install first? See the guide
             </Link>
-          </div>
+          </div></Reveal>
         </div>
       </section>
     </>

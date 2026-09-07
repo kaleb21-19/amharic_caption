@@ -1,3 +1,4 @@
+import Reveal from "@/components/Reveal";
 import { DL_WIN, DL_MAC_ARM, DL_MAC_X64, RELEASES_URL, BOT_URL } from "@/lib/site";
 
 export const metadata = {
@@ -38,21 +39,21 @@ export default function InstallPage() {
         <div className="container">
           <h2>Download</h2>
           <div className="dl-grid">
-            <div className="dl-card">
+            <Reveal><div className="dl-card">
               <span className="dl-os">Windows</span>
               <h3>Windows 10 / 11</h3>
               <a className="btn btn-primary" href={DL_WIN}>Download win-x64</a>
-            </div>
-            <div className="dl-card">
+            </div></Reveal>
+            <Reveal delay={90}><div className="dl-card">
               <span className="dl-os">macOS · Apple Silicon</span>
               <h3>M1 / M2 / M3 / M4</h3>
               <a className="btn btn-primary" href={DL_MAC_ARM}>Download mac-arm64</a>
-            </div>
-            <div className="dl-card">
+            </div></Reveal>
+            <Reveal delay={180}><div className="dl-card">
               <span className="dl-os">macOS · Intel</span>
               <h3>Intel Mac</h3>
               <a className="btn btn-primary" href={DL_MAC_X64}>Download mac-x64</a>
-            </div>
+            </div></Reveal>
           </div>
           <p className="center-note">
             Need another option? Browse <a href={RELEASES_URL} target="_blank" rel="noopener">all releases</a>.
@@ -67,10 +68,10 @@ export default function InstallPage() {
               <h2>Windows</h2>
               <div className="numbered">
                 {winSteps.map((s, i) => (
-                  <div className="nstep" key={i}>
+                  <Reveal key={i} delay={i * 80}><div className="nstep">
                     <span>{i + 1}</span>
                     <div><h3>{s.t}</h3><p>{s.c}</p></div>
-                  </div>
+                  </div></Reveal>
                 ))}
               </div>
             </div>
@@ -78,10 +79,10 @@ export default function InstallPage() {
               <h2>macOS</h2>
               <div className="numbered">
                 {macSteps.map((s, i) => (
-                  <div className="nstep" key={i}>
+                  <Reveal key={i} delay={i * 80}><div className="nstep">
                     <span>{i + 1}</span>
                     <div><h3>{s.t}</h3><p>{s.c}</p></div>
-                  </div>
+                  </div></Reveal>
                 ))}
               </div>
             </div>
@@ -92,7 +93,7 @@ export default function InstallPage() {
       <section className="note-section section">
         <div className="container">
           <h2>Troubleshooting</h2>
-          <div className="tip">
+          <Reveal><div className="tip">
             <h3>“Runtime missing” after Generate</h3>
             <p>
               The extension couldn’t find its bundled engine. The zip must be
@@ -103,8 +104,8 @@ export default function InstallPage() {
               Defender quarantining the engine files all cause this. Re-download,
               allow blocked files, and re-extract into the extension folder.
             </p>
-          </div>
-          <div className="tip">
+          </div></Reveal>
+          <Reveal delay={100}><div className="tip">
             <h3>Premiere doesn’t show the panel</h3>
             <p>
               Third-party extensions need the CEP debug mode enabled for your
@@ -113,7 +114,7 @@ export default function InstallPage() {
               Message us on Telegram and we’ll walk you through it.
             </p>
             <a className="btn btn-ghost" href={BOT_URL} target="_blank" rel="noopener">Get help on Telegram</a>
-          </div>
+          </div></Reveal>
         </div>
       </section>
     </>

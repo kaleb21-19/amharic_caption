@@ -1,3 +1,4 @@
+import Reveal from "@/components/Reveal";
 import { BOT_URL, PRICE } from "@/lib/site";
 
 export const metadata = {
@@ -31,19 +32,21 @@ export default function FaqPage() {
       <section className="faq section">
         <div className="container">
           <div className="faq-list">
-            {faqs.map((f) => (
-              <details key={f.q}>
-                <summary>{f.q}</summary>
-                <p>{f.a}</p>
-              </details>
+            {faqs.map((f, i) => (
+              <Reveal delay={i * 60} key={f.q}>
+                <details>
+                  <summary>{f.q}</summary>
+                  <p>{f.a}</p>
+                </details>
+              </Reveal>
             ))}
           </div>
-          <div className="center help-cta">
+          <Reveal delay={120}><div className="center help-cta">
             <p>Still have a question or hit a snag?</p>
             <a className="btn btn-primary" href={BOT_URL} target="_blank" rel="noopener">
               Ask us on Telegram
             </a>
-          </div>
+          </div></Reveal>
         </div>
       </section>
     </>

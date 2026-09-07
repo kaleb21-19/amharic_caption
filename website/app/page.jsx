@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Reveal from "@/components/Reveal";
 import { BOT_URL, PRICE, PRICE_NUM, PRICE_OLD } from "@/lib/site";
 
 const features = [
@@ -65,35 +66,41 @@ export default function HomePage() {
 
       <section className="pricing-home section">
         <div className="container">
-          <div className="pricing-card">
-            <span className="price-badge">Lifetime · One-time</span>
-            <p className="price-label">Amharic Captions Pro — unlimited captions</p>
-            <p className="price">
-              <span className="price-old">{PRICE_OLD}</span>{" "}
-              <span className="cur">ETB</span> {Number(PRICE_NUM).toLocaleString("en-US")}
-            </p>
-            <p className="price-sub">
-              2 free captions first — then one payment, forever. No subscription,
-              no per-minute fees.
-            </p>
-            <a className="btn btn-primary btn-lg btn-block" href={BOT_URL} target="_blank" rel="noopener">
-              Buy now on Telegram
-            </a>
-          </div>
+          <Reveal>
+            <div className="pricing-card">
+              <span className="price-badge">Lifetime · One-time</span>
+              <p className="price-label">Amharic Captions Pro — unlimited captions</p>
+              <p className="price">
+                <span className="price-old">{PRICE_OLD}</span>{" "}
+                <span className="cur">ETB</span> {Number(PRICE_NUM).toLocaleString("en-US")}
+              </p>
+              <p className="price-sub">
+                2 free captions first — then one payment, forever. No subscription,
+                no per-minute fees.
+              </p>
+              <a className="btn btn-primary btn-lg btn-block" href={BOT_URL} target="_blank" rel="noopener">
+                Buy now on Telegram
+              </a>
+            </div>
+          </Reveal>
         </div>
       </section>
 
       <section className="features section" id="features">
         <div className="container">
-          <h2>Everything you need to caption Amharic, without the busywork.</h2>
-          <p className="section-sub">Built around one idea: captioning should never slow your edit down.</p>
+          <Reveal>
+            <h2>Everything you need to caption Amharic, without the busywork.</h2>
+            <p className="section-sub">Built around one idea: captioning should never slow your edit down.</p>
+          </Reveal>
           <div className="grid">
-            {features.map((f) => (
-              <article className="card" key={f.title}>
-                <span className="card-icon" aria-hidden="true">{f.icon}</span>
-                <h3>{f.title}</h3>
-                <p>{f.text}</p>
-              </article>
+            {features.map((f, i) => (
+              <Reveal key={f.title} delay={i * 90}>
+                <article className="card">
+                  <span className="card-icon" aria-hidden="true">{f.icon}</span>
+                  <h3>{f.title}</h3>
+                  <p>{f.text}</p>
+                </article>
+              </Reveal>
             ))}
           </div>
         </div>
@@ -101,32 +108,40 @@ export default function HomePage() {
 
       <section className="how section" id="how">
         <div className="container">
-          <h2>From install to captions in minutes.</h2>
-          <p className="section-sub">No export-import dance. Captions appear right on your timeline.</p>
+          <Reveal>
+            <h2>From install to captions in minutes.</h2>
+            <p className="section-sub">No export-import dance. Captions appear right on your timeline.</p>
+          </Reveal>
           <div className="steps">
-            {steps.map((s) => (
-              <div className="step" key={s.n}>
-                <span className="step-n">{s.n}</span>
-                <h3>{s.title}</h3>
-                <p>{s.text}</p>
-              </div>
+            {steps.map((s, i) => (
+              <Reveal key={s.n} delay={i * 120}>
+                <div className="step">
+                  <span className="step-n">{s.n}</span>
+                  <h3>{s.title}</h3>
+                  <p>{s.text}</p>
+                </div>
+              </Reveal>
             ))}
           </div>
-          <div className="center">
-            <Link className="btn btn-primary btn-lg" href="/install/">
-              See the install guide
-            </Link>
-          </div>
+          <Reveal delay={120}>
+            <div className="center">
+              <Link className="btn btn-primary btn-lg" href="/install/">
+                See the install guide
+              </Link>
+            </div>
+          </Reveal>
         </div>
       </section>
 
       <section className="cta">
         <div className="container">
-          <h2>Ready to caption Amharic in minutes?</h2>
-          <p>Start your free 2-caption trial today — no card required.</p>
-          <a className="btn btn-light btn-lg" href={BOT_URL} target="_blank" rel="noopener">
-            Get started now
-          </a>
+          <Reveal>
+            <h2>Ready to caption Amharic in minutes?</h2>
+            <p>Start your free 2-caption trial today — no card required.</p>
+            <a className="btn btn-light btn-lg" href={BOT_URL} target="_blank" rel="noopener">
+              Get started now
+            </a>
+          </Reveal>
         </div>
       </section>
     </>
