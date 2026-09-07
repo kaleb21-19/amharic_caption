@@ -1,5 +1,4 @@
 import Link from "next/link";
-import BankCards from "@/components/BankCards";
 import { BOT_URL, PRICE, PRICE_NUM, PRICE_OLD } from "@/lib/site";
 
 const features = [
@@ -80,7 +79,6 @@ export default function HomePage() {
             <a className="btn btn-primary btn-lg btn-block" href={BOT_URL} target="_blank" rel="noopener">
               Buy now on Telegram
             </a>
-            <BankCards className="bank-list-inline" />
           </div>
         </div>
       </section>

@@ -139,18 +139,6 @@ a { color: var(--brand); }
 .price-features li:before { content: "✓"; position: absolute; left: 2px; top: 9px; color: var(--brand); font-weight: 800; }
 .tiny { margin-top: 16px; color: var(--muted-2); font-size: .85rem; }
 
-/* Bank accounts */
-.bank-list { text-align: left; margin-top: 20px; padding-top: 18px; border-top: 1px dashed var(--line); }
-.bank-name { color: var(--muted); font-size: .85rem; margin: 0 0 12px; }
-.bank-name strong { color: var(--ink); }
-.bank-grid { display: grid; gap: 10px; }
-.bank-list-inline .bank-grid { grid-template-columns: repeat(3, 1fr); }
-.bank-card { background: var(--bg-soft); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
-.bank-bank { display: block; font-size: .72rem; font-weight: 700; color: var(--muted-2); text-transform: uppercase; letter-spacing: .03em; margin-bottom: 6px; }
-.bank-num { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .95rem; font-weight: 700; color: var(--brand); word-break: break-all; }
-.bank-list-sm .bank-card { padding: 9px 11px; }
-.bank-list-sm .bank-num { font-size: .8rem; }
-@media (max-width: 760px) { .bank-list-inline .bank-grid { grid-template-columns: 1fr; } }
 
 /* FAQ */
 .faq { background: var(--bg-soft); }

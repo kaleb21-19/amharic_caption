@@ -1,5 +1,4 @@
 import Link from "next/link";
-import BankCards from "@/components/BankCards";
 import { BOT_URL, SUPPORT_URL } from "@/lib/site";
 
 export default function Footer() {
@@ -21,18 +20,13 @@ export default function Footer() {
           <Link href="/faq/">FAQ</Link>
         </div>
         <div className="footer-col">
-          <h4>Purchase</h4>
-          <p>Account holder: <strong>KALEB TEGEGEN</strong></p>
+          <h4>Support</h4>
+          <a href={SUPPORT_URL} target="_blank" rel="noopener">Contact support</a>
           <a href={BOT_URL} target="_blank" rel="noopener">Start a purchase</a>
         </div>
         <div className="footer-col">
-          <h4>Support</h4>
-          <a href={SUPPORT_URL} target="_blank" rel="noopener">Contact support</a>
-          <a href={BOT_URL} target="_blank" rel="noopener">Buy via Telegram</a>
-        </div>
-        <div className="footer-col">
-          <h4>Payment</h4>
-          <BankCards className="bank-list-sm" />
+          <h4>Contact</h4>
+          <p>Telegram: <a href={BOT_URL} target="_blank" rel="noopener">@AmharicCaptionsBot</a></p>
         </div>
       </div>
       <div className="footer-bottom">

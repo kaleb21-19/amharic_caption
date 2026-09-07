@@ -1,5 +1,4 @@
 import Link from "next/link";
-import BankCards from "@/components/BankCards";
 import { BOT_URL, BOT_USERNAME, PRICE, PRICE_NUM, PRICE_OLD, PRICE_OLD_NUM } from "@/lib/site";
 
 export const metadata = {
@@ -44,10 +43,9 @@ export default function PricingPage() {
               Buy now via Telegram
             </a>
             <p className="tiny">
-              Ordering opens our Telegram bot — send {PRICE} to one of the bank
-              accounts below and your license key is delivered right there.
+              Ordering opens our Telegram bot — you pay and your license key is
+              delivered right there.
             </p>
-            <BankCards />
           </div>
         </div>
       </section>
