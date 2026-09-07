@@ -108,23 +108,15 @@ function heroText(first = '') {
   const name = first ? `${first}, ` : '';
   return (
     `${name}Welcome to <b>Amharic Captions</b> 👋\n\n` +
-    '🚫🔌 <b>NO INTERNET NEEDED.</b>\n' +
-    'This runs <b>100% OFFLINE</b> on your own computer — after install, you don’t need Wi-Fi or mobile data to make captions. Everything happens right on your machine.\n\n' +
-    '🎁 <b>Try BEFORE you pay</b> — your first <b>2 captions are free</b>.\n\n' +
-    `📲 <b>Install guide</b> — full step-by-step instructions for Windows & Mac live on our website:\n` +
-    `${SITE_URL}/install\n\n` +
-    `💰 <b>Pay</b> once — <s>ETB 3,500</s> now <b>${PRICE}</b> (forever key)` + '\n\n' +
-    '🤝 <b>Buy with confidence</b>\n' +
-    '\u2022 You keep your captions offline on your own machine \u2014 nothing is shared\n' +
-    '\u2022 Your license key is delivered <b>right in this chat</b> after we confirm your bank-transfer payment\n' +
-    '\u2022 Real support via DM \u2014 get unstuck fast\n\n' +
-    '👇 Choose below:'
+    '💯 <b>100% offline</b> — runs on your own computer, no internet needed.\n\n' +
+    '🎁 <b>Try it free</b> — your first <b>2 captions are free</b>.\n\n' +
+    `💰 One-time <s>ETB 3,500</s> → <b>${PRICE}</b> — <b>forever license</b>.`
   );
 }
 const heroKeyboard = () => [
   [{ text: '💳 Pay', callback_data: 'menu:pay' }],
   [{ text: '🔑 My Key', callback_data: 'menu:mykey' }],
-  [{ text: '📲 Website — install guide', url: SITE_URL }],
+  [{ text: '📲 Install guide', url: `${SITE_URL}/install` }],
 ];
 
 // Admin-only keyboard (no buyer buttons). Tapped on /start by the shop owner.
@@ -145,15 +137,10 @@ function adminGreeting() {
 function payText() {
   return (
     '💰 <b>Pay</b>\n\n' +
-    '🎁 <b>Did you try your 2 free captions first?</b>\n' +
-    `Install from our website (${SITE_URL}/install) → make 2 free captions → come back and pay. No risk.\n\n` +
-    `<b>Before you send — here's the deal:</b>\n` +
-    `💵 Amount: <s>ETB 3,500</s> → <b>${PRICE}</b> — one-time, forever license, no extra fees\n` +
-    `🏦 Paid to: <b>${ACCT_NAME}</b> (bank transfer)\n` +
-    `🏛 Account: <b>${PAY_ACCOUNTS}</b>\n` +
-    '🔑 You get: your license key <b>in this chat</b>\n' +
-    '⏰ <b>Introductory price</b> — lock it in now.\n\n' +
-    '👇 Tap below <b>only after</b> you sent the money.'
+    `💵 Amount: <s>ETB 3,500</s> → <b>${PRICE}</b> — one-time, forever license\n` +
+    `🏦 Paid to: <b>${ACCT_NAME}</b> — ${PAY_ACCOUNTS}\n` +
+    '🔑 Your license key arrives <b>in this chat</b> after we confirm payment.\n\n' +
+    '👇 Tap below after you sent the money.'
   );
 }
 const payKeyboard = () => [
@@ -161,11 +148,11 @@ const payKeyboard = () => [
   [{ text: '🎁 Try free first (2 captions)', url: `${SITE_URL}/install` }],
 ];
 
-const MENU = 'Hello! 👋 What would you like to do? Choose below:';
+const MENU = 'Hello! 👋 Choose below:';
 const MENU_KEYBOARD = [
   [{ text: '💳 Pay', callback_data: 'menu:pay' }],
   [{ text: '🔑 My Key', callback_data: 'menu:mykey' }],
-  [{ text: '📲 Website — install guide', url: SITE_URL }],
+  [{ text: '📲 Install guide', url: `${SITE_URL}/install` }],
 ];
 
 // ── D1 helpers ──────────────────────────────────────────────────────────────

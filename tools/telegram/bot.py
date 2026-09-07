@@ -386,7 +386,7 @@ def base_nav():
     return [
         [{"text": "💳 Pay", "callback_data": "menu:pay"}],
         [{"text": "🔑 My Key", "callback_data": "menu:mykey"}],
-        [{"text": "📲 Website — install guide", "url": SITE_URL}],
+        [{"text": "📲 Install guide", "url": f"{SITE_URL}/install"}],
         [{"text": "◀ Menu", "callback_data": "menu:home"}],
     ]
 
@@ -395,7 +395,7 @@ def home_keyboard(extra=None):
     kb = [
         [{"text": "💳 Pay", "callback_data": "menu:pay"}],
         [{"text": "🔑 My Key", "callback_data": "menu:mykey"}],
-        [{"text": "📲 Website — install guide", "url": SITE_URL}],
+        [{"text": "📲 Install guide", "url": f"{SITE_URL}/install"}],
     ]
     return kb if extra is None else kb + extra
 
@@ -418,7 +418,7 @@ WELCOME = (
 )
 
 MENU = (
-    "Hello! 👋 What would you like to do? Choose below:"
+    "Hello! 👋 Choose below:"
 )
 MENU_KEYBOARD = home_keyboard()
 
@@ -427,19 +427,9 @@ def hero(first=""):
     name = f"{first}, " if first else ""
     return (
         f"{name}Welcome to <b>Amharic Captions</b> 👋\n\n"
-        "🚫🔌 <b>NO INTERNET NEEDED.</b>\n"
-        "This runs <b>100% OFFLINE</b> on your own computer — after install, you "
-        "don't need Wi-Fi or mobile data to make captions.\n\n"
-        "🎁 <b>Try BEFORE you pay</b> — your first <b>2 captions are free</b>.\n\n"
-        f"📲 <b>Install guide</b> — full step-by-step instructions for Windows & Mac:\n"
-        f"{SITE_URL}/install\n\n"
-        f"💰 <b>Pay</b> once — <s>ETB 3,500</s> now <b>{PRICE}</b> (forever key)\n\n"
-        "🤝 <b>Buy with confidence</b>\n"
-        "• You keep your captions offline on your own machine — nothing is shared\n"
-        "• Your license key is delivered <b>right in this chat</b> after we confirm "
-        "your bank-transfer payment\n"
-        "• Real support via DM — get unstuck fast\n\n"
-        "👇 Choose below:"
+        "💯 <b>100% offline</b> — runs on your own computer, no internet needed.\n\n"
+        "🎁 <b>Try it free</b> — your first <b>2 captions are free</b>.\n\n"
+        f"💰 One-time <s>ETB 3,500</s> → <b>{PRICE}</b> — <b>forever license</b>."
     )
 
 
@@ -457,16 +447,11 @@ def menu_pay():
              if served else "")
     text = (
         "💰 <b>Pay</b>\n\n"
-        "🎁 <b>Did you try your 2 free captions first?</b>\n"
-        f"Install from our website ({SITE_URL}/install) → make 2 free captions → "
-        "come back and pay. No risk.\n\n"
-        "<b>Before you send — here's the deal:</b>\n"
-        f"💵 Amount: <s>ETB 3,500</s> → <b>{PRICE}</b> — one-time, forever license, no extra fees\n"
-        f"🏦 Paid to: <b>{ACCT_NAME}</b> (bank transfer)\n"
-        "🔑 You get: your license key <b>in this chat</b>\n"
+        f"💵 Amount: <s>ETB 3,500</s> → <b>{PRICE}</b> — one-time, forever license\n"
+        f"🏦 Paid to: <b>{ACCT_NAME}</b> — {PAY_ACCOUNTS}\n"
+        "🔑 Your license key arrives <b>in this chat</b> after we confirm payment."
         f"{proof}"
-        "⏰ <b>Introductory price</b> — lock it in now.\n\n"
-        "👇 Tap below <b>only after</b> you've sent the money."
+        "\n\n👇 Tap below after you sent the money."
     )
     kb = [
         [{"text": "✅ I've paid — send proof", "callback_data": "pay:proof"}],
