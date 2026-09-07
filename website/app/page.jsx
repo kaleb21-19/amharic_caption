@@ -62,11 +62,51 @@ export default function HomePage() {
           <p className="hero-note">2 free captions to start · One-time <span className="price-old-inline">{PRICE_OLD}</span> → <strong>{PRICE}</strong> · No subscription</p>
 
           <div className="hero-shot">
-            <div className="shot-frame">
-              <img
-                src="/amharic_caption/images/panel-hi.png"
-                alt="Amharic Captions panel in Premiere Pro with generated Amharic captions"
-              />
+            <div className="ux">
+              <div className="ux-bar">
+                <span className="ux-dots"><i /><i /><i /></span>
+                <span className="ux-title">Premiere Pro — Untitled <b>·</b> Amharic Captions Pro</span>
+                <span className="ux-badge">Panel v1.3</span>
+              </div>
+              <div className="ux-tool">
+                <span className="ux-tool-btn is-on">Generate</span>
+                <span className="ux-tool-btn">Review</span>
+                <span className="ux-tool-btn">Burn</span>
+                <span className="ux-tool-spacer" />
+                <span className="ux-tool-meta">amharic-caption-pro</span>
+              </div>
+              <div className="ux-main">
+                <div className="ux-preview">
+                  <span className="ux-preview-time">00:12:34:19</span>
+                  <span className="ux-preview-caption">ሰላም ኢትዮጵያ፣ በአዲስ ዓመት</span>
+                </div>
+                <div className="ux-timeline">
+                  <div className="ux-track">
+                    <span className="ux-track-name">V1</span>
+                    <div className="ux-clip ux-clip-v">Interview — ቃለ መጠይቅ</div>
+                  </div>
+                  <div className="ux-track">
+                    <span className="ux-track-name">C1</span>
+                    <div className="ux-captions">
+                      <i className="cap" style={{ width: "26%" }}>ሰላም</i>
+                      <i className="cap" style={{ width: "38%" }}>በአዲስ ዓመት</i>
+                      <i className="cap" style={{ width: "30%" }}>ታሪካችን</i>
+                    </div>
+                  </div>
+                  <div className="ux-track">
+                    <span className="ux-track-name">C2</span>
+                    <div className="ux-captions">
+                      <i className="cap cap-dim" style={{ width: "64%" }}>Subtitle 002</i>
+                    </div>
+                  </div>
+                  <div className="ux-ruler"><i /><i /><i /><i /><i /><i /><i /></div>
+                </div>
+              </div>
+              <div className="ux-foot">
+                <span>2 free captions</span>
+                <span>Windows · macOS</span>
+                <span className="ux-live"><i />Ready</span>
+              </div>
             </div>
           </div>
         </div>
