@@ -94,31 +94,11 @@ export default function InstallPage() {
 
       <section className="note-section section">
         <div className="container">
-          <h2>Troubleshooting</h2>
           <Reveal><div className="tip">
-            <h3>“Runtime missing” after Generate</h3>
+            <h3>Need a hand?</h3>
             <p>
-              The extension couldn’t find its bundled engine. The zip must be
-              extracted whole (right-click → Extract All) so the folder is
-              <code>com.amharic.captions</code> with <code>runtime\python\python.exe</code>
-              and <code>runtime\bin\ffmpeg.exe</code> inside it. A doubled folder
-              like <code>python\python</code>, a truncated download, or Windows
-              Defender quarantining the engine files all cause this. Re-download,
-              allow blocked files, and re-extract into the extension folder.
-            </p>
-          </div></Reveal>
-          <Reveal delay={100}><div className="tip">
-            <h3>Premiere doesn’t show the panel</h3>
-            <p>
-              Third-party extensions need the CEP debug mode enabled for your
-              Premiere version (the “Allow Adobe to run it” step above). Using
-              Premiere 2025 (v25) or newer? Set{" "}
-              <code>PlayerDebugMode</code> in BOTH <code>CSXS.11</code> and{" "}
-              <code>CSXS.12</code> (Windows) — or run the Mac command for both{" "}
-              <code>com.adobe.CSXS.11</code> and <code>com.adobe.CSXS.12</code>.
-              Also make sure on Windows the panel sits at{" "}
-              <code>%APPDATA%\Adobe\CEP\extensions</code> with no extra nesting.
-              If it still won’t load, message us on Telegram and we’ll walk you through it.
+              Stuck on any step? Message us on Telegram and we&apos;ll walk you
+              through it.
             </p>
             <a className="btn btn-ghost" href={BOT_URL} target="_blank" rel="noopener">Get help on Telegram</a>
           </div></Reveal>

@@ -89,6 +89,7 @@ let PRICE = 'ETB 2,500';
 let ACCT_NAME = 'KALEB TEGEGEN';
 let PAY_ACCOUNTS = 'CBE 1000504159977 · Abyssinia 402393939 · Zemen 1031111343277015';
 const SUPPORT_URL = 'https://t.me/sumpak6';
+const SITE_URL = 'https://amharic-caption-pro.vercel.app';
 
 // ── config / env ────────────────────────────────────────────────────────────
 function initEnv(env) {
@@ -110,23 +111,20 @@ function heroText(first = '') {
     '🚫🔌 <b>NO INTERNET NEEDED.</b>\n' +
     'This runs <b>100% OFFLINE</b> on your own computer — after install, you don’t need Wi-Fi or mobile data to make captions. Everything happens right on your machine.\n\n' +
     '🎁 <b>Try BEFORE you pay</b> — your first <b>2 captions are free</b>.\n\n' +
-    '📌 <b>How it works</b> (simple, 3 steps):\n' +
-    '1️⃣ <b>Install</b> the plugin\n' +
-    `2️⃣ <b>Pay</b> once — <s>ETB 3,500</s> now <b>${PRICE}</b> (forever key)` + '\n' +
-    '3️⃣ <b>Make captions</b> forever, offline\n\n' +
+    `📲 <b>Install guide</b> — full step-by-step instructions for Windows & Mac live on our website:\n` +
+    `${SITE_URL}/install\n\n` +
+    `💰 <b>Pay</b> once — <s>ETB 3,500</s> now <b>${PRICE}</b> (forever key)` + '\n\n' +
     '🤝 <b>Buy with confidence</b>\n' +
     '\u2022 You keep your captions offline on your own machine \u2014 nothing is shared\n' +
     '\u2022 Your license key is delivered <b>right in this chat</b> after we confirm your bank-transfer payment\n' +
     '\u2022 Real support via DM \u2014 get unstuck fast\n\n' +
-    '👇 Tap <b>1️⃣ Install</b> to taste it free first:'
+    '👇 Choose below:'
   );
 }
 const heroKeyboard = () => [
-  [{ text: '1️⃣ Install', callback_data: 'menu:install' }],
-  [{ text: '2️⃣ Pay', callback_data: 'menu:pay' }],
-  [{ text: '3️⃣ Machine ID', callback_data: 'menu:guide' }],
-  [{ text: '4️⃣ Help', callback_data: 'menu:help' }],
+  [{ text: '💳 Pay', callback_data: 'menu:pay' }],
   [{ text: '🔑 My Key', callback_data: 'menu:mykey' }],
+  [{ text: '📲 Website — install guide', url: SITE_URL }],
 ];
 
 // Admin-only keyboard (no buyer buttons). Tapped on /start by the shop owner.
@@ -148,7 +146,7 @@ function payText() {
   return (
     '💰 <b>Pay</b>\n\n' +
     '🎁 <b>Did you try your 2 free captions first?</b>\n' +
-    'Install → make 2 free captions → come back and pay. No risk.\n\n' +
+    `Install from our website (${SITE_URL}/install) → make 2 free captions → come back and pay. No risk.\n\n` +
     `<b>Before you send — here's the deal:</b>\n` +
     `💵 Amount: <s>ETB 3,500</s> → <b>${PRICE}</b> — one-time, forever license, no extra fees\n` +
     `🏦 Paid to: <b>${ACCT_NAME}</b> (bank transfer)\n` +
@@ -160,16 +158,14 @@ function payText() {
 }
 const payKeyboard = () => [
   [{ text: '✅ I’ve paid — send proof', callback_data: 'pay:proof' }],
-  [{ text: '🎁 Try free first (2 captions)', callback_data: 'menu:install' }],
+  [{ text: '🎁 Try free first (2 captions)', url: `${SITE_URL}/install` }],
 ];
 
 const MENU = 'Hello! 👋 What would you like to do? Choose below:';
 const MENU_KEYBOARD = [
-  [{ text: '1️⃣ Install', callback_data: 'menu:install' }],
-  [{ text: '2️⃣ Pay', callback_data: 'menu:pay' }],
-  [{ text: '3️⃣ Machine ID', callback_data: 'menu:guide' }],
-  [{ text: '4️⃣ Help', callback_data: 'menu:help' }],
+  [{ text: '💳 Pay', callback_data: 'menu:pay' }],
   [{ text: '🔑 My Key', callback_data: 'menu:mykey' }],
+  [{ text: '📲 Website — install guide', url: SITE_URL }],
 ];
 
 // ── D1 helpers ──────────────────────────────────────────────────────────────
@@ -284,31 +280,9 @@ async function handleMessage(msg, env) {
     return;
   }
 
-  // helper-button tap -> guide
-  const g = lower.replace(/^📍/,'').trim().toLowerCase();
-  if (['where is my machine id?', 'machine id', 'machine_id', 'help'].includes(g)) {
-    await sendText(chatId, guideText(), undefined);
-    return;
-  }
-
   // generic buy-flow commands
   if (['/buy', '/buy@amhariccaptionsbot'].includes(lower)) {
     await sendText(chatId, heroText(first), heroKeyboard());
-    return;
-  }
-  if (['/install', '/install@amhariccaptionsbot'].includes(lower)) {
-    await sendText(chatId, installText() + '\n\n🔘 Use the buttons below to continue:', [
-      [{ text: '🎁 Try free (2 captions)', callback_data: 'menu:home' }],
-      [{ text: '2️⃣ Pay', callback_data: 'menu:pay' }],
-    ]);
-    return;
-  }
-  if (['/help', '/faq', '/faq@amhariccaptionsbot'].includes(lower)) {
-    await sendText(chatId, faqText(), undefined);
-    return;
-  }
-  if (['/support', '/support@amhariccaptionsbot'].includes(lower)) {
-    await sendText(chatId, faqText(), [[{ text: '💬 Message support', url: SUPPORT_URL }]]);
     return;
   }
 
@@ -328,79 +302,6 @@ function groupWelcome() {
     `🏛 አካውንት: <b>${PAY_ACCOUNTS}</b>\n` +
     '🖥 Windows & Mac\n' +
     '⏰ <b>መግቢያ ዋጋ</b> — አሁኑኑ ይጠቀሙ!'
-  );
-}
-function installText() {
-  const dl = 'https://github.com/kaleb21-19/amharic_caption/releases/latest/download';
-  return (
-    '1️⃣ <b>Install — 2 FREE captions</b>\n\n' +
-    '🔒 <b>Runs 100% OFFLINE</b> on your computer after install.\n' +
-    '⚠️ Needs Premiere Pro <b>2024 (v24)</b> or newer.\n\n' +
-    '⬇️ <b>Step 1 — download for your computer:</b>\n' +
-    '• <b>Mac (Apple Silicon M1/M2/M3…):</b>\n' +
-    `<a href="${dl}/amharic-captions-mac-arm64.zip">⬇️ Download Mac (Apple Silicon)</a>\n\n` +
-    '• <b>Windows:</b>\n' +
-    `<a href="${dl}/amharic-captions-win-x64.zip">⬇️ Download Windows</a>\n\n` +
-    '⬇️ <b>Step 2 — put the plugin in place:</b>\n' +
-    'After unzipping, copy the folder named <code>com.amharic.captions</code> into your Adobe Extensions folder:\n\n' +
-    '• <b>Windows:</b>\n' +
-    '<code>C:\\Program Files (x86)\\Common Files\\Adobe\\CEP\\extensions\\</code>\n\n' +
-    '• <b>Mac:</b>\n' +
-    '<code>~/Library/Application Support/Adobe/CEP/extensions/</code>\n\n' +
-    '⬇️ <b>Step 3 — tell Adobe it’s OK to run:</b>\n\n' +
-    '• <b>Mac:</b> open <b>Terminal</b> (⌘+Space → type <code>Terminal</code> → Enter), then copy & paste this and press Enter:\n\n' +
-    '<code>defaults write com.adobe.CSXS.11 PlayerDebugMode "1"</code>\n\n' +
-    '💡 Using Premiere <b>2025 (v25) or newer?</b> Also run:\n' +
-    '<code>defaults write com.adobe.CSXS.12 PlayerDebugMode "1"</code>\n\n' +
-    '• <b>Windows:</b> open the Registry Editor:\n' +
-    '   1. Press <b>Win+R</b> → type <code>regedit</code> → press <b>Enter</b>. Click <b>Yes</b> if asked.\n' +
-    '   2. Paste this into the address bar at the top and press Enter:\n' +
-    '   <code>HKEY_CURRENT_USER\\Software\\Adobe\\CSXS.11</code>\n' +
-    '   3. If you see a <code>PlayerDebugMode</code> entry on the right, double-click it and set the value to <b>1</b>.\n' +
-    '   4. If there is <b>no</b> <code>PlayerDebugMode</code> entry: right-click the empty area on the right → <b>New</b> → <b>DWORD (32-bit) Value</b> → name it exactly <code>PlayerDebugMode</code> → double-click it → set the value to <b>1</b> → OK.\n' +
-    '   5. Close regedit.\n' +
-    '   💡 Using Premiere <b>2025 (v25) or newer?</b> Do the same for <code>HKEY_CURRENT_USER\\Software\\Adobe\\CSXS.12</code> too.\n\n' +
-    '<i>⚠️ Change only <code>PlayerDebugMode</code> to 1. Don’t touch anything else.</i>\n\n' +
-    '⬇️ <b>Step 4 — use it:</b>\n' +
-    'Restart Premiere → Extensions → Amharic Captions → make <b>2 free captions</b>!\n\n' +
-    '🖥 <b>Intel Mac?</b> The Intel-Mac build isn’t published yet — contact the seller for it.\n\n' +
-    '🎉 Made your 2 free ones and loved it? Tap <b>2️⃣ Pay</b> to buy your forever key:'
-  );
-}
-function faqText() {
-  return (
-    '❓ <b>FAQ</b>\n\n' +
-    '<b>Q: Can I try before buying?</b>\n' +
-    'A: Yes! Every new user gets <b>2 free</b> captions. Open the panel → ' +
-    '"Generate Captions".\n\n' +
-    '<b>Q: Does the key work on multiple computers?</b>\n' +
-    'A: No. Each key is tied to <b>one</b> computer (hardware ID). A separate ' +
-    'key is needed for a different computer.\n\n' +
-    '<b>Q: When does the key expire?</b>\n' +
-    'A: It never expires! <b>One-time payment</b> — no subscription.\n\n' +
-    '<b>Q: How do I pay?</b>\n' +
-    `A: Bank transfer to <b>${ACCT_NAME}</b> — ${PAY_ACCOUNTS}.\n\n` +
-    '<b>Q: I changed my computer / lost my key?</b>\n' +
-    "A: Contact the seller. With proof of purchase, we'll help transfer " +
-    'to your new machine.\n\n' +
-    '<b>Q: What computer do I need?</b>\n' +
-    'A: Windows or Mac with <b>Premiere Pro 2024 (v24)</b> or newer. ' +
-    'The Amharic model runs on your own computer — no internet needed.\n\n' +
-    `💰 <b>Price:</b> <s>ETB 3,500</s> → <b>${PRICE}</b> one-time.\n` +
-    `🏦 <b>Pay via bank transfer to ${ACCT_NAME}:</b> ${PAY_ACCOUNTS}\n\n` +
-    '👤 <b>Need help? Message the seller:</b>\n' +
-    `<a href="${SUPPORT_URL}">@sumpak6</a>`
-  );
-}
-function guideText() {
-  return (
-    '3️⃣ <b>Machine ID</b>\n\n' +
-    'Your unique computer number — <b>8 characters</b> (e.g. <code>a1b2c3d4</code>).\n\n' +
-    '<b>Where to find it:</b>\n' +
-    '1. Open Premiere → Windows > Extensions > "Amharic Captions"\n' +
-    '2. In the panel, open the <b>License</b> section\n' +
-    '3. Copy the "Your Machine ID" box\n\n' +
-    '⚙️ You need it when paying (step 2).'
   );
 }
 
@@ -436,14 +337,14 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
     if (!m) {
       await sendText(chatId,
         `⚠️ I need your <b>Machine ID</b> — the <b>8-character</b> code from the panel's <b>License</b> section (e.g. <code>a1b2c3d4</code>).`,
-        [[{ text: '📍 Where is my Machine ID?', callback_data: 'menu:guide' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
+        [[{ text: '📍 Where is my Machine ID?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
       return;
     }
     const mid = m[0].toLowerCase();
     if (suspiciousMid(mid)) {
       await sendText(chatId,
         `⚠️ <code>${mid}</code> doesn’t look like a real <b>Machine ID</b>.\n\nYour Machine ID is the <b>8 characters</b> shown under "Your Machine ID" in the panel’s License section (e.g. <code>a1b2c3d4</code>).`,
-        [[{ text: '📍 Where is my Machine ID?', callback_data: 'menu:guide' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
+        [[{ text: '📍 Where is my Machine ID?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
       return;
     }
     const existing = await findKey(mid);
@@ -486,8 +387,8 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
     return;
   }
   await sendText(chatId,
-    '👋 Got it — that looks like a Machine ID. To pay, use the guided flow:\n\n1️⃣ Tap <b>2️⃣ Pay</b>\n2️⃣ Tap <b>I’ve paid — send proof</b>',
-    [[{ text: '2️⃣ Pay', callback_data: 'menu:pay' }]]);
+    '👋 Got it — that looks like a Machine ID. To pay, use the guided flow:\n\n1️⃣ Tap <b>💳 Pay</b>\n2️⃣ Tap <b>I’ve paid — send proof</b>',
+    [[{ text: '💳 Pay', callback_data: 'menu:pay' }]]);
 }
 
 // ── screenshots (photo/document) ────────────────────────────────────────────
@@ -526,12 +427,12 @@ async function handlePhoto(msg, uid, chatId, privateChat, text) {
     const objectKey = await storeProof(fileId);
     await setFsm(uid, { ...s, photo_key: objectKey });
     await sendText(chatId, '📸 Screenshot saved! Now send your <b>Machine ID</b> (8 characters from the panel\'s License section).',
-      [[{ text: '📍 Where is my Machine ID?', callback_data: 'menu:guide' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
+      [[{ text: '📍 Where is my Machine ID?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
     return;
   }
   await sendText(chatId,
-    '🖼 Thanks — but to place an order please start the guided flow and send your <b>Machine ID</b> first:\n\n1️⃣ Tap <b>2️⃣ Pay</b>\n2️⃣ Tap <b>I\'ve paid — send proof</b>',
-    [[{ text: '2️⃣ Pay', callback_data: 'menu:pay' }]]);
+    '🖼 Thanks — but to place an order please start the guided flow and send your <b>Machine ID</b> first:\n\n1️⃣ Tap <b>💳 Pay</b>\n2️⃣ Tap <b>I\'ve paid — send proof</b>',
+    [[{ text: '💳 Pay', callback_data: 'menu:pay' }]]);
 }
 
 async function storeProof(fileId) {
@@ -876,15 +777,7 @@ async function handleCallback(cb) {
     if (kind === 'home') await editText(chatId, messageId, MENU, MENU_KEYBOARD);
     else if (kind === 'pay') {
       await editText(chatId, messageId, payText(), payKeyboard());
-    } else if (kind === 'install') await editText(chatId, messageId, installText() + '\n\n🔘 Use the buttons below to continue:', [
-      [{ text: '🎁 Try free (2 captions)', callback_data: 'menu:home' }],
-      [{ text: '2️⃣ Pay', callback_data: 'menu:pay' }],
-    ]);
-    else if (kind === 'guide') await editText(chatId, messageId, guideText(), undefined);
-    else if (kind === 'help') await editText(chatId, messageId, faqText(), [
-      [{ text: '💬 Message support', url: SUPPORT_URL }],
-    ]);
-    else if (kind === 'mykey') await showMyKey(cb, chatId, messageId);
+    } else if (kind === 'mykey') await showMyKey(cb, chatId, messageId);
     return;
   }
 
@@ -895,7 +788,7 @@ async function handleCallback(cb) {
       const s = await getFsm(fromUid);
       if (s && s.step === 'mid' && s.hint) {
         await editText(chatId, messageId, '📤 <b>Send proof</b>\n\nAlmost done — three short steps:\n\n1️⃣ <b>Machine ID</b> (8 characters)\n2️⃣ Payment <b>screenshot</b>\n3️⃣ Payment <b>reference</b> number\n\n→ Start with <b>Step 1/3</b>: send your <b>Machine ID</b>.', [
-          [{ text: '📍 Where is my Machine ID?', callback_data: 'menu:guide' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }],
+          [{ text: '📍 Where is my Machine ID?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }],
         ]);
         return;
       }
@@ -904,7 +797,7 @@ async function handleCallback(cb) {
       await sendText(chatId, '📤 Send your <b>Machine ID</b> (8 characters).', undefined);
       // also edit the tapped button
       await editText(chatId, messageId, '📤 <b>Send proof</b>\n\nStart with <b>Step 1/3</b>: send your <b>Machine ID</b>.', [
-        [{ text: '📍 Where is my Machine ID?', callback_data: 'menu:guide' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }],
+        [{ text: '📍 Where is my Machine ID?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }],
       ]);
     }
     return;
