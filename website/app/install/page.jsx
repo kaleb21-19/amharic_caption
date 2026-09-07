@@ -9,7 +9,7 @@ export const metadata = {
 
 const winSteps = [
   { t: "Download", c: "Get the Windows build below and unzip it (right-click the zip → Extract All). Make sure a folder named com.amharic.captions appears — do not drag files out of the zip by hand." },
-  { t: "Copy to Extensions", c: "Press WIN+R, enter %APPDATA%\\Adobe\\CEP\\extensions, and copy the com.amharic.captions folder in there. No admin rights needed." },
+  { t: "Copy to Extensions", c: "Open File Explorer and go to C:\\Program Files (x86)\\Common Files\\Adobe\\CEP\\extensions. Copy the com.amharic.captions folder into it (click Yes if Windows asks for permission)." },
   { t: "Allow Adobe to run it", c: "Press WIN+R → type regedit → Enter (click Yes if asked). Paste HKEY_CURRENT_USER\\Software\\Adobe\\CSXS.11 into the address bar → Enter. On the right, double-click PlayerDebugMode and set it to 1. If it doesn't exist: right-click empty space → New → DWORD (32-bit) Value → name it PlayerDebugMode → set value to 1. Close regedit." },
   { t: "Restart Premiere", c: "Fully quit and reopen Premiere Pro, then open Extensions > Amharic Captions." },
   { t: "Activate", c: "Copy your Machine ID, pay via the Telegram bot, and paste your license key to activate." },
