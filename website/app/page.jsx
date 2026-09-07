@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BOT_URL, PRICE, PRICE_OLD } from "@/lib/site";
+import { BOT_URL, PRICE, PRICE_NUM, PRICE_OLD } from "@/lib/site";
 
 const features = [
   {
@@ -63,11 +63,24 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="logos section">
+      <section className="pricing-home section">
         <div className="container">
-          <p className="muted-center">
-            <span className="price-old-inline">{PRICE_OLD}</span> → <strong>{PRICE}</strong> · One-time payment · 2 free captions to start
-          </p>
+          <div className="pricing-card">
+            <span className="price-badge">Lifetime · One-time</span>
+            <p className="price-label">Amharic Captions Pro — unlimited captions</p>
+            <p className="price">
+              <span className="price-old">{PRICE_OLD}</span>{" "}
+              <span className="cur">ETB</span> {Number(PRICE_NUM).toLocaleString("en-US")}
+            </p>
+            <p className="price-sub">
+              2 free captions first — then one payment, forever. No subscription,
+              no per-minute fees.
+            </p>
+            <a className="btn btn-primary btn-lg btn-block" href={BOT_URL} target="_blank" rel="noopener">
+              Buy now on Telegram
+            </a>
+            <p className="tiny">Pay by Telebirr 0907 628 809 · Windows &amp; macOS</p>
+          </div>
         </div>
       </section>
 
