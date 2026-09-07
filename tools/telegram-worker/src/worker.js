@@ -131,15 +131,16 @@ const heroKeyboard = () => [
 
 // Admin-only keyboard (no buyer buttons). Tapped on /start by the shop owner.
 const adminKeyboard = () => [
-  [{ text: '📋 Pending orders', callback_data: 'admin:pending' }],
+  [{ text: '📥 Requests', callback_data: 'admin:queue' }],
+  [{ text: '🧾 History (30 days)', callback_data: 'admin:history' }],
   [{ text: '📈 Sales & funnel', callback_data: 'admin:sales' }],
-  [{ text: '🛠 Admin panel', callback_data: 'admin:panel' }],
 ];
 function adminGreeting() {
   return (
     '🛠 <b>Admin</b>\n\n' +
     'Welcome back, boss 👋\n' +
-    'Manage orders & see your numbers below:'
+    '📥 Open <b>Requests</b> to review the queue (newest first) — approve, decline, or view details on each.\n' +
+    '🧾 <b>History</b> shows the last 30 days of activity.'
   );
 }
 
@@ -183,6 +184,12 @@ async function countSold() {
 async function pendingCount() {
   const r = await DB.prepare("SELECT COUNT(*) AS n FROM orders WHERE status='pending'").first();
   return r ? r.n : 0;
+}
+// Auto-prune: keep only the last 30 days of orders + funnel events. Called on
+// every admin action so history stays small without a scheduled job.
+async function pruneOld() {
+  await DB.prepare("DELETE FROM orders WHERE created_at < datetime('now', '-30 days')").run();
+  await DB.prepare("DELETE FROM funnel WHERE ts < datetime('now', '-30 days')").run();
 }
 async function getFsm(uid) {
   const r = await DB.prepare('SELECT * FROM fsm WHERE uid = ?').bind(uid).first();
@@ -230,13 +237,8 @@ async function apiCall(method, params) {
   return tg(TOKEN, method, params);
 }
 
-// ── inline keyboard for pending orders (admin approve/reject) ───────────────
-function adminKeyboardPend(orderId) {
-  return [[
-    { text: '✅ Approve', callback_data: `approve:${orderId}` },
-    { text: '❌ Reject', callback_data: `reject:${orderId}` },
-  ]];
-}
+// ── inline keyboard for pending orders (admin approve/decline) ──────────────
+// See adminKeyboardPend() in the admin section below (it now includes Details).
 
 // ── message handler: the stateless re-implementation of bot.py ─────────────
 async function handleMessage(msg, env) {
@@ -648,35 +650,127 @@ async function showMyKey(msg, chatId, messageId) {
   else await sendText(chatId, '🔑 <b>Your key(s)</b>\n\n' + text, undefined);
 }
 
-// ── admin panel ─────────────────────────────────────────────────────────────
+// ── admin panel (modern dashboard + queue + audit) ─────────────────────────
+const money = (n) => n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+const shortTs = (s) => (s ? String(s).slice(5, 16).replace(' ', ' ') : '—');
+const orderSummary = (o) =>
+  `<b>#${o.id}</b> · ${o.username ? '@' + o.username : 'anon'} · <code>${o.machine_id}</code> · ${shortTs(o.created_at)}`;
+
+function adminKeyboardPend(orderId) {
+  return [[
+    { text: '✅ Approve', callback_data: `approve:${orderId}` },
+    { text: '❌ Decline', callback_data: `reject:${orderId}` },
+    { text: '👁 Details', callback_data: `admin:detail:${orderId}` },
+  ]];
+}
+
 async function adminPanel(chatId, messageId) {
-  const n = await pendingCount();
-  const text = `🛠 <b>Admin Panel</b>\n\n📋 Pending orders: <b>${n}</b>\n\nReview each order below, then Approve or Reject.`;
+  await pruneOld();
+  const pend = await pendingCount();
+  const todayRow = await DB.prepare(
+    "SELECT COALESCE(SUM(CASE WHEN status='approved' THEN 1 ELSE 0 END),0) AS ap, " +
+    "COALESCE(SUM(CASE WHEN status='rejected' THEN 1 ELSE 0 END),0) AS rj, " +
+    "COALESCE(SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END),0) AS pd " +
+    "FROM orders WHERE date(created_at)=date('now')").first();
+  const sold30 = await DB.prepare(
+    "SELECT COUNT(*) AS n FROM orders WHERE status='approved' AND created_at >= datetime('now','-30 days')").first();
+  const revenue = (sold30 ? sold30.n : 0) * parseInt(PRICE.replace(/[^\d]/g, ''), 10);
+
+  const text =
+    `🛠 <b>Admin · Dashboard</b>\n\n` +
+    `📥 <b>New requests:</b> ${pend}\n` +
+    `   ├ ✅ Approved today: ${todayRow.ap}\n` +
+    `   ├ ❌ Declined today: ${todayRow.rj}\n` +
+    `   └ 🌀 Pending today:  ${todayRow.pd}\n\n` +
+    `💵 <b>Revenue (30d):</b> ${sold30.n} × ${PRICE} = <b>ETB ${money(revenue)}</b>\n\n` +
+    `⬇️ Review the request queue, or check recent activity.`;
   const kb = [
-    [{ text: `📋 Pending orders (${n})`, callback_data: 'admin:pending' }],
+    [{ text: `📥 Requests (${pend})`, callback_data: 'admin:queue' }],
+    [{ text: '🧾 History (30 days)', callback_data: 'admin:history' }],
     [{ text: '📈 Sales & funnel', callback_data: 'admin:sales' }],
   ];
   if (messageId) await editText(chatId, messageId, text, kb);
   else await sendText(chatId, text, kb);
 }
 
-async function adminPending(chatId, messageId) {
-  const { results } = await DB.prepare("SELECT * FROM orders WHERE status='pending' ORDER BY id").all();
+async function adminQueue(chatId, messageId, cbId) {
+  await pruneOld();
+  const { results } = await DB.prepare(
+    "SELECT * FROM orders WHERE status='pending' ORDER BY id DESC").all();
   if (!results.length) {
-    const text = '📋 <b>No pending orders.</b>\n\nWhen a buyer submits proof, their order appears here.';
-    if (messageId) await editText(chatId, messageId, text, [[{ text: '🛠 Admin', callback_data: 'admin:panel' }]]);
-    else await sendText(chatId, text, [[{ text: '🛠 Admin', callback_data: 'admin:panel' }]]);
+    await editText(chatId, messageId,
+      '📥 <b>No pending requests.</b>\n\nNew orders appear here the moment a buyer submits proof.',
+      [[{ text: '🛠 Admin', callback_data: 'admin:panel' }]]);
     return;
   }
+  // Send each pending order as its own card (newest first) with inline actions.
   for (const o of results) {
     const cap =
-      `🧾 <b>Order @${o.username}</b>\nMachine ID: <code>${o.machine_id}</code>\nSource: private\n` +
-      `Ref: ${o.ref ? `<code>${o.ref}</code>` : '<i>skipped</i>'}`;
-    const kb = adminKeyboardPend(o.id);
-    if (o.photo_key) await sendPhoto(chatId, o.photo_key, cap, kb);
-    else await sendText(chatId, cap, kb);
+      `${orderSummary(o)}\n` +
+      `🧾 Ref: ${o.ref ? `<code>${o.ref}</code>` : '<i>skipped</i>'}`;
+    if (o.photo_key) await sendPhoto(chatId, o.photo_key, cap, adminKeyboardPend(o.id));
+    else await sendText(chatId, cap, adminKeyboardPend(o.id));
   }
-  if (messageId) await editText(chatId, messageId, '📋 Showing all pending orders (with their proof screenshots).', [[{ text: '🛠 Admin', callback_data: 'admin:panel' }]]);
+  await answerCb(cbId, `${results.length} pending`);
+  await editText(chatId, messageId,
+    `📥 <b>${results.length} pending request(s)</b> — newest first. Approve, decline, or view details on each card.`,
+    [[{ text: '🛠 Admin', callback_data: 'admin:panel' }]]);
+}
+
+async function adminDetail(chatId, messageId, cbId, orderId) {
+  const o = await DB.prepare('SELECT * FROM orders WHERE id=?').bind(orderId).first();
+  if (!o) { await answerCb(cbId, 'Order not found'); return; }
+  const cap =
+    `🧾 <b>Order #${o.id} · ${o.status.toUpperCase()}</b>\n\n` +
+    `${orderSummary(o)}\n` +
+    `UID: <code>${o.uid}</code>\n` +
+    `Machine ID: <code>${o.machine_id}</code>\n` +
+    `Amount: ${PRICE}\n` +
+    `Ref: ${o.ref ? `<code>${o.ref}</code>` : '<i>skipped</i>'}\n` +
+    `Received: ${shortTs(o.created_at)}`;
+  const kb = o.status === 'pending'
+    ? [[
+        { text: '✅ Approve', callback_data: `approve:${o.id}` },
+        { text: '❌ Decline', callback_data: `reject:${o.id}` },
+      ], [{ text: '🛠 Admin', callback_data: 'admin:panel' }]]
+    : [[{ text: '🛠 Admin', callback_data: 'admin:panel' }]];
+  await answerCb(cbId, '');
+  if (o.photo_key) await sendPhoto(chatId, o.photo_key, cap, kb);
+  else await sendText(chatId, cap, kb);
+}
+
+async function adminHistory(chatId, messageId) {
+  await pruneOld();
+  const { results } = await DB.prepare(
+    "SELECT * FROM orders WHERE created_at >= datetime('now','-30 days') ORDER BY id DESC").all();
+  if (!results.length) {
+    await editText(chatId, messageId,
+      '🧾 <b>No orders in the last 30 days.</b>',
+      [[{ text: '🛠 Admin', callback_data: 'admin:panel' }]]);
+    return;
+  }
+  const pend = results.filter((r) => r.status === 'pending').length;
+  const ap = results.filter((r) => r.status === 'approved').length;
+  const rj = results.filter((r) => r.status === 'rejected').length;
+  const sold30 = ap;
+  const revenue = sold30 * parseInt(PRICE.replace(/[^\d]/g, ''), 10);
+
+  const statusEmoji = { approved: '✅', rejected: '❌', pending: '📥' };
+  let list = results.slice(0, 25).map((o) =>
+    `#${o.id} ${statusEmoji[o.status] || '·'} ${o.username ? '@' + o.username : 'anon'} <code>${o.machine_id}</code> · ${shortTs(o.created_at)}`
+  ).join('\n');
+
+  const text =
+    `🧾 <b>History · last 30 days</b>\n\n` +
+    `✅ ${ap} approved · ❌ ${rj} declined · 📥 ${pend} pending · 💵 <b>ETB ${money(revenue)}</b>\n\n` +
+    `${list}${results.length > 25 ? `\n… +${results.length - 25} more` : ''}\n\n` +
+    `Tap any order in the queue to open Details → Approve / Decline.`;
+  const kb = [[
+    { text: '📥 Requests', callback_data: 'admin:queue' },
+    { text: '🛠 Admin', callback_data: 'admin:panel' },
+  ]];
+  if (messageId) await editText(chatId, messageId, text, kb);
+  else await sendText(chatId, text, kb);
 }
 
 async function adminSales(chatId, messageId) {
@@ -735,18 +829,27 @@ async function approve(chatId, messageId, orderId, cbId) {
 
   // deliver key + receipt to buyer's DM
   await sendText(o.uid, keyDeliveryMessage(key, o.expiry, 'private', o.ref || ''));
-  // confirm to admin
+  // confirm to admin (with remaining queue count)
+  const left = await pendingCount();
   await editText(chatId, messageId,
-    `✅ Key delivered & logged.\nMachine ID: <code>${o.machine_id}</code>\nDM: ✅`);
+    `✅ <b>Approved #${orderId}</b> — key delivered & logged.\n` +
+    `Machine ID: <code>${o.machine_id}</code> · @${o.username} · DM: ✅\n` +
+    `${left ? `📥 ${left} request(s) left in queue.` : '🎉 Queue is clear.'}`);
+  await answerCb(cbId, '✅ Approved & key sent');
 }
 
 async function reject(chatId, messageId, orderId, cbId) {
   const o = await DB.prepare('SELECT * FROM orders WHERE id=?').bind(orderId).first();
   if (!o) return;
+  if (o.status !== 'pending') { await answerCb(cbId, 'Already handled'); return; }
   await DB.prepare("UPDATE orders SET status='rejected' WHERE id=?").bind(orderId).run();
   await addFunnel(o.uid, 'rejected');
-  await editText(chatId, messageId, '❌ Order rejected.');
+  const left = await pendingCount();
+  await editText(chatId, messageId,
+    `❌ <b>Declined #${orderId}</b> — @${o.username} <code>${o.machine_id}</code>\n` +
+    `${left ? `📥 ${left} request(s) left in queue.` : '🎉 Queue is clear.'}`);
   if (o.chat_id) await sendText(o.chat_id, 'Sorry \u2014 payment proof not verified. No key was sent. If you believe this is an error, contact the seller.');
+  await answerCb(cbId, '❌ Declined');
 }
 
 // ── callback handler ────────────────────────────────────────────────────────
@@ -836,9 +939,12 @@ async function handleCallback(cb) {
 
   // admin:
   if (data.startsWith('admin:')) {
-    const action = data.split(':')[1];
+    const parts = data.split(':');
+    const action = parts[1];
     if (action === 'panel') await adminPanel(chatId, messageId);
-    else if (action === 'pending') await adminPending(chatId, messageId);
+    else if (action === 'queue' || action === 'pending') await adminQueue(chatId, messageId, cbId);
+    else if (action === 'history') await adminHistory(chatId, messageId);
+    else if (action === 'detail') await adminDetail(chatId, messageId, cbId, parts[2]);
     else if (action === 'sales') await adminSales(chatId, messageId);
     return;
   }
