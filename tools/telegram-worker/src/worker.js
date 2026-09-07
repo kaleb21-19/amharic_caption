@@ -349,7 +349,9 @@ function installText() {
     '<code>~/Library/Application Support/Adobe/CEP/extensions/</code>\n\n' +
     '⬇️ <b>Step 3 — tell Adobe it’s OK to run:</b>\n\n' +
     '• <b>Mac:</b> open <b>Terminal</b> (⌘+Space → type <code>Terminal</code> → Enter), then copy & paste this and press Enter:\n\n' +
-    '<code>defaults write com.adobe.CSXS.9 PlayerDebugMode "1"</code>\n\n' +
+    '<code>defaults write com.adobe.CSXS.11 PlayerDebugMode "1"</code>\n\n' +
+    '💡 Using Premiere <b>2025 (v25) or newer?</b> Also run:\n' +
+    '<code>defaults write com.adobe.CSXS.12 PlayerDebugMode "1"</code>\n\n' +
     '• <b>Windows:</b> open the Registry Editor:\n' +
     '   1. Press <b>Win+R</b> → type <code>regedit</code> → press <b>Enter</b>. Click <b>Yes</b> if asked.\n' +
     '   2. Paste this into the address bar at the top and press Enter:\n' +

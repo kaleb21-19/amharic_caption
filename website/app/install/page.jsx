@@ -10,6 +10,7 @@ export const metadata = {
 const winSteps = [
   { t: "Download", c: "Get the Windows build below and unzip it (right-click the zip → Extract All). Make sure a folder named com.amharic.captions appears — do not drag files out of the zip by hand." },
   { t: "Copy to Extensions", c: "Press WIN+R, enter %APPDATA%\\Adobe\\CEP\\extensions, and copy the com.amharic.captions folder in there. No admin rights needed." },
+  { t: "Allow Adobe to run it", c: "Press WIN+R → type regedit → Enter (click Yes if asked). Paste HKEY_CURRENT_USER\\Software\\Adobe\\CSXS.11 into the address bar → Enter. On the right, double-click PlayerDebugMode and set it to 1. If it doesn't exist: right-click empty space → New → DWORD (32-bit) Value → name it PlayerDebugMode → set value to 1. Close regedit." },
   { t: "Restart Premiere", c: "Fully quit and reopen Premiere Pro, then open Extensions > Amharic Captions." },
   { t: "Activate", c: "Copy your Machine ID, pay via the Telegram bot, and paste your license key to activate." },
 ];
@@ -17,6 +18,7 @@ const winSteps = [
 const macSteps = [
   { t: "Download", c: "Choose the build for your chip: Apple Silicon (arm64) or Intel (x64), then unzip." },
   { t: "Copy to Extensions", c: "Copy the com.amharic.captions folder into: ~/Library/Application Support/Adobe/CEP/extensions/" },
+  { t: "Allow Adobe to run it", c: "Open Terminal (⌘+Space → type Terminal → Enter), paste defaults write com.adobe.CSXS.11 PlayerDebugMode \"1\" and press Enter. Using Premiere 2025 (v25)? Also run the same for com.adobe.CSXS.12. Close Terminal." },
   { t: "Restart Premiere", c: "Fully quit and reopen Premiere Pro, then open Extensions > Amharic Captions." },
   { t: "Activate", c: "Copy your Machine ID, pay via the Telegram bot, and paste your license key to activate." },
 ];
@@ -109,9 +111,14 @@ export default function InstallPage() {
             <h3>Premiere doesn’t show the panel</h3>
             <p>
               Third-party extensions need the CEP debug mode enabled for your
-              Premiere version, and on Windows the panel must sit at
+              Premiere version (the “Allow Adobe to run it” step above). Using
+              Premiere 2025 (v25) or newer? Set{" "}
+              <code>PlayerDebugMode</code> in BOTH <code>CSXS.11</code> and{" "}
+              <code>CSXS.12</code> (Windows) — or run the Mac command for both{" "}
+              <code>com.adobe.CSXS.11</code> and <code>com.adobe.CSXS.12</code>.
+              Also make sure on Windows the panel sits at{" "}
               <code>%APPDATA%\Adobe\CEP\extensions</code> with no extra nesting.
-              Message us on Telegram and we’ll walk you through it.
+              If it still won’t load, message us on Telegram and we’ll walk you through it.
             </p>
             <a className="btn btn-ghost" href={BOT_URL} target="_blank" rel="noopener">Get help on Telegram</a>
           </div></Reveal>

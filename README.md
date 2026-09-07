@@ -34,9 +34,10 @@ Pay **ETB 2,500** by bank transfer to **KALEB TEGEGEN** — CBE 1000504159977 ·
    `C:\Program Files (x86)\Common Files\Adobe\CEP\extensions\`
 3. If Adobe doesn't show third-party extensions, force-enable CEP debug mode:
    in the Registry Editor, open
-   `HKEY_CURRENT_USER\Software\Adobe\CSXS.9` and set the string value
+   `HKEY_CURRENT_USER\Software\Adobe\CSXS.11` and set the DWORD
    `PlayerDebugMode` = `1` (create the key/value if missing), then restart
-   Premiere.
+   Premiere. Using Premiere 2025 (v25) or newer? Also set the same
+   `PlayerDebugMode` = `1` under `HKEY_CURRENT_USER\Software\Adobe\CSXS.12`.
 
 ### Install (macOS)
 
@@ -46,8 +47,9 @@ Pay **ETB 2,500** by bank transfer to **KALEB TEGEGEN** — CBE 1000504159977 ·
    `~/Library/Application Support/Adobe/CEP/extensions/`
    (create the `extensions` folder if it doesn't exist)
 3. Force-enable CEP debug mode so Premiere loads third-party panels:
-   `defaults write com.adobe.CSXS.9 PlayerDebugMode "1"`
-   then restart Premiere.
+   `defaults write com.adobe.CSXS.11 PlayerDebugMode "1"`
+   then restart Premiere. Using Premiere 2025 (v25) or newer? Also run
+   `defaults write com.adobe.CSXS.12 PlayerDebugMode "1"`.
 
 > **First-run note:** macOS will not run the bundled binaries until you grant
 > them permission — on first use, open **System Settings → Privacy & Security**,

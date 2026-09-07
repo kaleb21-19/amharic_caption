@@ -116,17 +116,21 @@ CEP extensions only run when the host allows them. This is a one-time system
 setting, per OS:
 
 ### macOS
-Create/append the plist key (run once):
+Create/append the plist key (run once). Premiere 2024 (v24) uses CEP 11 →
+`com.adobe.CSXS.11`. Premiere 2025 (v25) uses CEP 12 → add `com.adobe.CSXS.12` too:
 
 ```
-defaults write com.adobe.CSXS.10 PlayerDebugMode 1
+defaults write com.adobe.CSXS.11 PlayerDebugMode 1
+defaults write com.adobe.CSXS.12 PlayerDebugMode 1
 ```
 
 ### Windows
-Add a registry DWORD (run once), then restart Premiere:
+Add a registry DWORD (run once), then restart Premiere. Do `CSXS.11` for
+Premiere 2024 and `CSXS.12` as well for Premiere 2025+:
 
 ```
-reg add "HKCU\Software\Adobe\CSXS.10" /v PlayerDebugMode /t REG_DWORD /d 1 /f
+reg add "HKCU\Software\Adobe\CSXS.11" /v PlayerDebugMode /t REG_DWORD /d 1 /f
+reg add "HKCU\Software\Adobe\CSXS.12" /v PlayerDebugMode /t REG_DWORD /d 1 /f
 ```
 
 ### Host
