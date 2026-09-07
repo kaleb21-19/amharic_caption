@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { BOT_URL, BOT_USERNAME, PAYMENT, PRICE, PRICE_NUM, PRICE_OLD, PRICE_OLD_NUM } from "@/lib/site";
+import BankCards from "@/components/BankCards";
+import { BOT_URL, BOT_USERNAME, PRICE, PRICE_NUM, PRICE_OLD, PRICE_OLD_NUM } from "@/lib/site";
 
 export const metadata = {
   title: "Pricing — Amharic Captions for Premiere Pro",
@@ -43,9 +44,10 @@ export default function PricingPage() {
               Buy now via Telegram
             </a>
             <p className="tiny">
-              Ordering opens our Telegram bot — pay by {PAYMENT} and receive your
-              license key right there.
+              Ordering opens our Telegram bot — send {PRICE} to one of the bank
+              accounts below and your license key is delivered right there.
             </p>
+            <BankCards />
           </div>
         </div>
       </section>
@@ -62,7 +64,7 @@ export default function PricingPage() {
             </div>
             <div className="card">
               <h3>2 · Pay</h3>
-              <p>Pay {PRICE} via Telebirr, right from the conversation.</p>
+              <p>Send {PRICE} to one of the bank accounts (CBE, Abyssinia, or Zemen).</p>
             </div>
             <div className="card">
               <h3>3 · Get your key</h3>

@@ -17,7 +17,7 @@ Copy-paste ready. Post these when you launch, and reuse later for reach.
 >
 > 🎁 **ሁሉም ሰው 2 ነጻ trial** ያገኛል — ሞክር እና እርካታ ከተሰማህ ግዛ!
 >
-> 📲 ለመግዛት: Telebirr → **0907 628 809** → Machine ID + payment screenshot ላክ
+> 🏦 ለመግዛት: ባንክ ዝውውር → **KALEB TEGEGEN** (CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015) → Machine ID + payment screenshot ላክ
 > 👇 የተሟላ መረጃ pinned message ላይ
 >
 > ማስታወቂያ ወደውት ባልንጀሮችህ አጋራ! 🚀
@@ -47,7 +47,7 @@ Copy-paste ready. Post these when you launch, and reuse later for reach.
 > • የአማርኛ ካፕሽን በአውቶማቲክ
 >
 > 🎁 2 ነጻ trial አለ — መግዛትህ በፊት ሞክር!
-> 📲 Telebirr → **0907 628 809** → screenshot + Machine ID ላክ
+> 🏦 ባንክ ዝውውር → **KALEB TEGEGEN** (CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015) → screenshot + Machine ID ላክ
 
 ---
 

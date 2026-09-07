@@ -17,7 +17,7 @@ Setup
 
 The bot NEVER sends a license key automatically. When a buyer sends a Machine
 ID it generates a key but keeps it PENDING until you (the admin) approve the
-sale with the Approve button, after you confirm the Telebirr payment manually.
+sale with the Approve button, after you confirm the bank-transfer payment manually.
 Approving DM's the key to the buyer and logs it to customers.csv.
 """
 import argparse
@@ -43,7 +43,8 @@ TOKEN = _env("AMH_TG_TOKEN", "").strip()
 ADMIN_ID = _env("AMH_ADMIN_ID", "").strip()
 GROUP_ID = _env("AMH_GROUP_ID", "").strip()
 PRICE = "ETB 2,500"
-TELEBIRR = "0907 628 809"
+ACCT_NAME = "KALEB TEGEGEN"
+PAY_ACCOUNTS = "CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015"
 LEDGER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "customers.csv")
 SECRET = b"7JBrcWoJAXZYNDczdPjIn1Kyv2Wynqz1_d73_-fdC4g="
 
@@ -108,8 +109,8 @@ PENDING_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pending
 # Every buyer is in exactly ONE of these states at a time:
 #   absent        -> not in the buy flow (idle)
 #   "mid"         -> waiting for their Machine ID (8 hex chars)
-#   "photo"       -> waiting for their Telebirr screenshot (photo/document)
-#   "ref"         -> waiting for the Telebirr payment reference number
+#   "photo"       -> waiting for their payment screenshot (photo/document)
+#   "ref"         -> waiting for the payment reference number
 #   "confirm"     -> review screen showing; awaiting Confirm
 # FSM: uid -> {"step", "mid", "photo", "ref", "hint", "ui_msg_id"}
 FSM = {}
@@ -418,7 +419,7 @@ def menu_how():
         "<b>② Try — FREE</b>\n"
         "Make <b>2 free</b> captions before buying. No commitment.\n\n"
         "<b>③ Pay</b>\n"
-        f"<s>ETB 3,500</s> → <b>{PRICE}</b> via Telebirr to <b>{TELEBIRR}</b>. "
+        f"<s>ETB 3,500</s> → <b>{PRICE}</b> by bank transfer to <b>{ACCT_NAME}</b>. "
         "Take a screenshot of the payment confirmation.\n\n"
         "<b>④ Send ID + proof</b>\n"
         "Send your payment screenshot and <b>Machine ID</b> here.\n\n"
@@ -437,7 +438,7 @@ WELCOME = (
     "ይህ ሶፍትዌር፣ Premiere Pro ላይ ቪዲዮዎን በራስ-ሰር በ<b>አማርኛ ንዑስ ርዕስ</b> "
     "(subtitle) ያስቀምጥልዎታል። ሙሉ በሙሉ በኮምፒውተርዎ ላይ ነው የሚሰራው (offline)።\n\n"
     f"💰 ዋጋ: <s>ETB 3,500</s> → <b>{PRICE}</b> (አንድ ጊዜ — እስከመጨረሻው)\n"
-    f"📲 Telebirr: <b>{TELEBIRR}</b>\n"
+    f"🏦 Bank transfer to <b>{ACCT_NAME}</b>: {PAY_ACCOUNTS}\n"
     "🖥 Windows & Mac\n"
     "⏰ <b>መግቢያ ዋጋ</b> — አሁኑኑ ይጠቀሙ!\n\n"
     "ከታች ያሉትን አዝራሮች ይጠቀሙ 👇"
@@ -464,7 +465,7 @@ def hero(first=""):
         "🤝 <b>Buy with confidence</b>\n"
         "• You keep your captions offline on your own machine — nothing is shared\n"
         "• Your license key is delivered <b>right in this chat</b> after we confirm "
-        "your Telebirr payment\n"
+        "your bank-transfer payment\n"
         "• Real support via DM — get unstuck fast\n\n"
         "👇 Tap <b>1️⃣ Install</b> to taste it free first:"
     )
@@ -495,11 +496,11 @@ def menu_pay():
         "No risk.\n\n"
         "<b>Before you send — here's the deal:</b>\n"
         f"💵 Amount: <s>ETB 3,500</s> → <b>{PRICE}</b> — one-time, forever license, no extra fees\n"
-        f"🏦 Paid to: <b>{TELEBIRR}</b> (Telebirr)\n"
+        f"🏦 Paid to: <b>{ACCT_NAME}</b> (bank transfer)\n"
         "🔑 You get: your license key <b>in this chat</b>\n"
         f"{proof}"
         "⏰ <b>Introductory price</b> — lock it in now.\n\n"
-        "👇 Tap below <b>only after</b> you've sent the money via Telebirr."
+        "👇 Tap below <b>only after</b> you've sent the money."
     )
     kb = [
         [{"text": "✅ I've paid — send proof", "callback_data": "pay:proof"}],
@@ -576,8 +577,8 @@ def menu_faq():
         "key is needed for a different computer.\n\n"
         "<b>Q: When does the key expire?</b>\n"
         "A: It never expires! <b>One-time payment</b> — no subscription.\n\n"
-        "<b>Q: Is Telebirr the only payment method?</b>\n"
-        f"A: Yes. Telebirr to <b>{TELEBIRR}</b>.\n\n"
+        "<b>Q: How do I pay?</b>\n"
+        f"A: Bank transfer to <b>{ACCT_NAME}</b> — {PAY_ACCOUNTS}.\n\n"
         "<b>Q: I changed my computer / lost my key?</b>\n"
         "A: Contact the seller. With proof of purchase, we'll help transfer "
         "to your new machine.\n\n"
@@ -585,7 +586,7 @@ def menu_faq():
         "A: Windows or Mac with <b>Premiere Pro 2024 (v24)</b> or newer. "
         "The Amharic model runs on your own computer — no internet needed.\n\n"
         f"💰 <b>Price:</b> <s>ETB 3,500</s> → <b>{PRICE}</b> one-time.\n"
-        f"📲 <b>Pay via Telebirr:</b> {TELEBIRR}\n\n"
+        f"🏦 <b>Pay via bank transfer to {ACCT_NAME}:</b> {PAY_ACCOUNTS}\n\n"
         "👤 <b>Need help? Message the seller:</b>\n"
         "💬 <a href=\"https://t.me/sumpak6\">@sumpak6</a>"
     )
@@ -641,7 +642,7 @@ def _send_guide(chat_id, uid):
 def menu_screenshot_help():
     text = (
         "📸 <b>How do I send the payment screenshot?</b>\n\n"
-        f"After paying <b>{PRICE}</b> via Telebirr to <b>{TELEBIRR}</b>, "
+        f"After paying <b>{PRICE}</b> by bank transfer to <b>{ACCT_NAME}</b>, "
         "take a screenshot of the \"<b>Payment Successful</b>\" screen on your phone.\n\n"
         "To send it in Telegram:\n"
         "<b>①</b> Tap the <b>📎 (paperclip)</b> icon below\n"
@@ -682,7 +683,7 @@ def key_delivery_message(key, expiry="00000000", chat_type="private", ref=""):
         lines += ["",
                   "🧾 <b>Receipt</b>",
                   f"• Amount: <b>{PRICE}</b>",
-                  f"• Paid to: {TELEBIRR}",
+                  f"• Paid to: {ACCT_NAME}",
                   f"• Reference: <code>{ref}</code>"]
     if expiry != "00000000":
         lines += ["", f"⏰ Expires: {expiry}"]
@@ -720,10 +721,10 @@ def mid_of_pending_or_none(uid):
 
 
 def _ask_screenshot(chat_id):
-    """Step 2: Machine ID is in, ask for the Telebirr screenshot (a photo)."""
+    """Step 2: Machine ID is in, ask for the payment screenshot (a photo)."""
     send_text(chat_id,
               "✅ Machine ID received!\n\n"
-              "📤 <b>Step 2/3</b> — now send your <b>Telebirr screenshot</b> "
+              "📤 <b>Step 2/3</b> — now send your <b>bank-transfer screenshot</b> "
               "as a <b>photo</b> (the \"payment success\" screen).\n\n"
               "If it came as a file, that's fine too — we'll handle it.",
               keyboard=[[{"text": "✖ Cancel", "callback_data": "proof:cancel"}]])
@@ -731,11 +732,11 @@ def _ask_screenshot(chat_id):
 
 
 def _ask_reference(chat_id, uid, msg_id=None):
-    """Step 3: screenshot is in, ask for the Telebirr reference number."""
+    """Step 3: screenshot is in, ask for the reference number."""
     text = (
         "✅ Screenshot received!\n\n"
         "📤 <b>Step 3/3</b> — type the payment <b>reference number</b> "
-        "from your Telebirr receipt (the long number under the amount).\n\n"
+        "from your transfer receipt (the long number under the amount).\n\n"
         "This helps us match your payment instantly 🎯\n\n"
         "<i>Don't have it handy? Tap skip — we'll verify manually.</i>"
     )
@@ -759,7 +760,7 @@ def _review_confirm(uid, chat_id):
         "🧾 <b>Review your order</b>\n\n"
         f"🤖 Machine ID: <code>{mid}</code>\n"
         f"💵 Amount: <s>ETB 3,500</s> → <b>{PRICE}</b> (one-time, +0 fees)\n"
-        f"🏦 Paid to: <b>{TELEBIRR}</b>\n"
+        f"🏦 Paid to: <b>{ACCT_NAME}</b>\n"
         f"🧾 Reference: {ref_line}\n\n"
         "🔑 On approval, your key arrives <b>right here</b>.\n"
         "Everything look right? Tap <b>Confirm</b> to send your order."
@@ -813,7 +814,7 @@ def _complete_proof(uid, chat_id, uname, is_pm):
             f"Machine ID: <code>{mid}</code>\n"
             f"User: @{uname} (id {uid})\n"
             f"Source: {'DM' if is_pm else 'Group'}\n"
-            f"Telebirr ref: {('<code>' + ref + '</code>') if ref else '<i>not provided</i>'}\n\n"
+            f"Payment ref: {('<code>' + ref + '</code>') if ref else '<i>not provided</i>'}\n\n"
             "Check the screenshot + reference, then Approve or Reject:"
         )
         kb = admin_keyboard("pending", {"uid": uid})
@@ -1049,7 +1050,7 @@ def handle_buyer_message(message):
     # ── FSM step "photo": we're waiting for the screenshot, not text ─────────
     if step == "photo":
         msg_ = ("📸 I'm waiting for your <b>screenshot</b> — please send the "
-                "Telebirr payment screenshot as a <b>photo</b>.")
+                "bank-transfer payment screenshot as a <b>photo</b>.")
         if not _dup_reply(uid, msg_):
             send_text(chat_id, msg_,
                       keyboard=[[{"text": "✖ Cancel", "callback_data": "proof:cancel"}]])
@@ -1202,7 +1203,7 @@ def handle_buyer_photo(message):
         if is_document:
             if not mime.startswith("image/"):
                 msg_ = ("📁 That came through as a <b>file</b>, not a photo.\n\n"
-                        "Send the Telebirr screenshot as a <b>photo/image</b> so "
+                        "Send the payment screenshot as a <b>photo/image</b> so "
                         "we can verify it.")
                 if not _dup_reply(uid, msg_):
                     send_text(chat_id, msg_,
@@ -1222,7 +1223,7 @@ def handle_buyer_photo(message):
     # ── FSM step "ref"/"confirm": we already have the screenshot. ────────────
     if step in ("ref", "confirm"):
         msg_ = ("✅ We already have your screenshot! Just type the "
-                "<b>reference number</b> from your Telebirr receipt — or tap "
+                "<b>reference number</b> from your transfer receipt — or tap "
                 "one of the buttons below.")
         if not _dup_reply(uid, msg_):
             send_text(chat_id, msg_,
@@ -1591,8 +1592,8 @@ def main():
         ]))
         api("setMyDescription",
             description="Premiere Pro plugin that auto-generates Amharic captions "
-                        "(subtitles) offline. One-time payment via Telebirr → "
-                        f"{TELEBIRR}.")
+                        "(subtitles) offline. One-time bank-transfer payment → "
+                        f"{ACCT_NAME} ({PAY_ACCOUNTS}).")
         api("setMyShortDescription", short_description="Amharic Captions — sales & support bot")
         print("Commands/description registered.")
     except Exception as e:

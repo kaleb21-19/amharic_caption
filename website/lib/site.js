@@ -8,7 +8,14 @@ export const PRICE = "ETB 2,500";
 export const PRICE_NUM = "2500";
 export const PRICE_OLD = "ETB 3,500";
 export const PRICE_OLD_NUM = "3500";
-export const PAYMENT = "Telebirr 0907 628 809";
+
+// Payment: bank transfer accounts (account holder).
+export const ACCT_NAME = "KALEB TEGEGEN";
+export const ACCOUNTS = [
+  { bank: "Commercial Bank of Ethiopia", short: "CBE", number: "1000504159977" },
+  { bank: "Abyssinia Bank", short: "Abyssinia", number: "402393939" },
+  { bank: "Zemen Bank", short: "Zemen", number: "1031111343277015" },
+];
 
 // Download links. Pointed at "releases/latest/download/..." so they always
 // resolve to the newest release that carries the zip (GitHub redirects the

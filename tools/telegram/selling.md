@@ -20,7 +20,7 @@ the group, post offers, and handle buyers — copy-paste ready.
 > one-time price.
 >
 > 💰 ዋጋ: **ETB 2,500** (one-time, per computer)
-> 📲 የሚከፈለው: Telebirr → **0907 628 809**
+> 🏦 የሚከፈለው: ባንክ ዝውውር → **KALEB TEGEGEN** (CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015)
 > 🖥 Windows & Mac
 >
 > እንዴት እንደሚገዙ ለማወቅ: pinned message ይመልከቱ 👇
@@ -29,7 +29,7 @@ the group, post offers, and handle buyers — copy-paste ready.
 - No spam, no reselling the key, no sharing your key with others (each key is
   locked to one computer).
 - For support, reply under a post or DM the admin.
-- Payment is via Telebirr only.
+- Payment is by bank transfer (CBE, Abyssinia, or Zemen).
 
 ---
 
@@ -40,10 +40,10 @@ the group, post offers, and handle buyers — copy-paste ready.
 > **1.** የሶፍትዌሩን ፓነል ይክፈቱና "Your Machine ID" የሚለውን ቁጥር ይቅዱ
 > (Copy the Machine ID shown in the panel's License section).
 >
-> **2.** **ETB 2,500** በTelebirr ወደ **0907 628 809** ይላኩ
-> (Send ETB 2,500 via Telebirr to 0907 628 809).
+> **2.** **ETB 2,500** በባንክ ዝውውር ወደ **KALEB TEGEGEN** (CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015) ይላኩ
+> (Send ETB 2,500 by bank transfer to KALEB TEGEGEN — CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015).
 >
-> **3.** የTelebirr ማረጋገጫ (screenshot) እና Machine ID በዚህ ግሩፕ ወይም በግል
+> **3.** የዝውውር ማረጋገጫ (screenshot) እና Machine ID በዚህ ግሩፕ ወይም በግል
 > መልእክት ይላኩ (Send the payment screenshot + your Machine ID here or in DM).
 >
 > **4.** ሊሰንስ ኬይ (license key) ወደ እርስዎ ይላካል። በፓነሉ License field ውስጥ
@@ -61,7 +61,7 @@ the group, post offers, and handle buyers — copy-paste ready.
 > ይህ ሶፍትዌር Premiere Pro ላይ ቪዲዮዎን በነጻ የአማርኛ ንዑስ ርዕስ (subtitle/caption)
 > ያስቀምጥልዎታል — በኮምፒውተርዎ ላይ ብቻ ይሰራል (offline, on-device)።
 >
-> 💰 **ETB 2,500** (one-time) · 📲 Telebirr **0907 628 809** · 🖥 Windows & Mac
+> 💰 **ETB 2,500** (one-time) · 🏦 Bank transfer **KALEB TEGEGEN** (CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015) · 🖥 Windows & Mac
 >
 > 🔍 ለመግዛት እና ለ2 ነጻ trial → pinned message ይመልከቱ 👇
 
@@ -79,7 +79,7 @@ computer you need a separate key.
 
 **መቼ ነው የሚቆየው?** One-time purchase, permanent (no subscription).
 
-**Telebirr ብቻ?** Yes, Telebirr to **0907 628 809**.
+**እንዴት እከፍላለሁ?** ባንክ ዝውውር ወደ **KALEB TEGEGEN** — CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015.
 
 **ኮምፒውተሬን ቀይሬያለሁ / key አጣሁ?** DM admin — we can reactivate for the same
 account (proof of purchase needed).

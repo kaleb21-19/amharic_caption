@@ -86,7 +86,8 @@ let TOKEN = '';
 let ADMIN_ID = '';
 let GROUP_ID = '';
 let PRICE = 'ETB 2,500';
-let TELEBIRR = '0907 628 809';
+let ACCT_NAME = 'KALEB TEGEGEN';
+let PAY_ACCOUNTS = 'CBE 1000504159977 · Abyssinia 402393939 · Zemen 1031111343277015';
 const SUPPORT_URL = 'https://t.me/sumpak6';
 
 // ── config / env ────────────────────────────────────────────────────────────
@@ -95,7 +96,8 @@ function initEnv(env) {
   ADMIN_ID = (env.AMH_ADMIN_ID || '1887247213').toString();
   GROUP_ID = env.AMH_GROUP_ID || '';
   PRICE = env.AMH_PRICE || 'ETB 2,500';
-  TELEBIRR = env.AMH_TELEBIRR || '0907 628 809';
+  ACCT_NAME = env.AMH_ACCT_NAME || ACCT_NAME;
+  PAY_ACCOUNTS = env.AMH_PAY_ACCOUNTS || PAY_ACCOUNTS;
   SECRET = env.AMH_SECRET || '';
   globalThis.DB = env.DB;
 }
@@ -114,7 +116,7 @@ function heroText(first = '') {
     '3️⃣ <b>Make captions</b> forever, offline\n\n' +
     '🤝 <b>Buy with confidence</b>\n' +
     '\u2022 You keep your captions offline on your own machine \u2014 nothing is shared\n' +
-    '\u2022 Your license key is delivered <b>right in this chat</b> after we confirm your Telebirr payment\n' +
+    '\u2022 Your license key is delivered <b>right in this chat</b> after we confirm your bank-transfer payment\n' +
     '\u2022 Real support via DM \u2014 get unstuck fast\n\n' +
     '👇 Tap <b>1️⃣ Install</b> to taste it free first:'
   );
@@ -150,12 +152,13 @@ function payText(served) {
     '🎁 <b>Did you try your 2 free captions first?</b>\n' +
     'Install → make 2 free captions → come back and pay. No risk.\n\n' +
     `<b>Before you send — here's the deal:</b>\n` +
-    `💵 Amount: <s>ETB 3,500</s> → <b>${PRICE}</b> — one-time, forever license, no extra fees`
-    `🏦 Paid to: <b>${TELEBIRR}</b> (Telebirr)\n` +
+    `💵 Amount: <s>ETB 3,500</s> → <b>${PRICE}</b> — one-time, forever license, no extra fees\n` +
+    `🏦 Paid to: <b>${ACCT_NAME}</b> (bank transfer)\n` +
+    `🏛 Account: <b>${PAY_ACCOUNTS}</b>\n` +
     '🔑 You get: your license key <b>in this chat</b>\n' +
     proof +
     '⏰ <b>Introductory price</b> — lock it in now.\n\n' +
-    '👇 Tap below <b>only after</b> you sent the money via Telebirr.'
+    '👇 Tap below <b>only after</b> you sent the money.'
   );
 }
 const payKeyboard = () => [
@@ -323,7 +326,8 @@ function groupWelcome() {
     'ይህ ሶፍትዌር፣ Premiere Pro ላይ ቪዲዮዎን በራስ-ሰር በ<b>አማርኛ ንዑስ ርዕስ</b> ' +
     '(subtitle) ያስቀምጥልዎታል። ሙሉ በሙሉ በኮምፒውተርዎ ላይ ነው የሚሰራው (offline)።\n\n' +
     `💰 ዋጋ: <s>ETB 3,500</s> → <b>${PRICE}</b> (አንድ ጊዜ)\n` +
-    `📲 Telebirr: <b>${TELEBIRR}</b>\n` +
+    `🏦 የሚከፈለው: ባንክ ዝውውር (bank transfer) ወደ <b>${ACCT_NAME}</b>\n` +
+    `🏛 አካውንት: <b>${PAY_ACCOUNTS}</b>\n` +
     '🖥 Windows & Mac\n' +
     '⏰ <b>መግቢያ ዋጋ</b> — አሁኑኑ ይጠቀሙ!'
   );
@@ -368,8 +372,8 @@ function faqText() {
     'key is needed for a different computer.\n\n' +
     '<b>Q: When does the key expire?</b>\n' +
     'A: It never expires! <b>One-time payment</b> — no subscription.\n\n' +
-    '<b>Q: Is Telebirr the only payment method?</b>\n' +
-    `A: Yes. Telebirr to <b>${TELEBIRR}</b>.\n\n` +
+    '<b>Q: How do I pay?</b>\n' +
+    `A: Bank transfer to <b>${ACCT_NAME}</b> — ${PAY_ACCOUNTS}.\n\n` +
     '<b>Q: I changed my computer / lost my key?</b>\n' +
     "A: Contact the seller. With proof of purchase, we'll help transfer " +
     'to your new machine.\n\n' +
@@ -377,7 +381,7 @@ function faqText() {
     'A: Windows or Mac with <b>Premiere Pro 2024 (v24)</b> or newer. ' +
     'The Amharic model runs on your own computer — no internet needed.\n\n' +
     `💰 <b>Price:</b> <s>ETB 3,500</s> → <b>${PRICE}</b> one-time.\n` +
-    `📲 <b>Pay via Telebirr:</b> ${TELEBIRR}\n\n` +
+    `🏦 <b>Pay via bank transfer to ${ACCT_NAME}:</b> ${PAY_ACCOUNTS}\n\n` +
     '👤 <b>Need help? Message the seller:</b>\n' +
     `<a href="${SUPPORT_URL}">@sumpak6</a>`
   );
@@ -414,7 +418,7 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
 
   // step photo: waiting for screenshot
   if (step === 'photo') {
-    await sendText(chatId, '📸 I’m waiting for your <b>screenshot</b> — send the Telebirr payment screenshot as a <b>photo</b>.', [
+    await sendText(chatId, '📸 I’m waiting for your <b>screenshot</b> — send the bank-transfer payment screenshot as a <b>photo</b>.', [
       [{ text: '✖ Cancel', callback_data: 'proof:cancel' }],
     ]);
     return;
@@ -448,7 +452,7 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
     await setFsm(uid, { step: 'photo', mid, photo_key: null, ref: '', hint: 1 });
     await addFunnel(uid, 'mid_sent');
     await sendText(chatId,
-      '✅ Machine ID received!\n\n📤 <b>Step 2/3</b> — now send your <b>Telebirr screenshot</b> as a <b>photo</b> (the "payment success" screen).',
+      '✅ Machine ID received!\n\n📤 <b>Step 2/3</b> — now send your <b>bank-transfer screenshot</b> as a <b>photo</b> (the "payment success" screen).',
       [[{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
     return;
   }
@@ -494,7 +498,7 @@ async function handlePhoto(msg, uid, chatId, privateChat, text) {
   if (step === 'photo') {
     if (isDocument && !mime.startsWith('image/')) {
       await sendText(chatId,
-        '📁 That came through as a <b>file</b>, not a photo.\n\nSend the Telebirr screenshot as a <b>photo/image</b> so we can verify it.',
+        '📁 That came through as a <b>file</b>, not a photo.\n\nSend the payment screenshot as a <b>photo/image</b> so we can verify it.',
         [[{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
       return;
     }
@@ -502,13 +506,13 @@ async function handlePhoto(msg, uid, chatId, privateChat, text) {
     await setFsm(uid, { ...s, photo_key: objectKey, step: 'ref' });
     await addFunnel(uid, 'screenshot_sent');
     await sendText(chatId,
-      '✅ Screenshot received!\n\n📤 <b>Step 3/3</b> — type the payment <b>reference number</b> from your Telebirr receipt (the long number under the amount).\n\nThis helps us match your payment instantly 🎯\n\n<i>Don\'t have it handy? Tap skip — we\'ll verify manually.</i>',
+      '✅ Screenshot received!\n\n📤 <b>Step 3/3</b> — type the payment <b>reference number</b> from your transfer receipt (the long number under the amount).\n\nThis helps us match your payment instantly 🎯\n\n<i>Don\'t have it handy? Tap skip — we\'ll verify manually.</i>',
       [[{ text: '↪ Skip — confirm anyway', callback_data: 'proof:skipref' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
     return;
   }
   if (step === 'ref' || step === 'confirm') {
     await sendText(chatId,
-      '✅ We already have your screenshot! Just type the <b>reference number</b> from your Telebirr receipt — or tap one of the buttons below.',
+      '✅ We already have your screenshot! Just type the <b>reference number</b> from your transfer receipt — or tap one of the buttons below.',
       [[{ text: '↪ Skip — confirm anyway', callback_data: 'proof:skipref' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
     return;
   }
@@ -547,7 +551,7 @@ async function reviewConfirm(uid, chatId) {
     '🧾 <b>Review your order</b>\n\n' +
     `🤖 Machine ID: <code>${s.mid}</code>\n` +
     `💵 Amount: <b>${PRICE}</b> (one-time, +0 fees)\n` +
-    `🏦 Paid to: <b>${TELEBIRR}</b>\n` +
+    `🏦 Paid to: <b>${ACCT_NAME}</b>\n` +
     `🧾 Reference: ${refLine}\n\n` +
     '🔑 On approval, your key arrives <b>right here</b>.\nLook right? Tap <b>Confirm</b>.';
   const kb = [
@@ -593,7 +597,7 @@ async function completeProof(uid, chatId, uname, privateChat) {
     const caption =
       '🧾 <b>New order — payment proof</b>\n\n' +
       `Machine ID: <code>${s.mid}</code>\nUser: @${uname} (id ${uid})\nSource: ${privateChat ? 'DM' : 'Group'}\n` +
-      `Telebirr ref: ${ref ? `<code>${ref}</code>` : '<i>not provided</i>'}\n\n` +
+      `Payment ref: ${ref ? `<code>${ref}</code>` : '<i>not provided</i>'}\n\n` +
       'Check the screenshot + reference, then Approve or Reject:';
     if (s.photo_key) await sendPhoto(adm, s.photo_key, caption, adminKeyboardPend(orderId));
     else await sendText(adm, caption, adminKeyboardPend(orderId));
@@ -614,7 +618,7 @@ function keyDeliveryMessage(key, expiry, chatType, ref) {
     '<b>②</b> Premiere Pro → open the panel → License',
     '<b>③</b> Paste it → tap <b>Activate</b>',
   ];
-  if (ref) lines.push('', '🧾 <b>Receipt</b>', `• Amount: <b>${PRICE}</b>`, `• Paid to: ${TELEBIRR}`, `• Reference: <code>${ref}</code>`);
+  if (ref) lines.push('', '🧾 <b>Receipt</b>', `• Amount: <b>${PRICE}</b>`, `• Paid to: ${ACCT_NAME}`, `• Reference: <code>${ref}</code>`);
   if (expiry !== '00000000') lines.push('', `⏰ Expires: ${expiry}`);
   if (chatType !== 'private') lines.push('', '🔒 For privacy, ask for your key in a private DM.');
   lines.push('', 'Thank you! 🙏 If you have any trouble, message the seller.');

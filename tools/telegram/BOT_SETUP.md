@@ -2,7 +2,7 @@
 
 This bot (a) welcomes new members, (b) answers the purchase/install/FAQ questions,
 and (c) generates a license key when a buyer sends their Machine ID — but holds it
-for **your approval** until you confirm the Telebirr payment, then DM's the key and
+for **your approval** until you confirm the bank-transfer payment, then DM's the key and
 logs it to `customers.csv`.
 
 Zero dependencies: uses only Python's standard library. No `pip install` needed.
@@ -82,9 +82,8 @@ key delivery).
 1. Buyer joins your group (or DMs the bot) → bot sends the welcome + menu:
    **💳 How to buy · 🛠 Install · ❓ FAQ · 🔑 Get my key**
 2. Buyer sends their **Machine ID** (8 hex chars from the panel's License section).
-3. Bot replies: "Machine ID received — please send ETB 2,500 via Telebirr to
-   0907 628 809" and **notifies you** with an Approve / Reject / Expire keyboard.
-4. **You check the Telebirr payment manually.** If paid, press **✅ Approve**.
+3. Bot replies: "Machine ID received — please send ETB 2,500 by bank transfer to KALEB TEGEGEN (CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015)" and **notifies you** with an Approve / Reject / Expire keyboard.
+4. **You check the bank-transfer payment manually.** If received, press **✅ Approve**.
 5. Bot DM's the buyer their license key and logs the sale in `customers.csv`.
 6. If you hit **❌ Reject**, the buyer is told the key wasn't sent.
 

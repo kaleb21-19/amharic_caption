@@ -22,7 +22,8 @@ Telegram bot (`@AmharicCaptionsBot`). Change it once there.
 - `BOT_URL` = `https://t.me/AmharicCaptionsBot`
 - `SUPPORT_URL` = `https://t.me/sumpak6`
 - `PRICE` = `ETB 2,500`
-- `PAYMENT` = `Telebirr 0907 628 809`
+- Payment = bank transfer to `KALEB TEGEGEN` (CBE `1000504159977` / Abyssinia `402393939` / Zemen `1031111343277015`),
+  defined in `lib/site.js` as `ACCT_NAME` + `ACCOUNTS` and rendered by `components/BankCards.jsx`
 
 ## Product assets
 - **Header/Footer logo:** `public/images/logo@2x.png` (web-optimized from the

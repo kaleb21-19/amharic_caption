@@ -13,7 +13,7 @@ Examples:
     python3 deliver_key.py --list                # show the whole ledger
 
 Machine IDs are 8-char hex strings shown in the panel's License section.
-Buyer already pays ETB 2,500 via Telebirr to 0907 628 809 before this runs.
+Buyer already pays ETB 2,500 by bank transfer to KALEB TEGEGEN before this runs.
 """
 import argparse
 import csv
@@ -25,7 +25,7 @@ import sys
 # ── HMAC secret (same as in panel/js/main.js and keygen.py) ────────────────
 SECRET = b"7JBrcWoJAXZYNDczdPjIn1Kyv2Wynqz1_d73_-fdC4g="
 LEDGER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "customers.csv")
-TELEBIRR = "0907 628 809"
+PAY_METHOD = "bank transfer to KALEB TEGEGEN (CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015)"
 PRICE = "ETB 2,500"
 
 
@@ -131,7 +131,7 @@ def main():
     print(telegram_message(args.machine_id, args.name, key, args.expiry))
     print("─" * 50)
     print(f"\nLedger: {LEDGER}")
-    print(f"Reminder: confirm the buyer paid {PRICE} via Telebirr to {TELEBIRR} before sending.")
+    print(f"Reminder: confirm the buyer paid {PRICE} via {PAY_METHOD} before sending.")
 
 
 if __name__ == "__main__":
