@@ -10,7 +10,7 @@ export const metadata = {
 const winSteps = [
   { t: "Download", c: "Get the Windows build below and unzip it (right-click the zip → Extract All). Make sure a folder named com.amharic.captions appears — do not drag files out of the zip by hand." },
   { t: "Copy to Extensions", c: "Open File Explorer and go to C:\\Program Files (x86)\\Common Files\\Adobe\\CEP\\extensions. Copy the com.amharic.captions folder into it (click Yes if Windows asks for permission)." },
-  { t: "Allow Adobe to run it", c: "Press WIN+R → type regedit → Enter (click Yes if asked). Paste HKEY_CURRENT_USER\\Software\\Adobe\\CSXS.11 into the address bar → Enter. On the right, double-click PlayerDebugMode and set it to 1. If it doesn't exist: right-click empty space → New → DWORD (32-bit) Value → name it PlayerDebugMode → set value to 1. Close regedit." },
+  { t: "Allow Adobe to run it", c: "Press WIN+R → type regedit → Enter (click Yes if asked). Paste HKEY_CURRENT_USER\\Software\\Adobe\\CSXS.11 into the address bar → Enter. On the right, double-click PlayerDebugMode and set it to 1. If it doesn't exist: right-click empty space → New → DWORD (32-bit) Value → name it PlayerDebugMode → set value to 1. Close regedit. Note: Premiere 2024 uses CSXS.11, Premiere 2025 uses CSXS.12 — set the matching key for your version." },
   { t: "Restart Premiere", c: "Fully quit and reopen Premiere Pro, then open Extensions > Amharic Captions." },
   { t: "Activate", c: "Copy your Machine ID, pay via the Telegram bot, and paste your license key to activate." },
 ];
@@ -18,7 +18,7 @@ const winSteps = [
 const macSteps = [
   { t: "Download", c: "Choose the build for your chip: Apple Silicon (arm64) or Intel (x64), then unzip." },
   { t: "Copy to Extensions", c: "Copy the com.amharic.captions folder into: ~/Library/Application Support/Adobe/CEP/extensions/" },
-  { t: "Allow Adobe to run it", c: "Open Terminal (⌘+Space → type Terminal → Enter), paste defaults write com.adobe.CSXS.11 PlayerDebugMode \"1\" and press Enter. Using Premiere 2025 (v25)? Also run the same for com.adobe.CSXS.12. Close Terminal." },
+  { t: "Allow Adobe to run it", c: "Open Terminal (⌘+Space → type Terminal → Enter). For Premiere 2024, run: defaults write com.adobe.CSXS.11 PlayerDebugMode \"1\". For Premiere 2025, run: defaults write com.adobe.CSXS.12 PlayerDebugMode \"1\". Close Terminal." },
   { t: "Restart Premiere", c: "Fully quit and reopen Premiere Pro, then open Extensions > Amharic Captions." },
   { t: "Activate", c: "Copy your Machine ID, pay via the Telegram bot, and paste your license key to activate." },
 ];

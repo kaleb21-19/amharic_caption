@@ -125,8 +125,9 @@ defaults write com.adobe.CSXS.12 PlayerDebugMode 1
 ```
 
 ### Windows
-Add a registry DWORD (run once), then restart Premiere. Do `CSXS.11` for
-Premiere 2024 and `CSXS.12` as well for Premiere 2025+:
+Add a registry DWORD (run once), then restart Premiere. **Premiere 2024 uses
+`CSXS.11`; Premiere 2025 uses `CSXS.12`** — set the key that matches the version
+on the machine (setting both is also safe):
 
 ```
 reg add "HKCU\Software\Adobe\CSXS.11" /v PlayerDebugMode /t REG_DWORD /d 1 /f
