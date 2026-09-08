@@ -1,5 +1,6 @@
 export const BOT_USERNAME = "AmharicCaptionsBot";
 export const BOT_URL = "https://t.me/AmharicCaptionsBot";
+export const GROUP_URL = "https://t.me/+L-bMfmIRyEo3MDg0";
 export const CONTACT_URL = "https://t.me/sumpak6";
 export const SUPPORT_URL = "https://t.me/sumpak6";
 export const SITE_NAME = "Amharic Captions Pro";

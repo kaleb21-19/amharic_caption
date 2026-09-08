@@ -1,5 +1,5 @@
 import Reveal from "@/components/Reveal";
-import { DL_WIN, DL_MAC_ARM, DL_MAC_X64, RELEASES_URL, BOT_URL } from "@/lib/site";
+import { DL_WIN, DL_MAC_ARM, DL_MAC_X64, RELEASES_URL, BOT_URL, GROUP_URL } from "@/lib/site";
 
 export const metadata = {
   title: "Install — Amharic Captions for Premiere Pro",
@@ -97,10 +97,13 @@ export default function InstallPage() {
           <Reveal><div className="tip">
             <h3>Need a hand?</h3>
             <p>
-              Stuck on any step? Message us on Telegram and we&apos;ll walk you
-              through it.
+              Stuck on any step? Join our Telegram group — the full Windows &
+              macOS guides live there with images, and members help fast.
             </p>
-            <a className="btn btn-ghost" href={BOT_URL} target="_blank" rel="noopener">Get help on Telegram</a>
+            <div className="tip-actions">
+              <a className="btn btn-primary" href={GROUP_URL} target="_blank" rel="noopener">Join the group</a>
+              <a className="btn btn-ghost" href={BOT_URL} target="_blank" rel="noopener">Buy / activate via bot</a>
+            </div>
           </div></Reveal>
         </div>
       </section>

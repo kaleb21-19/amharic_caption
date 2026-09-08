@@ -211,6 +211,7 @@ a { color: var(--brand); }
 .tip { max-width: 640px; margin: 0 auto; background: var(--bg-card); border: 1px solid var(--brand-100);
   border-radius: var(--radius); padding: 28px; text-align: center; }
 .tip p { margin: 0 0 18px; }
+.tip .tip-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 
 /* Pricing page extras */
 .pricing-page { padding-top: 10px; }

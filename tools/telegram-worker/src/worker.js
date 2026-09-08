@@ -117,6 +117,7 @@ const heroKeyboard = () => [
   [{ text: '💳 Pay', callback_data: 'menu:pay' }],
   [{ text: '🔑 My Key', callback_data: 'menu:mykey' }],
   [{ text: '📲 Install guide', url: `${SITE_URL}/install` }],
+  [{ text: '💬 Support group', url: 'https://t.me/+L-bMfmIRyEo3MDg0' }],
 ];
 
 // Admin-only keyboard (no buyer buttons). Tapped on /start by the shop owner.
@@ -153,6 +154,7 @@ const MENU_KEYBOARD = [
   [{ text: '💳 Pay', callback_data: 'menu:pay' }],
   [{ text: '🔑 My Key', callback_data: 'menu:mykey' }],
   [{ text: '📲 Install guide', url: `${SITE_URL}/install` }],
+  [{ text: '💬 Support group', url: 'https://t.me/+L-bMfmIRyEo3MDg0' }],
 ];
 
 // ── D1 helpers ──────────────────────────────────────────────────────────────
