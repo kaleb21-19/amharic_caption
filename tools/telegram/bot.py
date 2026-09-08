@@ -110,9 +110,8 @@ PENDING_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pending
 #   absent        -> not in the buy flow (idle)
 #   "mid"         -> waiting for their Machine ID (8 hex chars)
 #   "photo"       -> waiting for their payment screenshot (photo/document)
-#   "ref"         -> waiting for the payment reference number
 #   "confirm"     -> review screen showing; awaiting Confirm
-# FSM: uid -> {"step", "mid", "photo", "ref", "hint", "ui_msg_id"}
+# FSM: uid -> {"step", "mid", "photo", "hint", "ui_msg_id"}
 FSM = {}
 # persisted to fsm.json so a buyer mid-flow isn't stranded across a restart.
 FSM_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fsm.json")
@@ -223,7 +222,7 @@ FUNNEL_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "funnel.c
 
 def _funnel(uid, event):
     """Log one flow event per line:  ts,uid,event.  Reads like a mini funnel:
-    who started proof, sent mid, sent screenshot, ref, confirmed, approved."""
+    who started proof, sent mid, sent screenshot, confirmed, approved."""
     try:
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with open(FUNNEL_FILE, "a", encoding="utf-8") as f:
@@ -464,11 +463,10 @@ def menu_payproof():
     """Single-ask 'send proof' starting screen: first request = Machine ID."""
     text = (
         "📤 <b>Send proof</b>\n\n"
-        "Almost done — three short steps:\n\n"
+        "Almost done — two short steps:\n\n"
         "1️⃣ <b>Machine ID</b> (8 characters)\n"
-        "2️⃣ Payment <b>screenshot</b>\n"
-        "3️⃣ Payment <b>reference</b> number\n\n"
-        "→ Start with <b>Step 1/3</b>: send your <b>Machine ID</b> (8 characters).\n"
+        "2️⃣ Payment <b>screenshot</b>\n\n"
+        "→ Start with <b>Step 1/2</b>: send your <b>Machine ID</b> (8 characters).\n"
         "It's in the panel's <b>License</b> section."
     )
     kb = [
@@ -494,7 +492,7 @@ def menu_key_welcome(uid):
     return text, kb
 
 
-def key_delivery_message(key, expiry="00000000", chat_type="private", ref=""):
+def key_delivery_message(key, expiry="00000000", chat_type="private"):
     lines = [
         "✅ <b>Payment confirmed — your license key is ready!</b>",
         "",
@@ -504,12 +502,6 @@ def key_delivery_message(key, expiry="00000000", chat_type="private", ref=""):
         "<b>②</b> Premiere Pro → open the panel → License",
         "<b>③</b> Paste it → tap <b>Activate</b>",
     ]
-    if ref:
-        lines += ["",
-                  "🧾 <b>Receipt</b>",
-                  f"• Amount: <b>{PRICE}</b>",
-                  f"• Paid to: {ACCT_NAME}",
-                  f"• Reference: <code>{ref}</code>"]
     if expiry != "00000000":
         lines += ["", f"⏰ Expires: {expiry}"]
     if chat_type != "private":
@@ -549,50 +541,29 @@ def _ask_screenshot(chat_id):
     """Step 2: Machine ID is in, ask for the payment screenshot (a photo)."""
     send_text(chat_id,
               "✅ Machine ID received!\n\n"
-              "📤 <b>Step 2/3</b> — now send your <b>bank-transfer screenshot</b> "
+              "📤 <b>Step 2/2</b> — now send your <b>bank-transfer screenshot</b> "
               "as a <b>photo</b> (the \"payment success\" screen).\n\n"
               "If it came as a file, that's fine too — we'll handle it.",
               keyboard=[[{"text": "✖ Cancel", "callback_data": "proof:cancel"}]])
     return
 
 
-def _ask_reference(chat_id, uid, msg_id=None):
-    """Step 3: screenshot is in, ask for the reference number."""
-    text = (
-        "✅ Screenshot received!\n\n"
-        "📤 <b>Step 3/3</b> — type the payment <b>reference number</b> "
-        "from your transfer receipt (the long number under the amount).\n\n"
-        "This helps us match your payment instantly 🎯\n\n"
-        "<i>Don't have it handy? Tap skip — we'll verify manually.</i>"
-    )
-    kb = [[{"text": "↪ Skip — confirm anyway", "callback_data": "proof:skipref"}],
-          [{"text": "✖ Cancel", "callback_data": "proof:cancel"}]]
-    r = edit_text(chat_id, msg_id, text, kb) if msg_id else send_text(chat_id, text, kb)
-    if r and r.get("ok"):
-        FSM[uid]["ui_msg_id"] = r["result"]["message_id"]
-    return
-
-
-def _review_confirm(uid, chat_id):
-    """Show the full order for the buyer to review, then Confirm (~fintech)."""
+def _review_order(uid, chat_id):
+    """Show the full order for the buyer to review, then Confirm."""
     s = FSM.get(uid)
-    if not s or s.get("step") not in ("ref", "confirm"):
+    if not s or s.get("step") != "confirm":
         return
     mid = s.get("mid")
-    ref = (s.get("ref") or "").strip()
-    ref_line = f"<code>{ref}</code>" if ref else "<i>not provided</i>"
     text = (
         "🧾 <b>Review your order</b>\n\n"
         f"🤖 Machine ID: <code>{mid}</code>\n"
         f"💵 Amount: <s>ETB 3,500</s> → <b>{PRICE}</b> (one-time, +0 fees)\n"
-        f"🏦 Paid to: <b>{ACCT_NAME}</b>\n"
-        f"🧾 Reference: {ref_line}\n\n"
+        f"🏦 Paid to: <b>{ACCT_NAME}</b>\n\n"
         "🔑 On approval, your key arrives <b>right here</b>.\n"
         "Everything look right? Tap <b>Confirm</b> to send your order."
     )
     kb = [
         [{"text": "✅ Confirm order", "callback_data": "proof:confirm"}],
-        [{"text": "↩ Re-enter reference", "callback_data": "proof:reref"}],
         [{"text": "✖ Cancel", "callback_data": "proof:cancel"}],
     ]
     r = edit_text(chat_id, s.get("ui_msg_id"), text, kb) if s.get("ui_msg_id") else send_text(
@@ -603,19 +574,18 @@ def _review_confirm(uid, chat_id):
 
 
 def _complete_proof(uid, chat_id, uname, is_pm):
-    """Machine ID + screenshot (+ reference) received -> build order + notify admin."""
+    """Machine ID + screenshot received -> build order + notify admin."""
     s = FSM.pop(uid, None)
     save_fsm()
     mid = s.get("mid") if s else None
     photo = s.get("photo") if s else None
-    ref = (s.get("ref") or "").strip()
     if not mid:
         return
     default_expiry = "00000000"
     PENDING[uid] = {"machine_id": mid, "expiry": default_expiry,
                     "username": uname, "chat_id": str(chat_id),
                     "chat_type": "private" if is_pm else "group",
-                    "photo": photo, "ref": ref}
+                    "photo": photo}
     save_pending()
     # Buyer gets a real status + ETA (fintech-style), not "we'll check later".
     pos = list(PENDING.keys()).index(uid) + 1
@@ -623,8 +593,7 @@ def _complete_proof(uid, chat_id, uname, is_pm):
     status = (
         "📦 <b>Order received — now pending</b>\n\n"
         f"🤖 Machine ID: <code>{mid}</code>\n"
-        f"💵 Amount: <s>ETB 3,500</s> → <b>{PRICE}</b>\n"
-        f"🧾 Reference: {('<code>' + ref + '</code>') if ref else '<i>skipped</i>'}\n\n"
+        f"💵 Amount: <s>ETB 3,500</s> → <b>{PRICE}</b>\n\n"
         f"⏳ <b>Status: Pending</b> — you're <b>#{pos}</b> of {n_total} in line.\n"
         "Keys are usually issued <b>within a few hours</b> (Ethiopian working "
         "hours). We'll send it right here the moment it's approved 🙏"
@@ -638,9 +607,8 @@ def _complete_proof(uid, chat_id, uname, is_pm):
             "🧾 <b>New order — payment proof</b>\n\n"
             f"Machine ID: <code>{mid}</code>\n"
             f"User: @{uname} (id {uid})\n"
-            f"Source: {'DM' if is_pm else 'Group'}\n"
-            f"Payment ref: {('<code>' + ref + '</code>') if ref else '<i>not provided</i>'}\n\n"
-            "Check the screenshot + reference, then Approve or Reject:"
+            f"Source: {'DM' if is_pm else 'Group'}\n\n"
+            "Check the screenshot, then Approve or Reject:"
         )
         kb = admin_keyboard("pending", {"uid": uid})
         if photo:
@@ -748,7 +716,6 @@ def _admin_sales(chat_id, message_id):
 
     started, mids = n("proof_start"), n("mid_sent")
     shots = n("screenshot_sent")
-    refs, skips = n("ref_typed"), n("ref_skipped")
     confirmed, approved = n("order_confirmed"), n("approved")
 
     def pct(a, b):
@@ -762,7 +729,6 @@ def _admin_sales(chat_id, message_id):
         f"🟦 Started buy flow: {started}\n"
         f"🟩 Machine ID sent: {mids} ({pct(started, mids)} of started)\n"
         f"🟨 Screenshot sent: {shots} ({pct(mids, shots)} of mid)\n"
-        f"🔳 Reference: {refs} given · {skips} skipped ({pct(shots, refs + skips)} of screenshot)\n"
         f"🟧 Order confirmed: {confirmed} ({pct(shots, confirmed)} of screenshot)\n"
         f"🟥 Keys approved: {approved} ({pct(confirmed, approved)} of confirmed)\n\n"
         "<i>The biggest drop-off step = your sales opportunity.</i>"
@@ -783,8 +749,7 @@ def _admin_list_pending(chat_id, message_id):
         cap = (
             f"🧾 <b>Order @{p.get('username','?')}</b>\n"
             f"Machine ID: <code>{p.get('machine_id')}</code>\n"
-            f"Source: {p.get('chat_type','private')}\n"
-            f"Ref: {('<code>' + (p.get('ref') or '') + '</code>') if p.get('ref') else '<i>skipped</i>'}"
+            f"Source: {p.get('chat_type','private')}"
         )
         kb = admin_keyboard("pending", {"uid": uid})
         if p.get("photo"):
@@ -921,22 +886,10 @@ def handle_buyer_message(message):
         _ask_screenshot(chat_id)
         return True
 
-    # ── FSM step "ref": waiting for the payment reference number ────────────
-    if step == "ref":
-        s["ref"] = text[:80]
-        s["step"] = "confirm"
-        save_fsm()
-        _funnel(uid, "ref_typed")
-        _review_confirm(uid, chat_id)
-        return True
-
-    # ── FSM step "confirm": review is showing; a new text updates the ref ───
+    # ── FSM step "confirm": review is showing; a stray text resends it ──────
     if step == "confirm":
-        if text:
-            s["ref"] = text[:80]
-            save_fsm()
-            _review_confirm(uid, chat_id)
-            return True
+        _review_order(uid, chat_id)
+        return True
 
     # ── Not in the FSM: only react to a bare Machine ID that's not part of the
     #    guided flow, but DON'T create a half-baked order from random text.
@@ -1013,7 +966,7 @@ def handle_buyer_photo(message):
     s = FSM.get(uid)
     step = s.get("step") if s else None
 
-    # ── FSM step "photo": screenshot received -> next, the reference number. ─
+    # ── FSM step "photo": screenshot received -> order review. ──────────────
     if step == "photo":
         if is_document:
             if not mime.startswith("image/"):
@@ -1029,21 +982,21 @@ def handle_buyer_photo(message):
             s["photo"] = local or file_id
         else:
             s["photo"] = file_id
-        s["step"] = "ref"
+        s["step"] = "confirm"
         save_fsm()
         _funnel(uid, "screenshot_sent")
-        _ask_reference(chat_id, uid)
+        msg_ = "✅ Screenshot received!\n\n📤 Let's do a quick final check of your order:"
+        if not _dup_reply(uid, msg_):
+            send_text(chat_id, msg_)
+        _review_order(uid, chat_id)
         return True
 
-    # ── FSM step "ref"/"confirm": we already have the screenshot. ────────────
-    if step in ("ref", "confirm"):
-        msg_ = ("✅ We already have your screenshot! Just type the "
-                "<b>reference number</b> from your transfer receipt — or tap "
-                "one of the buttons below.")
+    # ── FSM step "confirm": we already have the screenshot. ───────────────────
+    if step == "confirm":
+        msg_ = "✅ We already have your screenshot! Here's your order review:"
         if not _dup_reply(uid, msg_):
-            send_text(chat_id, msg_,
-                      keyboard=[[{"text": "↪ Skip — confirm anyway", "callback_data": "proof:skipref"}],
-                                [{"text": "✖ Cancel", "callback_data": "proof:cancel"}]])
+            send_text(chat_id, msg_)
+        _review_order(uid, chat_id)
         return True
 
     # ── FSM step "mid": they sent a photo, but we asked for a Machine ID. ───
@@ -1154,25 +1107,9 @@ def handle_callback(cb):
         if action == "mykey":
             _show_my_key(from_user, chat, mid)
             return
-        if action == "skipref":
-            s = FSM.get(from_uid)
-            if s:
-                s.setdefault("ref", "")
-                s["step"] = "confirm"
-                save_fsm()
-                _funnel(from_uid, "ref_skipped")
-                _review_confirm(from_uid, chat)
-            return
-        if action == "reref":
-            s = FSM.get(from_uid)
-            if s:
-                s["step"] = "ref"
-                save_fsm()
-                _ask_reference(chat, from_uid, s.get("ui_msg_id"))
-            return
         if action == "confirm":
             s = FSM.get(from_uid)
-            if s and s.get("step") in ("ref", "confirm") and s.get("mid"):
+            if s and s.get("step") == "confirm" and s.get("mid"):
                 # mark the review message as submitted, then complete the order
                 if s.get("ui_msg_id"):
                     edit_text(chat, s["ui_msg_id"],
@@ -1232,15 +1169,14 @@ def handle_callback(cb):
             try:
                 edited = edit_text(status_chat, smid,
                                    "✅ <b>Order approved — key on the way!</b>\n\n"
-                                   f"🤖 Machine ID: <code>{mid}</code>\n"
-                                   f"🧾 Reference: {('<code>' + (p.get('ref') or '') + '</code>') if p.get('ref') else '<i>skipped</i>'}\n\n"
+                                   f"🤖 Machine ID: <code>{mid}</code>\n\n"
                                    "🟢 <b>Status: Approved</b> ✓")
             except Exception as e:
                 print(f"[approve] status edit failed: {e}", file=sys.stderr)
 
         delivered_dm = False
         try:
-            r = send_text(uid, key_delivery_message(key, exp, "private", ref=p.get("ref") or ""))
+            r = send_text(uid, key_delivery_message(key, exp, "private"))
             if r and r.get("ok"):
                 delivered_dm = True
         except Exception as e:

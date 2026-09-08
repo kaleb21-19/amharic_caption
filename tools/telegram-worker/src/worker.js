@@ -345,24 +345,16 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
       return;
     }
     // valid new machine -> ask for screenshot
-    await setFsm(uid, { step: 'photo', mid, photo_key: null, ref: '', hint: 1 });
+    await setFsm(uid, { step: 'photo', mid, photo_key: null, hint: 1 });
     await addFunnel(uid, 'mid_sent');
     await sendText(chatId,
-      '✅ Machine ID received!\n\n📤 <b>Step 2/3</b> — now send your <b>bank-transfer screenshot</b> as a <b>photo</b> (the "payment success" screen).',
+      '✅ Machine ID received!\n\n📤 <b>Step 2/2</b> — now send your <b>bank-transfer screenshot</b> as a <b>photo</b> (the "payment success" screen).',
       [[{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
     return;
   }
 
-  // step ref: waiting for reference number
-  if (step === 'ref') {
-    await setFsm(uid, { ...s, ref: (text || '').slice(0, 80), step: 'confirm' });
-    await addFunnel(uid, 'ref_typed');
-    await reviewConfirm(uid, chatId);
-    return;
-  }
-  // step confirm: new text updates the ref
-  if (step === 'confirm' && text) {
-    await setFsm(uid, { ...s, ref: text.slice(0, 80) });
+  // step confirm: a stray text while reviewing -> resend the review
+  if (step === 'confirm') {
     await reviewConfirm(uid, chatId);
     return;
   }
@@ -399,17 +391,15 @@ async function handlePhoto(msg, uid, chatId, privateChat, text) {
       return;
     }
     const objectKey = await storeProof(fileId);
-    await setFsm(uid, { ...s, photo_key: objectKey, step: 'ref' });
+    await setFsm(uid, { ...s, photo_key: objectKey, step: 'confirm' });
     await addFunnel(uid, 'screenshot_sent');
-    await sendText(chatId,
-      '✅ Screenshot received!\n\n📤 <b>Step 3/3</b> — type the payment <b>reference number</b> from your transfer receipt (the long number under the amount).\n\nThis helps us match your payment instantly 🎯\n\n<i>Don\'t have it handy? Tap skip — we\'ll verify manually.</i>',
-      [[{ text: '↪ Skip — confirm anyway', callback_data: 'proof:skipref' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
+    await sendText(chatId, '✅ Screenshot received!\n\n📤 Let’s do a quick final check of your order:');
+    await reviewConfirm(uid, chatId);
     return;
   }
-  if (step === 'ref' || step === 'confirm') {
-    await sendText(chatId,
-      '✅ We already have your screenshot! Just type the <b>reference number</b> from your transfer receipt — or tap one of the buttons below.',
-      [[{ text: '↪ Skip — confirm anyway', callback_data: 'proof:skipref' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
+  if (step === 'confirm') {
+    await sendText(chatId, '✅ We already have your screenshot! Here’s your order review:');
+    await reviewConfirm(uid, chatId);
     return;
   }
   if (step === 'mid') {
@@ -441,18 +431,14 @@ async function storeProof(fileId) {
 async function reviewConfirm(uid, chatId) {
   const s = await getFsm(uid);
   if (!s) return;
-  const ref = (s.ref || '').trim();
-  const refLine = ref ? `<code>${ref}</code>` : '<i>not provided</i>';
   const text =
     '🧾 <b>Review your order</b>\n\n' +
     `🤖 Machine ID: <code>${s.mid}</code>\n` +
     `💵 Amount: <b>${PRICE}</b> (one-time, +0 fees)\n` +
-    `🏦 Paid to: <b>${ACCT_NAME}</b>\n` +
-    `🧾 Reference: ${refLine}\n\n` +
+    `🏦 Paid to: <b>${ACCT_NAME}</b>\n\n` +
     '🔑 On approval, your key arrives <b>right here</b>.\nLook right? Tap <b>Confirm</b>.';
   const kb = [
     [{ text: '✅ Confirm order', callback_data: 'proof:confirm' }],
-    [{ text: '↩ Re-enter reference', callback_data: 'proof:reref' }],
     [{ text: '✖ Cancel', callback_data: 'proof:cancel' }],
   ];
   const r = await sendText(chatId, text, kb);
@@ -463,12 +449,11 @@ async function reviewConfirm(uid, chatId) {
 async function completeProof(uid, chatId, uname, privateChat) {
   const s = await getFsm(uid);
   if (!s || !s.mid) return;
-  const ref = (s.ref || '').trim();
 
   const order = await DB.prepare(
     `INSERT INTO orders (uid, username, machine_id, ref, photo_key, chat_id, status)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending')`
-  ).bind(uid, uname, s.mid, ref, s.photo_key || null, String(chatId)).run();
+     VALUES (?, ?, ?, '', ?, ?, 'pending')`
+  ).bind(uid, uname, s.mid, s.photo_key || null, String(chatId)).run();
 
   const orderId = order.meta.last_row_id;
   await setFsm(uid, null);
@@ -479,8 +464,7 @@ async function completeProof(uid, chatId, uname, privateChat) {
   const statusText =
     '📦 <b>Order received — now pending</b>\n\n' +
     `🤖 Machine ID: <code>${s.mid}</code>\n` +
-    `💵 Amount: <b>${PRICE}</b>\n` +
-    `🧾 Reference: ${ref ? `<code>${ref}</code>` : '<i>skipped</i>'}\n\n` +
+    `💵 Amount: <b>${PRICE}</b>\n\n` +
     `⏳ <b>Status: Pending</b> — you’re <b>#${pos}</b> in line.\n` +
     'Keys are usually issued within a few hours (Ethiopian working hours). We’ll send it right here. 🙏';
   const r = await sendText(chatId, statusText);
@@ -492,9 +476,8 @@ async function completeProof(uid, chatId, uname, privateChat) {
   for (const adm of admins) {
     const caption =
       '🧾 <b>New order — payment proof</b>\n\n' +
-      `Machine ID: <code>${s.mid}</code>\nUser: @${uname} (id ${uid})\nSource: ${privateChat ? 'DM' : 'Group'}\n` +
-      `Payment ref: ${ref ? `<code>${ref}</code>` : '<i>not provided</i>'}\n\n` +
-      'Check the screenshot + reference, then Approve or Reject:';
+      `Machine ID: <code>${s.mid}</code>\nUser: @${uname} (id ${uid})\nSource: ${privateChat ? 'DM' : 'Group'}\n\n` +
+      'Check the screenshot, then Approve or Reject:';
     if (s.photo_key) await sendPhoto(adm, s.photo_key, caption, adminKeyboardPend(orderId));
     else await sendText(adm, caption, adminKeyboardPend(orderId));
   }
@@ -506,7 +489,7 @@ async function adminList() {
 }
 
 // ── show my key ─────────────────────────────────────────────────────────────
-function keyDeliveryMessage(key, expiry, chatType, ref) {
+function keyDeliveryMessage(key, expiry, chatType) {
   const lines = [
     '✅ <b>Payment confirmed — your license key is ready!</b>',
     '', `<code>${key}</code>`, '',
@@ -514,7 +497,6 @@ function keyDeliveryMessage(key, expiry, chatType, ref) {
     '<b>②</b> Premiere Pro → open the panel → License',
     '<b>③</b> Paste it → tap <b>Activate</b>',
   ];
-  if (ref) lines.push('', '🧾 <b>Receipt</b>', `• Amount: <b>${PRICE}</b>`, `• Paid to: ${ACCT_NAME}`, `• Reference: <code>${ref}</code>`);
   if (expiry !== '00000000') lines.push('', `⏰ Expires: ${expiry}`);
   if (chatType !== 'private') lines.push('', '🔒 For privacy, ask for your key in a private DM.');
   lines.push('', 'Thank you! 🙏 If you have any trouble, message the seller.');
@@ -597,9 +579,7 @@ async function adminQueue(chatId, messageId, cbId) {
   }
   // Send each pending order as its own card (newest first) with inline actions.
   for (const o of results) {
-    const cap =
-      `${orderSummary(o)}\n` +
-      `🧾 Ref: ${o.ref ? `<code>${o.ref}</code>` : '<i>skipped</i>'}`;
+    const cap = `${orderSummary(o)}\n`;
     if (o.photo_key) await sendPhoto(chatId, o.photo_key, cap, adminKeyboardPend(o.id));
     else await sendText(chatId, cap, adminKeyboardPend(o.id));
   }
@@ -618,7 +598,6 @@ async function adminDetail(chatId, messageId, cbId, orderId) {
     `UID: <code>${o.uid}</code>\n` +
     `Machine ID: <code>${o.machine_id}</code>\n` +
     `Amount: ${PRICE}\n` +
-    `Ref: ${o.ref ? `<code>${o.ref}</code>` : '<i>skipped</i>'}\n` +
     `Received: ${shortTs(o.created_at)}`;
   const kb = o.status === 'pending'
     ? [[
@@ -670,7 +649,7 @@ async function adminSales(chatId, messageId) {
   const nSold = sold ? sold.n : 0;
   const rev = nSold * parseInt(PRICE.replace(/,/g, '').replace('ETB ', ''), 10);
   const counts = {};
-  const events = ['proof_start', 'mid_sent', 'screenshot_sent', 'ref_typed', 'ref_skipped', 'order_confirmed', 'approved', 'rejected'];
+  const events = ['proof_start', 'mid_sent', 'screenshot_sent', 'order_confirmed', 'approved', 'rejected'];
   for (const ev of events) {
     const r = await DB.prepare('SELECT COUNT(DISTINCT uid) AS n FROM funnel WHERE event=?').bind(ev).first();
     counts[ev] = r ? r.n : 0;
@@ -684,7 +663,6 @@ async function adminSales(chatId, messageId) {
     `🟦 Started: ${started}\n` +
     `🟩 Machine ID: ${counts.mid_sent} (${pct(started, counts.mid_sent)} of started)\n` +
     `🟨 Screenshot: ${counts.screenshot_sent} (${pct(counts.mid_sent, counts.screenshot_sent)} of mid)\n` +
-    `🔳 Ref: ${counts.ref_typed} given · ${counts.ref_skipped} skipped\n` +
     `🟧 Confirmed: ${counts.order_confirmed} (${pct(counts.screenshot_sent, counts.order_confirmed)} of screenshot)\n` +
     `🟥 Approved: ${counts.approved} (${pct(counts.order_confirmed, counts.approved)} of confirmed)\n\n` +
     '<i>The biggest drop-off step = your sales opportunity.</i>';
@@ -720,7 +698,7 @@ async function approve(chatId, messageId, orderId, cbId) {
   }
 
   // deliver key + receipt to buyer's DM
-  await sendText(o.uid, keyDeliveryMessage(key, o.expiry, 'private', o.ref || ''));
+  await sendText(o.uid, keyDeliveryMessage(key, o.expiry, 'private'));
   // confirm to admin (with remaining queue count)
   const left = await pendingCount();
   await editText(chatId, messageId,
@@ -776,7 +754,7 @@ async function handleCallback(cb) {
     if (action === 'proof') {
       const s = await getFsm(fromUid);
       if (s && s.step === 'mid' && s.hint) {
-        await editText(chatId, messageId, '📤 <b>Send proof</b>\n\nAlmost done — three short steps:\n\n1️⃣ <b>Machine ID</b> (8 characters)\n2️⃣ Payment <b>screenshot</b>\n3️⃣ Payment <b>reference</b> number\n\n→ Start with <b>Step 1/3</b>: send your <b>Machine ID</b>.', [
+        await editText(chatId, messageId, '📤 <b>Send proof</b>\n\nAlmost done — two short steps:\n\n1️⃣ <b>Machine ID</b> (8 characters)\n2️⃣ Payment <b>screenshot</b>\n\n→ Start with <b>Step 1/2</b>: send your <b>Machine ID</b>.', [
           [{ text: '📍 Where is my Machine ID?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }],
         ]);
         return;
@@ -785,7 +763,7 @@ async function handleCallback(cb) {
       await addFunnel(fromUid, 'proof_start');
       await sendText(chatId, '📤 Send your <b>Machine ID</b> (8 characters).', undefined);
       // also edit the tapped button
-      await editText(chatId, messageId, '📤 <b>Send proof</b>\n\nStart with <b>Step 1/3</b>: send your <b>Machine ID</b>.', [
+      await editText(chatId, messageId, '📤 <b>Send proof</b>\n\nStart with <b>Step 1/2</b>: send your <b>Machine ID</b>.', [
         [{ text: '📍 Where is my Machine ID?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }],
       ]);
     }
@@ -801,19 +779,9 @@ async function handleCallback(cb) {
       return;
     }
     if (action === 'mykey') { await showMyKey(cb, chatId, messageId); return; }
-    if (action === 'skipref') {
-      const s = await getFsm(fromUid);
-      if (s) { await setFsm(fromUid, { ...s, ref: s.ref || '', step: 'confirm' }); await addFunnel(fromUid, 'ref_skipped'); await reviewConfirm(fromUid, chatId); }
-      return;
-    }
-    if (action === 'reref') {
-      const s = await getFsm(fromUid);
-      if (s) { await setFsm(fromUid, { ...s, step: 'ref' }); await sendText(chatId, '📤 Type your <b>reference number</b> (or tap skip).', [[{ text: '↪ Skip \u2014 confirm anyway', callback_data: 'proof:skipref' }]]); }
-      return;
-    }
     if (action === 'confirm') {
       const s = await getFsm(fromUid);
-      if (s && ['ref', 'confirm'].includes(s.step) && s.mid) {
+      if (s && s.step === 'confirm' && s.mid) {
         await completeProof(fromUid, chatId, fromUser.username || fromUser.first_name || '', genrePrivate(chatId, fromUid));
       }
       return;
