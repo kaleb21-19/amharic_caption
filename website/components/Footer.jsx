@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BOT_URL, SUPPORT_URL } from "@/lib/site";
+import { BOT_URL, SUPPORT_URL, GROUP_URL } from "@/lib/site";
 
 export default function Footer() {
   return (
@@ -21,6 +21,7 @@ export default function Footer() {
         </div>
         <div className="footer-col">
           <h4>Support</h4>
+          <a href={GROUP_URL} target="_blank" rel="noopener">Support group</a>
           <a href={SUPPORT_URL} target="_blank" rel="noopener">Contact support</a>
           <a href={BOT_URL} target="_blank" rel="noopener">Start a purchase</a>
         </div>

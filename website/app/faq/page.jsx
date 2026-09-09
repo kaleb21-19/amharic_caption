@@ -1,5 +1,5 @@
 import Reveal from "@/components/Reveal";
-import { BOT_URL, PRICE } from "@/lib/site";
+import { BOT_URL, GROUP_URL, PRICE } from "@/lib/site";
 
 export const metadata = {
   title: "FAQ — Amharic Captions for Premiere Pro",
@@ -12,7 +12,7 @@ const faqs = [
   { q: "Is my footage uploaded anywhere?", a: "Never. Everything happens locally — your video and audio never leave your computer." },
   { q: "Which Premiere Pro versions work?", a: "Premiere Pro 2024 (v24) and newer, on Windows 10/11 and macOS (Intel or Apple Silicon)." },
   { q: "How does the license work?", a: "One license per machine, hardware-locked to your computer. A free 2-caption trial lets you test before buying." },
-  { q: "How do I pay and get my key?", a: `Order through our Telegram bot (@AmharicCaptionsBot), pay ${PRICE}, and the bot delivers your key locked to your machine — instantly.` },
+  { q: "How do I pay and get my key?", a: `Order through our Telegram bot (@AmharicCaptionsBot), pay ${PRICE}, and the bot delivers your key locked to your machine.` },
   { q: "Can I try it before paying?", a: "Yes — every new machine gets 2 free captions to try on your own Premiere, no card required." },
   { q: "What if Premiere doesn't show the panel?", a: "Third-party extensions need the CEP debug mode enabled for your Premiere version. Message us on Telegram and we'll walk you through it." },
   { q: "Do I need a separate license for each computer?", a: "Yes. The key is hardware-locked to a single machine to prevent sharing." },
@@ -43,9 +43,14 @@ export default function FaqPage() {
           </div>
           <Reveal delay={120}><div className="center help-cta">
             <p>Still have a question or hit a snag?</p>
-            <a className="btn btn-primary" href={BOT_URL} target="_blank" rel="noopener">
-              Ask us on Telegram
-            </a>
+            <div className="cta-row">
+              <a className="btn btn-primary" href={GROUP_URL} target="_blank" rel="noopener">
+                Join the support group
+              </a>
+              <a className="btn btn-ghost" href={BOT_URL} target="_blank" rel="noopener">
+                Ask the bot
+              </a>
+            </div>
           </div></Reveal>
         </div>
       </section>
