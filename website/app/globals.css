@@ -213,6 +213,12 @@ a { color: var(--brand); }
 .tip p { margin: 0 0 18px; }
 .tip .tip-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 
+/* Install page: manual fallback note */
+.manual-note { max-width: 640px; margin: 24px auto 0; background: var(--bg-soft); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 14px 18px; }
+.manual-note summary { cursor: pointer; font-weight: 600; font-size: 14px; color: var(--text-secondary); }
+.manual-note p { margin: 10px 0 2px; font-size: 13px; line-height: 1.6; color: var(--muted); white-space: pre-line; }
+
 /* Pricing page extras */
 .pricing-page { padding-top: 10px; }
 .how-pay { background: var(--bg-soft); }

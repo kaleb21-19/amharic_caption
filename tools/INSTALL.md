@@ -112,8 +112,15 @@ Notes:
 
 ## 2. Enable CEP extensions (PlayerDebugMode)
 
-CEP extensions only run when the host allows them. This is a one-time system
-setting, per OS:
+CEP extensions only run when the host allows them. **The one-click installers
+soldier this automatically** — `Install.cmd` (Windows) and `Install.command`
+(macOS) are shipped at the root of each zip, next to the extension folder. They
+copy the extension into Adobe's CEP folder, enable PlayerDebugMode for CSXS.7–15,
+and (macOS) clear the Gatekeeper quarantine. Users only: unzip → double-click →
+restart Premiere.
+
+The manual steps below are for ZIPs that predate the installers (or for when you
+are installing by hand during development).
 
 ### macOS
 **Clear Gatekeeper quarantine first** (any files from a downloaded zip are

@@ -99,11 +99,28 @@ echo "  [ok] panel files"
 
 echo "== runtime + panel staged (total $(du -sh "${BUILD_DIR}/${NAME}" | cut -f1)) =="
 
+# ---- 2b. one-click installer for this target -------------------------------
+# Shipped at the zip ROOT (sibling of the extension folder) so "unzip, then
+# double-click Install" is all the customer does. Each target gets the right
+# one; both handle copy + debug-keys + (mac) quarantine automatically.
+INSTALLERS="${ROOT}/tools/installers"
+case "$TARGET" in
+  win-*)
+    cp "$INSTALLERS/Install.cmd" "${BUILD_DIR}/Install.cmd"
+    echo "  [ok] Install.cmd (windows one-click installer)"
+    ;;
+  mac-*)
+    cp "$INSTALLERS/Install.command" "${BUILD_DIR}/Install.command"
+    chmod +x "${BUILD_DIR}/Install.command"
+    echo "  [ok] Install.command (macOS one-click installer)"
+    ;;
+esac
+
 # ---- 3. zip it ------------------------------------------------------------
 ZIP="${DIST}/amharic-captions-${TARGET}.zip"
 rm -f "$ZIP"
 (
   cd "$BUILD_DIR"
-  zip -r -q "$ZIP" "$NAME" -x "*.DS_Store"
+  zip -r -q "$ZIP" "$NAME" Install.* -x "*.DS_Store"
 )
 echo "== wrote $ZIP ($(du -sh "$ZIP" | cut -f1)) =="

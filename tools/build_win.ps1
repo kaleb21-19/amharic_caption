@@ -78,15 +78,18 @@ Copy-Item (Join-Path $PYDIR "*") (Join-Path $BNAME "runtime\python") -Recurse
 # shared panel
 Copy-Item "$ROOT\panel\*" $BNAME -Recurse
 
+# one-click installer (shipped at zip root, next to the extension folder)
+Copy-Item (Join-Path $ROOT "tools\installers\Install.cmd") (Join-Path $BUILD "Install.cmd")
+
 # ---- 4. zip ----------------------------------------------------------------
 $ZIP = Join-Path $ROOT "dist\amharic-captions-$TARGET.zip"
 New-Item -ItemType Directory -Force -Path (Join-Path $ROOT "dist") | Out-Null
 if (Test-Path $ZIP) { Remove-Item -Force $ZIP }
 
 if (Get-Command 7z -ErrorAction SilentlyContinue) {
-    Push-Location $BUILD; 7z a -tzip -r $ZIP "com.amharic.captions" -xr!".DS_Store"; Pop-Location
+    Push-Location $BUILD; 7z a -tzip -r $ZIP "com.amharic.captions" "Install.cmd" -xr!".DS_Store"; Pop-Location
 } else {
-    Compress-Archive -Path (Join-Path $BNAME) -DestinationPath $ZIP -CompressionLevel Optimal
+    Compress-Archive -Path (Join-Path $BNAME), (Join-Path $BUILD "Install.cmd") -DestinationPath $ZIP -CompressionLevel Optimal
 }
 Remove-Item -Recurse -Force $BUILD
 Write-Host "== wrote $ZIP =="

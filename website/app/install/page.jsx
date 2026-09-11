@@ -8,21 +8,23 @@ export const metadata = {
 };
 
 const winSteps = [
-  { t: "Download", c: "Get the Windows build below and unzip it (right-click the zip → Extract All). Make sure a folder named com.amharic.captions appears — do not drag files out of the zip by hand." },
-  { t: "Copy to Extensions", c: "Open File Explorer and go to C:\\Program Files (x86)\\Common Files\\Adobe\\CEP\\extensions. Copy the com.amharic.captions folder into it (click Yes if Windows asks for permission)." },
-  { t: "Allow Adobe to run it", c: "Press WIN+R → type regedit → Enter (click Yes if asked). Paste HKEY_CURRENT_USER\\Software\\Adobe\\CSXS.11 into the address bar → Enter. On the right, double-click PlayerDebugMode and set it to 1. If it doesn't exist: right-click empty space → New → DWORD (32-bit) Value → name it PlayerDebugMode → set value to 1. Close regedit. Note: Premiere 2024 uses CSXS.11, Premiere 2025 uses CSXS.12 — set the matching key for your version." },
+  { t: "Download", c: "Get the Windows build below and unzip it (right-click the zip → Extract All). It must contain a folder named com.amharic.captions and a file named Install.cmd — keep them side by side." },
+  { t: "Double-click Install.cmd", c: "Windows may ask for administrator permission — click Yes. The installer copies the extension into the correct Adobe folder and enables the required settings automatically (a window shows progress and says DONE when finished)." },
   { t: "Restart Premiere", c: "Fully quit and reopen Premiere Pro, then open Extensions > Amharic Captions." },
   { t: "Activate", c: "Copy your Machine ID, pay via the Telegram bot, and paste your license key to activate." },
 ];
 
 const macSteps = [
-  { t: "Download", c: "Choose the build for your chip: Apple Silicon (arm64) or Intel (x64), then unzip." },
-  { t: "Copy to Extensions", c: "Copy the com.amharic.captions folder into: ~/Library/Application Support/Adobe/CEP/extensions/" },
-  { t: "Approve the files", c: "macOS blocks the bundled files the first time. Open Terminal (⌘+Space → type Terminal → Enter), paste: xattr -dr com.apple.quarantine ~/Library/Application\\ Support/Adobe/CEP/extensions/com.amharic.captions — and press Enter. This clears the \"can't be opened / malware\" warnings so Premiere can load the panel." },
-  { t: "Allow Adobe to run it", c: "In the same Terminal: for Premiere 2024 run defaults write com.adobe.CSXS.11 PlayerDebugMode \"1\". For Premiere 2025 run defaults write com.adobe.CSXS.12 PlayerDebugMode \"1\". Press Enter after each, then close Terminal." },
+  { t: "Download", c: "Choose the build for your chip: Apple Silicon (arm64) or Intel (x64), then unzip. It must contain a folder named com.amharic.captions and a file named Install.command — keep them side by side." },
+  { t: "Double-click Install.command", c: "Terminal opens and runs the installer automatically. If macOS asks \"are you sure?\", click Open. Type your Mac password when asked. It copies the extension, clears the macOS “can't be verified” warning, and enables the required settings — no commands to type." },
   { t: "Restart Premiere", c: "Fully quit and reopen Premiere Pro, then open Extensions > Amharic Captions." },
   { t: "Activate", c: "Copy your Machine ID, pay via the Telegram bot, and paste your license key to activate." },
 ];
+
+const manualNote = {
+  t: "Advanced (manual)",
+  c: "If your extension folder has no Install.cmd / Install.command (older download), install manually: Windows — copy com.amharic.captions into C:\\Program Files (x86)\\Common Files\\Adobe\\CEP\\extensions, then regedit → HKEY_CURRENT_USER\\Software\\Adobe\\CSXS.11 (Premiere 2024) or CSXS.12 (Premiere 2025) → create PlayerDebugMode=1. macOS — copy into ~/Library/Application Support/Adobe/CEP/extensions, then run xattr -dr com.apple.quarantine <path> and defaults write com.adobe.CSXS.11 PlayerDebugMode \"1\" (or CSXS.12 for 2025) in Terminal.",
+};
 
 export default function InstallPage() {
   return (
@@ -32,8 +34,9 @@ export default function InstallPage() {
           <p className="eyebrow">Installation guide</p>
           <h1>Get Amharic Captions running in minutes.</h1>
           <p className="hero-sub">
-            Download your platform&apos;s build, drop it into Adobe&apos;s CEP
-            extensions folder, and restart Premiere. No coding, no hoops.
+            Download your platform&apos;s build, unzip it, and double-click the
+            included installer — it does the rest automatically. No Terminal, no
+            registry, no copy-paste.
           </p>
         </div>
       </section>
@@ -90,6 +93,10 @@ export default function InstallPage() {
               </div>
             </div>
           </div>
+          <details className="manual-note">
+            <summary>{manualNote.t}</summary>
+            <p>{manualNote.c}</p>
+          </details>
         </div>
       </section>
 
