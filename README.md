@@ -51,9 +51,15 @@ Pay **ETB 2,500** by bank transfer to **KALEB TEGEGEN** — CBE 1000504159977 ·
    then restart Premiere. Using Premiere 2025 (v25) or newer? Also run
    `defaults write com.adobe.CSXS.12 PlayerDebugMode "1"`.
 
-> **First-run note:** macOS will not run the bundled binaries until you grant
-> them permission — on first use, open **System Settings → Privacy & Security**,
-> click **Allow** next to the blocked app, and repeat if prompted.
+> **First-run note:** files from a downloaded zip are quarantined and the
+> bundled binaries are blocked until cleared. After copying the folder, run once:
+>
+> ```
+> xattr -dr com.apple.quarantine ~/Library/Application\ Support/Adobe/CEP/extensions/com.amharic.captions
+> ```
+>
+> Or in **System Settings → Privacy & Security**, click **Allow** next to each
+> blocked binary and repeat if prompted.
 
 ## Developer tools
 

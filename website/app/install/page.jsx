@@ -18,7 +18,8 @@ const winSteps = [
 const macSteps = [
   { t: "Download", c: "Choose the build for your chip: Apple Silicon (arm64) or Intel (x64), then unzip." },
   { t: "Copy to Extensions", c: "Copy the com.amharic.captions folder into: ~/Library/Application Support/Adobe/CEP/extensions/" },
-  { t: "Allow Adobe to run it", c: "Open Terminal (⌘+Space → type Terminal → Enter). For Premiere 2024, run: defaults write com.adobe.CSXS.11 PlayerDebugMode \"1\". For Premiere 2025, run: defaults write com.adobe.CSXS.12 PlayerDebugMode \"1\". Close Terminal." },
+  { t: "Approve the files", c: "macOS blocks the bundled files the first time. Open Terminal (⌘+Space → type Terminal → Enter), paste: xattr -dr com.apple.quarantine ~/Library/Application\\ Support/Adobe/CEP/extensions/com.amharic.captions — and press Enter. This clears the \"can't be opened / malware\" warnings so Premiere can load the panel." },
+  { t: "Allow Adobe to run it", c: "In the same Terminal: for Premiere 2024 run defaults write com.adobe.CSXS.11 PlayerDebugMode \"1\". For Premiere 2025 run defaults write com.adobe.CSXS.12 PlayerDebugMode \"1\". Press Enter after each, then close Terminal." },
   { t: "Restart Premiere", c: "Fully quit and reopen Premiere Pro, then open Extensions > Amharic Captions." },
   { t: "Activate", c: "Copy your Machine ID, pay via the Telegram bot, and paste your license key to activate." },
 ];

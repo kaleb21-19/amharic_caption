@@ -116,8 +116,14 @@ CEP extensions only run when the host allows them. This is a one-time system
 setting, per OS:
 
 ### macOS
-Create/append the plist key (run once). Premiere 2024 (v24) uses CEP 11 →
-`com.adobe.CSXS.11`. Premiere 2025 (v25) uses CEP 12 → add `com.adobe.CSXS.12` too:
+**Clear Gatekeeper quarantine first** (any files from a downloaded zip are
+quarantined, which makes the bundled Python .so get blocked):
+```
+xattr -dr com.apple.quarantine ~/Library/Application\ Support/Adobe/CEP/extensions/com.amharic.captions
+```
+Then create/append the plist key (run once). Premiere 2024 (v24) uses CEP 11 →
+`com.adobe.CSXS.11`. Premiere 2025 (v25) uses CEP 12 → also set
+`com.adobe.CSXS.12`:
 
 ```
 defaults write com.adobe.CSXS.11 PlayerDebugMode 1
