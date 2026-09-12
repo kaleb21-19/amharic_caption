@@ -7,23 +7,28 @@ rem  Amharic Captions - Premiere Pro
 rem  One-click installer for Windows.
 rem
 rem  Does everything automatically:
-rem    - copies com.amharic.captions into Adobe's CEP folder
+rem    - copies com.amharic.captions into your user's Adobe CEP
+rem      folder  (%AppData%\Adobe\CEP\extensions)
 rem    - enables the CSXS PlayerDebugMode registry keys
-rem    - verifies the install
+rem    - verifies the install (file count + key files)
 rem    - writes a log to %TEMP%\amharic-captions-install.log
 rem
-rem  Double-click this file. If Windows asks, click "Yes"
-rem  (administrator permission is required to write to
-rem   Program Files).
+rem  No administrator rights are needed. Just double-click this
+rem  file and it installs for the current Windows user.
 rem ============================================================
 
 set "NAME=com.amharic.captions"
 set "SRC=%~dp0%NAME%"
 set "LOG=%TEMP%\amharic-captions-install.log"
+set "DEST=%APPDATA%\Adobe\CEP\extensions\%NAME%"
+set "BASE=%APPDATA%\Adobe\CEP\extensions"
+set "PF86=%ProgramFiles(x86)%"
+set "SYS_DEST=%PF86%\Common Files\Adobe\CEP\extensions\%NAME%"
 
 rem ---- reset + open the log ----
 > "%LOG%" echo === Amharic Captions installer log ===
 >> "%LOG%" echo [%date% %time%] start: %~f0
+>> "%LOG%" echo [%date% %time%] user: %USERNAME%
 
 rem ---- check we are running next to the extension folder ----
 if not exist "%SRC%\CSXS\manifest.xml" (
@@ -46,29 +51,19 @@ rem ---- restore the Mark-of-the-Web so SmartScreen stays quiet ----
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Unblock-File -Path '%~f0'; Unblock-File -Path '%SRC%\CSXS\manifest.xml'" >nul 2>&1
 >> "%LOG%" echo [%date% %time%] cleared Mark-of-the-Web
 
-rem ---- elevation: re-run ourselves as administrator if needed ----
-net session >nul 2>&1
-set "IS_ADMIN=%errorlevel%"
-if %IS_ADMIN% neq 0 (
-  >> "%LOG%" echo [%date% %time%] not elevated; requesting admin
-  echo  Administrator permission is needed to install into Program Files.
-  echo  If Windows asks, click "Yes".
-  echo  The installer will reopen and install automatically.
+rem ---- warn if an OLD system-wide copy would override this one ----
+if exist "%SYS_DEST%\CSXS\manifest.xml" (
+  >> "%LOG%" echo [%date% %time%] WARNING: old Program Files copy found at %SYS_DEST%
+  echo  [NOTE] An older copy is installed in Program Files
+  echo  (%SYS_DEST%).
   echo.
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -Verb RunAs -FilePath '%~f0' -WorkingDirectory '%~dp0'"
-  echo  Installer started. Check the new window for the result.
-  echo  (Log: %LOG%)
+  echo  Adobe loads that one BEFORE the copy we are about to install, so it
+  echo  could hide the new version. If you see an old version after opening
+  echo  Premiere, delete that folder and reopen Premiere.
   echo.
-  pause
-  exit /b 0
 )
->> "%LOG%" echo [%date% %time%] running as administrator
 
-rem ---- choose the CEP extensions folder ----
-set "BASE=%ProgramFiles(x86)%\Common Files\Adobe\CEP\extensions"
-if "%ProgramFiles(x86)%"=="" set "BASE=%ProgramFiles%\Common Files\Adobe\CEP\extensions"
-set "DEST=%BASE%\%NAME%"
-
+rem ---- target folder (per-user: no admin needed, no UAC redirects) ----
 echo  Target folder:
 echo    %DEST%
 echo.
@@ -133,17 +128,38 @@ for %%K in (7 8 9 10 11 12 13 14 15) do (
 )
 >> "%LOG%" echo [%date% %time%] PlayerDebugMode keys set (CSXS.7-15)
 
-rem ---- verify the install ----
+rem ---- verify the install (key files) ----
 if not exist "%DEST%\CSXS\manifest.xml"          goto :bad
 if not exist "%DEST%\index.html"                 goto :bad
 if not exist "%DEST%\runtime\model\model.bin"    goto :model
 if not exist "%DEST%\runtime\python\python.exe"  goto :model
->> "%LOG%" echo [%date% %time%] verification passed
+
+rem ---- verify the install (file count matches source) ----
+set "SRC_N=0"
+set "DST_N=0"
+for /f %%N in ('dir /s /b /a-d "%SRC%" 2^>nul ^| find /c /v ""') do set "SRC_N=%%N"
+for /f %%N in ('dir /s /b /a-d "%DEST%" 2^>nul ^| find /c /v ""') do set "DST_N=%%N"
+>> "%LOG%" echo [%date% %time%] file count source=%SRC_N% dest=%DST_N%
+if not "%SRC_N%"=="%DST_N%" (
+  >> "%LOG%" echo [%date% %time%] ERROR: file count mismatch
+  echo  [ERROR] The install is incomplete (source has %SRC_N% files, but
+  echo  only %DST_N% were copied).
+  echo.
+  echo  Unzip the complete amharic-captions-win-x64.zip again and retry.
+  echo  (Log: %LOG%)
+  echo.
+  pause
+  exit /b 1
+)
+>> "%LOG%" echo [%date% %time%] verification passed (%DST_N% files)
 
 echo.
 echo  =============================================
 echo   DONE - installation successful!
 echo  =============================================
+echo.
+echo  Installed to:
+echo    %DEST%
 echo.
 echo  Next steps:
 echo    1. Fully quit Premiere Pro  (File - Exit)

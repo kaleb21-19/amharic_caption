@@ -122,6 +122,21 @@ restart Premiere.
 The manual steps below are for ZIPs that predate the installers (or for when you
 are installing by hand during development).
 
+### Where CEP looks (all platforms)
+
+CEP loads extensions from three places — product folder, then **system**, then
+**per-user**:
+
+| | System-wide | Per-user (used by the installers) |
+|---|---|---|
+| Windows | `C:\Program Files (x86)\Common Files\Adobe\CEP\extensions` | `%AppData%\Adobe\CEP\extensions` |
+| macOS | `/Library/Application Support/Adobe/CEP/extensions` | `~/Library/Application Support/Adobe/CEP/extensions` |
+
+The one-click installers use the **per-user** folder: no administrator rights,
+no UAC — writes can never get silently redirected to a hidden `VirtualStore`
+path. If an old system-wide copy exists, the installers warn that it takes
+precedence over the new per-user one.
+
 ### macOS
 **Clear Gatekeeper quarantine first** (any files from a downloaded zip are
 quarantined, which makes the bundled Python .so get blocked):
@@ -138,9 +153,11 @@ defaults write com.adobe.CSXS.12 PlayerDebugMode 1
 ```
 
 ### Windows
-Add a registry DWORD (run once), then restart Premiere. **Premiere 2024 uses
-`CSXS.11`; Premiere 2025 uses `CSXS.12`** — set the key that matches the version
-on the machine (setting both is also safe):
+Copy `com.amharic.captions` to your user's folder
+`%AppData%\Adobe\CEP\extensions\` (no admin needed). Then add a registry
+DWORD (run once) and restart Premiere. **Premiere 2024 uses `CSXS.11`;
+Premiere 2025 uses `CSXS.12`** — set the key that matches the version on the
+machine (setting both is also safe):
 
 ```
 reg add "HKCU\Software\Adobe\CSXS.11" /v PlayerDebugMode /t REG_DWORD /d 1 /f

@@ -71,8 +71,10 @@ Copy-paste ready. Post these when you launch, and reuse later for reach.
 >    https://github.com/kaleb21-19/amharic_caption/releases/latest አውርድ
 >    (Windows → `amharic-captions-win-x64.zip`)
 > 2. ይዘቱን አውጣ (extract)። ፎልደሩን በ:
->    `C:\Program Files (x86)\Common Files\Adobe\CEP\extensions\` ስር አስቀምጥ
+>    `%AppData%\Adobe\CEP\extensions\` ስር አስቀምጥ
 >    (ስሙ `com.amharic.captions` መሆን አለበት)
+>    💡 ወይም፦ ፎልደሩ ውስጥ ያለውን `Install.cmd` ላይ ዳብል-ክሊክ አድርግ —
+>    ሁሉንም በራሱ ያደርጋል (admin አያስፈልግም)!
 > 3. Premiere Pro ከፍት → Windows > Extensions > "Amharic Captions" ክፈት
 > 4. License ለማግኘት Machine ID ቅድህ።
 >

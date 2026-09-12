@@ -30,14 +30,18 @@ Pay **ETB 2,500** by bank transfer to **KALEB TEGEGEN** — CBE 1000504159977 ·
 ### Install (Windows)
 
 1. Unzip `amharic-captions-win-x64.zip`
-2. Copy the `com.amharic.captions` folder to:
-   `C:\Program Files (x86)\Common Files\Adobe\CEP\extensions\`
+2. Copy the `com.amharic.captions` folder to your user's Adobe folder:
+   `%AppData%\Adobe\CEP\extensions\`
+   (no administrator rights needed; create the `extensions` folder if it doesn't exist)
 3. If Adobe doesn't show third-party extensions, force-enable CEP debug mode:
    in the Registry Editor, open
    `HKEY_CURRENT_USER\Software\Adobe\CSXS.11` and set the DWORD
    `PlayerDebugMode` = `1` (create the key/value if missing), then restart
    Premiere. Using Premiere 2025 (v25) or newer? Also set the same
    `PlayerDebugMode` = `1` under `HKEY_CURRENT_USER\Software\Adobe\CSXS.12`.
+
+> Most users skip the first three steps: the zip ships with `Install.cmd`
+> that does the copy + keys automatically.
 
 ### Install (macOS)
 
