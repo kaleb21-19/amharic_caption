@@ -1,9 +1,10 @@
 # Amharic Captions — Cloudflare Worker (webhook) Deployment
 
 Converts the Telegram sales bot into a **free, always-on** version using
-Cloudflare Workers + D1 (database). Payment-proof screenshots are stored in D1
-as base64 BLOBs. **No R2, no card on file, no domain.** The working long-poll
-`bot.py` on the Mac stays as a fallback until this is proven live.
+Cloudflare Workers + D1 (database) + KV (cache/rate-limits). Payment-proof
+screenshots are stored in D1 as **Telegram file_ids** (tagged to each order).
+**No R2, no card on file, no domain.** The working long-poll `bot.py` on the
+Mac stays as a fallback until this is proven live.
 
 > **⚠️ FIRST (do this before anything else):** two Cloudflare API tokens were
 > **exposed in chat and are compromised** (since deleted). Delete any leaked
@@ -35,10 +36,10 @@ cd tools/telegram-worker
 npm install                                 # if not already done
 export CLOUDFLARE_API_TOKEN="<paste your NEW token>"
 
-# apply all DB migrations (0001 schema, 0002 trials table)
+# apply all DB migrations (0001 schema, 0002 trials, 0003 harden)
 npx wrangler d1 migrations apply amh_bot --remote
 
-# deploy the worker
+# deploy the worker (creates/uses the AMH_KV namespace bound in wrangler.toml)
 npx wrangler deploy
 ```
 The deploy prints your Worker URL — **copy it**, e.g.
@@ -50,24 +51,40 @@ curl https://amharic-captions-bot.<you>.workers.dev/ok   # → ok
 ```
 
 ## STEP C — Point Telegram at your Worker (webhook)
+The webhook is registered **with a secret_token** so forged updates are
+rejected (401) — `scripts/auto_webhook.mjs` reads the secret from
+`tools/telegram/bot.env`:
 ```bash
-AMH_TG_TOKEN="<telegram-bot-token>" \
-AMH_WEBHOOK_URL="https://amharic-captions-bot.<you>.workers.dev" \
-  node scripts/set_webhook.mjs
+node scripts/auto_webhook.mjs
 ```
 > If you haven't set the worker secrets yet, also run (once):
 > ```bash
 > npx wrangler secret put AMH_TG_TOKEN
 > npx wrangler secret put AMH_ADMIN_ID
 > npx wrangler secret put AMH_SECRET
+> npx wrangler secret put AMH_WEBHOOK_SECRET   # same value as AMH_WEBHOOK_SECRET in bot.env
+> # optional (OFF until a panel build that sends X-Api-Key is released):
+> npx wrangler secret put AMH_API_KEY
 > ```
-> `AMH_SECRET` = `7JBrcWoJAXZYNDczdPjIn1Kyv2Wynqz1_d73_-fdC4g=` (the HMAC license secret).
+> `AMH_SECRET` is the HMAC license secret — retrieve the value from your
+> password manager (**it is no longer printed in this repo — keygen.py,
+> deliver_key.py, bot.py and panel/js/main.js all refuse to embed it**).
+> Keep `AMH_WEBHOOK_SECRET` in sync between the Worker secret and the bot.env
+> value used by `auto_webhook.mjs`.
+>
+> **Webhook secret is now mandatory**: the Worker refuses every update (HTTP
+> 500, surfaced as a Telegram webhook error) when `AMH_WEBHOOK_SECRET` is
+> unset. Do not deploy without it.
 
 ## STEP D — Update the extension panel with your real URL
-Open `panel/js/main.js`, line 20, and replace the placeholder:
+Open `panel/js/main.js`, find the `API_URL` constant, and replace the placeholder:
 ```js
 const API_URL = 'https://amharic-captions-bot.<you>.workers.dev';
 ```
+The panel deliberately contains **no license HMAC secret** (validation is
+server-side). It ships a `''` `API_KEY_HINT` — setting it to the same value
+as the Worker `AMH_API_KEY` secret is only needed **after** you turn that
+enforcement on (see below).
 Then rebuild + re-release the extension (Step G).
 
 ## STEP E — Refresh D1 customer/seed keys (old 24-char keys no longer validate)
@@ -159,29 +176,43 @@ with zero cost and zero downtime.**
 ---
 
 ## Switching back (safety net)
-To go back to the local long-poll bot:
+The legacy `tools/telegram/bot.py` long-poll bot is **decommissioned** (it also
+refuses to start without an `AMH_SECRET` env var). To route Telegram elsewhere
+anyway:
 ```bash
 # remove webhook so long-poll can take over
 curl "https://api.telegram.org/bot<token>/deleteWebhook"
-# then run bot.py as before (the Mac fallback)
 ```
 Both the Worker and `bot.py` use the **identical HMAC key algorithm**, so a
 key issued by either works in the Premiere panel interchangeably.
 
 ## Files
 - `src/worker.js` — the webhook bot (stateless, D1-backed) + extension API
+  (webhook authenticated by `X-Telegram-Bot-Api-Secret-Token`; /debug removed)
 - `migrations/0001_schema.sql` — orders / customers / fsm / funnel schema
 - `migrations/0002_trials.sql` — server-side trial tracking (machine-bound)
-- `wrangler.toml` — bindings + vars (secrets live separately)
-- `scripts/set_webhook.mjs` — switches Telegram to webhook mode
+- `migrations/0003_harden.sql` — customers.uid, duplicate-pending guard,
+  machine/uid indexes
+- `migrations/0004_fsm_status_msg.sql` — fsm.status_msg_id (durable FSM row)
+- `wrangler.toml` — bindings + vars (secrets live separately; AMH_KV cache)
+- `scripts/set_webhook.mjs` / `auto_webhook.mjs` — switch to webhook with
+  secret_token (auto_webhook reads token + secret from tools/telegram/bot.env)
 
 ## Extension API (used by the Premiere panel)
-The Worker also powers server-side licensing for the panel:
+The Worker also powers server-side licensing for the panel; `/api/*` routes
+are **KV-cached and rate-limited** (per-machine **and** per-IP via
+`CF-Connecting-IP`) so hot reads stay off D1 quotas:
 - `GET /api/trial?mid=XXXXXXXX` → `{used, max, remaining}` — free-trial usage
-- `POST /api/trial/use` with `{mid}` → increments + returns remaining (machine-bound,
-  so clearing localStorage no longer resets the trial)
-- `POST /api/validate` with `{mid, key}` → `{valid, expiry?}` — checks the key exists
-  in D1 `customers` for this machine (blocks forged/unofficial keys)
+- `POST /api/trial/use` with `{mid}` → atomic increment + returns remaining
+  (machine-bound, so clearing localStorage no longer resets the trial)
+- `POST /api/validate` with `{mid, key}` → `{valid, expiry?}` — checks the key
+  exists in D1 `customers` for this machine (blocks forged/unofficial keys)
+
+**Optional API key**: setting the `AMH_API_KEY` Worker secret makes every
+`/api/*` call require `X-Api-Key` (401 otherwise). Do **not** set it until a
+panel release that sends the header (non-empty `API_KEY_HINT` in
+`panel/js/main.js`) is installed by your users — otherwise already-installed
+panels would be locked out.
 
 **After deploying**, copy the `*.workers.dev` URL into
 `panel/js/main.js` `API_URL` (replace `ACCOUNT`) so the panel can reach these

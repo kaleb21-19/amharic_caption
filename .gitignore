@@ -23,6 +23,9 @@ node_modules/
 # Wrangler local scratch
 tools/telegram-worker/.wrangler/
 
+# Telegram bot secret config (token + AMH_SECRET + webhook secret) — NEVER commit
+tools/telegram/bot.env
+
 # Telegram bot runtime log
 tools/telegram/bot_live.log
 

@@ -46,7 +46,19 @@ PRICE = "ETB 2,500"
 ACCT_NAME = "KALEB TEGEGEN"
 PAY_ACCOUNTS = "CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015"
 LEDGER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "customers.csv")
-SECRET = b"7JBrcWoJAXZYNDczdPjIn1Kyv2Wynqz1_d73_-fdC4g="
+# ── HMAC secret ─────────────────────────────────────────────────────────────
+# Deliberately NOT hard-coded: lives only in Worker secret AMH_SECRET and in
+# tools/telegram/bot.env. This legacy long-poll fallback bot is decommissioned
+# (the Worker handles the webhook); it still fails fast if the env is missing.
+_SECRET = os.environ.get("AMH_SECRET", "")
+if not _SECRET:
+    print(
+        "FATAL: AMH_SECRET env var is not set — refusing to start.\n"
+        "This bot is DEACTIVATED (the Cloudflare Worker is the live bot).",
+        file=sys.stderr,
+    )
+    sys.exit(2)
+SECRET = _SECRET.encode()
 SITE_URL = "https://amharic-caption-pro.vercel.app"
 API = "https://api.telegram.org/bot"
 

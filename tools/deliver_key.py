@@ -22,8 +22,18 @@ import hashlib
 import os
 import sys
 
-# ── HMAC secret (same as in panel/js/main.js and keygen.py) ────────────────
-SECRET = b"7JBrcWoJAXZYNDczdPjIn1Kyv2Wynqz1_d73_-fdC4g="
+# ── HMAC secret ─────────────────────────────────────────────────────────────
+# Deliberately NOT hard-coded: it lives only in Worker secret AMH_SECRET and
+# locally in tools/telegram/bot.env (exported as AMH_SECRET).
+SECRET = os.environ.get("AMH_SECRET", "").encode()
+if not SECRET:
+    print(
+        "Error: AMH_SECRET env var is not set.\n"
+        "Export it from tools/telegram/bot.env, e.g.:\n"
+        "  source tools/telegram/bot.env && python3 tools/deliver_key.py a1b2c3d4",
+        file=sys.stderr,
+    )
+    sys.exit(2)
 LEDGER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "customers.csv")
 PAY_METHOD = "bank transfer to KALEB TEGEGEN (CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015)"
 PRICE = "ETB 2,500"

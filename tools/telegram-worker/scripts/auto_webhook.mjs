@@ -33,10 +33,28 @@ if (!token) {
   process.exit(1);
 }
 
-const url = `https://api.telegram.org/bot${token}/setWebhook?url=${encodeURIComponent(webhookUrl)}`;
+// Webhook secret_token (guard against forged updates). Read from bot.env or env.
+function readWebhookSecret() {
+  if (process.env.AMH_WEBHOOK_SECRET) return process.env.AMH_WEBHOOK_SECRET;
+  for (const p of [botEnv, resolve(here, '../../telegram/bot.env')]) {
+    try {
+      const txt = readFileSync(p, 'utf8');
+      const m = txt.match(/^\s*AMH_WEBHOOK_SECRET\s*=\s*"?([A-Za-z0-9_-]+)"?\s*$/m);
+      if (m) return m[1];
+    } catch {}
+  }
+  return '';
+}
+
+const secret = readWebhookSecret();
+const params = new URLSearchParams({ url: webhookUrl });
+if (secret) params.set('secret_token', secret);
+params.set('allowed_updates', JSON.stringify(['message', 'callback_query', 'my_chat_member']));
+
+const url = `https://api.telegram.org/bot${token}/setWebhook?${params.toString()}`;
 const res = await fetch(url);
 const json = await res.json();
-console.log('setWebhook result:', JSON.stringify(json));
+console.log('setWebhook result:', JSON.stringify(json), secret ? '(secret_token: on)' : '(WARNING: no secret_token)');
 // verify
 const me = await (await fetch(`https://api.telegram.org/bot${token}/getMe`)).json();
 console.log('getMe:', me.ok ? `bot is @${me.result.username}` : 'FAILED');

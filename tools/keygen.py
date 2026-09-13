@@ -12,10 +12,22 @@ Machine IDs are 8-char hex strings shown in the panel's License section.
 """
 import hmac
 import hashlib
+import os
 import sys
 
-# ── HMAC secret (same as in panel/js/main.js) ──────────────────────────────
-SECRET = b"7JBrcWoJAXZYNDczdPjIn1Kyv2Wynqz1_d73_-fdC4g="
+# ── HMAC secret ─────────────────────────────────────────────────────────────
+# Deliberately NOT hard-coded: it lives only in Worker secret AMH_SECRET and
+# locally in tools/telegram/bot.env (exported as AMH_SECRET). Refusing to run
+# without it prevents anyone with the repo from minting keys.
+SECRET = os.environ.get("AMH_SECRET", "").encode()
+if not SECRET:
+    print(
+        "Error: AMH_SECRET env var is not set.\n"
+        "Export it from tools/telegram/bot.env, e.g.:\n"
+        "  source tools/telegram/bot.env && python3 tools/keygen.py a1b2c3d4",
+        file=sys.stderr,
+    )
+    sys.exit(2)
 
 def generate_key(machine_id: str, expiry: str = "00000000") -> str:
     """Return an AMH-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX license key."""

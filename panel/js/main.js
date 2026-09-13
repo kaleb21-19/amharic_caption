@@ -13,11 +13,18 @@ const csi = new CSInterface();
 // plain browser for testing). Machine ID = random 8-char hex, stored locally.
 // License key = AMH-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX, HMAC-SHA256 signed.
 // ─────────────────────────────────────────────────────────────────────────────
-const LICENSE_SECRET = '7JBrcWoJAXZYNDczdPjIn1Kyv2Wynqz1_d73_-fdC4g=';
+// No HMAC secret is embedded here (ever). Key authenticity is decided by the
+// server /api/validate; this file only does a quick structural check so a
+// wrong key is rejected locally before a network round-trip.
 
 // ── Cloudflare Worker API URL (server-side trial + key validation) ──────────
 // Deployed Worker URL — see tools/telegram-worker/DEPLOY.md.
 const API_URL = 'https://amharic-captions-bot.amhcaps.workers.dev';
+
+// Shared-secret header for the extension API (optional). Keep ''. When the
+// server starts requiring AMH_API_KEY, set the same value here and ship this
+// panel — see tools/telegram-worker/DEPLOY.md.
+const API_KEY_HINT = '';
 
 async function apiGet(path) {
   try {
@@ -29,9 +36,11 @@ async function apiGet(path) {
 
 async function apiPost(path, body) {
   try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (API_KEY_HINT) headers['X-Api-Key'] = API_KEY_HINT;
     const res = await fetch(API_URL + path, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(body),
     });
     if (!res.ok) return null;
@@ -282,15 +291,17 @@ function setLicense(licenseObj) {
   catch (e) {}
 }
 
+// Structural-only key check. No HMAC here: the cryptographic authority is the
+// server (/api/validate). This just rejects obviously-wrong keys fast, locally.
 function validateLicense(key, machineId) {
-  const clean = key.replace(/AMH-/g, '').replace(/-/g, '').toLowerCase();
-  if (clean.length !== 32) return { ok: false, error: 'Invalid key length' };
+  const clean = String(key || '').replace(/AMH-/g, '').replace(/-/g, '').toLowerCase();
+  if (!/^[0-9a-f]{32}$/.test(clean)) return { ok: false, error: 'Invalid key format' };
 
   const mid  = clean.substring(0, 8);
   const exp  = clean.substring(8, 16);
   const sig  = clean.substring(16, 32);
 
-  if (mid !== machineId.toLowerCase()) return { ok: false, error: 'Key is for a different machine' };
+  if (mid !== String(machineId || '').toLowerCase()) return { ok: false, error: 'Key is for a different machine' };
 
   // Check expiry
   if (exp !== '00000000') {
@@ -300,19 +311,9 @@ function validateLicense(key, machineId) {
     }
   }
 
-  // HMAC verification (via SubtleCrypto)
-  const msg = mid + '|' + exp;
-  const encoder = new TextEncoder();
-  const webcrypto = (window.crypto || globalThis.crypto || {});
-  return webcrypto.subtle.importKey(
-    'raw', encoder.encode(LICENSE_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
-  ).then((keyObj) => {
-    return webcrypto.subtle.sign('HMAC', keyObj, encoder.encode(msg));
-  }).then((buf) => {
-    const computed = Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('').substring(0, 16);
-    if (computed === sig) return { ok: true, expiry: exp };
-    return { ok: false, error: 'Invalid license key' };
-  });
+  // Format/date valid. Acceptance still requires the server to confirm the key
+  // (or a previously server-validated cached license) — see activateLicense().
+  return { ok: true, expiry: exp };
 }
 
 let LICENSED = false;

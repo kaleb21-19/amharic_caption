@@ -90,6 +90,9 @@ let ACCT_NAME = 'KALEB TEGEGEN';
 let PAY_ACCOUNTS = 'CBE 1000504159977 · Abyssinia 402393939 · Zemen 1031111343277015';
 const SUPPORT_URL = 'https://t.me/sumpak6';
 const SITE_URL = 'https://amharic-caption-pro.vercel.app';
+let WEBHOOK_SECRET = '';
+let API_KEY = ''; // optional shared secret for /api/* (panel). Off until set.
+let CACHE = null; // optional KV namespace (AMH_KV). Absent => graceful fallback.
 
 // ── config / env ────────────────────────────────────────────────────────────
 function initEnv(env) {
@@ -100,8 +103,23 @@ function initEnv(env) {
   ACCT_NAME = env.AMH_ACCT_NAME || ACCT_NAME;
   PAY_ACCOUNTS = env.AMH_PAY_ACCOUNTS || PAY_ACCOUNTS;
   SECRET = env.AMH_SECRET || '';
+  WEBHOOK_SECRET = env.AMH_WEBHOOK_SECRET || '';
+  API_KEY = env.AMH_API_KEY || '';
+  CACHE = env.AMH_KV || null;
   globalThis.DB = env.DB;
 }
+
+// ── tiny shared helpers (KV cache, rate-limit marker, throttle) ─────────────
+function safeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+async function kvGet(key) { try { return CACHE ? await CACHE.get(key) : null; } catch (e) { return null; } }
+async function kvPut(key, val, ttl) { try { if (CACHE) await CACHE.put(key, String(val), { expirationTtl: ttl }); } catch (e) {} }
+async function kvDel(key) { try { if (CACHE) await CACHE.delete(key); } catch (e) {} }
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 // ── menu text (port from bot.py) ────────────────────────────────────────────
 function heroText(first = '') {
@@ -167,8 +185,12 @@ async function countSold() {
   return r ? r.n : 0;
 }
 async function pendingCount() {
+  const cached = await kvGet('pending:count');
+  if (cached) { const n = parseInt(cached, 10); if (!isNaN(n)) return n; }
   const r = await DB.prepare("SELECT COUNT(*) AS n FROM orders WHERE status='pending'").first();
-  return r ? r.n : 0;
+  const n = r ? r.n : 0;
+  await kvPut('pending:count', n, 5);
+  return n;
 }
 // Auto-prune: keep only the last 30 days of orders + funnel events. Called on
 // every admin action so history stays small without a scheduled job.
@@ -186,35 +208,41 @@ async function setFsm(uid, s) {
     return;
   }
   await DB.prepare(
-    `INSERT INTO fsm (uid, step, mid, photo_key, ref, hint, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+    `INSERT INTO fsm (uid, step, mid, photo_key, ref, hint, status_msg_id, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
      ON CONFLICT(uid) DO UPDATE SET
        step=excluded.step, mid=excluded.mid, photo_key=excluded.photo_key,
-       ref=excluded.ref, hint=excluded.hint, updated_at=datetime('now')`
-  ).bind(uid, s.step, s.mid || null, s.photo_key || null, s.ref || '', s.hint ? 1 : 0).run();
+       ref=excluded.ref, hint=excluded.hint, status_msg_id=excluded.status_msg_id,
+       updated_at=datetime('now')`
+  ).bind(
+    uid, s.step, s.mid || null, s.photo_key || null, s.ref || '', s.hint ? 1 : 0,
+    s.status_msg_id != null ? s.status_msg_id : null
+  ).run();
 }
 async function addFunnel(uid, event) {
   await DB.prepare('INSERT INTO funnel (uid, event) VALUES (?, ?)').bind(uid, event).run();
 }
 
-// ── message senders ─────────────────────────────────────────────────────────
+// ── message senders (never throw: an outbound failure must not abort the
+// ─────────────────── handler or bubble up into a Telegram 500 retry loop) ──
+function safeSend(promise) { return promise.catch(() => ({ ok: false })); }
 function sendText(chatId, text, kb) {
   const params = { chat_id: chatId, text, parse_mode: 'HTML' };
   if (kb) params.reply_markup = { inline_keyboard: kb };
-  return tg(TOKEN, 'sendMessage', params);
+  return safeSend(tg(TOKEN, 'sendMessage', params));
 }
 function editText(chatId, messageId, text, kb) {
   const params = { chat_id: chatId, message_id: messageId, text, parse_mode: 'HTML' };
   if (kb) params.reply_markup = { inline_keyboard: kb };
-  return tg(TOKEN, 'editMessageText', params);
+  return safeSend(tg(TOKEN, 'editMessageText', params));
 }
 function sendPhoto(chatId, photo, caption, kb) {
   const params = { chat_id: chatId, photo, caption, parse_mode: 'HTML' };
   if (kb) params.reply_markup = { inline_keyboard: kb };
-  return tg(TOKEN, 'sendPhoto', params);
+  return safeSend(tg(TOKEN, 'sendPhoto', params));
 }
 function answerCb(id, text) {
-  return tg(TOKEN, 'answerCallbackQuery', { callback_query_id: id, text: text || '' });
+  return safeSend(tg(TOKEN, 'answerCallbackQuery', { callback_query_id: id, text: text || '' }));
 }
 
 // Generic thin reply via raw Bot API for any method.
@@ -330,18 +358,18 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
       return;
     }
     const mid = m[0].toLowerCase();
-    if (suspiciousMid(mid)) {
-      await sendText(chatId,
-        `⚠️ <code>${mid}</code> doesn’t look like a real <b>Machine ID</b>.\n\nYour Machine ID is the <b>8 characters</b> shown under "Your Machine ID" in the panel’s License section (e.g. <code>a1b2c3d4</code>).`,
-        [[{ text: '📍 Where is my Machine ID?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
-      return;
-    }
     const existing = await findKey(mid);
     if (existing) {
       await sendText(chatId,
         `🔑 This Machine ID (<code>${mid}</code>) already has a key.\n\nTap <b>My Key</b> below to see it, or contact the seller if it's not working.`,
         [[{ text: '🔑 My Key', callback_data: 'proof:mykey' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
       await setFsm(uid, null);
+      return;
+    }
+    if (suspiciousMid(mid)) {
+      await sendText(chatId,
+        `⚠️ <code>${mid}</code> doesn’t look like a real <b>Machine ID</b>.\n\nYour Machine ID is the <b>8 characters</b> shown under "Your Machine ID" in the panel’s License section (e.g. <code>a1b2c3d4</code>).`,
+        [[{ text: '📍 Where is my Machine ID?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
       return;
     }
     // valid new machine -> ask for screenshot
@@ -415,16 +443,10 @@ async function handlePhoto(msg, uid, chatId, privateChat, text) {
 }
 
 async function storeProof(fileId) {
-  // A Telegram file_id can be passed straight to sendPhoto with no re-download
-  // or re-upload. We store it as-is per order (far more reliable than base64
-  // re-uploads). Verify it exists via getFile, then return it.
-  try {
-    const info = await tg(TOKEN, 'getFile', { file_id: fileId });
-    if (info && info.ok) return fileId;
-    return null;
-  } catch (e) {
-    return null;
-  }
+  // A file_id that arrived inside a real Telegram update is always valid to
+  // re-send via sendPhoto. We deliberately do NOT round-trip through getFile:
+  // that extra network call is the only place a screenshot could get dropped.
+  return fileId || null;
 }
 
 // ── review + confirm ────────────────────────────────────────────────────────
@@ -450,13 +472,40 @@ async function completeProof(uid, chatId, uname, privateChat) {
   const s = await getFsm(uid);
   if (!s || !s.mid) return;
 
-  const order = await DB.prepare(
-    `INSERT INTO orders (uid, username, machine_id, ref, photo_key, chat_id, status)
-     VALUES (?, ?, ?, '', ?, ?, 'pending')`
-  ).bind(uid, uname, s.mid, s.photo_key || null, String(chatId)).run();
+  // Require a payment screenshot before booking. A missing proof means
+  // storeProof hiccups or the photo step was somehow skipped — send them
+  // back to the photo step rather than creating a proofless order.
+  if (!s.photo_key) {
+    await setFsm(uid, { ...s, step: 'photo' });
+    await sendText(chatId,
+      '⚠️ <b>Screenshot missing.</b> Please resend your payment screenshot as a photo.',
+      [[{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
+    return;
+  }
 
-  const orderId = order.meta.last_row_id;
+  // Atomically insert + claim: the unique partial index on
+  // (machine_id WHERE status='pending') blocks duplicate pending orders
+  // for the same machine. On duplicate (constraint error) we tell the
+  // buyer and clean up the FSM safely.
+  let orderId;
+  try {
+    const order = await DB.prepare(
+      `INSERT INTO orders (uid, username, machine_id, ref, photo_key, chat_id, status)
+       VALUES (?, ?, ?, '', ?, ?, 'pending')`
+    ).bind(uid, uname || 'anon', s.mid, s.photo_key, String(chatId)).run();
+    orderId = order.meta.last_row_id;
+  } catch (err) {
+    const isDupe = /UNIQUE/i.test(String(err));
+    await setFsm(uid, null);
+    await sendText(chatId, isDupe
+      ? '⚠️ A pending order for this Machine ID already exists — please wait for admin approval.'
+      : '⚠️ Something went wrong saving your order. Please try again, or contact the seller.');
+    return;
+  }
+
+  // Claim succeeded — side-effects are safe (runs once).
   await setFsm(uid, null);
+  await kvDel('pending:count');
   await addFunnel(uid, 'order_confirmed');
 
   // status + ETA to buyer
@@ -465,13 +514,13 @@ async function completeProof(uid, chatId, uname, privateChat) {
     '📦 <b>Order received — now pending</b>\n\n' +
     `🤖 Machine ID: <code>${s.mid}</code>\n` +
     `💵 Amount: <b>${PRICE}</b>\n\n` +
-    `⏳ <b>Status: Pending</b> — you’re <b>#${pos}</b> in line.\n` +
+    `⏳ <b>Status: Pending</b> — you're <b>#${pos}</b> in line.\n` +
     'Keys are usually issued within a few hours (Ethiopian working hours). We’ll send it right here. 🙏';
   const r = await sendText(chatId, statusText);
   const statusMsgId = r && r.ok ? r.result.message_id : null;
   if (statusMsgId) await DB.prepare('UPDATE orders SET status_msg_id=? WHERE id=?').bind(statusMsgId, orderId).run();
 
-  // notify admin
+  // notify admin (throttled so a queue of cards doesn't hit Telegram 429)
   const admins = await adminList();
   for (const adm of admins) {
     const caption =
@@ -480,6 +529,7 @@ async function completeProof(uid, chatId, uname, privateChat) {
       'Check the screenshot, then Approve or Reject:';
     if (s.photo_key) await sendPhoto(adm, s.photo_key, caption, adminKeyboardPend(orderId));
     else await sendText(adm, caption, adminKeyboardPend(orderId));
+    await sleep(40); // ~25 msg/s — safe for Telegram's 30 msg/s limit
   }
 }
 
@@ -506,11 +556,13 @@ function keyDeliveryMessage(key, expiry, chatType) {
 async function showMyKey(msg, chatId, messageId) {
   const user = msg.from || {};
   const uid = String(user.id || '');
-  // find this user's approved machines (link customers by order.uid)
+  // Customers.uid is stamped at approve time — read directly so buyers
+  // retain "My Key" access even after the 30-day orders prune deletes
+  // the linking order row.  (Previously this JOINed orders — which broke
+  // after pruning.)
   const rows = await DB.prepare(
-    `SELECT c.machine_id, c.key, c.expiry FROM customers c
-     JOIN orders o ON o.machine_id = c.machine_id AND o.status='approved'
-     WHERE o.uid = ? LIMIT 5`
+    `SELECT machine_id, key, expiry FROM customers
+     WHERE uid = ? ORDER BY machine_id LIMIT 50`
   ).bind(uid).all();
   const list = rows.results || [];
   if (!list.length) {
@@ -582,6 +634,7 @@ async function adminQueue(chatId, messageId, cbId) {
     const cap = `${orderSummary(o)}\n`;
     if (o.photo_key) await sendPhoto(chatId, o.photo_key, cap, adminKeyboardPend(o.id));
     else await sendText(chatId, cap, adminKeyboardPend(o.id));
+    await sleep(40); // throttle: stay under Telegram's 30 msg/s per chat
   }
   await answerCb(cbId, `${results.length} pending`);
   await editText(chatId, messageId,
@@ -675,25 +728,36 @@ async function adminSales(chatId, messageId) {
 async function approve(chatId, messageId, orderId, cbId) {
   const o = await DB.prepare('SELECT * FROM orders WHERE id=?').bind(orderId).first();
   if (!o) { await answerCb(cbId, 'Order not found.'); return; }
-  if (o.status !== 'pending') { await answerCb(cbId, 'Already handled'); return; }
+
+  // Atomic claim: the first request to flip pending→approved wins; every
+  // duplicate tap / Telegram retry after that is a harmless no-op. This
+  // keeps keys, funnel events and buyer DMs single-delivery.
+  const claim = await DB.prepare(
+    "UPDATE orders SET status='approved' WHERE id=? AND status='pending'"
+  ).bind(orderId).run();
+  if (!claim || !claim.meta || claim.meta.changes < 1) {
+    await answerCb(cbId, 'Already handled'); return;
+  }
+  await kvDel('pending:count');
 
   // generate the key (async because HMAC)
   const key = await keyFor(o.machine_id, o.expiry);
 
-  // record in customers
-  await DB.prepare(`INSERT INTO customers (machine_id, name, expiry, key, status)
-    VALUES (?,?,?,?, 'sold') ON CONFLICT(machine_id) DO UPDATE SET key=excluded.key, name=excluded.name, status='sold'`)
-    .bind(o.machine_id, '@' + o.username, o.expiry, key).run();
+  // record in customers — stamps the buyer uid so "My Key" still works
+  // after orders are pruned.
+  await DB.prepare(`INSERT INTO customers (machine_id, name, expiry, key, status, uid)
+    VALUES (?,?,?,?, 'sold', ?) ON CONFLICT(machine_id) DO UPDATE SET
+      key=excluded.key, name=excluded.name, expiry=excluded.expiry,
+      status='sold', uid=excluded.uid`)
+    .bind(o.machine_id, '@' + (o.username || 'anon'), o.expiry, key, o.uid || '').run();
 
-  // mark order approved
-  await DB.prepare("UPDATE orders SET status='approved' WHERE id=?").bind(orderId).run();
   await addFunnel(o.uid, 'approved');
 
   // edit buyer status to Approved
   const buyerStatusMsg = o.status_msg_id;
   if (buyerStatusMsg) {
     await editText(o.chat_id || o.uid, buyerStatusMsg,
-      '✅ <b>Order approved \u2014 key on the way!</b>\n\n' +
+      '✅ <b>Order approved — key on the way!</b>\n\n' +
       `🤖 Machine ID: <code>${o.machine_id}</code>\n🟢 <b>Status: Approved</b> ✓`);
   }
 
@@ -711,14 +775,19 @@ async function approve(chatId, messageId, orderId, cbId) {
 async function reject(chatId, messageId, orderId, cbId) {
   const o = await DB.prepare('SELECT * FROM orders WHERE id=?').bind(orderId).first();
   if (!o) return;
-  if (o.status !== 'pending') { await answerCb(cbId, 'Already handled'); return; }
-  await DB.prepare("UPDATE orders SET status='rejected' WHERE id=?").bind(orderId).run();
+  const claim = await DB.prepare(
+    "UPDATE orders SET status='rejected' WHERE id=? AND status='pending'"
+  ).bind(orderId).run();
+  if (!claim || !claim.meta || claim.meta.changes < 1) {
+    await answerCb(cbId, 'Already handled'); return;
+  }
+  await kvDel('pending:count');
   await addFunnel(o.uid, 'rejected');
   const left = await pendingCount();
   await editText(chatId, messageId,
     `❌ <b>Declined #${orderId}</b> — @${o.username} <code>${o.machine_id}</code>\n` +
     `${left ? `📥 ${left} request(s) left in queue.` : '🎉 Queue is clear.'}`);
-  if (o.chat_id) await sendText(o.chat_id, 'Sorry \u2014 payment proof not verified. No key was sent. If you believe this is an error, contact the seller.');
+  if (o.chat_id) await sendText(o.chat_id, 'Sorry — payment proof not verified. No key was sent. If you believe this is an error, contact the seller.');
   await answerCb(cbId, '❌ Declined');
 }
 
@@ -829,94 +898,152 @@ export default {
       return new Response('ok', { status: 200 });
     }
 
-    // GET /debug  → report the admin id the worker resolves (for verification only)
-    if (request.method === 'GET' && url.pathname === '/debug') {
-      return new Response(JSON.stringify({ admin_id: ADMIN_ID, token_set: !!TOKEN, db: !!DB }), {
-        headers: { 'Content-Type': 'application/json' },
-        status: 200,
-      });
-    }
-
     // ── Extension API ──────────────────────────────────────────────────────
     // CORS headers for extension calls (CEP panels run from file:// origins)
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Headers': 'Content-Type, X-Api-Key',
     };
+    const json = (obj, status = 200) => new Response(JSON.stringify(obj), {
+      status,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    });
+    const rateLimited = async (k, ttl) => {
+      const v = await kvGet(k);
+      if (v) return true;
+      await kvPut(k, '1', ttl);
+      return false;
+    };
+    const clientIp = () => request.headers.get('CF-Connecting-IP') || '0.0.0.0';
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders });
+    }
+    // Optional shared secret for the /api/* endpoints. When the AMH_API_KEY
+    // Worker secret is set, every /api call must present it (X-Api-Key).
+    // OFF by default so already-installed panels stay working; enable it in
+    // the same release as a panel build that sends the header.
+    if (url.pathname.startsWith('/api/') && API_KEY) {
+      const givenKey = request.headers.get('X-Api-Key') || '';
+      if (!safeEqual(givenKey, API_KEY)) return json({ error: 'unauthorized' }, 401);
     }
 
     // GET /api/trial?mid=XXXX → {used, max, remaining}
     if (request.method === 'GET' && url.pathname === '/api/trial') {
       const mid = url.searchParams.get('mid');
       if (!mid || !/^[0-9a-f]{8}$/.test(mid)) {
-        return new Response(JSON.stringify({ error: 'bad mid' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+        return json({ error: 'bad mid' }, 400);
+      }
+      const cacheKey = 'trial:' + mid;
+      const cached = await kvGet(cacheKey);
+      if (cached) { try { return json(JSON.parse(cached)); } catch (e) {} }
+      // Per-IP throttle so a scraper spraying many machine IDs can't burn
+      // D1 reads. A legit user only ever queries their own mid (cache hit).
+      if (await rateLimited('rl:ip:' + clientIp() + ':trial', 5)) {
+        return json({ error: 'throttled' }, 429);
       }
       const row = await DB.prepare('SELECT used, max_free FROM trials WHERE machine_id = ?').bind(mid).first();
       const used = row ? row.used : 0;
       const maxFree = row ? row.max_free : 2;
-      return new Response(JSON.stringify({ used, max: maxFree, remaining: Math.max(0, maxFree - used) }), {
-        headers: { 'Content-Type': 'application/json', ...corsHeaders },
-      });
+      const out = { used, max: maxFree, remaining: Math.max(0, maxFree - used) };
+      await kvPut(cacheKey, JSON.stringify(out), 45);
+      return json(out);
     }
 
     // POST /api/trial/use → {mid} → increment trial usage, return {used, remaining}
     if (request.method === 'POST' && url.pathname === '/api/trial/use') {
       let body;
-      try { body = await request.json(); } catch { return new Response(JSON.stringify({ error: 'bad json' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } }); }
+      try { body = await request.json(); } catch { return json({ error: 'bad json' }, 400); }
       const mid = body && body.mid;
       if (!mid || !/^[0-9a-f]{8}$/.test(mid)) {
-        return new Response(JSON.stringify({ error: 'bad mid' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+        return json({ error: 'bad mid' }, 400);
       }
-      // Upsert: insert if not exists, then increment — but never past the cap
+      // Per-IP guard on the write path (beyond the per-machine collapse below).
+      if (await rateLimited('rl:ip:' + clientIp() + ':use', 3)) {
+        return json({ error: 'throttled' }, 429);
+      }
+      // Collapse accidental double-fire (panel retry) + scripted abuse into
+      // one increment per machine per 2s. A real transcription takes far
+      // longer than that, so legit credits are never lost.
+      if (await rateLimited('rl:use:' + mid, 2)) {
+        const cur = await DB.prepare('SELECT used, max_free FROM trials WHERE machine_id = ?').bind(mid).first();
+        const used = cur ? cur.used : 0;
+        return json({ used, remaining: Math.max(0, (cur ? cur.max_free : 2) - used) });
+      }
+      // Atomic increment — never past the cap, no lost updates under
+      // concurrency.
       await DB.prepare('INSERT OR IGNORE INTO trials (machine_id, used, max_free) VALUES (?, 0, 2)').bind(mid).run();
-      await DB.prepare('UPDATE trials SET used = CASE WHEN used < max_free THEN used + 1 ELSE used END WHERE machine_id = ?').bind(mid).run();
+      await DB.prepare('UPDATE trials SET used = used + 1 WHERE machine_id = ? AND used < max_free').bind(mid).run();
       const row = await DB.prepare('SELECT used, max_free FROM trials WHERE machine_id = ?').bind(mid).first();
-      return new Response(JSON.stringify({ used: row.used, remaining: Math.max(0, row.max_free - row.used) }), {
-        headers: { 'Content-Type': 'application/json', ...corsHeaders },
-      });
+      const used = row ? row.used : 0;
+      const maxFree = row ? row.max_free : 2;
+      const out = { used, remaining: Math.max(0, maxFree - used) };
+      await kvPut('trial:' + mid, JSON.stringify(out), 45);
+      return json(out);
     }
 
     // POST /api/validate → {mid, key} → {valid, expiry?}
     if (request.method === 'POST' && url.pathname === '/api/validate') {
       let body;
-      try { body = await request.json(); } catch { return new Response(JSON.stringify({ error: 'bad json' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } }); }
+      try { body = await request.json(); } catch { return json({ error: 'bad json' }, 400); }
       const { mid, key } = body || {};
-      if (!mid || !key) {
-        return new Response(JSON.stringify({ error: 'missing mid or key' }), { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+      if (!mid || !key || !/^[0-9a-f]{8}$/.test(String(mid)) || typeof key !== 'string') {
+        return json({ error: 'missing mid or key' }, 400);
+      }
+      const cacheKey = 'val:' + String(mid) + ':' + key;
+      const cached = await kvGet(cacheKey);
+      if (cached) { try { return json(JSON.parse(cached)); } catch (e) {} }
+      // Per-IP guard so a brute-forcer can't spray fake keys quickly.
+      if (await rateLimited('rl:ip:' + clientIp() + ':validate', 3)) {
+        return json({ valid: false, reason: 'throttled', retry: true }, 429);
+      }
+      // Only a genuinely new lookup reaches D1; brute-force bursts of fake
+      // keys are throttled per machine.
+      if (await rateLimited('rl:val:' + String(mid), 3)) {
+        return json({ valid: false, reason: 'throttled', retry: true }, 429);
       }
       // Check D1: key must be in customers table
-      const row = await DB.prepare('SELECT expiry FROM customers WHERE machine_id = ? AND key = ?').bind(mid, key).first();
+      const row = await DB.prepare('SELECT expiry FROM customers WHERE machine_id = ? AND key = ?').bind(String(mid), key).first();
+      let out;
       if (!row) {
-        return new Response(JSON.stringify({ valid: false }), { headers: { 'Content-Type': 'application/json', ...corsHeaders } });
-      }
-      // Check expiry
-      if (row.expiry && row.expiry !== '00000000') {
+        out = { valid: false };
+      } else if (row.expiry && row.expiry !== '00000000') {
         const expDate = new Date(row.expiry.slice(0, 4) + '-' + row.expiry.slice(4, 6) + '-' + row.expiry.slice(6, 8));
-        if (expDate < new Date()) {
-          return new Response(JSON.stringify({ valid: false, reason: 'expired' }), { headers: { 'Content-Type': 'application/json', ...corsHeaders } });
-        }
+        out = (isNaN(expDate.getTime()) || expDate < new Date())
+          ? { valid: false, reason: 'expired' }
+          : { valid: true, expiry: row.expiry };
+      } else {
+        out = { valid: true, expiry: row.expiry };
       }
-      return new Response(JSON.stringify({ valid: true, expiry: row.expiry }), {
-        headers: { 'Content-Type': 'application/json', ...corsHeaders },
-      });
+      await kvPut(cacheKey, JSON.stringify(out), out.valid ? 3600 : 60);
+      return json(out);
     }
 
     // Telegram POSTs updates here
     if (request.method === 'POST') {
+      // Webhook authenticity: Telegram sends X-Telegram-Bot-Api-Secret-Token
+      // when setWebhook registers a secret_token. Without it, a stranger
+      // could forge updates (admin callbacks) and approve/decline orders.
+      // FAIL CLOSED: if the secret is not configured the worker refuses
+      // updates entirely (Telegram will surface this as a webhook error).
+      if (!WEBHOOK_SECRET) {
+        console.error('refusing update: AMH_WEBHOOK_SECRET is not configured');
+        return new Response('webhook secret not configured', { status: 500 });
+      }
+      const given = request.headers.get('X-Telegram-Bot-Api-Secret-Token') || '';
+      if (!safeEqual(given, WEBHOOK_SECRET)) return new Response('unauthorized', { status: 401 });
       let update;
       try { update = await request.json(); } catch { return new Response('bad', { status: 400 }); }
 
-      // fire-and-forget (return 200 immediately so Telegram doesn't retry together)
-      // but we want reliability, so we await then return — Telegram retries if we fail.
       try {
         if (update.message) await handleMessage(update.message, env);
         else if (update.callback_query) await handleCallback(update.callback_query);
       } catch (e) {
-        console.error('handler error', e);
-        return new Response('handler error', { status: 500 });
+        // Internal bug. All outbound calls already swallow their own errors,
+        // so an exception here is exceptional. Return 200 anyway: echoing a
+        // 500 makes Telegram re-deliver the SAME update forever, which is
+        // what produced the stuck 500-loop this hardening fixes.
+        console.error('handler error (ignored, 200 returned)', e);
       }
       return new Response('ok', { status: 200 });
     }

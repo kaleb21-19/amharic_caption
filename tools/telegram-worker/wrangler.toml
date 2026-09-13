@@ -11,14 +11,22 @@ binding = "DB"
 database_name = "amh_bot"
 database_id = "ba278e9c-b56e-400d-bc1d-53f7c3f8431c"
 
+# KV: cache for /api/trial, /api/validate, pending-count + rate-limit
+# markers. Keeps hot reads off D1 quotas and throttles abuse.
+[[kv_namespaces]]
+binding = "AMH_KV"
+id = "49415337946e41168f0f2c8958ea3ede"
+
 # NOTE: R2 is intentionally NOT used. Payment-proof screenshots are stored as
 # BLOBs directly in D1 (fine at this bot's tiny volume, and avoids needing a
 # card on file to enable R2).
 
 # ---- Secrets (set via `wrangler secret put`, never in this file) --------
-# AMH_TG_TOKEN : the Telegram bot token
-# AMH_ADMIN_ID : your numeric admin chat id
-# AMH_SECRET   : the HMAC license-key secret
+# AMH_TG_TOKEN      : the Telegram bot token
+# AMH_ADMIN_ID      : your numeric admin chat id
+# AMH_SECRET        : the HMAC license-key secret
+# AMH_WEBHOOK_SECRET: random string, ALSO registered as Telegram's webhook
+#                     secret_token so forged updates are rejected (401).
 
 [vars]
 AMH_GROUP_ID = "-1004403686687"
