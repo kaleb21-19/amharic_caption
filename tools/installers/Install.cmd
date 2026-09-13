@@ -121,10 +121,21 @@ if %RC% GTR 7 (
   exit /b 1
 )
 
+rem ---- detect installed Premiere Pro versions (for diagnostics) ----
+echo  Checking which Premiere Pro versions are installed ...
+for /d %%D in ("%PF86%\Adobe\Adobe Premiere Pro *" "%ProgramFiles%\Adobe\Adobe Premiere Pro *") do (
+  if exist "%%D" (
+    >> "%LOG%" echo [%date% %time%] found Premiere install: %%~nxD
+    echo    found: %%~nxD
+  )
+)
+
 rem ---- enable the extension debug keys (covers all recent Premiere) ----
+rem Adobe's documented type is a DWORD value of 1 - a string "1" is
+rem ignored by some Premiere builds, so use REG_DWORD explicitly.
 echo  Enabling Adobe extension support ...
 for %%K in (7 8 9 10 11 12 13 14 15) do (
-  reg add "HKCU\Software\Adobe\CSXS.%%K" /v PlayerDebugMode /t REG_SZ /d 1 /f >> "%LOG%" 2>&1
+  reg add "HKCU\Software\Adobe\CSXS.%%K" /v PlayerDebugMode /t REG_DWORD /d 1 /f >> "%LOG%" 2>&1
 )
 >> "%LOG%" echo [%date% %time%] PlayerDebugMode keys set (CSXS.7-15)
 
@@ -162,9 +173,15 @@ echo  Installed to:
 echo    %DEST%
 echo.
 echo  Next steps:
-echo    1. Fully quit Premiere Pro  (File - Exit)
-echo    2. Reopen Premiere Pro
-echo    3. Menu:  Window  Extension  Amharic Captions
+echo    1. Fully quit Premiere Pro  (File - Exit)  - closing the window is
+echo       NOT enough, the panel list is only read at startup
+echo    2. Reopen Premiere Pro and OPEN a project
+echo       (the Extensions menu is greyed out on the start screen)
+echo    3. Menu:  Window  Extensions  Amharic Captions
+echo.
+echo  If the Extensions menu is still greyed out, a project must be open.
+echo  If Amharic Captions still does not appear, re-run this installer and
+echo  check the log: %LOG%
 echo.
 echo  If you previously had an older version installed, it has been
 echo  replaced by this one.

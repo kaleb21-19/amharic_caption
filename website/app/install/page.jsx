@@ -10,7 +10,7 @@ export const metadata = {
 const winSteps = [
   { t: "Download", c: "Get the Windows build below and unzip it (right-click the zip → Extract All). It must contain a folder named com.amharic.captions and a file named Install.cmd — keep them side by side." },
   { t: "Double-click Install.cmd", c: "No administrator rights are needed. The installer copies the extension into your user's Adobe folder, enables the required settings, and verifies everything automatically (a window shows progress and says DONE when finished)." },
-  { t: "Restart Premiere", c: "Fully quit and reopen Premiere Pro, then open Extensions > Amharic Captions." },
+  { t: "Restart Premiere", c: "Fully quit Premiere Pro (File → Exit — closing the window is not enough), reopen it and open/continue a project. Then open Window → Extensions → Amharic Captions (note: the Extensions menu is greyed out on the start screen until a project is open)." },
   { t: "Activate", c: "Copy your Machine ID, pay via the Telegram bot, and paste your license key to activate." },
 ];
 
