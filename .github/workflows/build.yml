@@ -179,6 +179,12 @@ jobs:
           path: zips
           merge-multiple: true
 
+      - name: Generate SHA256 checksums
+        run: |
+          set -euo pipefail
+          (cd zips && sha256sum *.zip > CHECKSUMS.txt)
+          cat zips/CHECKSUMS.txt
+
       - name: Create/update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -187,7 +193,7 @@ jobs:
           TAG="build-${GITHUB_RUN_ID}"
           VER="$(grep -o 'ExtensionBundleVersion="[^"]*"' panel/CSXS/manifest.xml | head -1 | sed 's/[^"]*"//;s/"//')"
           gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
-          gh release create "$TAG" zips/*.zip \
+          gh release create "$TAG" zips/*.zip zips/CHECKSUMS.txt \
             --title "Amharic Captions v${VER}" \
             --notes "Amharic Captions v${VER} — self-contained builds for Windows 10/11, macOS (Apple Silicon), and macOS (Intel). Download the zip for your platform and install into Adobe CEP extensions. See the install guide: https://amharic-captions-pro.vercel.app/install/" \
             || { echo "release create failed"; exit 1; }
