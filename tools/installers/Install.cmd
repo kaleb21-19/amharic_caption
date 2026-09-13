@@ -3,8 +3,8 @@ setlocal EnableExtensions EnableDelayedExpansion
 title Amharic Captions - Installer
 
 rem ============================================================
-rem  Amharic Captions - Premiere Pro
-rem  One-click installer for Windows.
+rem  Amharic Captions - Premiere Pro CEP Installer
+rem ============================================================
 rem
 rem  Does everything automatically:
 rem    - copies com.amharic.captions into your user's Adobe CEP
@@ -18,195 +18,312 @@ rem  file and it installs for the current Windows user.
 rem ============================================================
 
 set "NAME=com.amharic.captions"
-set "SRC=%~dp0%NAME%"
 set "LOG=%TEMP%\amharic-captions-install.log"
-set "DEST=%APPDATA%\Adobe\CEP\extensions\%NAME%"
+
+rem ------------------------------------------------------------
+rem Find the extension next to this CMD file
+rem ------------------------------------------------------------
+
+set "SRC=%~dp0%NAME%"
 set "BASE=%APPDATA%\Adobe\CEP\extensions"
+set "DEST=%BASE%\%NAME%"
 set "PF86=%ProgramFiles(x86)%"
 set "SYS_DEST=%PF86%\Common Files\Adobe\CEP\extensions\%NAME%"
 
-rem ---- reset + open the log ----
-> "%LOG%" echo === Amharic Captions installer log ===
->> "%LOG%" echo [%date% %time%] start: %~f0
->> "%LOG%" echo [%date% %time%] user: %USERNAME%
+rem ------------------------------------------------------------
+rem Start log
+rem ------------------------------------------------------------
 
-rem ---- check we are running next to the extension folder ----
-if not exist "%SRC%\CSXS\manifest.xml" (
-  >> "%LOG%" echo [%date% %time%] ERROR: manifest.xml not next to installer
-  echo  [ERROR] Could not find the extension next to this installer.
-  echo.
-  echo  This file must stay inside the unzipped "amharic-captions-win-x64"
-  echo  folder, side by side with the com.amharic.captions folder.
-  echo.
-  echo  Unzip the download fully, then run Install.cmd again.
-  echo.
-  echo  (A log was saved to %LOG%)
-  echo.
-  pause
-  exit /b 1
-)
->> "%LOG%" echo [%date% %time%] found extension folder at %SRC%
+> "%LOG%" echo ============================================
+>> "%LOG%" echo Amharic Captions Installer
+>> "%LOG%" echo ============================================
+>> "%LOG%" echo Date: %date% %time%
+>> "%LOG%" echo User: %USERNAME%
+>> "%LOG%" echo CMD: %~f0
+>> "%LOG%" echo Source: %SRC%
+>> "%LOG%" echo Destination: %DEST%
 
-rem ---- restore the Mark-of-the-Web so SmartScreen stays quiet ----
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Unblock-File -Path '%~f0'; Unblock-File -Path '%SRC%\CSXS\manifest.xml'" >nul 2>&1
->> "%LOG%" echo [%date% %time%] cleared Mark-of-the-Web
-
-rem ---- warn if an OLD system-wide copy would override this one ----
-if exist "%SYS_DEST%\CSXS\manifest.xml" (
-  >> "%LOG%" echo [%date% %time%] WARNING: old Program Files copy found at %SYS_DEST%
-  echo  [NOTE] An older copy is installed in Program Files
-  echo  (%SYS_DEST%).
-  echo.
-  echo  Adobe loads that one BEFORE the copy we are about to install, so it
-  echo  could hide the new version. If you see an old version after opening
-  echo  Premiere, delete that folder and reopen Premiere.
-  echo.
-)
-
-rem ---- target folder (per-user: no admin needed, no UAC redirects) ----
-echo  Target folder:
-echo    %DEST%
 echo.
->> "%LOG%" echo [%date% %time%] target folder: %DEST%
+echo ============================================
+echo     AMHARIC CAPTIONS INSTALLER
+echo ============================================
+echo.
+echo Source:
+echo   %SRC%
+echo.
+echo Destination:
+echo   %DEST%
+echo.
 
-rem ---- make sure the CEP extensions folder exists ----
+rem ------------------------------------------------------------
+rem Check source folder
+rem ------------------------------------------------------------
+
+echo Checking extension files...
+echo.
+
+if not exist "%SRC%" (
+    echo [ERROR] Extension folder not found!
+    echo.
+    echo Expected:
+    echo   %SRC%
+    echo.
+    echo Make sure this structure exists:
+    echo.
+    echo   Install.cmd
+    echo   com.amharic.captions\
+    echo.
+    echo The "com.amharic.captions" folder must be next to Install.cmd.
+    echo.
+    >> "%LOG%" echo ERROR: Extension folder not found
+    pause
+    exit /b 1
+)
+
+if not exist "%SRC%\CSXS\manifest.xml" (
+    echo [ERROR] manifest.xml was not found!
+    echo.
+    echo Expected:
+    echo   %SRC%\CSXS\manifest.xml
+    echo.
+    echo Check that the extension package is complete.
+    echo.
+    >> "%LOG%" echo ERROR: manifest.xml not found
+    pause
+    exit /b 1
+)
+
+if not exist "%SRC%\index.html" (
+    echo [ERROR] index.html was not found!
+    echo.
+    >> "%LOG%" echo ERROR: index.html not found
+    pause
+    exit /b 1
+)
+
+echo [OK] Extension files found.
+echo.
+
+>> "%LOG%" echo Source files verified
+
+rem ------------------------------------------------------------
+rem Warn if an OLD system-wide copy would override this one
+rem ------------------------------------------------------------
+
+if exist "%SYS_DEST%\CSXS\manifest.xml" (
+    echo [NOTE] An older copy is installed in Program Files:
+    echo   %SYS_DEST%
+    echo.
+    echo Premiere loads that one BEFORE the copy we are installing, so it
+    echo could hide this new version. If you see an old version after opening
+    echo Premiere, delete that folder and reopen Premiere.
+    echo.
+    >> "%LOG%" echo WARNING: old Program Files copy found at %SYS_DEST%
+)
+
+rem ------------------------------------------------------------
+rem Create Adobe CEP folder
+rem ------------------------------------------------------------
+
+echo Checking Adobe CEP folder...
+
 if not exist "%BASE%" (
-  >> "%LOG%" echo [%date% %time%] creating base: %BASE%
-  echo  Creating "%BASE%" ...
-  mkdir "%BASE%"
-  if errorlevel 1 (
-    >> "%LOG%" echo [%date% %time%] ERROR: could not create base
-    echo  [ERROR] Could not create the CEP extensions folder.
-    echo  Try running Install.cmd again.
-    echo  (Log: %LOG%)
-    pause
-    exit /b 1
-  )
-)
->> "%LOG%" echo [%date% %time%] CEP base ready
+    echo Creating:
+    echo   %BASE%
+    echo.
 
-rem ---- remove any previous install so files do not mix ----
+    mkdir "%BASE%" 2>> "%LOG%"
+
+    if errorlevel 1 (
+        echo [ERROR] Could not create Adobe CEP folder.
+        echo.
+        >> "%LOG%" echo ERROR: Could not create CEP folder
+        pause
+        exit /b 1
+    )
+)
+
+echo [OK] Adobe CEP folder ready.
+echo.
+
+>> "%LOG%" echo CEP folder ready
+
+rem ------------------------------------------------------------
+rem Close old installation
+rem ------------------------------------------------------------
+
 if exist "%DEST%" (
-  >> "%LOG%" echo [%date% %time%] previous install found, removing
-  echo  Removing previous version ...
-  rmdir /s /q "%DEST%" 2>nul
-  if exist "%DEST%" (
-    >> "%LOG%" echo [%date% %time%] ERROR: previous copy locked
-    echo  [ERROR] A previous copy is in use (locked).
+    echo Removing previous installation...
     echo.
-    echo  Did you leave Premiere Pro open? Close it completely, then run
-    echo  Install.cmd again.
-    echo  (Log: %LOG%)
+
+    rmdir /s /q "%DEST%" 2>> "%LOG%"
+
+    if exist "%DEST%" (
+        echo [ERROR] Could not remove the previous installation.
+        echo.
+        echo Please completely close Premiere Pro and try again.
+        echo.
+        >> "%LOG%" echo ERROR: Previous installation could not be removed
+        pause
+        exit /b 1
+    )
+
+    echo [OK] Previous installation removed.
+    echo.
+)
+
+rem ------------------------------------------------------------
+rem Copy extension
+rem ------------------------------------------------------------
+
+echo Copying extension...
+echo This may take a moment.
+echo.
+
+robocopy "%SRC%" "%DEST%" /E /PURGE /COPY:DAT /R:2 /W:2
+
+set "RC=!errorlevel!"
+
+>> "%LOG%" echo Robocopy exit code: !RC! (0-7 = ok)
+
+if !RC! GTR 7 (
+    echo.
+    echo [ERROR] Copy failed.
+    echo Robocopy error code: !RC!
+    echo.
+    echo Log:
+    echo   %LOG%
     echo.
     pause
     exit /b 1
-  )
-)
->> "%LOG%" echo [%date% %time%] previous install cleared
-
-rem ---- copy the extension (robocopy is 1=ok, >=8 = real failure) ----
-echo  Copying files - this can take a minute ...
->> "%LOG%" echo [%date% %time%] robocopy start
-robocopy "%SRC%" "%DEST%" /E /PURGE /COPY:DAT /R:1 /W:1 /NFL /NDL /NJH /NJS
-set "RC=%errorlevel%"
->> "%LOG%" echo [%date% %time%] robocopy exit code: %RC% (0-7 = ok)
-if %RC% GTR 7 (
-  echo  [ERROR] Copy failed with code %RC%.
-  echo.
-  echo  Try running Install.cmd again, or close other programs that may
-  echo  be locking the files.
-  echo  (Log: %LOG%)
-  echo.
-  pause
-  exit /b 1
 )
 
-rem ---- detect installed Premiere Pro versions (for diagnostics) ----
-echo  Checking which Premiere Pro versions are installed ...
-for /d %%D in ("%PF86%\Adobe\Adobe Premiere Pro *" "%ProgramFiles%\Adobe\Adobe Premiere Pro *") do (
-  if exist "%%D" (
-    >> "%LOG%" echo [%date% %time%] found Premiere install: %%~nxD
-    echo    found: %%~nxD
-  )
-)
+echo.
+echo [OK] Extension copied.
+echo.
 
-rem ---- enable the extension debug keys (covers all recent Premiere) ----
-rem Adobe's documented type is a DWORD value of 1 - a string "1" is
-rem ignored by some Premiere builds, so use REG_DWORD explicitly.
-echo  Enabling Adobe extension support ...
+rem ------------------------------------------------------------
+rem Enable CEP PlayerDebugMode
+rem ------------------------------------------------------------
+
+echo Enabling Adobe CEP extension support...
+echo.
+
 for %%K in (7 8 9 10 11 12 13 14 15) do (
-  reg add "HKCU\Software\Adobe\CSXS.%%K" /v PlayerDebugMode /t REG_DWORD /d 1 /f >> "%LOG%" 2>&1
+    reg add "HKCU\Software\Adobe\CSXS.%%K" /v PlayerDebugMode /t REG_SZ /d 1 /f >> "%LOG%" 2>&1
 )
->> "%LOG%" echo [%date% %time%] PlayerDebugMode keys set (CSXS.7-15)
 
-rem ---- verify the install (key files) ----
-if not exist "%DEST%\CSXS\manifest.xml"          goto :bad
-if not exist "%DEST%\index.html"                 goto :bad
-if not exist "%DEST%\runtime\model\model.bin"    goto :model
-if not exist "%DEST%\runtime\python\python.exe"  goto :model
+echo [OK] CEP Developer Mode enabled.
+echo.
 
-rem ---- verify the install (file count matches source) ----
+rem ------------------------------------------------------------
+rem Verify installation
+rem ------------------------------------------------------------
+
+echo Verifying installation...
+echo.
+
+if not exist "%DEST%\CSXS\manifest.xml" (
+    echo [ERROR] manifest.xml missing after installation.
+    >> "%LOG%" echo ERROR: Installed manifest missing
+    pause
+    exit /b 1
+)
+
+if not exist "%DEST%\index.html" (
+    echo [ERROR] index.html missing after installation.
+    >> "%LOG%" echo ERROR: Installed index.html missing
+    pause
+    exit /b 1
+)
+
+echo [OK] manifest.xml
+echo [OK] index.html
+
+if exist "%SRC%\runtime\model\model.bin" (
+    if exist "%DEST%\runtime\model\model.bin" (
+        echo [OK] AI model
+    ) else (
+        echo [WARNING] AI model was not copied.
+    )
+)
+
+if exist "%SRC%\runtime\python\python.exe" (
+    if exist "%DEST%\runtime\python\python.exe" (
+        echo [OK] Python engine
+    ) else (
+        echo [WARNING] Python engine was not copied.
+    )
+)
+
+rem ------------------------------------------------------------
+rem Count files
+rem ------------------------------------------------------------
+
 set "SRC_N=0"
 set "DST_N=0"
-for /f %%N in ('dir /s /b /a-d "%SRC%" 2^>nul ^| find /c /v ""') do set "SRC_N=%%N"
-for /f %%N in ('dir /s /b /a-d "%DEST%" 2^>nul ^| find /c /v ""') do set "DST_N=%%N"
->> "%LOG%" echo [%date% %time%] file count source=%SRC_N% dest=%DST_N%
-if not "%SRC_N%"=="%DST_N%" (
-  >> "%LOG%" echo [%date% %time%] ERROR: file count mismatch
-  echo  [ERROR] The install is incomplete (source has %SRC_N% files, but
-  echo  only %DST_N% were copied).
-  echo.
-  echo  Unzip the complete amharic-captions-win-x64.zip again and retry.
-  echo  (Log: %LOG%)
-  echo.
-  pause
-  exit /b 1
+
+for /f %%N in ('dir /s /b /a-d "%SRC%" 2^>nul ^| find /c /v ""') do (
+    set "SRC_N=%%N"
 )
->> "%LOG%" echo [%date% %time%] verification passed (%DST_N% files)
+
+for /f %%N in ('dir /s /b /a-d "%DEST%" 2^>nul ^| find /c /v ""') do (
+    set "DST_N=%%N"
+)
 
 echo.
-echo  =============================================
-echo   DONE - installation successful!
-echo  =============================================
+echo Source files:      !SRC_N!
+echo Installed files:   !DST_N!
 echo.
-echo  Installed to:
-echo    %DEST%
+
+>> "%LOG%" echo Source files: !SRC_N!
+>> "%LOG%" echo Installed files: !DST_N!
+
+if not "!SRC_N!"=="!DST_N!" (
+    echo [WARNING] File count does not match.
+    echo.
+    echo The extension may be incomplete.
+    echo.
+    >> "%LOG%" echo WARNING: File count mismatch
+)
+
+rem ------------------------------------------------------------
+rem Finished
+rem ------------------------------------------------------------
+
 echo.
-echo  Next steps:
-echo    1. Fully quit Premiere Pro  (File - Exit)  - closing the window is
-echo       NOT enough, the panel list is only read at startup
-echo    2. Reopen Premiere Pro and OPEN a project
-echo       (the Extensions menu is greyed out on the start screen)
-echo    3. Menu:  Window  Extensions  Amharic Captions
+echo ============================================
+echo       INSTALLATION SUCCESSFUL
+echo ============================================
 echo.
-echo  If the Extensions menu is still greyed out, a project must be open.
-echo  If Amharic Captions still does not appear, re-run this installer and
-echo  check the log: %LOG%
+echo Installed to:
 echo.
-echo  If you previously had an older version installed, it has been
-echo  replaced by this one.
+echo   %DEST%
 echo.
-echo  (Log: %LOG%)
+echo Next:
 echo.
+echo   1. Fully quit Premiere Pro  (File - Exit)
+echo.
+echo      Closing the window is NOT enough - the panel list is
+echo      only read when Premiere starts up.
+echo.
+echo   2. Reopen Premiere Pro and OPEN a project.
+echo.
+echo      The Extensions menu is greyed out on the start screen.
+echo.
+echo   3. Go to:   Window ^> Extensions
+echo.
+echo   4. Select:  Amharic Captions
+echo.
+echo.
+echo Log file:
+echo   %LOG%
+echo.
+echo ============================================
+echo.
+
+>> "%LOG%" echo INSTALLATION SUCCESSFUL
+>> "%LOG%" echo Destination: %DEST%
+
 pause
 exit /b 0
-
-:model
->> "%LOG%" echo [%date% %time%] WARNING: model files missing
-echo  [WARNING] The panel was copied, but the AI engine files were not
-echo  found. The installer may have been separated from the full package.
-echo  Re-unzip the complete amharic-captions-win-x64.zip and retry.
-echo  (Log: %LOG%)
-echo.
-pause
-exit /b 1
-
-:bad
->> "%LOG%" echo [%date% %time%] ERROR: verification failed (manifest/index missing)
-echo  [ERROR] The install is incomplete or corrupted.
-echo  Re-unzip the complete amharic-captions-win-x64.zip and run
-echo  Install.cmd again.
-echo  (Log: %LOG%)
-echo.
-pause
-exit /b 1
