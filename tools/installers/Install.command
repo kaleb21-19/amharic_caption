@@ -34,13 +34,17 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 SRC="$HERE/$NAME"
 EXT_DIR="$HOME/Library/Application Support/Adobe/CEP/extensions"
 DEST="$EXT_DIR/$NAME"
-STAGE="$EXT_DIR/.$NAME.new"
-BACKUP="$EXT_DIR/.$NAME.old"
+STAGE="$EXT_DIR/.$NAME.staging"
+BACKUP="$EXT_DIR/$NAME.old"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG"; }
 
+VER="$(sed -n 's/.*ExtensionBundleVersion="\([^"]*\)".*/\1/p' "$SRC/CSXS/manifest.xml" 2>/dev/null | head -1 || true)"
+VER="${VER:-unknown}"
+
 > "$LOG" echo "=============================="
 log  "Amharic Captions Installer (macOS)"
+log  "Version: $VER"
 log  "Date: $(date)"
 log  "User: $(whoami)"
 log  "Source: $SRC"
@@ -48,7 +52,7 @@ log  "Destination: $DEST"
 
 echo ""
 echo "  ============================================="
-echo "   Amharic Captions - Installer (macOS)"
+echo "   Amharic Captions - Installer  v$VER"
 echo "  ============================================="
 echo ""
 echo "  Source:"
@@ -72,7 +76,7 @@ if [[ ! -d "$SRC" ]]; then
   echo "  Unzip the download fully, then double-click Install.command again."
   echo ""
   log "ERROR(1): Extension folder not found at $SRC"
-  read -r -n 1 -p "  Press Enter to close..."
+  read -r -n 1 -p "  Press Enter to close..." || true
   exit 1
 fi
 
@@ -82,7 +86,7 @@ if [[ ! -f "$SRC/CSXS/manifest.xml" ]]; then
   echo "  Check that the extension package is complete."
   echo ""
   log "ERROR(2): manifest.xml missing in source"
-  read -r -n 1 -p "  Press Enter to close..."
+  read -r -n 1 -p "  Press Enter to close..." || true
   exit 2
 fi
 
@@ -90,7 +94,7 @@ if [[ ! -f "$SRC/index.html" ]]; then
   echo "  [ERROR] index.html was not found in the extension folder."
   echo ""
   log "ERROR(2): index.html missing in source"
-  read -r -n 1 -p "  Press Enter to close..."
+  read -r -n 1 -p "  Press Enter to close..." || true
   exit 2
 fi
 
@@ -100,7 +104,6 @@ log "Source files verified"
 
 # ---- warn if an older system-wide copy exists ----
 
-SYS_LEGACY="$HOME/Library/Application Support/Adobe/CEP/extensions/$NAME/.legacy-notice"
 SYS_GENERAL="/Library/Application Support/Adobe/CEP/extensions/$NAME/CSXS/manifest.xml"
 if [[ -f "$SYS_GENERAL" ]]; then
   echo "  [NOTE] An older copy is installed in the system-wide CEP folder."
@@ -115,6 +118,18 @@ fi
 
 xattr -dr com.apple.quarantine "$SRC" 2>/dev/null || true
 log "Quarantine cleared from source"
+
+# ---- warn if Premiere is running (helps explain file locks) ----
+
+if pgrep -fi "adobe premiere pro" >/dev/null 2>&1; then
+  echo "  [NOTE] Adobe Premiere Pro is currently running."
+  echo ""
+  echo "  For the cleanest result, fully quit Premiere now and re-run this"
+  echo "  installer afterwards. Continuing with it open can fail when the"
+  echo "  previous version is replaced."
+  echo ""
+  read -r -n 1 -p "  Press Enter to continue..." || true
+fi
 
 # ---- make sure the CEP extensions folder exists ----
 
@@ -134,7 +149,7 @@ if [[ -d "$STAGE" ]]; then
   echo "  Please fully quit Premiere Pro and try again."
   echo ""
   log "ERROR(5): Staging folder locked"
-  read -r -n 1 -p "  Press Enter to close..."
+  read -r -n 1 -p "  Press Enter to close..." || true
   exit 5
 fi
 
@@ -143,7 +158,7 @@ if ! cp -R "$SRC" "$STAGE"; then
   echo ""
   log "ERROR(3): Copy to staging failed"
   rm -rf "$STAGE" 2>/dev/null || true
-  read -r -n 1 -p "  Press Enter to close..."
+  read -r -n 1 -p "  Press Enter to close..." || true
   exit 3
 fi
 
@@ -158,7 +173,7 @@ if [[ ! -f "$STAGE/CSXS/manifest.xml" || ! -f "$STAGE/index.html" ]]; then
   echo "  Re-unzip the complete amharic-captions-mac-*.zip and retry."
   log "ERROR(4): Staged copy incomplete"
   rm -rf "$STAGE" 2>/dev/null || true
-  read -r -n 1 -p "  Press Enter to close..."
+  read -r -n 1 -p "  Press Enter to close..." || true
   exit 4
 fi
 
@@ -203,7 +218,7 @@ if [[ -d "$DEST" ]]; then
     echo "  Please fully quit Premiere Pro and try again."
     log "ERROR(5): Could not back up previous version"
     rm -rf "$STAGE" 2>/dev/null || true
-    read -r -n 1 -p "  Press Enter to close..."
+    read -r -n 1 -p "  Press Enter to close..." || true
     exit 5
   fi
 
@@ -219,7 +234,7 @@ if ! mv "$STAGE" "$DEST"; then
     mv "$BACKUP" "$DEST" 2>/dev/null || true
   fi
   log "ERROR(5): Swap failed - previous version restored"
-  read -r -n 1 -p "  Press Enter to close..."
+  read -r -n 1 -p "  Press Enter to close..." || true
   exit 5
 fi
 
@@ -236,7 +251,7 @@ if [[ ! -f "$DEST/CSXS/manifest.xml" || ! -f "$DEST/index.html" ]]; then
     rm -rf "$DEST" 2>/dev/null || true
     mv "$BACKUP" "$DEST" 2>/dev/null || true
   fi
-  read -r -n 1 -p "  Press Enter to close..."
+  read -r -n 1 -p "  Press Enter to close..." || true
   exit 6
 fi
 
@@ -265,9 +280,9 @@ fi
 
 echo ""
 
-# ---- clean up backup if all succeeded ----
+# ---- clean up incomplete staging (rollback backup is KEPT until the
+#       next successful install replaces it - true one-version rollback) ----
 
-rm -rf "$BACKUP" 2>/dev/null || true
 rm -rf "$STAGE" 2>/dev/null || true
 
 # ---- done ----
@@ -301,5 +316,5 @@ echo "  permanently for this extension."
 echo ""
 echo "  Log file: $LOG"
 echo ""
-read -r -n 1 -p "  Press Enter to close..."
+read -r -n 1 -p "  Press Enter to close..." || true
 exit 0

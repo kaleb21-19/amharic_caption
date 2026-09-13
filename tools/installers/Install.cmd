@@ -1,18 +1,25 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 title Amharic Captions - Installer
+color 07
 
 rem ============================================================
 rem  Amharic Captions - Premiere Pro CEP Installer  (Windows)
 rem ============================================================
+rem
+rem  Usage:
+rem    Install.cmd            interactive (default)
+rem    Install.cmd /silent    no pauses, minimal output (for IT/SCCM)
 rem
 rem  Does everything automatically:
 rem    - copies com.amharic.captions into your user's Adobe CEP
 rem      folder  (%AppData%\Adobe\CEP\extensions)
 rem    - enables the CSXS PlayerDebugMode registry keys
 rem    - installs atomically: the new copy is fully built and
-rem      verified first, then swapped in. If anything fails the
-rem      previous version is kept, never a broken half-install.
+rem      verified first, then swapped in with move /Y + error-
+rem      level checks. A failed run can never leave a broken
+rem      half-install; the previous version is kept as a rollback
+rem      copy until the NEXT successful install replaces it.
 rem    - verifies the install (key files + file count)
 rem    - writes a log to %TEMP%\amharic-captions-install.log
 rem
@@ -39,6 +46,16 @@ set "NAME=com.amharic.captions"
 set "LOG=%TEMP%\amharic-captions-install.log"
 
 rem ------------------------------------------------------------
+rem Options
+rem ------------------------------------------------------------
+
+set "SILENT=0"
+if /I "%~1"=="/silent" set "SILENT=1"
+
+set "PAUSE=pause"
+if "!SILENT!"=="1" set "PAUSE=rem"
+
+rem ------------------------------------------------------------
 rem Build all paths up front
 rem ------------------------------------------------------------
 
@@ -51,6 +68,17 @@ set "PF86=%ProgramFiles(x86)%"
 set "SYS_DEST=%PF86%\Common Files\Adobe\CEP\extensions\%NAME%"
 
 rem ------------------------------------------------------------
+rem Read the extension version from the manifest for display
+rem ------------------------------------------------------------
+
+set "VER=unknown"
+for /f "tokens=2 delims==" %%V in ('findstr /i /c:"ExtensionBundleVersion=" "%SRC%\CSXS\manifest.xml"') do (
+    set "VER=%%V"
+)
+set "VER=!VER:"=!"
+set "VER=!VER: =!"
+
+rem ------------------------------------------------------------
 rem Start log
 rem ------------------------------------------------------------
 
@@ -59,14 +87,16 @@ rem ------------------------------------------------------------
 >> "%LOG%" echo ============================================
 >> "%LOG%" echo Date: %date% %time%
 >> "%LOG%" echo User: %USERNAME%
+>> "%LOG%" echo Version: !VER!
+>> "%LOG%" echo Silent mode: !SILENT!
 >> "%LOG%" echo CMD: %~f0
 >> "%LOG%" echo Source: %SRC%
 >> "%LOG%" echo Destination: %DEST%
 
 echo.
-echo ============================================
-echo     AMHARIC CAPTIONS INSTALLER
-echo ============================================
+echo ================================================
+echo     AMHARIC CAPTIONS INSTALLER  v!VER!
+echo ================================================
 echo.
 echo Source:
 echo   "%SRC%"
@@ -83,6 +113,7 @@ echo Checking extension files...
 echo.
 
 if not exist "%SRC%" (
+    color 0C
     echo [ERROR] Extension folder not found!
     echo.
     echo Expected:
@@ -96,11 +127,12 @@ if not exist "%SRC%" (
     echo The "com.amharic.captions" folder must be next to Install.cmd.
     echo.
     >> "%LOG%" echo ERROR(1): Extension folder not found
-    pause
+    %PAUSE%
     exit /b 1
 )
 
 if not exist "%SRC%\CSXS\manifest.xml" (
+    color 0C
     echo [ERROR] manifest.xml was not found!
     echo.
     echo Expected:
@@ -109,13 +141,21 @@ if not exist "%SRC%\CSXS\manifest.xml" (
     echo Check that the extension package is complete.
     echo.
     >> "%LOG%" echo ERROR(2): manifest.xml not found in source
-    pause
+    %PAUSE%
     exit /b 2
 )
 
 if not exist "%SRC%\index.html" (
+    color 0C
     echo [ERROR] index.html was not found!
     echo.
+    echo Expected:
+    echo   "%SRC%\index.html"
+    echo.
+    echo Check that the extension package is complete.
+    echo.
+    >> "%LOG%" echo ERROR(3): index.html not found in source
+    %PAUSE%
     exit /b 3
 )
 
@@ -129,6 +169,7 @@ rem Warn if an OLD system-wide copy would override this one
 rem ------------------------------------------------------------
 
 if exist "%SYS_DEST%\CSXS\manifest.xml" (
+    color 0E
     echo [NOTE] An older copy is installed in Program Files:
     echo   "%SYS_DEST%"
     echo.
@@ -138,6 +179,26 @@ if exist "%SYS_DEST%\CSXS\manifest.xml" (
     echo.
     >> "%LOG%" echo WARNING: old Program Files copy found at "%SYS_DEST%"
 )
+
+rem ------------------------------------------------------------
+rem Check whether Premiere is running (helps explain file locks)
+rem ------------------------------------------------------------
+
+set "PP_RUNNING=0"
+tasklist /FI "IMAGENAME eq Adobe Premiere Pro.exe" 2>nul | find /i "Adobe Premiere Pro.exe" >nul && set "PP_RUNNING=1"
+
+if "!PP_RUNNING!"=="1" (
+    color 0E
+    echo [NOTE] Adobe Premiere Pro is currently running.
+    echo.
+    echo For the cleanest result, fully quit Premiere now and re-run this
+    echo installer afterwards. Continuing with it open can fail when the
+    echo previous version is being replaced.
+    echo.
+    %PAUSE%
+)
+
+>> "%LOG%" echo Premiere Pro running: !PP_RUNNING!
 
 rem ------------------------------------------------------------
 rem Create Adobe CEP folder
@@ -153,10 +214,11 @@ if not exist "%BASE%" (
     mkdir "%BASE%" 2>> "%LOG%"
 
     if errorlevel 1 (
+        color 0C
         echo [ERROR] Could not create the Adobe CEP folder.
         echo.
         >> "%LOG%" echo ERROR(4): Could not create CEP folder
-        pause
+        %PAUSE%
         exit /b 4
     )
 )
@@ -176,12 +238,13 @@ rem ------------------------------------------------------------
 rmdir /s /q "%STAGE%" 2>nul
 
 if exist "%STAGE%" (
+    color 0C
     echo [ERROR] Could not clear the staging folder.
     echo.
-    echo Please completely close Premiere Pro and try again.
+    if "!PP_RUNNING!"=="1" echo Adobe Premiere Pro may be holding a file lock. Fully quit it and try again.
     echo.
     >> "%LOG%" echo ERROR(7): Staging folder locked
-    pause
+    %PAUSE%
     exit /b 7
 )
 
@@ -196,6 +259,7 @@ set "RC=!errorlevel!"
 >> "%LOG%" echo Stage robocopy exit code: !RC! (0-7 = ok)
 
 if !RC! GTR 7 (
+    color 0C
     echo.
     echo [ERROR] Copy failed. Robocopy error code: !RC!
     echo.
@@ -204,7 +268,7 @@ if !RC! GTR 7 (
     echo Log:
     echo   "%LOG%"
     echo.
-    pause
+    %PAUSE%
     exit /b 5
 )
 
@@ -218,16 +282,18 @@ rem ------------------------------------------------------------
 echo Verifying staged copy...
 
 if not exist "%STAGE%\CSXS\manifest.xml" (
+    color 0C
     echo [ERROR] manifest.xml missing in the staged copy.
     >> "%LOG%" echo ERROR(6): Staged manifest missing
-    pause
+    %PAUSE%
     exit /b 6
 )
 
 if not exist "%STAGE%\index.html" (
+    color 0C
     echo [ERROR] index.html missing in the staged copy.
     >> "%LOG%" echo ERROR(6): Staged index missing
-    pause
+    %PAUSE%
     exit /b 6
 )
 
@@ -251,6 +317,7 @@ echo.
 >> "%LOG%" echo Staged files: !STAGE_N!
 
 if not "!SRC_N!"=="!STAGE_N!" (
+    color 0E
     echo [WARNING] File count does not match.
     echo.
     echo The extension may be incomplete. Please re-unzip the original
@@ -263,42 +330,76 @@ echo [OK] Staged copy verified.
 echo.
 
 rem ------------------------------------------------------------
-rem Swap: back up the old version, put the new one in, keep the
-rem backup until the new one is confirmed. Automatic rollback.
+rem Swap: move the old version aside (keep as rollback), move the
+rem new one in, verify with error levels. If the swap fails the
+rem previous version is restored.
 rem ------------------------------------------------------------
 
 echo Installing...
 
 if exist "%DEST%" (
     rmdir /s /q "%BACKUP%" 2>nul
-    ren "%DEST%" "%NAME%.old"
-)
 
-if exist "%BACKUP%" (
+    if exist "%BACKUP%" (
+        color 0C
+        echo [ERROR] Could not clear the old rollback copy.
+        echo.
+        if "!PP_RUNNING!"=="1" echo Adobe Premiere Pro may be holding a file lock. Fully quit it and try again.
+        echo.
+        >> "%LOG%" echo ERROR(7): Could not clear old rollback copy
+        %PAUSE%
+        exit /b 7
+    )
+
+    move /Y "%DEST%" "%BACKUP%" >nul 2>&1
+
+    if errorlevel 1 (
+        color 0C
+        echo [ERROR] Could not back up the previous installation.
+        echo.
+        if "!PP_RUNNING!"=="1" echo Adobe Premiere Pro is still running. Fully quit it and try again.
+        echo.
+        >> "%LOG%" echo ERROR(7): Could not back up previous version
+        %PAUSE%
+        exit /b 7
+    )
+
     echo [OK] Previous version backed up.
     echo.
-) else if exist "%DEST%" (
-    echo [ERROR] Could not back up the previous installation.
+)
+
+move /Y "%STAGE%" "%DEST%" >nul 2>&1
+
+if errorlevel 1 (
+    color 0C
+    echo [ERROR] Could not move the new version into place.
     echo.
-    echo Please completely close Premiere Pro and try again.
+    if "!PP_RUNNING!"=="1" echo Adobe Premiere Pro may be locking a file. Fully quit it and try again.
     echo.
-    >> "%LOG%" echo ERROR(7): Could not back up previous version
-    pause
+
+    if exist "%BACKUP%" (
+        echo Restoring the previous version ...
+        move /Y "%BACKUP%" "%DEST%" >nul 2>&1
+    )
+
+    >> "%LOG%" echo ERROR(7): Swap failed - previous version restored
+    %PAUSE%
     exit /b 7
 )
 
-ren "%STAGE%" "%NAME%"
-
 if not exist "%DEST%\CSXS\manifest.xml" (
-    echo [ERROR] Could not move the new version into place.
+    color 0C
+    echo [ERROR] The new version did not appear at the destination.
     echo.
+
     if exist "%BACKUP%" (
         echo Restoring the previous version ...
-        ren "%BACKUP%" "%NAME%"
+        move /Y "%BACKUP%" "%DEST%" >nul 2>&1
     )
-    >> "%LOG%" echo ERROR(7): Swap failed - previous version restored
-    pause
-    exit /b 7
+
+    >> "%LOG%" echo ERROR(8): Destination missing after swap - restored
+    %PAUSE%
+    exit /b 8
 )
 
 echo [OK] New version installed.
@@ -308,17 +409,11 @@ rem ------------------------------------------------------------
 rem Final verification (the new copy is live now)
 rem ------------------------------------------------------------
 
-if not exist "%DEST%\CSXS\manifest.xml" (
-    echo [ERROR] manifest.xml missing after installation.
-    >> "%LOG%" echo ERROR(8): Installed manifest missing
-    pause
-    exit /b 8
-)
-
 if not exist "%DEST%\index.html" (
+    color 0C
     echo [ERROR] index.html missing after installation.
     >> "%LOG%" echo ERROR(8): Installed index missing
-    pause
+    %PAUSE%
     exit /b 8
 )
 
@@ -326,6 +421,7 @@ if exist "%SRC%\runtime\model\model.bin" (
     if exist "%DEST%\runtime\model\model.bin" (
         echo [OK] AI model
     ) else (
+        color 0E
         echo [WARNING] AI model was not copied.
     )
 )
@@ -334,6 +430,7 @@ if exist "%SRC%\runtime\python\python.exe" (
     if exist "%DEST%\runtime\python\python.exe" (
         echo [OK] Python engine
     ) else (
+        color 0E
         echo [WARNING] Python engine was not copied.
     )
 )
@@ -342,6 +439,7 @@ if exist "%SRC%\runtime\ffmpeg\ffmpeg.exe" (
     if exist "%DEST%\runtime\ffmpeg\ffmpeg.exe" (
         echo [OK] FFmpeg engine
     ) else (
+        color 0E
         echo [WARNING] FFmpeg engine was not copied.
     )
 )
@@ -376,6 +474,7 @@ for %%K in (11 12 13 14 15) do (
 )
 
 if "!REG_OK!"=="0" (
+    color 0E
     echo [WARNING] Could not verify the registry setting.
     echo.
     echo The extension may not show up in Premiere. See the log file.
@@ -388,20 +487,21 @@ if "!REG_OK!"=="0" (
 echo.
 
 rem ------------------------------------------------------------
-rem Remove the rollback backup now that all checks passed
+rem Leave the rollback copy in place until the next successful
+rem install replaces it (true one-version rollback on disk).
 rem ------------------------------------------------------------
 
-rmdir /s /q "%BACKUP%" 2>nul
 rmdir /s /q "%STAGE%" 2>nul
 
 rem ------------------------------------------------------------
 rem Finished
 rem ------------------------------------------------------------
 
+color 0A
 echo.
-echo ============================================
-echo       INSTALLATION SUCCESSFUL
-echo ============================================
+echo ================================================
+echo     INSTALLATION SUCCESSFUL  v!VER!
+echo ================================================
 echo.
 echo Installed to:
 echo.
@@ -422,15 +522,19 @@ echo   3. Go to:   Window ^> Extensions
 echo.
 echo   4. Select:  Amharic Captions
 echo.
-echo.
-echo Log file:
-echo   "%LOG%"
-echo.
-echo ============================================
-echo.
+
+if "!SILENT!"=="0" (
+    color 0A
+    echo Log file:
+    echo   "%LOG%"
+    echo.
+    echo ================================================
+    echo.
+)
 
 >> "%LOG%" echo INSTALLATION SUCCESSFUL
+>> "%LOG%" echo Version: !VER!
 >> "%LOG%" echo Destination: %DEST%
 
-pause
+%PAUSE%
 exit /b 0
