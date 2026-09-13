@@ -66,7 +66,7 @@ if not exist "%SRC%" (
     echo [ERROR] Extension folder not found!
     echo.
     echo Expected:
-    echo   %SRC%
+    echo   "%SRC%"
     echo.
     echo Make sure this structure exists:
     echo.
@@ -84,7 +84,7 @@ if not exist "%SRC%\CSXS\manifest.xml" (
     echo [ERROR] manifest.xml was not found!
     echo.
     echo Expected:
-    echo   %SRC%\CSXS\manifest.xml
+    echo   "%SRC%\CSXS\manifest.xml"
     echo.
     echo Check that the extension package is complete.
     echo.
@@ -112,13 +112,13 @@ rem ------------------------------------------------------------
 
 if exist "%SYS_DEST%\CSXS\manifest.xml" (
     echo [NOTE] An older copy is installed in Program Files:
-    echo   %SYS_DEST%
+    echo   "%SYS_DEST%"
     echo.
     echo Premiere loads that one BEFORE the copy we are installing, so it
     echo could hide this new version. If you see an old version after opening
     echo Premiere, delete that folder and reopen Premiere.
     echo.
-    >> "%LOG%" echo WARNING: old Program Files copy found at %SYS_DEST%
+    >> "%LOG%" echo WARNING: old Program Files copy found at "%SYS_DEST%"
 )
 
 rem ------------------------------------------------------------
@@ -129,7 +129,7 @@ echo Checking Adobe CEP folder...
 
 if not exist "%BASE%" (
     echo Creating:
-    echo   %BASE%
+    echo   "%BASE%"
     echo.
 
     mkdir "%BASE%" 2>> "%LOG%"
@@ -192,7 +192,7 @@ if !RC! GTR 7 (
     echo Robocopy error code: !RC!
     echo.
     echo Log:
-    echo   %LOG%
+    echo   "%LOG%"
     echo.
     pause
     exit /b 1
