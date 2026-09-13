@@ -97,6 +97,21 @@ export default function InstallPage() {
             <summary>{manualNote.t}</summary>
             <p>{manualNote.c}</p>
           </details>
+          <details className="manual-note">
+            <summary>Troubleshooting &amp; edge cases</summary>
+            <p>
+              The installer is safe in every common scenario: folders with spaces, brackets
+              like "{`(1)`}" (e.g. a repeated download), or non-English usernames — it never
+              needs administrator rights and never leaves a half-installed copy behind.
+            </p>
+            <ul className="tip-list">
+              <li>Always “Extract All” the zip first. Double-clicking the zip only previews it — there is no <b>Install.cmd</b> to click until it is unzipped.</li>
+              <li>If Windows shows “Windows protected your PC” on first run → more info → <b>Run anyway</b>. It is an unsigned installer (normal for this size of hobby tool); the extension itself is safe.</li>
+              <li>The installer writes a log for support: Windows <code>%TEMP%\amharic-captions-install.log</code> · macOS <code>/tmp/amharic-captions-install.log</code>.</li>
+              <li>If you still see an old version after installing, a copy may exist in Premiere&apos;s system-wide folder (the one inside Program Files / /Library) which loads before this one. Delete it, fully quit Premiere, and reopen.</li>
+              <li>macOS: the package is unsigned, so you may see “Apple can’t verify” — the installer clears it permanently. On modern macOS double-clicking an unsigned installer may require right-click → Open.</li>
+            </ul>
+          </details>
         </div>
       </section>
 

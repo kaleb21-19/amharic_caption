@@ -116,8 +116,12 @@ CEP extensions only run when the host allows them. **The one-click installers
 soldier this automatically** — `Install.cmd` (Windows) and `Install.command`
 (macOS) are shipped at the root of each zip, next to the extension folder. They
 copy the extension into Adobe's CEP folder, enable PlayerDebugMode for CSXS.7–15,
-and (macOS) clear the Gatekeeper quarantine. Users only: unzip → double-click →
-restart Premiere.
+and (macOS) clear the Gatekeeper quarantine. The install is **atomic**: the new
+copy is fully built and verified in a staging folder first, then swapped in — a
+failed run can never leave a broken half-install. Every step is logged
+(Windows `%TEMP%\amharic-captions-install.log`, macOS `/tmp/amharic-captions-
+install.log`) and both installers exit with documented codes for support
+triage. Users only: unzip → double-click → restart Premiere.
 
 The manual steps below are for ZIPs that predate the installers (or for when you
 are installing by hand during development).
@@ -155,11 +159,17 @@ defaults write com.adobe.CSXS.12 PlayerDebugMode 1
 ### Windows
 Copy `com.amharic.captions` to your user's folder
 `%AppData%\Adobe\CEP\extensions\` (no admin needed). Then add a registry
-DWORD (run once) and restart Premiere. **Premiere 2024 uses `CSXS.11`;
-Premiere 2025 uses `CSXS.12`** — set the key that matches the version on the
-machine (setting both is also safe):
-
+STRING (run once) and restart Premiere. Adobe documents `PlayerDebugMode` as a
+**REG_SZ string** `"1"` (used by the installer and verified to work across
+Premiere 2024–2026). And as with the installer, setting several
+`CSXS.nn` keys (say 11–15) covers every Premiere version if you want to be able
+to run on any of them:
 ```
+reg add "HKCU\Software\Adobe\CSXS.1X" /v PlayerDebugMode /t REG_SZ /d 1 /f
+```
+where `1X` is the host's CSXS number — **Premiere 2024 uses `CSXS.11`;
+Premiere 2025 `CSXS.12`** — set the key that matches the version on the
+machine (setting all 11–15 is also safe).
 reg add "HKCU\Software\Adobe\CSXS.11" /v PlayerDebugMode /t REG_DWORD /d 1 /f
 reg add "HKCU\Software\Adobe\CSXS.12" /v PlayerDebugMode /t REG_DWORD /d 1 /f
 ```
