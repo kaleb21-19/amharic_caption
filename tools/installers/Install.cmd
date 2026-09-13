@@ -72,11 +72,12 @@ rem Read the extension version from the manifest for display
 rem ------------------------------------------------------------
 
 set "VER=unknown"
-for /f "tokens=2 delims==" %%V in ('findstr /i /c:"ExtensionBundleVersion=" "%SRC%\CSXS\manifest.xml"') do (
+for /f "tokens=2 delims==" %%V in ('findstr /i /c:"ExtensionBundleVersion=" "%SRC%\CSXS\manifest.xml" 2^>nul') do (
     set "VER=%%V"
 )
 set "VER=!VER:"=!"
 set "VER=!VER: =!"
+if "!VER!"=="" set "VER=unknown"
 
 rem ------------------------------------------------------------
 rem Start log
@@ -185,7 +186,7 @@ rem Check whether Premiere is running (helps explain file locks)
 rem ------------------------------------------------------------
 
 set "PP_RUNNING=0"
-tasklist /FI "IMAGENAME eq Adobe Premiere Pro.exe" 2>nul | find /i "Adobe Premiere Pro.exe" >nul && set "PP_RUNNING=1"
+tasklist /FO CSV /NH 2>nul | findstr /i "Adobe Premiere Pro" >nul && set "PP_RUNNING=1"
 
 if "!PP_RUNNING!"=="1" (
     color 0E
