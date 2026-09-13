@@ -3,27 +3,35 @@
 #  Amharic Captions - Premiere Pro
 #  One-click installer for macOS.
 #
+#  Usage:
+#    Install.command            interactive (default)
+#    Install.command /silent    no pauses, minimal output (for IT)
+#
 #  Does everything automatically:
 #    - copies com.amharic.captions into Adobe's CEP folder
 #    - clears the macOS Gatekeeper quarantine (kills the
 #      "Apple could not verify" warning permanently)
 #    - enables the CSXS PlayerDebugMode defaults keys
 #    - installs atomically: builds a staged copy first, then
-#      swaps it in. If anything fails the previous version is
-#      kept.
-#    - verifies the install and logs every step
+#      swaps it in. A failed run can never leave a broken
+#      half-install; the previous version is kept as a rollback
+#      copy until the NEXT successful install replaces it.
+#    - verifies the install (key files + file count) and logs
+#      every step
 #
 #  Double-click this file in Finder. Terminal will open and
 #  run it for you - no commands to type.
 #
-#  Exit codes (used for support):
+#  Exit codes (match the Windows installer, for support triage):
 #    0 = success
 #    1 = extension folder not found next to this file
 #    2 = manifest.xml missing in source
-#    3 = copy to staging folder failed
-#    4 = staging copy failed verification
-#    5 = could not swap the new version into place
-#    6 = final verification failed after the swap
+#    3 = index.html missing in source
+#    4 = could not create the Adobe CEP folder
+#    5 = copy to the staging folder failed
+#    6 = staging copy failed verification
+#    7 = could not swap the new version into place
+#    8 = final verification failed after the swap (rare)
 # ============================================================
 
 set -euo pipefail
@@ -37,7 +45,19 @@ DEST="$EXT_DIR/$NAME"
 STAGE="$EXT_DIR/.$NAME.staging"
 BACKUP="$EXT_DIR/$NAME.old"
 
+SILENT=0
+if [[ "${1:-}" == "/silent" || "${1:-}" == "silent" ]]; then
+  SILENT=1
+fi
+
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG"; }
+
+press_enter() {
+  if [[ "$SILENT" -eq 0 ]]; then
+    read -r -n 1 -p "  Press Enter to continue..." || true
+    echo ""
+  fi
+}
 
 VER="$(sed -n 's/.*ExtensionBundleVersion="\([^"]*\)".*/\1/p' "$SRC/CSXS/manifest.xml" 2>/dev/null | head -1 || true)"
 VER="${VER:-unknown}"
@@ -47,6 +67,7 @@ log  "Amharic Captions Installer (macOS)"
 log  "Version: $VER"
 log  "Date: $(date)"
 log  "User: $(whoami)"
+log  "Silent mode: $SILENT"
 log  "Source: $SRC"
 log  "Destination: $DEST"
 
@@ -76,7 +97,7 @@ if [[ ! -d "$SRC" ]]; then
   echo "  Unzip the download fully, then double-click Install.command again."
   echo ""
   log "ERROR(1): Extension folder not found at $SRC"
-  read -r -n 1 -p "  Press Enter to close..." || true
+  press_enter
   exit 1
 fi
 
@@ -86,16 +107,16 @@ if [[ ! -f "$SRC/CSXS/manifest.xml" ]]; then
   echo "  Check that the extension package is complete."
   echo ""
   log "ERROR(2): manifest.xml missing in source"
-  read -r -n 1 -p "  Press Enter to close..." || true
+  press_enter
   exit 2
 fi
 
 if [[ ! -f "$SRC/index.html" ]]; then
   echo "  [ERROR] index.html was not found in the extension folder."
   echo ""
-  log "ERROR(2): index.html missing in source"
-  read -r -n 1 -p "  Press Enter to close..." || true
-  exit 2
+  log "ERROR(3): index.html missing in source"
+  press_enter
+  exit 3
 fi
 
 echo "  [OK] Extension files found."
@@ -128,12 +149,19 @@ if pgrep -fi "adobe premiere pro" >/dev/null 2>&1; then
   echo "  installer afterwards. Continuing with it open can fail when the"
   echo "  previous version is replaced."
   echo ""
-  read -r -n 1 -p "  Press Enter to continue..." || true
+  press_enter
 fi
 
 # ---- make sure the CEP extensions folder exists ----
 
-mkdir -p "$EXT_DIR"
+if ! mkdir -p "$EXT_DIR"; then
+  echo "  [ERROR] Could not create the Adobe CEP folder:"
+  echo "    $EXT_DIR"
+  echo ""
+  log "ERROR(4): Could not create CEP folder"
+  press_enter
+  exit 4
+fi
 log "CEP folder ready"
 
 # ---- build a staged copy first (atomic install) ----
@@ -148,18 +176,18 @@ if [[ -d "$STAGE" ]]; then
   echo ""
   echo "  Please fully quit Premiere Pro and try again."
   echo ""
-  log "ERROR(5): Staging folder locked"
-  read -r -n 1 -p "  Press Enter to close..." || true
-  exit 5
+  log "ERROR(7): Staging folder locked"
+  press_enter
+  exit 7
 fi
 
 if ! cp -R "$SRC" "$STAGE"; then
   echo "  [ERROR] Copy failed. Check disk space."
   echo ""
-  log "ERROR(3): Copy to staging failed"
+  log "ERROR(5): Copy to staging failed"
   rm -rf "$STAGE" 2>/dev/null || true
-  read -r -n 1 -p "  Press Enter to close..." || true
-  exit 3
+  press_enter
+  exit 5
 fi
 
 # ---- verify the staged copy ----
@@ -171,10 +199,10 @@ if [[ ! -f "$STAGE/CSXS/manifest.xml" || ! -f "$STAGE/index.html" ]]; then
   echo "  [ERROR] Staged copy is incomplete."
   echo ""
   echo "  Re-unzip the complete amharic-captions-mac-*.zip and retry."
-  log "ERROR(4): Staged copy incomplete"
+  log "ERROR(6): Staged copy incomplete"
   rm -rf "$STAGE" 2>/dev/null || true
-  read -r -n 1 -p "  Press Enter to close..." || true
-  exit 4
+  press_enter
+  exit 6
 fi
 
 SRC_COUNT=$(find "$SRC" -type f 2>/dev/null | wc -l | tr -d ' ')
@@ -216,10 +244,10 @@ if [[ -d "$DEST" ]]; then
     echo "  [ERROR] Could not back up the previous installation."
     echo ""
     echo "  Please fully quit Premiere Pro and try again."
-    log "ERROR(5): Could not back up previous version"
+    log "ERROR(7): Could not back up previous version"
     rm -rf "$STAGE" 2>/dev/null || true
-    read -r -n 1 -p "  Press Enter to close..." || true
-    exit 5
+    press_enter
+    exit 7
   fi
 
   echo "  [OK] Previous version backed up."
@@ -233,9 +261,9 @@ if ! mv "$STAGE" "$DEST"; then
     echo "  Restoring the previous version ..."
     mv "$BACKUP" "$DEST" 2>/dev/null || true
   fi
-  log "ERROR(5): Swap failed - previous version restored"
-  read -r -n 1 -p "  Press Enter to close..." || true
-  exit 5
+  log "ERROR(7): Swap failed - previous version restored"
+  press_enter
+  exit 7
 fi
 
 echo "  [OK] New version installed."
@@ -245,15 +273,43 @@ echo ""
 
 if [[ ! -f "$DEST/CSXS/manifest.xml" || ! -f "$DEST/index.html" ]]; then
   echo "  [ERROR] Final verification failed."
-  log "ERROR(6): Installed manifest/index missing"
+  log "ERROR(8): Installed manifest/index missing"
   if [[ -d "$BACKUP" ]]; then
     echo "  Restoring previous version ..."
     rm -rf "$DEST" 2>/dev/null || true
     mv "$BACKUP" "$DEST" 2>/dev/null || true
   fi
-  read -r -n 1 -p "  Press Enter to close..." || true
-  exit 6
+  press_enter
+  exit 8
 fi
+
+# ---- check the optional heavy runtime pieces (warn only) ----
+
+if [[ -f "$SRC/runtime/model/model.bin" ]]; then
+  if [[ -f "$DEST/runtime/model/model.bin" ]]; then
+    echo "  [OK] AI model"
+  else
+    echo "  [WARNING] AI model was not copied."
+  fi
+fi
+
+if [[ -f "$SRC/runtime/bin/ffmpeg" ]]; then
+  if [[ -f "$DEST/runtime/bin/ffmpeg" ]]; then
+    echo "  [OK] FFmpeg engine"
+  else
+    echo "  [WARNING] FFmpeg engine was not copied."
+  fi
+fi
+
+if [[ -f "$SRC/runtime/python/bin/python3" ]]; then
+  if [[ -f "$DEST/runtime/python/bin/python3" ]]; then
+    echo "  [OK] Python engine"
+  else
+    echo "  [WARNING] Python engine was not copied."
+  fi
+fi
+
+echo ""
 
 # ---- enable the extension debug keys ----
 
@@ -292,7 +348,7 @@ log "Installed files: $DEST_COUNT"
 
 echo ""
 echo "  ============================================="
-echo "   DONE - installation successful!"
+echo "   DONE - installation successful!  v$VER"
 echo "  ============================================="
 echo ""
 echo "  Installed to:"
@@ -314,7 +370,9 @@ echo ""
 echo "  The macOS 'Apple could not verify' warning has been disabled"
 echo "  permanently for this extension."
 echo ""
-echo "  Log file: $LOG"
-echo ""
-read -r -n 1 -p "  Press Enter to close..." || true
+if [[ "$SILENT" -eq 0 ]]; then
+  echo "  Log file: $LOG"
+  echo ""
+fi
+press_enter
 exit 0
