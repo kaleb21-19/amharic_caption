@@ -222,6 +222,17 @@ a { color: var(--brand); }
 .tiny { margin-top: 16px; color: var(--muted-2); font-size: .85rem; }
 
 
+/* Accessibility — focus ring + reduced-motion respect */
+:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01s !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* FAQ */
 .faq { background: var(--bg-soft); }
 .faq-list { max-width: 720px; margin: 0 auto; display: grid; gap: 12px; }

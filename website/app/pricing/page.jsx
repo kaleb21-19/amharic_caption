@@ -45,8 +45,9 @@ export default function PricingPage() {
               Buy now via Telegram
             </a>
             <p className="tiny">
-              Ordering opens our Telegram bot — you pay and your license key is
-              delivered right there.
+              Pay by Telebirr or bank transfer. The bot confirms the payment and
+              your license key is delivered instantly, locked to your machine.{" "}
+              <Link href="/#safety">Verify the official accounts</Link>.
             </p>
           </div></Reveal>
         </div>
@@ -64,7 +65,7 @@ export default function PricingPage() {
             </div></Reveal>
             <Reveal delay={90}><div className="card">
               <h3>2 · Pay</h3>
-              <p>Send {PRICE} to one of the bank accounts (CBE, Abyssinia, or Zemen).</p>
+              <p>Send {PRICE} by Telebirr, mobile money, or bank transfer (CBE, Abyssinia, Zemen).</p>
             </div></Reveal>
             <Reveal delay={180}><div className="card">
               <h3>3 · Get your key</h3>

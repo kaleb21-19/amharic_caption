@@ -112,6 +112,10 @@ export default function HomePage() {
               <a className="btn btn-primary btn-lg btn-block" href={BOT_URL} target="_blank" rel="noopener">
                 Buy now on Telegram
               </a>
+              <p className="tiny">
+                The bot confirms your payment (Telebirr or bank transfer) and
+                delivers your key right in the chat — locked to your machine.
+              </p>
             </div>
           </Reveal>
         </div>
