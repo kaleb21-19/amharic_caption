@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.4.1';
 
 const csi = new CSInterface();
 
@@ -154,6 +154,16 @@ const MACHINE_HOST_MISMATCH = (() => {
 })();
 
 const MACHINE_ID = getOrCreateMachineId();
+
+// Boot ping: announce {version, mid} to the server once per day. Lets support
+// identify which build a machine runs and surfaces the Origin a real CEP panel
+// sends (used to lock the worker's CORS allow-list). Fire-and-forget.
+function pingPanel() {
+  try {
+    apiPost('/api/ping?v=1', { v: APP_VERSION, mid: MACHINE_ID });
+  } catch (e) {}
+}
+setTimeout(pingPanel, 800);
 
 // ── Host theme detection (Premiere dark/light) ──────────────────────────────
 function hostTheme() {

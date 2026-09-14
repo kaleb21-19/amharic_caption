@@ -1148,6 +1148,33 @@ export default {
         return json({ error: 'unauthorized' }, 401);
       }
     }
+    // Telemetry for authenticated /api calls (used once to lock down CORS:
+    // the Origin header a real CEP panel sends is what AMH_ALLOWED_ORIGIN
+    // must whitelist).
+    if (url.pathname.startsWith('/api/')) {
+      log('info', 'api_call', {
+        route: request.method + ' ' + url.pathname,
+        origin: request.headers.get('Origin') || '(none)',
+        ip: clientIp(),
+      });
+    }
+
+    // POST /api/ping → {v?} → {ok:true}. Version + Origin telemetry fired once
+    // per machine per day from the panel boot — shows which build is in the
+    // field (support triage) and what Origin a real CEP panel sends (used to
+    // lock AMH_ALLOWED_ORIGIN).
+    if (request.method === 'POST' && url.pathname === '/api/ping') {
+      let b = {};
+      try { b = await request.json(); } catch (e) {}
+      const mid = String((b && b.mid) || '');
+      const v = String((b && b.v) || '');
+      const throttleKey = 'ping:' + (mid || clientIp());
+      if (!(await kvGet(throttleKey))) {
+        log('info', 'panel_ping', { v, mid: mid || '(none)', origin: request.headers.get('Origin') || '(none)', ip: clientIp() });
+        await kvPut(throttleKey, '1', 86400);
+      }
+      return json({ ok: true });
+    }
 
     // GET /api/trial?mid=XXXX → {used, max, remaining}
     if (request.method === 'GET' && url.pathname === '/api/trial') {

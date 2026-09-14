@@ -304,6 +304,10 @@ Start with defaults (notify + alert). After you've watched a week of logs, set
 **Panel builds.** Manifest + `APP_VERSION` in `panel/js/main.js` are the version
 source of truth — keep them in lockstep on every release so support logs can
 tell old vs new builds (footer badge shows it; it ships in the released zip).
+Each build announces `POST /api/ping {v, mid}` once per machine per day
+(logged as `panel_ping` + `api_call`) — watch those to (a) see which build a
+machine runs and (b) learn the real `Origin` a CEP panel sends, which is what
+`AMH_ALLOWED_ORIGIN` must whitelist when locking CORS.
 
 **⚠ Machine ID is Node-anchored now (panel v1.4.0).** The panel's license
 anchor lives in `~/.amharic_captions_machine.json` (Node side, OUTSIDE CEP's

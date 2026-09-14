@@ -526,6 +526,15 @@ console.log('\n:: scenario 9 — extension API: trial, rate limits, API key togg
   r = await api(envK.env, '/api/trial?mid=c1c2c3d4', { headers: { 'CF-Connecting-IP': '203.0.113.63', 'X-Api-Key': 'nope' } });
   assert.equal(r.status, 401, 'wrong header => 401');
   ok('AMH_API_KEY toggle: off now, on -> requires header');
+
+  // panel boot ping: version/Origin telemetry, also key-gated
+  r = await api(envK.env, '/api/ping', { method: 'POST', body: { v: '1.4.1', mid: 'c2c2c2c2' }, headers: { 'CF-Connecting-IP': '203.0.113.70', 'X-Api-Key': 'sekrit' } });
+  assert.equal(r.status, 200, 'ping allowed with key');
+  const pingJ = await r.json();
+  assert.equal(pingJ.ok, true, 'ping returns ok');
+  r = await api(envK.env, '/api/ping', { method: 'POST', body: { v: '1.4.1' }, headers: { 'CF-Connecting-IP': '203.0.113.71' } });
+  assert.equal(r.status, 401, 'ping without key => 401');
+  ok('/api/ping telemetry wired + gated');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
