@@ -246,9 +246,12 @@ back to `0` (or unset) to return to notify-only.
 - **Multi-admin** via comma-separated `AMH_ADMIN_ID`.
 
 **🌐 CORS.** While `AMH_ALLOWED_ORIGIN` is unset, `/api/*` returns
-`Access-Control-Allow-Origin: *`. To restrict, set the secret to the actual
-origins a panel sends (CEP panels running from `file://` report `Origin: null`,
-so include `null`). Until the panel sends a proper origin, leave it unset.
+`Access-Control-Allow-Origin: *`. It is now **set live** — verified production
+value is `file://,null` (a real CEP panel fetch was captured via the `panel_ping`
+beacon and shows the current Premiere/CEF stack sends `Origin: file://`; older
+stacks report `null`, so keep both). Locked endpoints echo a whitelisted origin
+and omit the header otherwise. To change, `npx wrangler secret put
+AMH_ALLOWED_ORIGIN`; to re-open, delete the secret.
 
 **🗑 Pruning.** Now also runs on a cron (`0 */6 * * *`) via the Worker's
 `scheduled` handler — no longer depends on admin activity. Orders/funnel older
