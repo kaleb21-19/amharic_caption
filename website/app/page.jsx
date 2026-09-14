@@ -56,10 +56,10 @@ export default function HomePage() {
     <>
       <section className="hero" id="top">
         <div className="container">
-          <p className="eyebrow">100% Offline · Adobe Premiere Pro · Windows &amp; macOS</p>
-          <h1>
-            Amharic captions in Premiere Pro —{" "}
-            <span className="accent">fully on your machine.</span>
+          <p className="eyebrow">For Adobe Premiere Pro · Windows 10/11 · macOS</p>
+          <h1 className="hero-h1">
+            <span className="hero-peak">100% offline.</span>
+            <span className="hero-h1-rest">Amharic captions for Adobe Premiere&nbsp;Pro.</span>
           </h1>
           <p className="hero-sub">
             Turn Amharic speech into perfectly timed, editable captions with nothing uploaded,
@@ -81,8 +81,9 @@ export default function HomePage() {
           </p>
         </div>
 
-        <div className="hero-shot" aria-hidden="true">
-          <div className="app-window">
+        <div className="hero-shot">
+          <span className="hero-badge">No internet · No uploads · No cloud</span>
+          <div className="app-window" aria-hidden="true">
             <div className="app-titlebar">
               <span className="dot d-red" />
               <span className="dot d-yellow" />
@@ -128,11 +129,11 @@ export default function HomePage() {
         <div className="container">
           <Reveal>
             <p className="eyebrow">Why it matters</p>
-            <h2>Your content is your business. It never leaves your machine.</h2>
+            <h2>Fully offline. Fully on your machine.</h2>
             <p className="section-sub">
               Cloud caption tools mean uploading your cuts, waiting, and trusting a server with
               client footage. Amharic Captions Pro does the work where your Premiere project
-              already lives — on your computer.
+              already lives — <strong>on your computer, with zero internet involved</strong>.
             </p>
           </Reveal>
 
@@ -153,6 +154,15 @@ export default function HomePage() {
               <p>No sending GBs to a server and waiting for the queue. Captions start when you click generate — not when their server frees up.</p>
             </div></Reveal>
           </div>
+
+          <Reveal delay={60}>
+            <div className="offline-band" aria-label="offline guarantee">
+              <span>No uploads</span><i>·</i>
+              <span>No cloud</span><i>·</i>
+              <span>No internet</span><i>·</i>
+              <span>No subscription</span>
+            </div>
+          </Reveal>
 
           <Reveal delay={120}>
             <div className="compare-wrap">
