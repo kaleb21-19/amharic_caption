@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BOT_URL, SUPPORT_URL, GROUP_URL } from "@/lib/site";
+import { BOT_URL, SUPPORT_URL, GROUP_URL, PRICE } from "@/lib/site";
 
 export default function Footer() {
   return (
@@ -8,13 +8,14 @@ export default function Footer() {
         <div className="footer-brand-col">
           <p className="footer-brand"><span className="brand-mark brand-mark-sm">AC</span> Amharic Captions Pro</p>
           <p className="footer-tag">
-            Amharic speech-to-text captions for Adobe Premiere Pro. Runs fully
-            on your machine.
+            Amharic speech-to-text captions for Adobe Premiere Pro. Runs 100% on
+            your machine — no uploads, no cloud, one-time {PRICE} lifetime license.
           </p>
         </div>
         <div className="footer-col">
           <h4>Product</h4>
           <Link href="/#features">Features</Link>
+          <Link href="/#offline">Why offline</Link>
           <Link href="/pricing/">Pricing</Link>
           <Link href="/install/">Install</Link>
           <Link href="/faq/">FAQ</Link>
@@ -28,6 +29,7 @@ export default function Footer() {
         <div className="footer-col">
           <h4>Contact</h4>
           <p>Telegram: <a href={BOT_URL} target="_blank" rel="noopener">@AmharicCaptionsBot</a></p>
+          <p>Hours: daily</p>
         </div>
       </div>
       <div className="footer-bottom">

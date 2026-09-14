@@ -3,9 +3,11 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 
 export const metadata = {
-  title: "Amharic Captions Pro — Amharic Speech-to-Text for Premiere Pro",
+  title: "Amharic Captions Pro — 100% Offline Amharic Speech-to-Text for Premiere Pro",
+  description:
+    "Amharic captions inside Adobe Premiere Pro — fully on your machine. No uploads, no cloud, no internet needed. One-time ETB 2,500 lifetime license. Free 2-caption trial.",
   openGraph: {
-    title: "Amharic Captions Pro — Amharic Speech-to-Text for Premiere Pro",
+    title: "Amharic Captions Pro — 100% Offline Amharic Captions for Premiere Pro",
     type: "website",
     locale: "en_US",
     url: "/",
