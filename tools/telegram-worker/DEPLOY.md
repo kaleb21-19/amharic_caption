@@ -220,22 +220,16 @@ are **KV-cached and rate-limited** (per-machine **and** per-IP via
 - `POST /api/validate` with `{mid, key}` → `{valid, expiry?}` — checks the key
   exists in D1 `customers` for this machine (blocks forged/unofficial keys)
 
-**🛡 AMH_API_KEY — required enforce (transition window).** The Worker treats
-`AMH_API_KEY` as follows: while the secret is UNSET, `/api/*` stays open for
-back-compat. The moment it is SET, every `/api/*` call WITHOUT a matching
-`X-Api-Key` header is rejected 401. Make `/api/*` properly required in ONE
-coordinated step:
-
-1. Generate a value: `openssl rand -hex 24`
-2. Put the SAME value in `panel/js/main.js` as `API_KEY_HINT` (non-empty) —
-   any panel that ships with it non-empty sends `X-Api-Key` on every call.
-3. Ship + install that new panel release to your fleet first (Step G).
-4. THEN set the Worker secret: `npx wrangler secret put AMH_API_KEY` (same value)
-   and deploy.
-
-Doing step 4 before step 3 locks out every still-installed panel (trial +
-activation return errors). With the small current fleet this is a single
-coordinated release; afterwards the header is required forever.
+**🛡 AMH_API_KEY — REQUIRED (enforced live).** `AMH_API_KEY` is a Worker secret
+and **already enforced**: every `/api/*` call WITHOUT a matching `X-Api-Key`
+header is rejected 401 (verified 2026-09-14, version `1299465a`). The value must
+match `API_KEY_HINT` in `panel/js/main.js` (v1.4.0 ships it; any panel build
+that sends `X-Api-Key` keeps working, older builds are locked out). Rotation /
+recovery: `openssl rand -hex 24` → update `API_KEY_HINT` → ship the panel → set
+the secret → deploy. `AMH_BLOCK_SHARED` is also live (`1`): a key presented
+from ≥ `AMH_SPREAD_THRESHOLD` (3) distinct source IPs stops validating with
+`{valid:false, reason:'shared'}` after alerting admins. Set `AMH_BLOCK_SHARED`
+back to `0` (or unset) to return to notify-only.
 
 **📤 Backups/export.** Two options:
 - In-app: admin **📤 Export customers** button → paste-ready TSV
