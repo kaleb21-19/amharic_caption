@@ -68,6 +68,7 @@ class D1 {
       `CREATE INDEX idx_customers_uid ON customers(uid)`,
     ];
     for (const ddl of ddls) this.db.exec(ddl);
+    this.db.exec("ALTER TABLE customers ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0"); // migration 0008
   }
   prepare(sql) {
     const stmt = this.db.prepare(sql);
@@ -714,6 +715,41 @@ console.log('\n:: scenario 13 — key spread (per-key distinct IPs) + fresh-mid 
   const rowSeen = rows(env, "SELECT used FROM trials WHERE machine_id='11cccccc'");
   assert.equal(rowSeen.length, 0, 'flooded mid was not counted');
   ok('fresh-mid flood capped per IP per day (200 + remaining:0)');
+}
+
+console.log('\n:: scenario 14 — license revocation kill-switch');
+
+{
+const { env, kv } = fresh();
+  await startBuyFlow(env);
+  await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { text: '9f9e9f9e' }));
+  await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { photo: [{ file_id: 'P1' }] }));
+  await cb(env, { id: Number(BUYER) }, 'proof:confirm', { chatId: Number(BUYER) });
+  const o = row(env, 'SELECT * FROM orders');
+  await cb(env, { id: Number(ADMIN_ID) }, `approve:${o.id}`);
+  const c = row(env, 'SELECT * FROM customers WHERE machine_id=?', '9f9e9f9e');
+  assert.ok(c.key, 'sale exists with a key');
+
+  let j = await (await api(env, '/api/validate', { method: 'POST', body: { mid: '9f9e9f9e', key: c.key }, headers: { 'CF-Connecting-IP': '198.51.100.21' } })).json();
+  assert.equal(j.valid, true, 'valid before revoke');
+
+  await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: `/revoke ${o.id}` }));
+  assert.equal(row(env, 'SELECT status FROM orders WHERE id=?', o.id).status, 'revoked');
+  assert.equal(row(env, 'SELECT revoked FROM customers WHERE machine_id=?', '9f9e9f9e').revoked, 1);
+
+  await kv.delete('rl:val:9f9e9f9e');
+  j = await (await api(env, '/api/validate', { method: 'POST', body: { mid: '9f9e9f9e', key: c.key }, headers: { 'CF-Connecting-IP': '198.51.100.22' } })).json();
+  assert.equal(j.valid, false, 'kill-switch kills validation');
+  assert.equal(j.reason, 'revoked', 'revoke reason surfaced to panel');
+  const victimDm = OUTBOUND.filter((x) => x.method === 'sendMessage' && (x.body.text || '').includes('revoked'))[0];
+  assert.ok(victimDm, 'buyer notified of revocation');
+
+  await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: `/unrevoke ${o.id}` }));
+  assert.equal(row(env, 'SELECT revoked FROM customers WHERE machine_id=?', '9f9e9f9e').revoked, 0);
+  await kv.delete('rl:val:9f9e9f9e');
+  j = await (await api(env, '/api/validate', { method: 'POST', body: { mid: '9f9e9f9e', key: c.key }, headers: { 'CF-Connecting-IP': '198.51.100.23' } })).json();
+  assert.equal(j.valid, true, 'unrevoke restores validation');
+  ok('/revoke + /unrevoke kill/restore a license end-to-end');
 }
 
 console.log('\n' + PASS.length + '/' + (st) + ' scenarios — all green ✅');

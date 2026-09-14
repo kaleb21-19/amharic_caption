@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.4.1';
+const APP_VERSION = '1.4.2';
 
 const csi = new CSInterface();
 
@@ -565,6 +565,8 @@ async function activateLicense() {
     if (serverResult && serverResult.valid === false) {
       const reason = serverResult.reason === 'expired'
         ? 'License expired'
+        : serverResult.reason === 'revoked'
+        ? 'License revoked — contact @sumpak6 on Telegram'
         : 'Key not recognized — contact @sumpak6 on Telegram';
       if (licStatus) { licStatus.textContent = reason; licStatus.style.color = 'var(--err)'; }
       return;

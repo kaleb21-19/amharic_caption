@@ -244,6 +244,12 @@ back to `0` (or unset) to return to notify-only.
 - **⏰ Custom expiry** — `/setexpiry ORDERID YYYYMMDD` before approving; the key
   then embeds that date (default is perpetual).
 - **Multi-admin** via comma-separated `AMH_ADMIN_ID`.
+- **⛔ License kill-switch** — `/revoke ORDERID` marks the customer row so
+  `/api/validate` returns `{valid:false, reason:'revoked'}` (panel shows
+  "License revoked — contact @sumpak6"); the buyer's status message is edited
+  when possible. `/unrevoke ORDERID` restores the license. Each command busts
+  the `val:<mid>:<key>` cache so the flip is immediate (that's why the live
+  check above clears the key before re-validating). Migration 0008.
 
 **🌐 CORS.** While `AMH_ALLOWED_ORIGIN` is unset, `/api/*` returns
 `Access-Control-Allow-Origin: *`. It is now **set live** — verified production

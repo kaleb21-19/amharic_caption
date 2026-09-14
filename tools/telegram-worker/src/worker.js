@@ -356,6 +356,20 @@ async function handleMessage(msg, env) {
     }
   }
 
+  // admin: revoke / unrevoke a sold license → /revoke ORDERID, /unrevoke ORDERID
+  if (privateChat && isAdmin(user.id)) {
+    const rv = text.match(/^\/(?:revoke|ban)\s+(\d+)$/i);
+    if (rv) {
+      await revokeOrder(chatId, rv[1], true);
+      return;
+    }
+    const urv = text.match(/^\/(?:unrevoke|unban)\s+(\d+)$/i);
+    if (urv) {
+      await revokeOrder(chatId, urv[1], false);
+      return;
+    }
+  }
+
   // admin: broadcast draft pending → next free-text message goes to all buyers
   if (isAdmin(user.id)) {
     const bd = await kvGet('bcast:await:' + uid);
@@ -765,6 +779,39 @@ async function broadcastText(chatId, text) {
   log('info', 'broadcast_sent', { recipients: seen.size });
   await sendText(chatId,
     `📣 Broadcast sent to <b>${seen.size}</b> chat(s).${seen.size ? '' : ' (no buyers yet)'}`);
+}
+
+// ── revoke / unrevoke a sold license ────────────────────────────────────────
+async function revokeOrder(chatId, orderId, revoke) {
+  const o = await DB.prepare('SELECT machine_id, chat_id, status_msg_id FROM orders WHERE id=?').bind(orderId).first();
+  if (!o) { await sendText(chatId, `⚠️ Order <b>#${orderId}</b> not found.`); return; }
+  const cust = await DB.prepare('SELECT key FROM customers WHERE machine_id=?').bind(o.machine_id).first();
+  if (!cust) { await sendText(chatId, `⚠️ No customer row for order <b>#${orderId}</b>.`); return; }
+
+  await DB.prepare('UPDATE customers SET revoked=? WHERE machine_id=?')
+    .bind(revoke ? 1 : 0, o.machine_id).run();
+
+  // Bust the validation cache so the next panel call re-evaluates immediately.
+  try { await kvDel('val:' + o.machine_id + ':' + cust.key); } catch (e) {}
+
+  const targetStatus = revoke ? 'revoked' : 'approved';
+  await DB.prepare('UPDATE orders SET status=? WHERE id=?').bind(targetStatus, orderId).run();
+
+  // Notify the buyer.
+  if (o.chat_id) {
+    const msg = revoke
+      ? '⚠️ Your license was revoked.\nContact @sumpak6 on Telegram for help.'
+      : '✅ Your license has been restored.';
+    if (o.status_msg_id) {
+      try { await editText(o.chat_id, o.status_msg_id, msg); } catch (e) {}
+    } else {
+      await sendText(o.chat_id, msg);
+    }
+  }
+
+  const word = revoke ? '⛔' : '✅';
+  await sendText(chatId, `${word} Order <b>#${orderId}</b> → ${targetStatus}.`);
+  log('info', 'order_revoke', { orderId, machine_id: o.machine_id, revoke });
 }
 
 // ── anti-piracy: key-usage telemetry + spread alerts ─────────────────────────
@@ -1259,9 +1306,11 @@ export default {
           return json({ valid: false, reason: 'throttled', retry: true }, 429);
         }
         // Check D1: key must be in customers table
-        const row = await DB.prepare('SELECT expiry FROM customers WHERE machine_id = ? AND key = ?').bind(String(mid), key).first();
+        const row = await DB.prepare('SELECT expiry, revoked FROM customers WHERE machine_id = ? AND key = ?').bind(String(mid), key).first();
         if (!row) {
           out = { valid: false };
+        } else if (row.revoked) {
+          out = { valid: false, reason: 'revoked' };
         } else if (row.expiry && row.expiry !== '00000000') {
           const expDate = new Date(row.expiry.slice(0, 4) + '-' + row.expiry.slice(4, 6) + '-' + row.expiry.slice(6, 8));
           out = (isNaN(expDate.getTime()) || expDate < new Date())
