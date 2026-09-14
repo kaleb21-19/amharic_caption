@@ -56,6 +56,10 @@ class D1 {
         max_free INTEGER NOT NULL DEFAULT 2,
         created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
       `ALTER TABLE customers ADD COLUMN uid TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE trials ADD COLUMN last_at TEXT NOT NULL DEFAULT ''`,
+      `CREATE TABLE ip_counters (ip TEXT NOT NULL, bucket TEXT NOT NULL,
+        n INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (ip, bucket))`,
       `CREATE TABLE key_activations (key TEXT NOT NULL, ip TEXT NOT NULL, mid TEXT NOT NULL,
         n INTEGER NOT NULL DEFAULT 1, first_seen TEXT NOT NULL DEFAULT (datetime('now')),
         last_seen TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (key, ip))`,
@@ -479,10 +483,12 @@ console.log('\n:: scenario 9 — extension API: trial, rate limits, API key togg
   assert.equal(r.status, 200);
   j = await r.json();
   assert.equal(j.used, 1, 'double-fire collapses to one increment');
-  // same IP within 3s -> 429
+  // same mid again -> SQL 2s collapse (no KV, atomic) returns current, no extra credit
   r = await api(env, '/api/trial/use', { method: 'POST', body: { mid: 'a1b2c3d4' }, headers: { 'CF-Connecting-IP': '203.0.113.9' } });
-  assert.equal(r.status, 429, 'per-IP throttle on use');
-  ok('trial/use: per-mid collapse + per-IP throttle');
+  assert.equal(r.status, 200, 'rapid reuse returns 200 (never 429)');
+  j = await r.json();
+  assert.equal(j.used, 1, 'rapid reuse collapse: no blind increment');
+  ok('trial/use: per-mid SQL collapse is atomic (no KV race, no 429 -> no local-increment exploit)');
 
   // trial caps at max_free
   for (let i = 0; i < 6; i++) {
@@ -682,12 +688,13 @@ console.log('\n:: scenario 13 — key spread (per-key distinct IPs) + fresh-mid 
   assert.equal(r2.status, 200);
   await new Promise((r) => setTimeout(r, 3100));
   const r3 = await api(env, '/api/trial/use', { method: 'POST', body: { mid: '11cccccc' }, headers: { 'CF-Connecting-IP': '203.0.113.77' } });
-  assert.equal(r3.status, 429);
+  assert.equal(r3.status, 200, 'flood -> 200, not 429 (no local-increment exploit)');
   const j3 = await r3.json();
-  assert.equal(j3.error, 'trial_abuse', 'flood of fresh mids from one IP → 429 trial_abuse');
+  assert.equal(j3.remaining, 0, 'flood saturates to remaining:0');
+  assert.equal(j3.used, 2, 'flood saturates to cap');
   const rowSeen = rows(env, "SELECT used FROM trials WHERE machine_id='11cccccc'");
   assert.equal(rowSeen.length, 0, 'flooded mid was not counted');
-  ok('fresh-mid flood capped per IP per day');
+  ok('fresh-mid flood capped per IP per day (200 + remaining:0)');
 }
 
 console.log('\n' + PASS.length + '/' + (st) + ' scenarios — all green ✅');

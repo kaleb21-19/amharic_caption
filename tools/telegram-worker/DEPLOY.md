@@ -204,6 +204,7 @@ key issued by either works in the Premiere panel interchangeably.
 - `migrations/0004_fsm_status_msg.sql` — fsm.status_msg_id (durable FSM row)
 - `migrations/0005_amount_etb.sql` — orders.amount_etb (numeric price snapshot)
 - `migrations/0006_key_activations.sql` — (key,ip) activation telemetry
+- `migrations/0007_trial_db_atomic.sql` — trials.last_at + ip_counters (SQL-atomic collapse/caps)
 - `wrangler.toml` — bindings + vars (secrets live separately; AMH_KV cache)
   + `[triggers] crons` for the 30-day prune
 - `scripts/set_webhook.mjs` / `auto_webhook.mjs` — switch to webhook with
@@ -283,12 +284,32 @@ signal — the panel *invents* it (localStorage). The honest signals are:
   legit buyers on CGNAT/rotating IPs aren't locked out.
 - **Fresh-machine trial flood**: `/api/trial/use` with a mid never seen in D1
   `trials` is the classic clearing-localStorage reset. Per IP, only
-  `AMH_FRESH_MID_DAY` (default 5) fresh mids are allowed per 24 h; beyond that
-  the call returns 429 `trial_abuse` and logs `trial_fresh_flood`. Tune via
+  `AMH_FRESH_MID_DAY` (default 5) fresh mids are allowed per 24 h. `/api/trial/use`
+  NEVER returns 429 — throttles and the flood cap **echo current state (200)**,
+  the flood case saturating to `{used: 2, remaining: 0}`. Rationale: the panel
+  collapses a non-200 to null and falls into its local-only increment, which
+  would hand an abuser a credit instead of blocking them; syncing to
+  `remaining: 0` routes them into the panel's real trial gate. Tune via
   `wrangler secret put AMH_FRESH_MID_DAY`.
+- **Why consumption is SQL-atomic (migration 0007):** the 2 s double-fire
+  collapse and the per-IP fresh-mid counter run as `UPDATE/INSERT ... WHERE`
+  statements in D1, **not** KV read-then-write — Cloudflare KV is eventually
+  consistent, so two back-to-back requests could each read a null marker and
+  double-increment. `trials.last_at` + `ip_counters` make that impossible and
+  free of KV races. Remaining KV micro-throttles (on `/api/validate` and
+  `/api/trial` GET) are best-effort anti-annoyance only — never a security
+  boundary (real protection is the D1 cap + the API key gate).
+- **IP retention (privacy)**: `key_activations` rows (which contain raw source
+  IPs) are purged after 30 days by the same cron that prunes orders/funnel
+  (`prune_run` logs the count). Raw IPs are never kept indefinitely; the
+  30-day window is what spread detection reasons over.
 
 Start with defaults (notify + alert). After you've watched a week of logs, set
 `AMH_BLOCK_SHARED=1` if the alert rate stays sane.
+
+**Panel builds.** Manifest + `APP_VERSION` in `panel/js/main.js` are the version
+source of truth — keep them in lockstep on every release so support logs can
+tell old vs new builds (footer badge shows it; it ships in the released zip).
 
 **⚠ Machine ID is client-declared.** `machine_id` is a random 8-hex value the
 panel generates into `localStorage` — it is not hardware. The server-side

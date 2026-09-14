@@ -6,6 +6,8 @@
  */
 'use strict';
 
+const APP_VERSION = '1.4.0';
+
 const csi = new CSInterface();
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -283,7 +285,7 @@ function initSupport() {
 // ── Version badge in footer (keep in sync with CSXS manifest.xml) ──────────
 function initVersion() {
   const el = document.getElementById('panelVersion');
-  if (el) el.textContent = '1.3.5';
+  if (el) el.textContent = APP_VERSION;
 }
 
 function getLicense() {

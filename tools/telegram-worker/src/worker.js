@@ -222,9 +222,15 @@ async function pendingCount() {
 async function pruneOld() {
   const o = await DB.prepare("DELETE FROM orders WHERE created_at < datetime('now', '-30 days')").run();
   const f = await DB.prepare("DELETE FROM funnel WHERE ts < datetime('now', '-30 days')").run();
+  // key_activations stores raw source IPs for spread detection — keep a 30-day
+  // window, then drop them (run_set ttl; privacy: do not hold IPs indefinitely).
+  const k = await DB.prepare("DELETE FROM key_activations WHERE last_seen < datetime('now', '-30 days')").run();
+  const c = await DB.prepare("DELETE FROM ip_counters WHERE updated_at < datetime('now', '-30 days')").run();
   log('info', 'prune_run', {
     orders: o && o.meta ? o.meta.changes : 0,
     funnel: f && f.meta ? f.meta.changes : 0,
+    key_activations: k && k.meta ? k.meta.changes : 0,
+    ip_counters: c && c.meta ? c.meta.changes : 0,
   });
 }
 async function getFsm(uid) {
@@ -807,11 +813,17 @@ async function alertKeySpread(key, mid, ip, distinct) {
 async function recordFreshTrialUse(ip, mid) {
   const existing = await DB.prepare('SELECT 1 FROM trials WHERE machine_id = ?').bind(mid).first();
   if (existing) return 0;
-  const k = 'freshmid:' + ip;
-  const n = parseInt(await kvGet(k) || '0', 10) + 1;
-  await kvPut(k, n, 86400);
-  if (n > FRESH_MID_LIMIT && !(await kvGet('alert:fresh:' + ip))) {
-    await kvPut('alert:fresh:' + ip, '1', 86400);
+  // Per-IP daily counter in SQL — atomic increment (a KV read-then-write
+  // could double count under eventual consistency).
+  const bucket = 'fresh:' + new Date().toISOString().slice(0, 10);
+  await DB.prepare(
+    `INSERT INTO ip_counters (ip, bucket, n) VALUES (?, ?, 1)
+     ON CONFLICT(ip, bucket) DO UPDATE SET n = n + 1, updated_at = datetime('now')`
+  ).bind(ip, bucket).run();
+  const row = await DB.prepare('SELECT n FROM ip_counters WHERE ip = ? AND bucket = ?').bind(ip, bucket).first();
+  const n = row ? row.n : 1;
+  if (n > FRESH_MID_LIMIT && !(await kvGet('alert:fresh:' + ip + ':' + bucket))) {
+    await kvPut('alert:fresh:' + ip + ':' + bucket, '1', 86400);
     log('warn', 'trial_fresh_flood', { ip, fresh: n });
   }
   return n;
@@ -1167,27 +1179,24 @@ export default {
       if (!mid || !/^[0-9a-f]{8}$/.test(mid)) {
         return json({ error: 'bad mid' }, 400);
       }
-      // Per-IP guard on the write path (beyond the per-machine collapse below).
-      if (await rateLimited('rl:ip:' + clientIp() + ':use', 3)) {
-        return json({ error: 'throttled' }, 429);
-      }
       // Fresh-machine flood guard: a mid with no prior trial row is the classic
-      // clearing-localStorage reset. Cap fresh mids per IP per day.
+      // clearing-localStorage reset. Cap fresh mids per IP per day — SATURATE at
+      // the cap instead of 429 so the panel syncs to remaining:0 and its trial
+      // gate actually blocks, rather than dipping into the local fallback.
       if (await recordFreshTrialUse(clientIp(), mid) > FRESH_MID_LIMIT) {
-        return json({ error: 'trial_abuse' }, 429);
+        return json({ used: 2, remaining: 0 });
       }
-      // Collapse accidental double-fire (panel retry) + scripted abuse into
-      // one increment per machine per 2s. A real transcription takes far
-      // longer than that, so legit credits are never lost.
-      if (await rateLimited('rl:use:' + mid, 2)) {
-        const cur = await DB.prepare('SELECT used, max_free FROM trials WHERE machine_id = ?').bind(mid).first();
-        const used = cur ? cur.used : 0;
-        return json({ used, remaining: Math.max(0, (cur ? cur.max_free : 2) - used) });
-      }
-      // Atomic increment — never past the cap, no lost updates under
-      // concurrency.
+      // Atomic "one credit per 2 s per machine" — done in SQL, NOT via a KV
+      // marker, because KV read-after-write across requests is eventual and a
+      // double-fire could slip a second increment past. The UPDATE changes rows
+      // only when the machine's last increment is older than 2 s and it's under
+      // the cap; a fast double-fire simply changes zero rows and we echo state.
       await DB.prepare('INSERT OR IGNORE INTO trials (machine_id, used, max_free) VALUES (?, 0, 2)').bind(mid).run();
-      await DB.prepare('UPDATE trials SET used = used + 1 WHERE machine_id = ? AND used < max_free').bind(mid).run();
+      await DB.prepare(
+        `UPDATE trials SET used = used + 1, last_at = datetime('now')
+         WHERE machine_id = ? AND used < max_free
+           AND (last_at = '' OR last_at IS NULL OR last_at < datetime('now', '-2 seconds'))`
+      ).bind(mid).run();
       const row = await DB.prepare('SELECT used, max_free FROM trials WHERE machine_id = ?').bind(mid).first();
       const used = row ? row.used : 0;
       const maxFree = row ? row.max_free : 2;
