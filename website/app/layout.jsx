@@ -1,6 +1,13 @@
 import "./globals.css";
+import { Inter, Noto_Sans_Ethiopic } from "next/font/google";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+
+// Self-hosted webfonts (served from this deploy — no third-party CDN, fits the
+// "everything is yours" brand). Inter carries all Latin copy; Noto Sans
+// Ethiopic renders any Ge'ez text (the Amharic samples in the mockup).
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
+const ethiopic = Noto_Sans_Ethiopic({ subsets: ["ethiopic"], variable: "--font-ethiopic", display: "swap" });
 
 export const metadata = {
   title: "Amharic Captions Pro — 100% Offline Amharic Speech-to-Text for Premiere Pro",
@@ -35,7 +42,11 @@ export default function RootLayout({ children }) {
       "Amharic speech-to-text captions for Adobe Premiere Pro. Runs on-device with no internet required.",
   };
   return (
-    <html lang="en" style={{ backgroundColor: "#0b1110" }}>
+    <html
+      lang="en"
+      className={`${inter.variable} ${ethiopic.variable}`}
+      style={{ backgroundColor: "#0b1110" }}
+    >
       <head>
         <meta name="theme-color" content="#0b1110" />
         <meta name="color-scheme" content="dark" />

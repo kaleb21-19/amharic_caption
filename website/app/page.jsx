@@ -66,6 +66,7 @@ export default function HomePage() {
             nothing stored in the cloud, and no internet needed. Your footage stays yours —
             always.
           </p>
+          <p className="hero-amh amh" lang="am">በፕሪሚየር ፕሮ ውስጥ የአማርኛ ትርጉም — ሙሉ በሙሉ በኮምፒውተርዎ ላይ</p>
           <div className="hero-cta">
             <a className="btn btn-primary btn-lg" href={BOT_URL} target="_blank" rel="noopener">
               Get your lifetime key
@@ -99,9 +100,9 @@ export default function HomePage() {
                 <div className="trk"><span className="trk-label">A1</span><div className="trk-clip c2" /></div>
                 <div className="trk trk-captions">
                   <span className="trk-label">CAP</span>
-                  <div className="caption-line l1"><i />“እንኳን ወደ ፕሮግራማችን እንኳን ደህና መጡ”</div>
-                  <div className="caption-line l2"><i />“ትርጉም በደቂቃዎች ውስጥ ዝግጁ ነው”</div>
-                  <div className="caption-line l1"><i />“ሁሉም ነገር በመሳሪያዎ ላይ ይሰራል”</div>
+                  <div className="caption-line l1 amh" lang="am"><i />“እንኳን ደህና መጡ ወደ ፕሮግራማችን”</div>
+                  <div className="caption-line l2 amh" lang="am"><i />“ትርጉም በደቂቃዎች ውስጥ ዝግጁ ነው”</div>
+                  <div className="caption-line l1 amh" lang="am"><i />“ሁሉም ነገር በመሳሪያዎ ላይ ይሰራል”</div>
                 </div>
                 <div className="transport">
                   <span className="tp-btn">‹‹</span><span className="tp-btn">◀</span>
