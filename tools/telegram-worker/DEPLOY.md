@@ -203,6 +203,7 @@ key issued by either works in the Premiere panel interchangeably.
   machine/uid indexes
 - `migrations/0004_fsm_status_msg.sql` — fsm.status_msg_id (durable FSM row)
 - `migrations/0005_amount_etb.sql` — orders.amount_etb (numeric price snapshot)
+- `migrations/0006_key_activations.sql` — (key,ip) activation telemetry
 - `wrangler.toml` — bindings + vars (secrets live separately; AMH_KV cache)
   + `[triggers] crons` for the 30-day prune
 - `scripts/set_webhook.mjs` / `auto_webhook.mjs` — switch to webhook with
@@ -266,8 +267,37 @@ still holds legacy Amharic copy but is archived — do not reactivate it.
 **Structured logging.** Worker emits one JSON line per event (levels
 `info/warn/error`; events `order_created`, `order_approved`, `order_rejected`,
 `prune_run`, `broadcast_sent`, `api_unauthorized`, `webhook_auth_failed`,
-`webhook_secret_missing`, `handler_error`) — visible under **Workers → Logs /
-wrangler tail**.
+`webhook_secret_missing`, `handler_error`, `key_spread`, `trial_fresh_flood`) —
+visible under **Workers → Logs / wrangler tail**.
+
+**🛡 Anti-piracy / anti-trial-abuse (migration 0006).**
+A license key can only ever validate against the machine_id embedded in it
+(the panel and server both enforce that), so `machine_id` is NOT a share
+signal — the panel *invents* it (localStorage). The honest signals are:
+
+- **Key spread by source IP**: every valid `/api/validate` (cache hit or miss)
+  stamps a `(key, CF-Connecting-IP)` row in `key_activations`. When a key has
+  been presented from `AMH_SPREAD_THRESHOLD` distinct IPs (default 3) an admin
+  gets one alert per key per 24 h. To hard-block instead of just flag:
+  `wrangler secret put AMH_BLOCK_SHARED` → enter `1`. Default is notify-only so
+  legit buyers on CGNAT/rotating IPs aren't locked out.
+- **Fresh-machine trial flood**: `/api/trial/use` with a mid never seen in D1
+  `trials` is the classic clearing-localStorage reset. Per IP, only
+  `AMH_FRESH_MID_DAY` (default 5) fresh mids are allowed per 24 h; beyond that
+  the call returns 429 `trial_abuse` and logs `trial_fresh_flood`. Tune via
+  `wrangler secret put AMH_FRESH_MID_DAY`.
+
+Start with defaults (notify + alert). After you've watched a week of logs, set
+`AMH_BLOCK_SHARED=1` if the alert rate stays sane.
+
+**⚠ Machine ID is client-declared.** `machine_id` is a random 8-hex value the
+panel generates into `localStorage` — it is not hardware. The server-side
+signals above catch *reuse patterns*, they don't identify hardware. The durable
+fix ships with the next panel release: persist a Node-side GUID outside
+localStorage (under the extension app-data path) plus `os.hostname()` /
+`os.userInfo()` so clearing CEP data regenerates a DIFFERENT ID only if the
+accompanying Node file is also deleted. Ship that panel together with the
+`AMH_API_KEY` flip (see above).
 
 **After deploying**, copy the `*.workers.dev` URL into
 `panel/js/main.js` `API_URL` (replace `ACCOUNT`) so the panel can reach these

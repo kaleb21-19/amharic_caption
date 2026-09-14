@@ -95,6 +95,9 @@ const SITE_URL = 'https://amharic-caption-pro.vercel.app';
 let WEBHOOK_SECRET = '';
 let API_KEY = ''; // shared secret for /api/* (panel). Enforcement on when set.
 let CACHE = null; // optional KV namespace (AMH_KV). Absent => graceful fallback.
+let BLOCK_SHARED = false;  // when '1', /api/validate refuses a key seen from too many IPs
+let SPREAD_THRESHOLD = 3;  // distinct source IPs per key before we alert/flag a spread
+let FRESH_MID_LIMIT = 5;   // max new (never-before-seen) mids per IP per day before /api/trial/use 429s
 
 // ── config / env ────────────────────────────────────────────────────────────
 function initEnv(env) {
@@ -109,6 +112,9 @@ function initEnv(env) {
   API_KEY = env.AMH_API_KEY || '';
   ALLOWED_ORIGIN = env.AMH_ALLOWED_ORIGIN || '';
   PRICE_ETB = parseInt(env.AMH_PRICE_ETB, 10) || parseInt(PRICE.replace(/[^\d]/g, ''), 10) || 2500;
+  BLOCK_SHARED = String(env.AMH_BLOCK_SHARED || '').toLowerCase() === '1';
+  SPREAD_THRESHOLD = parseInt(env.AMH_SPREAD_THRESHOLD, 10) || 3;
+  FRESH_MID_LIMIT = parseInt(env.AMH_FRESH_MID_DAY, 10) || 5;
   CACHE = env.AMH_KV || null;
   globalThis.DB = env.DB;
 }
@@ -755,6 +761,62 @@ async function broadcastText(chatId, text) {
     `📣 Broadcast sent to <b>${seen.size}</b> chat(s).${seen.size ? '' : ' (no buyers yet)'}`);
 }
 
+// ── anti-piracy: key-usage telemetry + spread alerts ─────────────────────────
+// Every server-confirmed /api/validate stamps a (key, source IP). A key can
+// only ever validate against the machine_id embedded in it, so the machine_id
+// is not a share signal — the honest one is DISTINCT SOURCE IPs per key.
+// Reaching AMH_SPREAD_THRESHOLD IPs triggers one admin alert per key per 24h
+// (KV-throttled); AMH_BLOCK_SHARED=1 additionally refuses further validation.
+async function recordKeyActivation(key, mid, ip) {
+  try {
+    await DB.prepare(
+      `INSERT INTO key_activations (key, ip, mid) VALUES (?, ?, ?)
+       ON CONFLICT(key, ip) DO UPDATE SET
+         n = n + 1, mid = excluded.mid, last_seen = datetime('now')`
+    ).bind(key, ip, mid).run();
+    const spreadRow = await DB.prepare('SELECT COUNT(DISTINCT ip) AS n FROM key_activations WHERE key = ?').bind(key).first();
+    const distinct = spreadRow ? spreadRow.n : 1;
+    if (distinct >= SPREAD_THRESHOLD) {
+      log('warn', 'key_spread', { key: key.slice(0, 12) + '…', mid, ip, distinct });
+      await alertKeySpread(key, mid, ip, distinct);
+      if (BLOCK_SHARED) return false;
+    }
+  } catch (e) {
+    // Telemetry must never break the money path.
+    log('error', 'key_activation_record_failed', { err: String((e && e.message) || e) });
+  }
+  return true;
+}
+
+async function alertKeySpread(key, mid, ip, distinct) {
+  const seen = await kvGet('alert:keyspread:' + key);
+  if (seen) return;
+  await kvPut('alert:keyspread:' + key, '1', 86400);
+  const text =
+    '🚨 <b>Key spread alert</b>\n\n' +
+    `Key <code>${key.slice(0, 12)}…</code> has now validated from <b>${distinct}</b> different IPs.\n` +
+    `Latest: machine <code>${mid}</code> from IP <code>${ip}</code>\n\n` +
+    'Unless the owner moved between internet connections, this is a leaked/shared key. Check /admin → History → Customer record.';
+  for (const adm of adminUids()) { await sendText(adm, text); await sleep(90); }
+}
+
+// ── anti-trial-abuse: fresh-machine flood per IP ─────────────────────────────
+// /api/trial/use referencing a mid never seen in D1 trials is "fresh" — the
+// classic clearing-localStorage reset. Cap fresh mids per IP per 24h
+// (AMH_FRESH_MID_DAY, default 5).
+async function recordFreshTrialUse(ip, mid) {
+  const existing = await DB.prepare('SELECT 1 FROM trials WHERE machine_id = ?').bind(mid).first();
+  if (existing) return 0;
+  const k = 'freshmid:' + ip;
+  const n = parseInt(await kvGet(k) || '0', 10) + 1;
+  await kvPut(k, n, 86400);
+  if (n > FRESH_MID_LIMIT && !(await kvGet('alert:fresh:' + ip))) {
+    await kvPut('alert:fresh:' + ip, '1', 86400);
+    log('warn', 'trial_fresh_flood', { ip, fresh: n });
+  }
+  return n;
+}
+
 async function adminDetail(chatId, messageId, cbId, orderId) {
   const o = await DB.prepare('SELECT * FROM orders WHERE id=?').bind(orderId).first();
   if (!o) { await answerCb(cbId, 'Order not found'); return; }
@@ -1109,6 +1171,11 @@ export default {
       if (await rateLimited('rl:ip:' + clientIp() + ':use', 3)) {
         return json({ error: 'throttled' }, 429);
       }
+      // Fresh-machine flood guard: a mid with no prior trial row is the classic
+      // clearing-localStorage reset. Cap fresh mids per IP per day.
+      if (await recordFreshTrialUse(clientIp(), mid) > FRESH_MID_LIMIT) {
+        return json({ error: 'trial_abuse' }, 429);
+      }
       // Collapse accidental double-fire (panel retry) + scripted abuse into
       // one increment per machine per 2s. A real transcription takes far
       // longer than that, so legit credits are never lost.
@@ -1138,31 +1205,43 @@ export default {
         return json({ error: 'missing mid or key' }, 400);
       }
       const cacheKey = 'val:' + String(mid) + ':' + key;
+      let out = null;
       const cached = await kvGet(cacheKey);
-      if (cached) { try { return json(JSON.parse(cached)); } catch (e) {} }
-      // Per-IP guard so a brute-forcer can't spray fake keys quickly.
-      if (await rateLimited('rl:ip:' + clientIp() + ':validate', 3)) {
-        return json({ valid: false, reason: 'throttled', retry: true }, 429);
+      if (cached) { try { out = JSON.parse(cached); } catch (e) {} }
+      if (!out) {
+        // Per-IP guard so a brute-forcer can't spray fake keys quickly.
+        if (await rateLimited('rl:ip:' + clientIp() + ':validate', 3)) {
+          return json({ valid: false, reason: 'throttled', retry: true }, 429);
+        }
+        // Only a genuinely new lookup reaches D1; brute-force bursts of fake
+        // keys are throttled per machine.
+        if (await rateLimited('rl:val:' + String(mid), 3)) {
+          return json({ valid: false, reason: 'throttled', retry: true }, 429);
+        }
+        // Check D1: key must be in customers table
+        const row = await DB.prepare('SELECT expiry FROM customers WHERE machine_id = ? AND key = ?').bind(String(mid), key).first();
+        if (!row) {
+          out = { valid: false };
+        } else if (row.expiry && row.expiry !== '00000000') {
+          const expDate = new Date(row.expiry.slice(0, 4) + '-' + row.expiry.slice(4, 6) + '-' + row.expiry.slice(6, 8));
+          out = (isNaN(expDate.getTime()) || expDate < new Date())
+            ? { valid: false, reason: 'expired' }
+            : { valid: true, expiry: row.expiry };
+        } else {
+          out = { valid: true, expiry: row.expiry };
+        }
+        await kvPut(cacheKey, JSON.stringify(out), out.valid ? 3600 : 60);
       }
-      // Only a genuinely new lookup reaches D1; brute-force bursts of fake
-      // keys are throttled per machine.
-      if (await rateLimited('rl:val:' + String(mid), 3)) {
-        return json({ valid: false, reason: 'throttled', retry: true }, 429);
+      // A known-good key is served from cache for an hour — but every VALID
+      // response still records a (key, source IP) activation so distinct-IP
+      // spread detection sees repeat validations, not just the first one.
+      if (out.valid) {
+        const okActivation = await recordKeyActivation(key, String(mid), clientIp());
+        if (!okActivation) {
+          out = { valid: false, reason: 'shared' };
+          await kvPut(cacheKey, JSON.stringify(out), 60);
+        }
       }
-      // Check D1: key must be in customers table
-      const row = await DB.prepare('SELECT expiry FROM customers WHERE machine_id = ? AND key = ?').bind(String(mid), key).first();
-      let out;
-      if (!row) {
-        out = { valid: false };
-      } else if (row.expiry && row.expiry !== '00000000') {
-        const expDate = new Date(row.expiry.slice(0, 4) + '-' + row.expiry.slice(4, 6) + '-' + row.expiry.slice(6, 8));
-        out = (isNaN(expDate.getTime()) || expDate < new Date())
-          ? { valid: false, reason: 'expired' }
-          : { valid: true, expiry: row.expiry };
-      } else {
-        out = { valid: true, expiry: row.expiry };
-      }
-      await kvPut(cacheKey, JSON.stringify(out), out.valid ? 3600 : 60);
       return json(out);
     }
 

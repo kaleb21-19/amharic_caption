@@ -27,7 +27,7 @@ const WORKER_SRC = readFileSync(new URL('../src/worker.js', import.meta.url), 'u
 
 const envKeys = ['AMH_TG_TOKEN', 'AMH_ADMIN_ID', 'AMH_SECRET', 'AMH_WEBHOOK_SECRET', 'DB', 'AMH_KV'];
 
-// ── isolated D1 stand-in (mirrors migrations 0001-0005) ─────────────────────
+// ── isolated D1 stand-in (mirrors migrations 0001-0006) ─────────────────────
 class D1 {
   constructor() {
     this.db = new DatabaseSync(':memory:');
@@ -56,6 +56,9 @@ class D1 {
         max_free INTEGER NOT NULL DEFAULT 2,
         created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
       `ALTER TABLE customers ADD COLUMN uid TEXT NOT NULL DEFAULT ''`,
+      `CREATE TABLE key_activations (key TEXT NOT NULL, ip TEXT NOT NULL, mid TEXT NOT NULL,
+        n INTEGER NOT NULL DEFAULT 1, first_seen TEXT NOT NULL DEFAULT (datetime('now')),
+        last_seen TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (key, ip))`,
       `CREATE UNIQUE INDEX idx_orders_pending_mid ON orders(machine_id) WHERE status='pending'`,
       `CREATE INDEX idx_orders_mid ON orders(machine_id)`,
       `CREATE INDEX idx_customers_uid ON customers(uid)`,
@@ -631,6 +634,60 @@ console.log('\n:: scenario 12 — broadcast, /setexpiry, reply-keyboard hint');
     'reply keyboard hint attached'
   );
   ok('reply-keyboard hint offered at the Machine ID prompt');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: scenario 13 — key spread (per-key distinct IPs) + fresh-mid flood');
+
+{
+  // one key, validated from 3 different IPs → distinct reaches threshold → alert; still valid
+  const { env } = fresh();
+  const mid = 'aabbccdd';
+  const key = keyFor(mid);
+  env.DB.prepare("INSERT INTO customers (machine_id, name, expiry, key, status, uid) VALUES (?, 'sold', '00000000', ?, 'sold', '1')").bind(mid, key).run();
+  for (const ip of ['203.0.113.10', '203.0.113.11', '203.0.113.12']) {
+    const r = await api(env, '/api/validate', { method: 'POST', body: { mid, key }, headers: { 'CF-Connecting-IP': ip } });
+    const j = await r.json();
+    assert.equal(j.valid, true, `valid from ${ip}`);
+  }
+  const alert = OUTBOUND.filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === ADMIN_ID && (x.body.text || '').includes('Key spread alert'));
+  assert.equal(alert.length, 1, 'one spread alert after 3rd distinct IP');
+  const acts = rows(env, 'SELECT * FROM key_activations WHERE key=?', key);
+  assert.equal(acts.length, 3, 'three (key, ip) rows recorded');
+  ok('key spread: distinct-IP telemetry + throttled admin alert');
+
+  // AMH_BLOCK_SHARED=1 → the key stops validating beyond the threshold
+  const envB = fresh({ AMH_BLOCK_SHARED: '1' });
+  envB.env.DB.prepare("INSERT INTO customers (machine_id, name, expiry, key, status, uid) VALUES (?, 'b', '00000000', ?, 'sold', '2')").bind(mid, key).run();
+  for (const ip of ['203.0.113.21', '203.0.113.22']) {
+    const r = await api(envB.env, '/api/validate', { method: 'POST', body: { mid, key }, headers: { 'CF-Connecting-IP': ip } });
+    const j = await r.json();
+    assert.equal(j.valid, true, `block env valid below threshold (${ip})`);
+  }
+  const r3 = await api(envB.env, '/api/validate', { method: 'POST', body: { mid, key }, headers: { 'CF-Connecting-IP': '203.0.113.23' } });
+  assert.equal(r3.status, 200);
+  const j3 = await r3.json();
+  assert.equal(j3.valid, false);
+  assert.equal(j3.reason, 'shared', 'at threshold + BLOCK_SHARED → valid:false reason shared');
+  ok('AMH_BLOCK_SHARED caps a key at threshold IPs');
+}
+
+{
+  // fresh-mid flood: same IP, 3 brand-new mids, limit 2 → 3rd returns trial_abuse
+  const { env } = fresh({ AMH_FRESH_MID_DAY: '2' });
+  const r1 = await api(env, '/api/trial/use', { method: 'POST', body: { mid: '11aaaaaa' }, headers: { 'CF-Connecting-IP': '203.0.113.77' } });
+  assert.equal(r1.status, 200);
+  await new Promise((r) => setTimeout(r, 3100));
+  const r2 = await api(env, '/api/trial/use', { method: 'POST', body: { mid: '11bbbbbb' }, headers: { 'CF-Connecting-IP': '203.0.113.77' } });
+  assert.equal(r2.status, 200);
+  await new Promise((r) => setTimeout(r, 3100));
+  const r3 = await api(env, '/api/trial/use', { method: 'POST', body: { mid: '11cccccc' }, headers: { 'CF-Connecting-IP': '203.0.113.77' } });
+  assert.equal(r3.status, 429);
+  const j3 = await r3.json();
+  assert.equal(j3.error, 'trial_abuse', 'flood of fresh mids from one IP → 429 trial_abuse');
+  const rowSeen = rows(env, "SELECT used FROM trials WHERE machine_id='11cccccc'");
+  assert.equal(rowSeen.length, 0, 'flooded mid was not counted');
+  ok('fresh-mid flood capped per IP per day');
 }
 
 console.log('\n' + PASS.length + '/' + (st) + ' scenarios — all green ✅');
