@@ -29,7 +29,8 @@ export const DL_WIN =
   "https://github.com/kaleb21-19/amharic_caption/releases/latest/download/amharic-captions-win-x64.zip";
 export const DL_MAC_ARM =
   "https://github.com/kaleb21-19/amharic_caption/releases/latest/download/amharic-captions-mac-arm64.zip";
-// Intel Macs: same latest-tag mechanism — x64 zip is uploaded manually when the
-// CI runner (macos-13) is too slow to finish in time.
+// Intel Macs: same latest-tag mechanism — the x64 build runs on the arm64
+// macOS runner (AMH_TARGET=mac-x64) and publishes with the others, so this
+// link always resolves.
 export const DL_MAC_X64 =
   "https://github.com/kaleb21-19/amharic_caption/releases/latest/download/amharic-captions-mac-x64.zip";
