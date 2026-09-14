@@ -27,7 +27,7 @@ const WORKER_SRC = readFileSync(new URL('../src/worker.js', import.meta.url), 'u
 
 const envKeys = ['AMH_TG_TOKEN', 'AMH_ADMIN_ID', 'AMH_SECRET', 'AMH_WEBHOOK_SECRET', 'DB', 'AMH_KV'];
 
-// ── isolated D1 stand-in (mirrors migrations 0001-0004) ─────────────────────
+// ── isolated D1 stand-in (mirrors migrations 0001-0005) ─────────────────────
 class D1 {
   constructor() {
     this.db = new DatabaseSync(':memory:');
@@ -42,6 +42,7 @@ class D1 {
         expiry TEXT NOT NULL DEFAULT '00000000', ref TEXT NOT NULL DEFAULT '',
         photo_key TEXT, chat_id TEXT, status_msg_id INTEGER,
         status TEXT NOT NULL DEFAULT 'pending',
+        amount_etb INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
       `CREATE INDEX idx_orders_status ON orders(status)`,
       `CREATE INDEX idx_orders_uid ON orders(uid)`,
@@ -530,6 +531,106 @@ console.log('\n:: scenario 10 — admin dashboard + prune keep 30 days');
   assert.equal(rows(env, "SELECT * FROM orders WHERE machine_id='aaaaaaaa'").length, 0, '>30d pruned');
   assert.equal(rows(env, "SELECT * FROM orders WHERE machine_id='bbbbbbbb'").length, 1, 'recent kept');
   ok('pruneOld removes >30d, keeps recent, admin panel runs');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: scenario 11 — amount_etb, queue pagination, multi-admin');
+
+{
+  const { env } = fresh({ AMH_PRICE_ETB: '3000' });
+
+  // order stamping uses the numeric price (AMH_PRICE_ETB)
+  env.DB.prepare("INSERT INTO fsm (uid, step, mid, photo_key, hint, updated_at) VALUES (?, 'confirm', 'a1b2c3d4', 'FB', 0, datetime('now'))").bind(BUYER).run();
+  let r = await cb(env, { id: Number(BUYER) }, 'proof:confirm', { chatId: Number(BUYER) });
+  assert.equal(r.status, 200);
+  const stamped = row(env, 'SELECT amount_etb FROM orders WHERE machine_id=?', 'a1b2c3d4');
+  assert.equal(stamped.amount_etb, 3000, 'order stamped with numeric AMH_PRICE_ETB');
+  ok('completeProof stamps amount_etb from AMH_PRICE_ETB');
+
+  // 12 pending → first page 10, '▶ More' → next page 2
+  for (let i = 1; i <= 12; i++) {
+    const mid = 'cc0000' + (i < 10 ? '0' + i : i);
+    env.DB.prepare("INSERT INTO orders (uid, username, machine_id, ref, photo_key, chat_id, status) VALUES (?,?,?, '', '',?, 'pending')").bind(String(10 + i), '@u' + i, mid, String(10 + i)).run();
+  }
+  OUTBOUND.length = 0; MSG = 0;
+  r = await cb(env, { id: Number(ADMIN_ID) }, 'admin:queue');
+  assert.equal(r.status, 200);
+  const cards1 = OUTBOUND.filter((o) => o.method === 'sendMessage' && (o.body.text || '').includes('#'));
+  assert.equal(cards1.length, 10, 'first page shows 10 cards');
+  const sum1 = OUTBOUND.find((o) => o.method === 'sendMessage' && String(o.body.chat_id) === ADMIN_ID && JSON.stringify(o.body).includes('▶ More'));
+  assert.ok(sum1 && (sum1.body.text || '').includes('1–10'), 'summary indicates first 10 of 12');
+  r = await cb(env, { id: Number(ADMIN_ID) }, 'admin:queuep:10');
+  const cards2 = OUTBOUND.filter((o) => o.method === 'sendMessage' && (o.body.text || '').includes('#')).length - cards1.length;
+  assert.equal(cards2, 2, 'load-more reveals the last 2');
+  ok('admin queue paginates 10 + Load more');
+
+  // multi-admin: second admin can approve; a buyer tapping admin:queue is rejected
+  const envM = fresh({ AMH_ADMIN_ID: ADMIN_ID + ',999888777' });
+  envM.env.DB.prepare("INSERT INTO orders (uid, username, machine_id, ref, photo_key, chat_id, status) VALUES ('1','@x','deadbeef','', '', '1','pending')").run();
+  const oid = row(envM.env, 'SELECT id FROM orders WHERE machine_id=?', 'deadbeef').id;
+  r = await cb(envM.env, { id: 999888777 }, 'admin:queue');
+  assert.equal(r.status, 200, 'second admin allowed');
+  r = await cb(envM.env, { id: 999888777 }, `approve:${oid}`);
+  assert.equal(r.status, 200);
+  assert.equal(row(envM.env, 'SELECT status FROM orders WHERE id=?', oid).status, 'approved', 'second admin approved');
+  r = await cb(envM.env, { id: Number(BUYER) }, 'admin:queue');
+  assert.equal(r.status, 200, 'buyer tap does not crash');
+  const blockedMsg = OUTBOUND.filter((o) => o.method === 'answerCallbackQuery').at(-1);
+  assert.ok((blockedMsg.body.text || '').includes('Admin only'), 'buyer blocked with "Admin only"');
+  ok('multi-admin: comma-separated AMH_ADMIN_ID honored; buyers blocked');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: scenario 12 — broadcast, /setexpiry, reply-keyboard hint');
+
+{
+  const { env, kv } = fresh();
+
+  // seed buyers so broadcast has recipients
+  env.DB.prepare("INSERT INTO customers (machine_id, name, expiry, key, status, uid) VALUES ('aaaaaaaa','@a','00000000',?, 'sold', ?)").bind(keyFor('aaaaaaaa'), BUYER).run();
+  env.DB.prepare("INSERT INTO orders (uid, username, machine_id, ref, photo_key, chat_id, status) VALUES ('900000002','@b','bbbbbbbb','', '', '900000002','pending')").run();
+  const oid = row(env, 'SELECT id FROM orders WHERE machine_id=?', 'bbbbbbbb').id;
+
+  // /setexpiry before approve → key embeds the date
+  let r = await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: `/setexpiry ${oid} 20270101` }));
+  assert.equal(r.status, 200);
+  assert.equal(row(env, 'SELECT expiry FROM orders WHERE id=?', oid).expiry, '20270101', 'order expiry updated');
+  r = await cb(env, { id: Number(ADMIN_ID) }, `approve:${oid}`);
+  assert.equal(r.status, 200);
+  const cust = row(env, 'SELECT * FROM customers WHERE machine_id=?', 'bbbbbbbb');
+  assert.equal(cust.expiry, '20270101');
+  const dm2 = OUTBOUND.filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === '900000002').find((x) => (x.body.text || '').includes('Expires: 20270101'));
+  assert.ok(dm2, 'key DM shows custom expiry');
+  ok('/setexpiry embeds a custom expiry in the key');
+
+  OUTBOUND.length = 0; MSG = 0;
+
+  // broadcast: admin taps, sends the text, buyers receive it
+  r = await cb(env, { id: Number(ADMIN_ID) }, 'admin:broadcast');
+  assert.equal(r.status, 200);
+  r = await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: 'Hello buyers! New promo coming.' }));
+  assert.equal(r.status, 200);
+  const toBuyer = OUTBOUND.filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === BUYER && (x.body.text || '').includes('Hello buyers!'));
+  assert.equal(toBuyer.length, 1, 'broadcast reaches buyer DM');
+  const toOther = OUTBOUND.filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === '900000002' && (x.body.text || '').includes('Hello buyers!'));
+  assert.equal(toOther.length, 1, 'broadcast reaches order-only buyer');
+  const confirm = OUTBOUND.find((x) => x.method === 'sendMessage' && String(x.body.chat_id) === String(ADMIN_ID) && (x.body.text || '').includes('Broadcast sent'));
+  assert.ok(confirm, 'admin sees broadcast confirmation');
+  assert.equal(await kv.get('bcast:await:' + ADMIN_ID), null, 'broadcast draft cleared');
+  ok('broadcast fans out to all buyers and skips admins');
+
+  // reply-keyboard hint attached to the Machine ID prompt
+  const envH = fresh();
+  envH.env.DB.prepare("INSERT INTO fsm (uid, step, mid, hint, updated_at) VALUES (?, 'mid', NULL, 1, datetime('now'))").bind(BUYER).run();
+  OUTBOUND.length = 0; MSG = 0;
+  r = await post(envH.env, msg(Number(BUYER), {}, { text: 'notamachineid' }));
+  assert.equal(r.status, 200);
+  const hintMsg = OUTBOUND.filter((o) => o.method === 'sendMessage').at(-1);
+  assert.ok(
+    hintMsg.body.reply_markup && hintMsg.body.reply_markup.keyboard && hintMsg.body.reply_markup.keyboard[0][0].text === '📍 Show me where to find my Machine ID',
+    'reply keyboard hint attached'
+  );
+  ok('reply-keyboard hint offered at the Machine ID prompt');
 }
 
 console.log('\n' + PASS.length + '/' + (st) + ' scenarios — all green ✅');

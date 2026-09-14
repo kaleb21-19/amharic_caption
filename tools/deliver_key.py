@@ -84,18 +84,18 @@ def save(mid, name, expiry, key):
 
 def telegram_message(mid, name, key, expiry):
     lines = [
-        f"✅ {name or 'የእርስዎ'} license key ተዘጋጅቷል!",
+        f"✅ Payment confirmed — your license key is ready!",
         "",
         f"<code>{key}</code>",
         "",
-        "1. ይህን ኬይ ቅዳ (copy)",
-        "2. Premiere Pro ውስጥ ፓነሉን ክፈት → License",
-        "3. ኬዩን paste አድርግ → **Activate** ተጫን",
+        "1. Copy the key",
+        "2. Open the panel in Premiere Pro → License",
+        "3. Paste it → tap **Activate**",
     ]
     if expiry != "00000000":
         lines.append("")
-        lines.append(f"⏰ የሚቆይበት ጊዜ: እስከ {expiry}")
-    lines += ["", "አመሰግናለሁ! 🙏 ችግር ካለ DM ይጻፉ።"]
+        lines.append(f"⏰ Expires: {expiry}")
+    lines += ["", "Thank you! 🙏 If you have any trouble, DM the seller."]
     return "\n".join(lines)
 
 

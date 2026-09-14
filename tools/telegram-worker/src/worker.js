@@ -83,15 +83,17 @@ function hmacHex(secret, msg) {
 // For simplicity we compute keys lazily with an await in approve (async anyway).
 let SECRET = '';
 let TOKEN = '';
-let ADMIN_ID = '';
+let ADMIN_ID = ''; // may be comma-separated (multi-admin)
 let GROUP_ID = '';
-let PRICE = 'ETB 2,500';
+let PRICE = 'ETB 2,500'; // display string
+let PRICE_ETB = 2500;    // numeric (source of truth for revenue/orders)
 let ACCT_NAME = 'KALEB TEGEGEN';
 let PAY_ACCOUNTS = 'CBE 1000504159977 · Abyssinia 402393939 · Zemen 1031111343277015';
+let ALLOWED_ORIGIN = ''; // comma-separated CORS allow-list ('' => * open)
 const SUPPORT_URL = 'https://t.me/sumpak6';
 const SITE_URL = 'https://amharic-caption-pro.vercel.app';
 let WEBHOOK_SECRET = '';
-let API_KEY = ''; // optional shared secret for /api/* (panel). Off until set.
+let API_KEY = ''; // shared secret for /api/* (panel). Enforcement on when set.
 let CACHE = null; // optional KV namespace (AMH_KV). Absent => graceful fallback.
 
 // ── config / env ────────────────────────────────────────────────────────────
@@ -105,6 +107,8 @@ function initEnv(env) {
   SECRET = env.AMH_SECRET || '';
   WEBHOOK_SECRET = env.AMH_WEBHOOK_SECRET || '';
   API_KEY = env.AMH_API_KEY || '';
+  ALLOWED_ORIGIN = env.AMH_ALLOWED_ORIGIN || '';
+  PRICE_ETB = parseInt(env.AMH_PRICE_ETB, 10) || parseInt(PRICE.replace(/[^\d]/g, ''), 10) || 2500;
   CACHE = env.AMH_KV || null;
   globalThis.DB = env.DB;
 }
@@ -120,6 +124,21 @@ async function kvGet(key) { try { return CACHE ? await CACHE.get(key) : null; } 
 async function kvPut(key, val, ttl) { try { if (CACHE) await CACHE.put(key, String(val), { expirationTtl: ttl }); } catch (e) {} }
 async function kvDel(key) { try { if (CACHE) await CACHE.delete(key); } catch (e) {} }
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+// ── structured logging (single JSON line per event → wrangler tail / dashboard)
+function log(level, event, payload = {}) {
+  console.log(JSON.stringify({ level, event, ts: new Date().toISOString(), ...payload }));
+}
+
+// ── multi-admin support: AMH_ADMIN_ID may be "111,222"
+function adminUids() {
+  return (ADMIN_ID || '').split(',').map((s) => String(s).trim()).filter(Boolean);
+}
+function isAdmin(uid) {
+  return adminUids().includes(String(uid));
+}
+
+const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 // ── menu text (port from bot.py) ────────────────────────────────────────────
 function heroText(first = '') {
@@ -193,10 +212,14 @@ async function pendingCount() {
   return n;
 }
 // Auto-prune: keep only the last 30 days of orders + funnel events. Called on
-// every admin action so history stays small without a scheduled job.
+// every admin action + the cron trigger so history stays small.
 async function pruneOld() {
-  await DB.prepare("DELETE FROM orders WHERE created_at < datetime('now', '-30 days')").run();
-  await DB.prepare("DELETE FROM funnel WHERE ts < datetime('now', '-30 days')").run();
+  const o = await DB.prepare("DELETE FROM orders WHERE created_at < datetime('now', '-30 days')").run();
+  const f = await DB.prepare("DELETE FROM funnel WHERE ts < datetime('now', '-30 days')").run();
+  log('info', 'prune_run', {
+    orders: o && o.meta ? o.meta.changes : 0,
+    funnel: f && f.meta ? f.meta.changes : 0,
+  });
 }
 async function getFsm(uid) {
   const r = await DB.prepare('SELECT * FROM fsm WHERE uid = ?').bind(uid).first();
@@ -245,6 +268,21 @@ function answerCb(id, text) {
   return safeSend(tg(TOKEN, 'answerCallbackQuery', { callback_query_id: id, text: text || '' }));
 }
 
+// One-time reply keyboard hint for the Machine ID prompt (a cheap affordance —
+// the keyboard vanishes after the first tap thanks to one_time_keyboard).
+const MACHINE_ID_HINT_KEY = '📍 Show me where to find my Machine ID';
+function sendHintKb(chatId, text) {
+  const params = {
+    chat_id: chatId, text, parse_mode: 'HTML',
+    reply_markup: {
+      keyboard: [[{ text: MACHINE_ID_HINT_KEY }]],
+      one_time_keyboard: true,
+      resize_keyboard: true,
+    },
+  };
+  return safeSend(tg(TOKEN, 'sendMessage', params));
+}
+
 // Generic thin reply via raw Bot API for any method.
 async function apiCall(method, params) {
   return tg(TOKEN, method, params);
@@ -273,7 +311,7 @@ async function handleMessage(msg, env) {
   const lower = text.toLowerCase();
   if (['/start', '/start@amhariccaptionsbot', '/menu', 'menu'].includes(lower)) {
     if (privateChat) {
-      if (String(user.id) === ADMIN_ID) {
+      if (isAdmin(user.id)) {
         await sendText(chatId, adminGreeting(), adminKeyboard());
       } else {
         await sendText(chatId, heroText(first), heroKeyboard());
@@ -286,9 +324,34 @@ async function handleMessage(msg, env) {
     return;
   }
   if (lower === '/admin' || lower === '/admin@amhariccaptionsbot') {
-    if (privateChat && String(user.id) === ADMIN_ID) await adminPanel(chatId, null);
+    if (privateChat && isAdmin(user.id)) await adminPanel(chatId, null);
     else await sendText(chatId, '🔒 Admin only.');
     return;
+  }
+
+  // admin: custom expiry for a pending/approved order → /setexpiry ORDERID YYYYMMDD
+  if (privateChat && isAdmin(user.id)) {
+    const ex = text.match(/^\/(?:setexpiry|expiry)\s+(\d+)\s+(\d{4})(\d{2})(\d{2})$/i);
+    if (ex) {
+      const id = ex[1];
+      const exp = ex[2] + ex[3] + ex[4];
+      const r = await DB.prepare('UPDATE orders SET expiry=? WHERE id=?').bind(exp, id).run();
+      const n = r && r.meta ? r.meta.changes : 0;
+      await sendText(chatId, n
+        ? `⏰ Order <b>#${id}</b> → expiry <code>${exp}</code>. Approve it and the key will embed this date.`
+        : `⚠️ Order <b>#${id}</b> not found.`);
+      return;
+    }
+  }
+
+  // admin: broadcast draft pending → next free-text message goes to all buyers
+  if (isAdmin(user.id)) {
+    const bd = await kvGet('bcast:await:' + uid);
+    if (bd && !lower.startsWith('/')) {
+      await kvDel('bcast:await:' + uid);
+      await broadcastText(chatId, text);
+      return;
+    }
   }
 
   // photos / documents (payment screenshot)
@@ -340,6 +403,14 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
   const s = await getFsm(uid);
   const step = s ? s.step : null;
 
+  // reply-keyboard hint tapped → show where to find the Machine ID
+  if (text === MACHINE_ID_HINT_KEY) {
+    await sendText(chatId,
+      '📲 <b>Where is my Machine ID?</b>\n\nOpen the <b>Amharic Captions panel</b> in Premiere Pro → <b>License</b> tab → your ID is the <b>8-character code</b> under <i>“Your Machine ID”</i> (e.g. <code>a1b2c3d4</code>).\n\nThen send it here.',
+      [[{ text: '📲 Install guide', url: `${SITE_URL}/install` }]]);
+    return;
+  }
+
   // step photo: waiting for screenshot
   if (step === 'photo') {
     await sendText(chatId, '📸 I’m waiting for your <b>screenshot</b> — send the bank-transfer payment screenshot as a <b>photo</b>.', [
@@ -352,9 +423,8 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
   if (step === 'mid') {
     const m = text.match(MACHINE_ID_RE);
     if (!m) {
-      await sendText(chatId,
-        `⚠️ I need your <b>Machine ID</b> — the <b>8-character</b> code from the panel's <b>License</b> section (e.g. <code>a1b2c3d4</code>).`,
-        [[{ text: '📍 Where is my Machine ID?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
+      await sendHintKb(chatId,
+        `⚠️ I need your <b>Machine ID</b> — the <b>8-character</b> code from the panel's <b>License</b> section (e.g. <code>a1b2c3d4</code>).`);
       return;
     }
     const mid = m[0].toLowerCase();
@@ -391,7 +461,8 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
   const m = text.match(MACHINE_ID_RE);
   if (!m) {
     // unknown input
-    if (privateChat) await sendText(chatId, `😊 ${first}, I didn't understand that. What would you like to do? Choose below:`, MENU_KEYBOARD);
+    const buyerName = (msg.from && msg.from.first_name) || '';
+    if (privateChat) await sendText(chatId, `😊 ${buyerName}, I didn't understand that. What would you like to do? Choose below:`, MENU_KEYBOARD);
     else await sendText(chatId, MENU, MENU_KEYBOARD);
     return;
   }
@@ -490,9 +561,9 @@ async function completeProof(uid, chatId, uname, privateChat) {
   let orderId;
   try {
     const order = await DB.prepare(
-      `INSERT INTO orders (uid, username, machine_id, ref, photo_key, chat_id, status)
-       VALUES (?, ?, ?, '', ?, ?, 'pending')`
-    ).bind(uid, uname || 'anon', s.mid, s.photo_key, String(chatId)).run();
+      `INSERT INTO orders (uid, username, machine_id, ref, photo_key, chat_id, status, amount_etb)
+       VALUES (?, ?, ?, '', ?, ?, 'pending', ?)`
+    ).bind(uid, uname || 'anon', s.mid, s.photo_key, String(chatId), PRICE_ETB).run();
     orderId = order.meta.last_row_id;
   } catch (err) {
     const isDupe = /UNIQUE/i.test(String(err));
@@ -507,6 +578,7 @@ async function completeProof(uid, chatId, uname, privateChat) {
   await setFsm(uid, null);
   await kvDel('pending:count');
   await addFunnel(uid, 'order_confirmed');
+  log('info', 'order_created', { orderId, mid: s.mid, uid, amount_etb: PRICE_ETB, source: privateChat ? 'DM' : 'Group' });
 
   // status + ETA to buyer
   const pos = await pendingCount();
@@ -529,13 +601,13 @@ async function completeProof(uid, chatId, uname, privateChat) {
       'Check the screenshot, then Approve or Reject:';
     if (s.photo_key) await sendPhoto(adm, s.photo_key, caption, adminKeyboardPend(orderId));
     else await sendText(adm, caption, adminKeyboardPend(orderId));
-    await sleep(40); // ~25 msg/s — safe for Telegram's 30 msg/s limit
+    await sleep(90); // ~11 msg/s — admin cards have 1 photo each; calm under 30/s
   }
 }
 
-// single admin for now
+// multi-admin support (comma-separated AMH_ADMIN_ID)
 async function adminList() {
-  return ADMIN_ID ? [ADMIN_ID] : [];
+  return adminUids();
 }
 
 // ── show my key ─────────────────────────────────────────────────────────────
@@ -600,7 +672,7 @@ async function adminPanel(chatId, messageId) {
     "FROM orders WHERE date(created_at)=date('now')").first();
   const sold30 = await DB.prepare(
     "SELECT COUNT(*) AS n FROM orders WHERE status='approved' AND created_at >= datetime('now','-30 days')").first();
-  const revenue = (sold30 ? sold30.n : 0) * parseInt(PRICE.replace(/[^\d]/g, ''), 10);
+  const revenue = (sold30 ? sold30.n : 0) * PRICE_ETB;
 
   const text =
     `🛠 <b>Admin · Dashboard</b>\n\n` +
@@ -614,32 +686,73 @@ async function adminPanel(chatId, messageId) {
     [{ text: `📥 Requests (${pend})`, callback_data: 'admin:queue' }],
     [{ text: '🧾 History (30 days)', callback_data: 'admin:history' }],
     [{ text: '📈 Sales & funnel', callback_data: 'admin:sales' }],
+    [{ text: '📣 Broadcast', callback_data: 'admin:broadcast' }, { text: '📤 Export customers', callback_data: 'admin:export' }],
   ];
   if (messageId) await editText(chatId, messageId, text, kb);
   else await sendText(chatId, text, kb);
 }
 
-async function adminQueue(chatId, messageId, cbId) {
+const QUEUE_PAGE = 10;
+async function adminQueue(chatId, messageId, cbId, offset = 0) {
   await pruneOld();
-  const { results } = await DB.prepare(
-    "SELECT * FROM orders WHERE status='pending' ORDER BY id DESC").all();
-  if (!results.length) {
+  const totalRow = await DB.prepare("SELECT COUNT(*) AS n FROM orders WHERE status='pending'").first();
+  const total = totalRow ? totalRow.n : 0;
+  if (!total) {
+    await answerCb(cbId, 'Queue empty');
     await editText(chatId, messageId,
       '📥 <b>No pending requests.</b>\n\nNew orders appear here the moment a buyer submits proof.',
       [[{ text: '🛠 Admin', callback_data: 'admin:panel' }]]);
     return;
   }
+  const { results } = await DB.prepare(
+    "SELECT * FROM orders WHERE status='pending' ORDER BY id DESC LIMIT ? OFFSET ?")
+    .bind(QUEUE_PAGE + 1, offset).all();
+  const page = results.slice(0, QUEUE_PAGE);
+  const hasMore = results.length > QUEUE_PAGE;
   // Send each pending order as its own card (newest first) with inline actions.
-  for (const o of results) {
+  for (const o of page) {
     const cap = `${orderSummary(o)}\n`;
     if (o.photo_key) await sendPhoto(chatId, o.photo_key, cap, adminKeyboardPend(o.id));
     else await sendText(chatId, cap, adminKeyboardPend(o.id));
-    await sleep(40); // throttle: stay under Telegram's 30 msg/s per chat
+    await sleep(90); // throttle: stay well under Telegram's 30 msg/s per chat
   }
-  await answerCb(cbId, `${results.length} pending`);
-  await editText(chatId, messageId,
-    `📥 <b>${results.length} pending request(s)</b> — newest first. Approve, decline, or view details on each card.`,
-    [[{ text: '🛠 Admin', callback_data: 'admin:panel' }]]);
+  await answerCb(cbId, `${total} pending`);
+  const shown = `${offset + 1}–${offset + page.length}`;
+  const kb = [
+    hasMore ? [{ text: '▶ More', callback_data: 'admin:queuep:' + (offset + QUEUE_PAGE) }] : [],
+    [{ text: '🛠 Admin', callback_data: 'admin:panel' }],
+  ].filter((r) => r.length);
+  const msg = hasMore
+    ? `📥 <b>${total} pending</b> — showing <b>${shown}</b> of ${total}. Newest first.`
+    : `📥 <b>${total} pending</b> — newest first. Approve, decline, or view details on each card.`;
+  await sendText(chatId, msg, kb);
+}
+
+async function adminExport(chatId, messageId, cbId) {
+  const { results } = await DB.prepare(
+    'SELECT machine_id, name, expiry, key, status, uid FROM customers ORDER BY machine_id').all();
+  if (!results.length) { await answerCb(cbId, 'No customers'); return; }
+  await answerCb(cbId, `${results.length} customers exported`);
+  const lines = results.map((c) =>
+    `${c.machine_id}\t${c.name || ''}\t${c.expiry || '00000000'}\t${String(c.key || '').replace('AMH-', '')}\t${c.status}\t${c.uid || ''}`);
+  await sendText(chatId,
+    `📤 <b>Customers (${results.length})</b> — machine | name | expiry | key | status | uid\n\n<pre>${esc('machine\tname\texpiry\tkey\tstatus\tuid\n' + lines.join('\n'))}</pre>`);
+}
+
+async function broadcastText(chatId, text) {
+  const seen = new Set();
+  const a = await DB.prepare("SELECT uid FROM customers WHERE uid <> ''").all();
+  const b = await DB.prepare("SELECT uid FROM orders WHERE uid <> ''").all();
+  const admins = adminUids();
+  for (const r of [...(a.results || []), ...(b.results || [])]) {
+    if (!r.uid || seen.has(r.uid) || admins.includes(String(r.uid))) continue;
+    seen.add(r.uid);
+    await sendText(r.uid, text);
+    await sleep(90);
+  }
+  log('info', 'broadcast_sent', { recipients: seen.size });
+  await sendText(chatId,
+    `📣 Broadcast sent to <b>${seen.size}</b> chat(s).${seen.size ? '' : ' (no buyers yet)'}`);
 }
 
 async function adminDetail(chatId, messageId, cbId, orderId) {
@@ -650,7 +763,8 @@ async function adminDetail(chatId, messageId, cbId, orderId) {
     `${orderSummary(o)}\n` +
     `UID: <code>${o.uid}</code>\n` +
     `Machine ID: <code>${o.machine_id}</code>\n` +
-    `Amount: ${PRICE}\n` +
+    `Amount: ${o.amount_etb ? `ETB ${money(o.amount_etb)}` : PRICE}\n` +
+    `Expiry: ${o.expiry === '00000000' ? 'perpetual' : o.expiry}\n` +
     `Received: ${shortTs(o.created_at)}`;
   const kb = o.status === 'pending'
     ? [[
@@ -677,7 +791,7 @@ async function adminHistory(chatId, messageId) {
   const ap = results.filter((r) => r.status === 'approved').length;
   const rj = results.filter((r) => r.status === 'rejected').length;
   const sold30 = ap;
-  const revenue = sold30 * parseInt(PRICE.replace(/[^\d]/g, ''), 10);
+  const revenue = sold30 * PRICE_ETB;
 
   const statusEmoji = { approved: '✅', rejected: '❌', pending: '📥' };
   let list = results.slice(0, 25).map((o) =>
@@ -700,7 +814,7 @@ async function adminHistory(chatId, messageId) {
 async function adminSales(chatId, messageId) {
   const sold = await DB.prepare("SELECT COUNT(*) AS n FROM customers WHERE status='sold'").first();
   const nSold = sold ? sold.n : 0;
-  const rev = nSold * parseInt(PRICE.replace(/,/g, '').replace('ETB ', ''), 10);
+  const rev = nSold * PRICE_ETB;
   const counts = {};
   const events = ['proof_start', 'mid_sent', 'screenshot_sent', 'order_confirmed', 'approved', 'rejected'];
   for (const ev of events) {
@@ -770,6 +884,7 @@ async function approve(chatId, messageId, orderId, cbId) {
     `Machine ID: <code>${o.machine_id}</code> · @${o.username} · DM: ✅\n` +
     `${left ? `📥 ${left} request(s) left in queue.` : '🎉 Queue is clear.'}`);
   await answerCb(cbId, '✅ Approved & key sent');
+  log('info', 'order_approved', { orderId, mid: o.machine_id, uid: o.uid, amount_etb: o.amount_etb });
 }
 
 async function reject(chatId, messageId, orderId, cbId) {
@@ -789,6 +904,7 @@ async function reject(chatId, messageId, orderId, cbId) {
     `${left ? `📥 ${left} request(s) left in queue.` : '🎉 Queue is clear.'}`);
   if (o.chat_id) await sendText(o.chat_id, 'Sorry — payment proof not verified. No key was sent. If you believe this is an error, contact the seller.');
   await answerCb(cbId, '❌ Declined');
+  log('warn', 'order_rejected', { orderId, mid: o.machine_id, uid: o.uid });
 }
 
 // ── callback handler ────────────────────────────────────────────────────────
@@ -804,7 +920,7 @@ async function handleCallback(cb) {
   // admin-only gates
   const adminPrefixes = ['admin:', 'approve:', 'reject:'];
   if (data.startsWith('approve:') || data.startsWith('reject:') || data.startsWith('admin:')) {
-    if (fromUid !== ADMIN_ID) { await answerCb(cbId, '🔒 Admin only'); return; }
+    if (!isAdmin(fromUid)) { await answerCb(cbId, '🔒 Admin only'); return; }
   }
 
   // menu navigation
@@ -830,7 +946,7 @@ async function handleCallback(cb) {
       }
       await setFsm(fromUid, { step: 'mid', mid: null, photo_key: null, ref: '', hint: 1 });
       await addFunnel(fromUid, 'proof_start');
-      await sendText(chatId, '📤 Send your <b>Machine ID</b> (8 characters).', undefined);
+      await sendHintKb(chatId, '📤 Send your <b>Machine ID</b> (8 characters).');
       // also edit the tapped button
       await editText(chatId, messageId, '📤 <b>Send proof</b>\n\nStart with <b>Step 1/2</b>: send your <b>Machine ID</b>.', [
         [{ text: '📍 Where is my Machine ID?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }],
@@ -851,7 +967,7 @@ async function handleCallback(cb) {
     if (action === 'confirm') {
       const s = await getFsm(fromUid);
       if (s && s.step === 'confirm' && s.mid) {
-        await completeProof(fromUid, chatId, fromUser.username || fromUser.first_name || '', genrePrivate(chatId, fromUid));
+        await completeProof(fromUid, chatId, fromUser.username || fromUser.first_name || '', isPrivateChat(chatId, fromUid));
       }
       return;
     }
@@ -863,10 +979,18 @@ async function handleCallback(cb) {
     const parts = data.split(':');
     const action = parts[1];
     if (action === 'panel') await adminPanel(chatId, messageId);
-    else if (action === 'queue' || action === 'pending') await adminQueue(chatId, messageId, cbId);
+    else if (action === 'queue' || action === 'pending') await adminQueue(chatId, messageId, cbId, 0);
+    else if (action === 'queuep') await adminQueue(chatId, messageId, cbId, parseInt(parts[2] || '0', 10));
     else if (action === 'history') await adminHistory(chatId, messageId);
     else if (action === 'detail') await adminDetail(chatId, messageId, cbId, parts[2]);
     else if (action === 'sales') await adminSales(chatId, messageId);
+    else if (action === 'export') await adminExport(chatId, messageId, cbId);
+    else if (action === 'broadcast') {
+      await kvPut('bcast:await:' + fromUid, '1', 900);
+      await answerCb(cbId, 'Compose broadcast');
+      await sendText(chatId,
+        '📣 <b>Broadcast</b>\n\nSend me the <b>exact message</b> you want copied to every customer (their DM with this bot).\n\n<i>Only buyers receive it — admins are skipped. Cancel with /start.</i>');
+    }
     return;
   }
 
@@ -883,8 +1007,28 @@ async function handleCallback(cb) {
   await answerCb(cbId, '');
 }
 
-function genrePrivate(chatId, uid) {
+function isPrivateChat(chatId, uid) {
   return String(chatId) === String(uid);
+}
+
+// ── CORS allow-list ─────────────────────────────────────────────────────────
+// ALLOWED_ORIGIN (env AMH_ALLOWED_ORIGIN, comma-separated) is empty by default
+// → open ('*'), which keeps installed CEP panels working. Once a panel build
+// sends a proper Origin header, set it to the value (include 'null' for CEP
+// file:// panels) to lock CORS down.
+function corsFor(request) {
+  const base = {
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Api-Key',
+  };
+  if (!ALLOWED_ORIGIN) return { ...base, 'Access-Control-Allow-Origin': '*' };
+  const origin = request.headers.get('Origin') || '';
+  const list = ALLOWED_ORIGIN.split(',').map((s) => s.trim()).filter(Boolean);
+  if (list.includes('*')) return { ...base, 'Access-Control-Allow-Origin': '*' };
+  if (origin && list.includes(origin)) {
+    return { ...base, 'Access-Control-Allow-Origin': origin, Vary: 'Origin' };
+  }
+  return base; // no allow-origin header → the browser blocks cross-origin reads
 }
 
 // ── entry point: webhook ────────────────────────────────────────────────────
@@ -899,12 +1043,11 @@ export default {
     }
 
     // ── Extension API ──────────────────────────────────────────────────────
-    // CORS headers for extension calls (CEP panels run from file:// origins)
-    const corsHeaders = {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, X-Api-Key',
-    };
+    // CORS for extension calls. CEP panels run from file:// origins, which the
+    // browser exposes as "Origin: null". By default we stay wide open ('*');
+    // set AMH_ALLOWED_ORIGIN to a comma-separated list (include 'null' for
+    // CEP panels) once the panel ships a proper Origin header.
+    const corsHeaders = corsFor(request);
     const json = (obj, status = 200) => new Response(JSON.stringify(obj), {
       status,
       headers: { 'Content-Type': 'application/json', ...corsHeaders },
@@ -919,13 +1062,17 @@ export default {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders });
     }
-    // Optional shared secret for the /api/* endpoints. When the AMH_API_KEY
-    // Worker secret is set, every /api call must present it (X-Api-Key).
-    // OFF by default so already-installed panels stay working; enable it in
-    // the same release as a panel build that sends the header.
+    // Shared secret for the /api/* endpoints. When the AMH_API_KEY Worker
+    // secret is set, every /api call must present it (X-Api-Key).
+    // Transition window: currently OFF so already-installed panels keep
+    // working. Enable it in the exact same release as the panel build that
+    // sends the header (see DEPLOY.md).
     if (url.pathname.startsWith('/api/') && API_KEY) {
       const givenKey = request.headers.get('X-Api-Key') || '';
-      if (!safeEqual(givenKey, API_KEY)) return json({ error: 'unauthorized' }, 401);
+      if (!safeEqual(givenKey, API_KEY)) {
+        log('warn', 'api_unauthorized', { ip: clientIp() });
+        return json({ error: 'unauthorized' }, 401);
+      }
     }
 
     // GET /api/trial?mid=XXXX → {used, max, remaining}
@@ -1027,11 +1174,14 @@ export default {
       // FAIL CLOSED: if the secret is not configured the worker refuses
       // updates entirely (Telegram will surface this as a webhook error).
       if (!WEBHOOK_SECRET) {
-        console.error('refusing update: AMH_WEBHOOK_SECRET is not configured');
+        log('error', 'webhook_secret_missing');
         return new Response('webhook secret not configured', { status: 500 });
       }
       const given = request.headers.get('X-Telegram-Bot-Api-Secret-Token') || '';
-      if (!safeEqual(given, WEBHOOK_SECRET)) return new Response('unauthorized', { status: 401 });
+      if (!safeEqual(given, WEBHOOK_SECRET)) {
+        log('warn', 'webhook_auth_failed');
+        return new Response('unauthorized', { status: 401 });
+      }
       let update;
       try { update = await request.json(); } catch { return new Response('bad', { status: 400 }); }
 
@@ -1043,11 +1193,18 @@ export default {
         // so an exception here is exceptional. Return 200 anyway: echoing a
         // 500 makes Telegram re-deliver the SAME update forever, which is
         // what produced the stuck 500-loop this hardening fixes.
-        console.error('handler error (ignored, 200 returned)', e);
+        log('error', 'handler_error', { err: String(e && e.message || e) });
       }
       return new Response('ok', { status: 200 });
     }
 
     return new Response('method not allowed', { status: 405 });
+  },
+
+  // Cron trigger: prune the 30-day window on a schedule so unmetered admin
+  // activity is never depended on (see wrangler.toml [triggers] crons).
+  async scheduled(_event, env) {
+    initEnv(env);
+    await pruneOld();
   },
 };

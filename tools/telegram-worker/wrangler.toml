@@ -23,13 +23,24 @@ id = "49415337946e41168f0f2c8958ea3ede"
 
 # ---- Secrets (set via `wrangler secret put`, never in this file) --------
 # AMH_TG_TOKEN      : the Telegram bot token
-# AMH_ADMIN_ID      : your numeric admin chat id
+# AMH_ADMIN_ID      : numeric admin chat id (comma-separated => multi-admin)
 # AMH_SECRET        : the HMAC license-key secret
 # AMH_WEBHOOK_SECRET: random string, ALSO registered as Telegram's webhook
 #                     secret_token so forged updates are rejected (401).
+# AMH_API_KEY       : shared key for /api/* (panel). When SET it is REQUIRED
+#                     (X-Api-Key header). Set it in the same release as a panel
+#                     build that sends the header — see DEPLOY.md transition.
+# AMH_ALLOWED_ORIGIN: optional CORS allow-list, comma-separated (include 'null'
+#                     for CEP file:// panels). Empty => '*'.
 
 [vars]
 AMH_GROUP_ID = "-1004403686687"
 AMH_PRICE = "ETB 2,500"
+AMH_PRICE_ETB = "2500"
 AMH_ACCT_NAME = "KALEB TEGEGEN"
 AMH_PAY_ACCOUNTS = "CBE 1000504159977 · Abyssinia 402393939 · Zemen 1031111343277015"
+
+# Daily prune: every 6h the worker deletes orders/funnel older than 30 days
+# (keeps history window consistent without depending on admin activity).
+[triggers]
+crons = ["0 */6 * * *"]

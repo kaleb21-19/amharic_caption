@@ -21,14 +21,20 @@ const csi = new CSInterface();
 // Deployed Worker URL — see tools/telegram-worker/DEPLOY.md.
 const API_URL = 'https://amharic-captions-bot.amhcaps.workers.dev';
 
-// Shared-secret header for the extension API (optional). Keep ''. When the
-// server starts requiring AMH_API_KEY, set the same value here and ship this
-// panel — see tools/telegram-worker/DEPLOY.md.
-const API_KEY_HINT = '';
+// Shared-secret header for the extension API. Set it to the SAME value as the
+// Worker secret AMH_API_KEY once the server starts requiring it — ship this
+// panel FIRST, then flip the secret (see tools/telegram-worker/DEPLOY.md).
+const API_KEY_HINT = '3f8b2e4774f8b7982a2511719cd14a51b9a0164d44db4043';
+
+function apiHeaders() {
+  const headers = {};
+  if (API_KEY_HINT) headers['X-Api-Key'] = API_KEY_HINT;
+  return headers;
+}
 
 async function apiGet(path) {
   try {
-    const res = await fetch(API_URL + path, { method: 'GET' });
+    const res = await fetch(API_URL + path, { method: 'GET', headers: apiHeaders() });
     if (!res.ok) return null;
     return await res.json();
   } catch (e) { return null; }
@@ -36,8 +42,7 @@ async function apiGet(path) {
 
 async function apiPost(path, body) {
   try {
-    const headers = { 'Content-Type': 'application/json' };
-    if (API_KEY_HINT) headers['X-Api-Key'] = API_KEY_HINT;
+    const headers = { 'Content-Type': 'application/json', ...apiHeaders() };
     const res = await fetch(API_URL + path, {
       method: 'POST',
       headers,

@@ -63,8 +63,11 @@ node scripts/auto_webhook.mjs
 > npx wrangler secret put AMH_ADMIN_ID
 > npx wrangler secret put AMH_SECRET
 > npx wrangler secret put AMH_WEBHOOK_SECRET   # same value as AMH_WEBHOOK_SECRET in bot.env
-> # optional (OFF until a panel build that sends X-Api-Key is released):
+> # ONLY when locking down /api/* (see the AMH_API_KEY transition below):
 > npx wrangler secret put AMH_API_KEY
+> # OPTIONAL: CORS allow-list — comma-separated origins (include 'null' for CEP
+> # file:// panels). Omit to stay open ('*'), see CORS section below.
+> npx wrangler secret put AMH_ALLOWED_ORIGIN
 > ```
 > `AMH_SECRET` is the HMAC license secret — retrieve the value from your
 > password manager (**it is no longer printed in this repo — keygen.py,
@@ -75,6 +78,11 @@ node scripts/auto_webhook.mjs
 > **Webhook secret is now mandatory**: the Worker refuses every update (HTTP
 > 500, surfaced as a Telegram webhook error) when `AMH_WEBHOOK_SECRET` is
 > unset. Do not deploy without it.
+>
+> `AMH_ADMIN_ID` supports **multi-admin**: comma-separate numeric chat ids,
+> e.g. `5842127112,999888777`. Every id gets /admin and Approve/Decline.
+> `AMH_PRICE_ETB` is set in `wrangler.toml` `[vars]` (numeric price used for
+> revenue math + stamped on each order as `amount_etb`).
 
 ## STEP D — Update the extension panel with your real URL
 Open `panel/js/main.js`, find the `API_URL` constant, and replace the placeholder:
@@ -194,7 +202,9 @@ key issued by either works in the Premiere panel interchangeably.
 - `migrations/0003_harden.sql` — customers.uid, duplicate-pending guard,
   machine/uid indexes
 - `migrations/0004_fsm_status_msg.sql` — fsm.status_msg_id (durable FSM row)
+- `migrations/0005_amount_etb.sql` — orders.amount_etb (numeric price snapshot)
 - `wrangler.toml` — bindings + vars (secrets live separately; AMH_KV cache)
+  + `[triggers] crons` for the 30-day prune
 - `scripts/set_webhook.mjs` / `auto_webhook.mjs` — switch to webhook with
   secret_token (auto_webhook reads token + secret from tools/telegram/bot.env)
 
@@ -208,11 +218,56 @@ are **KV-cached and rate-limited** (per-machine **and** per-IP via
 - `POST /api/validate` with `{mid, key}` → `{valid, expiry?}` — checks the key
   exists in D1 `customers` for this machine (blocks forged/unofficial keys)
 
-**Optional API key**: setting the `AMH_API_KEY` Worker secret makes every
-`/api/*` call require `X-Api-Key` (401 otherwise). Do **not** set it until a
-panel release that sends the header (non-empty `API_KEY_HINT` in
-`panel/js/main.js`) is installed by your users — otherwise already-installed
-panels would be locked out.
+**🛡 AMH_API_KEY — required enforce (transition window).** The Worker treats
+`AMH_API_KEY` as follows: while the secret is UNSET, `/api/*` stays open for
+back-compat. The moment it is SET, every `/api/*` call WITHOUT a matching
+`X-Api-Key` header is rejected 401. Make `/api/*` properly required in ONE
+coordinated step:
+
+1. Generate a value: `openssl rand -hex 24`
+2. Put the SAME value in `panel/js/main.js` as `API_KEY_HINT` (non-empty) —
+   any panel that ships with it non-empty sends `X-Api-Key` on every call.
+3. Ship + install that new panel release to your fleet first (Step G).
+4. THEN set the Worker secret: `npx wrangler secret put AMH_API_KEY` (same value)
+   and deploy.
+
+Doing step 4 before step 3 locks out every still-installed panel (trial +
+activation return errors). With the small current fleet this is a single
+coordinated release; afterwards the header is required forever.
+
+**📤 Backups/export.** Two options:
+- In-app: admin **📤 Export customers** button → paste-ready TSV
+  (machine | name | expiry | key | status | uid) in the admin chat.
+- Full DB: `npx wrangler d1 export amh_bot --remote --output backup-$(date +%F).sql`
+  (also enable automatic D1 backups in the dashboard — you already did this).
+
+**🛠 Admin features (installed):**
+- **Requests queue is paginated** (newest 10 per page, **▶ More** to load older).
+- **📣 Broadcast** — tap it, then send the exact message; it goes to every
+  buyer DM (admins skipped, throttled at 90 ms).
+- **⏰ Custom expiry** — `/setexpiry ORDERID YYYYMMDD` before approving; the key
+  then embeds that date (default is perpetual).
+- **Multi-admin** via comma-separated `AMH_ADMIN_ID`.
+
+**🌐 CORS.** While `AMH_ALLOWED_ORIGIN` is unset, `/api/*` returns
+`Access-Control-Allow-Origin: *`. To restrict, set the secret to the actual
+origins a panel sends (CEP panels running from `file://` report `Origin: null`,
+so include `null`). Until the panel sends a proper origin, leave it unset.
+
+**🗑 Pruning.** Now also runs on a cron (`0 */6 * * *`) via the Worker's
+`scheduled` handler — no longer depends on admin activity. Orders/funnel older
+than 30 days are deleted.
+
+**🌍 Language.** Buyer-facing UI is **English** (single primary language). The
+one intentional exception is the **Amharic group-welcome** message, kept for
+the support group's brand voice. The decommissioned `tools/telegram/bot.py`
+still holds legacy Amharic copy but is archived — do not reactivate it.
+
+**Structured logging.** Worker emits one JSON line per event (levels
+`info/warn/error`; events `order_created`, `order_approved`, `order_rejected`,
+`prune_run`, `broadcast_sent`, `api_unauthorized`, `webhook_auth_failed`,
+`webhook_secret_missing`, `handler_error`) — visible under **Workers → Logs /
+wrangler tail**.
 
 **After deploying**, copy the `*.workers.dev` URL into
 `panel/js/main.js` `API_URL` (replace `ACCOUNT`) so the panel can reach these
