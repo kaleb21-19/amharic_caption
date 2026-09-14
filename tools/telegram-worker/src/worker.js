@@ -1170,8 +1170,12 @@ export default {
       const v = String((b && b.v) || '');
       const throttleKey = 'ping:' + (mid || clientIp());
       if (!(await kvGet(throttleKey))) {
-        log('info', 'panel_ping', { v, mid: mid || '(none)', origin: request.headers.get('Origin') || '(none)', ip: clientIp() });
+        const origin = request.headers.get('Origin') || '(none)';
+        log('info', 'panel_ping', { v, mid: mid || '(none)', origin, ip: clientIp() });
         await kvPut(throttleKey, '1', 86400);
+        if (mid) {
+          await kvPut('beacon:' + mid, JSON.stringify({ v, mid, origin, ip: clientIp(), ts: new Date().toISOString() }));
+        }
       }
       return json({ ok: true });
     }

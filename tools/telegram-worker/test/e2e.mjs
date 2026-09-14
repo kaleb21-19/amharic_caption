@@ -535,6 +535,16 @@ console.log('\n:: scenario 9 — extension API: trial, rate limits, API key togg
   r = await api(envK.env, '/api/ping', { method: 'POST', body: { v: '1.4.1' }, headers: { 'CF-Connecting-IP': '203.0.113.71' } });
   assert.equal(r.status, 401, 'ping without key => 401');
   ok('/api/ping telemetry wired + gated');
+
+  // CORS lock: whitelisted origins echoed, anything else gets no allow header
+  const envL = fresh({ AMH_ALLOWED_ORIGIN: 'file://,null' });
+  let rl = await api(envL.env, '/api/ping', { method: 'POST', body: { v: '1.4.1' }, headers: { 'CF-Connecting-IP': '203.0.113.72', 'X-Api-Key': 'sekrit', Origin: 'file://' } });
+  assert.equal(rl.headers.get('access-control-allow-origin'), 'file://', 'file:// panel origin echoed');
+  rl = await api(envL.env, '/api/ping', { method: 'POST', body: { v: '1.4.1' }, headers: { 'CF-Connecting-IP': '203.0.113.73', 'X-Api-Key': 'sekrit', Origin: 'null' } });
+  assert.equal(rl.headers.get('access-control-allow-origin'), 'null', 'CEP null origin echoed');
+  rl = await api(envL.env, '/api/ping', { method: 'POST', body: { v: '1.4.1' }, headers: { 'CF-Connecting-IP': '203.0.113.74', 'X-Api-Key': 'sekrit', Origin: 'https://evil.example' } });
+  assert.equal(rl.headers.get('access-control-allow-origin'), null, 'unknown origin blocked');
+  ok('AMH_ALLOWED_ORIGIN whitelist enforced');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
