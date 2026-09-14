@@ -55,15 +55,103 @@ async function apiPost(path, body) {
   } catch (e) { return null; }
 }
 
-function getOrCreateMachineId() {
-  const key = 'amh.machineId';
-  let id = localStorage.getItem(key);
-  if (id && /^[0-9a-f]{8}$/.test(id)) return id;
-  id = Array.from((window.crypto || globalThis.crypto || require('crypto')).getRandomValues(new Uint8Array(4)))
+// ── Machine identity — Node-persisted, outside CEP's removable storage ───────
+// The panel runs inside CEP Chromium with Node integration (manifest has
+// --enable-nodejs, so `require` exists here — but NOT in a plain-browser test
+// page). The license anchor mid stays a random 8-hex value, but its source file
+// now lives in the user's HOME directory: clearing CEP cookies, uninstalling
+// the extension, or reinstalling CEP does NOT reset it, so deleting
+// localStorage no longer regenerates a fresh trial/license machine. A host
+// fingerprint (hostname + username) is stored alongside so support can spot a
+// record that was copied onto another PC. Degrades to localStorage-only when
+// Node's fs/os are unavailable (plain browser test page).
+const NODE = (typeof require === 'function') ? require : null;
+const nodeFs = (() => { try { return NODE && NODE('fs'); } catch (e) { return null; } })();
+const nodeOs = (() => { try { return NODE && NODE('os'); } catch (e) { return null; } })();
+const nodePath = (() => { try { return NODE && NODE('path'); } catch (e) { return null; } })();
+
+function machineFilePath() {
+  if (!nodeOs) return null;
+  // AMH_MACHINE_HOME optionally relocates the identity store (support /
+  // portable installs / tests). Defaults to the user's home directory.
+  const home = (process && process.env && process.env.AMH_MACHINE_HOME)
+    || (nodeOs.homedir && nodeOs.homedir());
+  if (!home) return null;
+  if (nodePath && nodePath.join) return nodePath.join(home, '.amharic_captions_machine.json');
+  return home + '/.amharic_captions_machine.json';
+}
+
+function hostFingerprint() {
+  try {
+    if (!nodeOs || !NODE) return null;
+    const u = nodeOs.userInfo && nodeOs.userInfo();
+    const raw = String(nodeOs.hostname() || '') + '|' + String((u && u.username) || '');
+    return NODE('crypto').createHash('sha256').update(raw).digest('hex').slice(0, 8);
+  } catch (e) { return null; }
+}
+
+function randomHex8() {
+  if (NODE) {
+    try {
+      return Array.from(NODE('crypto').randomBytes(4))
+        .map((b) => b.toString(16).padStart(2, '0')).join('');
+    } catch (e) {}
+  }
+  return Array.from((window.crypto || globalThis.crypto).getRandomValues(new Uint8Array(4)))
     .map((b) => b.toString(16).padStart(2, '0')).join('');
-  localStorage.setItem(key, id);
+}
+
+function loadMachineRecord() {
+  const p = machineFilePath();
+  if (!p || !nodeFs) return null;
+  try {
+    const rec = JSON.parse(nodeFs.readFileSync(p, 'utf8'));
+    if (rec && /^[0-9a-f]{8}$/.test(rec.id)) {
+      return { id: rec.id, host: typeof rec.host === 'string' ? rec.host : null };
+    }
+  } catch (e) {}
+  return null;
+}
+
+function saveMachineRecord(id, host) {
+  const p = machineFilePath();
+  if (!p || !nodeFs) return false;
+  try {
+    nodeFs.writeFileSync(p, JSON.stringify({ id: id, host: host || null }), 'utf8');
+    return true;
+  } catch (e) { return false; }
+}
+
+function getOrCreateMachineId() {
+  // 1) Node-persisted record is the source of truth.
+  const rec = loadMachineRecord();
+  if (rec) {
+    try { localStorage.setItem('amh.machineId', rec.id); } catch (e) {}
+    return rec.id;
+  }
+  // 2) A legacy localStorage id migrates into the Node file so existing
+  //    license holders keep the same machine (no re-key after this update).
+  const legacy = localStorage.getItem('amh.machineId');
+  if (legacy && /^[0-9a-f]{8}$/.test(legacy)) {
+    saveMachineRecord(legacy, hostFingerprint());
+    return legacy;
+  }
+  // 3) Brand-new machine.
+  const id = randomHex8();
+  saveMachineRecord(id, hostFingerprint());
+  try { localStorage.setItem('amh.machineId', id); } catch (e) {}
   return id;
 }
+
+// True when the home-dir record was created on a different host than the one
+// it is now running on (record copied onto another PC / user reinstalled under
+// a different account). We flag it for the UI instead of silently cycling the
+// identity, which would make a legitimately-reinstalled license invalid.
+const MACHINE_HOST_MISMATCH = (() => {
+  const rec = loadMachineRecord();
+  const cur = hostFingerprint();
+  return !!rec && !!rec.host && !!cur && cur !== rec.host;
+})();
 
 const MACHINE_ID = getOrCreateMachineId();
 
@@ -396,6 +484,8 @@ function updateLicenseUI() {
     if (midSection) {
       midSection.style.display = 'none';
     }
+    const mmHide = document.getElementById('machineMismatch');
+    if (mmHide) mmHide.style.display = 'none';
     const licNote = document.getElementById('licensedNote');
     if (licNote) licNote.style.display = 'block';
   } else {
@@ -407,6 +497,8 @@ function updateLicenseUI() {
     // Unlicensed: show the Machine ID again and hide the licensed note.
     const midSectionU = document.getElementById('machineIdSection');
     if (midSectionU) midSectionU.style.display = '';
+    const mmEl = document.getElementById('machineMismatch');
+    if (mmEl) mmEl.style.display = MACHINE_HOST_MISMATCH ? '' : 'none';
     const licNoteU = document.getElementById('licensedNote');
     if (licNoteU) licNoteU.style.display = 'none';
     const rem = trialRemaining();

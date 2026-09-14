@@ -311,14 +311,18 @@ Start with defaults (notify + alert). After you've watched a week of logs, set
 source of truth — keep them in lockstep on every release so support logs can
 tell old vs new builds (footer badge shows it; it ships in the released zip).
 
-**⚠ Machine ID is client-declared.** `machine_id` is a random 8-hex value the
-panel generates into `localStorage` — it is not hardware. The server-side
-signals above catch *reuse patterns*, they don't identify hardware. The durable
-fix ships with the next panel release: persist a Node-side GUID outside
-localStorage (under the extension app-data path) plus `os.hostname()` /
-`os.userInfo()` so clearing CEP data regenerates a DIFFERENT ID only if the
-accompanying Node file is also deleted. Ship that panel together with the
-`AMH_API_KEY` flip (see above).
+**⚠ Machine ID is Node-anchored now (panel v1.4.0).** The panel's license
+anchor lives in `~/.amharic_captions_machine.json` (Node side, OUTSIDE CEP's
+removable storage): clearing CEP cookies/uninstalling can no longer regenerate a
+fresh trial machine. A `host` fingerprint (hostname+username SHA-256) is stored
+alongside; when it mismatches at boot the panel shows a "created on another
+computer" warning instead of silently cycling the ID — so a record copied onto a
+second PC is visible to support, and a factory reinstall (same host) keeps
+working. Existing localStorage IDs migrate into the file on first run (no
+re-keying for current licensees). This is a big step but NOT a true
+hardware-echo: the file is still copyable, and a determined cracker who patches
+the panel wins regardless — which is why the server-side signals above
+(distinct-IP spread, fresh-trial flood) stay enabled. Keep them on.
 
 **After deploying**, copy the `*.workers.dev` URL into
 `panel/js/main.js` `API_URL` (replace `ACCOUNT`) so the panel can reach these
