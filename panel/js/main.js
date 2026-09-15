@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.4.4';
+const APP_VERSION = '1.4.5';
 
 const csi = new CSInterface();
 
@@ -879,6 +879,12 @@ function log(msg) {
   const line = typeof msg === 'string' ? msg : String(msg);
   logEl.textContent += (logEl.textContent ? '\n' : '') + line;
   logEl.scrollTop = logEl.scrollHeight;
+  // Errors/warnings are the reason the Log box exists — surface them instead of
+  // hiding them behind the collapsed disclosure. Success stays quiet.
+  if (/^ERROR/i.test(line) || /warning/i.test(line) || /no speech detected/i.test(line)) {
+    const disc = document.getElementById('logDisc');
+    if (disc && !disc.classList.contains('open')) disc.classList.add('open');
+  }
 }
 function clearLog() { logEl.textContent = ''; }
 
@@ -889,6 +895,11 @@ function setStatus(state, text) {
   pill.classList.remove('ready', 'busy', 'err');
   if (state) pill.classList.add(state);
   txt.textContent = text || '';
+}
+function setSuccess(text) {
+  // Green "ready" pill, but with a concrete outcome so the user sees success
+  // without having to open the collapsed Log box.
+  setStatus('ready', text || '✓ Done');
 }
 function setBusy(busy) {
   setStatus(busy ? 'busy' : 'ready', busy ? 'working…' : (IS_WIN ? 'ready · win' : 'ready · mac'));
@@ -1325,7 +1336,6 @@ async function transcribe(sourcePath, outSrt, range, offset) {
     fs.writeFileSync(outSrt, hit.srt, 'utf8');
     lastCues = hit.cues;
     lastSrtPath = outSrt;
-    log('Found these captions in the session cache — skipping transcription.');
     return { outSrt, cues: hit.cues, transcript: hit.transcript, cached: true };
   }
 
@@ -1349,7 +1359,6 @@ async function transcribe(sourcePath, outSrt, range, offset) {
     if (e && e.message === 'Cancelled') throw e;
     if (!e || !WARM_TRANSPORT_ERRS.has(e.message)) throw e;
     // One-shot fallback (worker missing or failed this request).
-    log('Warm worker dropped — falling back to a fresh transcription process.');
     return transcribeOneShot(sourcePath, outSrt, range, offset, wav, () => {});
   } finally {
     try { fs.unlinkSync(wav); } catch (e) {}
@@ -1386,7 +1395,6 @@ async function transcribeBatch(items, outSrt, onProgress) {
       lastCues = hit.cues;
       lastSrtPath = outSrt;
       if (onProgress) onProgress(items.length, items.length, 'cached');
-      log('Found these captions in the session cache — skipping transcription.');
       return { outSrt, cues: hit.cues, transcript: hit.transcript, cached: true };
     }
   }
@@ -1415,7 +1423,6 @@ async function transcribeBatch(items, outSrt, onProgress) {
   } catch (e) {
     if (e && e.message === 'Cancelled') throw e;
     if (!e || !WARM_TRANSPORT_ERRS.has(e.message)) throw e;
-    log('Warm worker dropped — falling back to a fresh transcription process.');
     return transcribeBatchOneShot(items, outSrt, onProgress);
   }
 }
@@ -1507,6 +1514,7 @@ async function finishImport(outSrt, label, startSeconds) {
     // counts as one free use.
     consumeTrialCredit();
     log('✓ Captions added: ' + imp.captionItemName);
+    setSuccess('✓ Captions on timeline');
     if (imp.requestedStart !== undefined && imp.landedStart !== undefined &&
         imp.landedStart !== null) {
       log('Timeline position ' + imp.landedStart.toFixed(2) + 's → ' +
@@ -2032,6 +2040,7 @@ async function runSelectedClip() {
     { sourceIn: c.sourceIn, duration: c.duration }, c.timelineStart);
   setProgress(0.9, 'Transcription complete');
 
+  if (!r.cues.length) log('No speech detected in this audio — nothing to place.');
   log('Done writing captions.');
   showTranscript(r.transcript);
   showCaptionPreview(r.cues);
@@ -2072,13 +2081,13 @@ async function runWorkArea() {
   }));
   const batchCacheHit = cacheLookup(batchCacheKey(cacheItems));
   if (batchCacheHit) {
-    log('Found these captions in the session cache — skipping transcription.');
-    setProgress(0.95, 'Cached captions');
+    setProgress(0.95, 'Reading cached captions');
     fs.writeFileSync(outSrt, batchCacheHit.srt, 'utf8');
     lastCues = batchCacheHit.cues;
     lastSrtPath = outSrt;
     showTranscript(batchCacheHit.transcript);
     showCaptionPreview(batchCacheHit.cues);
+    if (batchCacheHit.cues.length === 0) log('No speech detected in these clips — nothing to place.');
     log('Done — ' + batchCacheHit.cues.length + ' captions written.');
     openReview(outSrt, 'sequence', 0, {});
     return;
@@ -2117,6 +2126,7 @@ async function runWorkArea() {
 
   for (const it of items) { try { fs.unlinkSync(it.wav); } catch (e) {} }
 
+  if (!r.cues.length) log('No speech detected in these clips — nothing to place.');
   log('Done — ' + r.cues.length + ' captions written.');
   showTranscript(r.transcript);
   showCaptionPreview(r.cues);
@@ -2161,6 +2171,7 @@ async function runFile(filePath, fileName) {
     setProgress(0.4, 'Transcribing…');
     const r = await transcribe(filePath, outSrt);
     setProgress(0.9, 'Transcription complete');
+    if (!r.cues.length) log('No speech detected in this audio — nothing to place.');
     log('Done writing captions.');
     showTranscript(r.transcript);
     showCaptionPreview(r.cues);
