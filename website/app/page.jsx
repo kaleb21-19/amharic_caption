@@ -16,7 +16,7 @@ export default function HomePage() {
         <div className="container">
           <p className="eyebrow">For Adobe Premiere Pro · Windows 10/11 · macOS</p>
           <h1 className="hero-h1">
-            <span className="hero-peak">100% offline.</span>
+            <span className="hero-peak">100% offline</span>
             <span className="hero-h1-rest">Amharic captions for Adobe Premiere&nbsp;Pro.</span>
           </h1>
           <p className="hero-sub">
