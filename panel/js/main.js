@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.4.8';
+const APP_VERSION = '1.4.9';
 
 const csi = new CSInterface();
 
@@ -963,7 +963,6 @@ let SOURCE = 'clip';
 let CAP = 'grouped';
 let GROUP_SIZE = 3;
 let MAX_CHARS = 42;
-let CLEAN_AUDIO = true;
 let cancelRequested = false;
 let lastSrtPath = null;
 let lastCues = [];
@@ -985,7 +984,6 @@ function applySettings() {
   CAP = s.cap || 'words';
   GROUP_SIZE = s.group || 3;
   MAX_CHARS = s.chars || 42;
-  CLEAN_AUDIO = s.clean !== false;
   document.querySelectorAll('#srcSeg button').forEach((b) => {
     b.classList.toggle('active', b.dataset.src === SOURCE);
   });
@@ -994,8 +992,6 @@ function applySettings() {
   });
   $('groupSize').value = GROUP_SIZE;
   $('maxChars').value = MAX_CHARS;
-  const clean = $('cleanAudio');
-  if (clean) clean.checked = CLEAN_AUDIO;
 }
 
 // ----------------------------------------------------------------- SRT
@@ -1096,7 +1092,7 @@ function extractAudio(clip, wav) {
   return new Promise((resolve, reject) => {
     const ffArgs = ['-v', 'error', '-y', '-i', clip.sourcePath];
     if (clip.duration > 0) ffArgs.push('-ss', String(clip.sourceIn), '-t', String(clip.duration));
-    if (CLEAN_AUDIO) ffArgs.push('-af', AUDIO_CLEAN_FILTER);
+    ffArgs.push('-af', AUDIO_CLEAN_FILTER);
     ffArgs.push('-ac', '1', '-ar', '16000', wav);
     execFile(FFMPEG, ffArgs, (err) => {
       if (err) reject(new Error('ffmpeg failed for ' + clip.name + ': ' + (err.message || err)));
@@ -1258,7 +1254,7 @@ function cacheKey(sourcePath, range, offset) {
     h.update(':' + String(range.sourceIn || 0));
     h.update(':' + String(range.duration || 0));
   }
-  h.update(':' + CAP + ':' + GROUP_SIZE + ':' + MAX_CHARS + ':' + (CLEAN_AUDIO ? 'c1' : 'c0'));
+  h.update(':' + CAP + ':' + GROUP_SIZE + ':' + MAX_CHARS + ':c1');
   h.update(':' + MODEL_DIR);
   h.update(':' + String(offset || 0));
   try {
@@ -1271,7 +1267,7 @@ function cacheKey(sourcePath, range, offset) {
 // Same as cacheKey but for a merged batch (all clips + their offsets).
 function batchCacheKey(items) {
   const h = crypto.createHash('sha1');
-  h.update('batch:' + CAP + ':' + GROUP_SIZE + ':' + MAX_CHARS + ':' + (CLEAN_AUDIO ? 'c1' : 'c0') + ':' + MODEL_DIR);
+  h.update('batch:' + CAP + ':' + GROUP_SIZE + ':' + MAX_CHARS + ':c1:' + MODEL_DIR);
   for (const it of items) {
     h.update('|');
     h.update(it.sourcePath || '');
@@ -1329,7 +1325,7 @@ function extractToWav(sourcePath, range) {
     if (range && range.duration > 0) {
       ffArgs.push('-ss', String(range.sourceIn || 0), '-t', String(range.duration));
     }
-    if (CLEAN_AUDIO) ffArgs.push('-af', AUDIO_CLEAN_FILTER);
+    ffArgs.push('-af', AUDIO_CLEAN_FILTER);
     ffArgs.push('-ac', '1', '-ar', '16000', wav);
     activeChild = execFile(FFMPEG, ffArgs, (err) => {
       activeChild = null;
@@ -2196,17 +2192,6 @@ function setup() {
     MAX_CHARS = Math.max(10, Math.min(200, Number(e.target.value) || 42));
     saveSettings({ chars: MAX_CHARS });
   });
-
-  const cleanAudioChk = $('cleanAudio');
-  if (cleanAudioChk) {
-    cleanAudioChk.checked = CLEAN_AUDIO;
-    cleanAudioChk.addEventListener('change', (e) => {
-      CLEAN_AUDIO = e.target.checked;
-      saveSettings({ clean: CLEAN_AUDIO });
-      log('Audio cleanup ' + (CLEAN_AUDIO ? 'ON' : 'OFF') + '. Next run uses the ' +
-        (CLEAN_AUDIO ? 'denoised' : 'raw') + ' audio.');
-    });
-  }
 
   $('runBtn').addEventListener('click', run);
   $('cancelBtn').addEventListener('click', () => {
