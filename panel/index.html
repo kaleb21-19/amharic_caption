@@ -5,23 +5,23 @@
 <style>
   :root, html[data-theme="dark"] {
     color-scheme: dark;
-    --bg-panel:  #1f2023;
-    --bg-elev:   #26272b;
-    --bg-card:   #232428;
-    --bg-field:  #1a1b1e;
-    --bg-hover:  #303238;
-    --bg-disabled: #2c2d31;
-    --text-primary:   #e8e7e3;
-    --text-secondary: #9a988f;
-    --text-disabled:  #5a5a55;
-    --accent:        #ff5c33;
-    --accent-hover:  #e84f27;
-    --accent-active: #d34520;
-    --accent-soft:   rgba(255,92,51,.14);
-    --border:   #33353a;
-    --divider:  #2a2b2f;
-    --ok:       #3ecf7a;
-    --ok-soft:  rgba(62,207,122,.12);
+    --bg-panel:  #0b1110;
+    --bg-elev:   #131c19;
+    --bg-card:   #141d1a;
+    --bg-field:  #0e1614;
+    --bg-hover:  #1c3a2c;
+    --bg-disabled: #131c19;
+    --text-primary:   #eef4f0;
+    --text-secondary: #94a79c;
+    --text-disabled:  #6f8377;
+    --accent:        #34c07d;
+    --accent-hover:  #3cd48a;
+    --accent-active: #2aa86c;
+    --accent-soft:   rgba(52,192,125,.14);
+    --border:   #223029;
+    --divider:  #1b2621;
+    --ok:       #34c07d;
+    --ok-soft:  rgba(52,192,125,.12);
     --warn:     #e8a83d;
     --warn-soft:rgba(232,168,61,.12);
     --err:      #e5484d;
@@ -37,21 +37,21 @@
   }
   html[data-theme="light"] {
     color-scheme: light;
-    --bg-panel:  #f3f3f3;
-    --bg-elev:   #fafafa;
+    --bg-panel:  #f4f7f5;
+    --bg-elev:   #ffffff;
     --bg-card:   #ffffff;
-    --bg-field:  #ececec;
-    --bg-hover:  #e4e4e4;
-    --bg-disabled: #ddd;
-    --text-primary:   #2c2c2c;
-    --text-secondary: #6e6e6e;
-    --text-disabled:  #a0a0a0;
-    --accent:        #e84f27;
-    --accent-hover:  #d34520;
-    --accent-active: #b93a1a;
-    --accent-soft:   rgba(232,79,39,.14);
-    --border:   #d0d0d0;
-    --divider:  #e2e2e2;
+    --bg-field:  #e9efeb;
+    --bg-hover:  #dfe9e3;
+    --bg-disabled: #dde4df;
+    --text-primary:   #14261d;
+    --text-secondary: #4a5f53;
+    --text-disabled:  #8ba093;
+    --accent:        #2aa86c;
+    --accent-hover:  #269660;
+    --accent-active: #1f7f52;
+    --accent-soft:   rgba(42,168,108,.14);
+    --border:   #cdd8d1;
+    --divider:  #dde6e0;
     --ok:       #22863a;
     --ok-soft:  rgba(34,134,58,.12);
     --warn:     #b8791f;
@@ -91,10 +91,10 @@
   .brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .brand-mark {
     flex: 0 0 auto; width: 26px; height: 26px; border-radius: 6px;
-    background: linear-gradient(135deg, var(--accent), #ff8a4c);
+    background: linear-gradient(135deg, var(--accent), #3cd48a);
     display: flex; align-items: center; justify-content: center;
-    font-size: 13px; font-weight: 800; color: #fff;
-    box-shadow: 0 2px 6px rgba(255,92,51,.35);
+    font-size: 13px; font-weight: 800; color: #06251a;
+    box-shadow: 0 2px 6px rgba(52,192,125,.35);
   }
   .brand .title { font-size: var(--font-m); font-weight: 700; line-height: 1.15; letter-spacing: .01em; }
   .brand .sub { font-size: 9.5px; color: var(--text-secondary); line-height: 1.3; margin-top: 1px; }
@@ -107,7 +107,7 @@
     font-weight: 500;
   }
   #statusPill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-disabled); }
-  #statusPill.ready { color: var(--ok); border-color: rgba(62,207,122,.4); background: var(--ok-soft); }
+  #statusPill.ready { color: var(--ok); border-color: rgba(52,192,125,.4); background: var(--ok-soft); }
   #statusPill.ready .dot { background: var(--ok); }
   #statusPill.busy { color: var(--warn); border-color: rgba(232,168,61,.4); background: var(--warn-soft); }
   #statusPill.busy .dot { background: var(--warn); }
@@ -121,8 +121,8 @@
   }
   .panel-body::-webkit-scrollbar { width: 8px; }
   .panel-body::-webkit-scrollbar-track { background: transparent; }
-  .panel-body::-webkit-scrollbar-thumb { background: #3a3c41; border-radius: 5px; }
-  .panel-body::-webkit-scrollbar-thumb:hover { background: #4a4c52; }
+  .panel-body::-webkit-scrollbar-thumb { background: #2d3a33; border-radius: 5px; }
+  .panel-body::-webkit-scrollbar-thumb:hover { background: #3d503f; }
 
   /* ---------- Step cards ---------- */
   .card {
@@ -153,7 +153,7 @@
   }
   .seg button + button { border-left: 1px solid var(--border); }
   .seg button:hover { background: var(--bg-hover); color: var(--text-primary); }
-  .seg button.active { background: var(--accent); color: #fff; }
+  .seg button.active { background: var(--accent); color: #06251a; }
 
   input[type="text"], input[type="number"], select, textarea {
     width: 100%; box-sizing: border-box; height: var(--control-h);
@@ -182,9 +182,9 @@
   .btn:disabled { cursor: not-allowed; }
   .btn-primary {
     width: 100%; background: linear-gradient(135deg, var(--accent), var(--accent-hover));
-    color: #fff; font-weight: 700; height: 32px; font-size: var(--font-m);
+    color: #06251a; font-weight: 700; height: 32px; font-size: var(--font-m);
     border-radius: var(--radius); letter-spacing: .01em;
-    box-shadow: 0 2px 8px rgba(255,92,51,.3);
+    box-shadow: 0 2px 8px rgba(52,192,125,.3);
   }
   .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
   .btn-primary:disabled { background: var(--bg-disabled); color: var(--text-disabled); box-shadow: none; }
@@ -217,7 +217,7 @@
   .progress-wrap { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
   .progress { flex: 1; height: 6px; background: var(--bg-field); border: 1px solid var(--border);
     border-radius: 6px; overflow: hidden; }
-  .progress > div { height: 100%; background: linear-gradient(90deg, var(--accent), #ff8a4c); width: 0%; transition: width .2s; }
+  .progress > div { height: 100%; background: linear-gradient(90deg, var(--accent), #3cd48a); width: 0%; transition: width .2s; }
   #progLabel { font-size: 9.5px; color: var(--text-secondary); white-space: nowrap; }
 
   #picked {
@@ -285,7 +285,7 @@
     border-radius: 20px; padding: 3px 9px; white-space: nowrap; font-weight: 500;
   }
   #fontPill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-disabled); }
-  #fontPill.ok { color: var(--ok); border-color: rgba(62,207,122,.4); background: var(--ok-soft); }
+  #fontPill.ok { color: var(--ok); border-color: rgba(52,192,125,.4); background: var(--ok-soft); }
   #fontPill.ok .dot { background: var(--ok); }
   #fontPill.warn { color: var(--warn); border-color: rgba(232,168,61,.4); background: var(--warn-soft); }
   #fontPill.warn .dot { background: var(--warn); }
@@ -585,7 +585,7 @@
   </div>
 
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.4.2</span> · License ETB 2,500 one-time</span>
+    <span>v<span id="panelVersion">1.4.3</span> · License ETB 2,500 one-time</span>
     <span style="display:flex;gap:10px;align-items:center;">
       <a href="#" id="supportLink" title="Get help in Telegram">💬 Help</a>
       <a href="#" id="diag">Diagnostics</a>
