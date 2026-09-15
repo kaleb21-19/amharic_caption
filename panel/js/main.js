@@ -978,7 +978,6 @@ function applySettings() {
   });
   $('groupSize').value = GROUP_SIZE;
   $('maxChars').value = MAX_CHARS;
-  $('expFmt').value = s.fmt || 'srt';
 }
 
 // ----------------------------------------------------------------- SRT
@@ -2174,21 +2173,6 @@ async function runFile(filePath, fileName) {
   }
 }
 
-// ----------------------------------------------------------------- export
-function exportCaptions() {
-  if (!lastCues || lastCues.length === 0) {
-    log('Nothing to export yet. Generate captions first.');
-    return;
-  }
-  const cwd = ensureCaptionsDir();
-  const fmt = $('expFmt').value;
-  const base = (lastSrtPath ? path.basename(lastSrtPath).replace(/\.srt$/i, '') : 'captions');
-  const dest = path.join(cwd, base + '.' + fmt);
-  if (fmt === 'vtt') writeVtt(dest);
-  else writeSrt(dest);
-  log('Exported ' + fmt.toUpperCase() + ': ' + dest);
-}
-
 // ------------------------------------------------------------------ wiring
 function setup() {
   applySettings();
@@ -2228,10 +2212,8 @@ function setup() {
     MAX_CHARS = Math.max(10, Math.min(200, Number(e.target.value) || 42));
     saveSettings({ chars: MAX_CHARS });
   });
-  $('expFmt').addEventListener('change', (e) => saveSettings({ fmt: e.target.value }));
 
   $('runBtn').addEventListener('click', run);
-  $('exportBtn').addEventListener('click', exportCaptions);
   $('cancelBtn').addEventListener('click', () => {
     cancelRequested = true;
     try { if (activeChild) activeChild.kill(); } catch (e) {}
