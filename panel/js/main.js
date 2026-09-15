@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.4.5';
+const APP_VERSION = '1.4.6';
 
 const csi = new CSInterface();
 
@@ -1464,47 +1464,9 @@ function transcribeBatchOneShot(items, outSrt, onProgress) {
   });
 }
 
-function showTranscript(text) {
-  const box = $('transcriptBox');
-  if (!box) return;
-  box.value = text || '';
-}
-
-// P1: live caption preview card — show the first few cues as they'll appear,
-// so the user sees what landed before they even look at the timeline.
-function showCaptionPreview(cues) {
-  const wrap = $('captionsPreview');
-  if (!wrap) return;
-  const list = cues && cues.length ? cues.slice(0, 6) : null;
-  if (!list) { wrap.classList.remove('show'); wrap.textContent = ''; return; }
-  wrap.textContent = '';
-  const ts = (sec) => {
-    sec = sec || 0;
-    const m = String(Math.floor(sec / 60)).padStart(2, '0');
-    const s = String(Math.floor(sec % 60)).padStart(2, '0');
-    return m + ':' + s;
-  };
-  for (const cue of list) {
-    const row = document.createElement('div');
-    row.className = 'prev-cue';
-    const t = document.createElement('span');
-    t.className = 'prev-time';
-    t.textContent = ts(cue.start) + ' → ' + ts(cue.end);
-    const x = document.createElement('span');
-    x.className = 'prev-text';
-    x.textContent = cue.text || '';
-    row.appendChild(t);
-    row.appendChild(x);
-    wrap.appendChild(row);
-  }
-  if (cues.length > 6) {
-    const more = document.createElement('div');
-    more.className = 'prev-time';
-    more.textContent = '… and ' + (cues.length - 6) + ' more';
-    wrap.appendChild(more);
-  }
-  wrap.classList.add('show');
-}
+// --------------------------------------------------------------------------
+// Placement & import
+// --------------------------------------------------------------------------
 
 async function finishImport(outSrt, label, startSeconds) {
   log('Placing captions on your timeline…');
@@ -1679,7 +1641,6 @@ function renderReview() {
     list.appendChild(empty);
   }
   updateReviewCount();
-  updateReviewPreview();
 }
 
 // Review editor ops: nudge a caption's timing, split its text, merge with the
@@ -1723,10 +1684,6 @@ function mergeReview(i) {
 
 function updateReviewCount() {
   $('reviewCount').textContent = reviewCues.length + ' caption' + (reviewCues.length === 1 ? '' : 's');
-}
-
-function updateReviewPreview() {
-  showCaptionPreview(reviewCues);
 }
 
 function writeReviewSrt(outDir) {
@@ -2042,8 +1999,6 @@ async function runSelectedClip() {
 
   if (!r.cues.length) log('No speech detected in this audio — nothing to place.');
   log('Done writing captions.');
-  showTranscript(r.transcript);
-  showCaptionPreview(r.cues);
 
   // Review flow: let the user edit before anything hits the timeline.
   // burnSource/burnOffset let "Burn into video…" render onto this clip's
@@ -2085,8 +2040,6 @@ async function runWorkArea() {
     fs.writeFileSync(outSrt, batchCacheHit.srt, 'utf8');
     lastCues = batchCacheHit.cues;
     lastSrtPath = outSrt;
-    showTranscript(batchCacheHit.transcript);
-    showCaptionPreview(batchCacheHit.cues);
     if (batchCacheHit.cues.length === 0) log('No speech detected in these clips — nothing to place.');
     log('Done — ' + batchCacheHit.cues.length + ' captions written.');
     openReview(outSrt, 'sequence', 0, {});
@@ -2128,8 +2081,6 @@ async function runWorkArea() {
 
   if (!r.cues.length) log('No speech detected in these clips — nothing to place.');
   log('Done — ' + r.cues.length + ' captions written.');
-  showTranscript(r.transcript);
-  showCaptionPreview(r.cues);
 
   openReview(outSrt, 'sequence', 0, {});
 }
@@ -2173,8 +2124,6 @@ async function runFile(filePath, fileName) {
     setProgress(0.9, 'Transcription complete');
     if (!r.cues.length) log('No speech detected in this audio — nothing to place.');
     log('Done writing captions.');
-    showTranscript(r.transcript);
-    showCaptionPreview(r.cues);
     openReview(outSrt, cleanName, 0, { burnSource: filePath, burnOffset: 0 });
   } catch (e) {
     if (!cancelRequested) log('ERROR: ' + (e && e.message ? e.message : e));
@@ -2255,9 +2204,6 @@ function setup() {
   // Disclosures
   $('logDisc').addEventListener('click', () => {
     $('logDisc').classList.toggle('open');
-  });
-  $('transcriptDisc').addEventListener('click', () => {
-    $('transcriptDisc').classList.toggle('open');
   });
 
   // Runtime availability.
