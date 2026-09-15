@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.4.3';
+const APP_VERSION = '1.4.4';
 
 const csi = new CSInterface();
 
@@ -2190,6 +2190,9 @@ function setup() {
       b.classList.add('active');
       SOURCE = b.dataset.src;
       saveSettings({ source: SOURCE });
+      // Clear the standalone-file chip: it only applies to runFromFile()
+      const picked = $('picked');
+      if (picked) picked.style.display = 'none';
     });
   });
 
