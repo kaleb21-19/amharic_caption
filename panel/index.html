@@ -333,7 +333,9 @@
     background: var(--bg-elev); padding: 8px;
   }
   .review-row { display: flex; gap: 6px; align-items: stretch; }
+  .review-row { cursor: pointer; }
   .review-row .time-box { display: flex; flex-direction: column; gap: 3px; flex: 0 0 86px; }
+  .review-row input, .review-row textarea, .review-row button { cursor: default; }
   .review-row input.t {
     background: var(--bg-field); color: var(--text-primary); border: 1px solid var(--border);
     border-radius: var(--radius-sm); padding: 4px 6px; font-size: var(--font-m); font-family: ui-monospace, Menlo, monospace;
@@ -544,7 +546,7 @@
   </div>
 
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.4.6</span> · License ETB 2,500 one-time</span>
+    <span>v<span id="panelVersion">1.4.7</span> · License ETB 2,500 one-time</span>
     <span style="display:flex;gap:10px;align-items:center;">
       <a href="#" id="supportLink" title="Get help in Telegram">💬 Help</a>
       <a href="#" id="diag">Diagnostics</a>

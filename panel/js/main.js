@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.4.6';
+const APP_VERSION = '1.4.7';
 
 const csi = new CSInterface();
 
@@ -935,6 +935,9 @@ function getSelectedClip()  { return evalScript('amharic_getSelectedClip()'); }
 function getSequenceInfo(all) {
   return evalScript('amharic_getSequenceInfo(' + (all ? 'true' : 'false') + ')');
 }
+function seekPlayhead(seconds) {
+  return evalScript('amharic_seekPlayhead(' + JSON.stringify(String(seconds)) + ')');
+}
 
 function runDiagnostics() {
   clearLog();
@@ -1629,6 +1632,13 @@ function renderReview() {
     row.appendChild(tools);
     row.appendChild(ta);
     row.appendChild(del);
+    // Click a caption row to jump the Premiere playhead to that caption's start.
+    row.addEventListener('click', (e) => {
+      const el = e.target;
+      if (el === tIn || el === tOut) return; // time inputs handle their own edits
+      if (el.tagName === 'BUTTON' || el.tagName === 'TEXTAREA') return;
+      seekPlayhead(cue.start);
+    });
     list.appendChild(row);
   }
 

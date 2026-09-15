@@ -443,6 +443,36 @@ function amharic_getSequenceInfo(all) {
     });
 }
 
+/**
+ * Move the playhead of the active sequence to a given time (seconds).
+ * Used by the review step so a click on a caption jumps the timeline there.
+ */
+function amharic_seekPlayhead(secondsJSON) {
+    return amhGuard(function () {
+        if (!app || !app.project) { return amhErr("No project is open."); }
+        var seq = app.project.activeSequence;
+        if (!seq) { return amhErr("No active sequence. Open one first."); }
+        var sec = Number(JSON.parse(secondsJSON));
+        if (isNaN(sec) || !isFinite(sec) || sec < 0) { return amhErr("Bad time: " + secondsJSON); }
+
+        // Ticks are the safest unit across Premiere versions/timebases.
+        var ticks = amhSecondsToTicks(sec);
+        var attempts = [];
+        var done = false;
+        try { seq.setCurrentTime(ticks, true); done = true; } catch (e) { attempts.push("setCurrentTime(ticks, true) -> " + e.message); }
+        if (!done) {
+            try { seq.setCurrentTime(ticks); done = true; } catch (e) { attempts.push("setCurrentTime(ticks) -> " + e.message); }
+        }
+        if (!done) {
+            try { seq.setTimeDisplay(ticks); done = true; } catch (e) { attempts.push("setTimeDisplay -> " + e.message); }
+        }
+        if (!done) {
+            return amhErr("Could not move the playhead. Attempts: " + attempts.join(" | "));
+        }
+        return amhOk({ seconds: sec, ticks: ticks });
+    });
+}
+
 /* --------------------------------------------------------------- captions */
 
 function amhFindOrCreateBin(name) {
