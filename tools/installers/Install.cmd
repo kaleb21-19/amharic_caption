@@ -534,4 +534,4 @@ echo.
 echo   This window stays open - press Enter when you are ready.
 echo.
 %PAUSE%
-exit /b 0
+exit /b 0
