@@ -27,6 +27,27 @@ warnings.filterwarnings("ignore")
 # stdout protocol, so disable it up front.
 os.environ.setdefault("TQDM_DISABLE", "1")
 
+# ----- thread policy ---------------------------------------------------------
+# numpy (OpenBLAS) and CTranslate2 (MKL/OpenMP on x64) can both spin up
+# thread pools and thrash each other. Pin both to the same cap (physical
+# cores, best-effort) so inference stays efficient whether the panel spawns
+# one or several workers. This must run BEFORE numpy/ctranslate2 import.
+def _thread_cap():
+    try:
+        import os as _os
+        n = _os.cpu_count() or 4
+        if hasattr(_os, "sched_getaffinity"):
+            n = min(n, len(_os.sched_getaffinity(0)))
+        return max(1, n)
+    except Exception:
+        return 4
+
+
+_THREADS = str(_thread_cap())
+os.environ.setdefault("OMP_NUM_THREADS", _THREADS)
+os.environ.setdefault("MKL_NUM_THREADS", _THREADS)
+os.environ.setdefault("OPENBLAS_NUM_THREADS", _THREADS)
+
 # Windows console/stdio may default to cp1252, which cannot encode the Amharic
 # transcript we print to stdout. Force UTF-8 so the panel can read it back.
 if hasattr(sys.stdout, "reconfigure"):
@@ -98,7 +119,8 @@ class _CT2Engine:
         meta = json.load(open(os.path.join(model_dir, "model_meta.json")))
         self.blank_id = int(meta.get("blank_id", 408))
         self.model = ctranslate2.models.Wav2Vec2Bert(
-            model_dir, device="cpu", compute_type="int8"
+            model_dir, device="cpu", compute_type="int8",
+            intra_threads=max(1, int(_THREADS)),
         )
         self.mel = MelExtractor(model_dir)
         # lm_head projection (1024 hidden -> 411 vocab): CT2's encode() returns

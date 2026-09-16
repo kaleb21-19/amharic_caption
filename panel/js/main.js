@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.4.10';
+const APP_VERSION = '1.4.11';
 
 const csi = new CSInterface();
 
@@ -1090,11 +1090,15 @@ const AUDIO_CLEAN_FILTER = 'highpass=f=80,lowpass=f=7500,afftdn=nf=-25';
 // Extract a timeline clip's trimmed source audio to a 16k mono wav via ffmpeg.
 function extractAudio(clip, wav) {
   return new Promise((resolve, reject) => {
-    const ffArgs = ['-v', 'error', '-y', '-i', clip.sourcePath];
-    if (clip.duration > 0) ffArgs.push('-ss', String(clip.sourceIn), '-t', String(clip.duration));
-    ffArgs.push('-af', AUDIO_CLEAN_FILTER);
-    ffArgs.push('-ac', '1', '-ar', '16000', wav);
-    execFile(FFMPEG, ffArgs, (err) => {
+    // -ss BEFORE -i = fast input seek (jumps to the keyframe, then we use
+    //  -ss 0 -t for frame-accurate position) — decodes far less for clips
+    //  deep in long files. -vn -sn skips decoding video/subtitle streams we
+    //  discard anyway (~15-30% faster on video files).
+    const pre = ['-v', 'error', '-y', '-ss', String(clip.sourceIn || 0)];
+    const post = ['-ss', '0'];
+    if (clip.duration > 0) post.push('-t', String(clip.duration));
+    post.push('-vn', '-sn', '-af', AUDIO_CLEAN_FILTER, '-ac', '1', '-ar', '16000', wav);
+    execFile(FFMPEG, pre.concat(['-i', clip.sourcePath], post), (err) => {
       if (err) reject(new Error('ffmpeg failed for ' + clip.name + ': ' + (err.message || err)));
       else resolve();
     });
@@ -1247,6 +1251,23 @@ function cacheSave() {
   try { fs.writeFileSync(CACHE_FILE, JSON.stringify(transcriptCache)); } catch (e) {}
 }
 
+// Lazy engine-version hash — includes mtimes of the three shipped Python
+// scripts so any code change to ethio_srt.py / ctc_beam.py / amh_correct.py
+// automatically busts the old cached results.
+let _engineHash = null;
+function engineHash() {
+  if (_engineHash) return _engineHash;
+  const h = crypto.createHash('sha1');
+  for (const f of ['ethio_srt.py', 'ctc_beam.py', 'amh_correct.py']) {
+    try {
+      const p = RUNTIME ? path.join(RUNTIME, f) : path.join(DEV_RUNTIME, f);
+      h.update(f + ':' + Math.floor(fs.statSync(p).mtimeMs));
+    } catch (e) { h.update(f + ':x'); }
+  }
+  _engineHash = h.digest('hex').slice(0, 8);
+  return _engineHash;
+}
+
 function cacheKey(sourcePath, range, offset) {
   const h = crypto.createHash('sha1');
   h.update(sourcePath);
@@ -1254,8 +1275,8 @@ function cacheKey(sourcePath, range, offset) {
     h.update(':' + String(range.sourceIn || 0));
     h.update(':' + String(range.duration || 0));
   }
-  h.update(':' + CAP + ':' + GROUP_SIZE + ':' + MAX_CHARS + ':c1');
-  h.update(':' + MODEL_DIR);
+  h.update(':' + CAP + ':' + GROUP_SIZE + ':' + MAX_CHARS);
+  h.update(':' + engineHash() + ':' + MODEL_DIR);
   h.update(':' + String(offset || 0));
   try {
     const st = fs.statSync(sourcePath);
@@ -1267,7 +1288,7 @@ function cacheKey(sourcePath, range, offset) {
 // Same as cacheKey but for a merged batch (all clips + their offsets).
 function batchCacheKey(items) {
   const h = crypto.createHash('sha1');
-  h.update('batch:' + CAP + ':' + GROUP_SIZE + ':' + MAX_CHARS + ':c1:' + MODEL_DIR);
+  h.update('batch:' + CAP + ':' + GROUP_SIZE + ':' + MAX_CHARS + ':' + engineHash() + ':' + MODEL_DIR);
   for (const it of items) {
     h.update('|');
     h.update(it.sourcePath || '');
@@ -1321,11 +1342,11 @@ function warmStyle() {
 function extractToWav(sourcePath, range) {
   const wav = path.join(os.tmpdir(), 'amharic_warm_' + Date.now() + '_' + Math.floor(Math.random() * 1e5) + '.wav');
   return new Promise((resolve, reject) => {
-    const ffArgs = ['-v', 'error', '-y', '-i', sourcePath];
-    if (range && range.duration > 0) {
-      ffArgs.push('-ss', String(range.sourceIn || 0), '-t', String(range.duration));
-    }
-    ffArgs.push('-af', AUDIO_CLEAN_FILTER);
+    const ffArgs = ['-v', 'error', '-y'];
+    if (range && range.sourceIn) ffArgs.push('-ss', String(range.sourceIn));
+    ffArgs.push('-i', sourcePath, '-ss', '0');
+    if (range && range.duration > 0) ffArgs.push('-t', String(range.duration));
+    ffArgs.push('-vn', '-sn', '-af', AUDIO_CLEAN_FILTER);
     ffArgs.push('-ac', '1', '-ar', '16000', wav);
     activeChild = execFile(FFMPEG, ffArgs, (err) => {
       activeChild = null;
