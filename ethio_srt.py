@@ -137,6 +137,19 @@ class _CT2Engine:
 
     def transcribe(self, wav):
         ctranslate2 = _load_ct2()
+        trimmed, seg_table = _vad_trim(wav)
+        if seg_table:
+            feats = self.mel(trimmed)  # (1, T', 160)
+            out = self.model.encode(ctranslate2.StorageView.from_array(feats))
+            logits = np.asarray(out, dtype=np.float32)  # (1, T', 411 or 1024)
+            if logits.shape[-1] != 411 and self.lm_w is not None:
+                logits = logits @ self.lm_w.T + self.lm_b  # -> (1, T', 411)
+            text, spans, frame_dur = self._align(trimmed, logits)
+            # Remap the token frame indices from the VAD-trimmed buffer back
+            # onto the ORIGINAL audio timeline so caption times stay correct:
+            # each span (tok, s, e) in trimmed-frame space -> original samples.
+            spans = _remap_spans(spans, frame_dur, seg_table)
+            return text, spans, 1.0 / 16000.0
         feats = self.mel(wav)  # (1, T', 160)
         out = self.model.encode(ctranslate2.StorageView.from_array(feats))
         logits = np.asarray(out, dtype=np.float32)  # (1, T', 411 or 1024)
@@ -455,6 +468,98 @@ def read_wav(path):
         n = int(len(wav) * ratio)
         wav = np.interp(np.linspace(0, len(wav) - 1, n), np.arange(len(wav)), wav).astype("float32")
     return wav
+
+
+def _vad_segments(wav):
+    """Return list of (start_s, end_s) speech regions in the ORIGINAL audio
+    timeline, or [] when VAD is disabled / unavailable (AMH_VAD=0) so callers
+    keep the current whole-clip behavior."""
+    if os.environ.get("AMH_VAD", "1") != "1":
+        return []
+    try:
+        from amh_vad import speech_segments
+        return speech_segments(wav) or []
+    except Exception:
+        return []
+
+
+def _vad_trim(wav):
+    """If VAD finds real speech gaps, build a trimmed buffer (concatenated
+    speech segments + tiny pad) and a mapping back to the original timeline.
+    Returns (wav, seg_table) where seg_table is a list of
+    (trim_start_sample, orig_start_sample, seg_len) or (wav, None) to keep the
+    default single-shot path (no meaningful cuts)."""
+    try:
+        segs = _vad_segments(wav)
+        if len(segs) < 1:
+            return wav, None
+        sr = 16000
+        total = len(wav)
+        cleaned = []
+        speech_samples = 0
+        for s, e in segs:
+            if (e - s) * sr < 0.15 * sr:
+                continue
+            s_i = max(0, int(round(s * sr)))
+            e_i = min(total, int(round(e * sr)))
+            cleaned.append((s_i, e_i))
+            speech_samples += e_i - s_i
+        # If VAD says there's almost no gap (<3% of the clip), trimming isn't
+        # worth the risk and there'd be no real speed win anyway.
+        if speech_samples >= 0.97 * total or not cleaned:
+            return wav, None
+        pad = int(0.05 * sr)  # short pad between concatenated segments
+        parts = []
+        seg_table = []
+        trim_pos = 0
+        for s_i, e_i in cleaned:
+            if parts:
+                parts.append(np.zeros(pad, dtype=np.float32))
+                trim_pos += pad
+            parts.append(wav[s_i:e_i])
+            seg_table.append((trim_pos, s_i, e_i - s_i))
+            trim_pos += e_i - s_i
+        trimmed = np.concatenate(parts).astype(np.float32)
+        return trimmed, seg_table
+    except Exception:
+        return wav, None
+
+
+def _map_trim_to_orig(trim_sample, seg_table):
+    """Original sample index for a sample index in the trimmed buffer. A few
+    frames inside a pad gap get clamped to the nearest segment endpoint so
+    tokens sitting right on a segment boundary are never lost or shifted."""
+    if trim_sample < 0:
+        return None
+    prev_end = None
+    for trim_start, orig_start, seg_len in seg_table:
+        if trim_sample < trim_start:
+            return prev_end if prev_end is not None else orig_start
+        if trim_sample < trim_start + seg_len:
+            return orig_start + int(trim_sample - trim_start)
+        prev_end = orig_start + seg_len - 1
+    if prev_end is not None:
+        return prev_end
+    # seg_table is never empty at call sites; keep a safe default anyway
+    return seg_table[-1][1] if seg_table else None
+
+
+def _remap_spans(spans, frame_dur, seg_table, sr=16000):
+    """Remap token spans from the trimmed-buffer frame space back onto the
+    ORIGINAL timeline. Returns spans whose (s, e) are original sample indices;
+    combine with a frame_dur of 1/sr so downstream timing math stays correct."""
+    out = []
+    for tok, s, e in spans:
+        t0 = s * frame_dur
+        t1 = (e + 1) * frame_dur
+        o0 = _map_trim_to_orig(t0 * sr, seg_table)
+        o1 = _map_trim_to_orig(t1 * sr, seg_table)
+        if o0 is None or o1 is None:
+            continue
+        if o1 < o0:
+            o1 = o0
+        out.append((tok, o0, o1))
+    return out
 
 
 def write_srt(out_path, cues, offset):

@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.4.11';
+const APP_VERSION = '1.4.12';
 
 const csi = new CSInterface();
 
@@ -1251,14 +1251,14 @@ function cacheSave() {
   try { fs.writeFileSync(CACHE_FILE, JSON.stringify(transcriptCache)); } catch (e) {}
 }
 
-// Lazy engine-version hash — includes mtimes of the three shipped Python
-// scripts so any code change to ethio_srt.py / ctc_beam.py / amh_correct.py
+// Lazy engine-version hash — includes mtimes of the shipped Python scripts
+// so any code change to ethio_srt.py / ctc_beam.py / amh_correct.py / amh_vad.py
 // automatically busts the old cached results.
 let _engineHash = null;
 function engineHash() {
   if (_engineHash) return _engineHash;
   const h = crypto.createHash('sha1');
-  for (const f of ['ethio_srt.py', 'ctc_beam.py', 'amh_correct.py']) {
+  for (const f of ['ethio_srt.py', 'ctc_beam.py', 'amh_correct.py', 'amh_vad.py']) {
     try {
       const p = RUNTIME ? path.join(RUNTIME, f) : path.join(DEV_RUNTIME, f);
       h.update(f + ':' + Math.floor(fs.statSync(p).mtimeMs));

@@ -49,6 +49,16 @@ cp "$ROOT/ctc_beam.py" "$RT/ctc_beam.py"
 cp "$ROOT/amh_correct.py" "$RT/amh_correct.py"
 echo "  [ok] ethio_srt.py + amh_mel.py + ctc_beam.py + amh_correct.py"
 
+# Silero VAD (onnx) — speech-gap detector that skips music-only regions before
+# the CT2 encode. Optional: if missing, ethio_srt.py degrades to whole-clip.
+if [[ -f "$ROOT/tools/vad/silero_vad.onnx" ]]; then
+  cp "$ROOT/tools/vad/silero_vad.onnx" "$RT/silero_vad.onnx"
+  cp "$ROOT/amh_vad.py" "$RT/amh_vad.py"
+  echo "  [ok] silero_vad.onnx + amh_vad.py"
+else
+  echo "  [warn] tools/vad/silero_vad.onnx missing — VAD disabled (whole-clip transcribe)"
+fi
+
 # model — prefer the CTranslate2 INT8 model (tools/make_model_ct2_int8.sh):
 # ~600MB, no torch/transformers at runtime. Dev fallback: fp16/fp32.
 if [[ -d "$ROOT/tools/stage/model-ct2-int8" && -f "$ROOT/tools/stage/model-ct2-int8/model_meta.json" ]]; then
