@@ -16,6 +16,7 @@ frame-level forced alignment (collapse repeats, drop blank frames).
 """
 import sys
 import os
+import re
 import json
 import warnings
 
@@ -165,7 +166,7 @@ class _CT2Engine:
                 continue
             prev = t
             out.append(t)
-        s = "".join(out).replace("|", " ")
+        s = "".join(out).replace("|", " ").replace("\u1360", " ").replace("\u1361", " ")
         return " ".join(s.split())
 
 
@@ -251,7 +252,11 @@ def get_words(spans, frame_dur, glyphs):
     cur = ""
     cur_start = None
     for ch, s, e in units:
-        if ch == "|":
+        # "|" is the CTC space token; U+1361 (፡) is the model's Ethiopic
+        # word-space token. BOTH are word boundaries — treating only "|" as
+        # a boundary glued "አማርኛ፡ቋንቋ" into one token. U+1360 (፠) is the
+        # Ethiopic word-space alternative; never part of a real word either.
+        if ch in ("|", "\u1360", "\u1361"):
             if cur:
                 words.append((cur, cur_start, e))
                 cur = ""
@@ -356,6 +361,32 @@ def make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=42):
         words = correct_words(raw_words)
     except Exception:
         words = raw_words
+    # Numeric normalization: the CTC space token can split one number into
+    # separate digit tokens ("2 0 2 4", "፲ ፪"). Re-glue consecutive
+    # ALL-DIGIT tokens into a single number so captions read 2024/፲፪, not
+    # "2 0 2 4". Tokens containing letters (ቤት2) are never touched.
+    ascii_digit = re.compile(r"^[0-9]+$")
+    amharic_digit = re.compile(r"^[\u1369-\u1371\u1372-\u137c\u137d]+$")
+    is_digit = lambda t: bool(ascii_digit.match(t)) or bool(amharic_digit.match(t))
+    merged = []
+    i = 0
+    n = len(words)
+    while i < n:
+        tok, s, e = words[i]
+        if is_digit(tok):
+            run = tok
+            run_s, run_e = s, e
+            j = i + 1
+            while j < n and is_digit(words[j][0]):
+                run += words[j][0]
+                run_e = words[j][2]
+                j += 1
+            merged.append((run, run_s, run_e))
+            i = j
+            continue
+        merged.append((tok, s, e))
+        i += 1
+    words = merged
     if mode == "words":
         cues = group_word_cues(words, max_chars=max_chars)
     elif mode == "grouped" and group_size > 0:
