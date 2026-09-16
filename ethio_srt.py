@@ -275,6 +275,43 @@ def ctc_align(logits, blank_id, frame_dur, text):
     return spans, frame_dur
 
 
+def _lm_split_words(words, word_units):
+    """Word-LM resegmentation of the decoded word stream (see amh_lm.py).
+
+    Only rescues OOV glued tokens (e.g. "አሀይድጠብቁኝ" -> two words) where the
+    bundled Amharic word-LM clearly prefers a split; known words are never
+    touched. Disabled with AMH_LM=0 or when the LM file is absent.
+    """
+    if os.environ.get("AMH_LM", "1") != "1":
+        return words
+    try:
+        from amh_lm import get_default_lm
+        lm = get_default_lm()
+        if not lm.available():
+            return words
+    except Exception:
+        return words
+    out = []
+    n = len(words)
+    for i, (text, s, e) in enumerate(words):
+        left = words[i - 1][0] if i > 0 else None
+        right = words[i + 1][0] if i + 1 < n else None
+        parts = lm.split_word(text, left=left, right=right)
+        if len(parts) == 1:
+            out.append((text, s, e))
+            continue
+        units_this = word_units[i]
+        pos = 0
+        for p in parts:
+            pl = len(p)
+            seg = units_this[pos:pos + pl]
+            if not seg:
+                continue
+            pos += pl
+            out.append((p, seg[0][1], seg[-1][2]))
+    return out
+
+
 def get_words(spans, frame_dur, glyphs):
     units = []
     for tok, s, e in spans:
@@ -284,8 +321,10 @@ def get_words(spans, frame_dur, glyphs):
         units.append((ch, s * frame_dur, (e + 1) * frame_dur))
 
     words = []
+    word_units = []
     cur = ""
     cur_start = None
+    cur_u = []
     for ch, s, e in units:
         # "|" is the CTC space token; U+1361 (፡) is the model's Ethiopic
         # word-space token. BOTH are word boundaries — treating only "|" as
@@ -294,15 +333,19 @@ def get_words(spans, frame_dur, glyphs):
         if ch in ("|", "\u1360", "\u1361"):
             if cur:
                 words.append((cur, cur_start, e))
+                word_units.append(cur_u)
                 cur = ""
                 cur_start = None
+                cur_u = []
             continue
         if cur_start is None:
             cur_start = s
         cur += ch
+        cur_u.append((ch, s, e))
     if cur:
         words.append((cur, cur_start, units[-1][2]))
-    return words
+        word_units.append(cur_u + [])
+    return _lm_split_words(words, word_units)
 
 
 def group_word_cues(words, max_chars=200):

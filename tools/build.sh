@@ -49,6 +49,16 @@ cp "$ROOT/ctc_beam.py" "$RT/ctc_beam.py"
 cp "$ROOT/amh_correct.py" "$RT/amh_correct.py"
 echo "  [ok] ethio_srt.py + amh_mel.py + ctc_beam.py + amh_correct.py"
 
+# Amharic word-LM (glue-word resegmentation after decoding). The model file is
+# built offline by tools/build_lm.py. Optional: if missing, word-LM is skipped.
+if [[ -f "$ROOT/tools/lm/amh_lm.json.gz" ]]; then
+  cp "$ROOT/amh_lm.py" "$RT/amh_lm.py"
+  cp "$ROOT/tools/lm/amh_lm.json.gz" "$RT/amh_lm.json.gz"
+  echo "  [ok] amh_lm.py + amh_lm.json.gz"
+else
+  echo "  [warn] tools/lm/amh_lm.json.gz missing — word-LM disabled"
+fi
+
 # Silero VAD (onnx) — speech-gap detector that skips music-only regions before
 # the CT2 encode. Optional: if missing, ethio_srt.py degrades to whole-clip.
 if [[ -f "$ROOT/tools/vad/silero_vad.onnx" ]]; then
