@@ -85,6 +85,33 @@ python3 tools/test/wer.py --truth tools/test/fixtures/news.txt --hyp /tmp/news_o
 no words silently dropped in `short1`; no crash on `silence`; reasonable WER even on
 `noisy`/`fast`.
 
+### 1.2b Recorded WER baseline (shipped 1.4.13 runtime, 2026-09-17)
+
+Measured with `tools/test/run_engine.sh tools/test/fixtures` against the **installed**
+runtime (`~/Library/.../com.amharic.captions/runtime`). Karaoke and Grouped agree, so
+one number per tag:
+
+| Tag | WER | Notes |
+|-----|-----|-------|
+| fast | 60.0% | |
+| interview | 100.0% | hypothesis far shorter than reference |
+| names | 114.3% | proper-noun errors |
+| news | 64.3% | real word errors (e.g. የገንዘብ→የገንነብ, በዚህ→በሊህ) |
+| noisy | 92.9% | |
+| numbers | 72.4% | digits badly mangled |
+| short1 | 100.0% | 1s clip, both tokens wrong |
+| long5min | completes (no OOM) | 5-min clip windowed at 45s; 129 cues over the full 5:00, peak RSS ~3.5GB |
+| silence | n/a | ground truth empty — no crash, correct |
+
+**Honest reading:** these synthetic/TTS-domain fixtures are far harder than the
+production use case — they do **not** meet the <=15% target, and the real held-out WAXAL
+WER (0.227) shows the model is much stronger on actual human speech. Treat this table as
+a **regression baseline** (deltas matter), not an absolute quality score. Two real
+follow-ups surfaced: (1) `long5min --words` was killed (memory) — **fixed** by windowing
+long audio in `_windowed_transcribe` (bounded 45s windows, cuts snapped to low-energy
+points; short clips take the unchanged single-shot path, verified byte-identical);
+(2) fixture WER itself is high — the fixtures may be TTS-domain-mismatched.
+
 ### 1.3 Correctness of caption grouping / timing (visual)
 
 For `long5min` import into Premiere and verify:
@@ -186,7 +213,8 @@ truth).
 | ffmpeg | Feed a **corrupt/truncated** file | Clean "ffmpeg failed" / "Python failed" error, no hang |
 | ffmpeg | Very short clip (<1s) | No crash; min-duration enforced or clean error |
 | python | `silence.wav` (no speech) | Bucket: all-blank -> empty/no cues, no traceback |
-| batch | One bad WAV in the middle of a work area | Currently the whole batch fails (known gap) -> fix to skip the bad file |
+| batch | One bad WAV in the middle of a work area | FIXED: bad clip is skipped (logged + counted), rest are captioned, run returns `skipped:N` |
+| batch | ALL clips in a work area are bad | FIXED: run completes with `ok` + all skipped, no crash/abort |
 | cancel | Tap Cancel during ffmpeg | Process killed, clean return |
 | cancel | Tap Cancel during transcription | Process killed, clean return |
 | cancel | Cancel during batch | Clean return |
@@ -205,9 +233,11 @@ truth).
 
 ## 8. Known Gaps Found During Planning (fix candidates)
 
-1. **Batch failure is all-or-nothing** — one bad WAV in a Work Area crashes the whole
-   batch (`run_batch()` in `ethio_srt.py` has no per-file try/catch). Should skip the
-   bad file and caption the rest.
+1. **Batch failure is all-or-nothing** — FIXED. `handle_server_batch()` (warm path) and
+   `run_batch()` (one-shot path) now wrap each clip in try/except: a bad clip is logged
+   to stderr, counted, and skipped; the rest are captioned; the server returns
+   `{"ok": true, "skipped": N}`. Follow-up `long5min` in `--words` mode OOM — **FIXED**
+   by windowing long audio (see §1.2b).
 2. **`ctc_beam` / `amh_correct` self-checks are the only automated tests** — no
    integration tests exist. Add `tools/test/` harness (see below).
 3. **No golden audio `fixtures/`** — cannot assert real accuracy. Must be recorded.

@@ -27,6 +27,18 @@ Pay **ETB 2,500** by bank transfer to **KALEB TEGEGEN** — CBE 1000504159977 ·
 > **Free trial:** every new machine gets **2 free transcriptions** before a
 > license key is required, so buyers can try it on their own Premiere first.
 
+### Known limitations
+
+- **Trial is best-effort offline.** The 2-use trial counter is stored locally
+  (and synced to the server when online). Because the panel must work fully
+  offline, a user who is offline — or who clears the panel's `localStorage` —
+  can reset the trial. We accept this trade-off over breaking offline use. To
+  harden it, gate the 2nd+ use on a successful server round-trip (see
+  `consumeTrialCredit()` in `panel/js/main.js`).
+- **Batch is per-clip resilient.** If one clip in a work-area run can't be
+  decoded or transcribed, it is skipped (logged + counted) instead of aborting
+  the whole run. A skipped count is reported when the batch finishes.
+
 ### Install (Windows)
 
 1. Unzip `amharic-captions-win-x64.zip`

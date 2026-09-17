@@ -136,6 +136,11 @@ class _CT2Engine:
         self._skip = {"[PAD]", "[UNK]", "<s>", "</s>"}
 
     def transcribe(self, wav):
+        # Very long audio (e.g. a 5-minute clip) makes the conformer attention
+        # allocate O(T^2) memory and gets the process OOM-killed. Window it.
+        return _windowed_transcribe(self, wav)
+
+    def _transcribe_one(self, wav):
         ctranslate2 = _load_ct2()
         trimmed, seg_table = _vad_trim(wav)
         if seg_table:
@@ -223,6 +228,9 @@ class _TorchEngine:
         }
 
     def transcribe(self, wav):
+        return _windowed_transcribe(self, wav)
+
+    def _transcribe_one(self, wav):
         inputs = self.processor(wav, sampling_rate=16000, return_tensors="pt")
         key = "input_features" if "input_features" in inputs else "input_values"
         feats = inputs[key].to(self.device)
@@ -526,6 +534,54 @@ def _vad_segments(wav):
         return []
 
 
+def _snap_boundary(wav, nominal, lo, hi, win=320, search=16000 * 2):
+    """Return a sample index near `nominal` (clamped to [lo, hi]) sitting on a
+    low-energy point, so a windowed long-audio cut lands in a pause instead of
+    slicing a word in half. Falls back to `nominal` when there's no room."""
+    a = max(lo, nominal - search)
+    b = min(hi, nominal + search)
+    if b - a < win * 2:
+        return nominal
+    seg = wav[a:b]
+    n_frames = len(seg) // win
+    if n_frames < 1:
+        return nominal
+    fr = seg[: n_frames * win].reshape(n_frames, win)
+    energy = (fr * fr).mean(axis=1)
+    k = int(np.argmin(energy))
+    return a + k * win + win // 2
+
+
+def _windowed_transcribe(engine, wav):
+    """Transcribe arbitrary-length audio in bounded windows (default 45s) so
+    memory stays flat, merging per-window spans back onto the original timeline.
+
+    Returns (text, spans, frame_dur) with spans in ORIGINAL sample-index space
+    and frame_dur = 1/16000, matching the VAD path's contract (get_words uses
+    s * frame_dur as seconds)."""
+    max_secs = float(os.environ.get("AMH_WINDOW_SECS", "45"))
+    max_len = int(max_secs * 16000)
+    n = len(wav)
+    if max_len <= 0 or n <= int(max_len * 1.35):
+        return engine._transcribe_one(wav)
+    texts = []
+    out_spans = []
+    st = 0
+    while st < n:
+        en = min(st + max_len, n)
+        if en < n:
+            en = _snap_boundary(wav, en, st + max_len // 2, n)
+        text, spans, fdur = engine._transcribe_one(wav[st:en])
+        if text:
+            texts.append(text)
+        for tok, s, e in spans:
+            ss = st + int(round(s * fdur * 16000))
+            ee = st + int(round((e + 1) * fdur * 16000))
+            out_spans.append((tok, ss, max(ss, ee)))
+        st = en
+    return " ".join(texts), out_spans, 1.0 / 16000.0
+
+
 def _vad_trim(wav):
     """If VAD finds real speech gaps, build a trimmed buffer (concatenated
     speech segments + tiny pad) and a mapping back to the original timeline.
@@ -755,27 +811,39 @@ def handle_server_batch(engine, req, rid, out):
     all_cues = []
     all_text = []
     total = len(batch)
+    skipped = 0
     for n, item in enumerate(batch, start=1):
         wav_path = item.get("wav")
-        if not wav_path or not os.path.isfile(wav_path):
-            emit(out, {"id": rid, "ok": False,
-                       "error": "audio file not found: %s" % (item.get("name") or wav_path)})
-            return
-        off = float(item.get("offset", 0.0))
+        name = item.get("name") or wav_path
         emit(out, {"id": rid, "type": "prog", "at": n, "of": total,
                    "name": item.get("name", "")})
-        wav = read_wav(wav_path)
-        text, spans, frame_dur = engine.transcribe(wav)
+        # One bad clip must never abort the whole work-area run: log it,
+        # count it, and keep going. Failures are reported via the skipped count.
+        if not wav_path or not os.path.isfile(wav_path):
+            skipped += 1
+            print("[batch] skip %d/%d (audio not found): %s" % (n, total, name),
+                  file=sys.stderr)
+            continue
+        off = float(item.get("offset", 0.0))
+        try:
+            wav = read_wav(wav_path)
+            text, spans, frame_dur = engine.transcribe(wav)
+            cues = make_cues(mode, group, spans, frame_dur, text, engine.glyphs,
+                             max_chars=max_chars)
+        except Exception as e:
+            skipped += 1
+            print("[batch] skip %d/%d (transcribe failed): %s: %s"
+                  % (n, total, name, e), file=sys.stderr)
+            continue
         all_text.append(text)
-        cues = make_cues(mode, group, spans, frame_dur, text, engine.glyphs,
-                         max_chars=max_chars)
         for c in cues:
             all_cues.append((c[0], c[1] + off, c[2] + off))
     if out_srt:
         idx = write_srt(out_srt, all_cues, 0.0)
     else:
         idx = len(all_cues)
-    emit(out, {"id": rid, "ok": True, "cues": idx, "text": "\n\n".join(all_text)})
+    emit(out, {"id": rid, "ok": True, "cues": idx, "skipped": skipped,
+               "text": "\n\n".join(all_text)})
 
 
 def request_style(req):
@@ -823,11 +891,20 @@ def run_batch():
     glyphs = engine.glyphs
     total = len(requests)
     all_cues = []
+    skipped = 0
     for n, req in enumerate(requests, start=1):
         print(f"\n[batch] % {n}/{total} {req.get('wav', '')}")
-        wav = read_wav(req["wav"])
-        text, spans, frame_dur = engine.transcribe(wav)
-        cues = make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=max_chars)
+        # Never let one bad clip abort the whole work-area run.
+        try:
+            wav = read_wav(req["wav"])
+            text, spans, frame_dur = engine.transcribe(wav)
+            cues = make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=max_chars)
+        except Exception as e:
+            skipped += 1
+            # stderr so it never pollutes the stdout transcript parse.
+            print(f"[batch] skip {n}/{total} (failed): {req.get('wav', '')}: {e}",
+                  file=sys.stderr)
+            continue
         off = float(req.get("offset") or 0.0)
         for c in cues:
             all_cues.append((c[0], c[1] + off, c[2] + off))
@@ -839,6 +916,9 @@ def run_batch():
         print(f"[info] wrote {idx} cues (merged {total} clips) to {out_srt}")
     else:
         print("[info] no output path given; skipped writing SRT")
+    if skipped:
+        print(f"[info] skipped {skipped}/{total} clip(s) that failed to decode/transcribe",
+              file=sys.stderr)
 
 
 if __name__ == "__main__":

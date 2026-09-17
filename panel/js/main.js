@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.4.13';
+const APP_VERSION = '1.4.14';
 
 const csi = new CSInterface();
 
@@ -457,7 +457,13 @@ async function consumeTrialCredit() {
     return;
   }
 
-  // Fallback: local-only (offline or API unreachable)
+  // Fallback: local-only (offline or API unreachable).
+  // KNOWN LIMITATION: this counter lives in localStorage, so a user who is
+  // offline (or who clears the panel's localStorage) can reset the trial and
+  // keep transcribing without a key. We accept this deliberately: the product
+  // is fully offline by design, so we cannot hard-require the server. If trial
+  // abuse becomes a problem, gate the 2nd+ use on a successful /api/trial/use
+  // round-trip instead of falling through here. See README "Known limitations".
   setTrialUsed(getTrialUsed() + 1);
   const used = getTrialUsed();
   const left = trialRemaining();
@@ -1387,6 +1393,10 @@ async function transcribe(sourcePath, outSrt, range, offset) {
     await cacheStore(key, fs.readFileSync(outSrt, 'utf8'), r.text || '');
     return { outSrt, cues, transcript: r.text || '', cached: false };
   } catch (e) {
+    // Cancel kills the warm worker, which surfaces here as a transport error
+    // ("worker exited"). Treat any failure while a cancel is pending as a
+    // clean cancellation — never fall back into a new one-shot process.
+    if (cancelRequested) throw new Error('Cancelled');
     if (e && e.message === 'Cancelled') throw e;
     if (!e || !WARM_TRANSPORT_ERRS.has(e.message)) throw e;
     // One-shot fallback (worker missing or failed this request).
@@ -1443,6 +1453,9 @@ async function transcribeBatch(items, outSrt, onProgress) {
     const withBatch = Object.assign(req, warmStyle());
     const r = await warmSend(withBatch);
     warmTouch();
+    if (r && r.skipped) {
+      log('Note: skipped ' + r.skipped + ' clip(s) that could not be transcribed.');
+    }
     let cues = [];
     try { cues = parseSrt(fs.readFileSync(outSrt, 'utf8')); } catch (e) {}
     lastCues = cues;
@@ -1452,6 +1465,8 @@ async function transcribeBatch(items, outSrt, onProgress) {
     }
     return { outSrt, cues, transcript: r.text || '', cached: false };
   } catch (e) {
+    // Same as the single-clip path: a pending cancel must not respawn work.
+    if (cancelRequested) throw new Error('Cancelled');
     if (e && e.message === 'Cancelled') throw e;
     if (!e || !WARM_TRANSPORT_ERRS.has(e.message)) throw e;
     return transcribeBatchOneShot(items, outSrt, onProgress);
