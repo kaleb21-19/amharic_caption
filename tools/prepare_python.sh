@@ -6,7 +6,8 @@
 # runtime matches that machine. It:
 #   1. detects the current machine's target (mac-arm64 | mac-x64 | win-x64)
 #   2. downloads a RELOCATABLE CPython (python-build-standalone) for that target
-#   3. pip-installs the tiny ML runtime: ctranslate2 + numpy + soundfile (~50MB)
+#   3. pip-installs the tiny ML runtime: ctranslate2 + numpy + soundfile +
+#      onnxruntime + sherpa-onnx (~120MB)
 #   4. prunes pip/setuptools so they don't ship in the bundle
 #   5. fetches a STATIC ffmpeg for that target
 #   6. verifies the key imports load
@@ -97,7 +98,7 @@ else
 fi
 
 # ---- 3. install the tiny ML runtime ---------------------------------------
-echo "  [step] installing deps (ctranslate2 + numpy + soundfile + onnxruntime, ~110MB)"
+echo "  [step] installing deps (ctranslate2 + numpy + soundfile + onnxruntime + sherpa-onnx, ~120MB)"
 if [[ "$TARGET" == "win-x64" && "$ON_WINDOWS" == "0" ]]; then
   # Cross-staging from a non-Windows host: we cannot execute python.exe, so
   # fetch the win_amd64 wheels and unpack them straight into site-packages.
@@ -106,7 +107,7 @@ if [[ "$TARGET" == "win-x64" && "$ON_WINDOWS" == "0" ]]; then
       --platform win_amd64 --only-binary=:all: \
       --python-version 311 --implementation cp --abi cp311 \
       "ctranslate2==4.8.1" "numpy" "soundfile" "cffi" "pycparser" \
-      "onnxruntime" \
+      "onnxruntime" "sherpa-onnx==1.13.8" \
       -d "$XTMP" -q
   SPW="${PYDIR}/Lib/site-packages"
   for w in "$XTMP"/*.whl; do
@@ -115,7 +116,7 @@ if [[ "$TARGET" == "win-x64" && "$ON_WINDOWS" == "0" ]]; then
   rm -rf "$XTMP"
   echo "  [ok] cross-staged win_amd64 wheels (NOT runtime-verified here)"
 else
-  "$PY" -m pip install --quiet ctranslate2==4.8.1 numpy soundfile onnxruntime
+  "$PY" -m pip install --quiet ctranslate2==4.8.1 numpy soundfile onnxruntime "sherpa-onnx==1.13.8"
   echo "  [ok] deps installed"
 fi
 
@@ -160,7 +161,7 @@ if [[ "$TARGET" == "win-x64" && "$ON_WINDOWS" == "0" ]]; then
 else
   echo "  [step] verifying imports"
   PY="$(cd "$(dirname "$PY")" && pwd)/$(basename "$PY")"
-  "$PY" -c "import ctranslate2, numpy, soundfile, onnxruntime; print('      core imports OK')"
+  "$PY" -c "import ctranslate2, numpy, soundfile, onnxruntime, sherpa_onnx; print('      core imports OK')"
 fi
 echo
 echo "== prepared $TARGET =="

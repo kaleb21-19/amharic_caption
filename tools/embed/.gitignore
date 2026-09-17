@@ -1,0 +1,6 @@
+# Speaker-embedding model: fetched, not committed (~40MB).
+# Get it with:  bash tools/embed/fetch_model.sh
+*.onnx
+
+# download log
+*.log

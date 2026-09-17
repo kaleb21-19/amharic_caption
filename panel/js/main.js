@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.4.15';
+const APP_VERSION = '1.4.16';
 
 const csi = new CSInterface();
 
@@ -396,30 +396,9 @@ function setLicense(licenseObj) {
   catch (e) {}
 }
 
-// Structural-only key check. No HMAC here: the cryptographic authority is the
-// server (/api/validate). This just rejects obviously-wrong keys fast, locally.
-function validateLicense(key, machineId) {
-  const clean = String(key || '').replace(/AMH-/g, '').replace(/-/g, '').toLowerCase();
-  if (!/^[0-9a-f]{32}$/.test(clean)) return { ok: false, error: 'Invalid key format' };
-
-  const mid  = clean.substring(0, 8);
-  const exp  = clean.substring(8, 16);
-  const sig  = clean.substring(16, 32);
-
-  if (mid !== String(machineId || '').toLowerCase()) return { ok: false, error: 'Key is for a different machine' };
-
-  // Check expiry
-  if (exp !== '00000000') {
-    const expDate = new Date(exp.substring(0,4) + '-' + exp.substring(4,6) + '-' + exp.substring(6,8));
-    if (isNaN(expDate.getTime()) || Date.now() > expDate.getTime()) {
-      return { ok: false, error: 'License expired on ' + exp.substring(0,4) + '-' + exp.substring(4,6) + '-' + exp.substring(6,8) };
-    }
-  }
-
-  // Format/date valid. Acceptance still requires the server to confirm the key
-  // (or a previously server-validated cached license) — see activateLicense().
-  return { ok: true, expiry: exp };
-}
+// validateLicense() (structural-only key check) lives in js/core.js so it can
+// be unit-tested in Node. The cryptographic authority is the server
+// (/api/validate); core.js only rejects obviously-wrong keys fast, locally.
 
 let LICENSED = false;
 let LICENSED_REFRESH = false;
@@ -969,6 +948,7 @@ let SOURCE = 'clip';
 let CAP = 'grouped';
 let GROUP_SIZE = 3;
 let MAX_CHARS = 42;
+let SPEAKERS = false;
 let cancelRequested = false;
 let lastSrtPath = null;
 let lastCues = [];
@@ -990,6 +970,7 @@ function applySettings() {
   CAP = s.cap || 'words';
   GROUP_SIZE = s.group || 3;
   MAX_CHARS = s.chars || 42;
+  SPEAKERS = !!s.speakers;
   document.querySelectorAll('#srcSeg button').forEach((b) => {
     b.classList.toggle('active', b.dataset.src === SOURCE);
   });
@@ -998,91 +979,20 @@ function applySettings() {
   });
   $('groupSize').value = GROUP_SIZE;
   $('maxChars').value = MAX_CHARS;
+  $('speakersToggle').checked = SPEAKERS;
 }
 
 // ----------------------------------------------------------------- SRT
-function parseSrt(text) {
-  const cues = [];
-  const blocks = String(text || '').split(/\n\s*\n/);
-  for (const block of blocks) {
-    const lines = block.split('\n').map((l) => l.trim()).filter((l) => l.length);
-    if (lines.length < 3) continue;
-    const timeMatch = lines[1].match(/([\d:,.]+)\s*-->\s*([\d:,.]+)/);
-    if (!timeMatch) continue;
-    const toSec = (s) => {
-      const p = s.trim().replace(',', '.').split(':');
-      let sec = 0;
-      for (const part of p) sec = sec * 60 + parseFloat(part);
-      return sec;
-    };
-    const start = toSec(timeMatch[1]);
-    const end = toSec(timeMatch[2]);
-    const text = lines.slice(2).join('\n');
-    if (text && start >= 0) cues.push({ start, end, text });
-  }
-  return cues;
-}
-
-function formatSrtTs(sec) {
-  sec = Math.max(0, sec);
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = Math.floor(sec % 60);
-  const ms = Math.floor((sec - Math.floor(sec)) * 1000);
-  const p = (n, w) => String(n).padStart(w, '0');
-  return p(h, 2) + ':' + p(m, 2) + ':' + p(s, 2) + ',' + p(ms, 3);
-}
-
-// Smart spacing/punctuation cleanup for caption lines (transcript cleanup pass).
-// Runs per line so intended line breaks survive. It only normalizes whitespace,
-// tightens spaces before punctuation, and adds one space after it (never
-// between digits, so numbers like "1.5" and "1,000" are preserved). Ethiopic
-// punctuation (። ፣ ፤ ፥ ፦) is treated the same as Latin punctuation.
-const AMH_PUNCT_CHARS = '.,;:!?\u2026\u060c\u1362\u1363\u1364\u1365\u1366';
-function cleanCueLines(text) {
-  if (!text) return '';
-  return String(text).split('\n').map((ln) => {
-    return ln
-      .replace(/[\u200b\u200c\u200d]/g, '')                       // zero-width
-      .replace(/\s+/g, ' ')                                        // collapse spaces
-      .replace(new RegExp('\\s+([' + AMH_PUNCT_CHARS + '])', 'g'), '$1')   // no space before punct
-      // one space after punct (but not before digits, spaces or more punct)
-      .replace(new RegExp('([' + AMH_PUNCT_CHARS + '])(?![\\s\\d])', 'g'), '$1 ')
-      .trim();
-  }).join('\n');
-}
-
+// parseSrt / formatSrtTs / cleanCueLines / *TextFromCues live in js/core.js
+// (pure, unit-tested). writeSrt / writeVtt below only add disk I/O + state.
 function writeSrt(outPath) {
-  const sortable = lastCues.slice().sort((a, b) => a.start - b.start);
-  let out = '';
-  let idx = 0;
-  for (const cue of sortable) {
-    idx += 1;
-    out += idx + '\n';
-    out += formatSrtTs(cue.start) + ' --> ' + formatSrtTs(cue.end) + '\n';
-    out += cleanCueLines(cue.text) + '\n\n';
-  }
-  fs.writeFileSync(outPath, out, 'utf8');
+  fs.writeFileSync(outPath, srtTextFromCues(lastCues), 'utf8');
   lastSrtPath = outPath;
   return outPath;
 }
 
 function writeVtt(outPath) {
-  const sortable = lastCues.slice().sort((a, b) => a.start - b.start);
-  const ts = (sec) => {
-    sec = Math.max(0, sec);
-    const h = String(Math.floor(sec / 3600)).padStart(2, '0');
-    const m = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
-    const s = String(Math.floor(sec % 60)).padStart(2, '0');
-    const ms = String(Math.floor((sec - Math.floor(sec)) * 1000)).padStart(3, '0');
-    return h + ':' + m + ':' + s + '.' + ms;
-  };
-  let out = 'WEBVTT\n\n';
-  for (const cue of sortable) {
-    out += ts(cue.start) + ' --> ' + ts(cue.end) + '\n';
-    out += cleanCueLines(cue.text) + '\n\n';
-  }
-  fs.writeFileSync(outPath, out, 'utf8');
+  fs.writeFileSync(outPath, vttTextFromCues(lastCues), 'utf8');
   lastSrtPath = outPath;
   return outPath;
 }
@@ -1135,6 +1045,7 @@ function pyFlags() {
   if (CAP === 'words') f.push('--words');
   else f.push('--group', String(GROUP_SIZE));
   f.push('--max-chars', String(MAX_CHARS));
+  if (SPEAKERS) f.push('--speakers');
   return f;
 }
 
@@ -1281,7 +1192,7 @@ function cacheKey(sourcePath, range, offset) {
     h.update(':' + String(range.sourceIn || 0));
     h.update(':' + String(range.duration || 0));
   }
-  h.update(':' + CAP + ':' + GROUP_SIZE + ':' + MAX_CHARS);
+  h.update(':' + CAP + ':' + GROUP_SIZE + ':' + MAX_CHARS + ':' + (SPEAKERS ? 1 : 0));
   h.update(':' + engineHash() + ':' + MODEL_DIR);
   h.update(':' + String(offset || 0));
   try {
@@ -1337,7 +1248,7 @@ function cacheLookup(key) {
   const c = cacheLoad()[key];
   if (!c || !c.srt) return null;
   let cues = [];
-  try { cues = parseSrt(c.srt); } catch (e) { cues = []; }
+  try { cues = normalizeCues(parseSrt(c.srt)); } catch (e) { cues = []; }
   if (!cues.length) return null;
   return { srt: c.srt, cues, transcript: c.transcript || '' };
 }
@@ -1365,7 +1276,8 @@ async function cacheStore(key, srt, transcript) {
 function warmStyle() {
   return { mode: CAP === 'words' ? 'words' : 'grouped',
            group: CAP === 'grouped' ? GROUP_SIZE : 0,
-           max_chars: MAX_CHARS };
+           max_chars: MAX_CHARS,
+           speakers: SPEAKERS };
 }
 
 // Extract a trimmed source segment to 16k mono wav.
@@ -1411,7 +1323,7 @@ async function transcribe(sourcePath, outSrt, range, offset) {
     }, warmStyle()));
     warmTouch();
     let cues = [];
-    try { cues = parseSrt(fs.readFileSync(outSrt, 'utf8')); } catch (e) {}
+    try { cues = normalizeCues(parseSrt(fs.readFileSync(outSrt, 'utf8'))); } catch (e) {}
     lastCues = cues;
     lastSrtPath = outSrt;
     await cacheStore(key, fs.readFileSync(outSrt, 'utf8'), r.text || '');
@@ -1441,7 +1353,7 @@ function transcribeOneShot(sourcePath, outSrt, range, offset, wav, onProgress) {
       if (perr) { reject(new Error('Python failed: ' + (perr.message || perr))); return; }
       const transcript = extractTranscripts(stdout).join('\n');
       let cues = [];
-      try { cues = parseSrt(fs.readFileSync(outSrt, 'utf8')); } catch (e) {}
+      try { cues = normalizeCues(parseSrt(fs.readFileSync(outSrt, 'utf8'))); } catch (e) {}
       lastCues = cues;
       lastSrtPath = outSrt;
       resolve({ outSrt, cues, transcript });
@@ -1491,7 +1403,7 @@ async function transcribeBatch(items, outSrt, onProgress) {
         log('Note: skipped ' + r.skipped + ' clip(s) that could not be transcribed.');
       }
       let parsed = [];
-      try { parsed = parseSrt(fs.readFileSync(outSrt, 'utf8')); } catch (e) {}
+      try { parsed = normalizeCues(parseSrt(fs.readFileSync(outSrt, 'utf8'))); } catch (e) {}
       byItem = attributeCues(parsed, misses);
       transcript = r.text || '';
     } else {
@@ -1546,7 +1458,7 @@ function transcribeBatchOneShot(items, outSrt, onProgress) {
       }
       if (inBlock) transcript += (transcript ? '\n' : '') + buf.join('\n').trim();
       let cues = [];
-      try { cues = parseSrt(fs.readFileSync(outSrt, 'utf8')); } catch (e) {}
+      try { cues = normalizeCues(parseSrt(fs.readFileSync(outSrt, 'utf8'))); } catch (e) {}
       try { fs.unlinkSync(reqPath); } catch (e) {}
       const byItem = attributeCues(cues, items);
       lastCues = cues;
@@ -1992,6 +1904,52 @@ function discardReview() {
   closeReview();
 }
 
+// Export the (edited) captions as a set of files into a user-chosen folder.
+// Writes <name>.srt + <name>.vtt + <name>.txt together (overwriting).
+function exportReviewFiles() {
+  if (!reviewOpen) return;
+  const cues = (reviewCues && reviewCues.length ? reviewCues : lastCues)
+    .filter((c) => (c.text || '').trim().length > 0);
+  if (!cues.length) { log('Nothing to export yet.'); return; }
+  const label = (REVIEW && REVIEW.label) || 'captions';
+
+  let dir = null;
+  try {
+    if (window.cep && window.cep.fs && window.cep.fs.showOpenDialog) {
+      const r = window.cep.fs.showOpenDialog(false, true,
+        'Choose a folder for the SRT / VTT / TXT export', '');
+      if (!r || r.err !== 0 || !r.data || !r.data.length) { log('Export cancelled.'); return; }
+      dir = r.data[0];
+    }
+  } catch (e) { dir = null; }
+  if (!dir) dir = ensureCaptionsDir();
+
+  const base = safeFileName(label);
+  const srt = path.join(dir, base + '.srt');
+  const vtt = path.join(dir, base + '.vtt');
+  const txt = path.join(dir, base + '.txt');
+  try {
+    fs.writeFileSync(srt, srtTextFromCues(cues), 'utf8');
+    fs.writeFileSync(vtt, vttTextFromCues(cues), 'utf8');
+    fs.writeFileSync(txt, txtTextFromCues(cues), 'utf8');
+  } catch (e) {
+    log('Export failed: ' + (e && e.message ? e.message : String(e)));
+    return;
+  }
+  log('Exported ' + cues.length + ' captions to ' + dir +
+    '  (' + base + '.srt / ' + base + '.vtt / ' + base + '.txt)');
+}
+
+// Sanitize a clip/label name into a safe cross-platform file stem.
+function safeFileName(name) {
+  const s = String(name || 'captions')
+    .replace(/[\/\\:*?"<>|\u0000-\u001f]+/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
+  return s || 'captions';
+}
+
 function initReview() {
   // Font is fixed for the review preview + burn: uses the detected Amharic
   // font (or Abyssinica SIL). Premiere's timeline caption style cannot be
@@ -2002,6 +1960,8 @@ function initReview() {
 
   $('reviewPlace').addEventListener('click', placeReview);
   $('reviewDiscard').addEventListener('click', discardReview);
+  const expBtn = $('reviewExport');
+  if (expBtn) expBtn.addEventListener('click', exportReviewFiles);
   $('reviewAdd').addEventListener('click', () => {
     const last = reviewCues.length ? reviewCues[reviewCues.length - 1] : null;
     const start = last ? last.end : 0;
@@ -2284,6 +2244,10 @@ function setup() {
   $('maxChars').addEventListener('input', (e) => {
     MAX_CHARS = Math.max(10, Math.min(200, Number(e.target.value) || 42));
     saveSettings({ chars: MAX_CHARS });
+  });
+  $('speakersToggle').addEventListener('change', (e) => {
+    SPEAKERS = !!e.target.checked;
+    saveSettings({ speakers: SPEAKERS });
   });
 
   $('runBtn').addEventListener('click', run);

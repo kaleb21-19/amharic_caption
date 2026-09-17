@@ -756,7 +756,26 @@ def _glyphs_of(engine):
     return engine.glyphs
 
 
-def _run_file(engine, wav, mode, group_size, max_chars, offset, out_srt=None):
+def _maybe_diarize(cues, wav):
+    """Best-effort 2-speaker labels ("[S1] "/"[S2] " prefixes). Never raises:
+    returns cues unchanged if the model/package is missing or the clip is not
+    clearly two speakers (see amh_diarize.py)."""
+    if not cues:
+        return cues
+    try:
+        import amh_diarize
+    except Exception as e:
+        print("[info] speaker labelling unavailable: %s" % e, file=sys.stderr)
+        return cues
+    if not amh_diarize.available():
+        print("[info] speaker labelling requested but no embedding model found",
+              file=sys.stderr)
+        return cues
+    return amh_diarize.label_cues(cues, wav)
+
+
+def _run_file(engine, wav, mode, group_size, max_chars, offset, out_srt=None,
+              speakers=False):
     glyphs = engine.glyphs
     # Audio past the long-audio threshold is chunked at VAD boundaries AND
     # journaled to disk so an interrupted/crashed run resumes instead of
@@ -764,9 +783,12 @@ def _run_file(engine, wav, mode, group_size, max_chars, offset, out_srt=None):
     # (engine.transcribe still windows internally only past ~60s for memory).
     long_secs = float(os.environ.get("AMH_LONG_SECS", "300"))
     if out_srt and len(wav) > int(long_secs * 16000):
-        return _run_long(engine, wav, mode, group_size, max_chars, offset, out_srt)
-    text, spans, frame_dur = engine.transcribe(wav)
-    cues = make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=max_chars)
+        text, cues = _run_long(engine, wav, mode, group_size, max_chars, offset, out_srt)
+    else:
+        text, spans, frame_dur = engine.transcribe(wav)
+        cues = make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=max_chars)
+    if speakers:
+        cues = _maybe_diarize(cues, wav)
     return text, cues
 
 
@@ -825,7 +847,7 @@ def _run_long(engine, wav, mode, group_size, max_chars, offset, out_srt):
 def main():
     if len(sys.argv) < 2:
         print("Usage: python ethio_srt.py <audio.wav|mp3|m4a> [out.srt] [--words] "
-              "[--group NUM] [--batch requests.json out.srt] [--server]")
+              "[--group NUM] [--speakers] [--batch requests.json out.srt] [--server]")
         sys.exit(1)
 
     if sys.argv[1] == "--server":
@@ -840,6 +862,7 @@ def main():
     group_size = 0
     offset = 0.0
     max_chars = 42
+    speakers = False
     i = 2
     while i < len(sys.argv):
         a = sys.argv[i]
@@ -855,6 +878,8 @@ def main():
         elif a == "--offset":
             offset = float(sys.argv[i + 1])
             i += 1
+        elif a == "--speakers":
+            speakers = True
         elif a == "--batch":
             mode = "batch"
         elif not a.startswith("-"):
@@ -868,7 +893,8 @@ def main():
     print(f"[info] engine: {'CTranslate2 int8' if _use_ct2() else 'transformers/torch'}")
     print("[info] loading audio:", audio_path)
     wav = read_wav(audio_path)
-    text, cues = _run_file(engine, wav, mode, group_size, max_chars, offset, out_path)
+    text, cues = _run_file(engine, wav, mode, group_size, max_chars, offset, out_path,
+                           speakers=speakers)
 
     print("--- full transcription ---")
     print(text)
@@ -888,10 +914,10 @@ def main():
 # and serves requests over a line-delimited JSON protocol on stdin/stdout:
 #
 #   in : {"id":1,"wav":"clip.wav","out_srt":"clip.srt","mode":"words",
-#         "group":0,"max_chars":42,"offset":2.5}
+#         "group":0,"max_chars":42,"offset":2.5,"speakers":false}
 #   out: {"id":1,"ok":true,"text":"...","cues":23,"transcript":"..."}
 #   batch: {"id":2,"batch":[{"wav":...,"offset":...},...],"out_srt":"...",
-#           "mode":"grouped","group":3,"max_chars":42}
+#           "mode":"grouped","group":3,"max_chars":42,"speakers":true}
 #          emits one {"id":2,"type":"prog","at":N,"of":M,"name":...} per clip
 #          then the {"id":2,"ok":true,...} result line.
 def run_server():
@@ -931,9 +957,11 @@ def handle_server_one(engine, req, rid, out):
         return
     mode, group, max_chars = request_style(req)
     offset = float(req.get("offset", 0.0))
+    speakers = bool(req.get("speakers", False))
     wav = read_wav(wav_path)
     out_srt = req.get("out_srt")
-    text, cues = _run_file(engine, wav, mode, group, max_chars, offset, out_srt)
+    text, cues = _run_file(engine, wav, mode, group, max_chars, offset, out_srt,
+                           speakers=speakers)
     if out_srt:
         idx = write_srt(out_srt, cues, offset)
     else:
@@ -945,6 +973,7 @@ def handle_server_batch(engine, req, rid, out):
     batch = req["batch"]
     mode, group, max_chars = request_style(req)
     out_srt = req.get("out_srt")
+    speakers = bool(req.get("speakers", False))
     all_cues = []
     all_text = []
     total = len(batch)
@@ -967,6 +996,8 @@ def handle_server_batch(engine, req, rid, out):
             text, spans, frame_dur = engine.transcribe(wav)
             cues = make_cues(mode, group, spans, frame_dur, text, engine.glyphs,
                              max_chars=max_chars)
+            if speakers:
+                cues = _maybe_diarize(cues, wav)
         except Exception as e:
             skipped += 1
             print("[batch] skip %d/%d (transcribe failed): %s: %s"
@@ -1023,6 +1054,7 @@ def run_batch():
         m = args.index("--max-chars")
         if m + 1 < len(args):
             max_chars = int(args[m + 1])
+    speakers = "--speakers" in args
 
     engine = load_pipeline()
     glyphs = engine.glyphs
@@ -1036,6 +1068,8 @@ def run_batch():
             wav = read_wav(req["wav"])
             text, spans, frame_dur = engine.transcribe(wav)
             cues = make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=max_chars)
+            if speakers:
+                cues = _maybe_diarize(cues, wav)
         except Exception as e:
             skipped += 1
             # stderr so it never pollutes the stdout transcript parse.

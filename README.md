@@ -47,6 +47,12 @@ Pay **ETB 2,500** by bank transfer to **KALEB TEGEGEN** — CBE 1000504159977 ·
   from where it stopped instead of restarting.
 - **Punctuation is rule-based.** Sentence (`።`) and clause (`፣`) marks are placed
   at detected pauses; the recognizer itself does not predict punctuation.
+- **Speaker labels are opt-in and best-effort.** The "Label speakers (2)" toggle
+  tags interview captions `[S1]`/`[S2]` using a small on-device speaker model
+  (offline, no torch). It leaves captions unchanged when the clip isn't clearly
+  two speakers, so it never makes an unlabelled result worse.
+- **Review exports three formats.** The review screen can export SRT, VTT (with
+  `<v>` speaker tags) and a plain-text transcript to a folder you choose.
 
 ### Install (Windows)
 

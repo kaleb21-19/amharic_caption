@@ -144,6 +144,37 @@ Engine changes on top of 1.4.14 (repo; shipped in the next version):
   `200 {"ok":true}` with the shipped `X-Api-Key`, and `401 {"error":"unauthorized"}`
   without it or with a wrong key. Enforcement is live and the panel key matches.
 
+### 1.2d Speaker labels + multi-format export (2026-09-18)
+
+- **2-speaker diarization (interviews).** New `amh_diarize.py` embeds ~1.5s windows
+  (0.75s hop) with a small ONNX speaker model (`nemo_en_titanet_small.onnx`) via
+  sherpa-onnx/onnxruntime — no torch — then cosine k-means (k=2). Each cue is
+  labelled `[S1] `/`[S2] ` (S1 = first to speak) by embedding a window **on the
+  cue itself** and picking the nearer centroid; a low-confidence cue falls back to
+  window-overlap voting, and an ambiguous one is left unlabelled. (Per-cue
+  classification fixed boundary cues that whole-window voting mislabelled.)
+  **Fail-safe**: cues are returned unchanged when the model/package is missing,
+  when the clip looks like one speaker (<15% of windows in the minority cluster),
+  or when separation (`mean intra-cluster cosine − inter-centroid cosine`) <
+  `AMH_DIARIZE_SEP` (0.10). So enabling it never makes captions worse. Pure parts
+  (`kmeans2`, `assign_labels`, the gate) self-test with no model:
+  `python3 amh_diarize.py`. Integration test: `python3 tools/test/test_diarize.py`
+  — pure checks always run, plus an end-to-end label check on
+  `fixtures/twospeaker.wav` (a synthetic two-voice clip) that is skipped unless the
+  model is present. Verified 2026-09-18: 6/6 turns labelled `[S1]/[S2]` correctly
+  through the bundled runtime, separation 0.499 (gate 0.10), and a single-voice
+  fixture stays unlabelled.
+- **Engine wiring.** `ethio_srt.py --speakers` (CLI) and `"speakers": true`
+  (server/batch request) label cues on the single, batch and long paths; unavailable
+  models log to stderr and continue unlabelled.
+- **Panel export.** Review now has an **Export SRT/VTT/TXT** button (folder picker,
+  fallback `Desktop/AmharicCaptions`). Pure serializers in `panel/js/core.js`
+  (`srtTextFromCues`/`vttTextFromCues`/`txtTextFromCues`): SRT/TXT use `[S1] `/`S1: `,
+  VTT uses `<v S1>`. `detectSpeaker`/`normalizeCues` lift the engine's `[Sx] ` prefix
+  into `cue.speaker` so each format gets the right tag.
+- **Unit tests.** `node tools/test/test_panel.js` → **24 passed** (adds `detectSpeaker`,
+  `normalizeCues`, and the per-format speaker serialization).
+
 ### 1.3 Correctness of caption grouping / timing (visual)
 
 For `long5min` import into Premiere and verify:
@@ -272,8 +303,10 @@ truth).
    by windowing long audio (see §1.2b).
 2. **`ctc_beam` / `amh_correct` self-checks are the only automated tests** — no
    integration tests exist. `tools/test/test_long.py` now covers long-audio windowing +
-   resume + punctuation (stub engine, no model); panel/JS behavior still has only
-   `node --check`.
+   resume + punctuation (stub engine, no model); `tools/test/test_panel.js` covers the
+   panel's pure core helpers (`parseSrt`, serialization incl. speaker labels,
+   `validateLicense` paths) in Node, and `amh_diarize.py` self-tests its pure
+   clustering/labelling. Still no browser/DOM test of `main.js` (CEP/ExtendScript).
 3. **No golden audio `fixtures/`** — cannot assert real accuracy. Must be recorded.
 4. **Mel extractor on ultra-short (<400 sample) audio degrades** — confirm the
    `short1` case returns *something* acceptable or a clean error.

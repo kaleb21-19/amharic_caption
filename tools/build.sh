@@ -49,6 +49,17 @@ cp "$ROOT/ctc_beam.py" "$RT/ctc_beam.py"
 cp "$ROOT/amh_correct.py" "$RT/amh_correct.py"
 echo "  [ok] ethio_srt.py + amh_mel.py + ctc_beam.py + amh_correct.py"
 
+# 2-speaker diarization (interview labels). Pure-python engine + a small ONNX
+# speaker-embedding model; runs on the bundled onnxruntime (no torch). Optional:
+# if the model is missing the panel's "Label speakers" toggle is a no-op.
+if [[ -f "$ROOT/tools/embed/nemo_en_titanet_small.onnx" ]]; then
+  cp "$ROOT/amh_diarize.py" "$RT/amh_diarize.py"
+  cp "$ROOT/tools/embed/nemo_en_titanet_small.onnx" "$RT/speaker_embed.onnx"
+  echo "  [ok] amh_diarize.py + speaker_embed.onnx"
+else
+  echo "  [warn] tools/embed/nemo_en_titanet_small.onnx missing — speaker labels disabled"
+fi
+
 # Amharic word-LM (glue-word resegmentation after decoding). The model file is
 # built offline by tools/build_lm.py. Optional: if missing, word-LM is skipped.
 if [[ -f "$ROOT/tools/lm/amh_lm.json.gz" ]]; then
@@ -104,6 +115,29 @@ if [[ -d "$PY" ]]; then
 else
   echo "  [FAIL] no staged python at $PY (run tools/prepare_python.sh)"; exit 1
 fi
+
+# ---- 1b. trim the bundled Python to runtime-only files ---------------------
+# The staged interpreter ships build-time extras that are never importable at
+# runtime and only bloat the zip (~15MB). Drop them from the bundle:
+#   include/   C headers for building extensions
+#   libs/      import libraries for embedding (Windows)
+#   Scripts/   pip/console shims
+#   ensurepip, venv, idlelib, lib2to3, pydoc_data, tkinter + tcl/tk, turtle*
+# (tkinter is unused: the panel UI is HTML/JS. __pycache__ is left in place so
+# first import stays fast.)
+PYP="$RT/python"
+LIBROOT="$PYP/Lib"
+[[ -d "$LIBROOT" ]] || LIBROOT="$PYP/lib/python3.11"   # macOS layout
+rm -rf "$PYP/include" "$PYP/libs" "$PYP/Scripts"
+rm -rf "$LIBROOT/ensurepip" "$LIBROOT/idlelib" "$LIBROOT/lib2to3" \
+       "$LIBROOT/pydoc_data" "$LIBROOT/tkinter" "$LIBROOT/turtledemo" \
+       "$LIBROOT/venv"
+rm -f  "$LIBROOT/turtle.py"
+rm -rf "$PYP/tcl"
+rm -rf "$PYP"/lib/libtcl* "$PYP"/lib/libtk* "$PYP"/lib/tcl* "$PYP"/lib/tk* 2>/dev/null || true
+rm -f  "$PYP"/DLLs/_tkinter.pyd "$PYP"/DLLs/tcl*.dll "$PYP"/DLLs/tk*.dll 2>/dev/null || true
+rm -f  "$LIBROOT"/lib-dynload/_tkinter* 2>/dev/null || true
+echo "  [ok] python trimmed ($(du -sh "$RT/python" | cut -f1))"
 
 # ---- 2. include the shared panel files ------------------------------------
 # The small, cross-platform panel (same files for every target) lives in the

@@ -462,6 +462,12 @@
           <input type="number" id="maxChars" min="10" max="200" value="42">
         </div>
       </div>
+      <div class="field">
+        <label class="field-label" for="speakersToggle" style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+          <input type="checkbox" id="speakersToggle" style="width:auto;margin:0;">
+          Label speakers (2) — for interviews
+        </label>
+      </div>
       <div class="hint">
         <b>Karaoke</b> = 1 word per caption (Words/caption is off). <b>Grouped</b> = Words/caption
         words per caption. Max chars caps how long any caption can be.
@@ -546,7 +552,7 @@
   </div>
 
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.4.15</span> · License ETB 2,500 one-time</span>
+    <span>v<span id="panelVersion">1.4.16</span> · License ETB 2,500 one-time</span>
     <span style="display:flex;gap:10px;align-items:center;">
       <a href="#" id="supportLink" title="Get help in Telegram">💬 Help</a>
       <a href="#" id="diag">Diagnostics</a>
@@ -564,7 +570,8 @@
     <div id="reviewList"></div>
     <div class="review-foot">
       <button id="reviewAdd" class="btn btn-neutral">+ Add cue</button>
-      <button id="reviewDiscard" class="btn-neutral">Discard</button>
+      <button id="reviewExport" class="btn btn-neutral" title="Save SRT, VTT and TXT to a folder you choose">Export SRT/VTT/TXT</button>
+      <button id="reviewDiscard" class="btn btn-neutral">Discard</button>
       <button id="reviewBurn" class="btn btn-neutral" title="Render the captions into a video file (uses the Amharic caption font)">🎬 Burn into video…</button>
       <button id="reviewPlace" class="btn btn-primary">✓ Place on timeline</button>
     </div>
@@ -573,6 +580,7 @@
   </div>
 
   <script src="./js/CSInterface.js"></script>
+  <script src="./js/core.js"></script>
   <script src="./js/main.js"></script>
 </body>
 </html>
