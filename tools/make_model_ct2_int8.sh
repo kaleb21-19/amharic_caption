@@ -10,12 +10,16 @@
 # Requires the dev venv (transformers + torch + ctranslate2 + scipy). Run from
 # the repo root:
 #   tools/make_model_ct2_int8.sh
+#   # convert a different source checkpoint (e.g. a retrained model at
+#   # tools/stage/model-retrained) into its own CT2 model dir:
+#   MODEL_SRC=tools/stage/model-retrained MODEL_DST=tools/stage/model-ct2-int8 \
+#       tools/make_model_ct2_int8.sh
 #
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SRC="${ROOT}/ethio-asr"
-DST="${ROOT}/tools/stage/model-ct2-int8"
+SRC="${MODEL_SRC:-${ROOT}/ethio-asr}"
+DST="${MODEL_DST:-${ROOT}/tools/stage/model-ct2-int8}"
 
 DEV_PY="${ROOT}/.venv/bin/python"
 if [[ -x "$DEV_PY" ]]; then

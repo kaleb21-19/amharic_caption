@@ -13,6 +13,11 @@ import re
 
 def normalize(text: str) -> list:
     text = text.lower()
+    # Ethiopic punctuation (U+1360–U+1368: ፠፡።፣፤፥፦፧) lives INSIDE the
+    # \u1200-\u137F keep-range, so strip it first — otherwise a caption word
+    # like "ነው።" would not match the reference token "ነው". Ethiopic DIGITS
+    # (U+1369–U+137C) are kept.
+    text = re.sub(r"[\u1360-\u1368]", " ", text)
     text = re.sub(r"[^\w\s\u1200-\u137F]", " ", text)
     tokens = re.findall(r"[\u1200-\u137F\w]+", text)
     return tokens

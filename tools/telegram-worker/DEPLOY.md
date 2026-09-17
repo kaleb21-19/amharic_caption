@@ -90,9 +90,10 @@ Open `panel/js/main.js`, find the `API_URL` constant, and replace the placeholde
 const API_URL = 'https://amharic-captions-bot.<you>.workers.dev';
 ```
 The panel deliberately contains **no license HMAC secret** (validation is
-server-side). It ships a `''` `API_KEY_HINT` — setting it to the same value
-as the Worker `AMH_API_KEY` secret is only needed **after** you turn that
-enforcement on (see below).
+server-side). It sends a shared key via the `X-Api-Key` header on every
+`/api/*` call, using `API_KEY_HINT` (non-empty since v1.4.x). Keep
+`API_KEY_HINT` byte-for-byte equal to the Worker `AMH_API_KEY` secret — the
+Worker rejects any `/api/*` request whose header doesn't match (401).
 Then rebuild + re-release the extension (Step G).
 
 ## STEP E — Refresh D1 customer/seed keys (old 24-char keys no longer validate)
@@ -222,9 +223,11 @@ are **KV-cached and rate-limited** (per-machine **and** per-IP via
 
 **🛡 AMH_API_KEY — REQUIRED (enforced live).** `AMH_API_KEY` is a Worker secret
 and **already enforced**: every `/api/*` call WITHOUT a matching `X-Api-Key`
-header is rejected 401 (verified 2026-09-14, version `1299465a`). The value must
-match `API_KEY_HINT` in `panel/js/main.js` (v1.4.0 ships it; any panel build
-that sends `X-Api-Key` keeps working, older builds are locked out). Rotation /
+header is rejected 401 (re-verified 2026-09-17 against panel v1.4.14: POST
+`/api/ping` → `200 {"ok":true}` with the shipped key, `401` without/with a
+wrong key). The value must match `API_KEY_HINT` in `panel/js/main.js` (any
+panel build that sends `X-Api-Key` keeps working, older builds are locked
+out). Rotation /
 recovery: `openssl rand -hex 24` → update `API_KEY_HINT` → ship the panel → set
 the secret → deploy. `AMH_BLOCK_SHARED` is also live (`1`): a key presented
 from ≥ `AMH_SPREAD_THRESHOLD` (3) distinct source IPs stops validating with

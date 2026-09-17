@@ -85,11 +85,13 @@ python3 tools/test/wer.py --truth tools/test/fixtures/news.txt --hyp /tmp/news_o
 no words silently dropped in `short1`; no crash on `silence`; reasonable WER even on
 `noisy`/`fast`.
 
-### 1.2b Recorded WER baseline (shipped 1.4.13 runtime, 2026-09-17)
+### 1.2b Recorded WER baseline (shipped runtime; re-verified 2026-09-17)
 
 Measured with `tools/test/run_engine.sh tools/test/fixtures` against the **installed**
 runtime (`~/Library/.../com.amharic.captions/runtime`). Karaoke and Grouped agree, so
-one number per tag:
+one number per tag. `news` was re-checked after the punctuation change and is unchanged
+at 64.3% (the harness now strips Ethiopic punctuation U+1360–U+1368 before scoring, so
+`።`/`፣` do not inflate WER):
 
 | Tag | WER | Notes |
 |-----|-----|-------|
@@ -100,7 +102,7 @@ one number per tag:
 | noisy | 92.9% | |
 | numbers | 72.4% | digits badly mangled |
 | short1 | 100.0% | 1s clip, both tokens wrong |
-| long5min | completes (no OOM) | 5-min clip windowed at 45s; 129 cues over the full 5:00, peak RSS ~3.5GB |
+| long5min | completes (no OOM) | 5-min clip windowed at VAD boundaries (~60s via `AMH_WINDOW_SECS`); full 5:00 covered, peak RSS ~4.8GB; resumable |
 | silence | n/a | ground truth empty — no crash, correct |
 
 **Honest reading:** these synthetic/TTS-domain fixtures are far harder than the
@@ -108,9 +110,39 @@ production use case — they do **not** meet the <=15% target, and the real held
 WER (0.227) shows the model is much stronger on actual human speech. Treat this table as
 a **regression baseline** (deltas matter), not an absolute quality score. Two real
 follow-ups surfaced: (1) `long5min --words` was killed (memory) — **fixed** by windowing
-long audio in `_windowed_transcribe` (bounded 45s windows, cuts snapped to low-energy
-points; short clips take the unchanged single-shot path, verified byte-identical);
-(2) fixture WER itself is high — the fixtures may be TTS-domain-mismatched.
+long audio in `_windowed_transcribe` (bounded ~60s windows, cuts snapped to VAD
+boundaries, plus a long-audio resumable path — see §1.2c; short clips take the unchanged
+single-shot path); (2) fixture WER itself is high — the fixtures may be
+TTS-domain-mismatched.
+
+### 1.2c Long-audio resumability & punctuation (2026-09-17)
+
+Engine changes on top of 1.4.14 (repo; shipped in the next version):
+
+- **Rule-based punctuation.** `amh_correct.punctuate_words()` appends `።` (sentence end)
+  when the gap to the next word is ≥ `AMH_PUNCT_PERIOD_GAP` (0.6s) and `፣` when ≥
+  `AMH_PUNCT_COMMA_GAP` (0.3s); the last cue always ends in `።`. `AMH_PUNCT=0` disables.
+  Applied in `make_cues()` *after* digit re-gluing so numbers stay intact. Verified on
+  `news`: `...አስታውቅዋል።` and a final `ተልዮዋል።`, WER unchanged.
+- **Resumable long audio.** Audio longer than `AMH_LONG_SECS` (300s) uses `_run_long()`:
+  VAD-boundary windows of ~`AMH_WINDOW_SECS` (60s). After every window it rewrites a
+  valid partial SRT and a journal `<out_srt>.part.json` (`{fp,total,done,cues,texts}`).
+  A killed/timed-out run resumes (fingerprint-checked against the WAV) and processes only
+  the remaining windows; the journal is deleted on clean finish. Verified end-to-end:
+  a run killed at `1/6` windows left 23 cues + journal; rerun logged
+  `resuming long audio: 1/6 windows already done` and continued.
+- **Unit tests.** `tools/test/test_long.py` (stub engine, no model, no torch) covers
+  window coverage, resume-skips-done-windows, journal cleanup, and punctuation. Run:
+  `python3 tools/test/test_long.py`.
+- **Per-clip batch cache (panel).** `main.js` now caches one entry per clip
+  (`clipCacheKey`), so re-running a sequence after editing/adding a clip re-transcribes
+  only the changed clip(s); cue→clip attribution via `attributeCues`, serialization via
+  `srtFromCues`. Whole-file entries from the single-clip path are shared. `node --check`
+  passes; no functional JS test yet (gap #2).
+- **API key (server).** Verified 2026-09-17 against the deployed Worker
+  (`amharic-captions-bot.amhcaps.workers.dev`): `POST /api/ping` returns
+  `200 {"ok":true}` with the shipped `X-Api-Key`, and `401 {"error":"unauthorized"}`
+  without it or with a wrong key. Enforcement is live and the panel key matches.
 
 ### 1.3 Correctness of caption grouping / timing (visual)
 
@@ -239,7 +271,9 @@ truth).
    `{"ok": true, "skipped": N}`. Follow-up `long5min` in `--words` mode OOM — **FIXED**
    by windowing long audio (see §1.2b).
 2. **`ctc_beam` / `amh_correct` self-checks are the only automated tests** — no
-   integration tests exist. Add `tools/test/` harness (see below).
+   integration tests exist. `tools/test/test_long.py` now covers long-audio windowing +
+   resume + punctuation (stub engine, no model); panel/JS behavior still has only
+   `node --check`.
 3. **No golden audio `fixtures/`** — cannot assert real accuracy. Must be recorded.
 4. **Mel extractor on ultra-short (<400 sample) audio degrades** — confirm the
    `short1` case returns *something* acceptable or a clean error.

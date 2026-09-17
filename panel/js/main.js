@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.4.14';
+const APP_VERSION = '1.4.15';
 
 const csi = new CSInterface();
 
@@ -1291,24 +1291,46 @@ function cacheKey(sourcePath, range, offset) {
   return h.digest('hex').slice(0, 24);
 }
 
-// Same as cacheKey but for a merged batch (all clips + their offsets).
-function batchCacheKey(items) {
-  const h = crypto.createHash('sha1');
-  h.update('batch:' + CAP + ':' + GROUP_SIZE + ':' + MAX_CHARS + ':' + engineHash() + ':' + MODEL_DIR);
-  for (const it of items) {
-    h.update('|');
-    h.update(it.sourcePath || '');
-    h.update(':' + String(it.offset || 0));
-    if (it.sourceIn !== undefined || it.duration !== undefined) {
-      h.update(':' + String(it.sourceIn || 0));
-      h.update(':' + String(it.duration || 0));
-    }
-    try {
-      const st = fs.statSync(it.sourcePath);
-      h.update(':' + st.size + ':' + Math.floor(st.mtimeMs));
-    } catch (e) {}
+// Per-clip cache key for one batch item. Same dimensions as cacheKey() so a
+// clip transcribed alone shares the entry with the batch path — an edit then
+// re-transcribes ONLY the clips whose key actually changed.
+function clipCacheKey(it) {
+  return cacheKey(it.sourcePath, { sourceIn: it.sourceIn, duration: it.duration }, it.offset);
+}
+
+// Serialize cues to SRT text (mirror of writeSrt, without touching disk).
+function srtFromCues(cues) {
+  let out = '';
+  let idx = 0;
+  for (const cue of cues) {
+    idx += 1;
+    out += idx + '\n';
+    out += formatSrtTs(cue.start) + ' --> ' + formatSrtTs(cue.end) + '\n';
+    out += cleanCueLines(cue.text) + '\n\n';
   }
-  return h.digest('hex').slice(0, 24);
+  return out;
+}
+
+// Map freshly-transcribed cues back to their source item. Clips occupy
+// disjoint timeline ranges, so a cue belongs to the item whose [offset,
+// offset+duration] window holds its start (nearest item if none does). This
+// attribution only affects cache granularity, never the placed captions.
+function attributeCues(cues, items) {
+  const byItem = new Map();
+  for (const it of items) byItem.set(it, []);
+  for (const cue of cues) {
+    let pick = items[0] || null;
+    let best = Infinity;
+    for (const it of items) {
+      const o = it.offset || 0;
+      const d = it.duration || 0;
+      if (cue.start >= o - 0.05 && cue.start <= o + d + 0.5) { pick = it; best = 0; break; }
+      const dist = Math.min(Math.abs(cue.start - o), Math.abs(cue.start - (o + d)));
+      if (dist < best) { best = dist; pick = it; }
+    }
+    if (pick) byItem.get(pick).push(cue);
+  }
+  return byItem;
 }
 
 function cacheLookup(key) {
@@ -1322,12 +1344,14 @@ function cacheLookup(key) {
 
 async function cacheStore(key, srt, transcript) {
   cacheLoad()[key] = { srt, transcript, at: Date.now() };
-  // Keep the file bounded: drop oldest entries beyond 60.
+  // Per-clip caching means one entry per clip (plus whole-file entries), so
+  // keep a generous bound and drop the oldest beyond it.
+  const CAP_N = 200;
   const keys = Object.keys(cacheLoad());
-  if (keys.length > 60) {
+  if (keys.length > CAP_N) {
     const olds = keys.map((k) => ({ k, at: cacheLoad()[k].at || 0 }))
       .sort((a, b) => a.at - b.at);
-    for (const o of olds.slice(0, keys.length - 60)) delete cacheLoad()[o.k];
+    for (const o of olds.slice(0, keys.length - CAP_N)) delete cacheLoad()[o.k];
   }
   cacheSave();
 }
@@ -1425,52 +1449,74 @@ function transcribeOneShot(sourcePath, outSrt, range, offset, wav, onProgress) {
   });
 }
 
-// Transcribe several extracted wavs in ONE warm-worker batch (one model load).
-// items: [{ sourcePath?, sourceIn?, duration?, wav, offset, name? }].
+// Transcribe the given clips, using the per-clip cache so only CHANGED clips
+// are actually run through the model. Cached and freshly-produced cues are
+// merged (sorted) into one SRT in item order.
+// items: [{ sourcePath?, sourceIn?, duration?, wav?, offset, name?, cached? }].
 async function transcribeBatch(items, outSrt, onProgress) {
-  if (items.every((it) => it.sourcePath)) {
-    const key = batchCacheKey(items);
-    const hit = cacheLookup(key);
-    if (hit) {
-      fs.writeFileSync(outSrt, hit.srt, 'utf8');
-      lastCues = hit.cues;
-      lastSrtPath = outSrt;
-      if (onProgress) onProgress(items.length, items.length, 'cached');
-      return { outSrt, cues: hit.cues, transcript: hit.transcript, cached: true };
-    }
+  const hits = items.map((it) => it.cached ||
+    (it.sourcePath ? cacheLookup(clipCacheKey(it)) : null));
+  const misses = items.filter((it, i) => !hits[i]);
+
+  const finish = (byItem, transcript) => {
+    const all = [];
+    items.forEach((it, i) => {
+      const cs = hits[i] ? hits[i].cues : (byItem.get(it) || []);
+      for (const c of cs) all.push(c);
+    });
+    all.sort((a, b) => a.start - b.start);
+    fs.writeFileSync(outSrt, srtFromCues(all), 'utf8');
+    lastCues = all;
+    lastSrtPath = outSrt;
+    return { outSrt, cues: all, transcript: transcript || '', cached: misses.length === 0 };
+  };
+
+  if (misses.length === 0) {
+    if (onProgress) onProgress(items.length, items.length, 'cached');
+    return finish(new Map(), '');
   }
 
+  let byItem = new Map();
+  let transcript = '';
   try {
-    if (!warmStart()) {
-      // Server unavailable → one-shot process (one load, all clips).
-      return transcribeBatchOneShot(items, outSrt, onProgress);
+    if (warmStart()) {
+      const req = {
+        batch: misses.map((it) => ({ wav: it.wav, offset: it.offset, name: it.name || '' })),
+        out_srt: outSrt
+      };
+      if (onProgress) req.onProgress = onProgress;
+      const r = await warmSend(Object.assign(req, warmStyle()));
+      warmTouch();
+      if (r && r.skipped) {
+        log('Note: skipped ' + r.skipped + ' clip(s) that could not be transcribed.');
+      }
+      let parsed = [];
+      try { parsed = parseSrt(fs.readFileSync(outSrt, 'utf8')); } catch (e) {}
+      byItem = attributeCues(parsed, misses);
+      transcript = r.text || '';
+    } else {
+      // Server unavailable → one-shot process (one model load, misses only).
+      const one = await transcribeBatchOneShot(misses, outSrt, onProgress);
+      byItem = one.byItem;
+      transcript = one.transcript;
     }
-    const req = {
-      batch: items.map((it) => ({ wav: it.wav, offset: it.offset, name: it.name || '' })),
-      out_srt: outSrt
-    };
-    if (onProgress) req.onProgress = onProgress;
-    const withBatch = Object.assign(req, warmStyle());
-    const r = await warmSend(withBatch);
-    warmTouch();
-    if (r && r.skipped) {
-      log('Note: skipped ' + r.skipped + ' clip(s) that could not be transcribed.');
-    }
-    let cues = [];
-    try { cues = parseSrt(fs.readFileSync(outSrt, 'utf8')); } catch (e) {}
-    lastCues = cues;
-    lastSrtPath = outSrt;
-    if (items.every((it) => it.sourcePath)) {
-      await cacheStore(batchCacheKey(items), fs.readFileSync(outSrt, 'utf8'), r.text || '');
-    }
-    return { outSrt, cues, transcript: r.text || '', cached: false };
   } catch (e) {
     // Same as the single-clip path: a pending cancel must not respawn work.
     if (cancelRequested) throw new Error('Cancelled');
     if (e && e.message === 'Cancelled') throw e;
     if (!e || !WARM_TRANSPORT_ERRS.has(e.message)) throw e;
-    return transcribeBatchOneShot(items, outSrt, onProgress);
+    const one = await transcribeBatchOneShot(misses, outSrt, onProgress);
+    byItem = one.byItem;
+    transcript = one.transcript;
   }
+
+  for (const it of misses) {
+    if (!it.sourcePath) continue;
+    const cs = byItem.get(it) || [];
+    if (!cs.length) continue;
+    await cacheStore(clipCacheKey(it), srtFromCues(cs), '');
+  }
+  return finish(byItem, transcript);
 }
 
 // Original multi-clip one-shot fallback (one process, one model load).
@@ -1502,9 +1548,10 @@ function transcribeBatchOneShot(items, outSrt, onProgress) {
       let cues = [];
       try { cues = parseSrt(fs.readFileSync(outSrt, 'utf8')); } catch (e) {}
       try { fs.unlinkSync(reqPath); } catch (e) {}
+      const byItem = attributeCues(cues, items);
       lastCues = cues;
       lastSrtPath = outSrt;
-      resolve({ outSrt, cues, transcript: transcript.trim() });
+      resolve({ outSrt, cues, transcript: transcript.trim(), byItem });
     });
     $('cancelBtn').addEventListener('click', () => { try { child.kill(); } catch (e) {} }, { once: true });
   });
@@ -2081,40 +2128,50 @@ async function runWorkArea() {
 
   // Fast path: if every clip (by path+offset+mtime) is in the transcript cache,
   // skip audio extraction AND transcription entirely.
-  const cacheItems = clips.map((clip) => ({
-    sourcePath: clip.sourcePath,
-    sourceIn: clip.sourceIn,
-    duration: clip.duration,
-    offset: clip.timelineStart
-  }));
-  const batchCacheHit = cacheLookup(batchCacheKey(cacheItems));
-  if (batchCacheHit) {
+  // Per-clip cache: build an item per clip and look each one up. Only clips
+  // whose key changed are extracted + transcribed below.
+  const items = clips.map((clip) => {
+    const it = {
+      offset: clip.timelineStart, name: clip.name, duration: clip.duration,
+      sourcePath: clip.sourcePath, sourceIn: clip.sourceIn, cached: null
+    };
+    if (it.sourcePath) it.cached = cacheLookup(clipCacheKey(it));
+    return it;
+  });
+
+  // Fast path: every clip already cached → skip extraction AND transcription.
+  if (items.length && items.every((it) => it.cached)) {
     setProgress(0.95, 'Reading cached captions');
-    fs.writeFileSync(outSrt, batchCacheHit.srt, 'utf8');
-    lastCues = batchCacheHit.cues;
+    const all = [];
+    for (const it of items) for (const c of it.cached.cues) all.push(c);
+    all.sort((a, b) => a.start - b.start);
+    fs.writeFileSync(outSrt, srtFromCues(all), 'utf8');
+    lastCues = all;
     lastSrtPath = outSrt;
-    if (batchCacheHit.cues.length === 0) log('No speech detected in these clips — nothing to place.');
-    log('Done — ' + batchCacheHit.cues.length + ' captions written.');
+    if (all.length === 0) log('No speech detected in these clips — nothing to place.');
+    log('Done — ' + all.length + ' captions written (' +
+        items.length + ' clip(s) cached).');
     openReview(outSrt, 'sequence', 0, {});
     return;
   }
 
-  const items = [];
-  for (let n = 0; n < clips.length; n++) {
+  const misses = items.filter((it) => !it.cached);
+  if (misses.length < items.length) {
+    log('Using cached captions for ' + (items.length - misses.length) +
+        ' unchanged clip(s); transcribing ' + misses.length + ' changed clip(s).');
+  }
+  for (let n = 0; n < misses.length; n++) {
     if (cancelRequested) { log('Cancelled by user.'); return; }
-    const clip = clips[n];
-    setProgress((n + 1) / clips.length / 2, 'Extracting audio ' + (n + 1) + '/' + clips.length);
+    const it = misses[n];
+    setProgress((n + 1) / misses.length / 2, 'Extracting audio ' + (n + 1) + '/' + misses.length);
     const wav = path.join(os.tmpdir(), 'amh_extract_' + stamp + '_' + n + '.wav');
-    await extractAudio(clip, wav);
-    items.push({
-      wav, offset: clip.timelineStart, name: clip.name, duration: clip.duration,
-      sourcePath: clip.sourcePath, sourceIn: clip.sourceIn
-    });
+    await extractAudio(it, wav);
+    it.wav = wav;
   }
 
   if (cancelRequested) { log('Cancelled by user.'); return; }
 
-  log('Transcribing ' + items.length + ' clip(s) in one pass…');
+  log('Transcribing ' + misses.length + ' clip(s) in one pass…');
   const batchStart = Date.now();
   const r = await transcribeBatch(items, outSrt, (msgOrN, total, name) => {
     // Warm-worker callback passes {at, of, name}; one-shot passes (n, total, name).
@@ -2130,7 +2187,7 @@ async function runWorkArea() {
       (label && label.trim() ? ' (' + path.basename(label) + ')' : ''));
   });
 
-  for (const it of items) { try { fs.unlinkSync(it.wav); } catch (e) {} }
+  for (const it of items) { if (it.wav) { try { fs.unlinkSync(it.wav); } catch (e) {} } }
 
   if (!r.cues.length) log('No speech detected in these clips — nothing to place.');
   log('Done — ' + r.cues.length + ' captions written.');

@@ -1184,10 +1184,11 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders });
     }
     // Shared secret for the /api/* endpoints. When the AMH_API_KEY Worker
-    // secret is set, every /api call must present it (X-Api-Key).
-    // Transition window: currently OFF so already-installed panels keep
-    // working. Enable it in the exact same release as the panel build that
-    // sends the header (see DEPLOY.md).
+    // secret is set, every /api call must present it (X-Api-Key). Enforcement
+    // is LIVE: the deployed Worker has AMH_API_KEY set and shipped panels
+    // (>= v1.4.x) send the matching header — requests without it get 401.
+    // Rotate with care: ship the panel carrying the new API_KEY_HINT first,
+    // then update the secret (see DEPLOY.md).
     if (url.pathname.startsWith('/api/') && API_KEY) {
       const givenKey = request.headers.get('X-Api-Key') || '';
       if (!safeEqual(givenKey, API_KEY)) {

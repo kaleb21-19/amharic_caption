@@ -473,6 +473,14 @@ def make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=42):
         merged.append((tok, s, e))
         i += 1
     words = merged
+    # Rule-based punctuation from inter-word silence (VAD pauses surface here
+    # as large gaps). Done AFTER digit re-gluing so "2024" stays whole, and
+    # before grouping so sentence marks drive group_cues() flushing.
+    try:
+        from amh_correct import punctuate_words
+        words = punctuate_words(words)
+    except Exception:
+        pass
     if mode == "words":
         cues = group_word_cues(words, max_chars=max_chars)
     elif mode == "grouped" and group_size > 0:
@@ -552,25 +560,70 @@ def _snap_boundary(wav, nominal, lo, hi, win=320, search=16000 * 2):
     return a + k * win + win // 2
 
 
+def _window_target_samples():
+    secs = float(os.environ.get("AMH_WINDOW_SECS", "60"))
+    return max(1, int(secs * 16000))
+
+
+def _plan_windows(wav, target):
+    """Split `wav` into [(start_sample, end_sample), ...] whose cuts fall at
+    VAD silence boundaries wherever possible, so a long clip is transcribed in
+    bounded ~target-length pieces WITHOUT slicing through speech.
+
+    Strategy: greedily accumulate VAD speech regions until the next one would
+    exceed `target`, then cut in the middle of the silence gap before it. Any
+    remaining over-long stretch (no VAD, or one continuous region longer than
+    target) is split at low-energy points via _snap_boundary so memory stays
+    bounded regardless."""
+    n = len(wav)
+    if n <= target:
+        return [(0, n)]
+    bounds = [0]
+    segs = _vad_segments(wav)  # [(start_s, end_s), ...] in original timeline
+    if segs:
+        cur = 0
+        prev_end = 0
+        for s, e in segs:
+            s_i = max(0, int(round(s * 16000)))
+            e_i = min(n, int(round(e * 16000)))
+            if e_i - cur > target and prev_end > cur:
+                cut = (prev_end + s_i) // 2 if s_i > prev_end else prev_end
+                cut = max(cur + 1, min(cut, n))
+                if cut > bounds[-1]:
+                    bounds.append(cut)
+                    cur = cut
+            if e_i > prev_end:
+                prev_end = e_i
+    bounds.append(n)
+    out = []
+    for k in range(len(bounds) - 1):
+        st, en = bounds[k], bounds[k + 1]
+        while en - st > int(target * 1.3):
+            cut = _snap_boundary(wav, st + target, st + target // 2, en)
+            if cut <= st:
+                cut = st + target
+            cut = min(cut, en)
+            out.append((st, cut))
+            st = cut
+        if en > st:
+            out.append((st, en))
+    return out
+
+
 def _windowed_transcribe(engine, wav):
-    """Transcribe arbitrary-length audio in bounded windows (default 45s) so
+    """Transcribe arbitrary-length audio in bounded VAD-aligned windows so
     memory stays flat, merging per-window spans back onto the original timeline.
 
     Returns (text, spans, frame_dur) with spans in ORIGINAL sample-index space
     and frame_dur = 1/16000, matching the VAD path's contract (get_words uses
     s * frame_dur as seconds)."""
-    max_secs = float(os.environ.get("AMH_WINDOW_SECS", "45"))
-    max_len = int(max_secs * 16000)
     n = len(wav)
-    if max_len <= 0 or n <= int(max_len * 1.35):
+    target = _window_target_samples()
+    if n <= target:
         return engine._transcribe_one(wav)
     texts = []
     out_spans = []
-    st = 0
-    while st < n:
-        en = min(st + max_len, n)
-        if en < n:
-            en = _snap_boundary(wav, en, st + max_len // 2, n)
+    for st, en in _plan_windows(wav, target):
         text, spans, fdur = engine._transcribe_one(wav[st:en])
         if text:
             texts.append(text)
@@ -578,8 +631,33 @@ def _windowed_transcribe(engine, wav):
             ss = st + int(round(s * fdur * 16000))
             ee = st + int(round((e + 1) * fdur * 16000))
             out_spans.append((tok, ss, max(ss, ee)))
-        st = en
     return " ".join(texts), out_spans, 1.0 / 16000.0
+
+
+def _audio_fp(wav):
+    """Cheap fingerprint (length + first/last second) identifying a wav buffer
+    across runs, so a resume journal is only trusted for the SAME audio."""
+    import hashlib
+    h = hashlib.sha1()
+    arr = np.asarray(wav, dtype=np.float32)
+    h.update(str(arr.shape[0]).encode())
+    h.update(arr[:16000].tobytes())
+    h.update(arr[-16000:].tobytes())
+    return h.hexdigest()[:16]
+
+
+def _win_cues(engine, wav, st, en, mode, group_size, max_chars):
+    """Transcribe one window and return (text, cues) with cue times already on
+    the ORIGINAL timeline (spans shifted out of window-relative space)."""
+    text, spans, fdur = engine._transcribe_one(wav[st:en])
+    shifted = []
+    for tok, s, e in spans:
+        ss = st + int(round(s * fdur * 16000))
+        ee = st + int(round((e + 1) * fdur * 16000))
+        shifted.append((tok, ss, max(ss, ee)))
+    cues = make_cues(mode, group_size, shifted, 1.0 / 16000.0, text,
+                     engine.glyphs, max_chars=max_chars)
+    return text, cues
 
 
 def _vad_trim(wav):
@@ -678,11 +756,70 @@ def _glyphs_of(engine):
     return engine.glyphs
 
 
-def _run_file(engine, wav, mode, group_size, max_chars, offset):
+def _run_file(engine, wav, mode, group_size, max_chars, offset, out_srt=None):
     glyphs = engine.glyphs
+    # Audio past the long-audio threshold is chunked at VAD boundaries AND
+    # journaled to disk so an interrupted/crashed run resumes instead of
+    # starting over (see _run_long). Shorter clips keep the single-shot path
+    # (engine.transcribe still windows internally only past ~60s for memory).
+    long_secs = float(os.environ.get("AMH_LONG_SECS", "300"))
+    if out_srt and len(wav) > int(long_secs * 16000):
+        return _run_long(engine, wav, mode, group_size, max_chars, offset, out_srt)
     text, spans, frame_dur = engine.transcribe(wav)
     cues = make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=max_chars)
     return text, cues
+
+
+def _run_long(engine, wav, mode, group_size, max_chars, offset, out_srt):
+    """Transcribe long audio window-by-window, writing a valid partial SRT to
+    `out_srt` after EVERY window and a resume journal next to it. If the
+    process is interrupted, a later run with the same out_srt + audio resumes
+    from the last completed window (fingerprint-checked). Returns (text, cues)
+    for the whole clip; the journal is removed on clean completion."""
+    glyphs = engine.glyphs
+    wins = _plan_windows(wav, _window_target_samples())
+    total = len(wins)
+    chk = out_srt + ".part.json"
+    fp = _audio_fp(wav)
+    cues = []
+    texts = []
+    done = 0
+    if os.path.isfile(chk):
+        try:
+            with open(chk, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+            if saved.get("fp") == fp and saved.get("total") == total:
+                done = int(saved.get("done", 0))
+                cues = [tuple(c) for c in saved.get("cues", [])]
+                texts = list(saved.get("texts", []))
+                if done > total or done < 0:
+                    done, cues, texts = 0, [], []
+                elif out_srt and cues:
+                    write_srt(out_srt, cues, offset)  # restore visible partial
+                print("[info] resuming long audio: %d/%d windows already done"
+                      % (done, total), file=sys.stderr)
+        except Exception:
+            done, cues, texts = 0, [], []
+    for k in range(done, total):
+        st, en = wins[k]
+        text, wcues = _win_cues(engine, wav, st, en, mode, group_size, max_chars)
+        if text:
+            texts.append(text)
+        cues.extend(wcues)
+        done = k + 1
+        if out_srt:
+            write_srt(out_srt, cues, offset)  # partial, fully valid SRT
+        try:
+            with open(chk, "w", encoding="utf-8") as f:
+                json.dump({"fp": fp, "total": total, "done": done,
+                           "cues": [list(c) for c in cues], "texts": texts}, f)
+        except Exception:
+            pass
+    try:
+        os.remove(chk)
+    except Exception:
+        pass
+    return " ".join(texts), cues
 
 
 def main():
@@ -731,7 +868,7 @@ def main():
     print(f"[info] engine: {'CTranslate2 int8' if _use_ct2() else 'transformers/torch'}")
     print("[info] loading audio:", audio_path)
     wav = read_wav(audio_path)
-    text, cues = _run_file(engine, wav, mode, group_size, max_chars, offset)
+    text, cues = _run_file(engine, wav, mode, group_size, max_chars, offset, out_path)
 
     print("--- full transcription ---")
     print(text)
@@ -795,8 +932,8 @@ def handle_server_one(engine, req, rid, out):
     mode, group, max_chars = request_style(req)
     offset = float(req.get("offset", 0.0))
     wav = read_wav(wav_path)
-    text, cues = _run_file(engine, wav, mode, group, max_chars, offset)
     out_srt = req.get("out_srt")
+    text, cues = _run_file(engine, wav, mode, group, max_chars, offset, out_srt)
     if out_srt:
         idx = write_srt(out_srt, cues, offset)
     else:

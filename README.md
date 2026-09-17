@@ -38,6 +38,15 @@ Pay **ETB 2,500** by bank transfer to **KALEB TEGEGEN** — CBE 1000504159977 ·
 - **Batch is per-clip resilient.** If one clip in a work-area run can't be
   decoded or transcribed, it is skipped (logged + counted) instead of aborting
   the whole run. A skipped count is reported when the batch finishes.
+- **Editing a work area is cheap.** Results are cached per clip, so re-running
+  a sequence after trimming, moving, or adding a clip only re-transcribes the
+  clip(s) that changed.
+- **Long clips are windowed and resumable.** Audio over 5 minutes is transcribed
+  in ~60-second windows snapped to speech boundaries; a partial `.srt` plus a
+  resume journal are written after each window, so an interrupted run continues
+  from where it stopped instead of restarting.
+- **Punctuation is rule-based.** Sentence (`።`) and clause (`፣`) marks are placed
+  at detected pauses; the recognizer itself does not predict punctuation.
 
 ### Install (Windows)
 
