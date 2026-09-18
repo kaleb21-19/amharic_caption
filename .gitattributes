@@ -1,0 +1,6 @@
+# Line-ending policy.
+# Install.cmd is a Windows batch file: cmd.exe mis-parses anything other than
+# CRLF (LF-only or a bare CR at EOF causes "': was unexpected at this time'").
+# Force CRLF on every checkout. Install.command is a macOS script -> LF.
+tools/installers/Install.cmd text eol=crlf
+*.cmd text eol=crlf

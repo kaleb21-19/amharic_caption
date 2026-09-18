@@ -160,6 +160,19 @@ echo "== runtime + panel staged (total $(du -sh "${BUILD_DIR}/${NAME}" | cut -f1
 INSTALLERS="${ROOT}/tools/installers"
 case "$TARGET" in
   win-*)
+    # Guard: cmd.exe mis-parses non-CRLF batch files (a bare \r at EOF or LF
+    # endings produce "': was unexpected at this time'" on the customer's
+    # machine). refactor-proof the endings before it can ship again.
+    python3 - "$INSTALLERS/Install.cmd" <<'PYEOF' || exit 1
+import re, sys
+b = open(sys.argv[1], "rb").read()
+stray = len(re.findall(rb"\r(?!\n)", b)) + len(re.findall(rb"(?<!\r)\n", b))
+if stray:
+    print(f"[fail] Install.cmd has {stray} non-CRLF line ending(s); cmd.exe "
+          f"will error with ': was unexpected at this time.' Fix the endings "
+          f"(git attr: tools/installers/Install.cmd text eol=crlf).")
+    sys.exit(1)
+PYEOF
     cp "$INSTALLERS/Install.cmd" "${BUILD_DIR}/Install.cmd"
     echo "  [ok] Install.cmd (windows one-click installer)"
     ;;
