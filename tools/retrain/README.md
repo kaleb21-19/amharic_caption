@@ -52,6 +52,23 @@ The runner:
 it prints the swap commands (`mv` the ct2 dir, re-run `tools/build.sh`). If
 WER regresses, it exits 1 and the current model stays put.
 
+## Kaggle path (no GPU machine, free)
+
+`kaggle/waxal_retrain.ipynb` runs the *same* pipeline on a free Kaggle T4 GPU
+session — clone the public repo, pull a few WAXAL shards (fast from HF on
+Kaggle), fine-tune the CTC head, WER-gate current-vs-retrained on a held-out
+slice, and export CTranslate2 int8. Import it on kaggle.com, edit the CONFIG
+cell, run all cells. Download `retrain_output.zip`, then:
+
+```bash
+rm -rf tools/stage/model-ct2-int8
+cp -R bundle/model-ct2-int8-retrain tools/stage/model-ct2-int8
+bash tools/build.sh mac-arm64   # then mac-x64, win-x64
+```
+
+Re-run the honest fixture set (the 40 clips that gave WER 0.227) before keeping
+the swap — the notebook's gate is only the relative current-vs-retrained call.
+
 ## Manual steps if you don't use run_all.sh
 
 ```bash
@@ -88,6 +105,7 @@ MODEL_DST=tools/stage/model-ct2-int8-retrain \
 | `tools/retrain/03_finetune_waxal.py` | CTC fine-tune (MPS/CUDA/CPU-safe loss) |
 | `tools/retrain/04_eval_wer.py` | WER gate; exits nonzero on regression |
 | `tools/retrain/run_all.sh` | end-to-end orchestrator |
+| `tools/retrain/kaggle/waxal_retrain.ipynb` | same pipeline as a free-Kaggle notebook |
 | `tools/make_model_ct2_int8.sh` | conversion (`MODEL_SRC` / `MODEL_DST` overridable) |
 
 ## About the data, honestly
