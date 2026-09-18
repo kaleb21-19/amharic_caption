@@ -18,6 +18,10 @@ Premiere**. They run fully offline using the bundled runtime.
 # Use the SAME bundled python the extension ships with:
 PY="$HOME/Library/Application Support/Adobe/CEP/extensions/com.amharic.captions/runtime/python/bin/python3"
 
+# 0) Panel logic tests (Node, no deps, offline — fastest, run first):
+node tools/test/test_panel.js      # pure core helpers (SRT/export/speakers/license)
+node tools/test/test_panel_dom.js  # main.js driven through a dom_shim inside vm
+
 # 1) Self-checks that ship inside the runtime:
 "$PY" "$HOME/Library/Application Support/Adobe/CEP/extensions/com.amharic.captions/runtime/ctc_beam.py"
 "$PY" "$HOME/Library/Application Support/Adobe/CEP/extensions/com.amharic.captions/runtime/amh_correct.py"
@@ -173,7 +177,14 @@ Engine changes on top of 1.4.14 (repo; shipped in the next version):
   VTT uses `<v S1>`. `detectSpeaker`/`normalizeCues` lift the engine's `[Sx] ` prefix
   into `cue.speaker` so each format gets the right tag.
 - **Unit tests.** `node tools/test/test_panel.js` → **24 passed** (adds `detectSpeaker`,
-  `normalizeCues`, and the per-format speaker serialization).
+  `normalizeCues`, and the per-format speaker serialization). `node tools/test/test_panel_dom.js`
+  → **5 passed**: loads `main.js` (with `core.js`) inside Node's `vm` against a
+  zero-dependency DOM shim (`tools/test/dom_shim.js`) and drives it as a browser would —
+  dark-theme + runtime/font/health rendering, settings persistence across a reload,
+  the license gate (bad keys rejected locally, trial-exhausted disables Generate,
+  server-confirmed activation), and a full cache-hit transcribe → review → edit →
+  SRT/VTT/TXT export (speaker tags `<v S1>`/`[S1]`/`S1: ` verified on disk) → nudge →
+  add → discard. Both suites run offline with **no** model/python/deps.
 
 ### 1.3 Correctness of caption grouping / timing (visual)
 
@@ -306,7 +317,8 @@ truth).
    resume + punctuation (stub engine, no model); `tools/test/test_panel.js` covers the
    panel's pure core helpers (`parseSrt`, serialization incl. speaker labels,
    `validateLicense` paths) in Node, and `amh_diarize.py` self-tests its pure
-   clustering/labelling. Still no browser/DOM test of `main.js` (CEP/ExtendScript).
+   clustering/labelling. `tools/test/test_panel_dom.js` (with `dom_shim.js`) adds the
+   DOM-level `main.js` coverage (settings, license gate, review→export) via Node's `vm`.
 3. **No golden audio `fixtures/`** — cannot assert real accuracy. Must be recorded.
 4. **Mel extractor on ultra-short (<400 sample) audio degrades** — confirm the
    `short1` case returns *something* acceptable or a clean error.

@@ -175,6 +175,20 @@ if stray:
 PYEOF
     cp "$INSTALLERS/Install.cmd" "${BUILD_DIR}/Install.cmd"
     echo "  [ok] Install.cmd (windows one-click installer)"
+    # Window-runtime verification harness (customer-facing). Same CRLF rule:
+    # silently shipping an LF-only .cmd would make cmd.exe mis-parse it.
+    python3 - "$INSTALLERS/verify_win.cmd" <<'PYEOF' || exit 1
+import re, sys
+b = open(sys.argv[1], "rb").read()
+stray = len(re.findall(rb"\r(?!\n)", b)) + len(re.findall(rb"(?<!\r)\n", b))
+if stray:
+    print(f"[fail] verify_win.cmd has {stray} non-CRLF line ending(s); "
+          f"cmd.exe will mis-parse it (git attr: tools/installers/verify_win.cmd text eol=crlf).")
+    sys.exit(1)
+PYEOF
+    cp "$INSTALLERS/verify_win.cmd" "${BUILD_DIR}/verify_win.cmd"
+    cp "$INSTALLERS/VERIFY.md" "${BUILD_DIR}/VERIFY.md"
+    echo "  [ok] verify_win.cmd + VERIFY.md (windows runtime verification harness)"
     ;;
   mac-*)
     cp "$INSTALLERS/Install.command" "${BUILD_DIR}/Install.command"
@@ -188,6 +202,6 @@ ZIP="${DIST}/amharic-captions-${TARGET}.zip"
 rm -f "$ZIP"
 (
   cd "$BUILD_DIR"
-  zip -r -q "$ZIP" "$NAME" Install.* -x "*.DS_Store"
+  zip -r -q "$ZIP" "$NAME" Install.* verify_win.cmd VERIFY.md -x "*.DS_Store"
 )
 echo "== wrote $ZIP ($(du -sh "$ZIP" | cut -f1)) =="

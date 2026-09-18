@@ -561,7 +561,7 @@ async function activateLicense() {
       setLicense({ key: key, valid: true, expiry: result.expiry, activated: Date.now(), serverValidated: true });
       updateLicenseUI();
       const logBox = document.getElementById('logBox');
-      if (logBox && logBox.textContent) logBox.textContent += '\nLicense activated successfully.';
+      if (logBox) logBox.textContent += (logBox.textContent ? '\n' : '') + 'License activated successfully.';
       return;
     }
     // Server unreachable:
@@ -570,7 +570,7 @@ async function activateLicense() {
       setLicense({ key: key, valid: true, expiry: result.expiry, activated: Date.now(), serverValidated: true });
       updateLicenseUI();
       const logBox = document.getElementById('logBox');
-      if (logBox && logBox.textContent) logBox.textContent += '\nLicense activated (offline, previously verified).';
+      if (logBox) logBox.textContent += (logBox.textContent ? '\n' : '') + 'License activated (offline, previously verified).';
       return;
     }
     // Not previously verified and server unreachable → refuse (fail-closed)
