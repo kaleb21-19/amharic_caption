@@ -58,16 +58,22 @@ WER regresses, it exits 1 and the current model stays put.
 session — clone the public repo, pull a few WAXAL shards (fast from HF on
 Kaggle), fine-tune the CTC head, WER-gate current-vs-retrained on a held-out
 slice, and export CTranslate2 int8. Import it on kaggle.com, edit the CONFIG
-cell, run all cells. Download `retrain_output.zip`, then:
+cell, run all cells. Download `retrain_output.zip`, unzip, then — **one
+command**:
 
 ```bash
-rm -rf tools/stage/model-ct2-int8
-cp -R bundle/model-ct2-int8-retrain tools/stage/model-ct2-int8
-bash tools/build.sh mac-arm64   # then mac-x64, win-x64
+bash tools/retrain/install_retrained.sh /path/to/unzipped/retrain_output
 ```
 
-Re-run the honest fixture set (the 40 clips that gave WER 0.227) before keeping
-the swap — the notebook's gate is only the relative current-vs-retrained call.
+It refuses a `REJECT` bundle, backs up `tools/stage/model-ct2-int8` to
+`model-ct2-int8.prev`, swaps in the retrained int8 model, re-scores old-vs-new
+on `tools/stage/waxal/holdout.tsv` (same `04_eval_wer.py` as the Kaggle gate,
+auto-reverts on regression), then rebuilds mac-arm64 + mac-x64 + win-x64
+(~25-30 min). Rollback: `mv tools/stage/model-ct2-int8.prev tools/stage/model-ct2-int8`.
+
+Re-run the honest fixture set (the 40 clips that gave WER 0.227) against the
+newly built zips before keeping the swap — the notebook's gate is only the
+relative current-vs-retrained call.
 
 ## Manual steps if you don't use run_all.sh
 
