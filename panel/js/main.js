@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.4.18';
+const APP_VERSION = '1.4.19';
 
 const csi = new CSInterface();
 

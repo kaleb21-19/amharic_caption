@@ -79,7 +79,31 @@ Copy-Item (Join-Path $PYDIR "*") (Join-Path $BNAME "runtime\python") -Recurse
 Copy-Item "$ROOT\panel\*" $BNAME -Recurse
 
 # one-click installer (shipped at zip root, next to the extension folder)
-Copy-Item (Join-Path $ROOT "tools\installers\Install.cmd") (Join-Path $BUILD "Install.cmd")
+$INST = Join-Path $ROOT "tools\installers"
+
+function Assert-CrlOnly([string]$Path, [string]$What) {
+    $raw = [System.IO.File]::ReadAllBytes($Path)
+    $bareLf = 0; $bareCr = 0; $i = 0
+    while ($i -lt $raw.Length) {
+        if ($raw[$i] -eq 13 -and $i + 1 -lt $raw.Length -and $raw[$i+1] -eq 10) {
+            $i += 2; continue                                      # valid CRLF pair
+        }
+        if ($raw[$i] -eq 13) { $bareCr++ } elseif ($raw[$i] -eq 10) { $bareLf++ }
+        $i++
+    }
+    if ($bareLf -gt 0 -or $bareCr -gt 0) {
+        Write-Host "  [FAIL] $What has $bareLf LF and $bareCr bare-CR ending(s); cmd.exe will mis-parse it ('.. was unexpected at this time'). Fix the endings (git attr: *.cmd text eol=crlf)."
+        exit 1
+    }
+    Write-Host "  [ok] $What (CRLF validated)"
+}
+
+Assert-CrlOnly (Join-Path $INST "Install.cmd")    "Install.cmd"
+Copy-Item (Join-Path $INST "Install.cmd") (Join-Path $BUILD "Install.cmd")
+Assert-CrlOnly (Join-Path $INST "verify_win.cmd") "verify_win.cmd"
+Copy-Item (Join-Path $INST "verify_win.cmd") (Join-Path $BUILD "verify_win.cmd")
+Copy-Item (Join-Path $INST "VERIFY.md")          (Join-Path $BUILD "VERIFY.md")
+Write-Host "  [ok] verify_win.cmd + VERIFY.md (windows runtime verification harness)"
 
 # ---- 4. zip ----------------------------------------------------------------
 $ZIP = Join-Path $ROOT "dist\amharic-captions-$TARGET.zip"
@@ -87,9 +111,9 @@ New-Item -ItemType Directory -Force -Path (Join-Path $ROOT "dist") | Out-Null
 if (Test-Path $ZIP) { Remove-Item -Force $ZIP }
 
 if (Get-Command 7z -ErrorAction SilentlyContinue) {
-    Push-Location $BUILD; 7z a -tzip -r $ZIP "com.amharic.captions" "Install.cmd" -xr!".DS_Store"; Pop-Location
+    Push-Location $BUILD; 7z a -tzip -r $ZIP "com.amharic.captions" "Install.cmd" "verify_win.cmd" "VERIFY.md" -xr!".DS_Store"; Pop-Location
 } else {
-    Compress-Archive -Path (Join-Path $BNAME), (Join-Path $BUILD "Install.cmd") -DestinationPath $ZIP -CompressionLevel Optimal
+    Compress-Archive -Path (Join-Path $BNAME), (Join-Path $BUILD "Install.cmd"), (Join-Path $BUILD "verify_win.cmd"), (Join-Path $BUILD "VERIFY.md") -DestinationPath $ZIP -CompressionLevel Optimal
 }
 Remove-Item -Recurse -Force $BUILD
 Write-Host "== wrote $ZIP =="
