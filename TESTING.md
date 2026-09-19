@@ -30,9 +30,10 @@ node tools/test/test_panel_dom.js  # main.js driven through a dom_shim inside vm
 "$PY" "$HOME/Library/Application Support/Adobe/CEP/extensions/com.amharic.captions/runtime/ctc_beam.py"
 "$PY" "$HOME/Library/Application Support/Adobe/CEP/extensions/com.amharic.captions/runtime/amh_correct.py"
 
-# 3) Word-split LM self-check (ships in the runtime; headword split cases are
-#    skipped when their parts are absent from the shipped vocab; the
-#    known-word cases stay strict):
+# 3) Word-split LM self-check (ships in the runtime). Asserts REAL glue splits
+#    (e.g. ኢትዮጵያሀገሬ -> ኢትዮጵያ ሀገሬ) plus known-word stay-whole cases; the two
+#    headword cases whose parts this corpus never contained report [skip] —
+#    an artifact rebuilt from any corpus can't split into unseen words:
 "$PY" "$HOME/Library/Application Support/Adobe/CEP/extensions/com.amharic.captions/runtime/amh_lm.py"
 
 # 4) Server-side worker auth (requires Node 22+, in tools/telegram-worker):
