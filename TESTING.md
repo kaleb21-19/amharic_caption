@@ -200,6 +200,24 @@ Engine changes on top of 1.4.14 (repo; shipped in the next version):
   SRT/VTT/TXT export (speaker tags `<v S1>`/`[S1]`/`S1: ` verified on disk) → nudge →
   add → discard. Both suites run offline with **no** model/python/deps.
 
+### 1.2e Ultra-short audio is a clean error (2026-09-19)
+
+Audio shorter than one mel frame pair (**560 samples = 35 ms @ 16 kHz**) can't
+form two mel frames; the old ddof=1 per-bin variance came out **NaN**, feeding
+garbage into the model. `amh_mel.MelExtractor` now raises a plain
+`ValueError("audio too short …")` below that floor (and for empty audio):
+- `--server` / batch paths catch it per clip → `{"ok":false,"error":…}` or
+  `skipped:N` — one bad clip never aborts the rest of a work area.
+- Long-audio *windows* below the floor are skipped with an `[info]` line (the
+  planner normally never emits tails that small; this is defense-in-depth for
+  VAD-boundary cuts) so a clip's tiny leftover can't kill the whole run.
+- A single ultra-short file via the CLI prints `[error] … cannot transcribe.`
+  and exits 1 — no traceback.
+
+Regression coverage: `python3 tools/test/test_mel_short.py` (raises for
+0/300/559 samples, finite features at ≥560 and for 1 s) and §5 of
+`tools/test/test_long.py` (single-shot clean raise + degenerate-window skip).
+
 ### 1.3 Correctness of caption grouping / timing (visual)
 
 For `long5min` import into Premiere and verify:
@@ -314,6 +332,7 @@ imported file — can bypass the two-trial limit.
 | ffmpeg | Feed a **corrupt/truncated** file | Clean "ffmpeg failed" / "Python failed" error, no hang |
 | ffmpeg | Very short clip (<1s) | No crash; min-duration enforced or clean error |
 | python | `silence.wav` (no speech) | Bucket: all-blank -> empty/no cues, no traceback |
+| python | **ultra-short clip** (<560 samples, ~35 ms) | Clean "audio too short" error — per-clip skip + `skipped:N` in batch/server, exit 1 on the CLI; long-clip degenerate windows skipped, never fatal (fixed §8#4; see §1.2e) |
 | batch | One bad WAV in the middle of a work area | FIXED: bad clip is skipped (logged + counted), rest are captioned, run returns `skipped:N` |
 | batch | ALL clips in a work area are bad | FIXED: run completes with `ok` + all skipped, no crash/abort |
 | cancel | Tap Cancel during ffmpeg | Process killed, clean return |
@@ -347,8 +366,15 @@ imported file — can bypass the two-trial limit.
    clustering/labelling. `tools/test/test_panel_dom.js` (with `dom_shim.js`) adds the
    DOM-level `main.js` coverage (settings, license gate, review→export) via Node's `vm`.
 3. **No golden audio `fixtures/`** — cannot assert real accuracy. Must be recorded.
-4. **Mel extractor on ultra-short (<400 sample) audio degrades** — confirm the
-   `short1` case returns *something* acceptable or a clean error.
+4. **Mel extractor on ultra-short (<400 sample) audio degrades** — **FIXED**:
+   fewer than two mel frames made the ddof=1 per-bin variance NaN, which flowed
+   into the model as garbage. `amh_mel.MelExtractor` now raises a clean
+   `ValueError("audio too short …")` below 560 samples (400 frame + 160 hop =
+   35 ms @ 16 kHz) — the batch/`--server` callers treat it as a per-clip skip
+   (`skipped:N`), the single-shot CLI prints a clean error and exits 1, and a
+   degenerate *window* of a long clip is skipped, never fatal. Regression tests:
+   `python3 tools/test/test_mel_short.py` (real assets) and section 5 of
+   `tools/test/test_long.py` (stub engine).
 
 ---
 

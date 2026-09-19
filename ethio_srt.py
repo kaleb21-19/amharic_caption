@@ -624,7 +624,15 @@ def _windowed_transcribe(engine, wav):
     texts = []
     out_spans = []
     for st, en in _plan_windows(wav, target):
-        text, spans, fdur = engine._transcribe_one(wav[st:en])
+        try:
+            text, spans, fdur = engine._transcribe_one(wav[st:en])
+        except ValueError as e:
+            # A trailing window shorter than one mel frame (35ms) carries no
+            # speech; skip it so it can't fail the rest of a long clip.
+            if not str(e).startswith("audio too short"):
+                raise
+            print("[info] window %d-%d skipped: %s" % (st, en, e), file=sys.stderr)
+            continue
         if text:
             texts.append(text)
         for tok, s, e in spans:
@@ -649,7 +657,15 @@ def _audio_fp(wav):
 def _win_cues(engine, wav, st, en, mode, group_size, max_chars):
     """Transcribe one window and return (text, cues) with cue times already on
     the ORIGINAL timeline (spans shifted out of window-relative space)."""
-    text, spans, fdur = engine._transcribe_one(wav[st:en])
+    try:
+        text, spans, fdur = engine._transcribe_one(wav[st:en])
+    except ValueError as e:
+        # Degenerate sub-window (<35ms of audio): no speech, no cues. Skip it
+        # so a long clip's tiny tail can't abort the whole transcription.
+        if not str(e).startswith("audio too short"):
+            raise
+        print("[info] window %d-%d skipped: %s" % (st, en, e), file=sys.stderr)
+        return "", []
     shifted = []
     for tok, s, e in spans:
         ss = st + int(round(s * fdur * 16000))
@@ -893,8 +909,18 @@ def main():
     print(f"[info] engine: {'CTranslate2 int8' if _use_ct2() else 'transformers/torch'}")
     print("[info] loading audio:", audio_path)
     wav = read_wav(audio_path)
-    text, cues = _run_file(engine, wav, mode, group_size, max_chars, offset, out_path,
-                           speakers=speakers)
+    try:
+        text, cues = _run_file(engine, wav, mode, group_size, max_chars, offset, out_path,
+                               speakers=speakers)
+    except ValueError as e:
+        # A clip shorter than one mel frame (35 ms) is un-transcribable; report
+        # it as a clean user-facing error instead of a traceback (batch/--server
+        # paths already map this to a per-clip skip + skipped:N count).
+        if str(e).startswith("audio too short"):
+            print("[error] %s — clip is shorter than one mel frame (35 ms); "
+                  "cannot transcribe." % e, file=sys.stderr)
+            sys.exit(1)
+        raise
 
     print("--- full transcription ---")
     print(text)

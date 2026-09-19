@@ -66,11 +66,24 @@ def _log_mel_fbank(waveform, window, mel_filters):
 
 
 class MelExtractor:
+    # One mel frame covers frame_length (400) samples; the per-bin
+    # normalization below uses a ddof=1 sample variance, which is NaN when
+    # there is only a single frame. Requiring at least frame_length + hop
+    # samples guarantees >= 2 frames and a well-defined feature.
+    MIN_SAMPLES = 400 + 160  # frame_length + hop_length = 35 ms @ 16 kHz
+
     def __init__(self, asset_dir):
         self.mel_filters, self.window = load_assets(asset_dir)
 
     def __call__(self, wav, sampling_rate=16000):
         wav = np.asarray(wav, dtype=np.float32).reshape(-1)
+        if len(wav) < self.MIN_SAMPLES:
+            # Clean early error instead of a single-frame NaN feature that
+            # would poison the whole logit tensor (callers treat this as a
+            # skip/too-short signal, never as a crash).
+            raise ValueError(
+                "audio too short (%d samples): need >= %d (%d frame + %d hop) "
+                "for at least two mel frames" % (len(wav), self.MIN_SAMPLES, 400, 160))
         mel = _log_mel_fbank(wav, self.window, self.mel_filters)  # (T,80)
         mel = (mel - mel.mean(axis=0)) / np.sqrt(mel.var(axis=0, ddof=1) + 1e-7)
         T = mel.shape[0]

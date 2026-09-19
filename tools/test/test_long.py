@@ -86,5 +86,29 @@ os.environ["AMH_PUNCT"] = "0"
 check("AMH_PUNCT=0 returns input unchanged", punctuate_words(aligned) is aligned)
 del os.environ["AMH_PUNCT"]
 
+# ---- 5. degenerate (<1 mel frame) audio is a clean error, never NaN (gap #4) -
+# The planner always appends full remainders, so sub-windows of a long clip are
+# normally > one mel frame; guard the edge anyway. What matters in production:
+# a WHOLE short clip on the single-shot path must raise a clean "audio too
+# short" error (mapped to skip + skipped:N by the batch/--server callers), and
+# a degenerate window must be skippable without a traceback.
+class ShortTailEngine(StubEngine):
+    def _transcribe_one(self, w):
+        if len(w) < 560:  # mirrors the amh_mel.MelExtractor guard
+            raise ValueError("audio too short (%d samples): need >= 560"
+                             " (400 frame + 160 hop) for at least two mel frames" % len(w))
+        return StubEngine._transcribe_one(self, w)
+
+
+try:
+    E._windowed_transcribe(ShortTailEngine(), np.zeros(300, dtype=np.float32))
+    check("300-sample clip raises 'audio too short'", False)
+except ValueError as e:
+    check("300-sample clip raises 'audio too short'",
+          str(e).startswith("audio too short"))
+eng4 = ShortTailEngine()
+got, wcues = E._win_cues(eng4, np.zeros(0, dtype=np.float32), 0, 0, "grouped", 0, 42)
+check("_win_cues skips a too-short window cleanly", got == "" and wcues == [] and eng4.calls == 0)
+
 print("\nALL PASS" if fails == 0 else f"\n{fails} FAILED")
 sys.exit(1 if fails else 0)
