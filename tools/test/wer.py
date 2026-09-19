@@ -4,11 +4,37 @@
 Usage:
   python3 wer.py --truth truth.txt --hyp out.srt [--hyp-is-text]
 
-Normalizes (lowercase, collapse whitespace, strip punctuation) before comparing.
-SRT input: extracts subtitle text lines and joins them.
+Normalizes (lowercase, collapse whitespace, strip punctuation, canonicalize
+Amharic homophone letter families) before comparing, and reports both WER and
+CER. SRT input: extracts subtitle text lines and joins them.
+
+Two Amharic-specific evaluations are folded in (see tools/retrain/IMPROVEMENTS.md
+"eval hygiene", item 7):
+  * WER uses homophone-canonicalized tokens: the merged Ethiopic letter series
+    (ሐ/ኀ→ሀ, ሠ→ሰ, ፀ→ጸ, ዐ→አ) are genuine modern homophones, so a spelling that
+    differs only there is not an ASR error.
+  * CER is also printed — agglutinative Amharic word boundaries are not fixed
+    (ነውአሉ vs ነው አሉ), so one glued word counts as one WER error but only a
+    fraction of a CER error.
 """
 import argparse
 import re
+
+# Modern-Amharic homophone letter classes, mapped order-by-order to the
+# surviving letter (ኀ merged into ሐ then ሀ; ሠ→ሰ; ፀ→ጸ; the ʿayn series ዐ-ዕ
+# merged into the ʾalef series አ-እ). Same pronunciation today, so spelling
+# differences here are NOT ASR errors.
+_AMH_HOMOPHONE = str.maketrans(
+    "ሐሑሒሓሔሕሖ"  # ḫ/ḥ -> h
+    "ኀኁኂኃኄኅኆ"  # ḫ  -> h
+    "ሠሡሢሣሤሥሦ"  # š  -> s
+    "ፀፁፂፃፄፅፆ"  # ṡ  -> ts'
+    "ዐዑዒዓዔዕ"  # ʿ  -> ʾ
+    , "ሀሁሂሃሄህሆ"
+      "ሀሁሂሃሄህሆ"
+      "ሰሱሲሳሴስሦ"
+      "ጸጹጺጻጼጽጾ"
+      "አኡኢኣኤእ")
 
 
 def normalize(text: str) -> list:
@@ -21,6 +47,7 @@ def normalize(text: str) -> list:
     # (U+1369–U+137C) are kept.
     text = re.sub(r"[\u1360-\u1368]", " ", text)
     text = re.sub(r"[^\w\s\u1200-\u137F]", " ", text)
+    text = text.translate(_AMH_HOMOPHONE)
     tokens = re.findall(r"[\u1200-\u137F\w]+", text)
     return tokens
 
@@ -42,6 +69,17 @@ def read_srt_text(path: str) -> str:
     return "\n".join(lines)
 
 
+def _lev(a: str, b: str) -> int:
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i] + [0] * len(b)
+        for j, cb in enumerate(b, 1):
+            cur[j] = min(prev[j] + 1, cur[j - 1] + 1,
+                         prev[j - 1] + (ca != cb))
+        prev = cur
+    return prev[len(b)]
+
+
 def wer(ref: list, hyp: list) -> float:
     # Levenshtein edit distance over tokens, then WER = dist / len(ref)
     n, m = len(ref), len(hyp)
@@ -56,6 +94,14 @@ def wer(ref: list, hyp: list) -> float:
             dp[i][j] = min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost)
     dist = dp[n][m]
     return (dist / n) if n else (0.0 if not m else 1.0)
+
+
+def cer(ref: list, hyp: list) -> float:
+    # Character error rate over the normalized streams joined by single spaces,
+    # so word-boundary differences (glued/split morphemes) cost fractions, not 1.
+    s_ref, s_hyp = " ".join(ref), " ".join(hyp)
+    d = _lev(s_ref, s_hyp)
+    return (d / len(s_ref)) if s_ref else (0.0 if not s_hyp else 1.0)
 
 
 def main():
@@ -87,8 +133,10 @@ def main():
         raise SystemExit(1)
 
     rate = wer(ref, hyp)
+    c_rate = cer(ref, hyp)
     gate = max(0.0, args.max_wer)
-    print(f"ref tokens: {len(ref)}  hyp tokens: {len(hyp)}  WER: {rate*100:.1f}%")
+    print(f"ref tokens: {len(ref)}  hyp tokens: {len(hyp)}  "
+          f"WER: {rate*100:.1f}%  CER: {c_rate*100:.1f}%")
     if rate > gate:
         print(f"  -> FAIL: WER above gate ({rate*100:.1f}% > {gate*100:.0f}%)")
         raise SystemExit(1)

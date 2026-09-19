@@ -33,6 +33,14 @@ def load_audio(path):
     return w
 
 
+# Modern-Amharic homophone letter classes, mapped order-by-order to the
+# surviving letter (see tools/test/wer.py — keep the two in lockstep):
+# ኀ,ሐ→ሀ ; ሠ→ሰ ; ፀ→ጸ ; the ʿayn series ዐ-ዕ → the ʾalef series አ-እ.
+_AMH_HOMOPHONE = str.maketrans(
+    "ሐሑሒሓሔሕሖኀኁኂኃኄኅኆሠሡሢሣሤሥሦፀፁፂፃፄፅፆዐዑዒዓዔዕ",
+    "ሀሁሂሃሄህሆሀሁሂሃሄህሆሰሱሲሳሴስሦጸጹጺጻጼጽጾአኡኢኣኤእ")
+
+
 def normalize(text: str) -> list:
     text = text.lower()
     # Ethiopic punctuation (U+1360–U+1368: ፠፡።፣፤፥፦፧) lives INSIDE the
@@ -41,6 +49,7 @@ def normalize(text: str) -> list:
     # (Same normalizer as tools/test/wer.py — keep the two in lockstep.)
     text = re.sub(r"[\u1360-\u1368]", " ", text)
     text = re.sub(r"[^\w\s\u1200-\u137F]", " ", text)
+    text = text.translate(_AMH_HOMOPHONE)
     return re.findall(r"[\u1200-\u137F\w]+", text)
 
 
@@ -57,6 +66,21 @@ def wer(ref_tokens, hyp_tokens) -> float:
             dp[i][j] = min(dp[i - 1][j] + 1, dp[i][j - 1] + 1,
                            dp[i - 1][j - 1] + c)
     return (dp[n][m] / n) if n else (0.0 if not m else 1.0)
+
+
+def cer(ref_tokens, hyp_tokens) -> float:
+    def lev(a: str, b: str) -> int:
+        prev = list(range(len(b) + 1))
+        for i, ca in enumerate(a, 1):
+            cur = [i] + [0] * len(b)
+            for j, cb in enumerate(b, 1):
+                cur[j] = min(prev[j] + 1, cur[j - 1] + 1,
+                             prev[j - 1] + (ca != cb))
+            prev = cur
+        return prev[len(b)]
+    s_ref, s_hyp = " ".join(ref_tokens), " ".join(hyp_tokens)
+    d = lev(s_ref, s_hyp)
+    return (d / len(s_ref)) if s_ref else (0.0 if not s_hyp else 1.0)
 
 
 def transcribe(processor, model, device, audio):
@@ -116,6 +140,8 @@ def main():
 
     tot_c = 0.0
     tot_n = 0.0
+    tot_cc = 0.0
+    tot_nc = 0.0
     count = 0
     print(f"  {'row':>4}  {'(total) current':>16} {'(total) retrained':>17}  example")
     for i, (path, truth) in enumerate(rows):
@@ -127,13 +153,18 @@ def main():
         w_n = wer(ref, normalize(hy_n))
         tot_c += w_c
         tot_n += w_n
+        tot_cc += cer(ref, normalize(hy_c))
+        tot_nc += cer(ref, normalize(hy_n))
         count += 1
         print(f"  {i:>4}  {w_c:>16.3f} {w_n:>17.3f}  "
               f"{'OK' if w_n <= w_c else 'REGRESS'}  {truth[:26]}")
 
     avg_c = tot_c / count if count else float("nan")
     avg_n = tot_n / count if count else float("nan")
+    avg_cc = tot_cc / count if count else float("nan")
+    avg_nc = tot_nc / count if count else float("nan")
     print(f"\n[result] mean WER  current={avg_c:.3f}  retrained={avg_n:.3f}")
+    print(f"[result] mean CER  current={avg_cc:.3f}  retrained={avg_nc:.3f}")
     print(f"[result] 'retrained <= current' -> "
           f"{'KEEP (ship it)' if avg_n <= avg_c else 'REJECT (keep current)'}")
     sys.exit(0 if avg_n <= avg_c else 1)
