@@ -155,8 +155,12 @@ Engine changes on top of 1.4.14 (repo; shipped in the next version):
 - **Per-clip batch cache (panel).** `main.js` now caches one entry per clip
   (`clipCacheKey`), so re-running a sequence after editing/adding a clip re-transcribes
   only the changed clip(s); cue→clip attribution via `attributeCues`, serialization via
-  `srtFromCues`. Whole-file entries from the single-clip path are shared. `node --check`
-  passes; no functional JS test yet (gap #2).
+  `srtFromCues`. Whole-file entries from the single-clip path are shared. Functional
+  coverage in `tools/test/test_panel_dom.js` (tests 6–7, warm-worker IO faked via
+  `opts.hooks`): a sequence run serves an unchanged clip from its single-clip cache
+  entry, all-cached re-runs never touch the worker, an edit busts only that clip's key,
+  and `attributeCues` window/nearest-fallback attribution + `srtFromCues`⇄
+  `srtTextFromCues` mirroring are asserted.
 - **API key (server).** Verified 2026-09-17 against the deployed Worker
   (`amharic-captions-bot.amhcaps.workers.dev`): `POST /api/ping` returns
   `200 {"ok":true}` with the shipped `X-Api-Key`, and `401 {"error":"unauthorized"}`
@@ -385,6 +389,8 @@ imported file — can bypass the two-trial limit.
    `validateLicense` paths) in Node, and `amh_diarize.py` self-tests its pure
    clustering/labelling. `tools/test/test_panel_dom.js` (with `dom_shim.js`) adds the
    DOM-level `main.js` coverage (settings, license gate, review→export) via Node's `vm`.
+   It also exercises the per-clip batch cache end-to-end (single-clip cache sharing,
+   all-cached fast path, edit re-transcribes only the changed clip).
 3. **No golden audio `fixtures/`** — harness built 2026-09-19; **real recorded
    goldens still to be added for an accuracy gate**. `tools/test/wer.py`,
    `tools/test/run_engine.sh` (now `--fixtures DIR` + `--max-wer` aware) and

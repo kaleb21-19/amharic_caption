@@ -5,9 +5,12 @@
  * Loads main.js (plus core.js) inside Node's vm with a minimal no-dependency
  * DOM shim (tools/test/dom_shim.js), then drives the panel as a browser would:
  * segmented-control clicks, settings persistence across a reload, the license
- * gate (bad keys, trial exhausted, activation), and a full cache-hit
+ * gate (bad keys, trial exhausted, activation), a full cache-hit
  * transcribe -> review -> edit -> export path writing real SRT/VTT/TXT files
- * to a temp folder with speaker tags intact.
+ * to a temp folder with speaker tags intact, and the per-clip batch cache:
+ * a sequence run serves unchanged clips from the single-clip-entry cache and
+ * re-transcribes only the clips whose key changed. Warm-worker IO is faked
+ * (opts.hooks warmStart/warmSend) so no python process is needed.
  *
  * Run:  node tools/test/test_panel_dom.js
  * No dependencies (Node's assert + vm only). Exits non-zero on any failure.
@@ -120,6 +123,14 @@ function loadPanel(opts) {
   vm.runInContext(fs.readFileSync(path.join(PANEL_JS,'core.js'),'utf8'),  ctx);
   vm.runInContext(fs.readFileSync(path.join(PANEL_JS,'main.js'),'utf8'),  ctx);
 
+  // Optional warm-worker fakes (so batch-transcribe tests never spawn python).
+  // main.js's function declarations are writable globals, so reassigning them
+  // here bypasses the real warmStart()/warmSend() transport entirely.
+  if (opts.hooks) {
+    ctx.__hooks = opts.hooks;
+    vm.runInContext('warmStart = __hooks.warmStart; warmSend = __hooks.warmSend;', ctx);
+  }
+
   let mid = null;
   try {
     const rec = JSON.parse(fs.readFileSync(path.join(machineHome,'.amharic_captions_machine.json'),'utf8'));
@@ -129,6 +140,9 @@ function loadPanel(opts) {
   return {
     document, storage, machineHome, mid,
     els: (id) => document.getElementById(id),
+    // Evaluate an expression inside the main.js vm context (e.g. fetch a
+    // function declaration by name: evalVm('clipCacheKey')).
+    evalVm: (code) => vm.runInContext(code, ctx),
     close() {
       process.env.AMH_MACHINE_HOME = prevHome;
       if (!madeHome) { try { fs.rmSync(machineHome,{recursive:true,force:true}); } catch(e){} }
@@ -344,6 +358,132 @@ await t('5. review: cache-hit transcribe -> edit -> export (speaker tags) -> nud
       try { fs.rmSync(exportDir, { recursive:true, force:true }); } catch(e) {}
     }
   } finally { restoreCache(snap); }
+});
+
+
+await t('6. batch cache: per-clip keys, unchanged clips served from cache, edit re-transcribes only the changed clip', async () => {
+  const fast = path.join(REPO, 'tools', 'test', 'fixtures', 'fast.wav');
+  const ts   = path.join(REPO, 'tools', 'test', 'fixtures', 'twospeaker.wav');
+  assert.ok(fs.existsSync(fast) && fs.existsSync(ts), 'fixtures present');
+
+  // Fake warm worker: records which clips were (re-)transcribed and emits
+  // deterministic per-clip cues tagged with a generation counter.
+  const sends = [];
+  const snap = snapshotCache();
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_dom_batch_'));
+  const out = (n) => path.join(outDir, 'o' + n + '.srt');
+  try {
+    const p = loadPanel({
+      hooks: {
+        warmStart: () => true,
+        warmSend: async (req) => {
+          sends.push(req.batch.map((b) => b.name));
+          const gen = sends.length;
+          const cues = req.batch.map((b) => ({
+            start: b.offset + 0.5, end: b.offset + 2.5,
+            text: 'clip ' + path.basename(b.name || 'clip', path.extname(b.name || '')) + ' gen' + gen
+          }));
+          fs.writeFileSync(req.out_srt, p.evalVm('srtFromCues')(cues), 'utf8');
+          return { text: cues.map((c) => c.text).join('\n') };
+        }
+      }
+    });
+    try {
+      const clipCacheKey = p.evalVm('clipCacheKey');
+      const cacheKeyRef  = p.evalVm('cacheKey');
+      const srtFromCues  = p.evalVm('srtFromCues');
+      const transcribeBatch = p.evalVm('transcribeBatch');
+
+      const itA = (o, d) => ({ name: 'fast.wav', sourcePath: fast, sourceIn: 0, duration: d, offset: o, cached: null, wav: fast });
+      const itB = (o, d) => ({ name: 'twospeaker.wav', sourcePath: ts, sourceIn: 0, duration: d, offset: o, cached: null, wav: ts });
+
+      // Seed a SINGLE-clip cache entry for A (whole-file key). The batch path
+      // must serve A from it — clipCacheKey shares the single-clip dimensions.
+      // cacheLoad() is lazy, so writing before the first transcribeBatch works.
+      const seeded = JSON.parse(snap || '{}');
+      seeded[cacheKeyRef(fast, { sourceIn: 0, duration: 3 }, 0)] =
+        { srt: srtFromCues([{ start: 0.5, end: 2.5, text: 'single-clip cueA' }]), transcript: '', at: 0 };
+      restoreCache(JSON.stringify(seeded));
+
+      // Run 1: A is cached from the single-clip path, B is new → only B transcribed.
+      const r1 = await transcribeBatch([itA(0, 3), itB(3, 4)], out(1), () => {});
+      assert.strictEqual(r1.cached, false, 'run1 not all-cached');
+      assert.deepStrictEqual(sends, [['twospeaker.wav']], 'run1 transcribes only the new clip');
+      const s1 = fs.readFileSync(out(1), 'utf8');
+      has(s1, 'single-clip cueA', 'run1 SRT carries the single-clip cue from cache');
+      has(s1, 'clip twospeaker gen1', 'run1 B transcribed fresh');
+
+      // Run 2: identical items → all cached, worker untouched, byte-identical SRT.
+      const r2 = await transcribeBatch([itA(0, 3), itB(3, 4)], out(2), () => {});
+      assert.strictEqual(r2.cached, true, 'run2 all-cached');
+      assert.strictEqual(sends.length, 1, 'run2 re-transcribes nothing');
+      assert.strictEqual(fs.readFileSync(out(2), 'utf8'), s1, 'run2 output identical to run1');
+
+      // Run 3: B edited (duration 4 -> 6) → its key changes → only B resubmits.
+      const keyB1 = clipCacheKey(itB(3, 4));
+      const keyB2 = clipCacheKey(itB(3, 6));
+      assert.notStrictEqual(keyB2, keyB1, 'edit changes the clip key');
+      const r3 = await transcribeBatch([itA(0, 3), itB(3, 6)], out(3), () => {});
+      assert.strictEqual(r3.cached, false, 'run3 not all-cached');
+      assert.deepStrictEqual(sends, [['twospeaker.wav'], ['twospeaker.wav']], 'run3 re-sends only B');
+      const s3 = fs.readFileSync(out(3), 'utf8');
+      has(s3, 'single-clip cueA', 'run3 A still served from cache');
+      has(s3, 'clip twospeaker gen2', 'run3 B re-transcribed with fresh cues');
+      assert.strictEqual(s3.indexOf('clip twospeaker gen1'), -1, 'run3 stale B cues gone');
+
+      // Granularity, not a global overwrite: the old B entry survives.
+      const cache = JSON.parse(snapshotCache() || '{}');
+      assert.ok(cache[keyB1] && cache[keyB1].srt, 'old B entry retained');
+      assert.ok(cache[keyB2] && cache[keyB2].srt, 'new B entry stored');
+    } finally { p.close(); }
+  } finally {
+    try { fs.rmSync(outDir, { recursive: true, force: true }); } catch (e) {}
+    restoreCache(snap);
+  }
+});
+
+await t('7. batch cache unit: key determinism, attribution windows, srtFromCues mirrors core', async () => {
+  const p = loadPanel({ hooks: { warmStart: () => true, warmSend: async () => ({ ok: true }) } });
+  try {
+    const fast = path.join(REPO, 'tools', 'test', 'fixtures', 'fast.wav');
+    const ts   = path.join(REPO, 'tools', 'test', 'fixtures', 'twospeaker.wav');
+    const clipCacheKey  = p.evalVm('clipCacheKey');
+    const attributeCues = p.evalVm('attributeCues');
+    const srtFromCues   = p.evalVm('srtFromCues');
+    const srtTextFromCues = p.evalVm('srtTextFromCues');
+
+    const base = (src, d, o, si) => ({ name: src, sourcePath: src, sourceIn: si || 0, duration: d, offset: o || 0, cached: null });
+    const k = (it) => clipCacheKey(it);
+    assert.strictEqual(k(base(fast, 3, 0)), k(base(fast, 3, 0)), 'same path/range/offset -> same key');
+    assert.notStrictEqual(k(base(fast, 3, 0)), k(base(fast, 5, 0)),   'duration change busts key');
+    assert.notStrictEqual(k(base(fast, 3, 0)), k(base(fast, 3, 2)),   'offset change busts key');
+    assert.notStrictEqual(k(base(fast, 3, 0)), k(base(fast, 3, 0, 1)), 'sourceIn change busts key');
+    assert.notStrictEqual(k(base(fast, 3, 0)), k(base(ts, 3, 0)),     'source path change busts key');
+
+    const items = [{ offset: 0, duration: 3 }, { offset: 3, duration: 4 }];
+    const byItem = attributeCues([
+      { start: 2.9, end: 3.0, text: 'a' },   // inside A window
+      { start: 3.0, end: 3.2, text: 'b' },   // exact A end; A wins the overlap (first match)
+      { start: 0.0, end: 1.0, text: 'c' },   // A start
+      { start: 3.6, end: 3.8, text: 'd' },   // past A's 0.5s right-slack -> B window
+      { start: 9.5, end: 10.0, text: 'e' }   // nearest fallback -> B
+    ], items);
+    // Spread into host arrays: vm-realm Arrays carry a different Array.prototype,
+    // so deepStrictEqual would reject them on prototype identity alone.
+    const gotA = [...byItem.get(items[0]).map((c) => c.text)];
+    const gotB = [...byItem.get(items[1]).map((c) => c.text)];
+    assert.deepStrictEqual(gotA, ['a', 'b', 'c'], 'clip A attribution');
+    assert.deepStrictEqual(gotB, ['d', 'e'], 'clip B attribution');
+
+    const cues = [
+      { start: 1.25, end: 3.0, text: '\u1200\u120e \u12e3\u120d\u121d' },
+      { start: 5.0, end: 6.5, text: '\u12a5\u1295\u12f0\u120d\u1293' }
+    ];
+    const formatted = srtFromCues(cues);
+    assert.strictEqual(formatted, srtTextFromCues(cues), 'srtFromCues mirrors the core disk writer');
+    has(formatted, '1\n00:00:01,250 --> 00:00:03,000', 'SRT block one');
+    has(formatted, '2\n00:00:05,000 --> 00:00:06,500', 'SRT block two');
+  } finally { p.close(); }
 });
 
 
