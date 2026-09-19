@@ -126,8 +126,21 @@ function txtTextFromCues(cues) {
 }
 
 // ────────────────────────────────────────────────────────── license check
-// Structural-only key check. No HMAC here: the cryptographic authority is the
-// server (/api/validate). This just rejects obviously-wrong keys fast, locally.
+// Local pre-flight for a license key. This is STRICTLY structural (shape,
+// machine-id match, expiry range) — deliberately NOT a keyed HMAC check.
+//
+// WHY no HMAC here: the key's signature is HMAC-SHA256 over "mid|exp", and the
+// verifying secret is the same secret used to MINT keys (tools/keygen.py,
+// tools/telegram-worker worker.js). That minting secret must never be shipped
+// in a bundle distributed to every buyer, or anyone could extract it and forge
+// keys that pass BOTH the server and the client. The server is the authority:
+//   - /api/validate re-derives the HMAC and only accepts authentic signatures
+//     that also have a matching D1 customer row (see worker.js).
+//   - first activation requires the server (fail-closed, see activateLicense());
+//     offline re-activation is allowed only for keys previously confirmed
+//     server-side and cached.
+// So this function's only job is fast local rejection of obviously-wrong keys
+// (typos, wrong case/length, a key pasted for a different machine).
 function validateLicense(key, machineId) {
   // Tolerate how users paste keys: any-case "AMH" prefix, grouping dashes,
   // surrounding whitespace, and no separators at all.

@@ -22,9 +22,22 @@ PY="$HOME/Library/Application Support/Adobe/CEP/extensions/com.amharic.captions/
 node tools/test/test_panel.js      # pure core helpers (SRT/export/speakers/license)
 node tools/test/test_panel_dom.js  # main.js driven through a dom_shim inside vm
 
-# 1) Self-checks that ship inside the runtime:
+# 1) Python unit suites (no model, no torch):
+"$PY" tools/test/test_long.py      # long-audio windowing + resume + punctuation
+"$PY" tools/test/test_diarize.py   # 2-speaker k-means + labelling (e2e skipped w/o model)
+
+# 2) Self-checks that ship inside the runtime:
 "$PY" "$HOME/Library/Application Support/Adobe/CEP/extensions/com.amharic.captions/runtime/ctc_beam.py"
 "$PY" "$HOME/Library/Application Support/Adobe/CEP/extensions/com.amharic.captions/runtime/amh_correct.py"
+
+# 3) Word-split LM self-check (ships in the runtime; headword split cases are
+#    skipped when their parts are absent from the shipped vocab; the
+#    known-word cases stay strict):
+"$PY" "$HOME/Library/Application Support/Adobe/CEP/extensions/com.amharic.captions/runtime/amh_lm.py"
+
+# 4) Server-side worker auth (requires Node 22+, in tools/telegram-worker):
+node test/e2e.mjs               # all 38 checks: HMAC validate, admin auth,
+                                # webhook signing — secrets from env (AMH_*_TEST)
 ```
 
 ### A. End-to-end transcription smoke test (offline, no Premiere)
@@ -275,6 +288,19 @@ non-overlapping and sorted.
 Cross-check a negative: a hand-edited sig must FAIL (`tools/keygen.py` is the source of
 truth).
 
+**Kinds of check, and who does them:** the panel only checks a key's *structure*
+locally (format/length, machine-ID binding, expiry); the **server is authoritative**
+for validity — `ACTIVATE` is confirmed against the Worker's database and returns the
+server's real expiry, and any caught-corruption/tamper comes back as `reason: invalid`.
+Scenarios 4–9 above are therefore verified end-to-end in Premiere with a live key, plus
+automatically in `tools/test/test_panel.js` (local structure) and
+`tools/telegram-worker/test/e2e.mjs` (server: forged key → 403, wrong machine →
+`mismatch`, stale/revoked/expired → correct 4xx). Trials (scenarios 1–3, 11) are counted
+client-side, but the `consumeTrialCredit()` decrement **is awaited** before a run starts,
+and the trial-gate check also guards the **File Import** path (`run()` and `runFile()`
+both call `assertCanRun()`) so no transcription — clip, active-sequence, work area, or
+imported file — can bypass the two-trial limit.
+
 ---
 
 ## 6. Failure & Edge Cases
@@ -336,15 +362,17 @@ tools/test/
   wer.py             (compute WER between ground truth and an SRT/full-transcript)
   run_engine.sh      (loop over fixtures, run ethio_srt.py karaoke+grouped, score)
   test_srt.py        (validate SRT structure: numbering, timing order, 1-5s cues)
-  test_keygen.py     (license key valid/invalid/expired/foreign-machine matrix)
+  # License-key validation has no script of its own: `tools/keygen.py` generates
+  # keys, the panel's structural checks are covered by `node tools/test/test_panel.js`
+  # (`validateLicense` matrix), and the server's HMAC + D1-`ROW existence checks
+  # are covered by `tools/telegram-worker/test/e2e.mjs`. See §5.
 ```
 
 Commands:
 
 ```bash
-tools/test/run_engine.sh --truth tools/test/fixtures
-tools/test/test_srt.py /tmp/out_karaoke.srt
-tools/test/test_keygen.py
+tools/test/run_engine.sh tools/test/fixtures   # positional; §1.2b uses RUNTIME=...
+tools/test/test_srt.py /tmp/out_karaoke.srt    # SRT structure check (arg: path)
 ```
 
 **Definition of done for "unquestionable":** every scenario in sections 1–7 has a

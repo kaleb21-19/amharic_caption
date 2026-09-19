@@ -183,6 +183,10 @@ class Trainer:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--manifest", required=True)
+    ap.add_argument("--dev-manifest", default=None,
+                    help="held-out eval manifest. If given, training REFUSES to "
+                         "start if any wav path (or, with a loud warning, any "
+                         "speaker id) appears in both train and dev.")
     ap.add_argument("--src", default="ethio-asr",
                     help="existing transformers checkpoint to fine-tune from")
     ap.add_argument("--out", default="tools/stage/model-retrained")
@@ -205,6 +209,36 @@ def main():
     device = "cuda" if torch.cuda.is_available() else \
         ("mps" if torch.backends.mps.is_available() else "cpu")
     print(f"[info] device={device}")
+
+    # Leak guard (D3): if a dev manifest is supplied, the training manifest must
+    # be disjoint from it. The carve script (carve_dev.py) guarantees this by
+    # holding out WHOLE speakers; this check is the backstop that fails loudly
+    # if a caller ever feeds the full (uncarved) manifest by mistake.
+    if args.dev_manifest:
+        def read_pairs(path):
+            pairs = []
+            with open(path, encoding="utf-8") as f:
+                for ln in f:
+                    if ln.strip():
+                        p = ln.rstrip("\n").split("\t")
+                        pairs.append(p[:2])
+            return pairs
+        train_rows = read_pairs(args.manifest)
+        dev_rows = read_pairs(args.dev_manifest)
+        train_paths = {p for p, _ in train_rows}
+        dev_paths = {p for p, _ in dev_rows}
+        shared_paths = train_paths & dev_paths
+        shared_spks = {s for _, s in train_rows} & {s for _, s in dev_rows}
+        if shared_paths:
+            sys.exit(f"[FAIL] LEAK: {len(shared_paths)} wav path(s) appear in BOTH "
+                     f"--manifest ({args.manifest}) and --dev-manifest "
+                     f"({args.dev_manifest}). Re-carve with tools/retrain/carve_dev.py "
+                     f"before training — the WER gate would otherwise be meaningless.")
+        if shared_spks:
+            print(f"[warn] {len(shared_spks)} speaker id(s) appear in BOTH train and "
+                  f"dev manifests. Speaker-disjoint carve expected (carve_dev.py); "
+                  f"path-level disjointness is guaranteed, but voice leakage may "
+                  f"inflate the WER gate.")
 
     processor = Wav2Vec2Processor.from_pretrained(args.src)
     model = Wav2Vec2BertForCTC.from_pretrained(args.src)

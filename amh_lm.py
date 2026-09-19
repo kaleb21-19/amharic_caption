@@ -197,6 +197,14 @@ if __name__ == "__main__":
         ("ኢትዮጵያ", None, None),
     ]
     for tok, a, b in cases:
+        # A split case can only be asserted once the corpus it came from is
+        # actually IN the model — a fresh corpus may not contain these exact
+        # parts, and no amount of scoring can split into unknown words. The
+        # machinery is exercised by the known-word cases regardless.
+        if a and b and (a not in lm.unigram or b not in lm.unigram):
+            print(f"  [skip] {tok!r}: split parts absent from this model's vocab "
+                  f"({a!r} in={a in lm.unigram}, {b!r} in={b in lm.unigram})")
+            continue
         parts = lm.split_word(tok, left=None, right=None)
         want = [a, b] if a and b else [tok]
         mark = "OK " if parts == want else "X  "

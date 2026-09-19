@@ -85,7 +85,11 @@ PBS_NAME="cpython-3.11.16+${PBS_RELEASE}-${PBS_VARIANT}-install_only_stripped"
 PBS_URL="${PBS_BASE}/${PBS_NAME}.tar.gz"
 echo "  [step] downloading relocatable CPython ($PBS_NAME ~27MB)"
 TMP="$(mktemp -d)"
-curl -sL "$PBS_URL" -o "$TMP/py.tar.gz"
+# Atomic + verified: download to a temp dir, validate the gzip CRC (catches
+# truncation/corruption before it overwrites the staged python), THEN move into
+# place. A failed download never destroys a previously-good staging.
+curl -fL --retry 3 "$PBS_URL" -o "$TMP/py.tar.gz"
+gzip -t "$TMP/py.tar.gz"
 tar -xzf "$TMP/py.tar.gz" -C "$TMP"
 mv "$TMP/python" "$PYDIR"
 rm -rf "$TMP"
@@ -137,13 +141,15 @@ if [[ ! -f "$FF" ]]; then
   TMP="$(mktemp -d)"
   case "$TARGET" in
     mac-*)
-      curl -sL "$FFURL_BASE" -o "$TMP/ff.zip"
+      curl -fL --retry 3 "$FFURL_BASE" -o "$TMP/ff.zip"
+      unzip -tq "$TMP/ff.zip" >/dev/null   # CRC-check the archive before use
       unzip -o -q "$TMP/ff.zip" -d "$TMP" 'ffmpeg' 2>/dev/null || true
       FOUND="$(find "$TMP" -type f -name 'ffmpeg' -perm -111 | head -1)"
       [[ -z "$FOUND" ]] && FOUND="$(find "$TMP" -type f -name 'ffmpeg*' | head -1)"
       cp "$FOUND" "$FF";;
     win-x64)
-      curl -sL "$FFURL_BASE" -o "$TMP/ff.zip"
+      curl -fL --retry 3 "$FFURL_BASE" -o "$TMP/ff.zip"
+      unzip -tq "$TMP/ff.zip" >/dev/null   # CRC-check the archive before use
       unzip -o -q "$TMP/ff.zip" -d "$TMP"
       FOUND="$(find "$TMP" -type f -name 'ffmpeg.exe' | head -1)"
       cp "$FOUND" "$FF";;

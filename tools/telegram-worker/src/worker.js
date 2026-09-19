@@ -102,7 +102,11 @@ let FRESH_MID_LIMIT = 5;   // max new (never-before-seen) mids per IP per day be
 // ── config / env ────────────────────────────────────────────────────────────
 function initEnv(env) {
   TOKEN = env.AMH_TG_TOKEN || '';
-  ADMIN_ID = (env.AMH_ADMIN_ID || '1887247213').toString();
+  // Fail-safe: never fall back to a hardcoded admin. Without AMH_ADMIN_ID
+  // nobody is admin (approve/reject/broadcast all refuse), which is better than
+  // silently granting an arbitrary Telegram user admin rights by default.
+  ADMIN_ID = (env.AMH_ADMIN_ID || '').toString();
+  if (!ADMIN_ID) log('warn', 'admin_id_missing', { hint: 'set AMH_ADMIN_ID (comma-separated chat ids) via wrangler secret put' });
   GROUP_ID = env.AMH_GROUP_ID || '';
   PRICE = env.AMH_PRICE || 'ETB 2,500';
   ACCT_NAME = env.AMH_ACCT_NAME || ACCT_NAME;
@@ -1133,18 +1137,21 @@ function isPrivateChat(chatId, uid) {
 }
 
 // ── CORS allow-list ─────────────────────────────────────────────────────────
-// ALLOWED_ORIGIN (env AMH_ALLOWED_ORIGIN, comma-separated) is empty by default
-// → open ('*'), which keeps installed CEP panels working. Once a panel build
-// sends a proper Origin header, set it to the value (include 'null' for CEP
-// file:// panels) to lock CORS down.
+// ALLOWED_ORIGIN (env AMH_ALLOWED_ORIGIN, comma-separated). DEFAULT IS
+// FAIL-CLOSED: unset => NO Access-Control-Allow-Origin header at all, so a
+// browser page can never read responses cross-origin. Installed CEP panels
+// still work because the panel's CEF is launched with --disable-web-security
+// (it does not enforce CORS). To serve browsers explicitly set
+// AMH_ALLOWED_ORIGIN='*' (or a comma-separated allow-list including 'null'
+// for CEP file:// origins).
 function corsFor(request) {
   const base = {
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, X-Api-Key',
   };
-  if (!ALLOWED_ORIGIN) return { ...base, 'Access-Control-Allow-Origin': '*' };
+  const list = (ALLOWED_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (list.length === 0) return base; // no allow-origin → browser blocks reads
   const origin = request.headers.get('Origin') || '';
-  const list = ALLOWED_ORIGIN.split(',').map((s) => s.trim()).filter(Boolean);
   if (list.includes('*')) return { ...base, 'Access-Control-Allow-Origin': '*' };
   if (origin && list.includes(origin)) {
     return { ...base, 'Access-Control-Allow-Origin': origin, Vary: 'Origin' };
@@ -1292,33 +1299,58 @@ export default {
       if (!mid || !key || !/^[0-9a-f]{8}$/.test(String(mid)) || typeof key !== 'string') {
         return json({ error: 'missing mid or key' }, 400);
       }
+      // Parse the key exactly like the panel/core.js: AMH- prefix, dashes and
+      // case are tolerated; the 32-char hex body is mid|expiry|hmac16.
       const cacheKey = 'val:' + String(mid) + ':' + key;
       let out = null;
       const cached = await kvGet(cacheKey);
       if (cached) { try { out = JSON.parse(cached); } catch (e) {} }
       if (!out) {
-        // Per-IP guard so a brute-forcer can't spray fake keys quickly.
+        // Brute-force/throttle guards cover EVERY cache miss (malformed keys
+        // included) — a spray of random keys must be cooled per IP before it
+        // even reaches signature checks, let alone D1.
         if (await rateLimited('rl:ip:' + clientIp() + ':validate', 3)) {
           return json({ valid: false, reason: 'throttled', retry: true }, 429);
         }
-        // Only a genuinely new lookup reaches D1; brute-force bursts of fake
-        // keys are throttled per machine.
         if (await rateLimited('rl:val:' + String(mid), 3)) {
           return json({ valid: false, reason: 'throttled', retry: true }, 429);
         }
-        // Check D1: key must be in customers table
-        const row = await DB.prepare('SELECT expiry, revoked FROM customers WHERE machine_id = ? AND key = ?').bind(String(mid), key).first();
-        if (!row) {
-          out = { valid: false };
-        } else if (row.revoked) {
-          out = { valid: false, reason: 'revoked' };
-        } else if (row.expiry && row.expiry !== '00000000') {
-          const expDate = new Date(row.expiry.slice(0, 4) + '-' + row.expiry.slice(4, 6) + '-' + row.expiry.slice(6, 8));
-          out = (isNaN(expDate.getTime()) || expDate < new Date())
-            ? { valid: false, reason: 'expired' }
-            : { valid: true, expiry: row.expiry };
+        const clean = String(key).replace(/^amh/i, '').replace(/[\s-]+/g, '').toLowerCase();
+        if (!/^[0-9a-f]{32}$/.test(clean)) {
+          out = { valid: false, retry: true };
         } else {
-          out = { valid: true, expiry: row.expiry };
+          const kmid = clean.slice(0, 8);
+          const kexp = clean.slice(8, 16);
+          const ksig = clean.slice(16, 32);
+          // Cryptographic gate (the row check alone is NOT an auth boundary: a
+          // key leaked from logs/exports must not validate). Re-derive the HMAC
+          // over mid|expiry exactly like keygen.py / keyFor() does at mint time.
+          if (!SECRET) {
+            log('error', 'validate_missing_secret');
+            return json({ error: 'server not configured' }, 500);
+          }
+          const expected = await hmacHex(SECRET, `${kmid}|${kexp}`);
+          if (kmid !== String(mid).toLowerCase()) {
+            out = { valid: false, reason: 'machine_mismatch' };
+          } else if (!safeEqual(expected.slice(0, 16), ksig)) {
+            out = { valid: false, reason: 'bad_signature', retry: true };
+          } else {
+            // Signature is authentic → fall through to the authoritative DB row
+            // (revoked / expiry / shared-spread logic unchanged).
+            const row = await DB.prepare('SELECT expiry, revoked FROM customers WHERE machine_id = ? AND key = ?').bind(String(mid), key).first();
+            if (!row) {
+              out = { valid: false };
+            } else if (row.revoked) {
+              out = { valid: false, reason: 'revoked' };
+            } else if (row.expiry && row.expiry !== '00000000') {
+              const expDate = new Date(row.expiry.slice(0, 4) + '-' + row.expiry.slice(4, 6) + '-' + row.expiry.slice(6, 8));
+              out = (isNaN(expDate.getTime()) || expDate < new Date())
+                ? { valid: false, reason: 'expired' }
+                : { valid: true, expiry: row.expiry };
+            } else {
+              out = { valid: true, expiry: row.expiry };
+            }
+          }
         }
         await kvPut(cacheKey, JSON.stringify(out), out.valid ? 3600 : 60);
       }

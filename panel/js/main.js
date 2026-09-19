@@ -23,9 +23,17 @@ const csi = new CSInterface();
 // Deployed Worker URL — see tools/telegram-worker/DEPLOY.md.
 const API_URL = 'https://amharic-captions-bot.amhcaps.workers.dev';
 
-// Shared-secret header for the extension API. Set it to the SAME value as the
-// Worker secret AMH_API_KEY once the server starts requiring it — ship this
-// panel FIRST, then flip the secret (see tools/telegram-worker/DEPLOY.md).
+// Shared-secret header for the extension API. This is ENFORCED: the Worker
+// rejects every /api/* request that doesn't carry a matching `X-Api-Key`
+// (401), so this value MUST be byte-for-byte equal to the Worker `AMH_API_KEY`
+// secret (see tools/telegram-worker/DEPLOY.md, "AMH_API_KEY — REQUIRED").
+// It is NOT the license HMAC secret — that one is server-only, never shipped.
+// Rotation: `openssl rand -hex 24` -> put the new value here -> ship the panel
+// and let it spread -> then `wrangler secret put AMH_API_KEY` -> deploy. Order
+// matters: the panel build must ship BEFORE the Worker flips, or every panel
+// in the field is locked out for the gap. Old panel builds stop working when
+// the Worker flips — that is intentional (any build without the current key
+// is unauthenticated).
 const API_KEY_HINT = '3f8b2e4774f8b7982a2511719cd14a51b9a0164d44db4043';
 
 function apiHeaders() {
@@ -397,8 +405,11 @@ function setLicense(licenseObj) {
 }
 
 // validateLicense() (structural-only key check) lives in js/core.js so it can
-// be unit-tested in Node. The cryptographic authority is the server
-// (/api/validate); core.js only rejects obviously-wrong keys fast, locally.
+// be unit-tested in Node. It intentionally does NOT recompute the key's HMAC:
+// the minting secret must never ship in the public panel bundle (anyone could
+// then forge keys that pass the server too). The cryptographic authority is
+// the server (/api/validate), which re-derives the HMAC and requires a real D1
+// customer row; core.js only rejects obviously-wrong keys fast, locally.
 
 let LICENSED = false;
 let LICENSED_REFRESH = false;
@@ -415,6 +426,17 @@ function setTrialUsed(n) {
 }
 function trialRemaining() {
   return Math.max(0, TRIAL_ALLOWED - getTrialUsed());
+}
+// Shared license/trial gate for EVERY transcription entry point (run() and
+// runFile()). Fail-closed: unlicensed users may only transcribe while free
+// trial credits remain; licensed users always pass.
+function assertCanRun() {
+  if (!LICENSED && trialRemaining() <= 0) {
+    log('Your free trial (2 transcriptions) is used up.');
+    log('Enter your license key in the License section and click Activate to continue.');
+    return false;
+  }
+  return true;
 }
 // Called once when an unlicensed user successfully places a transcription.
 // Counts toward the free-trial limit; licensed users are unaffected.
@@ -535,8 +557,9 @@ async function activateLicense() {
   if (licStatus) { licStatus.textContent = 'Validating…'; licStatus.style.color = 'var(--text-secondary)'; }
 
   try {
-    // 1) Local HMAC check (fast shape check)
-    const result = await validateLicense(key, MACHINE_ID);
+    // 1) Local structural check (fast shape check — not a keyed HMAC; see the
+    //    comment near validateLicense()).
+    const result = validateLicense(key, MACHINE_ID);
     if (!result.ok) {
       if (licStatus) { licStatus.textContent = result.error || 'Invalid key'; licStatus.style.color = 'var(--err)'; }
       return;
@@ -557,8 +580,10 @@ async function activateLicense() {
       return;
     }
     if (serverResult && serverResult.valid === true) {
-      // confirmed by server today — cache the fact
-      setLicense({ key: key, valid: true, expiry: result.expiry, activated: Date.now(), serverValidated: true });
+      // confirmed by server today — cache the fact. Prefer the server's
+      // authoritative expiry over the locally-parsed one.
+      const serverExpiry = (serverResult.expiry && /^\d{8}$/.test(String(serverResult.expiry))) ? serverResult.expiry : result.expiry;
+      setLicense({ key: key, valid: true, expiry: serverExpiry, activated: Date.now(), serverValidated: true });
       updateLicenseUI();
       const logBox = document.getElementById('logBox');
       if (logBox) logBox.textContent += (logBox.textContent ? '\n' : '') + 'License activated successfully.';
@@ -894,6 +919,18 @@ function setBusy(busy) {
 }
 
 // ------------------------------------------------------------ evalScript
+// Escape U+2028 (LINE SEPARATOR) / U+2029 (PARAGRAPH SEPARATOR) before JSON
+// crosses the bridge. ExtendScript parses inbound JSON with `eval(...)` (see
+// panel/jsx/json2.jsx), and ES3/ES5 treats those two code points as string
+// terminators — a payload containing either would splice/terminate the string
+// literal (classic injection; also breaks any filename/path that contains one).
+// escJ() is safe in BOTH JS string literals and JSON.parse, so it is applied
+// to every outbound payload serialized into the JSX envelope.
+function escJson(s) {
+  const j = JSON.stringify(s);
+  return j === undefined ? 'null'
+    : String(j).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+}
 function evalScript(jsx) {
   return new Promise((resolve, reject) => {
     csi.evalScript(jsx, (result) => {
@@ -913,15 +950,15 @@ function evalScript(jsx) {
 
 function findFootage()      { return evalScript('amharic_findFootage()'); }
 function importCaptions(srtPath, startSeconds, baseName) {
-  const args = JSON.stringify({ srtPath, startSeconds: startSeconds || 0, baseName: baseName || '' });
-  return evalScript(`amh_importCaptions(${JSON.stringify(args)})`);
+  const args = escJson({ srtPath, startSeconds: startSeconds || 0, baseName: baseName || '' });
+  return evalScript('amh_importCaptions(' + escJson(args) + ')');
 }
 function getSelectedClip()  { return evalScript('amharic_getSelectedClip()'); }
 function getSequenceInfo(all) {
   return evalScript('amharic_getSequenceInfo(' + (all ? 'true' : 'false') + ')');
 }
 function seekPlayhead(seconds) {
-  return evalScript('amharic_seekPlayhead(' + JSON.stringify(String(seconds)) + ')');
+  return evalScript('amharic_seekPlayhead(' + escJson(String(seconds)) + ')');
 }
 
 function runDiagnostics() {
@@ -1014,7 +1051,9 @@ function extractAudio(clip, wav) {
     const post = ['-ss', '0'];
     if (clip.duration > 0) post.push('-t', String(clip.duration));
     post.push('-vn', '-sn', '-af', AUDIO_CLEAN_FILTER, '-ac', '1', '-ar', '16000', wav);
-    execFile(FFMPEG, pre.concat(['-i', clip.sourcePath], post), (err) => {
+    // Track as the active child so Cancel kills the ffmpeg mid-extraction.
+    activeChild = execFile(FFMPEG, pre.concat(['-i', clip.sourcePath], post), (err) => {
+      activeChild = null;
       if (err) reject(new Error('ffmpeg failed for ' + clip.name + ': ' + (err.message || err)));
       else resolve();
     });
@@ -1058,6 +1097,7 @@ const WARM_TRANSPORT_ERRS = new Set(['worker error', 'worker exited', 'worker wr
 // if the server cannot start.
 // --------------------------------------------------------------------------
 const WARM_IDLE_MS = 20 * 60 * 1000; // kill the worker after 20 min idle
+const WARM_SEND_TIMEOUT_MS = 60 * 60 * 1000; // per-request watchdog (worker hung)
 let warmChild = null;
 let warmReady = false;
 let warmIdleTimer = null;
@@ -1066,16 +1106,20 @@ const warmPending = new Map(); // id -> {resolve, reject, onProgress}
 
 function warmStart() {
   if (warmChild && !warmChild.killed) return true;
+  let child;
   try {
-    warmChild = spawn(PYTHON, [SCRIPT, '--server'], {
+    child = spawn(PYTHON, [SCRIPT, '--server'], {
       env: AMH_ENV,
       stdio: ['pipe', 'pipe', 'pipe']
     });
   } catch (e) { return false; }
+  // Assign BEFORE attaching handlers so the exit/error guards can compare
+  // identity: a stale 'exit' from a previous child must never null a newer one.
+  warmChild = child;
   warmReady = false;
-  warmChild.stdout.setEncoding('utf8');
+  child.stdout.setEncoding('utf8');
   let buf = '';
-  warmChild.stdout.on('data', (d) => {
+  child.stdout.on('data', (d) => {
     buf += d;
     let nl = buf.indexOf('\n');
     while (nl >= 0) {
@@ -1085,8 +1129,17 @@ function warmStart() {
       nl = buf.indexOf('\n');
     }
   });
-  warmChild.on('error', () => { warmDiscard('worker error'); });
-  warmChild.on('exit', () => { warmDiscard('worker exited'); });
+  // ALWAYS drain stderr. An unread pipe fills in seconds (64KB) and then the
+  // worker BLOCKS on its next write — a silent deadlock that looks like the
+  // worker "hung" on a transcription. Log every line so crashes surface in the
+  // panel log instead of vanishing.
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (d) => {
+    const t = String(d).trim();
+    if (t) log('[worker] ' + t);
+  });
+  child.on('error', () => { if (warmChild === child) warmDiscard('worker error'); });
+  child.on('exit', () => { if (warmChild === child) warmDiscard('worker exited'); });
   return true;
 }
 
@@ -1096,6 +1149,7 @@ function warmDiscard(reason) {
   warmReady = false;
   const rejectReason = cancelRequested ? new Error('Cancelled') : new Error(reason);
   for (const [, p] of warmPending) {
+    if (p.timer) clearTimeout(p.timer);
     try { p.reject(rejectReason); } catch (e) {}
   }
   warmPending.clear();
@@ -1111,6 +1165,7 @@ function warmOnLine(line) {
   if (msg.type === 'prog' && p.onProgress) { p.onProgress(msg); return; }
   if ('ok' in msg) {
     warmPending.delete(msg.id);
+    if (p.timer) clearTimeout(p.timer);
     if (cancelRequested) { p.reject(new Error('Cancelled')); return; }
     if (msg.ok) p.resolve(msg); else p.reject(new Error(msg.error || 'Worker error'));
   }
@@ -1119,17 +1174,32 @@ function warmOnLine(line) {
 function warmSend(req) {
   req.id = ++warmSeq;
   return new Promise((resolve, reject) => {
-    const p = { resolve, reject, onProgress: req.onProgress };
+    const p = { resolve, reject, onProgress: req.onProgress, timer: null };
     warmPending.set(req.id, p);
     if (warmIdleTimer) { clearTimeout(warmIdleTimer); warmIdleTimer = null; }
+    // Hardware watchdog for a silently-stuck worker. A legit transcription of
+    // the longest clips is far under this; if it fires the worker is hung (a
+    // deadlock we no longer let happen, but a hard clamp beats an eternal
+    // spinner). The worker is discarded afterward — a stuck process can't be
+    // trusted to answer the next request.
+    p.timer = setTimeout(() => {
+      warmPending.delete(req.id);
+      const err = new Error('worker timeout');
+      warmDiscard('worker timeout');
+      reject(err);
+    }, WARM_SEND_TIMEOUT_MS);
     try {
       const ok = warmChild.stdin.write(JSON.stringify(req) + '\n');
       if (!ok) setImmediate(warmDiscard, 'worker write failed');
-    } catch (e) { warmPending.delete(req.id); reject(e); }
+    } catch (e) { warmPending.delete(req.id); if (p.timer) clearTimeout(p.timer); reject(e); }
   });
 }
 
 function warmIdleKill() {
+  // Idle GC: no requests can be pending (it only fires 20 min after the LAST
+  // activity), but be defensive and settle them rather than leaving promises
+  // hanging on a dead worker.
+  if (warmPending.size > 0) { warmDiscard('idle shutdown'); return; }
   if (warmChild && !warmChild.killed) { try { warmChild.kill(); } catch (e) {} }
   warmChild = null;
   warmReady = false;
@@ -1141,11 +1211,13 @@ function warmTouch() {
   warmIdleTimer = setTimeout(warmIdleKill, WARM_IDLE_MS);
 }
 
-// Always reap the warm worker when the panel closes (CEP unload).
+// Always reap the warm worker AND any in-flight child when the panel closes.
 if (typeof window !== 'undefined' && window.addEventListener) {
   window.addEventListener('beforeunload', () => {
     try { if (warmChild && !warmChild.killed) warmChild.kill(); } catch (e) {}
+    try { if (activeChild && !activeChild.killed) activeChild.kill(); } catch (e) {}
     warmChild = null;
+    activeChild = null;
   });
 }
 
@@ -1479,7 +1551,7 @@ async function finishImport(outSrt, label, startSeconds) {
   if (imp.ok) {
     // A transcript was produced and placed: for an unlicensed trial user this
     // counts as one free use.
-    consumeTrialCredit();
+    await consumeTrialCredit();
     log('✓ Captions added: ' + imp.captionItemName);
     setSuccess('✓ Captions on timeline');
     if (imp.requestedStart !== undefined && imp.landedStart !== undefined &&
@@ -2017,11 +2089,7 @@ async function run() {
     log('Reinstall the correct platform build and restart Premiere.');
     return;
   }
-  if (!LICENSED && trialRemaining() <= 0) {
-    log('Your free trial (2 transcriptions) is used up.');
-    log('Enter your license key in the License section and click Activate to continue.');
-    return;
-  }
+  if (!assertCanRun()) return;
   setBusy(true);
   try {
     if (SOURCE === 'clip') { await runSelectedClip(); return; }
@@ -2182,6 +2250,7 @@ async function runFromFile(input) {
 async function runFile(filePath, fileName) {
   clearLog();
   cancelRequested = false;
+  if (!assertCanRun()) return;
   setBusy(true);
   setProgress(0, '');
   try {

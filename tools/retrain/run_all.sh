@@ -52,19 +52,13 @@ shards=()
 if [[ -n "$MAX_SHARDS" ]]; then shards+=(--max-shards "$MAX_SHARDS"); fi
 "$PY" tools/retrain/01_fetch_waxal.py --out "${ROOT}/$WX" "${shards[@]}"
 
-echo "== [2/5] prep manifest + wavs (train + a held-out dev slice) =="
+echo "== [2/5] prep manifest + wavs (train + a speaker-DISJOINT held-out dev slice) =="
 "$PY" tools/retrain/02_prep_waxal.py --shards "${ROOT}/$WX" \
     --wavs "${ROOT}/$WX/wavs" --manifest "$MANIFEST"
-# carve out the last 5% of the manifest as the eval set
-"$PY" - "$MANIFEST" "$DEV_MANIFEST" <<'PY'
-import sys
-rows = open(sys.argv[1], encoding="utf-8").read().splitlines()
-n = max(1, len(rows) // 20)
-dev, keep = rows[-n:], rows[:-n]
-open(sys.argv[1], "w", encoding="utf-8").write("\n".join(keep) + "\n")
-open(sys.argv[2], "w", encoding="utf-8").write("\n".join(dev) + "\n")
-print(f"[split] train={len(keep)} dev={len(dev)} -> {sys.argv[2]}")
-PY
+# Hold out whole SPEAKERS (never a row-order tail) so the WER gate is honest —
+# a voice the model got to memorize during training must not appear in dev.
+"$PY" tools/retrain/carve_dev.py --manifest "$MANIFEST" \
+    --dev "$DEV_MANIFEST" --fraction 0.05 --seed 42
 
 echo "== [3/5] WER baseline of CURRENT model on the dev slice =="
 "$PY" tools/retrain/04_eval_wer.py --manifest "$DEV_MANIFEST" \
@@ -76,6 +70,7 @@ steps_flag=()
 musan_flag=()
 [[ -n "$MUSAN" ]] && musan_flag+=(--musan "$MUSAN")
 "$PY" tools/retrain/03_finetune_waxal.py --manifest "$MANIFEST" \
+    --dev-manifest "$DEV_MANIFEST" \
     --src ethio-asr --out "${ROOT}/tools/stage/model-retrained" \
     $FREEZE ${steps_flag[@]} ${musan_flag[@]}
 

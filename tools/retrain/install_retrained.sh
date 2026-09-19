@@ -36,7 +36,7 @@ CT2_CUR="${STAGE}/model-ct2-int8"
 CT2_NEW_SRC="${BUNDLE}/bundle/model-ct2-int8-retrain"
 HF_NEW="${BUNDLE}/bundle/model-retrained"
 SUMMARY="${BUNDLE}/bundle/SUMMARY.txt"
-HOLDOUT="${STAGE}/waxal/holdout.tsv"
+HOLDOUT="${STAGE}/waxal/dev.tsv"
 
 if [[ -z "$BUNDLE" || ! -d "$BUNDLE" ]]; then
   echo "usage: $0 /path/to/unzipped/retrain_output"
@@ -52,7 +52,9 @@ grep -qi "gate verdict: keep" "$SUMMARY" || {
   echo "       Summary content:"; cat "$SUMMARY"; exit 2
 }
 echo "  [ok] verdict is KEEP"
-for p in "$CT2_NEW_SRC" "$CT2_CUR" "$PY"; do
+# CT2_CUR is deliberately NOT in this gate: its absence is the legit
+# fresh-install case (below), not a failure.
+for p in "$CT2_NEW_SRC" "$PY"; do
   [[ -e "$p" ]] || { echo "[fail] missing: $p"; exit 2; }
 done
 
@@ -73,8 +75,8 @@ echo "  [ok] $CT2_NEW_SRC -> $CT2_CUR"
 echo "== [4] WAXAL holdout re-score (old vs new) =="
 if [[ -f "$HOLDOUT" ]]; then
   set +e
-  "$PY" tools/retrain/04_eval_wer.py --manifest "$HOLDOUT" \
-      --current "ethio-asr" --candidate "$HF_NEW" 2>/dev/null
+  "$PY" "$ROOT/tools/retrain/04_eval_wer.py" --manifest "$HOLDOUT" \
+      --current "$ROOT/ethio-asr" --candidate "$HF_NEW" 2>/dev/null
   rc=$?
   set -e
   if [[ $rc -ne 0 ]]; then
@@ -89,9 +91,9 @@ else
 fi
 
 echo "== [5] rebuild product zips =="
-bash tools/build.sh mac-arm64
-bash tools/build.sh mac-x64
-bash tools/build.sh win-x64
+bash "$ROOT/tools/build.sh" mac-arm64
+bash "$ROOT/tools/build.sh" mac-x64
+bash "$ROOT/tools/build.sh" win-x64
 
 echo
 echo "== done — DONE, but the FINAL gate is the honest fixture set =="

@@ -25,7 +25,7 @@ call :check "python311.dll present"   exist "%RT%\python\python311.dll"
 call :check "ffmpeg.exe present"      exist "%FF%"
 call :check "model.bin present"       exist "%MD%\model.bin"
 call :check "model_meta.json present" exist "%MD%\model_meta.json"
-call :check "vocabulary.json present" exist "%MD%\vocabulary.json"
+call :check "vocab.json present"       exist "%MD%\vocab.json"
 call :check "config.json present"     exist "%MD%\config.json"
 call :check "speaker_embed.onnx present"    exist "%RT%\speaker_embed.onnx"
 call :check "silero_vad.onnx present"       exist "%RT%\silero_vad.onnx"
@@ -105,10 +105,14 @@ if "%FAIL%"=="0" (
   )
   if "%kind%"=="pymodel" (
     cd /d "%RT%"
-    "%PY%" -E -c "import json, os, sys; sys.path.insert(0, r'%RT%'); import numpy as np, ctranslate2 as ct; m = ct.models.Wav2Vec2Bert(r'%MD%', device='cpu', compute_type='int8'); from amh_mel import MelExtractor; MelExtractor(r'%MD%'); v = json.load(open(os.path.join(r'%MD%','vocab.json'))); assert len(v) >= 100, 'small vocab'; print('model+mel+vocab OK, vocab size', len(v))" >nul 2>&1
+    rem Paths travel via the ENVIRONMENT, not string interpolation: embedding
+    rem %RT%/%MD% inside the -c literal would corrupt on ' or non-ASCII chars.
+    set "AMH_RT=%RT%"
+    set "AMH_MD=%MD%"
+    "%PY%" -E -c "import json, os, sys; rt=os.environ['AMH_RT']; md=os.environ['AMH_MD']; sys.path.insert(0, rt); import numpy as np, ctranslate2 as ct; m = ct.models.Wav2Vec2Bert(md, device='cpu', compute_type='int8'); from amh_mel import MelExtractor; MelExtractor(md); v = json.load(open(os.path.join(md, 'vocab.json'))); assert len(v) >= 100, 'small vocab'; print('model+mel+vocab OK, vocab size', len(v))" >nul 2>&1
     if errorlevel 1 (
       echo   [FAIL] %name%
-      "%PY%" -E -c "import sys; sys.path.insert(0, r'%RT%'); import ctranslate2 as ct; m = ct.models.Wav2Vec2Bert(r'%MD%', device='cpu', compute_type='int8')"
+      "%PY%" -E -c "import os, sys; sys.path.insert(0, os.environ['AMH_RT']); import ctranslate2 as ct; ct.models.Wav2Vec2Bert(os.environ['AMH_MD'], device='cpu', compute_type='int8')"
       set /a FAIL+=1
     ) else (
       echo   [PASS] %name%

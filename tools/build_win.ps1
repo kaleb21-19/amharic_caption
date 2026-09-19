@@ -68,6 +68,36 @@ Copy-Item "$ROOT\amh_mel.py" (Join-Path $BNAME "runtime\amh_mel.py")
 Copy-Item "$ROOT\ctc_beam.py" (Join-Path $BNAME "runtime\ctc_beam.py")
 Copy-Item "$ROOT\amh_correct.py" (Join-Path $BNAME "runtime\amh_correct.py")
 
+# 2-speaker diarization (interview labels). Omitted only if the model file
+# hasn't been fetched (bash tools/embed/fetch_model.sh) — verified by
+# verify_win.cmd.
+if (Test-Path "$ROOT\tools\embed\nemo_en_titanet_small.onnx") {
+    Copy-Item "$ROOT\amh_diarize.py" (Join-Path $BNAME "runtime\amh_diarize.py")
+    Copy-Item "$ROOT\tools\embed\nemo_en_titanet_small.onnx" (Join-Path $BNAME "runtime\speaker_embed.onnx")
+    Write-Host "  [ok] amh_diarize.py + speaker_embed.onnx"
+} else {
+    Write-Host "  [warn] tools\embed\nemo_en_titanet_small.onnx missing — speaker labels disabled"
+}
+
+# Amharic word-LM (glue-word resegmentation). Built offline by tools/build_lm.py.
+if (Test-Path "$ROOT\tools\lm\amh_lm.json.gz") {
+    Copy-Item "$ROOT\amh_lm.py" (Join-Path $BNAME "runtime\amh_lm.py")
+    Copy-Item "$ROOT\tools\lm\amh_lm.json.gz" (Join-Path $BNAME "runtime\amh_lm.json.gz")
+    Write-Host "  [ok] amh_lm.py + amh_lm.json.gz"
+} else {
+    Write-Host "  [warn] tools\lm\amh_lm.json.gz missing — word-LM disabled"
+}
+
+# Silero VAD (onnx) — speech-gap detector. Omitted if tools/vad/silero_vad.onnx
+# hasn't been staged; ethio_srt.py then degrades to whole-clip transcribing.
+if (Test-Path "$ROOT\tools\vad\silero_vad.onnx") {
+    Copy-Item "$ROOT\tools\vad\silero_vad.onnx" (Join-Path $BNAME "runtime\silero_vad.onnx")
+    Copy-Item "$ROOT\amh_vad.py" (Join-Path $BNAME "runtime\amh_vad.py")
+    Write-Host "  [ok] silero_vad.onnx + amh_vad.py"
+} else {
+    Write-Host "  [warn] tools\vad\silero_vad.onnx missing — VAD disabled (whole-clip transcribe)"
+}
+
 # ffmpeg + python
 Copy-Item $FF (Join-Path $BNAME "runtime\bin\ffmpeg.exe")
 # NOTE: must copy the CONTENTS of $PYDIR (trailing `\*`), NOT the dir itself.

@@ -117,6 +117,14 @@ cd tools
 
 Or let CI do it: push to `main` and the GitHub Actions workflow builds all 3 zips.
 
+### Server settings (license/trial/telegram backend)
+
+The Cloudflare Worker docs (`tools/telegram-worker/DEPLOY.md`) cover the
+extension API (`/api/*`), the `AMH_API_KEY` shared-secret header the panel
+sends on every call, and how to rotate it. The license **HMAC secret is never
+stored in this repo and never shipped** — it lives only in Worker secrets, so
+keys can't be forged from the public source.
+
 ## Tech stack
 
 - CEP panel (HTML/JS) for Adobe Premiere Pro

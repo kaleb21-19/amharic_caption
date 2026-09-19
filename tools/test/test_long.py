@@ -79,7 +79,9 @@ aligned = [("አማርኛ", 0.0, 0.4), ("ቋንቋ", 0.4, 0.7), ("ነው", 0.75,
 got = [w for w, _, _ in punctuate_words(aligned)]
 check("period at big gap, comma at medium gap, none when tight",
       got == ["አማርኛ", "ቋንቋ", "ነው።", "ግን", "ቀላል", "አይደለም።", "ነው።"])
-check("AMH_PUNCT=0 disables", punctuate_words(aligned) is aligned or True)
+default_punct = punctuate_words(aligned)
+check("default AMH_PUNCT returns a NEW punctuated list",
+      default_punct is not aligned and default_punct[-1][0] == "ነው።")
 os.environ["AMH_PUNCT"] = "0"
 check("AMH_PUNCT=0 returns input unchanged", punctuate_words(aligned) is aligned)
 del os.environ["AMH_PUNCT"]

@@ -57,6 +57,19 @@ jobs:
           path: tools/stage/model-ct2-int8
           retention-days: 30
 
+  # ---- 1.5. version-drift gate ----------------------------------------------
+  # Single source of truth for the shipped version string is APP_VERSION in
+  # panel/js/main.js; the manifest, HTML footer and DOM test must all agree.
+  # Refuses to cut a release that mixes versions (e.g. 1.4.19 bundle + 1.4.16
+  # in the Extension version).
+  check-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify version strings are consistent
+        run: bash tools/check_versions.sh
+
   # ---- 2. build each platform's self-contained zip -------------------------
   # macOS jobs share bash (macOS runner default shell), so no `shell:` key is
   # needed and no `matrix` reference appears in a shell property (GitHub does
@@ -77,6 +90,9 @@ jobs:
         with:
           name: model-ct2-int8
           path: tools/stage/model-ct2-int8
+
+      - name: Fetch speaker-embedding model
+        run: bash tools/embed/fetch_model.sh
 
       - name: Prepare runtime (python + ffmpeg)
         run: bash tools/prepare_python.sh
@@ -112,6 +128,9 @@ jobs:
           name: model-ct2-int8
           path: tools/stage/model-ct2-int8
 
+      - name: Fetch speaker-embedding model
+        run: bash tools/embed/fetch_model.sh
+
       - name: Prepare runtime (python + ffmpeg)
         run: bash tools/prepare_python.sh
 
@@ -144,6 +163,10 @@ jobs:
           name: model-ct2-int8
           path: tools/stage/model-ct2-int8
 
+      - name: Fetch speaker-embedding model
+        shell: bash
+        run: bash tools/embed/fetch_model.sh
+
       - name: Prepare runtime (python + ffmpeg)
         shell: bash
         run: bash tools/prepare_python.sh
@@ -165,9 +188,9 @@ jobs:
   # win-x64, mac-arm64, and mac-x64 zips (the x64 build runs on macos-14 now,
   # so it finishes like the others and can be part of the gate).
   release:
-    needs: [build-ar, build-win, build-x64]
+    needs: [build-ar, build-win, build-x64, check-version]
     runs-on: ubuntu-latest
-    if: ${{ always() && needs.build-ar.result == 'success' && needs.build-win.result == 'success' && needs.build-x64.result == 'success' }}
+    if: ${{ always() && needs.build-ar.result == 'success' && needs.build-win.result == 'success' && needs.build-x64.result == 'success' && needs.check-version.result == 'success' }}
     permissions:
       contents: write
     steps:

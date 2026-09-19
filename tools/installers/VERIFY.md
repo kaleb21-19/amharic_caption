@@ -25,7 +25,7 @@ Exit codes: `0` = all passed, `1` = one or more failed.
 | python.exe + python311.dll | `runtime\python\` |
 | ffmpeg.exe presence | `runtime\bin\ffmpeg.exe` |
 | ffmpeg runs | `ffmpeg -version` |
-| model.bin / model_meta.json / vocabulary.json / config.json | `runtime\model\` |
+| model.bin / model_meta.json / vocab.json / config.json | `runtime\model\` |
 | speaker_embed.onnx, silero_vad.onnx, amh_lm.json.gz | `runtime\` |
 | `import numpy, soundfile, ctranslate2` | bundled python |
 | `import onnxruntime` (VAD) | bundled python |

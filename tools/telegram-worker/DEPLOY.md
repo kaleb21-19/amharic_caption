@@ -79,8 +79,9 @@ node scripts/auto_webhook.mjs
 > 500, surfaced as a Telegram webhook error) when `AMH_WEBHOOK_SECRET` is
 > unset. Do not deploy without it.
 >
-> `AMH_ADMIN_ID` supports **multi-admin**: comma-separate numeric chat ids,
-> e.g. `5842127112,999888777`. Every id gets /admin and Approve/Decline.
+> `AMH_ADMIN_ID` supports **multi-admin**: comma-separate numeric chat ids
+> (set via `wrangler secret put AMH_ADMIN_ID`, e.g. `123456789,987654321`).
+> Every id gets /admin and Approve/Decline. Never commit the live admin ids.
 > `AMH_PRICE_ETB` is set in `wrangler.toml` `[vars]` (numeric price used for
 > revenue math + stamped on each order as `amount_etb`).
 
@@ -97,16 +98,16 @@ Worker rejects any `/api/*` request whose header doesn't match (401).
 Then rebuild + re-release the extension (Step G).
 
 ## STEP E — Refresh D1 customer/seed keys (old 24-char keys no longer validate)
-In the Cloudflare dashboard: **Workers & Pages → D1 → amh_bot → Console**, run:
+Customer keys are **never committed to the repo**. Re-issue each sold license
+with `tools/keygen.py` (reads `AMH_SECRET` from `tools/telegram/bot.env`), then
+in the Cloudflare dashboard: **Workers & Pages → D1 → amh_bot → Console**, run:
 ```sql
 DELETE FROM customers;
 INSERT INTO customers (machine_id, name, expiry, key, status) VALUES
-('88888888','@selstyan7','00000000','AMH-8888-8888-0000-0000-c30f-f618-fb26-efd0','sold'),
-('a1b2c3d4','@its_kaleb21','00000000','AMH-a1b2-c3d4-0000-0000-e936-c5b9-40cc-4bc0','sold'),
-('9d710139','@its_kaleb21','00000000','AMH-9d71-0139-0000-0000-260b-19dc-fb1d-5c4b','sold'),
-('4cba71e3','@its_kaleb21','00000000','AMH-4cba-71e3-0000-0000-0137-d378-d661-696e','sold'),
-('7cc97f2e','@its_kaleb21','00000000','AMH-7cc9-7f2e-0000-0000-32ba-3c27-4895-805d','sold');
+('xxxxxxxx','@<buyer>','00000000','AMH-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx','sold');
 ```
+Replace each row with a **freshly generated** key (see the `keygen.py` usage in
+the root README). Never paste live keys/IDs into this file — the repo is public.
 
 ## STEP F — Enable D1 backups
 Cloudflare dashboard → **D1 → amh_bot → Backups** → enable automatic backups.
@@ -146,21 +147,16 @@ npx wrangler d1 migrations apply amh_bot --remote
 ## 5. Set the secrets (never commit these)
 ```bash
 npx wrangler secret put AMH_TG_TOKEN      # Telegram bot token
-npx wrangler secret put AMH_ADMIN_ID      # 5842127112  (admin chat id)
+npx wrangler secret put AMH_ADMIN_ID      # comma-separated admin chat ids
 npx wrangler secret put AMH_SECRET        # HMAC license secret
 ```
 > The HMAC secret stays in Cloudflare — it is never in the Worker code and
 > never served to any browser/client. This preserves the existing license keys.
 
 ## 6. Import existing customers (one-time)
-Run the SQL below against `amh_bot` via the D1 console, or a seed migration.
-Keeps the 3 already-sold keys working so their keys still activate:
-```sql
-INSERT INTO customers (machine_id, name, expiry, key, status) VALUES
-('88888888','@selstyan7','00000000','AMH-8888-8888-0000-0000-c30f-f618-fb26-efd0','sold'),
-('a1b2c3d4','@its_kaleb21','00000000','AMH-a1b2-c3d4-0000-0000-e936-c5b9-40cc-4bc0','sold'),
-('9d710139','@its_kaleb21','00000000','AMH-9d71-0139-0000-0000-260b-19dc-fb1d-5c4b','sold');
-```
+Re-generate each sold key via `tools/keygen.py` (never reuse committed
+placeholders) and seed them through the D1 console so existing buyers' keys
+still activate:
 
 ## 7. Deploy the Worker
 ```bash

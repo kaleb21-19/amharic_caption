@@ -11,16 +11,20 @@
 // Requires Node 22+ (global WebCrypto, Request/Response, node:sqlite).
 
 import { DatabaseSync } from 'node:sqlite';
-import { createHmac } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 
 //                                                        Accounts
-const ADMIN_ID = '1887247213'; // live worker ADMIN_ID (see session notes)
+// Test-only identities. NEVER hardcode production secrets here — the repo is
+// public. Defaults are random per-process (self-contained, safe to run), and
+// any real admin/webhook values must come from environment variables:
+//   AMH_ADMIN_ID_TEST, AMH_SECRET_TEST, AMH_WEBHOOK_SECRET_TEST
+const ADMIN_ID = process.env.AMH_ADMIN_ID_TEST || String(randomBytes(4).readUInt32BE(0));
 const BUYER = '900000001';
 const GROUP = '-1000000000001';
-const SECRET = '7JBrcWoJAXZYNDczdPjIn1Kyv2Wynqz1_d73_-fdC4g=';
-const WEBHOOK_SECRET = '81f7daefdf489dcfc24dcf84392bdd17';
+const SECRET = process.env.AMH_SECRET_TEST || randomBytes(32).toString('base64');
+const WEBHOOK_SECRET = process.env.AMH_WEBHOOK_SECRET_TEST || randomBytes(16).toString('hex');
 const TG = 'abcdef:TOKEN';
 
 const WORKER_SRC = readFileSync(new URL('../src/worker.js', import.meta.url), 'utf8');

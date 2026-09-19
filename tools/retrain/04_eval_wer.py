@@ -35,6 +35,11 @@ def load_audio(path):
 
 def normalize(text: str) -> list:
     text = text.lower()
+    # Ethiopic punctuation (U+1360–U+1368: ፠፡።፣፤፥፦፧) lives INSIDE the
+    # \u1200-\u137F keep-range, so strip it first — otherwise a reference token
+    # like "ነው።" never matches the model's "ነው". Ethiopic DIGITS are kept.
+    # (Same normalizer as tools/test/wer.py — keep the two in lockstep.)
+    text = re.sub(r"[\u1360-\u1368]", " ", text)
     text = re.sub(r"[^\w\s\u1200-\u137F]", " ", text)
     return re.findall(r"[\u1200-\u137F\w]+", text)
 

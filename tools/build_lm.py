@@ -7,6 +7,19 @@ ships inside the runtime so the caption decoder can rescore word boundaries
 (unigram + bigram over real Amharic, with an OOV floor and a dictionary
 supplement so inflected/rare forms still count as words).
 
+ALL probabilities are stored in NATURAL LOG-SPACE: unigram_logp, oov_logp and
+every bigram entry, because amh_lm.py adds them (never multiplies). An early
+build stored bigram as raw P (c / unigrams[a]); a legacy artifact shipped with
+that corruption. To migrate such a file WITHOUT the corpus:
+
+    python3 - <<'PY'
+    import gzip, json, math
+    p = "tools/lm/amh_lm.json.gz"
+    d = json.load(gzip.open(p, "rt", encoding="utf-8"))
+    d["bigram"] = {k: math.log(v) for k, v in d["bigram"].items()}
+    json.dump(d, gzip.open(p, "wt", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
+    PY
+
 Usage:
     python3 tools/build_lm.py \
         --corpus /tmp/amh_lm/amharic_train.csv \
@@ -172,8 +185,12 @@ def main():
         bigram_logp = {k: v for k, v in bigram_logp.items() if k in keep}
     bg = {}
     for (a, b), c in bigram_logp.items():
+        # CONDITIONAL LOG-PROBABILITY. amh_lm.py sums these into a log-prob
+        # chain (unigram_logp/oov_logp are already log). Storing the raw
+        # probability here (as a buggy early build did) poisons every score:
+        # a 0.03 raw prob added into a sum of logs is a huge positive spike.
         if unigrams[a] > 0:
-            p = c / unigrams[a]
+            p = _log(c / unigrams[a])
         else:
             p = unigram_logp[b]
         bg["%s\t%s" % (a, b)] = p
