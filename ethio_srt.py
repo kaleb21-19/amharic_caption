@@ -110,6 +110,31 @@ def load_pipeline():
     return _TorchEngine(MODEL_DIR)
 
 
+def _preflight_audio(wav):
+    """Reject audio that must not reach the network. Returns True when the
+    buffer is effectively silence (caller returns an empty transcript).
+
+    1. Clips shorter than one mel frame (35 ms) are a hard 'audio too short'
+       error, mirroring MelExtractor's guard so behavior is identical whether
+       the check fires here or in the mel stage. Every path (single-shot,
+       windowed, server, batch) funnels through _transcribe_one, so the
+       ordering is stable.
+    2. Due to a Silero quirk, constant-zero input is VAD-flagged as 'active'
+       (silence.wav -> [(0.0, dur)]), and the CTC model then hallucinates
+       tokens on near-zero features. Energy floor: RMS below AMH_SILENCE_RMS
+       (default 0.0001 ~ -80 dBFS) is treated as no speech and yields an empty
+       transcript instead of fabricated captions.
+    """
+    from amh_mel import MelExtractor
+    if len(wav) < MelExtractor.MIN_SAMPLES:
+        raise ValueError(
+            "audio too short (%d samples): need >= %d (400 frame + 160 hop) "
+            "for at least two mel frames" % (len(wav), MelExtractor.MIN_SAMPLES))
+    rms = float(np.sqrt((np.asarray(wav, dtype=np.float32) ** 2).mean()))
+    floor = float(os.environ.get("AMH_SILENCE_RMS", "0.0001"))
+    return rms < floor
+
+
 class _CT2Engine:
     """CTranslate2 INT8 engine (shipped runtime)."""
 
@@ -141,6 +166,8 @@ class _CT2Engine:
         return _windowed_transcribe(self, wav)
 
     def _transcribe_one(self, wav):
+        if _preflight_audio(wav):
+            return "", [], 1.0 / 16000.0
         ctranslate2 = _load_ct2()
         trimmed, seg_table = _vad_trim(wav)
         if seg_table:
@@ -231,6 +258,8 @@ class _TorchEngine:
         return _windowed_transcribe(self, wav)
 
     def _transcribe_one(self, wav):
+        if _preflight_audio(wav):
+            return "", [], 1.0 / 16000.0
         inputs = self.processor(wav, sampling_rate=16000, return_tensors="pt")
         key = "input_features" if "input_features" in inputs else "input_values"
         feats = inputs[key].to(self.device)

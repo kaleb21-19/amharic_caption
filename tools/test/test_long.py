@@ -110,5 +110,31 @@ eng4 = ShortTailEngine()
 got, wcues = E._win_cues(eng4, np.zeros(0, dtype=np.float32), 0, 0, "grouped", 0, 42)
 check("_win_cues skips a too-short window cleanly", got == "" and wcues == [] and eng4.calls == 0)
 
+# ---- 6. effective-silence energy floor (gap "silence hallucinations", §1.2f) --
+# Digital silence passed through Silero VAD as 'active' and produced fabricated
+# CTC tokens. _preflight_audio must deem zeros silent (empty transcript) while a
+# real signal and a too-short buffer behave as before. Pure numpy — no model.
+tone = (0.05 * np.sin(2 * np.pi * 440 * np.arange(16000) / 16000)).astype(np.float32)
+check("8s zeros -> detected as silent", E._preflight_audio(np.zeros(8000, dtype=np.float32)))
+check("440Hz tone -> NOT silent",
+      not E._preflight_audio(tone))
+check("silent tone at loud RMS is speech (env floor)",
+      not E._preflight_audio((0.9 * tone)))
+import os
+prev = os.environ.get("AMH_SILENCE_RMS")
+os.environ["AMH_SILENCE_RMS"] = "0.5"  # 50% rms floor: even the tone is 'silent'
+check("AMH_SILENCE_RMS floor is honored",
+      E._preflight_audio((0.9 * tone)))
+if prev is None:
+    os.environ.pop("AMH_SILENCE_RMS", None)
+else:
+    os.environ["AMH_SILENCE_RMS"] = prev
+try:
+    E._preflight_audio(np.zeros(300, dtype=np.float32))
+    check("preflight 300-sample zeros raises 'audio too short'", False)
+except ValueError as e:
+    check("preflight 300-sample zeros raises 'audio too short'",
+          str(e).startswith("audio too short"))
+
 print("\nALL PASS" if fails == 0 else f"\n{fails} FAILED")
 sys.exit(1 if fails else 0)

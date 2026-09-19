@@ -218,17 +218,25 @@ Regression coverage: `python3 tools/test/test_mel_short.py` (raises for
 0/300/559 samples, finite features at ≥560 and for 1 s) and §5 of
 `tools/test/test_long.py` (single-shot clean raise + degenerate-window skip).
 
-### 1.2f Pure silence produces hallucinated captions (2026-09-19, found via harness)
+### 1.2f Pure silence produces hallucinated captions — FIXED (2026-09-19)
 
-Real finding from the new WER harness: `tools/test/fixtures/silence.wav` is
+Found via the new WER harness: `tools/test/fixtures/silence.wav` is
 **byte-for-byte digital silence** (5 s, all zero samples, verified
-`max|amp|=0.0`), yet transcription emits two cues (`.ን` at 0.6–2.1 s, `ቸው።` at
-4.8–5.8 s — identical across the installed and new int8 models). Root cause:
+`max|amp|=0.0`), yet transcription emitted two cues (`.ን` at 0.6–2.1 s, `ቸው።`
+at 4.8–5.8 s — identical across the installed and new int8 models). Root cause:
 `_vad_segments()` reports `[(0.0, 5.0)]` — Silero flags constant-zero input as
-"active" — so the whole clip goes to the CTC model, which hallucinates on zeros.
-Not fixed yet: the `silence` fixture stays a **regression canary** and currently
-fails the blank gate in `run_engine.sh` (candidate fix: energy floor before VAD,
-e.g. reject a window whose RMS is ~0).
+"active" — so the whole clip went to the CTC model, which hallucinated on zeros.
+
+**Fix:** `_preflight_audio()` runs first in both engines' `_transcribe_one` (the
+single choke point for single-shot, windowed, server and batch paths) and treats
+audio whose RMS is below `AMH_SILENCE_RMS` (default `0.0001` ≈ −80 dBFS) as no
+speech → empty transcript. The identical guard also raises the "audio too short"
+error below one mel frame, preserving the §1.2e contract for degenerate clips.
+Verified: the `silence` fixture now matches the blank gate
+(`ref 0 / hyp 0`, PASS in `run_engine.sh`) using a post-fix runtime, and a
+440 Hz tone / speech is unaffected. Regression tests: §6 of
+`tools/test/test_long.py` (silent zeros, tone, env-floor override, too-short
+raise).
 
 ### 1.3 Correctness of caption grouping / timing (visual)
 
@@ -343,7 +351,7 @@ imported file — can bypass the two-trial limit.
 | python | Point `AMH_MODEL_DIR` at wrong dir | Clean Python error surfaced in log |
 | ffmpeg | Feed a **corrupt/truncated** file | Clean "ffmpeg failed" / "Python failed" error, no hang |
 | ffmpeg | Very short clip (<1s) | No crash; min-duration enforced or clean error |
-| python | `silence.wav` (no speech) | KNOWN: pure silence is VAD-flagged active and the CTC model hallucinates ~2 tokens ("ን ቸው።") — see §1.2f; the fixture is a regression canary, currently fails the blank gate in `run_engine.sh` |
+| python | `silence.wav` (no speech) | FIXED: energy floor (`_preflight_audio`, RMS < `AMH_SILENCE_RMS` ⇒ empty transcript) — no cues, no traceback (see §1.2f; blank gate PASS in `run_engine.sh`) |
 | python | **ultra-short clip** (<560 samples, ~35 ms) | Clean "audio too short" error — per-clip skip + `skipped:N` in batch/server, exit 1 on the CLI; long-clip degenerate windows skipped, never fatal (fixed §8#4; see §1.2e) |
 | batch | One bad WAV in the middle of a work area | FIXED: bad clip is skipped (logged + counted), rest are captioned, run returns `skipped:N` |
 | batch | ALL clips in a work area are bad | FIXED: run completes with `ok` + all skipped, no crash/abort |
@@ -390,7 +398,7 @@ imported file — can bypass the two-trial limit.
    ≤15% accuracy gate, add recorded goldens (`<name>.wav` + `<name>.txt` in
    `tools/test/fixtures_real/`, git-ignored) and run
    `run_engine.sh --fixtures tools/test/fixtures_real --max-wer 0.15`. The
-   `silence` blank-fixture gate fails today (§1.2f).
+   `silence` blank-fixture gate now passes (energy floor, §1.2f).
 4. **Mel extractor on ultra-short (<400 sample) audio degrades** — **FIXED**:
    fewer than two mel frames made the ddof=1 per-bin variance NaN, which flowed
    into the model as garbage. `amh_mel.MelExtractor` now raises a clean
