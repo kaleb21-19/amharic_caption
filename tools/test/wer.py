@@ -13,6 +13,8 @@ import re
 
 def normalize(text: str) -> list:
     text = text.lower()
+    # Speaker labels ([S1]/[S2], "S1:", <v S1>) are engine markup, not content.
+    text = re.sub(r"\[[sS][12]\]|(?:^|\s)[sS][12]:|<v[sS]\s*[12]>|</v>", " ", text)
     # Ethiopic punctuation (U+1360–U+1368: ፠፡።፣፤፥፦፧) lives INSIDE the
     # \u1200-\u137F keep-range, so strip it first — otherwise a caption word
     # like "ነው።" would not match the reference token "ነው". Ethiopic DIGITS
@@ -61,6 +63,8 @@ def main():
     ap.add_argument("--truth", required=True, help="ground-truth .txt")
     ap.add_argument("--hyp", required=True, help="SRT or text file")
     ap.add_argument("--hyp-is-text", action="store_true")
+    ap.add_argument("--max-wer", type=float, default=0.40,
+                    help="hard gate; exits 1 above this WER (default 0.40)")
     args = ap.parse_args()
 
     with open(args.truth, encoding="utf-8") as f:
@@ -73,13 +77,20 @@ def main():
     hyp = normalize(hyp_src)
 
     if not ref:
-        print("ERROR: ground truth empty")
-        raise SystemExit(2)
+        # Blank gold: the clip is expected to be silence. Only an equally empty
+        # hypothesis passes; any generated tokens are a regression.
+        if not hyp:
+            print("ref tokens: 0  hyp tokens: 0  WER: 0.0% (blank-expected match)")
+            raise SystemExit(0)
+        print(f"ref tokens: 0  hyp tokens: {len(hyp)}  WER: n/a")
+        print("  -> FAIL: blank audio produced text")
+        raise SystemExit(1)
 
     rate = wer(ref, hyp)
+    gate = max(0.0, args.max_wer)
     print(f"ref tokens: {len(ref)}  hyp tokens: {len(hyp)}  WER: {rate*100:.1f}%")
-    if rate > 0.40:
-        print("  -> FAIL: WER too high")
+    if rate > gate:
+        print(f"  -> FAIL: WER above gate ({rate*100:.1f}% > {gate*100:.0f}%)")
         raise SystemExit(1)
     print("  -> PASS" if rate <= 0.15 else "  -> WARNING")
     raise SystemExit(0)

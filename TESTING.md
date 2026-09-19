@@ -218,6 +218,18 @@ Regression coverage: `python3 tools/test/test_mel_short.py` (raises for
 0/300/559 samples, finite features at ≥560 and for 1 s) and §5 of
 `tools/test/test_long.py` (single-shot clean raise + degenerate-window skip).
 
+### 1.2f Pure silence produces hallucinated captions (2026-09-19, found via harness)
+
+Real finding from the new WER harness: `tools/test/fixtures/silence.wav` is
+**byte-for-byte digital silence** (5 s, all zero samples, verified
+`max|amp|=0.0`), yet transcription emits two cues (`.ን` at 0.6–2.1 s, `ቸው።` at
+4.8–5.8 s — identical across the installed and new int8 models). Root cause:
+`_vad_segments()` reports `[(0.0, 5.0)]` — Silero flags constant-zero input as
+"active" — so the whole clip goes to the CTC model, which hallucinates on zeros.
+Not fixed yet: the `silence` fixture stays a **regression canary** and currently
+fails the blank gate in `run_engine.sh` (candidate fix: energy floor before VAD,
+e.g. reject a window whose RMS is ~0).
+
 ### 1.3 Correctness of caption grouping / timing (visual)
 
 For `long5min` import into Premiere and verify:
@@ -331,7 +343,7 @@ imported file — can bypass the two-trial limit.
 | python | Point `AMH_MODEL_DIR` at wrong dir | Clean Python error surfaced in log |
 | ffmpeg | Feed a **corrupt/truncated** file | Clean "ffmpeg failed" / "Python failed" error, no hang |
 | ffmpeg | Very short clip (<1s) | No crash; min-duration enforced or clean error |
-| python | `silence.wav` (no speech) | Bucket: all-blank -> empty/no cues, no traceback |
+| python | `silence.wav` (no speech) | KNOWN: pure silence is VAD-flagged active and the CTC model hallucinates ~2 tokens ("ን ቸው።") — see §1.2f; the fixture is a regression canary, currently fails the blank gate in `run_engine.sh` |
 | python | **ultra-short clip** (<560 samples, ~35 ms) | Clean "audio too short" error — per-clip skip + `skipped:N` in batch/server, exit 1 on the CLI; long-clip degenerate windows skipped, never fatal (fixed §8#4; see §1.2e) |
 | batch | One bad WAV in the middle of a work area | FIXED: bad clip is skipped (logged + counted), rest are captioned, run returns `skipped:N` |
 | batch | ALL clips in a work area are bad | FIXED: run completes with `ok` + all skipped, no crash/abort |
@@ -365,7 +377,20 @@ imported file — can bypass the two-trial limit.
    `validateLicense` paths) in Node, and `amh_diarize.py` self-tests its pure
    clustering/labelling. `tools/test/test_panel_dom.js` (with `dom_shim.js`) adds the
    DOM-level `main.js` coverage (settings, license gate, review→export) via Node's `vm`.
-3. **No golden audio `fixtures/`** — cannot assert real accuracy. Must be recorded.
+3. **No golden audio `fixtures/`** — harness built 2026-09-19; **real recorded
+   goldens still to be added for an accuracy gate**. `tools/test/wer.py`,
+   `tools/test/run_engine.sh` (now `--fixtures DIR` + `--max-wer` aware) and
+   `tools/test/test_srt.py` are implemented (see §9) and were scored against the
+   shipped CT2 int8 model: the committed fixtures (`fast/news/noisy/names/
+   numbers/interview/long5min/short1`) are **synthetic (TTS register)** and every
+   one clears no gate — WER 50–107% (the model blurs sub-words, e.g. አበበ→አበባ,
+   ሰዎች→ሰሞች) — while the git-ignored REAL clip `tools/test/fixtures_real/
+   abu.mp4.wav` transcribes into fluent grammatical Amharic. Synthetic fixtures
+   therefore measure worst-case voice transfer, not real accuracy. To assert a
+   ≤15% accuracy gate, add recorded goldens (`<name>.wav` + `<name>.txt` in
+   `tools/test/fixtures_real/`, git-ignored) and run
+   `run_engine.sh --fixtures tools/test/fixtures_real --max-wer 0.15`. The
+   `silence` blank-fixture gate fails today (§1.2f).
 4. **Mel extractor on ultra-short (<400 sample) audio degrades** — **FIXED**:
    fewer than two mel frames made the ddof=1 per-bin variance NaN, which flowed
    into the model as garbage. `amh_mel.MelExtractor` now raises a clean
@@ -378,32 +403,43 @@ imported file — can bypass the two-trial limit.
 
 ---
 
-## 9. Targeted Testing Harness (proposed)
+## 9. Targeted Testing Harness (implemented 2026-09-19)
 
-To make regression testing repeatable, add `tools/test/`:
+`tools/test/` now contains the offline accuracy/structure harness:
 
 ```
 tools/test/
-  fixtures/          (git-ignored: golden .wav + .txt ground truth)
-     news.wav / news.txt ...
-  wer.py             (compute WER between ground truth and an SRT/full-transcript)
-  run_engine.sh      (loop over fixtures, run ethio_srt.py karaoke+grouped, score)
-  test_srt.py        (validate SRT structure: numbering, timing order, 1-5s cues)
+  fixtures/          (committed: synthetic TTS set — see §8#3 for scored results)
+     fast/interview/long5min/names/news/noisy/numbers/short1/silence/twospeaker
+  fixtures_real/     (git-ignored: REAL recorded .wav goldens go here; drop a
+     <name>.txt alongside and run_engine picks it up)
+  wer.py             (WER between ground truth and an SRT/transcript; strips
+     Ethiopic punctuation + [S1]/[S2] speaker labels; --max-wer gate; empty
+     truth must match an empty hypothesis)
+  run_engine.sh      (loop over fixtures, run ethio_srt.py karaoke+grouped, score WER
+     + test_srt.py structure per mode; exits 1 on any failure)
+  test_srt.py        (validate SRT structure: numbering, timing order, 1-5s cues,
+     no empty text)
   # License-key validation has no script of its own: `tools/keygen.py` generates
   # keys, the panel's structural checks are covered by `node tools/test/test_panel.js`
   # (`validateLicense` matrix), and the server's HMAC + D1-`ROW existence checks
   # are covered by `tools/telegram-worker/test/e2e.mjs`. See §5.
 ```
 
-Commands:
+Commands (RUNTIME must be a built extension runtime dir with `python/bin/python3`,
+`ethio_srt.py` and the model — e.g. the installed extension's `runtime/`):
 
 ```bash
-tools/test/run_engine.sh tools/test/fixtures   # positional; §1.2b uses RUNTIME=...
-tools/test/test_srt.py /tmp/out_karaoke.srt    # SRT structure check (arg: path)
+RUNTIME=/path/to/.../com.amharic.captions/runtime tools/test/run_engine.sh --fixtures tools/test/fixtures
+tools/test/run_engine.sh --fixtures tools/test/fixtures_real --max-wer 0.15   # when real goldens exist
+python3 tools/test/wer.py --truth tools/test/fixtures/news.txt --hyp /tmp/out.srt --max-wer 0.40
+python3 tools/test/test_srt.py /tmp/out_karaoke.srt    # SRT structure check (arg: path)
 ```
 
 **Definition of done for "unquestionable":** every scenario in sections 1–7 has a
-recorded pass, the automated harness runs green, and known-gap #1 is fixed.
+recorded pass, the automated harness runs green (structural/robustness suites;
+accuracy gate once real goldens land in `fixtures_real`), and known-gap #1 is
+fixed.
 
 ---
 
@@ -411,7 +447,7 @@ recorded pass, the automated harness runs green, and known-gap #1 is fixed.
 
 1. Offline engine smoke test (A) — validates the model works at all.
 2. `ctc_beam.py` + `amh_correct.py` self-checks.
-3. Quality golden set WER (add fixtures).
+3. Quality golden set WER — harness ready (`run_engine.sh --fixtures DIR --max-wer G`); add real recorded goldens to `tools/test/fixtures_real/` (see §8#3).
 4. Options matrix (B, C, D, E, F).
 5. License 1–12 (all in Premiere).
 6. Source matrix 1–5 + edge cases (in Premiere).
