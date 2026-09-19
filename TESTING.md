@@ -244,25 +244,40 @@ raise).
 
 ### 1.2g Real-golden WER gate is RED vs 15% — measured (2026-09-19)
 
-First real recorded goldens landed: 8 clips from **Common Voice Amharic** (CC0;
-source `hadamard-2/common-voice-24-ethiopian-v2`, `amh/test` split), written as
-`tools/test/fixtures_real/cv_common_voice_am_*.wav` (+ `.txt`). Each clip is
-2.3–2.9 s of single-speaker read speech (3–6 tokens), resampled mp3→16 kHz mono
-WAV with ffmpeg and verified decodable. Scored against the shipped runtime with
+Golden set: **20 recorded clips** from **Common Voice Amharic** (CC0; source
+`hadamard-2/common-voice-24-ethiopian-v2`, `amh/test` split), written as
+`tools/test/fixtures_real/cv_common_voice_am_*.wav` (+ `.txt`): varied
+single-speaker read speech, 2.3–6.6 s, 3–12 tokens, resampled mp3→16 kHz mono
+WAV with ffmpeg and verified decodable. Score = shipped runtime via
 `run_engine.sh --fixtures tools/test/fixtures_real --max-wer 0.15` (karaoke +
-grouped modes, identical WERs): **the ≤15% gate FAILS** — WER per clip 0.0 /
-60.0 / 60.0 / 66.7 / 75.0 / 80.0 / 80.0 / 100.0% (mean ≈ 65%, pass 2/16; the
-only clean pass is `cv_common_voice_am_38629723`).
+grouped modes, identical WERs): **the ≤15% gate FAILS** — WER mean ≈ 52%
+(range 0–100%), 3 of 19 clips perfect (`37842349`, `38629723`, `39643423`),
+CER mean ≈ 19%, pass 6/38 scored runs.
 
 Inspection attributes part of the score to two **evaluation confounds**, not
 acoustic errors: (1) orthographic/diacritic variants — model output `ታዕምር` for
-truth `ተዓምር` (same word, both spellings standard); (2) agglutinative word
+truth `ተዓምር` (same word, both spellings standard; the ተ/ታ and ዓ/ዕ series collapse
+under the CER view, e.g. a 40%-WER clip is 8.7% CER); (2) agglutinative word
 boundaries the model splits but the corpus glues (`ነውአሉ` vs `ነው አሉ`). Genuine
 misses remain too (truth `ቋሚውንም አግኝተናል አሉ፡፡` → hyp `የኳዋነት ማንታ ላ።`), while the
 committed fluent narrative `fixtures_real/abu.mp4.wav` transcribes into
-grammatical Amharic. Closing the gate needs an Amharic-aware WER normalizer
-(canonicalize variants, split glued forms) and/or model fine-tuning — recorded
-here as the honest current state, not a release blocker for shipped 1.4.x.
+grammatical Amharic. Longer sentences transcribe much better (6–7 s clips score
+20–33% WER), so the red gate is concentrated on short, isolated read phrases +
+confounds. Closing it needs an Amharic-aware WER normalizer (vowel-length
+canonicalization, split glued forms — §1.2g scorer already folds in the
+homophone families) and/or a model upgrade (see "pending" note below).
+
+> **Pending (bandwidth-blocked 2026-09-19): candidate A/B.** `badrex/
+> Ethio-ASR-multilingual-600M` (CC-BY-4.0; same wav2vec2-bert architecture,
+> hidden 1024/24 layers; WAXAL Amharic WER **22.9% vs ~30%** for the shipped
+> model; `[PAD]` blank id 408 identical, vocab 414) is staged to test via
+> `AMH_MODEL_DIR=`. Conversion needs the 2.4 GB fp32 safetensors, whose HF CDN
+> download was throttled/reset repeatedly on this connection (plain curl ~65
+> KB/s, multi-segment ~3.4 MB/s then peer-reset). A resume-safe segmented
+> appender is ready in `/var/folders/../T/opencode/dl_model.sh` — run it when
+> bandwidth cooperates; then `MODEL_SRC=tools/stage/ethio-asr-mu-600m
+> MODEL_DST=tools/stage/model-ct2-int8-mu600 tools/make_model_ct2_int8.sh` and
+> re-run the gate with `AMH_MODEL_DIR=tools/stage/model-ct2-int8-mu600`.
 
 ### 1.3 Correctness of caption grouping / timing (visual)
 
@@ -422,12 +437,14 @@ imported file — can bypass the two-trial limit.
    one clears no gate — WER 50–107% (the model blurs sub-words, e.g. አበበ→አበባ,
    ሰዎች→ሰሞች) — while the REAL clip `tools/test/fixtures_real/abu.mp4.wav`
    transcribes into fluent grammatical Amharic. Synthetic fixtures therefore
-   measure worst-case voice transfer, not real accuracy. Real recorded goldens
-   landed 2026-09-19 (8 Common Voice Amharic clips, CC0; §1.2g): scored via
-   `run_engine.sh --fixtures tools/test/fixtures_real --max-wer 0.15`, the
-   ≤15% gate is currently RED — WER 0–100%, mean ≈ 65%, pass 2/16 — inflated in
-   part by orthographic-variant and word-boundary confounds (details in §1.2g).
-   The `silence` blank-fixture gate passes (energy floor, §1.2f).
+measure worst-case voice transfer, not real accuracy. Real recorded goldens
+    landed 2026-09-19 (20 Common Voice Amharic clips, CC0; §1.2g): scored via
+    `run_engine.sh --fixtures tools/test/fixtures_real --max-wer 0.15`, the
+    ≤15% gate is currently RED — WER 0–100% (mean ≈ 52%), CER mean ≈ 19%, 3 of
+    19 clips perfect, pass 6/38 — inflated in part by orthographic-variant and
+    word-boundary confounds, plus a known class of vowel-length variants (details
+    and a pending 600M-model A/B in §1.2g). The `silence` blank-fixture gate
+    passes (energy floor, §1.2f).
 4. **Mel extractor on ultra-short (<400 sample) audio degrades** — **FIXED**:
    fewer than two mel frames made the ddof=1 per-bin variance NaN, which flowed
    into the model as garbage. `amh_mel.MelExtractor` now raises a clean
@@ -449,7 +466,7 @@ tools/test/
   fixtures/          (committed: synthetic TTS set — see §8#3 for scored results)
      fast/interview/long5min/names/news/noisy/numbers/short1/silence/twospeaker
   fixtures_real/     (REAL recorded .wav goldens — committed: abu.mp4.wav plus
-     8 Common Voice Amharic clips added 2026-09-19; <name>.txt truth alongside,
+     20 Common Voice Amharic clips added 2026-09-19; <name>.txt truth alongside,
      run_engine picks both up — see §1.2g)
   wer.py             (WER between ground truth and an SRT/transcript; strips
      Ethiopic punctuation + [S1]/[S2] speaker labels; --max-wer gate; empty
