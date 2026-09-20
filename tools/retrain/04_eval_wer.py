@@ -12,6 +12,11 @@ code so a bad retrain can never replace the working model.
     --current ethio-asr                     (production HF checkpoint dir)
     --candidate tools/stage/model-retrained (proposed retrained checkpoint)
     --max-rows N                            (quick smoke)
+    --decode {greedy,beam}                  (default greedy; beam matches what
+                                              the product actually ships —
+                                              greedy-only scoring here can pass
+                                              a candidate that regresses once
+                                              deployed. See IMPROVEMENTS.md #3.)
 """
 import argparse
 import os
@@ -21,6 +26,9 @@ import sys
 import torch
 
 from transformers import Wav2Vec2BertForCTC, Wav2Vec2Processor
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from ctc_beam import ctc_beam_decode  # noqa: E402
 
 SR = 16000
 
@@ -83,7 +91,14 @@ def cer(ref_tokens, hyp_tokens) -> float:
     return (d / len(s_ref)) if s_ref else (0.0 if not s_hyp else 1.0)
 
 
-def transcribe(processor, model, device, audio):
+def transcribe(processor, model, device, audio, decode="greedy"):
+    """decode='greedy' matches the original argmax+processor.decode scoring.
+    decode='beam' runs the SAME numpy CTC prefix beam search (ctc_beam.py,
+    default beam_width/top_k) the shipped product actually uses, so this gate
+    can't pass a candidate whose beam-search output regresses even though its
+    greedy output looked fine (IMPROVEMENTS.md Tier 0 #3)."""
+    blank_id = processor.tokenizer.pad_token_id
+    glyphs = {int(tid): ch for ch, tid in processor.tokenizer.get_vocab().items()}
     out_txts = []
     for a in chunk_signal(audio, SR * 45):  # <=45s windows keep memory bounded
         feats = processor(a, sampling_rate=SR, return_tensors="pt",
@@ -93,8 +108,20 @@ def transcribe(processor, model, device, audio):
                 input_features=feats["input_features"].to(device),
                 attention_mask=feats.get("attention_mask").to(device)
                 if feats.get("attention_mask") is not None else None)
-        ids = torch.argmax(out.logits, dim=-1)[0].cpu()
-        out_txts.append(processor.decode(ids))
+        if decode == "beam":
+            # Match the shipped defaults (ethio_srt.py / AMH_BEAM_TOP_K,
+            # AMH_BEAM_WIDTH) exactly, not an unbounded full-vocab search —
+            # otherwise this "matches production" gate would silently score a
+            # slower, more thorough beam than what's actually deployed.
+            logits = out.logits[0].float().cpu().numpy()
+            text, _segs = ctc_beam_decode(
+                logits, blank_id, glyphs=glyphs,
+                beam_width=int(os.environ.get("AMH_BEAM_WIDTH", "24")),
+                top_k=int(os.environ.get("AMH_BEAM_TOP_K", "16")))
+            out_txts.append(text)
+        else:
+            ids = torch.argmax(out.logits, dim=-1)[0].cpu()
+            out_txts.append(processor.decode(ids))
     return " ".join(t for t in out_txts if t)
 
 
@@ -110,12 +137,15 @@ def main():
     ap.add_argument("--candidate", required=True)
     ap.add_argument("--max-rows", type=int, default=None)
     ap.add_argument("--device", default=None)
+    ap.add_argument("--decode", choices=["greedy", "beam"], default="greedy",
+                     help="greedy (original) or beam (matches the shipped "
+                          "product's ctc_beam.py decoder — see IMPROVEMENTS.md #3)")
     args = ap.parse_args()
 
     device = args.device or \
         ("cuda" if torch.cuda.is_available() else
          ("mps" if torch.backends.mps.is_available() else "cpu"))
-    print(f"[info] device={device}")
+    print(f"[info] device={device}  decode={args.decode}")
 
     rows = []
     with open(args.manifest, encoding="utf-8") as f:
@@ -146,8 +176,8 @@ def main():
     print(f"  {'row':>4}  {'(total) current':>16} {'(total) retrained':>17}  example")
     for i, (path, truth) in enumerate(rows):
         audio = load_audio(path)
-        hy_c = transcribe(proc_c, model_c, device, audio)
-        hy_n = transcribe(proc_n, model_n, device, audio)
+        hy_c = transcribe(proc_c, model_c, device, audio, decode=args.decode)
+        hy_n = transcribe(proc_n, model_n, device, audio, decode=args.decode)
         ref = normalize(truth)
         w_c = wer(ref, normalize(hy_c))
         w_n = wer(ref, normalize(hy_n))
