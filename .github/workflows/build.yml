@@ -91,8 +91,11 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install Python deps (numpy only — no torch/ctranslate2 needed)
-        run: python -m pip install --quiet numpy
+      - name: Install Python deps (numpy + soundfile — no torch/ctranslate2 needed)
+        # ethio_srt.py imports soundfile at module level (used by read_wav);
+        # test_long.py imports ethio_srt, so it needs this even though the
+        # stub-engine tests never actually read a real audio file.
+        run: python -m pip install --quiet numpy soundfile
 
       - name: Download CT2 int8 model assets (mel_filters.npy / window.npy only)
         uses: actions/download-artifact@v4
