@@ -218,6 +218,36 @@ await t('2. settings: defaults, live toggles, persistence across reload', async 
     // reset group so cache key stays deterministic
     p.els('groupSize').value = '3'; p.els('groupSize').fire('input');
 
+    // Custom vocabulary: blank/whitespace-only lines dropped, terms trimmed,
+    // and the parsed list reaches both request-building paths.
+    p.els('glossaryBox').value = 'ስም አንድ\nስም ሁለት\n\n  \nስም ሶስት';
+    p.els('glossaryBox').fire('input');
+    const sg = JSON.parse(storage.getItem('amh.settings')||'{}');
+    assert.deepStrictEqual(sg.glossary, ['ስም አንድ', 'ስም ሁለት', 'ስም ሶስት'], 'glossary parsed and saved');
+
+    const warmStyle = p.evalVm('warmStyle');
+    // Spread into a host-realm array: vm Arrays carry a different
+    // Array.prototype, which deepStrictEqual would reject on identity alone.
+    assert.deepStrictEqual([...warmStyle().glossary], ['ስም አንድ', 'ስም ሁለት', 'ስም ሶስት'], 'warmStyle carries glossary');
+
+    const pyFlags = p.evalVm('pyFlags');
+    const flags = pyFlags();
+    const gi = flags.indexOf('--glossary');
+    assert.ok(gi >= 0 && gi + 1 < flags.length, 'pyFlags includes --glossary <path>');
+    const written = JSON.parse(fs.readFileSync(flags[gi + 1], 'utf8'));
+    assert.deepStrictEqual(written, ['ስም አንድ', 'ስም ሁለት', 'ስም ሶስት'], 'glossary file written for one-shot fallback');
+    fs.unlinkSync(flags[gi + 1]);
+
+    // Empty glossary must not appear in either request path at all.
+    p.els('glossaryBox').value = '';
+    p.els('glossaryBox').fire('input');
+    assert.strictEqual(warmStyle().glossary, undefined, 'empty glossary omitted from warmStyle');
+    assert.strictEqual(pyFlags().indexOf('--glossary'), -1, 'empty glossary omitted from pyFlags');
+
+    // restore for the reload check below
+    p.els('glossaryBox').value = 'ስም አንድ\nስም ሁለት\nስም ሶስት';
+    p.els('glossaryBox').fire('input');
+
     // reload: shared storage + same machine home
     const p2 = loadPanel({ storage, machineHome: homeDir, folderDialog: () => ({err:1}) });
     try {
@@ -225,6 +255,7 @@ await t('2. settings: defaults, live toggles, persistence across reload', async 
       assert.strictEqual(p2.els('speakersToggle').checked, true, 'speakers remembered');
       assert.strictEqual(p2.els('groupSize').disabled, false, 'syncStyleControls on reload');
       assert.strictEqual(p2.els('srcWork').classList.contains('active'), true, 'source remembered');
+      assert.strictEqual(p2.els('glossaryBox').value, 'ስም አንድ\nስም ሁለት\nስም ሶስት', 'glossary remembered');
     } finally { p2.close(); }
   } finally { p.close(); }
 });

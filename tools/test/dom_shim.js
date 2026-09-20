@@ -163,7 +163,7 @@ const KNOWN = [
   'srcSeg', 'srcClip', 'srcWork', 'srcWhole',
   'choose', 'fileInput', 'picked',
   // style
-  'capSeg', 'capWords', 'capGroup', 'groupSize', 'maxChars', 'speakersToggle',
+  'capSeg', 'capWords', 'capGroup', 'groupSize', 'maxChars', 'speakersToggle', 'glossaryBox',
   'runBtn', 'cancelBtn', 'progBar', 'progLabel',
   // license
   'machineIdSection', 'machineIdDisplay', 'machineIdCopy', 'machineMismatch',
@@ -194,6 +194,7 @@ function makeDocument(tagFor) {
     srcClip: ['button', 'clip'], srcWork: ['button', 'work'], srcWhole: ['button', 'whole'],
     capWords: ['button', 'words'], capGroup: ['button', 'grouped'],
     groupSize: ['input', null], maxChars: ['input', null], speakersToggle: ['input', null],
+    glossaryBox: ['textarea', null],
     fileInput: ['input', null], burnFileInput: ['input', null],
     licenseInput: ['input', null], reviewSearch: ['input', null],
     runBtn: ['button', null], cancelBtn: ['button', null], choose: ['button', null],

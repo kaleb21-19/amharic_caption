@@ -155,6 +155,65 @@ def correct_words(words):
     return corrected
 
 
+def _edit_distance(a, b):
+    """Plain Levenshtein distance (character-level)."""
+    if a == b:
+        return 0
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i] + [0] * len(b)
+        for j, cb in enumerate(b, 1):
+            cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb))
+        prev = cur
+    return prev[len(b)]
+
+
+def apply_glossary(words, glossary):
+    """Fuzzy-correct words against a user-supplied glossary of proper nouns /
+    project-specific terms (e.g. names the model has never seen). A word is
+    replaced by the CLOSEST glossary term when it's near-but-not-exactly that
+    term — never when it already matches exactly (nothing to fix) and never
+    when nothing is close enough (don't overwrite an unrelated, already-
+    correct word just because it's the "least bad" match in the list).
+
+    Deliberately conservative: terms and candidate words under 3 characters
+    are skipped entirely (fuzzy matching on short strings is unreliable —
+    see the analogous length guard in amh_lm.py's split_word), matches must
+    be within +/-2 characters of the term's length, and the allowed edit
+    distance scales with term length (roughly 30%, minimum 1) so a short
+    name isn't matched by something that only vaguely resembles it.
+
+    Same calling convention as correct_words/punctuate_words: entries may
+    carry extra fields after (token, start, end), which ride through
+    unchanged.
+    """
+    if not glossary:
+        return words
+    terms = sorted({t.strip() for t in glossary if t and len(t.strip()) >= 3})
+    if not terms:
+        return words
+    out = []
+    for w in words:
+        tok, s, e, rest = w[0], w[1], w[2], tuple(w[3:])
+        if len(tok) < 3:
+            out.append((tok, s, e) + rest)
+            continue
+        best_term, best_d = None, None
+        exact = False
+        for term in terms:
+            if term == tok:
+                exact = True
+                break
+            if abs(len(term) - len(tok)) > 2:
+                continue
+            d = _edit_distance(tok, term)
+            thresh = max(1, int(len(term) * 0.3))
+            if d <= thresh and (best_d is None or d < best_d):
+                best_term, best_d = term, d
+        out.append((tok, s, e) + rest if exact or not best_term else (best_term, s, e) + rest)
+    return out
+
+
 if __name__ == "__main__":
     tests = [
         ("በጠቅላ", "በጠቅላላ"),
@@ -189,4 +248,21 @@ if __name__ == "__main__":
     if not pok:
         ok = False
     print(f"  [{'OK' if pok else 'FAIL'}] punctuate_words -> {pgot}")
+
+    # Custom vocabulary: a name the model garbled by one character gets fixed,
+    # an unrelated real word is left alone, and an already-correct occurrence
+    # of the name is untouched (no double-correction / no-op path).
+    term = "ጎበዜነህ"
+    near_miss = term[:2] + "ማ" + term[3:]  # 1-character slip, within threshold
+    glossary_words = [(near_miss, 0.0, 0.5), ("በግንባታ", 0.5, 1.0), (term, 1.0, 1.5)]
+    gcorrected = apply_glossary(glossary_words, [term])
+    ggot = [w[0] for w in gcorrected]
+    gwant = [term, "በግንባታ", term]
+    gok = ggot == gwant
+    if not gok:
+        ok = False
+    print(f"  [{'OK' if gok else 'FAIL'}] apply_glossary -> {ggot} (want {gwant})")
+    print(f"  [{'OK' if apply_glossary([], [term]) == [] else 'FAIL'}] apply_glossary: empty words -> []")
+    print(f"  [{'OK' if apply_glossary(glossary_words, []) == glossary_words else 'FAIL'}] apply_glossary: empty glossary is a no-op")
+
     print("\nALL PASS" if ok else "\nSOME FAILED")

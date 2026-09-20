@@ -996,6 +996,7 @@ let CAP = 'grouped';
 let GROUP_SIZE = 3;
 let MAX_CHARS = 42;
 let SPEAKERS = false;
+let GLOSSARY = [];
 let cancelRequested = false;
 let lastSrtPath = null;
 let lastCues = [];
@@ -1018,6 +1019,7 @@ function applySettings() {
   GROUP_SIZE = s.group || 3;
   MAX_CHARS = s.chars || 42;
   SPEAKERS = !!s.speakers;
+  GLOSSARY = Array.isArray(s.glossary) ? s.glossary : [];
   document.querySelectorAll('#srcSeg button').forEach((b) => {
     b.classList.toggle('active', b.dataset.src === SOURCE);
   });
@@ -1027,6 +1029,12 @@ function applySettings() {
   $('groupSize').value = GROUP_SIZE;
   $('maxChars').value = MAX_CHARS;
   $('speakersToggle').checked = SPEAKERS;
+  $('glossaryBox').value = GLOSSARY.join('\n');
+}
+
+// One term per line, trimmed, blanks dropped — mirrors what the panel shows.
+function parseGlossaryBox(raw) {
+  return String(raw || '').split('\n').map((l) => l.trim()).filter(Boolean);
 }
 
 // ----------------------------------------------------------------- SRT
@@ -1095,6 +1103,16 @@ function pyFlags() {
   else f.push('--group', String(GROUP_SIZE));
   f.push('--max-chars', String(MAX_CHARS));
   if (SPEAKERS) f.push('--speakers');
+  if (GLOSSARY.length) {
+    // One-shot fallback has no per-request JSON channel (unlike the warm
+    // worker's warmStyle()), so the current glossary is written fresh before
+    // every run — always in sync with the panel, never a stale leftover file.
+    const gp = path.join(os.tmpdir(), 'amharic_glossary_' + Date.now() + '.json');
+    try {
+      fs.writeFileSync(gp, JSON.stringify(GLOSSARY), 'utf8');
+      f.push('--glossary', gp);
+    } catch (e) { /* best-effort: no glossary this run rather than failing it */ }
+  }
   return f;
 }
 
@@ -1371,7 +1389,8 @@ function warmStyle() {
   return { mode: CAP === 'words' ? 'words' : 'grouped',
            group: CAP === 'grouped' ? GROUP_SIZE : 0,
            max_chars: MAX_CHARS,
-           speakers: SPEAKERS };
+           speakers: SPEAKERS,
+           glossary: GLOSSARY.length ? GLOSSARY : undefined };
 }
 
 // Extract a trimmed source segment to 16k mono wav.
@@ -2348,6 +2367,10 @@ function setup() {
   $('speakersToggle').addEventListener('change', (e) => {
     SPEAKERS = !!e.target.checked;
     saveSettings({ speakers: SPEAKERS });
+  });
+  $('glossaryBox').addEventListener('input', (e) => {
+    GLOSSARY = parseGlossaryBox(e.target.value);
+    saveSettings({ glossary: GLOSSARY });
   });
 
   $('runBtn').addEventListener('click', run);
