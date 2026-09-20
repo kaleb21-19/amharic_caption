@@ -91,6 +91,25 @@ def cer(ref_tokens, hyp_tokens) -> float:
     return (d / len(s_ref)) if s_ref else (0.0 if not s_hyp else 1.0)
 
 
+def cer_nospace(ref_tokens, hyp_tokens) -> float:
+    """CER with all word breaks dropped from both sides — see the longer
+    explanation in tools/test/wer.py (keep the two in lockstep). Amharic word
+    boundaries aren't fixed, so this separates "recognised the right letters"
+    from "segmented the same way the reference transcriber did"."""
+    def lev(a: str, b: str) -> int:
+        prev = list(range(len(b) + 1))
+        for i, ca in enumerate(a, 1):
+            cur = [i] + [0] * len(b)
+            for j, cb in enumerate(b, 1):
+                cur[j] = min(prev[j] + 1, cur[j - 1] + 1,
+                             prev[j - 1] + (ca != cb))
+            prev = cur
+        return prev[len(b)]
+    s_ref, s_hyp = "".join(ref_tokens), "".join(hyp_tokens)
+    d = lev(s_ref, s_hyp)
+    return (d / len(s_ref)) if s_ref else (0.0 if not s_hyp else 1.0)
+
+
 def transcribe(processor, model, device, audio, decode="greedy"):
     """decode='greedy' matches the original argmax+processor.decode scoring.
     decode='beam' runs the SAME numpy CTC prefix beam search (ctc_beam.py,
@@ -172,6 +191,8 @@ def main():
     tot_n = 0.0
     tot_cc = 0.0
     tot_nc = 0.0
+    tot_cx = 0.0   # boundary-agnostic CER, current
+    tot_nx = 0.0   # boundary-agnostic CER, candidate
     count = 0
     print(f"  {'row':>4}  {'(total) current':>16} {'(total) retrained':>17}  example")
     for i, (path, truth) in enumerate(rows):
@@ -185,6 +206,8 @@ def main():
         tot_n += w_n
         tot_cc += cer(ref, normalize(hy_c))
         tot_nc += cer(ref, normalize(hy_n))
+        tot_cx += cer_nospace(ref, normalize(hy_c))
+        tot_nx += cer_nospace(ref, normalize(hy_n))
         count += 1
         print(f"  {i:>4}  {w_c:>16.3f} {w_n:>17.3f}  "
               f"{'OK' if w_n <= w_c else 'REGRESS'}  {truth[:26]}")
@@ -193,8 +216,13 @@ def main():
     avg_n = tot_n / count if count else float("nan")
     avg_cc = tot_cc / count if count else float("nan")
     avg_nc = tot_nc / count if count else float("nan")
+    avg_cx = tot_cx / count if count else float("nan")
+    avg_nx = tot_nx / count if count else float("nan")
     print(f"\n[result] mean WER  current={avg_c:.3f}  retrained={avg_n:.3f}")
     print(f"[result] mean CER  current={avg_cc:.3f}  retrained={avg_nc:.3f}")
+    # Boundary-agnostic: recognition quality with word-break disagreement
+    # removed. If WER moves but this doesn't, the change only re-segmented.
+    print(f"[result] mean CER (no word breaks)  current={avg_cx:.3f}  retrained={avg_nx:.3f}")
     print(f"[result] 'retrained <= current' -> "
           f"{'KEEP (ship it)' if avg_n <= avg_c else 'REJECT (keep current)'}")
     sys.exit(0 if avg_n <= avg_c else 1)

@@ -104,6 +104,27 @@ def cer(ref: list, hyp: list) -> float:
     return (d / len(s_ref)) if s_ref else (0.0 if not s_hyp else 1.0)
 
 
+def cer_nospace(ref: list, hyp: list) -> float:
+    """CER with ALL word breaks removed from both sides first.
+
+    Amharic is agglutinative and its orthography does not fix where one word
+    ends: "ነው አሉ" and "ነውአሉ" are the same utterance, but plain WER charges two
+    errors for the disagreement and even CER still charges for the space.
+    Dropping spaces entirely isolates the question that actually measures the
+    acoustic model — "did it recognise the right letters?" — from the separate
+    question of whether it segments the same way the reference transcriber did.
+
+    Read it alongside WER, never instead of it: WER is still what a viewer
+    experiences (wrong word breaks look wrong on screen). This number exists so
+    a retrain/LM change can be judged on recognition alone, without segmentation
+    disagreement masking whether the model actually got better.
+    """
+    s_ref = "".join(ref)
+    s_hyp = "".join(hyp)
+    d = _lev(s_ref, s_hyp)
+    return (d / len(s_ref)) if s_ref else (0.0 if not s_hyp else 1.0)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--truth", required=True, help="ground-truth .txt")
@@ -134,9 +155,11 @@ def main():
 
     rate = wer(ref, hyp)
     c_rate = cer(ref, hyp)
+    cn_rate = cer_nospace(ref, hyp)
     gate = max(0.0, args.max_wer)
     print(f"ref tokens: {len(ref)}  hyp tokens: {len(hyp)}  "
-          f"WER: {rate*100:.1f}%  CER: {c_rate*100:.1f}%")
+          f"WER: {rate*100:.1f}%  CER: {c_rate*100:.1f}%  "
+          f"CER-nospace: {cn_rate*100:.1f}%")
     if rate > gate:
         print(f"  -> FAIL: WER above gate ({rate*100:.1f}% > {gate*100:.0f}%)")
         raise SystemExit(1)
