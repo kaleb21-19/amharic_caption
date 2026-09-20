@@ -147,12 +147,53 @@ consent — license already requires per-machine keys, so ask at activation).
    byte-identical to `lm=None`; word-boundary reset + trailing-word scoring
    verified with a stub LM under `beam_width=1`). Verified end-to-end against
    the shipped CT2 model (identical output at λ=0, no crash at λ=0.5).
-   **Still open:** a WER sweep across λ values to confirm the acceptance
-   criterion ("holdout WER improves") — not yet measured.
-3. **Fix the WER gate's decode parity**: `04_eval_wer.py` scores with **greedy
-   argmax** while the product ships **beam search** — the gate can pass a model
-   that regresses in production. Add `--decode beam` (numpy beam, same
-   `ctc_beam.py`) and report both numbers.
+
+   **Critical follow-up fix (same day):** the space-boundary detection looked
+   for a literal `" "` glyph, but the real model's vocab encodes the
+   word-delimiter as the raw string `"|"` (`vocab.json["|"] == 0`) — so
+   `_SPACE_ID` was `None` against the real model and the whole feature was
+   **silently inert even when λ > 0**, despite passing the earlier "verified
+   end-to-end" check (that check only proved "doesn't crash," not "does
+   anything," on a clip with no glued words). Fixed the detection to match
+   `"|"`; the self-check's stub glyphs now deliberately use `"|"` too so this
+   exact regression can't slip past unnoticed again.
+
+   **Qualitative validation post-fix:** ran the real model's output through
+   `lm.split_word()` on every long token from all 20 real fixtures. It found
+   8 rescuable glued runs, most good (`ተግቶመራአብረው`→`ተግቶ መራ አብረው`,
+   `እኩልወይም`→`እኩል ወይም`) but at least one likely wrong
+   (`የፈጠራቸው`→`የፈጠራ ቸው` — probably a single inflected word ["created them"],
+   not two; `ቸው` is corpus count 5, right at `min_part_count=3`, and looks
+   like a verb-suffix artifact rather than a real standalone word). None of
+   this moved the scored 20-clip gate's pass/fail either way, because the one
+   fixture containing most of the rescuable words (`abu.mp4.wav`) has no
+   ground-truth `.txt` and isn't scored.
+
+   **Still open, deliberately not guessed at:** (a) a λ sweep against a real
+   WER measurement — needs a fixture set that actually contains glued words
+   *with verified ground truth*, which doesn't exist yet (won't fabricate
+   truth text for audio I can't verify by ear); (b) whether tightening
+   `min_part_count`/`min_margin`/a minimum part length in `amh_lm.py` fixes
+   the `ቸው`-style over-split without breaking already-validated good splits
+   like `ውሃ` (2 chars) in `amh_lm.py`'s own self-check — this is a real
+   precision/recall trade-off that needs the same eval set, not a guess.
+
+   **Also checked and ruled out as a further lever:** swept beam-search
+   `top_k`/`beam_width` (8/16/32/None × 24/50) against the real 19-clip set —
+   every combination gave the *identical* mean WER (0.3705). The CTC
+   posteriors are peaked enough that top_k=8 already captures the winning
+   path; decode-parameter tuning is saturated here. Confirms the acoustic
+   model itself (Tier 0 #1) is the real lever, not search breadth.
+3. **Fix the WER gate's decode parity** — **DONE (2026-09-20)**: `04_eval_wer.py`
+   now takes `--decode {greedy,beam}` (beam uses the same `ctc_beam.py`, matched
+   to production's actual `AMH_BEAM_TOP_K`/`AMH_BEAM_WIDTH` defaults, not an
+   unbounded search). Real finding on the 19 scored clips: greedy mean WER
+   37.6% vs beam mean WER 37.0% — **only marginally better overall, and not
+   uniformly**: beam fully fixed one clip (50%→0%) but made three others worse
+   (e.g. 10%→20%, 16.7%→33.3%). Confirms the parity gap was real (a candidate
+   could look fine greedy and ship worse), but also that beam search is a
+   double-edged sword here, not a strict upgrade — worth keeping both numbers
+   visible rather than assuming beam always wins.
 
 ### Tier 1 — one retrain cycle, ~1 week
 

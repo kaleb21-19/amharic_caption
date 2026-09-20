@@ -95,10 +95,15 @@ def ctc_beam_decode(logits, blank_id, glyphs=None, beam_width=50,
     # LM fusion helpers: track word-level LM score along the prefix.
     # A "word" in the token stream is a run of non-blank, non-space tokens.
     # When a space token (|) is added, the word is complete → score with LM.
+    # NOTE: the model's own vocab encodes the word-delimiter as the raw
+    # string "|" (Wav2Vec2 convention; see vocab.json), not a literal " " —
+    # the text-rendering step below is what turns "|" into an actual space.
+    # Matching literal " " here would silently never find the real model's
+    # space id, permanently disabling LM fusion without ever raising an error.
     _SPACE_ID = None  # set below from glyphs
     if glyphs is not None:
         for _tid, _ch in glyphs.items():
-            if _ch == " ":
+            if _ch == "|" or _ch == " ":
                 _SPACE_ID = _tid
                 break
     _lambda = float(lambda_lm)
@@ -279,7 +284,11 @@ if __name__ == "__main__":
         def unigram_score(self, w):
             return -1.0
 
-    glyphs3 = {408: "", 7: "ሀ", 12: "ለ", 300: " "}
+    # Space glyph is "|" here deliberately, matching the REAL model's
+    # vocab.json convention (see the _SPACE_ID note above) — this test would
+    # not have caught the space-detection regression it's guarding against
+    # if it used a literal " " glyph like a naive test might.
+    glyphs3 = {408: "", 7: "ሀ", 12: "ለ", 300: "|"}
 
     def c3():
         # top_k=1 below makes each frame's candidate set a single token, so
