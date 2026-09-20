@@ -70,6 +70,109 @@ jobs:
       - name: Verify version strings are consistent
         run: bash tools/check_versions.sh
 
+  # ---- 1.6. automated test gate ---------------------------------------------
+  # Runs the fast, dependency-light suites that previously only ran by hand
+  # (TESTING.md §8#2/#8#3/§9): panel unit + DOM tests, the engine self-checks,
+  # long-audio/diarization/mel-edge-case units, and the Worker's HMAC/license/
+  # trial e2e harness. None of these need the full assembled runtime (ffmpeg +
+  # relocatable python), so this stays cheap and fast — it is a REQUIRED gate
+  # for `release` below, unlike accuracy-gate (see that job for why).
+  test:
+    needs: model-ct2
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Python deps (numpy only — no torch/ctranslate2 needed)
+        run: python -m pip install --quiet numpy
+
+      - name: Download CT2 int8 model assets (mel_filters.npy / window.npy only)
+        uses: actions/download-artifact@v4
+        with:
+          name: model-ct2-int8
+          path: tools/stage/model-ct2-int8
+
+      - name: Panel unit tests (Node, no deps)
+        run: node tools/test/test_panel.js
+
+      - name: Panel DOM tests (Node, no deps)
+        run: node tools/test/test_panel_dom.js
+
+      - name: ctc_beam self-check (incl. LM shallow-fusion safe-default + reset)
+        run: python ctc_beam.py
+
+      - name: amh_correct self-check
+        run: python amh_correct.py
+
+      - name: amh_lm self-check
+        run: python amh_lm.py
+
+      - name: Long-audio windowing / resume / punctuation (stub engine)
+        run: python tools/test/test_long.py
+
+      - name: Diarization — pure clustering/labelling (no model)
+        run: python tools/test/test_diarize.py
+
+      - name: Mel extractor edge cases (ultra-short audio)
+        run: python tools/test/test_mel_short.py
+
+      - name: Worker e2e — HMAC, trials, license, webhook auth (38 checks)
+        working-directory: tools/telegram-worker
+        run: |
+          npm install --no-fund --no-audit
+          node test/e2e.mjs
+
+  # ---- 1.7. accuracy gate (informational) ------------------------------------
+  # Real-golden WER against Common Voice Amharic clips (TESTING.md §1.2g).
+  # This is currently RED (mean WER ~52% vs a 15% target) and tracked as an
+  # open item, not a regression — hard-blocking `release` on it would stop
+  # every release until the model/LM work in tools/retrain/IMPROVEMENTS.md
+  # lands. Kept as continue-on-error so the number is visible on every build
+  # without silently gating shipping on a known, already-logged issue.
+  # Remove continue-on-error once a model upgrade clears the gate.
+  accuracy-gate:
+    needs: model-ct2
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install inference deps (CT2 runtime only — no torch)
+        run: python -m pip install --quiet numpy soundfile "ctranslate2==4.8.1"
+
+      - name: Download CT2 int8 model
+        uses: actions/download-artifact@v4
+        with:
+          name: model-ct2-int8
+          path: tools/stage/model-ct2-int8
+
+      - name: Build a minimal fake "runtime" dir for run_engine.sh
+        run: |
+          set -euo pipefail
+          mkdir -p fake_runtime/python/bin
+          ln -s "$(command -v python3)" fake_runtime/python/bin/python3
+          cp ethio_srt.py amh_correct.py amh_lm.py amh_lm.json.gz amh_mel.py amh_vad.py ctc_beam.py fake_runtime/
+
+      - name: Real-golden WER gate (Common Voice Amharic, §1.2g)
+        env:
+          AMH_MODEL_DIR: ${{ github.workspace }}/tools/stage/model-ct2-int8
+          AMH_VAD: "0"
+        run: |
+          RUNTIME="${{ github.workspace }}/fake_runtime" \
+            bash tools/test/run_engine.sh --fixtures tools/test/fixtures_real --max-wer 0.15
+
   # ---- 2. build each platform's self-contained zip -------------------------
   # macOS jobs share bash (macOS runner default shell), so no `shell:` key is
   # needed and no `matrix` reference appears in a shell property (GitHub does
@@ -188,9 +291,9 @@ jobs:
   # win-x64, mac-arm64, and mac-x64 zips (the x64 build runs on macos-14 now,
   # so it finishes like the others and can be part of the gate).
   release:
-    needs: [build-ar, build-win, build-x64, check-version]
+    needs: [build-ar, build-win, build-x64, check-version, test]
     runs-on: ubuntu-latest
-    if: ${{ always() && needs.build-ar.result == 'success' && needs.build-win.result == 'success' && needs.build-x64.result == 'success' && needs.check-version.result == 'success' }}
+    if: ${{ always() && needs.build-ar.result == 'success' && needs.build-win.result == 'success' && needs.build-x64.result == 'success' && needs.check-version.result == 'success' && needs.test.result == 'success' }}
     permissions:
       contents: write
     steps:

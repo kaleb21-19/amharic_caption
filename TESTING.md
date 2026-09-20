@@ -427,7 +427,15 @@ imported file — can bypass the two-trial limit.
    clustering/labelling. `tools/test/test_panel_dom.js` (with `dom_shim.js`) adds the
    DOM-level `main.js` coverage (settings, license gate, review→export) via Node's `vm`.
    It also exercises the per-clip batch cache end-to-end (single-clip cache sharing,
-   all-cached fast path, edit re-transcribes only the changed clip).
+   all-cached fast path, edit re-transcribes only the changed clip). **FIXED
+   2026-09-20:** none of this ran in CI before — `.github/workflows/build.yml`
+   now has a `test` job (panel unit + DOM, both self-checks, `test_long.py`,
+   `test_diarize.py`, `test_mel_short.py`, the Worker's 38-check `e2e.mjs`)
+   that is a **required gate on `release`** — a regression now blocks the
+   public zip from being cut, not just from being noticed later. A separate
+   `accuracy-gate` job runs the real-golden WER gate (§1.2g) on every build
+   too, but stays `continue-on-error` (informational) since it is currently
+   RED and hard-blocking it would stop all releases — see that job's comment.
 3. **No golden audio `fixtures/`** — harness built 2026-09-19; real recorded
    goldens added 2026-09-19, accuracy gate measured (§1.2g). `tools/test/wer.py`,
    `tools/test/run_engine.sh` (now `--fixtures DIR` + `--max-wer` aware) and
