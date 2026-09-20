@@ -129,7 +129,9 @@ keys can't be forged from the public source.
 
 - CEP panel (HTML/JS) for Adobe Premiere Pro
 - CTranslate2 int8 Amharic ASR model (local inference)
-- CTC prefix beam search decoder (better than greedy; `AMH_BEAM=0` reverts to greedy)
+- Greedy CTC decoding by default — measured against prefix beam search on the
+  real Common Voice clips, beam was 13% slower for no accuracy gain, with
+  byte-identical caption timing (`AMH_BEAM=1` opts back into beam search)
 - Conservative Amharic post-correction pass (fixes glued words + verified misrecognitions; extend via `AMH_CORRECT_EXTRA` JSON)
 - Pure-numpy Kaldi-style mel spectrogram
 - Relocatable python-build-standalone (no system Python needed)

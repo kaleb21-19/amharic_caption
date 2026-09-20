@@ -46,8 +46,8 @@ class StubEngine:
         self.calls = 0
     def _transcribe_one(self, w):
         self.calls += 1
-        return "ab ab", [(0, 0, 100, 0.9), (2, 100, 110, 0.9), (0, 120, 220, 0.9),
-                         (2, 220, 230, 0.9), (1, 240, 340, 0.9)], 1.0 / 16000.0
+        return "ab ab", [(0, 0, 100), (2, 100, 110), (0, 120, 220), (2, 220, 230),
+                         (1, 240, 340)], 1.0 / 16000.0
 
 
 out = os.path.join(tempfile.mkdtemp(), "long.srt")

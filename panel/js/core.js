@@ -81,17 +81,8 @@ function detectSpeaker(cue) {
   return Object.assign({}, cue, { text: cue.text.replace(m[0], ''), speaker: m[1] || m[2] });
 }
 
-// `confs`, if given, is a per-cue confidence array (same order as `cues`,
-// e.g. read from the engine's <srt>.conf.json sidecar) — attached as
-// `cue.conf` for the review UI to flag uncertain captions. Omit it and
-// nothing changes from before.
-function normalizeCues(cues, confs) {
-  return (cues || []).map((c, i) => {
-    if (confs && confs[i] !== undefined && confs[i] !== null) {
-      c = Object.assign({}, c, { conf: confs[i] });
-    }
-    return detectSpeaker(c);
-  });
+function normalizeCues(cues) {
+  return (cues || []).map(detectSpeaker);
 }
 
 function srtTextFromCues(cues) {

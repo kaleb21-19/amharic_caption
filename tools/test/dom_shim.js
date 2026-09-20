@@ -175,7 +175,6 @@ const KNOWN = [
   // review overlay
   'review', 'reviewList', 'reviewCount', 'reviewSearch', 'reviewAdd',
   'reviewExport', 'reviewDiscard', 'reviewBurn', 'reviewPlace',
-  'reviewNextFlag', 'reviewFlagCount',
   'burnStatus', 'burnFileInput',
   // misc
   'brandSub',
@@ -202,7 +201,6 @@ function makeDocument(tagFor) {
     licenseActivate: ['button', null], machineIdCopy: ['button', null],
     reviewAdd: ['button', null], reviewExport: ['button', null],
     reviewDiscard: ['button', null], reviewBurn: ['button', null],
-    reviewNextFlag: ['button', null],
     reviewPlace: ['button', null], reviewList: ['div', null],
     panelVersion: ['span', null], supportLink: ['a', null],
     machineIdDisplay: ['span', null], licenseStatus: ['span', null],

@@ -195,17 +195,25 @@ class _CT2Engine:
     def _align(self, wav, logits):
         T = logits.shape[1]
         frame_dur = (len(wav) / 16000) / T
-        # CTC prefix beam search: better text than greedy argmax, and the
-        # returned token segments (from the same winning path) give timing
-        # that stays consistent with that text.
-        #   AMH_BEAM=0       disables beam search (pure greedy, faster).
+        # Decoding. Greedy argmax is the DEFAULT as of 2026-09-20, because
+        # measuring beam search against it on the 19 real Common Voice clips
+        # showed beam is not worth its cost:
+        #     beam    1.95 s/clip   45.3% WER
+        #     greedy  1.72 s/clip   44.6% WER
+        # i.e. 13% slower for no accuracy gain (the 0.7pp is inside the noise
+        # of 19 clips). Sweeping AMH_BEAM_TOP_K/AMH_BEAM_WIDTH across every
+        # value changed the WER by exactly nothing, which says the CTC
+        # posteriors are peaked enough that the search has nothing to find —
+        # the acoustic model is the limit, not the decoder. Caption timing is
+        # byte-identical either way (verified on real clips), so nothing else
+        # regresses.
+        #   AMH_BEAM=1       opts back into beam search.
         #   AMH_BEAM_TOP_K   bounds per-frame candidates (default 16).
         #   AMH_BEAM_WIDTH   beam width (default 24; smaller is faster).
         #   AMH_LM_LAMBDA    weight for word-LM shallow fusion at word
         #                    boundaries (default 0 = disabled; the LM isn't
-        #                    even loaded unless this is > 0, so the default
-        #                    reproduces plain acoustic-only decoding exactly).
-        if os.environ.get("AMH_BEAM", "1") != "0":
+        #                    even loaded unless this is > 0). Requires beam.
+        if os.environ.get("AMH_BEAM", "0") != "0":
             try:
                 from ctc_beam import ctc_beam_decode
                 top_k = int(os.environ.get("AMH_BEAM_TOP_K", "16"))
@@ -215,7 +223,7 @@ class _CT2Engine:
                 if lambda_lm > 0:
                     from amh_lm import get_default_lm
                     lm = get_default_lm()
-                beam_text, segs, confs = ctc_beam_decode(
+                beam_text, segs = ctc_beam_decode(
                     np.asarray(logits, dtype=np.float32),
                     self.blank_id,
                     glyphs=self.glyphs,
@@ -224,21 +232,14 @@ class _CT2Engine:
                     lm=lm,
                     lambda_lm=lambda_lm,
                 )
-                # Confidence rides as a 4th element on every span (tok, s, e,
-                # conf) from here on, through remap/windowing/get_words — so
-                # every downstream consumer can treat spans uniformly without
-                # needing to know which decode path produced them.
-                spans = [(tok, s, e, c) for (tok, s, e), c in zip(segs, confs)]
+                spans = list(segs)
                 return beam_text, spans, frame_dur
             except Exception:
                 # Fall back to greedy if beam search is unavailable/unexpected.
                 pass
         argmax = np.argmax(logits[0], axis=-1).tolist()
         text = self._decode(argmax)
-        greedy_spans, _ = ctc_align(logits, self.blank_id, frame_dur, None)
-        # Greedy fallback has no confidence signal; conf=None means "unknown"
-        # to every downstream consumer, not "certain" or "uncertain".
-        spans = [(tok, s, e, None) for tok, s, e in greedy_spans]
+        spans, _ = ctc_align(logits, self.blank_id, frame_dur, None)
         return text, spans, frame_dur
 
     def _decode(self, ids):
@@ -293,10 +294,7 @@ class _TorchEngine:
         logits = logits.detach().cpu().numpy()
         T = logits.shape[1]
         frame_dur = (len(wav) / 16000) / T
-        greedy_spans, _ = ctc_align(logits, self.blank_id, frame_dur, None)
-        # No confidence signal on this dev-only greedy path either; see the
-        # matching comment in _CT2Engine._align.
-        spans = [(tok, s, e, None) for tok, s, e in greedy_spans]
+        spans, _ = ctc_align(logits, self.blank_id, frame_dur, None)
         argmax = np.argmax(logits[0], axis=-1).tolist()
         text = self.processor.tokenizer.decode(argmax)
         return text, spans, frame_dur
@@ -354,12 +352,12 @@ def _lm_split_words(words, word_units):
         return words
     out = []
     n = len(words)
-    for i, (text, s, e, conf) in enumerate(words):
+    for i, (text, s, e) in enumerate(words):
         left = words[i - 1][0] if i > 0 else None
         right = words[i + 1][0] if i + 1 < n else None
         parts = lm.split_word(text, left=left, right=right)
         if len(parts) == 1:
-            out.append((text, s, e, conf))
+            out.append((text, s, e))
             continue
         units_this = word_units[i]
         pos = 0
@@ -369,43 +367,32 @@ def _lm_split_words(words, word_units):
             if not seg:
                 continue
             pos += pl
-            out.append((p, seg[0][1], seg[-1][2], _agg_conf([u[3] for u in seg])))
+            out.append((p, seg[0][1], seg[-1][2]))
     return out
-
-
-def _agg_conf(confs):
-    """Aggregate per-character confidences into one word/cue-level number:
-    the minimum (a word is only as trustworthy as its least-confident
-    character). None ("unknown" — e.g. the greedy-decode fallback has no
-    confidence signal at all) poisons the result to None rather than
-    silently treating unknown as certain."""
-    if not confs or any(c is None for c in confs):
-        return None
-    return min(confs)
 
 
 def get_words(spans, frame_dur, glyphs):
     from ctc_beam import _is_control_glyph
     units = []
-    for tok, s, e, conf in spans:
+    for tok, s, e in spans:
         ch = glyphs.get(tok)
         if ch is None or _is_control_glyph(ch):
             continue
-        units.append((ch, s * frame_dur, (e + 1) * frame_dur, conf))
+        units.append((ch, s * frame_dur, (e + 1) * frame_dur))
 
     words = []
     word_units = []
     cur = ""
     cur_start = None
     cur_u = []
-    for ch, s, e, conf in units:
+    for ch, s, e in units:
         # "|" is the CTC space token; U+1361 (፡) is the model's Ethiopic
         # word-space token. BOTH are word boundaries — treating only "|" as
         # a boundary glued "አማርኛ፡ቋንቋ" into one token. U+1360 (፠) is the
         # Ethiopic word-space alternative; never part of a real word either.
         if ch in ("|", "\u1360", "\u1361"):
             if cur:
-                words.append((cur, cur_start, e, _agg_conf([u[3] for u in cur_u])))
+                words.append((cur, cur_start, e))
                 word_units.append(cur_u)
                 cur = ""
                 cur_start = None
@@ -414,9 +401,9 @@ def get_words(spans, frame_dur, glyphs):
         if cur_start is None:
             cur_start = s
         cur += ch
-        cur_u.append((ch, s, e, conf))
+        cur_u.append((ch, s, e))
     if cur:
-        words.append((cur, cur_start, units[-1][2], _agg_conf([u[3] for u in cur_u])))
+        words.append((cur, cur_start, units[-1][2]))
         word_units.append(cur_u + [])
     return _lm_split_words(words, word_units)
 
@@ -425,7 +412,7 @@ def group_word_cues(words, max_chars=200):
     max_chars = int(max_chars)
     cues = []
     MAX_DUR = 1.5
-    for w_text, w_s, w_e, w_conf in words:
+    for w_text, w_s, w_e in words:
         txt = w_text.strip()
         if not txt:
             continue
@@ -433,7 +420,7 @@ def group_word_cues(words, max_chars=200):
             txt = txt[:max_chars]
         if w_e - w_s > MAX_DUR:
             w_e = w_s + MAX_DUR
-        cues.append((txt, w_s, w_e, w_conf))
+        cues.append((txt, w_s, w_e))
     return cues
 
 
@@ -441,18 +428,17 @@ def group_n_cues(words, n, max_chars=200):
     max_chars = int(max_chars)
     cues = []
     buf = []
-    buf_confs = []
     buf_start = None
     buf_end = None
     buf_chars = 0
 
     def flush():
-        nonlocal buf, buf_confs, buf_start, buf_end, buf_chars
+        nonlocal buf, buf_start, buf_end, buf_chars
         if buf:
-            cues.append((" ".join(buf), buf_start, buf_end, _agg_conf(buf_confs)))
-        buf, buf_confs, buf_start, buf_end, buf_chars = [], [], None, None, 0
+            cues.append((" ".join(buf), buf_start, buf_end))
+        buf, buf_start, buf_end, buf_chars = [], None, None, 0
 
-    for w_text, w_s, w_e, w_conf in words:
+    for w_text, w_s, w_e in words:
         txt = w_text.strip()
         if not txt:
             continue
@@ -464,7 +450,6 @@ def group_n_cues(words, n, max_chars=200):
             buf_start = w_s
         buf_end = w_e
         buf.append(txt)
-        buf_confs.append(w_conf)
         buf_chars += len(txt)
         if len(buf) >= n or buf_chars >= max_chars:
             flush()
@@ -477,7 +462,6 @@ def group_cues(words, frame_dur=None, text_chars=None, glyphs=None, max_chars=42
 
     cues = []
     buf_words = []
-    buf_confs = []
     buf_chars = 0
     buf_start = None
     buf_end = None
@@ -486,17 +470,16 @@ def group_cues(words, frame_dur=None, text_chars=None, glyphs=None, max_chars=42
         return txt and txt[-1] in "።.?!…"
 
     def flush():
-        nonlocal buf_words, buf_confs, buf_chars, buf_start, buf_end
+        nonlocal buf_words, buf_chars, buf_start, buf_end
         if buf_words:
-            cues.append((" ".join(buf_words), buf_start, buf_end, _agg_conf(buf_confs)))
-        buf_words, buf_confs, buf_chars, buf_start, buf_end = [], [], 0, None, None
+            cues.append((" ".join(buf_words), buf_start, buf_end))
+        buf_words, buf_chars, buf_start, buf_end = [], 0, None, None
 
-    for w_text, w_s, w_e, w_conf in words:
+    for w_text, w_s, w_e in words:
         if buf_start is None:
             buf_start = w_s
         buf_end = w_e
         buf_words.append(w_text)
-        buf_confs.append(w_conf)
         buf_chars += len(w_text)
         if is_sentence_end(w_text) and buf_chars >= 12:
             flush()
@@ -527,21 +510,19 @@ def make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=42):
     i = 0
     n = len(words)
     while i < n:
-        tok, s, e, conf = words[i]
+        tok, s, e = words[i]
         if is_digit(tok):
             run = tok
             run_s, run_e = s, e
-            run_confs = [conf]
             j = i + 1
             while j < n and is_digit(words[j][0]):
                 run += words[j][0]
                 run_e = words[j][2]
-                run_confs.append(words[j][3])
                 j += 1
-            merged.append((run, run_s, run_e, _agg_conf(run_confs)))
+            merged.append((run, run_s, run_e))
             i = j
             continue
-        merged.append((tok, s, e, conf))
+        merged.append((tok, s, e))
         i += 1
     words = merged
     # Rule-based punctuation from inter-word silence (VAD pauses surface here
@@ -574,8 +555,7 @@ def enforce_min_duration(cues, min_dur=1.0, max_dur=5.0, tail_room=0.15):
     tail_room = float(tail_room)
     n = len(cues)
     out = []
-    for idx, cue in enumerate(cues):
-        txt, s, e, rest = cue[0], cue[1], cue[2], tuple(cue[3:])
+    for idx, (txt, s, e) in enumerate(cues):
         if max_dur > 0 and e - s > max_dur:
             e = s + max_dur
         if e - s < min_dur:
@@ -585,7 +565,7 @@ def enforce_min_duration(cues, min_dur=1.0, max_dur=5.0, tail_room=0.15):
             limit = nxt_s - tail_room
             if e > limit and limit > s:
                 e = limit
-        out.append((txt, s, e) + rest)
+        out.append((txt, s, e))
     return out
 
 
@@ -688,7 +668,7 @@ def _windowed_transcribe(engine, wav):
 
     Returns (text, spans, frame_dur) with spans in ORIGINAL sample-index space
     and frame_dur = 1/16000, matching the VAD path's contract (get_words uses
-    s * frame_dur as seconds). Each span is (tok, s, e, conf)."""
+    s * frame_dur as seconds)."""
     n = len(wav)
     target = _window_target_samples()
     if n <= target:
@@ -707,10 +687,10 @@ def _windowed_transcribe(engine, wav):
             continue
         if text:
             texts.append(text)
-        for tok, s, e, conf in spans:
+        for tok, s, e in spans:
             ss = st + int(round(s * fdur * 16000))
             ee = st + int(round((e + 1) * fdur * 16000))
-            out_spans.append((tok, ss, max(ss, ee), conf))
+            out_spans.append((tok, ss, max(ss, ee)))
     return " ".join(texts), out_spans, 1.0 / 16000.0
 
 
@@ -739,10 +719,10 @@ def _win_cues(engine, wav, st, en, mode, group_size, max_chars):
         print("[info] window %d-%d skipped: %s" % (st, en, e), file=sys.stderr)
         return "", []
     shifted = []
-    for tok, s, e, conf in spans:
+    for tok, s, e in spans:
         ss = st + int(round(s * fdur * 16000))
         ee = st + int(round((e + 1) * fdur * 16000))
-        shifted.append((tok, ss, max(ss, ee), conf))
+        shifted.append((tok, ss, max(ss, ee)))
     cues = make_cues(mode, group_size, shifted, 1.0 / 16000.0, text,
                      engine.glyphs, max_chars=max_chars)
     return text, cues
@@ -814,7 +794,7 @@ def _remap_spans(spans, frame_dur, seg_table, sr=16000):
     ORIGINAL timeline. Returns spans whose (s, e) are original sample indices;
     combine with a frame_dur of 1/sr so downstream timing math stays correct."""
     out = []
-    for tok, s, e, conf in spans:
+    for tok, s, e in spans:
         t0 = s * frame_dur
         t1 = (e + 1) * frame_dur
         o0 = _map_trim_to_orig(t0 * sr, seg_table)
@@ -823,34 +803,20 @@ def _remap_spans(spans, frame_dur, seg_table, sr=16000):
             continue
         if o1 < o0:
             o1 = o0
-        out.append((tok, o0, o1, conf))
+        out.append((tok, o0, o1))
     return out
 
 
 def write_srt(out_path, cues, offset):
     idx = 0
-    confs = []
     with open(out_path, "w", encoding="utf-8") as f:
-        for cue in cues:
-            text_cue, start, end = cue[0], cue[1], cue[2]
+        for text_cue, start, end in cues:
             if not text_cue:
                 continue
             idx += 1
             f.write(f"{idx}\n")
             f.write(f"{format_ts(start + offset)} --> {format_ts(end + offset)}\n")
             f.write(f"{text_cue}\n\n")
-            confs.append(cue[3] if len(cue) > 3 else None)
-    # Sidecar confidence file: per-word/cue acoustic confidence (0..1, or null
-    # when unknown), same order as the SRT's numbered cues. Never part of the
-    # SRT itself (nothing downstream should treat it as caption text) — the
-    # panel reads it alongside the SRT to highlight low-confidence captions
-    # for review. Best-effort: a write failure here must never break the SRT
-    # that was just written successfully.
-    try:
-        with open(out_path + ".conf.json", "w", encoding="utf-8") as f:
-            json.dump(confs, f)
-    except Exception:
-        pass
     return idx
 
 
@@ -1013,7 +979,7 @@ def main():
     print(text)
     idx = write_srt(out_path, cues, offset)
     print(f"[info] wrote {idx} cues to {out_path} (offset {offset:+.2f}s)")
-    for text_cue, s, e, _conf in cues:
+    for text_cue, s, e in cues:
         if text_cue:
             print(f"{format_ts(s + offset)} --> {format_ts(e + offset)}  {text_cue}")
 
@@ -1118,7 +1084,7 @@ def handle_server_batch(engine, req, rid, out):
             continue
         all_text.append(text)
         for c in cues:
-            all_cues.append((c[0], c[1] + off, c[2] + off) + tuple(c[3:]))
+            all_cues.append((c[0], c[1] + off, c[2] + off))
     if out_srt:
         idx = write_srt(out_srt, all_cues, 0.0)
     else:
@@ -1192,7 +1158,7 @@ def run_batch():
             continue
         off = float(req.get("offset") or 0.0)
         for c in cues:
-            all_cues.append((c[0], c[1] + off, c[2] + off) + tuple(c[3:]))
+            all_cues.append((c[0], c[1] + off, c[2] + off))
         print("--- full transcription ---")
         print(text)
 
