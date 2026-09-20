@@ -171,7 +171,7 @@ const KNOWN = [
   // logs
   'logDisc', 'logWrap', 'logBox',
   // footer
-  'panelVersion', 'supportLink', 'diag',
+  'panelVersion', 'supportLink', 'diag', 'credits',
   // review overlay
   'review', 'reviewList', 'reviewCount', 'reviewSearch', 'reviewAdd',
   'reviewExport', 'reviewDiscard', 'reviewBurn', 'reviewPlace',
@@ -197,7 +197,7 @@ function makeDocument(tagFor) {
     fileInput: ['input', null], burnFileInput: ['input', null],
     licenseInput: ['input', null], reviewSearch: ['input', null],
     runBtn: ['button', null], cancelBtn: ['button', null], choose: ['button', null],
-    diag: ['a', null], onboardStart: ['button', null],
+    diag: ['a', null], credits: ['a', null], onboardStart: ['button', null],
     licenseActivate: ['button', null], machineIdCopy: ['button', null],
     reviewAdd: ['button', null], reviewExport: ['button', null],
     reviewDiscard: ['button', null], reviewBurn: ['button', null],

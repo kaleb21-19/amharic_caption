@@ -2349,6 +2349,24 @@ function setup() {
     $('logDisc').classList.toggle('open');
   });
 
+  // Model credits — required attribution for the CC-BY-4.0 licensed acoustic
+  // model this product bundles and redistributes (badrex/Ethio-ASR-amharic,
+  // Hugging Face). See README.md "Credits" for the full text.
+  $('credits').addEventListener('click', (e) => {
+    e.preventDefault();
+    $('logDisc').classList.add('open');
+    clearLog();
+    log('Amharic Captions credits');
+    log('---');
+    log('Acoustic model: "Ethio-ASR-amharic" by badrex (Hugging Face).');
+    log('License: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/).');
+    log('Model page: https://huggingface.co/badrex/Ethio-ASR-amharic');
+    log('Unmodified weights, converted to CTranslate2 int8 for offline CPU inference.');
+    log('');
+    log('Speaker-embedding model: TitaNet-Small by NVIDIA (NeMo), distributed via');
+    log('the sherpa-onnx project. License: CC BY 4.0.');
+  });
+
   // Runtime availability.
   if (!RUNTIME) {
     setStatus('err', 'runtime missing');

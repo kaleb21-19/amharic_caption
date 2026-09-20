@@ -135,6 +135,22 @@ keys can't be forged from the public source.
 - Relocatable python-build-standalone (no system Python needed)
 - ffmpeg for audio extraction
 
+## Credits
+
+This product bundles two third-party open models, unmodified except for
+format conversion, redistributed here under their CC BY 4.0 terms:
+
+- **Acoustic model** — [`badrex/Ethio-ASR-amharic`](https://huggingface.co/badrex/Ethio-ASR-amharic)
+  by badrex (Hugging Face). Converted to CTranslate2 int8 for offline CPU
+  inference; weights unchanged. License: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+- **Speaker-embedding model** — TitaNet-Small by NVIDIA (NeMo), via the
+  [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) project, used for the
+  opt-in 2-speaker labeling feature. License: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
+The same credits are shown in-app under the panel's **Credits** link.
+
 ## License
 
-Proprietary. Not for redistribution.
+Proprietary. Not for redistribution. Bundled models are credited above under
+their own CC BY 4.0 licenses, which remain in effect independent of this
+product's proprietary license.
