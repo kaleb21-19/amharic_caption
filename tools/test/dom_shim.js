@@ -163,7 +163,7 @@ const KNOWN = [
   'srcSeg', 'srcClip', 'srcWork', 'srcWhole',
   'choose', 'fileInput', 'picked',
   // style
-  'capSeg', 'capWords', 'capGroup', 'groupSize', 'maxChars', 'speakersToggle', 'glossaryBox',
+  'capSeg', 'capWords', 'capGroup', 'groupSize', 'maxChars', 'speakersToggle',
   'runBtn', 'cancelBtn', 'progBar', 'progLabel',
   // license
   'machineIdSection', 'machineIdDisplay', 'machineIdCopy', 'machineMismatch',
@@ -176,7 +176,7 @@ const KNOWN = [
   'review', 'reviewList', 'reviewCount', 'reviewSearch', 'reviewAdd',
   'reviewExport', 'reviewDiscard', 'reviewBurn', 'reviewPlace',
   'reviewNextFlag', 'reviewFlagCount',
-  'burnStatus', 'burnFileInput', 'burnFontSize', 'burnColor', 'burnPosition',
+  'burnStatus', 'burnFileInput',
   // misc
   'brandSub',
 ];
@@ -195,9 +195,7 @@ function makeDocument(tagFor) {
     srcClip: ['button', 'clip'], srcWork: ['button', 'work'], srcWhole: ['button', 'whole'],
     capWords: ['button', 'words'], capGroup: ['button', 'grouped'],
     groupSize: ['input', null], maxChars: ['input', null], speakersToggle: ['input', null],
-    glossaryBox: ['textarea', null],
     fileInput: ['input', null], burnFileInput: ['input', null],
-    burnFontSize: ['input', null], burnColor: ['input', null], burnPosition: ['select', null],
     licenseInput: ['input', null], reviewSearch: ['input', null],
     runBtn: ['button', null], cancelBtn: ['button', null], choose: ['button', null],
     diag: ['a', null], credits: ['a', null], onboardStart: ['button', null],

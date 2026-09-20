@@ -506,7 +506,7 @@ def group_cues(words, frame_dur=None, text_chars=None, glyphs=None, max_chars=42
     return cues
 
 
-def make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=42, glossary=None):
+def make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=42):
     # Pull the raw word stream ONCE and run the conservative post-correction
     # pass on it, so every caption mode (words/grouped/sentence) benefits and
     # the corrected words match the same timing as the original.
@@ -516,17 +516,6 @@ def make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=42, gl
         words = correct_words(raw_words)
     except Exception:
         words = raw_words
-    # User-supplied vocabulary (proper nouns/project terms the model has
-    # never seen) fuzzy-corrects individual words — not multi-word phrases;
-    # "አዲስ አበባ" as one glossary entry won't match unless the model already
-    # emits it as a single glued token. Applied before digit-gluing/
-    # punctuation so it sees the same raw word shapes correct_words does.
-    if glossary:
-        try:
-            from amh_correct import apply_glossary
-            words = apply_glossary(words, glossary)
-        except Exception:
-            pass
     # Numeric normalization: the CTC space token can split one number into
     # separate digit tokens ("2 0 2 4", "፲ ፪"). Re-glue consecutive
     # ALL-DIGIT tokens into a single number so captions read 2024/፲፪, not
@@ -737,7 +726,7 @@ def _audio_fp(wav):
     return h.hexdigest()[:16]
 
 
-def _win_cues(engine, wav, st, en, mode, group_size, max_chars, glossary=None):
+def _win_cues(engine, wav, st, en, mode, group_size, max_chars):
     """Transcribe one window and return (text, cues) with cue times already on
     the ORIGINAL timeline (spans shifted out of window-relative space)."""
     try:
@@ -755,7 +744,7 @@ def _win_cues(engine, wav, st, en, mode, group_size, max_chars, glossary=None):
         ee = st + int(round((e + 1) * fdur * 16000))
         shifted.append((tok, ss, max(ss, ee), conf))
     cues = make_cues(mode, group_size, shifted, 1.0 / 16000.0, text,
-                     engine.glyphs, max_chars=max_chars, glossary=glossary)
+                     engine.glyphs, max_chars=max_chars)
     return text, cues
 
 
@@ -888,7 +877,7 @@ def _maybe_diarize(cues, wav):
 
 
 def _run_file(engine, wav, mode, group_size, max_chars, offset, out_srt=None,
-              speakers=False, glossary=None):
+              speakers=False):
     glyphs = engine.glyphs
     # Audio past the long-audio threshold is chunked at VAD boundaries AND
     # journaled to disk so an interrupted/crashed run resumes instead of
@@ -896,18 +885,16 @@ def _run_file(engine, wav, mode, group_size, max_chars, offset, out_srt=None,
     # (engine.transcribe still windows internally only past ~60s for memory).
     long_secs = float(os.environ.get("AMH_LONG_SECS", "300"))
     if out_srt and len(wav) > int(long_secs * 16000):
-        text, cues = _run_long(engine, wav, mode, group_size, max_chars, offset, out_srt,
-                               glossary=glossary)
+        text, cues = _run_long(engine, wav, mode, group_size, max_chars, offset, out_srt)
     else:
         text, spans, frame_dur = engine.transcribe(wav)
-        cues = make_cues(mode, group_size, spans, frame_dur, text, glyphs,
-                         max_chars=max_chars, glossary=glossary)
+        cues = make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=max_chars)
     if speakers:
         cues = _maybe_diarize(cues, wav)
     return text, cues
 
 
-def _run_long(engine, wav, mode, group_size, max_chars, offset, out_srt, glossary=None):
+def _run_long(engine, wav, mode, group_size, max_chars, offset, out_srt):
     """Transcribe long audio window-by-window, writing a valid partial SRT to
     `out_srt` after EVERY window and a resume journal next to it. If the
     process is interrupted, a later run with the same out_srt + audio resumes
@@ -939,7 +926,7 @@ def _run_long(engine, wav, mode, group_size, max_chars, offset, out_srt, glossar
             done, cues, texts = 0, [], []
     for k in range(done, total):
         st, en = wins[k]
-        text, wcues = _win_cues(engine, wav, st, en, mode, group_size, max_chars, glossary=glossary)
+        text, wcues = _win_cues(engine, wav, st, en, mode, group_size, max_chars)
         if text:
             texts.append(text)
         cues.extend(wcues)
@@ -962,7 +949,7 @@ def _run_long(engine, wav, mode, group_size, max_chars, offset, out_srt, glossar
 def main():
     if len(sys.argv) < 2:
         print("Usage: python ethio_srt.py <audio.wav|mp3|m4a> [out.srt] [--words] "
-              "[--group NUM] [--speakers] [--glossary terms.json] "
+              "[--group NUM] [--speakers] "
               "[--batch requests.json out.srt] [--server]")
         sys.exit(1)
 
@@ -979,7 +966,6 @@ def main():
     offset = 0.0
     max_chars = 42
     speakers = False
-    glossary = None
     i = 2
     while i < len(sys.argv):
         a = sys.argv[i]
@@ -997,9 +983,6 @@ def main():
             i += 1
         elif a == "--speakers":
             speakers = True
-        elif a == "--glossary":
-            glossary = _load_glossary_file(sys.argv[i + 1])
-            i += 1
         elif a == "--batch":
             mode = "batch"
         elif not a.startswith("-"):
@@ -1015,7 +998,7 @@ def main():
     wav = read_wav(audio_path)
     try:
         text, cues = _run_file(engine, wav, mode, group_size, max_chars, offset, out_path,
-                               speakers=speakers, glossary=glossary)
+                               speakers=speakers)
     except ValueError as e:
         # A clip shorter than one mel frame (35 ms) is un-transcribable; report
         # it as a clean user-facing error instead of a traceback (batch/--server
@@ -1085,13 +1068,13 @@ def handle_server_one(engine, req, rid, out):
     if not wav_path or not os.path.isfile(wav_path):
         emit(out, {"id": rid, "ok": False, "error": "audio file not found: %s" % wav_path})
         return
-    mode, group, max_chars, glossary = request_style(req)
+    mode, group, max_chars = request_style(req)
     offset = float(req.get("offset", 0.0))
     speakers = bool(req.get("speakers", False))
     wav = read_wav(wav_path)
     out_srt = req.get("out_srt")
     text, cues = _run_file(engine, wav, mode, group, max_chars, offset, out_srt,
-                           speakers=speakers, glossary=glossary)
+                           speakers=speakers)
     if out_srt:
         idx = write_srt(out_srt, cues, offset)
     else:
@@ -1101,7 +1084,7 @@ def handle_server_one(engine, req, rid, out):
 
 def handle_server_batch(engine, req, rid, out):
     batch = req["batch"]
-    mode, group, max_chars, glossary = request_style(req)
+    mode, group, max_chars = request_style(req)
     out_srt = req.get("out_srt")
     speakers = bool(req.get("speakers", False))
     all_cues = []
@@ -1125,7 +1108,7 @@ def handle_server_batch(engine, req, rid, out):
             wav = read_wav(wav_path)
             text, spans, frame_dur = engine.transcribe(wav)
             cues = make_cues(mode, group, spans, frame_dur, text, engine.glyphs,
-                             max_chars=max_chars, glossary=glossary)
+                             max_chars=max_chars)
             if speakers:
                 cues = _maybe_diarize(cues, wav)
         except Exception as e:
@@ -1144,27 +1127,11 @@ def handle_server_batch(engine, req, rid, out):
                "text": "\n\n".join(all_text)})
 
 
-def _load_glossary_file(path):
-    """Load a --glossary JSON file: a flat array of strings. Returns None
-    (glossary disabled) on any error rather than aborting a transcription
-    over a malformed vocabulary file the user hand-edited."""
-    if not path:
-        return None
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            terms = json.load(f)
-        return [str(t) for t in terms if str(t).strip()] or None
-    except Exception as e:
-        print("[info] glossary file unreadable, ignoring: %s" % e, file=sys.stderr)
-        return None
-
-
 def request_style(req):
     mode = req.get("mode", "grouped")
     group = int(req.get("group", 0) or 0)
     max_chars = int(req.get("max_chars", 42) or 42)
-    glossary = req.get("glossary") or None
-    return mode, group, max_chars, glossary
+    return mode, group, max_chars
 
 
 def run_batch():
@@ -1201,11 +1168,6 @@ def run_batch():
         if m + 1 < len(args):
             max_chars = int(args[m + 1])
     speakers = "--speakers" in args
-    glossary = None
-    if "--glossary" in args:
-        gi = args.index("--glossary")
-        if gi + 1 < len(args):
-            glossary = _load_glossary_file(args[gi + 1])
 
     engine = load_pipeline()
     glyphs = engine.glyphs
@@ -1219,7 +1181,7 @@ def run_batch():
             wav = read_wav(req["wav"])
             text, spans, frame_dur = engine.transcribe(wav)
             cues = make_cues(mode, group_size, spans, frame_dur, text, glyphs,
-                             max_chars=max_chars, glossary=glossary)
+                             max_chars=max_chars)
             if speakers:
                 cues = _maybe_diarize(cues, wav)
         except Exception as e:

@@ -204,9 +204,6 @@ await t('2. settings: defaults, live toggles, persistence across reload', async 
     assert.strictEqual(p.els('groupSize').disabled, true, 'groupSize disabled in words mode');
     assert.strictEqual(p.els('speakersToggle').checked, false);
     assert.strictEqual(p.els('srcClip').classList.contains('active'), true);
-    assert.strictEqual(p.els('burnFontSize').value, 34, 'burn font size default');
-    assert.strictEqual(p.els('burnColor').value, '#ffffff', 'burn color default');
-    assert.strictEqual(p.els('burnPosition').value, '2', 'burn position default (bottom)');
 
     p.els('capGroup').fire('click');
     assert.strictEqual(p.els('capGroup').classList.contains('active'), true);
@@ -229,56 +226,6 @@ await t('2. settings: defaults, live toggles, persistence across reload', async 
     // reset group so cache key stays deterministic
     p.els('groupSize').value = '3'; p.els('groupSize').fire('input');
 
-    // Custom vocabulary: blank/whitespace-only lines dropped, terms trimmed,
-    // and the parsed list reaches both request-building paths.
-    p.els('glossaryBox').value = 'ስም አንድ\nስም ሁለት\n\n  \nስም ሶስት';
-    p.els('glossaryBox').fire('input');
-    const sg = JSON.parse(storage.getItem('amh.settings')||'{}');
-    assert.deepStrictEqual(sg.glossary, ['ስም አንድ', 'ስም ሁለት', 'ስም ሶስት'], 'glossary parsed and saved');
-
-    const warmStyle = p.evalVm('warmStyle');
-    // Spread into a host-realm array: vm Arrays carry a different
-    // Array.prototype, which deepStrictEqual would reject on identity alone.
-    assert.deepStrictEqual([...warmStyle().glossary], ['ስም አንድ', 'ስም ሁለት', 'ስም ሶስት'], 'warmStyle carries glossary');
-
-    const pyFlags = p.evalVm('pyFlags');
-    const flags = pyFlags();
-    const gi = flags.indexOf('--glossary');
-    assert.ok(gi >= 0 && gi + 1 < flags.length, 'pyFlags includes --glossary <path>');
-    const written = JSON.parse(fs.readFileSync(flags[gi + 1], 'utf8'));
-    assert.deepStrictEqual(written, ['ስም አንድ', 'ስም ሁለት', 'ስም ሶስት'], 'glossary file written for one-shot fallback');
-    fs.unlinkSync(flags[gi + 1]);
-
-    // Empty glossary must not appear in either request path at all.
-    p.els('glossaryBox').value = '';
-    p.els('glossaryBox').fire('input');
-    assert.strictEqual(warmStyle().glossary, undefined, 'empty glossary omitted from warmStyle');
-    assert.strictEqual(pyFlags().indexOf('--glossary'), -1, 'empty glossary omitted from pyFlags');
-
-    // restore for the reload check below
-    p.els('glossaryBox').value = 'ስም አንድ\nስም ሁለት\nስም ሶስት';
-    p.els('glossaryBox').fire('input');
-
-    // Burn-into-video caption style: live changes save, and out-of-range/
-    // malformed values get clamped/rejected rather than corrupting settings.
-    p.els('burnFontSize').value = '48';
-    p.els('burnFontSize').fire('input');
-    p.els('burnColor').value = '#ffcc00';
-    p.els('burnColor').fire('input');
-    p.els('burnPosition').value = '6';
-    p.els('burnPosition').fire('change');
-    const sb = JSON.parse(storage.getItem('amh.settings')||'{}');
-    assert.strictEqual(sb.burnFontSize, 48, 'burn font size saved');
-    assert.strictEqual(sb.burnColor, '#ffcc00', 'burn color saved');
-    assert.strictEqual(sb.burnPosition, '6', 'burn position saved (top)');
-
-    // Matches groupSize/maxChars: the field keeps showing what was typed
-    // until the next reload, but the value actually used/saved is clamped.
-    p.els('burnFontSize').value = '999';
-    p.els('burnFontSize').fire('input');
-    assert.strictEqual(JSON.parse(storage.getItem('amh.settings')).burnFontSize, 72,
-      'saved font size clamped to the max');
-
     // reload: shared storage + same machine home
     const p2 = loadPanel({ storage, machineHome: homeDir, folderDialog: () => ({err:1}) });
     try {
@@ -286,21 +233,7 @@ await t('2. settings: defaults, live toggles, persistence across reload', async 
       assert.strictEqual(p2.els('speakersToggle').checked, true, 'speakers remembered');
       assert.strictEqual(p2.els('groupSize').disabled, false, 'syncStyleControls on reload');
       assert.strictEqual(p2.els('srcWork').classList.contains('active'), true, 'source remembered');
-      assert.strictEqual(p2.els('glossaryBox').value, 'ስም አንድ\nስም ሁለት\nስም ሶስት', 'glossary remembered');
-      assert.strictEqual(p2.els('burnFontSize').value, 72, 'burn font size remembered');
-      assert.strictEqual(p2.els('burnColor').value, '#ffcc00', 'burn color remembered');
-      assert.strictEqual(p2.els('burnPosition').value, '6', 'burn position remembered');
     } finally { p2.close(); }
-
-    // A hand-edited/corrupt saved color must never reach ffmpeg as-is —
-    // applySettings() falls back to white rather than passing bad data through.
-    const corrupt = JSON.parse(storage.getItem('amh.settings')||'{}');
-    corrupt.burnColor = 'not-a-color';
-    storage.setItem('amh.settings', JSON.stringify(corrupt));
-    const p3 = loadPanel({ storage, machineHome: homeDir, folderDialog: () => ({err:1}) });
-    try {
-      assert.strictEqual(p3.els('burnColor').value, '#ffffff', 'malformed saved color falls back to white');
-    } finally { p3.close(); }
   } finally { p.close(); }
 });
 
@@ -632,21 +565,6 @@ await t('9. review: jump-to-next-flagged cycles through low-confidence cues and 
       assert.strictEqual(list.children.length, 1, 'filter narrowed the list as expected');
     } finally { p.close(); }
   } finally { restoreCache(snap); }
-});
-
-await t('10. burn style: hex-to-ASS color conversion', async () => {
-  const p = loadPanel({});
-  try {
-    const hexToAssColor = p.evalVm('hexToAssColor');
-    // ASS/libass colors are &H00BBGGRR (BGR order, leading byte = alpha).
-    assert.strictEqual(hexToAssColor('#ffffff'), '&H00FFFFFF', 'white');
-    assert.strictEqual(hexToAssColor('#000000'), '&H00000000', 'black');
-    assert.strictEqual(hexToAssColor('#ff0000'), '&H000000FF', 'red -> BGR swap');
-    assert.strictEqual(hexToAssColor('#00ff00'), '&H0000FF00', 'green -> BGR swap');
-    assert.strictEqual(hexToAssColor('#ffcc00'), '&H0000CCFF', 'amber -> BGR swap');
-    assert.strictEqual(hexToAssColor('nonsense'), '&H00FFFFFF', 'malformed input falls back to white');
-    assert.strictEqual(hexToAssColor(''), '&H00FFFFFF', 'empty input falls back to white');
-  } finally { p.close(); }
 });
 
 console.log('\n' + (fail===0 ? 'ALL PASS' : 'FAILURES: '+fail) + '  (' + pass + ' passed, ' + fail + ' failed)');
