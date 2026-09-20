@@ -300,6 +300,61 @@ homophone families) and/or a model upgrade (see "pending" note below).
 > **Decision: do not ship this model.** No further action needed unless a
 > newer/different candidate appears — this one is closed out, not pending.
 
+### 1.2h Per-condition robustness — reverb and phone audio are the real risk (2026-09-21)
+
+The §1.2g gate scores clean, single-speaker read speech. Amharic Captions is
+sold nationwide for every kind of content, so a model can pass that gate and
+still fail on the footage editors actually bring in. `tools/test/robustness_report.py`
+measures each condition separately. **No ground truth is invented:** every
+condition is a degradation of a clip whose transcript is already verified, so
+the reference text is unchanged; `twospeaker` concatenates two verified clips
+with a 0.35 s gap and joins their transcripts, which is what turn-taking is.
+
+Full run, all 19 verified clips, greedy decode, music/noise mixed at 10 dB SNR,
+seed 1234 (`python3 tools/test/robustness_report.py`):
+
+```
+  condition     clips     WER      CER   CER-nospace   vs clean
+  --------------------------------------------------------------
+  clean           19    44.6%    16.3%        17.4%        —
+  music           19    44.9%    15.5%        16.4%     +0.3 pp
+  noise           19    53.8%    27.2%        27.5%     +9.3 pp
+  phone           19    64.1%    30.8%        32.1%    +19.5 pp
+  reverb          19    78.6%    45.0%        46.1%    +34.0 pp
+  twospeaker       9    42.6%    13.6%        14.3%     -2.0 pp
+```
+
+`clean` reproduces the §1.2g baseline (44.6%) exactly, which validates the
+harness. Reading the rest:
+
+- **Music beds are a non-issue.** +0.3 pp at 10 dB SNR — a sustained tonal bed
+  under narration costs nothing measurable. Wedding/event footage is safe on
+  this axis. (Synthetic bed, not real music; treat the ranking as solid and the
+  absolute number as indicative.)
+- **Turn-taking is not a problem either** — two speakers back to back actually
+  scored *better* than the clips alone (−2.0 pp), consistent with the §1.2g
+  finding that longer utterances give the model more context.
+- **Broadband noise costs ~9 pp.** Outdoor/crowd shoots degrade but stay usable.
+- **Phone/handheld mics cost ~20 pp.** Band-limiting to 300–3400 Hz nearly
+  doubles CER. A lot of Ethiopian vlog and interview footage is recorded this
+  way, so this is a real, common failure mode — not a corner case.
+- **Reverberant rooms are the worst case by far: +34 pp, CER 45%.** At RT60
+  0.45 s (a hall, a church, a large event venue) the output stops being
+  correctable — an editor would be faster typing from scratch. Sermons and
+  event-venue speeches are exactly the content this breaks on.
+
+CER-nospace tracks CER in every row, so these are genuine recognition failures,
+not re-segmentation (same test as §1.2g / `cer_nospace`).
+
+**What this means for accuracy work:** any retrain must be judged on *this*
+table, not on the clean gate alone. Improving clean WER while `reverb` and
+`phone` stay where they are would leave the product failing on the jobs that
+matter. The augmentation already scripted in `tools/retrain/03_finetune_waxal.py`
+(MUSAN + SpecAugment, never run at scale) targets noise/music — the two axes
+that are *already* fine. **Reverb (RIR convolution) and narrowband/codec
+simulation are missing from the augmentation pipeline and should be added
+before the next fine-tune**, since that is where the loss actually is.
+
 ### 1.3 Correctness of caption grouping / timing (visual)
 
 For `long5min` import into Premiere and verify:
@@ -518,6 +573,12 @@ RUNTIME=/path/to/.../com.amharic.captions/runtime tools/test/run_engine.sh --fix
 tools/test/run_engine.sh --fixtures tools/test/fixtures_real --max-wer 0.15   # real-golden gate (§1.2g)
 python3 tools/test/wer.py --truth tools/test/fixtures/news.txt --hyp /tmp/out.srt --max-wer 0.40
 python3 tools/test/test_srt.py /tmp/out_karaoke.srt    # SRT structure check (arg: path)
+
+# Per-condition robustness (§1.2h) — how much a REAL editing job costs vs the
+# clean read speech the gate measures. Needs AMH_MODEL_DIR (or a runtime).
+python3 tools/test/robustness_report.py                 # all 19 clips x 5 conditions
+python3 tools/test/robustness_report.py --max-clips 5   # quick pass
+python3 tools/test/robustness_report.py --snr 5 --keep-audio /tmp/rb   # harsher + listen
 ```
 
 **Definition of done for "unquestionable":** every scenario in sections 1–7 has a
