@@ -1637,6 +1637,21 @@ function parseReviewTs(str) {
 // place, so cache/transcript stay pristine if the user discards)
 let reviewCues = [];
 let REVIEW_FILTER = '';
+// Index into reviewCues of the last cue "Jump to next flagged" landed on, so
+// repeated clicks advance through low-confidence cues instead of always
+// jumping back to the first one.
+let reviewFlagCursor = -1;
+
+function cueMatchesFilter(cue) {
+  const filter = (REVIEW_FILTER || '').toLowerCase();
+  if (!filter) return true;
+  return (cue.text || '').toLowerCase().indexOf(filter) >= 0 ||
+    fmtReviewTs(cue.start).indexOf(filter) >= 0 || fmtReviewTs(cue.end).indexOf(filter) >= 0;
+}
+
+function isLowConf(cue) {
+  return !!cue && typeof cue.conf === 'number' && cue.conf < LOW_CONF_THRESHOLD;
+}
 
 // Burn-to-video state (ffmpeg + libass renders captions with a chosen font).
 let burnChild = null;
@@ -1657,6 +1672,7 @@ function openReview(outSrt, label, startSeconds, opts) {
     Object.assign({}, c, { text: cleanCueLines(c.text) }));
   reviewOpen = true;
   REVIEW_FILTER = '';
+  reviewFlagCursor = -1;
   const search = $('reviewSearch');
   if (search) search.value = '';
   renderReview();
@@ -1679,23 +1695,20 @@ function renderReview() {
   const list = $('reviewList');
   list.textContent = '';
   const ts = (sec) => fmtReviewTs(sec);
-  const filter = (REVIEW_FILTER || '').toLowerCase();
-  const matchesFilter = (cue) => !filter ||
-    (cue.text || '').toLowerCase().indexOf(filter) >= 0 ||
-    ts(cue.start).indexOf(filter) >= 0 || ts(cue.end).indexOf(filter) >= 0;
 
   let shown = 0;
   for (let i = 0; i < reviewCues.length; i++) {
     const cue = reviewCues[i];
-    if (!matchesFilter(cue)) continue;
+    if (!cueMatchesFilter(cue)) continue;
     shown++;
     const row = document.createElement('div');
     row.className = 'review-row';
+    row.dataset.cueIndex = String(i);
     // Low-confidence nudge (see LOW_CONF_THRESHOLD): the acoustic model
     // wasn't sure about at least one word in this caption. This is a
     // "worth a look" signal, not a correctness verdict — a low score can be
     // a genuine mistake or just an unusual-but-correct word.
-    if (typeof cue.conf === 'number' && cue.conf < LOW_CONF_THRESHOLD) {
+    if (isLowConf(cue)) {
       row.classList.add('low-conf');
       row.title = 'Low-confidence transcription — worth double-checking';
     }
@@ -1818,6 +1831,37 @@ function mergeReview(i) {
 
 function updateReviewCount() {
   $('reviewCount').textContent = reviewCues.length + ' caption' + (reviewCues.length === 1 ? '' : 's');
+  const flagged = reviewCues.filter(isLowConf).length;
+  $('reviewFlagCount').textContent = String(flagged);
+  $('reviewNextFlag').hidden = flagged === 0;
+}
+
+// Jump to the next low-confidence caption (among those the current filter
+// leaves visible), cycling back to the first one after the last. Tracks
+// position by cue index (reviewFlagCursor) rather than DOM node, since
+// renderReview() rebuilds the list from scratch on every call.
+function jumpToNextFlag() {
+  const candidates = [];
+  for (let i = 0; i < reviewCues.length; i++) {
+    if (isLowConf(reviewCues[i]) && cueMatchesFilter(reviewCues[i])) candidates.push(i);
+  }
+  if (!candidates.length) return;
+  let target = candidates.find((i) => i > reviewFlagCursor);
+  if (target === undefined) target = candidates[0];
+  reviewFlagCursor = target;
+
+  const list = $('reviewList');
+  for (const row of list.children) {
+    if (Number(row.dataset.cueIndex) !== target) continue;
+    if (typeof row.scrollIntoView === 'function') {
+      try { row.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {}
+    }
+    const ta = row.children && row.children[2];
+    if (ta && typeof ta.focus === 'function') {
+      try { ta.focus(); } catch (e) {}
+    }
+    break;
+  }
 }
 
 function writeReviewSrt(outDir) {
@@ -2096,6 +2140,7 @@ function initReview() {
   if (search) {
     search.addEventListener('input', (e) => { REVIEW_FILTER = e.target.value; renderReview(); });
   }
+  $('reviewNextFlag').addEventListener('click', jumpToNextFlag);
 
   $('reviewBurn').addEventListener('click', () => { if (burning) stopBurn(); else burnReview(); });
   const burnFile = $('burnFileInput');

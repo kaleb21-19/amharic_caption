@@ -322,6 +322,12 @@
   .review-head .title { font-size: var(--font-l); font-weight: 700; }
   .review-head .sub { font-size: var(--font-s); color: var(--text-secondary); }
   .review-count { margin-left: auto; font-size: var(--font-s); color: var(--text-secondary); white-space: nowrap; }
+  .review-flag-nav {
+    font-size: var(--font-s); white-space: nowrap; cursor: pointer;
+    border: 1px solid var(--warn); border-radius: var(--radius-sm);
+    background: var(--warn-soft); color: var(--warn); padding: 3px 8px;
+  }
+  .review-flag-nav:hover { background: var(--warn); color: #fff; }
   #reviewSearch {
     flex: 0 0 auto; width: 124px; height: 24px; font-size: var(--font-s); box-sizing: border-box;
     background: var(--bg-field); color: var(--text-primary);
@@ -577,6 +583,10 @@
       <span class="title">Review captions</span>
       <span class="sub">edit text &amp; times, then place or burn</span>
       <input type="text" id="reviewSearch" placeholder="filter captions…" title="Type to filter the caption list">
+      <button type="button" id="reviewNextFlag" class="review-flag-nav" hidden
+              title="Jump to the next low-confidence caption — worth a look, not necessarily wrong">
+        ⚠ <span id="reviewFlagCount">0</span> need a look
+      </button>
       <span class="review-count" id="reviewCount"></span>
     </div>
     <div id="reviewList"></div>
