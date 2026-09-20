@@ -372,6 +372,17 @@
   .review-tools button.tool:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
   .review-tools button.tool:disabled { opacity: .35; cursor: not-allowed; }
   .review-empty { padding: 18px 8px; text-align: center; color: var(--text-disabled); font-size: var(--font-m); }
+  .burn-style-row {
+    flex: 0 0 auto; display: flex; gap: 8px; align-items: center; margin-top: 8px;
+    padding: 6px 8px; background: var(--bg-field); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); flex-wrap: wrap;
+  }
+  .burn-style-label { font-size: var(--font-s); color: var(--text-secondary); white-space: nowrap; }
+  .burn-style-row input[type="number"] { width: 56px; height: 22px; padding: 0 6px; }
+  .burn-style-row input[type="color"] {
+    width: 26px; height: 22px; padding: 1px; cursor: pointer; background: var(--bg-field);
+  }
+  .burn-style-row select { width: auto; height: 22px; padding: 0 4px; font-size: var(--font-s); }
   .review-foot { flex: 0 0 auto; display: flex; gap: 8px; margin-top: 10px; align-items: center; }
   .review-foot .btn { flex: 1; }
   .review-foot #reviewAdd { flex: 0 0 auto; }
@@ -590,6 +601,16 @@
       <span class="review-count" id="reviewCount"></span>
     </div>
     <div id="reviewList"></div>
+    <div class="burn-style-row" title="Only affects Burn into video — Place on timeline uses Premiere's own caption styling">
+      <span class="burn-style-label">🎬 Burn style:</span>
+      <input type="number" id="burnFontSize" min="16" max="72" value="34" title="Font size (px)">
+      <input type="color" id="burnColor" value="#ffffff" title="Text color">
+      <select id="burnPosition" title="Caption position">
+        <option value="2">Bottom</option>
+        <option value="10">Middle</option>
+        <option value="6">Top</option>
+      </select>
+    </div>
     <div class="review-foot">
       <button id="reviewAdd" class="btn btn-neutral">+ Add cue</button>
       <button id="reviewExport" class="btn btn-neutral" title="Save SRT, VTT and TXT to a folder you choose">Export SRT/VTT/TXT</button>

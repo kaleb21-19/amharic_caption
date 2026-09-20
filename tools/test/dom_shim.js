@@ -176,7 +176,7 @@ const KNOWN = [
   'review', 'reviewList', 'reviewCount', 'reviewSearch', 'reviewAdd',
   'reviewExport', 'reviewDiscard', 'reviewBurn', 'reviewPlace',
   'reviewNextFlag', 'reviewFlagCount',
-  'burnStatus', 'burnFileInput',
+  'burnStatus', 'burnFileInput', 'burnFontSize', 'burnColor', 'burnPosition',
   // misc
   'brandSub',
 ];
@@ -197,6 +197,7 @@ function makeDocument(tagFor) {
     groupSize: ['input', null], maxChars: ['input', null], speakersToggle: ['input', null],
     glossaryBox: ['textarea', null],
     fileInput: ['input', null], burnFileInput: ['input', null],
+    burnFontSize: ['input', null], burnColor: ['input', null], burnPosition: ['select', null],
     licenseInput: ['input', null], reviewSearch: ['input', null],
     runBtn: ['button', null], cancelBtn: ['button', null], choose: ['button', null],
     diag: ['a', null], credits: ['a', null], onboardStart: ['button', null],

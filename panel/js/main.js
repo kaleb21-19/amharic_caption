@@ -997,6 +997,15 @@ let GROUP_SIZE = 3;
 let MAX_CHARS = 42;
 let SPEAKERS = false;
 let GLOSSARY = [];
+// Burn-into-video caption style (libass force_style — see doBurn()). Only
+// affects the rendered video file; Place-on-timeline uses Premiere's own
+// caption styling and is untouched by any of this.
+let BURN_FONT_SIZE = 34;
+let BURN_COLOR = '#ffffff';
+// libass/SSA-v4 Alignment (as ffmpeg's subtitles force_style actually applies
+// it — verified empirically, NOT the ASS "numpad" \an scheme people usually
+// assume): 1/2/3 = bottom L/C/R, 5/6/7 = top L/C/R, 9/10/11 = middle L/C/R.
+let BURN_POSITION = '2'; // bottom-center
 let cancelRequested = false;
 let lastSrtPath = null;
 let lastCues = [];
@@ -1020,6 +1029,9 @@ function applySettings() {
   MAX_CHARS = s.chars || 42;
   SPEAKERS = !!s.speakers;
   GLOSSARY = Array.isArray(s.glossary) ? s.glossary : [];
+  BURN_FONT_SIZE = Math.max(16, Math.min(72, Number(s.burnFontSize) || 34));
+  BURN_COLOR = /^#[0-9a-fA-F]{6}$/.test(s.burnColor || '') ? s.burnColor : '#ffffff';
+  BURN_POSITION = ['2', '10', '6'].includes(s.burnPosition) ? s.burnPosition : '2';
   document.querySelectorAll('#srcSeg button').forEach((b) => {
     b.classList.toggle('active', b.dataset.src === SOURCE);
   });
@@ -1030,6 +1042,9 @@ function applySettings() {
   $('maxChars').value = MAX_CHARS;
   $('speakersToggle').checked = SPEAKERS;
   $('glossaryBox').value = GLOSSARY.join('\n');
+  $('burnFontSize').value = BURN_FONT_SIZE;
+  $('burnColor').value = BURN_COLOR;
+  $('burnPosition').value = BURN_POSITION;
 }
 
 // One term per line, trimmed, blanks dropped — mirrors what the panel shows.
@@ -1906,7 +1921,17 @@ function writeBurnSrt(offsetSec) {
 }
 
 function getBurnFontSize() {
-  return 34;
+  return BURN_FONT_SIZE;
+}
+
+// "#RRGGBB" -> libass's "&H00BBGGRR" (BGR order, leading byte is alpha;
+// 00 = fully opaque). Falls back to white on anything unparseable rather
+// than handing ffmpeg a malformed force_style and failing the whole render.
+function hexToAssColor(hex) {
+  const m = /^#?([0-9a-fA-F]{6})$/.exec(hex || '');
+  if (!m) return '&H00FFFFFF';
+  const rr = m[1].slice(0, 2), gg = m[1].slice(2, 4), bb = m[1].slice(4, 6);
+  return '&H00' + bb.toUpperCase() + gg.toUpperCase() + rr.toUpperCase();
 }
 
 function getMediaDuration(file) {
@@ -1995,7 +2020,8 @@ function doBurn(source) {
   const size = getBurnFontSize();
   const style = 'FontName=' + (fontRec ? fontRec.family : fontName) +
     ',FontSize=' + size +
-    ',PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,Alignment=2,MarginV=30';
+    ',PrimaryColour=' + hexToAssColor(BURN_COLOR) +
+    ',OutlineColour=&H00000000,Outline=2,Shadow=1,Alignment=' + BURN_POSITION + ',MarginV=30';
   const q = (s) => "'" + String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'";
   const filter = 'subtitles=' + q(srt) +
     (fontRec ? ':fontsdir=' + q(fontRec.dir) : '') +
@@ -2416,6 +2442,18 @@ function setup() {
   $('glossaryBox').addEventListener('input', (e) => {
     GLOSSARY = parseGlossaryBox(e.target.value);
     saveSettings({ glossary: GLOSSARY });
+  });
+  $('burnFontSize').addEventListener('input', (e) => {
+    BURN_FONT_SIZE = Math.max(16, Math.min(72, Number(e.target.value) || 34));
+    saveSettings({ burnFontSize: BURN_FONT_SIZE });
+  });
+  $('burnColor').addEventListener('input', (e) => {
+    BURN_COLOR = e.target.value;
+    saveSettings({ burnColor: BURN_COLOR });
+  });
+  $('burnPosition').addEventListener('change', (e) => {
+    BURN_POSITION = e.target.value;
+    saveSettings({ burnPosition: BURN_POSITION });
   });
 
   $('runBtn').addEventListener('click', run);
