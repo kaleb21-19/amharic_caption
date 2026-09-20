@@ -84,6 +84,11 @@ def punctuate_words(words, period_gap=None, comma_gap=None):
     """Insert Ethiopic punctuation into an aligned [(word, start, end), ...]
     stream from inter-word timing gaps. Returns a NEW list; a word that ends a
     sentence/clause carries the mark appended to its text (timing preserved).
+
+    Each entry may carry extra fields after (word, start, end) — e.g. a
+    confidence score from ethio_srt.get_words() — which ride through
+    unchanged (this function only ever reads fields 0-2). Arity-agnostic on
+    purpose so plain 3-tuple callers (tests, other scripts) keep working.
     """
     if not words or os.environ.get("AMH_PUNCT", "1") == "0":
         return words
@@ -93,7 +98,8 @@ def punctuate_words(words, period_gap=None, comma_gap=None):
         comma_gap = float(os.environ.get("AMH_PUNCT_COMMA_GAP", "0.3"))
     out = []
     n = len(words)
-    for i, (tok, s, e) in enumerate(words):
+    for i, w in enumerate(words):
+        tok, s, e, rest = w[0], w[1], w[2], tuple(w[3:])
         mark = ""
         if tok and tok[-1] not in (_SENT_END + _CLAUSE_END):
             if i + 1 >= n:
@@ -104,7 +110,7 @@ def punctuate_words(words, period_gap=None, comma_gap=None):
                     mark = "።"
                 elif gap >= comma_gap:
                     mark = "፣"
-        out.append((tok + mark, s, e) if mark else (tok, s, e))
+        out.append((tok + mark, s, e) + rest if mark else (tok, s, e) + rest)
     return out
 
 
@@ -128,16 +134,24 @@ def correct_words(words):
 
     Returns a NEW list with corrected tokens (timing preserved). A split fix
     produces two entries sharing the original timing span.
+
+    Each entry may carry extra fields after (token, start, end) — e.g. a
+    confidence score from ethio_srt.get_words() — which ride through
+    unchanged (duplicated onto every part when a split fix fires, since we
+    don't have finer-than-word confidence at this text-only stage). Arity
+    -agnostic on purpose so plain 3-tuple callers (tests, other scripts)
+    keep working.
     """
     corrected = []
-    for tok, s, e in words:
+    for w in words:
+        tok, s, e, rest = w[0], w[1], w[2], tuple(w[3:])
         fixed = correct_word(tok)
         if " " in fixed:
             for part in fixed.split():
                 if part:
-                    corrected.append((part, s, e))
+                    corrected.append((part, s, e) + rest)
         else:
-            corrected.append((fixed, s, e))
+            corrected.append((fixed, s, e) + rest)
     return corrected
 
 

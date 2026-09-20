@@ -414,6 +414,16 @@ function setLicense(licenseObj) {
 let LICENSED = false;
 let LICENSED_REFRESH = false;
 
+// Review-screen low-confidence nudge: a caption whose weakest word scored
+// below this (0..1 acoustic posterior, see ctc_beam.py/get_words) gets a
+// visual "worth a look" marker in the review list. Picked empirically
+// (2026-09-20) against real transcriptions: a clip that came out completely
+// wrong scored ~0.03, a clip with one wrong word among several right ones
+// scored ~0.11-0.13, while correctly-transcribed cues mostly scored well
+// above 0.2 — so this trades a few false positives on unusual-but-correct
+// words for reliably catching the worst misses. Not a correctness verdict.
+const LOW_CONF_THRESHOLD = 0.15;
+
 // Free-trial credits: an unlicensed user may run this many transcriptions
 // before being asked to enter a license key. Count is stored per-machine.
 const TRIAL_ALLOWED = 2;
@@ -1316,17 +1326,29 @@ function attributeCues(cues, items) {
   return byItem;
 }
 
+// Reads the engine's per-cue confidence sidecar (<outSrt>.conf.json) written
+// alongside every SRT. Best-effort: absent/unreadable just means "no
+// confidence data for this transcription" (older cache entries, greedy
+// fallback, a sidecar that didn't survive a copy) — never an error.
+function readConfSidecar(outSrt) {
+  try {
+    return JSON.parse(fs.readFileSync(outSrt + '.conf.json', 'utf8'));
+  } catch (e) {
+    return null;
+  }
+}
+
 function cacheLookup(key) {
   const c = cacheLoad()[key];
   if (!c || !c.srt) return null;
   let cues = [];
-  try { cues = normalizeCues(parseSrt(c.srt)); } catch (e) { cues = []; }
+  try { cues = normalizeCues(parseSrt(c.srt), c.confs); } catch (e) { cues = []; }
   if (!cues.length) return null;
   return { srt: c.srt, cues, transcript: c.transcript || '' };
 }
 
-async function cacheStore(key, srt, transcript) {
-  cacheLoad()[key] = { srt, transcript, at: Date.now() };
+async function cacheStore(key, srt, transcript, confs) {
+  cacheLoad()[key] = { srt, transcript, confs: confs || null, at: Date.now() };
   // Per-clip caching means one entry per clip (plus whole-file entries), so
   // keep a generous bound and drop the oldest beyond it.
   const CAP_N = 200;
@@ -1395,10 +1417,11 @@ async function transcribe(sourcePath, outSrt, range, offset) {
     }, warmStyle()));
     warmTouch();
     let cues = [];
-    try { cues = normalizeCues(parseSrt(fs.readFileSync(outSrt, 'utf8'))); } catch (e) {}
+    const conf = readConfSidecar(outSrt);
+    try { cues = normalizeCues(parseSrt(fs.readFileSync(outSrt, 'utf8')), conf); } catch (e) {}
     lastCues = cues;
     lastSrtPath = outSrt;
-    await cacheStore(key, fs.readFileSync(outSrt, 'utf8'), r.text || '');
+    await cacheStore(key, fs.readFileSync(outSrt, 'utf8'), r.text || '', conf);
     return { outSrt, cues, transcript: r.text || '', cached: false };
   } catch (e) {
     // Cancel kills the warm worker, which surfaces here as a transport error
@@ -1425,7 +1448,7 @@ function transcribeOneShot(sourcePath, outSrt, range, offset, wav, onProgress) {
       if (perr) { reject(new Error('Python failed: ' + (perr.message || perr))); return; }
       const transcript = extractTranscripts(stdout).join('\n');
       let cues = [];
-      try { cues = normalizeCues(parseSrt(fs.readFileSync(outSrt, 'utf8'))); } catch (e) {}
+      try { cues = normalizeCues(parseSrt(fs.readFileSync(outSrt, 'utf8')), readConfSidecar(outSrt)); } catch (e) {}
       lastCues = cues;
       lastSrtPath = outSrt;
       resolve({ outSrt, cues, transcript });
@@ -1475,7 +1498,7 @@ async function transcribeBatch(items, outSrt, onProgress) {
         log('Note: skipped ' + r.skipped + ' clip(s) that could not be transcribed.');
       }
       let parsed = [];
-      try { parsed = normalizeCues(parseSrt(fs.readFileSync(outSrt, 'utf8'))); } catch (e) {}
+      try { parsed = normalizeCues(parseSrt(fs.readFileSync(outSrt, 'utf8')), readConfSidecar(outSrt)); } catch (e) {}
       byItem = attributeCues(parsed, misses);
       transcript = r.text || '';
     } else {
@@ -1498,7 +1521,7 @@ async function transcribeBatch(items, outSrt, onProgress) {
     if (!it.sourcePath) continue;
     const cs = byItem.get(it) || [];
     if (!cs.length) continue;
-    await cacheStore(clipCacheKey(it), srtFromCues(cs), '');
+    await cacheStore(clipCacheKey(it), srtFromCues(cs), '', cs.map((c) => (c && c.conf != null) ? c.conf : null));
   }
   return finish(byItem, transcript);
 }
@@ -1530,7 +1553,7 @@ function transcribeBatchOneShot(items, outSrt, onProgress) {
       }
       if (inBlock) transcript += (transcript ? '\n' : '') + buf.join('\n').trim();
       let cues = [];
-      try { cues = normalizeCues(parseSrt(fs.readFileSync(outSrt, 'utf8'))); } catch (e) {}
+      try { cues = normalizeCues(parseSrt(fs.readFileSync(outSrt, 'utf8')), readConfSidecar(outSrt)); } catch (e) {}
       try { fs.unlinkSync(reqPath); } catch (e) {}
       const byItem = attributeCues(cues, items);
       lastCues = cues;
@@ -1649,6 +1672,14 @@ function renderReview() {
     shown++;
     const row = document.createElement('div');
     row.className = 'review-row';
+    // Low-confidence nudge (see LOW_CONF_THRESHOLD): the acoustic model
+    // wasn't sure about at least one word in this caption. This is a
+    // "worth a look" signal, not a correctness verdict — a low score can be
+    // a genuine mistake or just an unusual-but-correct word.
+    if (typeof cue.conf === 'number' && cue.conf < LOW_CONF_THRESHOLD) {
+      row.classList.add('low-conf');
+      row.title = 'Low-confidence transcription — worth double-checking';
+    }
 
     const timeBox = document.createElement('div');
     timeBox.className = 'time-box';

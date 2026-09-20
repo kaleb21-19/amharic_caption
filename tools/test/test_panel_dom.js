@@ -487,6 +487,34 @@ await t('7. batch cache unit: key determinism, attribution windows, srtFromCues 
 });
 
 
+await t('8. review: low-confidence cues get the highlight, confident ones don\'t', async () => {
+  const fixture = path.join(REPO, 'tools', 'test', 'fixtures', 'twospeaker.wav');
+  const key = cacheKeyFor(fixture, { cap:'words', group:3, chars:42, speakers:false });
+  const snap = snapshotCache();
+  try {
+    const base = snap !== null ? JSON.parse(snap) : {};
+    // First cue's confidence sits below LOW_CONF_THRESHOLD (0.15) -> flagged;
+    // second sits well above -> untouched. Mirrors the real <srt>.conf.json
+    // sidecar's shape (a flat array, same order as the SRT's numbered cues).
+    base[key] = { srt: CACHE_SEED_SRT, transcript: '', confs: [0.05, 0.8], at: Date.now() };
+    restoreCache(JSON.stringify(base));
+
+    const p = loadPanel({});
+    try {
+      await flush(10);
+      p.els('fileInput').files = [{ path: fixture, name: 'twospeaker.wav' }];
+      p.els('fileInput').fire('change');
+      await flush(40);
+
+      assert.strictEqual(p.els('reviewList').children.length, 2, 'two captions listed');
+      const row0 = p.els('reviewList').children[0];
+      const row1 = p.els('reviewList').children[1];
+      assert.ok(row0.classList.contains('low-conf'), 'low-confidence cue flagged');
+      assert.ok(!row1.classList.contains('low-conf'), 'confident cue left alone');
+    } finally { p.close(); }
+  } finally { restoreCache(snap); }
+});
+
 console.log('\n' + (fail===0 ? 'ALL PASS' : 'FAILURES: '+fail) + '  (' + pass + ' passed, ' + fail + ' failed)');
 process.exit(fail===0 ? 0 : 1);
 })().catch((e) => { console.error('Fatal:', e); process.exit(1); });

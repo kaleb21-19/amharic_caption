@@ -76,11 +76,22 @@ function detectSpeaker(cue) {
   if (!cue || cue.speaker) return cue;
   const m = String(cue.text || '').match(/^\s*(?:\[(S\d+)\]|(S\d+):)\s*/);
   if (!m) return cue;
-  return { start: cue.start, end: cue.end, text: cue.text.replace(m[0], ''), speaker: m[1] || m[2] };
+  // Preserve any other fields the cue already carries (e.g. `conf`) — only
+  // text/speaker actually change here.
+  return Object.assign({}, cue, { text: cue.text.replace(m[0], ''), speaker: m[1] || m[2] });
 }
 
-function normalizeCues(cues) {
-  return (cues || []).map(detectSpeaker);
+// `confs`, if given, is a per-cue confidence array (same order as `cues`,
+// e.g. read from the engine's <srt>.conf.json sidecar) — attached as
+// `cue.conf` for the review UI to flag uncertain captions. Omit it and
+// nothing changes from before.
+function normalizeCues(cues, confs) {
+  return (cues || []).map((c, i) => {
+    if (confs && confs[i] !== undefined && confs[i] !== null) {
+      c = Object.assign({}, c, { conf: confs[i] });
+    }
+    return detectSpeaker(c);
+  });
 }
 
 function srtTextFromCues(cues) {

@@ -21,10 +21,12 @@ Alignment (start frame per label) is carried along each winning beam path.
 
 Usage:
     from ctc_beam import ctc_beam_decode
-    text, segments = ctc_beam_decode(logits_2d, blank_id, glyphs)
+    text, segments, confidences = ctc_beam_decode(logits_2d, blank_id, glyphs)
 
-    segments: list[(token_id, start_frame, end_frame)] along the best path
-    text    : decoded string (glyphs joined, '|' -> space)
+    segments    : list[(token_id, start_frame, end_frame)] along the best path
+    confidences : list[float in 0..1], one per segment (same order/length) —
+                  that token's own average acoustic posterior over its frames
+    text        : decoded string (glyphs joined, '|' -> space)
 
 Standalone self-check:
     python ctc_beam.py
@@ -207,7 +209,7 @@ def ctc_beam_decode(logits, blank_id, glyphs=None, beam_width=50,
         beam = nxt
 
     if not beam:
-        return "", []
+        return "", [], []
 
     # Final selection: a word never followed by another space (i.e. the last
     # word of the utterance) is never scored by the loop above, since LM
@@ -233,6 +235,13 @@ def ctc_beam_decode(logits, blank_id, glyphs=None, beam_width=50,
             e = s
         segments.append((tok, s, e))
 
+    # Per-segment confidence: the winning token's own average acoustic
+    # posterior over the frames it spans. This is a cheap, honest proxy (not
+    # the beam's joint path score, which conflates every token) — good enough
+    # to flag "the model wasn't sure about this specific word" for review,
+    # which is the only thing it's used for downstream.
+    confidences = [float(np.mean(np.exp(lp[s:e + 1, tok]))) for tok, s, e in segments]
+
     if glyphs is None:
         text = "".join(str(tok) for tok, _, _ in segments)
     else:
@@ -244,7 +253,7 @@ def ctc_beam_decode(logits, blank_id, glyphs=None, beam_width=50,
             chars.append(" " if ch == "|" else ch)
         text = "".join(chars)
         text = " ".join(text.split())
-    return text, segments
+    return text, segments, confidences
 
 
 if __name__ == "__main__":
@@ -254,8 +263,10 @@ if __name__ == "__main__":
     def run_case(name, build):
         logits = build()
         glyphs = {408: "", 7: "ሀ", 12: "ለ", 200: "ም"}
-        text, segs = ctc_beam_decode(logits, blank, glyphs=glyphs,
-                                     beam_width=50)
+        text, segs, confs = ctc_beam_decode(logits, blank, glyphs=glyphs,
+                                            beam_width=50)
+        assert len(confs) == len(segs), "FAIL: confidences must align 1:1 with segments"
+        assert all(0.0 <= c <= 1.0 + 1e-6 for c in confs), f"FAIL: confidence out of [0,1]: {confs}"
         toks = [t for t, _, _ in segs]
         print(f"[{name}] toks={toks}  text={text!r}")
         return toks, text
@@ -324,9 +335,9 @@ if __name__ == "__main__":
 
     logits3 = c3()
     stub_off = _StubLM()
-    text_a, segs_a = ctc_beam_decode(logits3, blank, glyphs=glyphs3,
+    text_a, segs_a, _confs_a = ctc_beam_decode(logits3, blank, glyphs=glyphs3,
                                      beam_width=1, top_k=1, lm=None, lambda_lm=0.0)
-    text_b, segs_b = ctc_beam_decode(logits3, blank, glyphs=glyphs3,
+    text_b, segs_b, _confs_b = ctc_beam_decode(logits3, blank, glyphs=glyphs3,
                                      beam_width=1, top_k=1, lm=stub_off, lambda_lm=0.0)
     assert text_a == text_b and segs_a == segs_b, "FAIL: lambda_lm=0 must reproduce plain decode exactly"
     assert stub_off.calls == [], f"FAIL: LM must never be consulted when lambda_lm=0, got {stub_off.calls}"
@@ -338,8 +349,9 @@ if __name__ == "__main__":
     # only come from the one real lineage — isolating the reset behaviour
     # from beam search's normal low-probability exploration noise.
     stub_on = _StubLM()
-    text_c, segs_c = ctc_beam_decode(logits3, blank, glyphs=glyphs3,
+    text_c, segs_c, confs_c = ctc_beam_decode(logits3, blank, glyphs=glyphs3,
                                      beam_width=1, top_k=1, lm=stub_on, lambda_lm=2.0)
+    assert len(confs_c) == len(segs_c), "FAIL: confidences must align 1:1 with segments"
     toks_c = [t for t, _, _ in segs_c]
     assert toks_c == [7, 300, 12, 300, 7], f"FAIL: LM fusion changed an unambiguous decode: {toks_c}"
     assert stub_on.calls == ["ሀ", "ለ", "ሀ"], (

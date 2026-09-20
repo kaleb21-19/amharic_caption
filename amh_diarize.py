@@ -222,7 +222,7 @@ def classify_cues(cues, samples, sr, ex, cent, starts, lab, min_conf=0.05):
     win = int(WIN_S * SR)
     out = []
     for cue in cues:
-        text, s, e = cue
+        text, s, e, rest = cue[0], cue[1], cue[2], tuple(cue[3:])
         if not text:
             out.append(cue)
             continue
@@ -236,7 +236,7 @@ def classify_cues(cues, samples, sr, ex, cent, starts, lab, min_conf=0.05):
                 out.append(cue)
                 continue
             k = 0 if kk == first else 1
-        out.append(("[S%d] %s" % (k + 1, text), s, e))
+        out.append(("[S%d] %s" % (k + 1, text), s, e) + rest)
     return out
 
 
