@@ -316,29 +316,38 @@ seed 1234 (`python3 tools/test/robustness_report.py`):
 ```
   condition     clips     WER      CER   CER-nospace   vs clean
   --------------------------------------------------------------
-  clean           19    44.6%    16.3%        17.4%        —
-  music           19    44.9%    15.5%        16.4%     +0.3 pp
-  noise           19    53.8%    27.2%        27.5%     +9.3 pp
-  phone           19    64.1%    30.8%        32.1%    +19.5 pp
-  reverb          19    78.6%    45.0%        46.1%    +34.0 pp
-  twospeaker       9    42.6%    13.6%        14.3%     -2.0 pp
+  clean           19    35.0%    16.2%        16.1%        —
+  music           19    33.1%    12.9%        13.0%     -1.9 pp
+  noise           19    50.5%    26.8%        26.4%    +15.5 pp
+  phone           19    57.6%    30.1%        31.5%    +22.6 pp
+  reverb          19    74.0%    46.3%        47.2%    +39.0 pp
+  twospeaker       9    36.1%    13.5%        14.3%     +1.1 pp
 ```
 
-`clean` reproduces the §1.2g baseline (44.6%) exactly, which validates the
-harness. Reading the rest:
+> **Correction (2026-09-21).** The first published version of this table gave
+> clean as 44.6 % and every other row accordingly. That run was launched from a
+> working copy of `robustness_report.py` that was still being edited, so the
+> process scored with different code than was committed beside it — and the
+> write-up then cited the 44.6 % agreement with §1.2g as proof the harness was
+> validated, when it was a coincidence. The table above is a re-run of the
+> committed script, cross-checked against an independent per-clip A/B that
+> gives the same 35.0 % clean mean. The engine is deterministic (two passes
+> over the same clips produce byte-identical text), so these numbers reproduce.
+> **The rankings and every conclusion below were unchanged by the correction.**
+> Lesson for this harness: don't edit the script while a run of it is in flight.
 
-- **Music beds are a non-issue.** +0.3 pp at 10 dB SNR — a sustained tonal bed
-  under narration costs nothing measurable. Wedding/event footage is safe on
-  this axis. (Synthetic bed, not real music; treat the ranking as solid and the
-  absolute number as indicative.)
-- **Turn-taking is not a problem either** — two speakers back to back actually
-  scored *better* than the clips alone (−2.0 pp), consistent with the §1.2g
-  finding that longer utterances give the model more context.
-- **Broadband noise costs ~9 pp.** Outdoor/crowd shoots degrade but stay usable.
-- **Phone/handheld mics cost ~20 pp.** Band-limiting to 300–3400 Hz nearly
+- **Music beds are a non-issue.** At 10 dB SNR a sustained tonal bed under
+  narration costs nothing measurable — it scored marginally *better* than clean.
+  Wedding/event footage is safe on this axis. (Synthetic bed, not real music;
+  treat the ranking as solid and the absolute number as indicative.)
+- **Turn-taking is not a problem either** — two speakers back to back land
+  within ~1 pp of the clips alone, consistent with the §1.2g finding that
+  longer utterances give the model more context.
+- **Broadband noise costs ~15 pp.** Outdoor/crowd shoots degrade but stay usable.
+- **Phone/handheld mics cost ~23 pp.** Band-limiting to 300–3400 Hz nearly
   doubles CER. A lot of Ethiopian vlog and interview footage is recorded this
   way, so this is a real, common failure mode — not a corner case.
-- **Reverberant rooms are the worst case by far: +34 pp, CER 45%.** At RT60
+- **Reverberant rooms are the worst case by far: +39 pp, CER 46%.** At RT60
   0.45 s (a hall, a church, a large event venue) the output stops being
   correctable — an editor would be faster typing from scratch. Sermons and
   event-venue speeches are exactly the content this breaks on.
@@ -349,11 +358,14 @@ not re-segmentation (same test as §1.2g / `cer_nospace`).
 **What this means for accuracy work:** any retrain must be judged on *this*
 table, not on the clean gate alone. Improving clean WER while `reverb` and
 `phone` stay where they are would leave the product failing on the jobs that
-matter. The augmentation already scripted in `tools/retrain/03_finetune_waxal.py`
-(MUSAN + SpecAugment, never run at scale) targets noise/music — the two axes
-that are *already* fine. **Reverb (RIR convolution) and narrowband/codec
-simulation are missing from the augmentation pipeline and should be added
-before the next fine-tune**, since that is where the loss actually is.
+matter. The augmentation in `tools/retrain/03_finetune_waxal.py` was MUSAN only
+(noise/music) — the two axes that are *already* fine — so it hardened the model
+against what it already handled and never showed it what breaks it.
+**Fixed 2026-09-21:** `apply_reverb()` and `apply_narrowband()` added there,
+applied in physical order (room → noise in that room → microphone bandwidth),
+default probability 0.3 each, `--rir-dir` for real impulse responses. Prefer
+real RIRs: the synthetic IR is the same model this harness uses, so training
+against it risks fitting the test's own assumptions rather than real rooms.
 
 ### 1.3 Correctness of caption grouping / timing (visual)
 
