@@ -50,11 +50,20 @@ def _logadd(a, b):
 
 
 def ctc_beam_decode(logits, blank_id, glyphs=None, beam_width=50,
-                    top_k=None, max_frames=None):
+                    top_k=None, max_frames=None, lm=None, lambda_lm=0.0):
     """Return (text, segments) from CTC frame logits.
 
     logits : (T, V) or (1, T, V). Raw logits are normalized to log-probs.
     glyphs : dict token_id -> char (used to render text; '|' becomes a space).
+    lm     : AmharicLM instance or None. If provided (and lambda_lm > 0),
+             shallow word-LM fusion adds a bonus at each word boundary for
+             words the LM's OOV splitter (`lm.split_word`) can rescue —
+             mirrors amh_correct's post-pass, but folded into beam scoring
+             instead of applied after the fact. The utterance's last word
+             (never followed by a space) is scored once at final selection.
+    lambda_lm : weight for LM contribution (0 = pure acoustic, default 0.0;
+             AMH_LM_LAMBDA=0 is the shipped default and reproduces plain
+             acoustic-only decoding exactly — lm is never even consulted).
     """
     logits = np.asarray(logits, dtype=np.float32)
     if logits.ndim == 3:
@@ -83,19 +92,51 @@ def ctc_beam_decode(logits, blank_id, glyphs=None, beam_width=50,
         else:
             cands.append(list(range(V)))
 
-    # beam: prefix-tuple -> [p_blank, p_noblank, alignment(list of (tok, start))]
-    beam = {(): [_LOGZERO, 0.0, []]}
+    # LM fusion helpers: track word-level LM score along the prefix.
+    # A "word" in the token stream is a run of non-blank, non-space tokens.
+    # When a space token (|) is added, the word is complete → score with LM.
+    _SPACE_ID = None  # set below from glyphs
+    if glyphs is not None:
+        for _tid, _ch in glyphs.items():
+            if _ch == " ":
+                _SPACE_ID = _tid
+                break
+    _lambda = float(lambda_lm)
+
+    def _word_lm_score(word_tokens):
+        """Score a just-completed word (list of token IDs since the last
+        space, NOT including the space itself) with the LM. Delegates the
+        OOV-rescue decision entirely to `lm.split_word()` (the same vetted
+        margin/boundary-cost logic used by amh_correct's post-pass) rather
+        than re-deriving it here, so the two stay in lockstep. Returns a
+        lambda-scaled log-prob bonus, or 0.0 if fusion is disabled, the LM
+        is unavailable, or the word wasn't a rescuable OOV split."""
+        if _lambda <= 0 or lm is None:
+            return 0.0
+        try:
+            word_text = "".join(glyphs.get(t, "") for t in word_tokens if t != _SPACE_ID)
+            if not word_text:
+                return 0.0
+            parts = lm.split_word(word_text)
+            if len(parts) < 2:
+                return 0.0  # LM didn't rescue this word; no bonus
+            return _lambda * sum(lm.unigram_score(p) for p in parts)
+        except Exception:
+            return 0.0
+
+    # beam: prefix-tuple -> [p_blank, p_noblank, alignment(list of (tok, start)), word_tokens]
+    beam = {(): [_LOGZERO, 0.0, [], []]}  # prefix, [p_blank, p_noblank, align, word_tokens]
 
     for t in range(T):
         row = lp[t]
         nxt = {}
-        for prefix, (pb, pnb, align) in beam.items():
+        for prefix, (pb, pnb, align, word_tokens) in beam.items():
             # -- blank: stays in current prefix --------------------------------
             p_blank_c = float(row[blank_id])
             if p_blank_c > _LOGZERO:
                 cur = nxt.get(prefix)
                 if cur is None:
-                    cur = [_LOGZERO, _LOGZERO, align]
+                    cur = [_LOGZERO, _LOGZERO, align, word_tokens]
                     nxt[prefix] = cur
                 cur[0] = _logadd(cur[0], _logadd(pb, pnb) + p_blank_c)
 
@@ -111,18 +152,30 @@ def ctc_beam_decode(logits, blank_id, glyphs=None, beam_width=50,
                     # repeat of final label -> merge (no new char)
                     cur = nxt.get(prefix)
                     if cur is None:
-                        cur = [_LOGZERO, _LOGZERO, align]
+                        cur = [_LOGZERO, _LOGZERO, align, word_tokens]
                         nxt[prefix] = cur
                     cur[1] = _logadd(cur[1], pnb + pc)
                 else:
                     # extend prefix with c
                     ext = prefix + (c,)
                     new_align = align + [(c, t)]
+                    # Track word tokens for LM scoring (accumulate since last
+                    # space). On a space, `word_tokens` (pre-extension) is the
+                    # just-finished word: score it, then reset to [] so the
+                    # NEXT word starts fresh instead of accumulating the whole
+                    # utterance into one ever-growing "word".
+                    lm_bonus = 0.0
+                    if c == _SPACE_ID:
+                        if _lambda > 0 and lm is not None and word_tokens:
+                            lm_bonus = _word_lm_score(word_tokens)
+                        new_word_tokens = []
+                    else:
+                        new_word_tokens = word_tokens + [c]
                     cur = nxt.get(ext)
                     if cur is None:
-                        cur = [_LOGZERO, _LOGZERO, new_align]
+                        cur = [_LOGZERO, _LOGZERO, new_align, new_word_tokens]
                         nxt[ext] = cur
-                    cur[1] = _logadd(cur[1], _logadd(pb, pnb) + pc)
+                    cur[1] = _logadd(cur[1], _logadd(pb, pnb) + pc + lm_bonus)
 
         # prune beam by total log-prob
         if len(nxt) > beam_width:
@@ -135,9 +188,21 @@ def ctc_beam_decode(logits, blank_id, glyphs=None, beam_width=50,
     if not beam:
         return "", []
 
-    best = max(beam.items(),
-               key=lambda kv: _logadd(kv[1][0], kv[1][1]))
-    prefix, (_, _, align) = best
+    # Final selection: a word never followed by another space (i.e. the last
+    # word of the utterance) is never scored by the loop above, since LM
+    # fusion only fires when a space token EXTENDS a prefix. Fold each
+    # candidate's still-pending trailing word into the ranking key here (once,
+    # at selection time only — it never affects mid-utterance pruning, which
+    # is fine: there are no more frames left for it to have influenced).
+    def _final_score(kv):
+        pb, pnb, _align, word_tokens = kv[1]
+        score = _logadd(pb, pnb)
+        if _lambda > 0 and lm is not None and word_tokens:
+            score += _word_lm_score(word_tokens)
+        return score
+
+    best = max(beam.items(), key=_final_score)
+    prefix, (_, _, align, word_tokens) = best
 
     # build end frames for each label from its neighbour's start
     segments = []
@@ -199,5 +264,60 @@ if __name__ == "__main__":
     # different token): correct CTC order is [7, 200, 7].
     assert toks2 == [7, 200, 7], f"FAIL: {toks2}"
     print("  -> context PASS")
+
+    # Case 3: LM shallow fusion — safe default (lambda=0 never touches the
+    # LM) + word-boundary reset (each word scored independently, not as one
+    # ever-growing concatenation of the whole utterance — regression guard
+    # for a bug where word_tokens was never cleared after a space) + the
+    # trailing (last, space-less) word still gets scored at selection time.
+    class _StubLM:
+        def __init__(self):
+            self.calls = []
+        def split_word(self, word):
+            self.calls.append(word)
+            return [word, word]  # always "rescues" -> always a nonzero bonus
+        def unigram_score(self, w):
+            return -1.0
+
+    glyphs3 = {408: "", 7: "ሀ", 12: "ለ", 300: " "}
+
+    def c3():
+        # top_k=1 below makes each frame's candidate set a single token, so
+        # this is a fully deterministic single dominant path: word "ሀ",
+        # space, word "ለ", space, word "ሀ" (the last "ሀ" has no trailing
+        # space -> exercises the final-selection scoring path).
+        l = np.random.default_rng(3).normal(size=(60, V)) * 0.02
+        l[0:5, 7] += 9.0
+        l[5:10, 300] += 9.0
+        l[10:15, 12] += 9.0
+        l[15:20, 300] += 9.0
+        l[20:25, 7] += 9.0
+        l[25:60, blank] += 9.0
+        return l
+
+    logits3 = c3()
+    stub_off = _StubLM()
+    text_a, segs_a = ctc_beam_decode(logits3, blank, glyphs=glyphs3,
+                                     beam_width=1, top_k=1, lm=None, lambda_lm=0.0)
+    text_b, segs_b = ctc_beam_decode(logits3, blank, glyphs=glyphs3,
+                                     beam_width=1, top_k=1, lm=stub_off, lambda_lm=0.0)
+    assert text_a == text_b and segs_a == segs_b, "FAIL: lambda_lm=0 must reproduce plain decode exactly"
+    assert stub_off.calls == [], f"FAIL: LM must never be consulted when lambda_lm=0, got {stub_off.calls}"
+    print("  -> LM safe-default (lambda_lm=0) PASS")
+
+    # beam_width=1 keeps exactly one surviving hypothesis at every frame, so
+    # (unlike a wide beam, which legitimately explores many alternate
+    # never-took-the-space hypotheses in parallel) every LM call below can
+    # only come from the one real lineage — isolating the reset behaviour
+    # from beam search's normal low-probability exploration noise.
+    stub_on = _StubLM()
+    text_c, segs_c = ctc_beam_decode(logits3, blank, glyphs=glyphs3,
+                                     beam_width=1, top_k=1, lm=stub_on, lambda_lm=2.0)
+    toks_c = [t for t, _, _ in segs_c]
+    assert toks_c == [7, 300, 12, 300, 7], f"FAIL: LM fusion changed an unambiguous decode: {toks_c}"
+    assert stub_on.calls == ["ሀ", "ለ", "ሀ"], (
+        f"FAIL: expected each word scored exactly once, independently, in order "
+        f"(incl. the trailing word with no following space): {stub_on.calls}")
+    print("  -> LM fusion word-boundary reset + trailing-word scoring PASS")
 
     print("ALL PASS")

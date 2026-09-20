@@ -198,17 +198,28 @@ class _CT2Engine:
         #   AMH_BEAM=0       disables beam search (pure greedy, faster).
         #   AMH_BEAM_TOP_K   bounds per-frame candidates (default 16).
         #   AMH_BEAM_WIDTH   beam width (default 24; smaller is faster).
+        #   AMH_LM_LAMBDA    weight for word-LM shallow fusion at word
+        #                    boundaries (default 0 = disabled; the LM isn't
+        #                    even loaded unless this is > 0, so the default
+        #                    reproduces plain acoustic-only decoding exactly).
         if os.environ.get("AMH_BEAM", "1") != "0":
             try:
                 from ctc_beam import ctc_beam_decode
                 top_k = int(os.environ.get("AMH_BEAM_TOP_K", "16"))
                 bwidth = int(os.environ.get("AMH_BEAM_WIDTH", "24"))
+                lambda_lm = float(os.environ.get("AMH_LM_LAMBDA", "0"))
+                lm = None
+                if lambda_lm > 0:
+                    from amh_lm import get_default_lm
+                    lm = get_default_lm()
                 beam_text, segs = ctc_beam_decode(
                     np.asarray(logits, dtype=np.float32),
                     self.blank_id,
                     glyphs=self.glyphs,
                     beam_width=bwidth,
                     top_k=top_k,
+                    lm=lm,
+                    lambda_lm=lambda_lm,
                 )
                 spans = list(segs)
                 return beam_text, spans, frame_dur

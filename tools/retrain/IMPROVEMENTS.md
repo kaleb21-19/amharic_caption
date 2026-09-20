@@ -135,11 +135,20 @@ consent — license already requires per-machine keys, so ask at activation).
    `tools/make_model_ct2_int8.sh`; run `04_eval_wer.py` against the current
    model on the WAXAL dev slice + the honest fixture set. Acceptance: mean WER
    strictly lower than 0.227-baseline. Cost: one Kaggle session + one command.
-2. **LM fusion in the beam decoder** (B3.6): add word-LM shallow fusion to
-   `ctc_beam.py` (λ tunable via `AMH_LM_LAMBDA`, reuse `amh_lm.json.gz`).
-   Acceptance: holdout WER improves with beam unchanged elsewhere;
-   `AMH_LM_LAMBDA=0` reproduces today's output exactly (safe default until
-   tuned).
+2. **LM fusion in the beam decoder** (B3.6) — **wired, not yet tuned/measured**
+   (2026-09-20): `ctc_beam.py` now takes `lm=`/`lambda_lm=`, wired through
+   `ethio_srt.py` via `AMH_LM_LAMBDA` (lazy-imports `amh_lm` only when > 0).
+   Delegates the OOV-rescue decision to `lm.split_word()` (same vetted logic
+   `amh_correct`'s post-pass uses) rather than re-deriving it, and resets the
+   per-word token buffer at every space (an early draft leaked word_tokens
+   across boundaries — fixed) plus scores the utterance's trailing word at
+   final beam selection (it has no following space to trigger scoring
+   otherwise). Regression-tested in `ctc_beam.py`'s self-check (`AMH_LM_LAMBDA=0`
+   byte-identical to `lm=None`; word-boundary reset + trailing-word scoring
+   verified with a stub LM under `beam_width=1`). Verified end-to-end against
+   the shipped CT2 model (identical output at λ=0, no crash at λ=0.5).
+   **Still open:** a WER sweep across λ values to confirm the acceptance
+   criterion ("holdout WER improves") — not yet measured.
 3. **Fix the WER gate's decode parity**: `04_eval_wer.py` scores with **greedy
    argmax** while the product ships **beam search** — the gate can pass a model
    that regresses in production. Add `--decode beam` (numpy beam, same
