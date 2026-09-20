@@ -148,9 +148,12 @@ class _CT2Engine:
             intra_threads=max(1, int(_THREADS)),
         )
         self.mel = MelExtractor(model_dir)
-        # lm_head projection (1024 hidden -> 411 vocab): CT2's encode() returns
-        # the CTC logits (411) on arm64 but raw hidden states (1024) on
-        # x86_64/Windows, so we project whenever the last dim is 1024.
+        # lm_head projection (1024 hidden -> vocab logits): CT2's encode()
+        # returns the final CTC logits directly on arm64 but raw 1024-wide
+        # hidden states on x86_64/Windows, so we project whenever the last
+        # dim is 1024 — checked by actual size, NOT by comparing against a
+        # hardcoded vocab count (a model with a different vocab size, e.g.
+        # a bigger multilingual checkpoint, would silently break that check).
         lw = os.path.join(model_dir, "lm_head_w.npy")
         lb = os.path.join(model_dir, "lm_head_b.npy")
         self.lm_w = np.load(lw).astype(np.float32) if os.path.isfile(lw) else None
@@ -173,9 +176,9 @@ class _CT2Engine:
         if seg_table:
             feats = self.mel(trimmed)  # (1, T', 160)
             out = self.model.encode(ctranslate2.StorageView.from_array(feats))
-            logits = np.asarray(out, dtype=np.float32)  # (1, T', 411 or 1024)
-            if logits.shape[-1] != 411 and self.lm_w is not None:
-                logits = logits @ self.lm_w.T + self.lm_b  # -> (1, T', 411)
+            logits = np.asarray(out, dtype=np.float32)  # (1, T', vocab) or (1, T', 1024)
+            if logits.shape[-1] == 1024 and self.lm_w is not None:
+                logits = logits @ self.lm_w.T + self.lm_b  # -> (1, T', vocab)
             text, spans, frame_dur = self._align(trimmed, logits)
             # Remap the token frame indices from the VAD-trimmed buffer back
             # onto the ORIGINAL audio timeline so caption times stay correct:
@@ -184,9 +187,9 @@ class _CT2Engine:
             return text, spans, 1.0 / 16000.0
         feats = self.mel(wav)  # (1, T', 160)
         out = self.model.encode(ctranslate2.StorageView.from_array(feats))
-        logits = np.asarray(out, dtype=np.float32)  # (1, T', 411 or 1024)
-        if logits.shape[-1] != 411 and self.lm_w is not None:
-            logits = logits @ self.lm_w.T + self.lm_b  # -> (1, T', 411)
+        logits = np.asarray(out, dtype=np.float32)  # (1, T', vocab) or (1, T', 1024)
+        if logits.shape[-1] == 1024 and self.lm_w is not None:
+            logits = logits @ self.lm_w.T + self.lm_b  # -> (1, T', vocab)
         return self._align(wav, logits)
 
     def _align(self, wav, logits):
@@ -361,10 +364,11 @@ def _lm_split_words(words, word_units):
 
 
 def get_words(spans, frame_dur, glyphs):
+    from ctc_beam import _is_control_glyph
     units = []
     for tok, s, e in spans:
         ch = glyphs.get(tok)
-        if ch is None:
+        if ch is None or _is_control_glyph(ch):
             continue
         units.append((ch, s * frame_dur, (e + 1) * frame_dur))
 

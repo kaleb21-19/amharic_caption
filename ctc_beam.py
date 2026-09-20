@@ -39,6 +39,19 @@ except Exception:  # pragma: no cover
 _LOGZERO = -float("inf")
 
 
+def _is_control_glyph(ch):
+    """True for a vocab entry that is a control/special token, not real
+    caption text — [PAD], [UNK], <s>, and (multilingual checkpoints) a
+    language-id tag like [AMH]/[TIR]/[ORM]/[SID]/[WAL]. Real glyphs in this
+    vocab are always single Unicode characters or the "|" word-delimiter, so
+    any bracket-wrapped multi-char token is unambiguously a control token,
+    never real Amharic text — this was never filtered here (only the greedy
+    decode path had a hardcoded skip-set for the 4 tokens the single-language
+    model happened to have), so a multilingual checkpoint's language tag
+    leaked straight into rendered captions and LM word lookups."""
+    return len(ch) > 1 and ((ch[0] == "[" and ch[-1] == "]") or (ch[0] == "<" and ch[-1] == ">"))
+
+
 def _logadd(a, b):
     if a == _LOGZERO:
         return b
@@ -119,7 +132,10 @@ def ctc_beam_decode(logits, blank_id, glyphs=None, beam_width=50,
         if _lambda <= 0 or lm is None:
             return 0.0
         try:
-            word_text = "".join(glyphs.get(t, "") for t in word_tokens if t != _SPACE_ID)
+            word_text = "".join(
+                ch for t in word_tokens
+                for ch in [glyphs.get(t, "")]
+                if t != _SPACE_ID and not _is_control_glyph(ch))
             if not word_text:
                 return 0.0
             parts = lm.split_word(word_text)
@@ -223,6 +239,8 @@ def ctc_beam_decode(logits, blank_id, glyphs=None, beam_width=50,
         chars = []
         for tok, _, _ in segments:
             ch = glyphs.get(tok, "")
+            if _is_control_glyph(ch):
+                continue
             chars.append(" " if ch == "|" else ch)
         text = "".join(chars)
         text = " ".join(text.split())
