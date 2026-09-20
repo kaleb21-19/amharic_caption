@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.4.23';
+const APP_VERSION = '1.4.24';
 
 const csi = new CSInterface();
 
@@ -355,7 +355,7 @@ function renderHealthList() {
     row.querySelector('span:first-child').textContent = label;
     row.classList.toggle('ok', good);
     row.classList.toggle('bad', !good);
-    state.textContent = good ? 'OK' : 'Check';
+    state.textContent = good ? 'OK' : 'Missing';
   });
 }
 
@@ -869,10 +869,10 @@ function resolvePython() {
 }
 const PYTHON = resolvePython();
 
-const SCRIPT   = RUNTIME     ? runtimePath('ethio_srt.py')     : runtimePath('ethio_srt.py');
-const MODEL_DIR= (RUNTIME && RUNTIME !== DEV_RUNTIME)
-                    ? runtimePath('model')                       // shipped layout
-                    : runtimePath('ethio-asr');                  // dev layout
+const SCRIPT = runtimePath('ethio_srt.py');
+const MODEL_DIR = (RUNTIME && RUNTIME !== DEV_RUNTIME)
+                    ? runtimePath('model')        // shipped layout
+                    : runtimePath('ethio-asr');   // dev layout
 
 
 // Where the runtime folder actually is (for the status pill / diagnostics).
@@ -922,7 +922,16 @@ function setSuccess(text) {
   setStatus('ready', text || '✓ Done');
 }
 function setBusy(busy) {
-  setStatus(busy ? 'busy' : 'ready', busy ? 'working…' : (IS_WIN ? 'ready · win' : 'ready · mac'));
+  if (busy) {
+    setStatus('busy', 'working…');
+  } else {
+    // Keep a freshly-confirmed success pill ("✓ Captions on timeline") instead
+    // of immediately overwriting it with the generic "ready" state.
+    const pill = $('statusPill');
+    const txt = $('statusText');
+    const keep = pill && pill.classList.contains('ready') && txt && /^✓/.test(txt.textContent);
+    if (!keep) setStatus('ready', 'ready');
+  }
   $('runBtn').disabled = busy;
   const cancel = $('cancelBtn');
   if (cancel) cancel.style.display = busy ? 'inline-block' : 'none';
@@ -1535,8 +1544,9 @@ function transcribeBatchOneShot(items, outSrt, onProgress) {
   const pyArgs = [SCRIPT, '--batch', reqPath, outSrt].concat(pyFlags());
   return new Promise((resolve, reject) => {
     const child = execFile(PYTHON, pyArgs, { maxBuffer: 64 * 1024 * 1024, env: AMH_ENV }, (perr, stdout) => {
-      if (perr) { reject(new Error('Python failed: ' + (perr.message || perr))); return; }
+      activeChild = null;
       if (cancelRequested) { reject(new Error('Cancelled')); return; }
+      if (perr) { reject(new Error('Python failed: ' + (perr.message || perr))); return; }
       let transcript = '';
       const lines = String(stdout || '').split('\n');
       let inBlock = false, buf = [];
@@ -1560,7 +1570,10 @@ function transcribeBatchOneShot(items, outSrt, onProgress) {
       lastSrtPath = outSrt;
       resolve({ outSrt, cues, transcript: transcript.trim(), byItem });
     });
-    $('cancelBtn').addEventListener('click', () => { try { child.kill(); } catch (e) {} }, { once: true });
+    // Track the child so the Cancel button can kill it immediately (the setup
+    // cancel handler clears activeChild via child.kill()). The once-listener
+    // is dropped — it stacked one listener per run and never detached.
+    activeChild = child;
   });
 }
 
@@ -1717,7 +1730,7 @@ function renderReview() {
     const splitBtn = mk('\u2702', 'Split this caption into two');
     const mergeBtn = mk('\u21d3', 'Merge this caption into the next');
     mergeBtn.disabled = (i >= reviewCues.length - 1);
-    splitBtn.disabled = !(cue.text || '').trim().split(/\s+/).length > 1;
+    splitBtn.disabled = ((cue.text || '').trim().split(/\s+/).filter(Boolean).length <= 1);
     nudgeBack.addEventListener('click', () => nudgeReview(i, -0.1));
     nudgeFwd.addEventListener('click', () => nudgeReview(i, 0.1));
     splitBtn.addEventListener('click', () => splitReview(i));
@@ -1763,7 +1776,7 @@ function renderReview() {
   if (shown === 0) {
     const empty = document.createElement('div');
     empty.className = 'review-empty';
-    empty.textContent = filter
+    empty.textContent = REVIEW_FILTER
       ? 'No captions match "' + REVIEW_FILTER + '".'
       : 'No captions yet — click "+ Add cue".';
     list.appendChild(empty);
@@ -2132,7 +2145,16 @@ function initReview() {
   document.addEventListener('keydown', (e) => {
     if (!reviewOpen) return;
     if (burning) return;
-    if (e.key === 'Escape') { discardReview(); }
+    if (e.key === 'Escape') {
+      // While typing in a caption/time field, Esc just cancels that edit
+      // (moves focus away) instead of wiping the whole review.
+      const el = e.target;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') && document.activeElement === el) {
+        el.blur();
+        return;
+      }
+      discardReview();
+    }
     else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { placeReview(); }
   });
 }
@@ -2446,6 +2468,7 @@ function setup() {
   // Runtime availability.
   if (!RUNTIME) {
     setStatus('err', 'runtime missing');
+    $('runBtn').disabled = true;
     log('ERROR: could not find the transcription runtime.');
     log('Expected it at:');
     log('  ' + path.join(EXT_DIR, 'runtime'));
@@ -2458,13 +2481,14 @@ function setup() {
     log('com.amharic.captions folder. Then restart Premiere.');
   } else if (!fs.existsSync(PYTHON) || !fs.existsSync(FFMPEG) || !fs.existsSync(MODEL_DIR)) {
     setStatus('err', 'runtime incomplete');
+    $('runBtn').disabled = true;
     log('ERROR: runtime found at ' + RUNTIME + ' but is incomplete.');
     log('  python: ' + (fs.existsSync(PYTHON) ? 'ok' : 'MISSING (' + PYTHON + ')'));
     log('  ffmpeg: ' + (fs.existsSync(FFMPEG) ? 'ok' : 'MISSING (' + FFMPEG + ')'));
     log('  model:  ' + (fs.existsSync(MODEL_DIR) ? 'ok' : 'MISSING (' + MODEL_DIR + ')'));
     log('Reinstall the correct runtime for your platform and restart Premiere.');
   } else {
-    setStatus('ready', IS_WIN ? 'ready · win' : 'ready · mac');
+    setStatus('ready', 'ready');
   }
 
   // P0 polish: token theme applied already; keep health + onboarding in sync.

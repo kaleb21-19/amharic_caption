@@ -181,7 +181,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^[0-9a-f]{8}$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.4.23');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.4.24');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -563,6 +563,49 @@ await t('9. review: jump-to-next-flagged cycles through low-confidence cues and 
       jumpToNextFlag();
       assert.strictEqual(p.evalVm('reviewFlagCursor'), 0, 'no visible flagged cue -> cursor unchanged');
       assert.strictEqual(list.children.length, 1, 'filter narrowed the list as expected');
+    } finally { p.close(); }
+  } finally { restoreCache(snap); }
+});
+
+await t('10. review: empty list renders (no ReferenceError) when filter matches nothing', async () => {
+  // Regression guard: renderReview()'s empty-state branch referenced a local
+  // `filter` variable that a later refactor removed, so under 'use strict'
+  // it threw "ReferenceError: filter is not defined" any time the list
+  // rendered zero rows — a filter with no matches, or every cue deleted.
+  // No existing test hit the zero-row path, so it shipped unnoticed.
+  const fixture = path.join(REPO, 'tools', 'test', 'fixtures', 'twospeaker.wav');
+  const key = cacheKeyFor(fixture, { cap:'words', group:3, chars:42, speakers:false });
+  const snap = snapshotCache();
+  try {
+    const base = snap !== null ? JSON.parse(snap) : {};
+    base[key] = { srt: CACHE_SEED_SRT, transcript: '', at: Date.now() };
+    restoreCache(JSON.stringify(base));
+
+    const p = loadPanel({});
+    try {
+      await flush(10);
+      p.els('fileInput').files = [{ path: fixture, name: 'twospeaker.wav' }];
+      p.els('fileInput').fire('change');
+      await flush(40);
+      assert.strictEqual(p.els('reviewList').children.length, 2, 'two captions to start');
+
+      // 1) filter that matches nothing -> empty state, must not throw
+      p.els('reviewSearch').value = 'zzzz-no-such-caption';
+      p.els('reviewSearch').fire('input');
+      const list = p.els('reviewList');
+      assert.strictEqual(list.children.length, 1, 'only the empty-state row is rendered');
+      has(list.children[0].textContent, 'zzzz-no-such-caption',
+        'empty state names the active filter');
+
+      // 2) clear the filter, then delete every cue -> the other empty branch
+      p.els('reviewSearch').value = '';
+      p.els('reviewSearch').fire('input');
+      const del = () => p.els('reviewList').children[0].children[3];
+      del().fire('click');
+      del().fire('click');
+      assert.strictEqual(p.els('reviewList').children.length, 1, 'empty-state row after deleting all');
+      has(p.els('reviewList').children[0].textContent, 'No captions yet',
+        'empty state prompts to add a cue');
     } finally { p.close(); }
   } finally { restoreCache(snap); }
 });
