@@ -51,7 +51,8 @@ def load_audio(path):
 
 class WaxalDataset(torch.utils.data.Dataset):
     def __init__(self, manifest, processor, musan=None, max_rows=None, seed=0,
-                 max_secs=30.0):
+                 max_secs=30.0, reverb_prob=0.0, narrowband_prob=0.0,
+                 rir_dir=None):
         import soundfile as sf
         self.rows = []
         with open(manifest, encoding="utf-8") as f:
@@ -71,16 +72,29 @@ class WaxalDataset(torch.utils.data.Dataset):
                     break
         self.processor = processor
         self.musan = musan
+        self.reverb_prob = reverb_prob
+        self.narrowband_prob = narrowband_prob
+        self.rir_dir = rir_dir
         rng = random.Random(seed)
 
     def __len__(self):
         return len(self.rows)
 
-    def __getitem__(self, i):
-        path, text = self.rows[i]
-        audio = load_audio(path)
+    def augment(self, audio):
+        """Degrade a clip the way the real world does, in physical order:
+        the room reverberates the voice, noise is present in that room, and
+        the microphone finally band-limits everything it picks up."""
+        if self.reverb_prob and random.random() < self.reverb_prob:
+            audio = apply_reverb(audio, rir_dir=self.rir_dir)
         if self.musan is not None:
             audio = mix_musan(audio, self.musan)
+        if self.narrowband_prob and random.random() < self.narrowband_prob:
+            audio = apply_narrowband(audio)
+        return audio
+
+    def __getitem__(self, i):
+        path, text = self.rows[i]
+        audio = self.augment(load_audio(path))
         labels = self.processor.tokenizer(text, return_tensors="pt")["input_ids"][0]
         return {"audio": audio, "labels": labels, "text": text}
 
@@ -106,10 +120,88 @@ class Collator:
         }
 
 
+def _keep_level(out, ref):
+    """Rescale `out` back to `ref`'s peak so augmentation changes the character
+    of the audio, not its loudness (loudness would be a confound)."""
+    p_out = out.abs().max().clamp_min(1e-9)
+    return out * (ref.abs().max().clamp_min(1e-9) / p_out)
+
+
+def apply_reverb(audio, rt60_range=(0.2, 0.9), rir_dir=None):
+    """Put the clip in a room.
+
+    TESTING.md §1.2h: reverberant rooms are the single worst condition the
+    product faces (~21 words right per 100, against ~55 on clean speech), and
+    sermons and wedding/conference-hall speeches are a large share of what
+    Ethiopian editors cut. Nothing in this pipeline used to simulate that, so
+    the model never trained on it.
+
+    Uses real impulse responses from `rir_dir` when given (better), otherwise a
+    synthetic exponentially-decaying IR, which is the same model the evaluation
+    harness uses — so treat a gain measured only against synthetic reverb with
+    some caution and prefer real RIRs when you have them.
+    """
+    n = audio.shape[0]
+    ir = None
+    if rir_dir:
+        rirs = _RIR_CACHE.get(rir_dir)
+        if rirs is None:
+            rirs = glob.glob(os.path.join(rir_dir, "**", "*.wav"), recursive=True)
+            _RIR_CACHE[rir_dir] = rirs
+        if rirs:
+            import torchaudio
+            try:
+                t, sr = torchaudio.load(random.choice(rirs))
+                if sr != SR:
+                    t = torchaudio.functional.resample(t, sr, SR)
+                ir = t.mean(0)[:SR]                    # cap at 1 s of tail
+            except Exception:
+                ir = None
+    if ir is None:
+        rt60 = random.uniform(*rt60_range)
+        n_ir = max(16, int(rt60 * SR))
+        decay = torch.exp(-torch.arange(n_ir, dtype=torch.float32) / (rt60 * SR / 6.0))
+        ir = torch.randn(n_ir) * decay
+        ir[0] += 1.0                                   # keep the direct sound
+    ir = ir / ir.pow(2).sum().sqrt().clamp_min(1e-9)
+    # conv1d correlates, so flip the IR to get a true convolution
+    y = torch.nn.functional.conv1d(
+        audio.view(1, 1, -1), ir.flip(0).view(1, 1, -1), padding=ir.shape[0] - 1
+    ).view(-1)[:n]
+    return _keep_level(y, audio)
+
+
+def apply_narrowband(audio):
+    """Simulate a phone / cheap handheld mic: band-limit and lightly compress.
+
+    §1.2h again — phone-recorded audio costs ~20 points of accuracy, and a lot
+    of Ethiopian vlog and field-interview footage is recorded exactly that way.
+    Cut-offs are randomised so the model learns the general shape of restricted
+    bandwidth rather than one specific filter."""
+    n = audio.shape[0]
+    spec = torch.fft.rfft(audio)
+    freqs = torch.fft.rfftfreq(n, 1.0 / SR)
+    lo = random.uniform(100.0, 350.0)
+    hi = random.uniform(2800.0, 4000.0)
+    spec = torch.where((freqs < lo) | (freqs > hi),
+                       torch.zeros_like(spec), spec)
+    y = torch.fft.irfft(spec, n=n)
+    drive = random.uniform(1.5, 3.0)
+    return _keep_level(torch.tanh(y * drive) / drive, audio)
+
+
+_RIR_CACHE = {}
+_MUSAN_CACHE = {}
+
+
 def mix_musan(audio, musan_dir, snr_range=(-2, 8)):
     """Add a random MUSAN track over the clip at a per-usec SNR."""
-    from pathlib import Path
-    tracks = glob.glob(os.path.join(musan_dir, "**", "*.wav"), recursive=True)
+    tracks = _MUSAN_CACHE.get(musan_dir)
+    if tracks is None:
+        # cached: this used to re-scan the whole MUSAN tree for every single
+        # training item, which on a 60 k-file corpus dominates the step time
+        tracks = glob.glob(os.path.join(musan_dir, "**", "*.wav"), recursive=True)
+        _MUSAN_CACHE[musan_dir] = tracks
     if not tracks:
         return audio
     import torchaudio
@@ -191,6 +283,20 @@ def main():
                     help="existing transformers checkpoint to fine-tune from")
     ap.add_argument("--out", default="tools/stage/model-retrained")
     ap.add_argument("--musan", default=None)
+    # Real-world robustness (TESTING.md §1.2h). Noise and music, which --musan
+    # covers, are the two conditions the model ALREADY handles; reverb and
+    # phone-bandwidth audio are the two that break it, and neither was
+    # simulated anywhere before. Turn these on for any serious retrain.
+    ap.add_argument("--reverb-prob", type=float, default=0.3,
+                    help="probability of reverberating a training clip "
+                         "(0 disables; 0.3 is the recommended starting point)")
+    ap.add_argument("--narrowband-prob", type=float, default=0.3,
+                    help="probability of band-limiting a clip to phone quality")
+    ap.add_argument("--rir-dir", default=None,
+                    help="directory of real room impulse responses; without it "
+                         "reverb is synthetic (same model the eval harness uses, "
+                         "so prefer real RIRs to avoid training on the test's "
+                         "own assumptions)")
     ap.add_argument("--epochs", type=int, default=3)
     ap.add_argument("--max-steps", type=int, default=None)
     ap.add_argument("--batch-size", type=int, default=2)
@@ -248,6 +354,9 @@ def main():
         print("[info] encoder frozen, training CTC head only")
 
     ds = WaxalDataset(args.manifest, processor, musan=args.musan,
+                      reverb_prob=args.reverb_prob,
+                      narrowband_prob=args.narrowband_prob,
+                      rir_dir=args.rir_dir,
                       max_rows=args.max_train_rows, seed=args.seed,
                       max_secs=args.max_secs)
     print(f"[info] {len(ds)} training rows")
