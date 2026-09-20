@@ -130,11 +130,19 @@ consent — license already requires per-machine keys, so ask at activation).
 
 ### Tier 0 — no training, days, big expected wins
 
-1. **Upgrade the checkpoint** (C/B1): convert `Ethio-ASR-multilingual-600M` (or
-   the newest best-on-benchmark suite model) to CT2 int8 with
-   `tools/make_model_ct2_int8.sh`; run `04_eval_wer.py` against the current
-   model on the WAXAL dev slice + the honest fixture set. Acceptance: mean WER
-   strictly lower than 0.227-baseline. Cost: one Kaggle session + one command.
+1. **Upgrade the checkpoint** (C/B1) — **MEASURED 2026-09-20, REJECTED**:
+   `Ethio-ASR-multilingual-600M` converted to CT2 int8 and A/B'd against the
+   shipped model on the real-golden fixture set (both beam-decoded, identical
+   settings): shipped mean WER 45.3% vs candidate 53.1% — the candidate is
+   worse in practice despite a better claimed WAXAL benchmark number.
+   Full writeup: TESTING.md §1.2g. Two real bugs surfaced and fixed along the
+   way (both worth keeping regardless of this model's outcome): a hardcoded
+   vocab-size check that crashed on any non-411-vocab model, and a missing
+   special-token filter that let a multilingual model's language-ID tag leak
+   into captions. **Next candidate to try** (not yet done): the newest
+   best-on-benchmark suite model specifically for Amharic (not multilingual)
+   — the 600M model's multilingual capacity-splitting is the leading
+   hypothesis for why it underperformed here.
 2. **LM fusion in the beam decoder** (B3.6) — **wired, not yet tuned/measured**
    (2026-09-20): `ctc_beam.py` now takes `lm=`/`lambda_lm=`, wired through
    `ethio_srt.py` via `AMH_LM_LAMBDA` (lazy-imports `amh_lm` only when > 0).

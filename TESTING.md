@@ -267,17 +267,38 @@ confounds. Closing it needs an Amharic-aware WER normalizer (vowel-length
 canonicalization, split glued forms — §1.2g scorer already folds in the
 homophone families) and/or a model upgrade (see "pending" note below).
 
-> **Pending (bandwidth-blocked 2026-09-19): candidate A/B.** `badrex/
-> Ethio-ASR-multilingual-600M` (CC-BY-4.0; same wav2vec2-bert architecture,
-> hidden 1024/24 layers; WAXAL Amharic WER **22.9% vs ~30%** for the shipped
-> model; `[PAD]` blank id 408 identical, vocab 414) is staged to test via
-> `AMH_MODEL_DIR=`. Conversion needs the 2.4 GB fp32 safetensors, whose HF CDN
-> download was throttled/reset repeatedly on this connection (plain curl ~65
-> KB/s, multi-segment ~3.4 MB/s then peer-reset). A resume-safe segmented
-> appender is ready in `/var/folders/../T/opencode/dl_model.sh` — run it when
-> bandwidth cooperates; then `MODEL_SRC=tools/stage/ethio-asr-mu-600m
-> MODEL_DST=tools/stage/model-ct2-int8-mu600 tools/make_model_ct2_int8.sh` and
-> re-run the gate with `AMH_MODEL_DIR=tools/stage/model-ct2-int8-mu600`.
+> **Candidate A/B — measured 2026-09-20, RESULT: REJECT, keep the shipped
+> model.** `badrex/Ethio-ASR-multilingual-600M` (CC-BY-4.0; same
+> wav2vec2-bert architecture, hidden 1024/24 layers; WAXAL Amharic WER
+> **22.9% vs ~30%** for the shipped model per its own model card; `[PAD]`
+> blank id 408 identical, vocab 414/416) downloaded (2.4 GB fp32, resumable
+> parallel-range fetch — bandwidth cooperated this time) and converted to CT2
+> int8 (584 MB). Two real compatibility bugs had to be fixed before it would
+> even run (see `ethio_srt.py`/`ctc_beam.py` commits 2026-09-20): a hardcoded
+> `!= 411` vocab-size check that crashed the CT2 lm_head projection on any
+> model with a different vocab, and a missing special-token filter that let
+> this multilingual checkpoint's language-ID tag (`[TIR]`/`[AMH]`/etc., a
+> one-token prefix before the real transcription) leak into every caption.
+>
+> Once actually running, the honest gate (`run_engine.sh --fixtures
+> fixtures_real --max-wer 0.15`, beam decode, both models identically
+> configured) gave: **shipped model mean WER 45.3% vs candidate mean WER
+> 53.1%** (38 scored runs each). The candidate is WORSE on this real-world
+> Common Voice set despite its better claimed WAXAL benchmark number — most
+> likely because WAXAL and Common Voice are different domains, and/or because
+> splitting model capacity across 5 languages (Tigrinya/Wolaytta/Amharic/
+> Sidamo/Oromo) costs some Amharic-specific quality that a dedicated
+> single-language model doesn't pay. Spot-checked several of the candidate's
+> transcriptions by hand to rule out a residual pipeline bug: they're
+> legitimate Amharic, not garbage — the errors are real ASR mistakes,
+> concentrated in word-boundary gluing (`እርግጠኛነኝ` for `እርግጠኛ ነኝ`,
+> `ትወደነበር` for `ትወድ ነበር`) — interesting in that this specific failure
+> mode is exactly what the LM shallow-fusion feature targets, so this
+> candidate might be worth revisiting together with LM fusion tuned in,
+> rather than as a decode-parity-only swap.
+>
+> **Decision: do not ship this model.** No further action needed unless a
+> newer/different candidate appears — this one is closed out, not pending.
 
 ### 1.3 Correctness of caption grouping / timing (visual)
 
