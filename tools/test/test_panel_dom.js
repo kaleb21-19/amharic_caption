@@ -51,10 +51,18 @@ function detectRuntime() {
   for (const base of roots) { const c = path.join(base,'runtime'); if (complete(c)) return c; }
   if (complete(path.join(DEV,'runtime'))) return path.join(DEV,'runtime');
   if (fs.existsSync(path.join(DEV,'ethio_srt.py'))) return DEV;
+  // Portable last resort: REPO is derived from this file's own location
+  // (path.resolve(__dirname, '..', '..')), so it's correct in ANY checkout —
+  // local dev under a differently-named folder, a fresh clone, or a CI
+  // runner (whose $HOME never matches the hardcoded DEV guess above, so a
+  // freshly checked-out CI repo used to throw here before this fallback
+  // existed). MODEL_DIR only ever feeds a cache-key hash in this file, never
+  // reads from disk, so it doesn't need to actually exist.
+  if (fs.existsSync(path.join(REPO,'ethio_srt.py'))) return REPO;
   throw new Error('cannot replicate runtime detection');
 }
 const RUNTIME   = detectRuntime();
-const MODEL_DIR = (RUNTIME === DEV) ? path.join(RUNTIME,'ethio-asr') : path.join(RUNTIME,'model');
+const MODEL_DIR = (RUNTIME === DEV || RUNTIME === REPO) ? path.join(RUNTIME,'ethio-asr') : path.join(RUNTIME,'model');
 
 function engineHashFor() {
   const h = crypto.createHash('sha1');

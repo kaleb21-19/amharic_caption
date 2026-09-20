@@ -103,6 +103,23 @@ jobs:
       - name: Panel unit tests (Node, no deps)
         run: node tools/test/test_panel.js
 
+      - name: Build a placeholder runtime/ for test_panel_dom.js
+        # main.js's pickRuntime() and the test's own detectRuntime() both walk
+        # a few __dirname-relative candidates before falling back to a
+        # personal ~/Documents/amharic-captions dev shortcut — which only
+        # ever resolves on the author's own machine. On a fresh CI checkout
+        # neither path exists, so several DOM tests that need a "runtime
+        # looks complete" reading (status pill, license gate, review open)
+        # fail outright. Satisfy the existence checks with placeholders (see
+        # runtimeComplete() in main.js) — nothing here is ever executed, the
+        # DOM tests fake all subprocess I/O via warmStart/warmSend hooks.
+        run: |
+          set -euo pipefail
+          mkdir -p runtime/bin runtime/python/bin runtime/model
+          cp ethio_srt.py ctc_beam.py amh_correct.py amh_vad.py amh_lm.py amh_lm.json.gz runtime/
+          ln -s "$(command -v python3)" runtime/python/bin/python3
+          touch runtime/bin/ffmpeg && chmod +x runtime/bin/ffmpeg
+
       - name: Panel DOM tests (Node, no deps)
         run: node tools/test/test_panel_dom.js
 
