@@ -138,10 +138,20 @@ def main():
     ap.add_argument("--seed", type=int, default=1234)
     ap.add_argument("--keep-audio", default=None,
                     help="also write the degraded wavs here so you can listen")
+    ap.add_argument("--dereverb", action="store_true",
+                    help="run amh_dereverb.dereverb() on every clip before "
+                         "transcribing, to measure whether it earns its place")
+    ap.add_argument("--taps", type=int, default=40)
+    ap.add_argument("--delay", type=int, default=2)
     args = ap.parse_args()
 
     import ethio_srt as E
     from wer import normalize, wer, cer, cer_nospace
+
+    pre = (lambda a: a)
+    if args.dereverb:
+        import amh_dereverb
+        pre = lambda a: amh_dereverb.dereverb(a, taps=args.taps, delay=args.delay)
 
     clips = sorted(g for g in os.listdir(args.fixtures) if g.endswith(".wav"))
     pairs = []
@@ -163,13 +173,16 @@ def main():
         os.makedirs(args.keep_audio, exist_ok=True)
 
     print(f"[info] {len(pairs)} verified clips x 5 conditions "
-          f"(music/noise mixed at {args.snr:g} dB SNR, seed {args.seed})")
+          f"(music/noise mixed at {args.snr:g} dB SNR, seed {args.seed})"
+          + (f" [DEREVERB taps={args.taps} delay={args.delay}]"
+             if args.dereverb else ""))
     engine = E.load_pipeline()
 
     order = ["clean", "music", "noise", "phone", "reverb", "twospeaker"]
     acc = {c: {"wer": 0.0, "cer": 0.0, "nos": 0.0, "n": 0} for c in order}
 
     def score(cond, truth, audio, tag):
+        audio = pre(audio)
         text, spans, fdur = engine.transcribe(audio)
         cues = E.make_cues("grouped", 3, spans, fdur, text, engine.glyphs, max_chars=42)
         hyp = " ".join(c[0] for c in cues)

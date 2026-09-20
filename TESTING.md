@@ -367,6 +367,58 @@ default probability 0.3 each, `--rir-dir` for real impulse responses. Prefer
 real RIRs: the synthetic IR is the same model this harness uses, so training
 against it risks fitting the test's own assumptions rather than real rooms.
 
+### 1.2i Dereverberation at inference — MEASURED, REJECTED (2026-09-21)
+
+§1.2h makes reverberant rooms the product's worst condition, so the obvious
+cheap lever was to strip the reverb *before* the model hears it: no retraining,
+no new model file, and it would reach every already-installed copy. Implemented
+as `amh_dereverb.py` (WPE — weighted prediction error; numpy only, since the
+runtime ships no scipy) and measured through `robustness_report.py --dereverb`.
+
+Full 19-clip runs, WER, against the §1.2h baseline:
+
+```
+  condition     baseline   taps=20   taps=40
+  clean            35.0%     33.1%     34.8%
+  music            33.1%     42.6%     44.1%      <-- badly damaged
+  noise            50.5%     53.0%     52.3%
+  phone            57.6%     56.0%     60.5%
+  reverb           74.0%     68.3%     65.7%      <-- helped
+  twospeaker       36.1%     35.0%     37.3%
+```
+
+It does what it claims on reverb (74.0 % -> 65.7 %), and is roughly neutral on
+clean, noise, phone and two-speaker audio. **But it costs ~10 points on music
+at both settings**, so the damage is not an artefact of an aggressive setting.
+Plausible mechanism: WPE removes whatever is linearly predictable from the
+signal's own past, and a sustained musical bed is far more predictable than
+speech, so the fitted filter chases the music and mangles the speech with it.
+
+**Why gating it behind a reverb detector does not rescue it:** the two
+conditions co-occur in precisely the footage that would trigger it. An Ethiopian
+wedding or event shot in a hall has *both* a reverberant room *and* a music bed.
+A detector firing on reverb would therefore switch the filter on exactly where
+it does the most harm.
+
+And the win is not a win in product terms: 74 % -> 66 % WER is roughly 26 to 34
+words right per 100. Both are uncorrectable — an editor retypes either way. It
+buys no usable footage while risking footage that currently works, and costs
+0.10x (taps 20) to 0.36x (taps 40) realtime on top of transcription.
+
+**Decision: do not ship. Not wired into `ethio_srt.py`; `amh_dereverb.py` is
+not in the `tools/build.sh` / `build_win.ps1` runtime file lists, so it does not
+enter the product.** Kept in-tree as a measurement tool: worth re-testing after
+a reverb-augmented retrain (§1.2h), when the model's own reverb handling has
+moved and the trade-off may look different. `python3 amh_dereverb.py` runs its
+self-check.
+
+> Note on that self-check: its first version reported `[pass]` on code that was
+> a no-op, because it asserted only "some improvement" and the real change was
+> 0.01 %, and because `dereverb()` returns its input on any exception — so a
+> genuine `ValueError` (numpy>=2 changed batched `np.linalg.solve` to require a
+> stack of matrices) surfaced as a silent pass-through. It now calls the core
+> path unguarded and asserts effect sizes. A test that cannot fail is not a test.
+
 ### 1.3 Correctness of caption grouping / timing (visual)
 
 For `long5min` import into Premiere and verify:
@@ -591,6 +643,10 @@ python3 tools/test/test_srt.py /tmp/out_karaoke.srt    # SRT structure check (ar
 python3 tools/test/robustness_report.py                 # all 19 clips x 5 conditions
 python3 tools/test/robustness_report.py --max-clips 5   # quick pass
 python3 tools/test/robustness_report.py --snr 5 --keep-audio /tmp/rb   # harsher + listen
+python3 tools/test/robustness_report.py --dereverb   # A/B the §1.2i filter (rejected)
+python3 amh_dereverb.py                              # its own self-check
+# NB: do NOT edit robustness_report.py while a run of it is in flight — python
+# reads the file once at startup, and that is how the first §1.2h table was wrong.
 ```
 
 **Definition of done for "unquestionable":** every scenario in sections 1–7 has a
