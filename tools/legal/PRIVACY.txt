@@ -1,0 +1,38 @@
+PRIVACY POLICY — Amharic Captions Pro
+Version 1.0
+
+WHAT TRANSCRIPTION NEVER DOES
+All speech recognition, correction, speaker labeling and caption placement
+happen entirely on your computer. Your audio, video, footage, transcripts,
+project files and captions NEVER leave your machine and are never uploaded.
+You do not need internet to transcribe.
+
+WHAT THE SOFTWARE DOES SEND
+* License activation: when you activate a key, your Machine ID and the key are
+  sent to the license server to confirm the key belongs to your machine
+  (forged/stolen keys are rejected). A signed, machine-bound lease token is
+  returned and verified locally on your machine thereafter.
+* Anonymous usage beacon: each time you open the panel, a single request is
+  sent with your application version and Machine ID — used to count installs
+  and detect abuse. No audio, text, transcript or personal data.
+* Free-trial usage: the number of free transcriptions used is synced so the
+  trial limit is enforced.
+
+WHAT IS STORED AND WHERE
+License data lives on Cloudflare's platform (Workers + D1): Machine ID,
+license key, order record (nickname, account used, amount), and the source IP
+of activations for fraud detection. Old records are pruned after 30 days. Data
+is not sold or shared with any third party other than Cloudflare (hosting) and
+Telegram (ordering/support).
+
+LOCAL IDENTITY STORAGE
+Your Machine ID is a random identifier stored in your user profile and the
+panel's local storage (no personal information). A hashed (one-way) fingerprint
+of hostname + username is stored locally so support can recognize records
+copied onto another computer; it is never sent anywhere.
+
+DELETION & YOUR RIGHTS
+Request deletion or correction of your license/order record any time via
+Telegram @sumpak6. Removing your data deactivates the associated key.
+
+Full version and refund policy: https://amharic-caption-pro.vercel.app/legal/

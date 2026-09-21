@@ -13,6 +13,13 @@ concurrency:
 # rebuild the CT2 int8 weights shipped in the bundle.
 env:
   HF_MODEL: badrex/Ethio-ASR-amharic
+  # Deliberate, documented licence choice. The bundled ffmpeg is a GPL build
+  # (it needs libx264 for the burn-in encoder and libass for the subtitles
+  # filter), so prepare_python.sh requires this explicit opt-in before it will
+  # stage one. It NEVER permits --enable-nonfree builds, which FFmpeg forbids
+  # redistributing outright. Because we ship GPL ffmpeg, tools/build.sh must
+  # place licenses/ (GPL text + written source offer) at the zip root.
+  AMH_FFMPEG_ALLOW_GPL: "1"
 
 jobs:
   # ---- 1. build the CTranslate2 INT8 model once, upload for reuse ----------
@@ -341,5 +348,5 @@ jobs:
           gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
           gh release create "$TAG" zips/*.zip zips/CHECKSUMS.txt \
             --title "Amharic Captions v${VER}" \
-            --notes "Amharic Captions v${VER} — self-contained builds for Windows 10/11, macOS (Apple Silicon), and macOS (Intel). Download the zip for your platform and install into Adobe CEP extensions. See the install guide: https://amharic-captions-pro.vercel.app/install/" \
+            --notes "Amharic Captions v${VER} — self-contained builds for Windows 10/11, macOS (Apple Silicon), and macOS (Intel). Download the zip for your platform and install into Adobe CEP extensions. See the install guide: https://amharic-caption-pro.vercel.app/install/" \
             || { echo "release create failed"; exit 1; }

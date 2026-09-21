@@ -1,0 +1,60 @@
+END USER LICENSE AGREEMENT — Amharic Captions Pro
+Version 1.0
+
+By installing, running, or otherwise using Amharic Captions Pro ("the
+Software"), you agree to this End User License Agreement with KALEB TEGEGEN
+("the Licensor").
+
+1. GRANT OF LICENSE
+   The Licensor grants you a non-exclusive, non-transferable, personal right to
+   install and use the Software on a single machine. The license is perpetual —
+   a one-time payment (ETB 2,500) and the key never expires.
+
+2. MACHINE LOCKING
+   Each license key is hardware-locked to the Machine ID generated on your
+   computer. The key activates only on the machine whose ID was used to buy it.
+   One key = one machine; a second computer requires a second key.
+
+3. FREE TRIAL
+   Every new machine may run 2 free transcriptions before a key is required, so
+   you can test on your own Premiere Pro before paying. No card, no account.
+
+4. RESTRICTIONS
+   You may not redistribute, resell, sub-license, rent or lend the Software or
+   a license key; copy, modify, reverse engineer, decompile or disassemble the
+   Software (except as allowed by law); or use unauthorized, forged, or shared
+   keys across machines.
+
+5. DEACTIVATION
+   The Licensor may refuse or revoke a key used or obtained improperly —
+   fraud, chargeback, refund abuse, or a key activated across many machines
+   (spread detection). Revocation is communicated to the key holder by
+   Telegram. Legitimate keys are never revoked.
+
+6. TRANSCRIPTION ACCURACY
+   Transcription runs on your machine and accuracy depends on audio quality
+   (studio sound, phone mics, background noise, music, reverb). Captions may
+   need minor edits; you remain responsible for reviewing before publishing.
+
+7. NO WARRANTY
+   The Software is provided "as is" and "as available", without warranty of any
+   kind, express or implied, including merchantability or fitness for a
+   particular purpose.
+
+8. LIMITATION OF LIABILITY
+   To the maximum extent allowed by law, the Licensor is not liable for any
+   indirect, incidental, special or consequential damages (including lost
+   profits or lost data) from use of the Software.
+
+9. PAYMENT
+   Payment is by bank transfer to KALEB TEGEGEN (CBE 1000504159977 *
+   Abyssinia 402393939 * Zemen 1031111343277015). Only keys delivered through
+   the official channel (@AmharicCaptionsBot) are recognized. Never pay anyone
+   presenting other accounts.
+
+10. GOVERNING LAW
+    This agreement is governed by the laws of the Federal Democratic Republic
+    of Ethiopia. Contact: Telegram @sumpak6.
+
+Full version, privacy policy and refund policy:
+https://amharic-caption-pro.vercel.app/legal/

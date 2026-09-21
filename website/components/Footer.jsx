@@ -19,6 +19,7 @@ export default function Footer() {
           <Link href="/pricing/">Pricing</Link>
           <Link href="/install/">Install</Link>
           <Link href="/faq/">FAQ</Link>
+          <Link href="/legal/">Legal</Link>
         </div>
         <div className="footer-col">
           <h4>Support</h4>
@@ -33,8 +34,9 @@ export default function Footer() {
         </div>
       </div>
       <div className="footer-bottom">
-        <div className="container">
+        <div className="container footer-bottom-inner">
           <p>© {new Date().getFullYear()} Amharic Captions Pro. All rights reserved.</p>
+          <Link href="/legal/">EULA · Privacy · Refund</Link>
         </div>
       </div>
     </footer>

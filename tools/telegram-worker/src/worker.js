@@ -79,6 +79,34 @@ function hmacHex(secret, msg) {
   });
 }
 
+// ── signed install lease (verify side: panel/js/core.js verifyLicenseToken) ─
+// The panel ships only LICENSE_TOKEN_PUBKEY_PEM — the public half of the key
+// below — so a stored localStorage license can be verified LOCALLY, and a
+// hand-written {valid:true} cannot unlock the panel once the lease scheme is
+// live. The private half lives only in this worker: env secret
+// AMH_LICENSE_SIGNING_KEY (PKCS8 PEM). While that secret is unset, /api/validate
+// simply returns no `token` and the current panel keeps its legacy accept path,
+// so the scheme can be enabled progressively (set secret -> redeploy panel).
+async function signLease(machineId, expiry) {
+  const mid = String(machineId).toLowerCase();
+  const exp = String(expiry || '00000000');
+  const der = pemToDer(SIGN_KEY);
+  if (!der) throw new Error('AMH_LICENSE_SIGNING_KEY not set');
+  const key = await crypto.subtle.importKey('pkcs8', der, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+  const msg = new TextEncoder().encode(mid + '|' + exp);
+  const raw = new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, msg));
+  const sigHex = [...raw].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return 'v1.' + mid + exp + '.' + sigHex; // matches licenseTokenParse() in core.js
+}
+
+function pemToDer(pem) {
+  const b64 = String(pem || '')
+    .replace(/-----BEGIN [\s\S]*?-----/g, '')
+    .replace(/-----END [\s\S]*?-----/g, '')
+    .replace(/\s+/g, '');
+  return b64 ? base64ToArrayBuffer(b64) : null;
+}
+
 // Since generateKey must be sync in places but WebCrypto is async, we cache.
 // For simplicity we compute keys lazily with an await in approve (async anyway).
 let SECRET = '';
@@ -94,6 +122,7 @@ const SUPPORT_URL = 'https://t.me/sumpak6';
 const SITE_URL = 'https://amharic-caption-pro.vercel.app';
 let WEBHOOK_SECRET = '';
 let API_KEY = ''; // shared secret for /api/* (panel). Enforcement on when set.
+let SIGN_KEY = ''; // PKCS8 PEM (ECDSA P-256) for signing install leases. Optional.
 let CACHE = null; // optional KV namespace (AMH_KV). Absent => graceful fallback.
 let BLOCK_SHARED = false;  // when '1', /api/validate refuses a key seen from too many IPs
 let SPREAD_THRESHOLD = 3;  // distinct source IPs per key before we alert/flag a spread
@@ -114,6 +143,7 @@ function initEnv(env) {
   SECRET = env.AMH_SECRET || '';
   WEBHOOK_SECRET = env.AMH_WEBHOOK_SECRET || '';
   API_KEY = env.AMH_API_KEY || '';
+  SIGN_KEY = env.AMH_LICENSE_SIGNING_KEY || '';
   ALLOWED_ORIGIN = env.AMH_ALLOWED_ORIGIN || '';
   PRICE_ETB = parseInt(env.AMH_PRICE_ETB, 10) || parseInt(PRICE.replace(/[^\d]/g, ''), 10) || 2500;
   BLOCK_SHARED = String(env.AMH_BLOCK_SHARED || '').toLowerCase() === '1';
@@ -1362,6 +1392,15 @@ export default {
         if (!okActivation) {
           out = { valid: false, reason: 'shared' };
           await kvPut(cacheKey, JSON.stringify(out), 60);
+        }
+      }
+      if (out.valid && SIGN_KEY) {
+        try {
+          // Sign an install lease bound to THIS machine + expiry so the panel
+          // can verify offline with its embedded public key (see signLease).
+          out.token = await signLease(String(mid).toLowerCase(), out.expiry || '00000000');
+        } catch (e) {
+          log('error', 'lease_sign_failed', { err: String(e && e.message || e) });
         }
       }
       return json(out);

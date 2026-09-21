@@ -135,15 +135,38 @@ Copy-Item (Join-Path $INST "verify_win.cmd") (Join-Path $BUILD "verify_win.cmd")
 Copy-Item (Join-Path $INST "VERIFY.md")          (Join-Path $BUILD "VERIFY.md")
 Write-Host "  [ok] verify_win.cmd + VERIFY.md (windows runtime verification harness)"
 
+# ---- 3b. licences + third-party notices ------------------------------------
+# Mirrors tools/build.sh step 2c. The bundled ffmpeg.exe is a GPL build, so the
+# licence text and the written offer for corresponding source MUST accompany
+# it. Shipped at the zip ROOT, beside Install.cmd.
+$LICSRC = Join-Path $ROOT "tools\licenses"
+$LICDST = Join-Path $BUILD "licenses"
+New-Item -ItemType Directory -Force -Path $LICDST | Out-Null
+foreach ($f in @("COPYING.GPLv2.txt", "COPYING.GPLv3.txt", "COPYING.LGPLv2.1.txt", "WRITTEN-OFFER.txt")) {
+    Copy-Item (Join-Path $LICSRC $f) (Join-Path $LICDST $f)
+}
+# Generated from the staged artefacts, so the notice always describes the
+# ffmpeg actually in this zip. Hard-fails on a nonfree binary.
+$py = (Get-Command python -ErrorAction SilentlyContinue)
+if (-not $py) { $py = (Get-Command python3 -ErrorAction SilentlyContinue) }
+if (-not $py) { Write-Host "  [FAIL] python not on PATH; cannot generate THIRD-PARTY-NOTICES.md"; exit 1 }
+& $py.Source (Join-Path $LICSRC "gen_notices.py") `
+    --ffmpeg  (Join-Path $BNAME "runtime\bin\ffmpeg.exe") `
+    --runtime (Join-Path $BNAME "runtime") `
+    --target  $TARGET `
+    --out     (Join-Path $LICDST "THIRD-PARTY-NOTICES.md")
+if ($LASTEXITCODE -ne 0) { Write-Host "  [FAIL] gen_notices.py failed"; exit 1 }
+Write-Host "  [ok] licenses/ (GPL text + written offer + third-party notices)"
+
 # ---- 4. zip ----------------------------------------------------------------
 $ZIP = Join-Path $ROOT "dist\amharic-captions-$TARGET.zip"
 New-Item -ItemType Directory -Force -Path (Join-Path $ROOT "dist") | Out-Null
 if (Test-Path $ZIP) { Remove-Item -Force $ZIP }
 
 if (Get-Command 7z -ErrorAction SilentlyContinue) {
-    Push-Location $BUILD; 7z a -tzip -r $ZIP "com.amharic.captions" "Install.cmd" "verify_win.cmd" "VERIFY.md" -xr!".DS_Store"; Pop-Location
+    Push-Location $BUILD; 7z a -tzip -r $ZIP "com.amharic.captions" "licenses" "Install.cmd" "verify_win.cmd" "VERIFY.md" -xr!".DS_Store"; Pop-Location
 } else {
-    Compress-Archive -Path (Join-Path $BNAME), (Join-Path $BUILD "Install.cmd"), (Join-Path $BUILD "verify_win.cmd"), (Join-Path $BUILD "VERIFY.md") -DestinationPath $ZIP -CompressionLevel Optimal
+    Compress-Archive -Path (Join-Path $BNAME), $LICDST, (Join-Path $BUILD "Install.cmd"), (Join-Path $BUILD "verify_win.cmd"), (Join-Path $BUILD "VERIFY.md") -DestinationPath $ZIP -CompressionLevel Optimal
 }
 Remove-Item -Recurse -Force $BUILD
 Write-Host "== wrote $ZIP =="

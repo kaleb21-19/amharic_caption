@@ -29,6 +29,14 @@ Pay **ETB 2,500** by bank transfer to **KALEB TEGEGEN** — CBE 1000504159977 ·
 
 ### Known limitations
 
+- **Licenses are pinned by a server-signed lease (v1.4.26+).** The panel no
+  longer trusts a bare `{valid:true}` flag in `localStorage` on its own. At
+  activation the license server signs an *install lease* (ECDSA P-256) binding
+  the Machine ID + expiry, and the panel verifies that signature locally with an
+  embedded public key — so a hand-edited storage entry can't unlock it, even
+  offline. Installs activated before this scheme keep a bounded 30-day migration
+  grace (measured from activation) so no existing customer gets locked out; once
+  the license server is redeployed every activation stores a signed token.
 - **Trial is best-effort offline.** The 2-use trial counter is stored locally
   (and synced to the server when online). Because the panel must work fully
   offline, a user who is offline — or who clears the panel's `localStorage` —
@@ -124,6 +132,20 @@ extension API (`/api/*`), the `AMH_API_KEY` shared-secret header the panel
 sends on every call, and how to rotate it. The license **HMAC secret is never
 stored in this repo and never shipped** — it lives only in Worker secrets, so
 keys can't be forged from the public source.
+
+## Legal, privacy & refunds
+
+Customer-facing terms are published at
+[`https://amharic-caption-pro.vercel.app/legal/`](https://amharic-caption-pro.vercel.app/legal/)
+(website source: `website/app/legal/page.jsx`) and shipped as plain-text files
+`EULA.txt` / `PRIVACY.txt` / `REFUND.txt` at the root of every release zip
+(source: `tools/legal/`, wired into `tools/build.sh`).
+
+Key points, stated plainly in the privacy policy: transcription is fully
+on-device (audio/transcripts never leave the machine); the panel sends a
+version + Machine ID beacon each time it opens, plus activation + trial-usage
+calls; no personal data is sold or shared beyond Cloudflare (hosting) and
+Telegram (ordering/support).
 
 ## Tech stack
 

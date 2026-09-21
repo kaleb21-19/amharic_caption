@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.4.25';
+const APP_VERSION = '1.4.26';
 
 const csi = new CSInterface();
 
@@ -388,6 +388,21 @@ function initSupport() {
   }
 }
 
+// Terms link: open the license, privacy & refund page in the default browser.
+function initLegal() {
+  const a = document.getElementById('legalLink');
+  if (a) {
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      const url = 'https://amharic-caption-pro.vercel.app/legal/';
+      try {
+        if (window.__adobe_cep__) { window.cep.util.openURLInDefaultBrowser(url); }
+        else { window.open(url, '_blank'); }
+      } catch (err) { window.open(url, '_blank'); }
+    });
+  }
+}
+
 // ── Version badge in footer (keep in sync with CSXS manifest.xml) ──────────
 function initVersion() {
   const el = document.getElementById('panelVersion');
@@ -413,6 +428,69 @@ function setLicense(licenseObj) {
 
 let LICENSED = false;
 let LICENSED_REFRESH = false;
+let LICENSE_NOTE = '';
+
+// Bounded migration window that CLOSES the old bypass: a "valid" flag stored
+// by a pre-token panel is only honored while it is fresh (serverValidated +
+// activated within LEGACY_LICENSE_GRACE_DAYS). After the signed-lease scheme
+// is live this path disappears on its own — see assessLicense().
+const LEGACY_LICENSE_GRACE_DAYS = 30;
+function legacyLicenseWithinGrace(stored) {
+  if (!stored || !(Number(stored.activated) > 0)) return false;
+  return Date.now() - Number(stored.activated) <= LEGACY_LICENSE_GRACE_DAYS * 86400000;
+}
+
+// Recompute LICENSED / LICENSE_NOTE from the strongest available evidence:
+//   1. a server-signed lease token (verified locally with the embedded public
+//      key — a forged localStorage object cannot produce a valid signature), or
+//   2. a legacy server-validated flag inside its bounded grace window (only so
+//      pre-token customers keep working during migration).
+// Runs on boot and after every activation attempt.
+async function assessLicense() {
+  const stored = getLicense();
+  LICENSED = false;
+  LICENSE_NOTE = '';
+  if (!stored) return;
+  if (stored.token) {
+    const v = await verifyLicenseToken(stored.token, LICENSE_TOKEN_PUBKEY_PEM, MACHINE_ID);
+    if (v.ok) {
+      LICENSED = true;
+      LICENSE_NOTE = 'Licensed' + (v.expiry && v.expiry !== '00000000' ? ' (expires ' + v.expiry + ')' : '');
+      return;
+    }
+    // Token present but invalid/forged → fail closed; do NOT fall back to a
+    // legacy flag. Clear it so the UI clearly asks for a fresh activation.
+    setLicense(Object.assign({}, stored, { valid: false }));
+    return;
+  }
+  // Legacy (pre-token) installs: keep the customer working offline during the
+  // migration, but bounded so a hand-written {valid:true} cannot stretch on.
+  // The silent server upgrade that mints a real lease token is kicked ONCE at
+  // boot (initLicense) — never from here, so assess→refresh→assess cannot loop.
+  if (stored.valid && stored.serverValidated && legacyLicenseWithinGrace(stored)) {
+    LICENSED = true;
+    LICENSE_NOTE = 'Licensed';
+  }
+}
+
+// One-shot upgrade helper (kicked at boot, see initLicense): legacy
+// (pre-token) installs get re-validated with the server and, when the
+// (redeployed) server issues one, the stored lease token replaces the plain
+// flag. Preserves the original `activated` date so an offline forgery can
+// never reset the migration grace by calling this.
+async function refreshLeaseFromServer(stored) {
+  try {
+    const r = await apiPost('/api/validate', { mid: MACHINE_ID, key: stored.key });
+    if (r && r.valid === true && r.token) {
+      setLicense(Object.assign({}, stored, {
+        valid: true,
+        serverValidated: true,
+        token: r.token,
+        expiry: (r.expiry && /^\d{8}$/.test(String(r.expiry))) ? r.expiry : (stored.expiry || '00000000'),
+      }));
+    }
+  } catch (e) { /* offline — keep whatever the grace window allows */ }
+}
 
 // Free-trial credits: an unlicensed user may run this many transcriptions
 // before being asked to enter a license key. Count is stored per-machine.
@@ -476,7 +554,6 @@ async function consumeTrialCredit() {
 }
 
 function updateLicenseUI() {
-  const lic = getLicense();
   const midEl = document.getElementById('machineIdDisplay');
   const licInput = document.getElementById('licenseInput');
   const licBtn = document.getElementById('licenseActivate');
@@ -486,11 +563,10 @@ function updateLicenseUI() {
 
   if (midEl) midEl.textContent = MACHINE_ID;
 
-  if (lic && lic.valid) {
-    LICENSED = true;
+  if (LICENSED) {
     if (banner) banner.style.display = 'none';
     if (licStatus) {
-      licStatus.textContent = 'Licensed' + (lic.expiry && lic.expiry !== '00000000' ? ' (expires ' + lic.expiry + ')' : '');
+      licStatus.textContent = LICENSE_NOTE || 'Licensed';
       licStatus.style.color = 'var(--ok)';
     }
     if (runBtn) runBtn.disabled = false;
@@ -581,18 +657,27 @@ async function activateLicense() {
     }
     if (serverResult && serverResult.valid === true) {
       // confirmed by server today — cache the fact. Prefer the server's
-      // authoritative expiry over the locally-parsed one.
+      // authoritative expiry over the locally-parsed one, and keep the
+      // server-signed lease token if the (redeployed) server issued one.
       const serverExpiry = (serverResult.expiry && /^\d{8}$/.test(String(serverResult.expiry))) ? serverResult.expiry : result.expiry;
-      setLicense({ key: key, valid: true, expiry: serverExpiry, activated: Date.now(), serverValidated: true });
+      const store = { key: key, valid: true, expiry: serverExpiry, activated: Date.now(), serverValidated: true };
+      if (serverResult.token) store.token = serverResult.token;
+      setLicense(store);
+      await assessLicense();
       updateLicenseUI();
       const logBox = document.getElementById('logBox');
       if (logBox) logBox.textContent += (logBox.textContent ? '\n' : '') + 'License activated successfully.';
       return;
     }
     // Server unreachable:
-    if (cached && cached.valid && cached.serverValidated && cached.key === key) {
-      // previously validated server-side — allow offline
-      setLicense({ key: key, valid: true, expiry: result.expiry, activated: Date.now(), serverValidated: true });
+    if (cached && cached.key === key && (cached.token || legacyLicenseWithinGrace(cached))) {
+      // previously validated server-side — allow offline, preserving the
+      // original activation time and token so offline reactivation cannot
+      // extend the legacy grace window forever.
+      const store = { key: key, valid: true, expiry: result.expiry, serverValidated: true, activated: cached.activated || Date.now() };
+      if (cached.token) store.token = cached.token;
+      setLicense(store);
+      await assessLicense();
       updateLicenseUI();
       const logBox = document.getElementById('logBox');
       if (logBox) logBox.textContent += (logBox.textContent ? '\n' : '') + 'License activated (offline, previously verified).';
@@ -636,6 +721,19 @@ async function activateLicense() {
     });
   }
   updateLicenseUI();
+
+  // Signed-lease assess: recompute LICENSED from a stored token (verified
+  // locally against the embedded public key) or the legacy grace window, then
+  // re-render once the (fast, WebCrypto) check resolves.
+  assessLicense().then(updateLicenseUI);
+
+  // One-shot silent migration: a legacy (pre-token) license is re-validated
+  // with the server and upgraded to a signed lease token when one is issued.
+  // Kicked exactly once at boot so it can never enter a refresh loop.
+  const legacy = getLicense();
+  if (legacy && legacy.valid && legacy.serverValidated && legacy.key && !legacy.token) {
+    refreshLeaseFromServer(legacy).then(() => assessLicense().then(updateLicenseUI));
+  }
 
   // Sync server-side trial count on load (best effort — silently ignore if offline)
   if (!getLicense()) {
@@ -2389,6 +2487,20 @@ function setup() {
     log('');
     log('Speaker-embedding model: TitaNet-Small by NVIDIA (NeMo), distributed via');
     log('the sherpa-onnx project. License: CC BY 4.0.');
+    log('');
+    log('Voice activity detection: Silero VAD (https://github.com/snakers4/silero-vad).');
+    log('License: MIT.');
+    log('');
+    log('Audio/video processing: FFmpeg (https://ffmpeg.org), bundled unmodified as a');
+    log('separate executable and run as a child process. FFmpeg is licensed to you');
+    log('under the GNU GPL. The full license text and a written offer for the');
+    log('corresponding source code ship in the "licenses" folder of your download.');
+    log('');
+    log('Runtime: CPython (PSF-2.0) with CTranslate2 (MIT), NumPy (BSD-3-Clause),');
+    log('onnxruntime (MIT), sherpa-onnx (Apache-2.0) and soundfile (BSD-3-Clause).');
+    log('Panel: Adobe CSInterface.js (BSD-3-Clause), json2 (Public Domain).');
+    log('');
+    log('Full per-component attribution: licenses/THIRD-PARTY-NOTICES.md');
   });
 
   // Runtime availability.
@@ -2421,6 +2533,7 @@ function setup() {
   renderHealthList();
   initOnboarding();
   initSupport();
+  initLegal();
   initVersion();
   initReview();
 }

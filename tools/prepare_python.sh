@@ -53,22 +53,40 @@ case "$ON_HOST_OS" in
   MINGW*|MSYS*|CYGWIN*) ON_WINDOWS=1;;
   *) ON_WINDOWS=0;;
 esac
+# FFURL_BASE is per-TARGET, never per-OS. A single Darwin-wide ffmpeg URL is
+# what once put an x86_64 binary inside the Apple-Silicon bundle: both mac jobs
+# run on the same macos-14 runner, so arch cannot be inferred from the host.
+# FF_EXPECT_ARCH is asserted against the staged binary in step 5b below.
 case "$OS" in
   Darwin)
     case "$ARCH" in
       arm64)
         TARGET="mac-arm64"
-        PBS_VARIANT="aarch64-apple-darwin";;
+        PBS_VARIANT="aarch64-apple-darwin"
+        # osxexperts 7.1.1 arm64: --enable-gpl WITHOUT --enable-nonfree, and it
+        # keeps libx264 + libass, which the burn-in filter chain needs. The
+        # previous Darwin-wide evermeet URL served an x86_64 binary here.
+        FFURL_BASE="${AMH_FFURL_MAC_ARM64:-https://www.osxexperts.net/ffmpeg711arm.zip}"
+        FF_SHA256="${AMH_FFSHA_MAC_ARM64:-59e39a5cec2e5d2307ed079c53227a9181e64b87454ed4de998349e044bfdc70}"
+        FF_EXPECT_ARCH="arm64";;
       x86_64)
         TARGET="mac-x64"
-        PBS_VARIANT="x86_64-apple-darwin";;
+        PBS_VARIANT="x86_64-apple-darwin"
+        FFURL_BASE="${AMH_FFURL_MAC_X64:-https://evermeet.cx/ffmpeg/ffmpeg-7.1.zip}"
+        FF_SHA256="${AMH_FFSHA_MAC_X64:-}"
+        FF_EXPECT_ARCH="x86_64";;
       *) echo "unsupported Mac arch: $ARCH"; exit 1;;
     esac
-    FFURL_BASE="https://evermeet.cx/ffmpeg/ffmpeg-7.1.zip"; FFNAME="ffmpeg";;
+    FFNAME="ffmpeg";;
   MINGW*|MSYS*|CYGWIN*)
     TARGET="win-x64"
     PBS_VARIANT="x86_64-pc-windows-msvc"
-    FFURL_BASE="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+    FFURL_BASE="${AMH_FFURL_WIN_X64:-https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip}"
+    # Unpinned: the BtbN `latest` tag is a moving target, so a fixed hash would
+    # break on every upstream rebuild. Pin a versioned BtbN release and set a
+    # hash here when reproducible Windows builds are required.
+    FF_SHA256="${AMH_FFSHA_WIN_X64:-}"
+    FF_EXPECT_ARCH="x86_64"
     FFNAME="ffmpeg.exe";;
   *)
     echo "unsupported OS: $OS (expected macOS or Windows)"; exit 1;;
@@ -137,21 +155,59 @@ fi
 # ---- 5. static ffmpeg -------------------------------------------------------
 FF="${TARGET_DIR}/${FFNAME}"
 if [[ ! -f "$FF" ]]; then
+  if [[ -z "$FFURL_BASE" ]]; then
+    echo "  [FAIL] no ffmpeg URL configured for $TARGET." >&2
+    echo "         Set AMH_FFURL_MAC_ARM64 to a redistributable arm64 build." >&2
+    exit 1
+  fi
   echo "  [step] fetching static ffmpeg for $TARGET"
   TMP="$(mktemp -d)"
+  curl -fL --retry 3 "$FFURL_BASE" -o "$TMP/ff.zip"
+  unzip -tq "$TMP/ff.zip" >/dev/null   # CRC-check the archive before use
+
+  # Authenticity, not just integrity. The CRC above only proves the download
+  # was not truncated; it cannot detect upstream replacing the binary. Where a
+  # hash is pinned, a changed upstream fails the build loudly instead of
+  # silently shipping a different ffmpeg. Same pattern as embed/fetch_model.sh.
+  if [[ -n "$FF_SHA256" ]]; then
+    if command -v shasum >/dev/null 2>&1; then
+      FF_GOT="$(shasum -a 256 "$TMP/ff.zip" | awk '{print $1}')"
+    elif command -v sha256sum >/dev/null 2>&1; then
+      FF_GOT="$(sha256sum "$TMP/ff.zip" | awk '{print $1}')"
+    else
+      FF_GOT=""
+    fi
+    if [[ -z "$FF_GOT" ]]; then
+      echo "  [warn] no sha256 tool available — hash NOT verified"
+    elif [[ "$FF_GOT" != "$FF_SHA256" ]]; then
+      echo "  [FAIL] ffmpeg archive hash mismatch for $TARGET" >&2
+      echo "         url:      $FFURL_BASE" >&2
+      echo "         expected: $FF_SHA256" >&2
+      echo "         actual:   $FF_GOT" >&2
+      echo "         Upstream changed this file. Confirm the new build is the" >&2
+      echo "         right arch and is NOT --enable-nonfree, then update the pin." >&2
+      rm -rf "$TMP"; exit 1
+    else
+      echo "  [ok] archive sha256 verified"
+    fi
+  else
+    echo "  [warn] no pinned sha256 for $TARGET (integrity checked, not authenticity)"
+  fi
+
   case "$TARGET" in
     mac-*)
-      curl -fL --retry 3 "$FFURL_BASE" -o "$TMP/ff.zip"
-      unzip -tq "$TMP/ff.zip" >/dev/null   # CRC-check the archive before use
+      # Extract only the exact 'ffmpeg' member, so the __MACOSX/._ffmpeg
+      # AppleDouble entry some zips carry can never be mistaken for the binary.
       unzip -o -q "$TMP/ff.zip" -d "$TMP" 'ffmpeg' 2>/dev/null || true
       FOUND="$(find "$TMP" -type f -name 'ffmpeg' -perm -111 | head -1)"
-      [[ -z "$FOUND" ]] && FOUND="$(find "$TMP" -type f -name 'ffmpeg*' | head -1)"
-      cp "$FOUND" "$FF";;
+      [[ -z "$FOUND" ]] && FOUND="$(find "$TMP" -type f -name 'ffmpeg' | head -1)"
+      [[ -z "$FOUND" ]] && { echo "  [FAIL] no ffmpeg binary inside $FFURL_BASE" >&2; rm -rf "$TMP"; exit 1; }
+      cp "$FOUND" "$FF"
+      chmod +x "$FF";;
     win-x64)
-      curl -fL --retry 3 "$FFURL_BASE" -o "$TMP/ff.zip"
-      unzip -tq "$TMP/ff.zip" >/dev/null   # CRC-check the archive before use
       unzip -o -q "$TMP/ff.zip" -d "$TMP"
       FOUND="$(find "$TMP" -type f -name 'ffmpeg.exe' | head -1)"
+      [[ -z "$FOUND" ]] && { echo "  [FAIL] no ffmpeg.exe inside $FFURL_BASE" >&2; rm -rf "$TMP"; exit 1; }
       cp "$FOUND" "$FF";;
   esac
   rm -rf "$TMP"
@@ -159,6 +215,64 @@ else
   echo "  [ok] ffmpeg already staged at $FF"
 fi
 echo "  [ok] ffmpeg ($(du -sh "$FF" | cut -f1))"
+
+# ---- 5b. verify the staged ffmpeg is shippable ------------------------------
+# This runs on BOTH paths — freshly downloaded AND already-staged. That matters:
+# the "already staged" fast path above is precisely how a hand-placed
+# --enable-nonfree arm64 build sat in tools/stage/mac-arm64/ for months while CI
+# silently downloaded an x86_64 binary for the same target.
+#
+# Both checks read the binary rather than executing it, so they work when
+# cross-staging (you cannot run an x86_64 ffmpeg on an arm64 host without
+# Rosetta, and cannot run ffmpeg.exe on a Mac at all). ffmpeg embeds its full
+# ./configure line as a plain string, so grep -a is sufficient and reliable.
+echo "  [step] verifying ffmpeg is the right arch and is redistributable"
+
+# (a) architecture — a wrong-arch binary fails at the customer's first export,
+#     not at build time, so this must be a hard gate.
+FF_FILE="$(file -b "$FF")"
+case "$FF_EXPECT_ARCH" in
+  arm64)  echo "$FF_FILE" | grep -q 'arm64'  || FF_ARCH_BAD=1;;
+  x86_64) echo "$FF_FILE" | grep -q 'x86_64\|PE32+\|x86-64' || FF_ARCH_BAD=1;;
+esac
+if [[ "${FF_ARCH_BAD:-0}" == "1" ]]; then
+  echo "  [FAIL] ffmpeg at $FF is the wrong architecture for $TARGET" >&2
+  echo "         expected: $FF_EXPECT_ARCH" >&2
+  echo "         actual:   $FF_FILE" >&2
+  echo "         Delete it and re-run so the correct binary is fetched." >&2
+  exit 1
+fi
+
+# (b) licence — FFmpeg's own policy is that --enable-nonfree builds may not be
+#     redistributed under any circumstance. Shipping one is a hard legal stop,
+#     so it is never overridable.
+if grep -aq -- '--enable-nonfree' "$FF"; then
+  echo "  [FAIL] $FF was built with --enable-nonfree." >&2
+  echo "         FFmpeg forbids redistributing nonfree builds. This binary" >&2
+  echo "         cannot ship. Replace it with an LGPL (or GPL, if you comply)" >&2
+  echo "         build before building the bundle." >&2
+  exit 1
+fi
+
+# (c) GPL — legal but obligating: shipping it requires the GPL text plus a
+#     written offer for corresponding source in the bundle. Gated behind an
+#     explicit opt-in so it is a deliberate choice, never an accident.
+if grep -aq -- '--enable-gpl' "$FF"; then
+  if [[ "${AMH_FFMPEG_ALLOW_GPL:-0}" != "1" ]]; then
+    echo "  [FAIL] $FF is a GPL build (--enable-gpl)." >&2
+    echo "         Shipping it obligates you to include the GPL text and a" >&2
+    echo "         written offer for corresponding source in the bundle." >&2
+    echo "         Use an LGPL build, or set AMH_FFMPEG_ALLOW_GPL=1 to accept" >&2
+    echo "         those obligations deliberately." >&2
+    exit 1
+  fi
+  echo "  [warn] GPL ffmpeg accepted via AMH_FFMPEG_ALLOW_GPL=1"
+  echo "         — the bundle MUST carry the GPL text + written source offer."
+  FF_LICENSE="GPL"
+else
+  FF_LICENSE="LGPL"
+fi
+echo "  [ok] ffmpeg verified: $FF_EXPECT_ARCH, $FF_LICENSE"
 
 # ---- 6. verify --------------------------------------------------------------
 if [[ "$TARGET" == "win-x64" && "$ON_WINDOWS" == "0" ]]; then

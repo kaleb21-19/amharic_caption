@@ -243,6 +243,16 @@ a { color: var(--brand); }
 .faq-list details[open] summary:after { content: "–"; }
 .faq-list p { color: var(--muted); padding: 0 0 16px; margin: 0; }
 
+/* Legal (EULA / Privacy / Refund) */
+.legal { max-width: 780px; margin: 0 auto; }
+.legal-toc { display: flex; flex-wrap: wrap; gap: 10px 26px; margin: 0 0 36px; padding: 14px 22px; background: var(--bg-card); border: 1px solid var(--line); border-radius: 14px; }
+.legal-toc a { color: var(--brand); text-decoration: underline; }
+.legal h2 { margin: 48px 0 10px; }
+.legal h3 { margin: 28px 0 8px; color: var(--ink); }
+.legal p, .legal li { color: var(--muted); line-height: 1.7; }
+.legal ul { padding-left: 22px; margin: 8px 0 18px; }
+.legal a { color: var(--brand); }
+
 /* CTA */
 
 /* Footer */
@@ -257,6 +267,9 @@ a { color: var(--brand); }
 .footer-col p a { display: inline; }
 .footer-bottom { border-top: 1px solid var(--line-soft); padding: 18px 0; }
 .footer-bottom p { margin: 0; font-size: .85rem; color: var(--muted-2); }
+.footer-bottom-inner { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: center; justify-content: space-between; }
+.footer-bottom-inner a { font-size: .85rem; color: var(--muted-2); }
+.footer-bottom-inner a:hover { color: var(--brand); }
 
 @media (max-width: 760px) {
   .footer-grid { grid-template-columns: 1fr 1fr; }

@@ -68,6 +68,9 @@ node scripts/auto_webhook.mjs
 > # OPTIONAL: CORS allow-list — comma-separated origins (include 'null' for CEP
 > # file:// panels). Omit to stay open ('*'), see CORS section below.
 > npx wrangler secret put AMH_ALLOWED_ORIGIN
+> # OPTIONAL: ECDSA P-256 private key (PKCS8 PEM) that signs install leases so
+> # the panel can verify licenses offline (see the lease section below).
+> npx wrangler secret put AMH_LICENSE_SIGNING_KEY
 > ```
 > `AMH_SECRET` is the HMAC license secret — retrieve the value from your
 > password manager (**it is no longer printed in this repo — keygen.py,
@@ -149,6 +152,7 @@ npx wrangler d1 migrations apply amh_bot --remote
 npx wrangler secret put AMH_TG_TOKEN      # Telegram bot token
 npx wrangler secret put AMH_ADMIN_ID      # comma-separated admin chat ids
 npx wrangler secret put AMH_SECRET        # HMAC license secret
+npx wrangler secret put AMH_LICENSE_SIGNING_KEY   # optional: install-lease signing (see § AMH_LICENSE_SIGNING_KEY)
 ```
 > The HMAC secret stays in Cloudflare — it is never in the Worker code and
 > never served to any browser/client. This preserves the existing license keys.
@@ -214,8 +218,10 @@ are **KV-cached and rate-limited** (per-machine **and** per-IP via
 - `GET /api/trial?mid=XXXXXXXX` → `{used, max, remaining}` — free-trial usage
 - `POST /api/trial/use` with `{mid}` → atomic increment + returns remaining
   (machine-bound, so clearing localStorage no longer resets the trial)
-- `POST /api/validate` with `{mid, key}` → `{valid, expiry?}` — checks the key
-  exists in D1 `customers` for this machine (blocks forged/unofficial keys)
+- `POST /api/validate` with `{mid, key}` → `{valid, expiry?, token?}` — checks the key
+  exists in D1 `customers` for this machine (blocks forged/unofficial keys). When
+  `AMH_LICENSE_SIGNING_KEY` is set, a successful validation additionally returns
+  a signed **install lease token** (see below) that the panel verifies locally.
 
 **🛡 AMH_API_KEY — REQUIRED (enforced live).** `AMH_API_KEY` is a Worker secret
 and **already enforced**: every `/api/*` call WITHOUT a matching `X-Api-Key`
@@ -229,6 +235,31 @@ the secret → deploy. `AMH_BLOCK_SHARED` is also live (`1`): a key presented
 from ≥ `AMH_SPREAD_THRESHOLD` (3) distinct source IPs stops validating with
 `{valid:false, reason:'shared'}` after alerting admins. Set `AMH_BLOCK_SHARED`
 back to `0` (or unset) to return to notify-only.
+
+**🔐 AMH_LICENSE_SIGNING_KEY — install-lease signing (enable after deploying
+v1.4.26+ panel).** Closes the "edit localStorage to unlock" bypass (audit #4):
+the panel no longer trusts a bare `{valid:true}` — everything must survive
+`verifyLicenseToken()` against the *public* key baked into
+`panel/js/core.js` (`LICENSE_TOKEN_PUBKEY_PEM`). Only the **private** half lives
+here, as the Worker secret `AMH_LICENSE_SIGNING_KEY` (PKCS8 PEM). When the secret
+is unset, `/api/validate` simply omits `token` and the shipped panel keeps its
+bounded legacy path (30-day migration grace measured from activation) — so this
+can be rolled out without locking out existing buyers.
+
+Generate the keypair **offline, once** (P-256; keep the private key out of the
+repo — it is minted machine-side, not in CI) and set only the private half on
+Cloudflare:
+```bash
+mkdir -p ~/.config/amharic-captions/license-signing && cd "$_"
+openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out priv.pem
+openssl pkey -in priv.pem -pubout -out pub.pem
+npx wrangler secret put AMH_LICENSE_SIGNING_KEY < priv.pem   # sets the PKCS8 PEM
+```
+Then embed `pub.pem` as `LICENSE_TOKEN_PUBKEY_PEM` in `panel/js/core.js`,
+rebuild the extension, and deploy. Rotation: replace the keypair, ship the new
+public half, then `secret put` the new private half. Key tokens are cached with
+the validation response (1h), so a signed token keeps the machine working
+offline until its `expiry` (`00000000` = perpetual).
 
 **📤 Backups/export.** Two options:
 - In-app: admin **📤 Export customers** button → paste-ready TSV

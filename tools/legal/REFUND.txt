@@ -1,0 +1,19 @@
+REFUND POLICY — Amharic Captions Pro
+Version 1.0
+
+The product is a digital license key delivered by bot after payment, so it is
+generally a final sale. We still stand behind it:
+
+* 14-DAY MONEY-BACK: if the Software does not work on your machine (key fails
+  activation, panel will not load, supported Premiere version not recognized)
+  and we cannot resolve it within a reasonable time, you get a full refund.
+  Ask within 14 days of purchase on Telegram @sumpak6, quoting your order.
+
+* Refunds are paid to the same account the payment came from. A refunded key
+  is permanently deactivated.
+
+* NOT COVERED: captions rejected for accuracy on extreme audio quality, lost
+  or reused keys, keys bought from resellers/unofficial channels, or remorse
+  after successful installation.
+
+Questions? Telegram @sumpak6, or https://amharic-caption-pro.vercel.app/legal/

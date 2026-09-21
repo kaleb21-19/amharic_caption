@@ -219,6 +219,106 @@ t('validateLicense: tampered machine-id section is caught locally', () => {
   assert.ok(/different machine/i.test(r.error));
 });
 
-console.log('\n' + (fail === 0 ? 'ALL PASS' : 'FAILURES: ' + fail) +
-  '  (' + pass + ' passed, ' + fail + ' failed)');
-process.exit(fail === 0 ? 0 : 1);
+// ─────────────────────────────── license token (signed lease) verify
+// Round-trips a server-signed install lease through the panel's LOCAL verifier
+// (panel/js/core.js verifyLicenseToken). Uses a throwaway P-256 keypair so the
+// tests never touch the real signing key — and one test proves tokens signed by
+// the throwaway key FAIL against the real embedded public key.
+let pending = [];
+function tAsync(name, fn) {
+  pending.push(
+    Promise.resolve().then(fn).then(
+      () => { pass++; console.log('  [OK] ' + name); },
+      (e) => { fail++; console.log('  [FAIL] ' + name + '\n        ' + (e && e.message)); }
+    )
+  );
+}
+
+let _kp = null, _pubPem = null;
+async function tokenKey() {
+  if (!_kp) {
+    _kp = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+    const spki = await crypto.subtle.exportKey('spki', _kp.publicKey);
+    const b64 = Buffer.from(spki).toString('base64');
+    _pubPem = '-----BEGIN PUBLIC KEY-----\n' + b64.match(/.{1,64}/g).join('\n') + '\n-----END PUBLIC KEY-----';
+  }
+  return { kp: _kp, pem: _pubPem };
+}
+async function signToken(mid, exp) {
+  const { kp } = await tokenKey();
+  const msg = new TextEncoder().encode(mid + '|' + exp);
+  const raw = new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, kp.privateKey, msg));
+  const sigHex = [...raw].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return 'v1.' + String(mid).toLowerCase() + String(exp) + '.' + sigHex;
+}
+
+tAsync('license token: server-signed lease verifies locally (perpetual)', async () => {
+  const { pem } = await tokenKey();
+  const v = await core.verifyLicenseToken(await signToken(MID, '00000000'), pem, MID);
+  assert.strictEqual(v.ok, true);
+  assert.strictEqual(v.expiry, '00000000');
+});
+
+tAsync('license token: exped-limited lease verifies until expiry', async () => {
+  const { pem } = await tokenKey();
+  const exp = '29991231';
+  const v = await core.verifyLicenseToken(await signToken(MID, exp), pem, MID);
+  assert.strictEqual(v.ok, true);
+  assert.strictEqual(v.expiry, exp);
+});
+
+tAsync('license token: expired lease rejected with date', async () => {
+  const { pem } = await tokenKey();
+  const v = await core.verifyLicenseToken(await signToken(MID, '20200101'), pem, MID);
+  assert.strictEqual(v.ok, false);
+  assert.ok(/expired on 2020-01-01/.test(v.error), v.error);
+});
+
+tAsync('license token: different machine rejected', async () => {
+  const { pem } = await tokenKey();
+  const v = await core.verifyLicenseToken(await signToken('ffffffff', '00000000'), pem, MID);
+  assert.strictEqual(v.ok, false);
+  assert.ok(/different machine/i.test(v.error), v.error);
+});
+
+tAsync('license token: tampered signature rejected', async () => {
+  const { pem } = await tokenKey();
+  const token = await signToken(MID, '00000000');
+  const flip = token.slice(0, token.length - 1) + (token.endsWith('0') ? '1' : '0');
+  const v = await core.verifyLicenseToken(flip, pem, MID);
+  assert.strictEqual(v.ok, false);
+  assert.ok(/signature invalid/i.test(v.error), v.error);
+});
+
+tAsync('license token: wrong public key rejected (bind to embedded key)', async () => {
+  // A lease signed by the throwaway test key must FAIL against the REAL
+  // embedded public key — otherwise the embedded key could be substituted.
+  const v = await core.verifyLicenseToken(await signToken(MID, '00000000'), core.LICENSE_TOKEN_PUBKEY_PEM, MID);
+  assert.strictEqual(v.ok, false);
+});
+
+tAsync('license token: malformed token rejected', async () => {
+  assert.strictEqual(core.licenseTokenParse(null), null);
+  assert.strictEqual(core.licenseTokenParse('v2.a1b2c3d400000000.' + '0'.repeat(128)), null);
+  assert.strictEqual(core.licenseTokenParse('v1.a1b2c3d4.00'), null);
+  assert.strictEqual(core.licenseTokenParse('v1.zzzz' + '0'.repeat(150)), null);
+  const v = await core.verifyLicenseToken('garbage', core.LICENSE_TOKEN_PUBKEY_PEM, MID);
+  assert.strictEqual(v.ok, false);
+});
+
+tAsync('license token: embedded public key matches the real signing key', async () => {
+  // Copy-paste guard: the PEM baked into core.js must be the actual keypair
+  // generated for the worker's AMH_LICENSE_SIGNING_KEY. A pubkey that can sign
+  // nothing (no matching private key) would still "verify" shape — this guards
+  // against a mismatched paste. (Real signature binding is the test above.)
+  const pem = core.LICENSE_TOKEN_PUBKEY_PEM;
+  const b64 = pem.replace(/-----BEGIN[^-]*-----/g, '').replace(/-----END[^-]*-----/g, '').replace(/\n/g, '');
+  assert.ok(b64.indexOf('MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEh4nYjxBierpwVmlfyDAGnpcqjZZl') === 0, 'embedded pubkey is the generated P-256 key');
+});
+
+(async () => {
+  await Promise.all(pending);
+  console.log('\n' + (fail === 0 ? 'ALL PASS' : 'FAILURES: ' + fail) +
+    '  (' + pass + ' passed, ' + fail + ' failed)');
+  process.exit(fail === 0 ? 0 : 1);
+})();

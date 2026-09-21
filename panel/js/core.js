@@ -171,6 +171,94 @@ function validateLicense(key, machineId) {
   return { ok: true, expiry: exp };
 }
 
+// ─────────────────────────────────────────────── leased-license token check
+// Server-signed install lease, verified locally with an embedded PUBLIC key.
+//
+// The old model ("valid:true" in localStorage, no local auth — see audit) let
+// anyone unlock the panel by editing storage, once the client logic was public.
+// The fix is asymmetric: the license server signs an install lease with an
+// ECDSA P-256 key whose PRIVATE half lives only in the Worker (env secret
+// AMH_LICENSE_SIGNING_KEY); the panel ships only the PUBLIC half below and
+// rejects any stored license whose signature doesn't verify. Offline still
+// works — a lease is signed once (at activation/about-to-expire) and then
+// honored locally until its expiry — but a forged localStorage object has no
+// valid signature and is refused.
+//
+// Token format (v1): "v1." + hex(mid8|exp8) + "." + hex(64-byte raw ECDSA
+// signature over the ASCII string "mid|exp"). Compact, safe to store, and the
+// signature is produced with WebCrypto on both ends (raw r||s, not DER).
+
+const LICENSE_TOKEN_PUBKEY_PEM =
+  '-----BEGIN PUBLIC KEY-----\n' +
+  'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEh4nYjxBierpwVmlfyDAGnpcqjZZl\n' +
+  'u61OCN5dwuvbSoP0mmQoptRb/7PM5UOi4GBY0Wmn0kKHQLZtEanqvq9nbQ==\n' +
+  '-----END PUBLIC KEY-----';
+
+function licenseTokenParse(token) {
+  if (typeof token !== 'string') return null;
+  const parts = token.split('.');
+  if (parts.length !== 3 || parts[0] !== 'v1') return null;
+  const payloadHex = parts[1];
+  const sigHex = parts[2];
+  if (!/^[0-9a-f]{16}$/.test(payloadHex) || !/^[0-9a-f]{128}$/.test(sigHex)) return null;
+  return {
+    mid: payloadHex.slice(0, 8),
+    exp: payloadHex.slice(8, 16),
+    sigHex: sigHex,
+    message: payloadHex.slice(0, 8) + '|' + payloadHex.slice(8, 16),
+  };
+}
+
+function hexToBytes(hex) {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+  return bytes;
+}
+
+function pemToBytes(pem) {
+  const b64 = String(pem || '')
+    .replace(/-----BEGIN [^-]+-----/g, '')
+    .replace(/-----END [^-]+-----/g, '')
+    .replace(/\s+/g, '');
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+// Verify a stored lease token locally against mid + expiry. pubKeyPem is the
+// server's public key (defaults to the embedded constant; tests may pass their
+// own keypair). Async: uses WebCrypto (available in the CEP Chromium, modern
+// browsers, and Node ≥ 20).
+async function verifyLicenseToken(token, pubKeyPem, machineId) {
+  try {
+    const tok = licenseTokenParse(token);
+    if (!tok) return { ok: false, error: 'Malformed license token' };
+    if (tok.mid !== String(machineId || '').toLowerCase()) {
+      return { ok: false, error: 'License token is for a different machine' };
+    }
+    if (tok.exp !== '00000000') {
+      const expDate = new Date(tok.exp.slice(0, 4) + '-' + tok.exp.slice(4, 6) + '-' + tok.exp.slice(6, 8));
+      if (isNaN(expDate.getTime()) || Date.now() > expDate.getTime()) {
+        return { ok: false, error: 'License expired on ' + tok.exp.slice(0, 4) + '-' + tok.exp.slice(4, 6) + '-' + tok.exp.slice(6, 8) };
+      }
+    }
+    const subtle = globalThis.crypto && globalThis.crypto.subtle ? globalThis.crypto.subtle : null;
+    if (!subtle) return { ok: false, error: 'No WebCrypto available' };
+    const key = await subtle.importKey(
+      'spki', pemToBytes(pubKeyPem),
+      { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+    const sig = hexToBytes(tok.sigHex);
+    const data = new TextEncoder().encode(tok.message);
+    const valid = await subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, sig, data);
+    return valid
+      ? { ok: true, mid: tok.mid, expiry: tok.exp }
+      : { ok: false, error: 'License token signature invalid' };
+  } catch (e) {
+    return { ok: false, error: 'License token verification failed' };
+  }
+}
+
 // Node (tests) — no-op in the CEP browser where `module` is undefined.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -178,5 +266,6 @@ if (typeof module !== 'undefined' && module.exports) {
     detectSpeaker, normalizeCues,
     speakerPrefix, srtTextFromCues, vttTextFromCues, txtTextFromCues,
     validateLicense,
+    LICENSE_TOKEN_PUBKEY_PEM, licenseTokenParse, verifyLicenseToken,
   };
 }

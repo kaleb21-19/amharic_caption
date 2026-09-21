@@ -181,7 +181,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^[0-9a-f]{8}$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.4.25');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.4.26');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -283,6 +283,81 @@ await t('3. license: initial trial, bad keys, activation', async () => {
       assert.ok(/License activated successfully./.test(p2.els('logBox').textContent),
         'activation message appended to log');
     } finally { p2.close(); }
+  } finally { p.close(); }
+});
+
+await t('3.5 license: forged license refused — signed-lease migration window', async () => {
+  // (a) Legacy-shaped forgery (the audit #4 bypass) aged beyond the 30-day
+  // migration grace → refused, trial path enforced. Regression test.
+  const forged = makeLocalStorage();
+  forged.setItem('amh.trial.used', '2'); // exhaust trial so Generate must stay locked
+  forged.setItem('amh.license', JSON.stringify({
+    key: mkKey('00000000', '00000000', '0123456789abcdef'),
+    valid: true, serverValidated: true,
+    activated: Date.now() - 31 * 86400000, // too old even if it WERE server-legit
+  }));
+  const pf = loadPanel({ storage: forged });
+  try {
+    await flush(30); // let boot assessLicense() run (WebCrypto verify)
+    assert.strictEqual(pf.els('runBtn').disabled, true, 'forged beyond-grace license must NOT enable Generate');
+    assert.ok(/Trial used/.test(pf.els('licenseStatus').textContent), 'shows trial-exhausted state: ' + pf.els('licenseStatus').textContent);
+    assert.strictEqual(pf.els('licensedNote').style.display, 'none', 'no licensed note');
+  } finally { pf.close(); }
+
+  // (b) Present-but-forged token: verify FAILS → license invalidated, no fallback.
+  const badTok = makeLocalStorage();
+  badTok.setItem('amh.trial.used', '2');
+  badTok.setItem('amh.license', JSON.stringify({
+    valid: true, token: 'v1.a1b2c3d400000000.' + 'f'.repeat(128),
+  }));
+  const pb = loadPanel({ storage: badTok });
+  try {
+    await flush(30);
+    assert.strictEqual(JSON.parse(pb.storage.getItem('amh.license') || 'null').valid, false, 'invalid token clears valid');
+    assert.strictEqual(pb.els('runBtn').disabled, true, 'bad token must NOT enable Generate');
+  } finally { pb.close(); }
+
+  // (c) Valid server-signed token path: locally verified → Licensed.
+  const good = makeLocalStorage();
+  const pg = loadPanel({ storage: good });
+  try {
+    pg.evalVm('verifyLicenseToken = async (t, pk, m) => ({ ok: true, expiry: "00000000" });');
+    pg.storage.setItem('amh.license', JSON.stringify({ valid: false, token: 'v1.' + 'b1b2b3b4' + '00000000' + '.' + '0'.repeat(128) }));
+    await pg.evalVm('assessLicense()');
+    pg.evalVm('updateLicenseUI()');
+    assert.strictEqual(pg.els('runBtn').disabled, false, 'signed token enables Generate');
+    assert.strictEqual(pg.els('licensedNote').style.display, 'block');
+    assert.strictEqual(pg.els('licenseStatus').textContent, 'Licensed');
+  } finally { pg.close(); }
+});
+
+await t('3.6 license: legacy install upgraded to a signed token on boot', async () => {
+  // A pre-token buyer within grace, online: the panel must silently re-validate
+  // and STORE the server-minted token (migration completes on its own). Token
+  // verification itself is covered by the real-keypair unit tests in
+  // test_panel.js; here we mirror field logic (3.5c) for the success path.
+  const legacy = makeLocalStorage();
+  legacy.setItem('amh.trial.used', '2');
+  legacy.setItem('amh.license', JSON.stringify({
+    key: mkKey('00000000', '00000000', '0123456789abcdef'),
+    valid: true, serverValidated: true, activated: Date.now() - 5 * 86400000,
+  }));
+  const migFetch = async (url) => {
+    const u = String(url);
+    if (u.includes('/api/validate')) return { ok:true, json:async()=>({valid:true, token:'v1.b1b2b3b400000000.' + '0'.repeat(128)}) };
+    return { ok:true, json:async()=>({ok:true}) };
+  };
+  const p = loadPanel({ storage: legacy, fetch: migFetch, folderDialog: () => ({err:1}) });
+  try {
+    await flush(40);
+    const stored = JSON.parse(p.storage.getItem('amh.license') || 'null');
+    assert.ok(stored && stored.token, 'legacy license upgraded to a token');
+    assert.ok(stored.activated > 0 && String(stored.activated).length > 10, 'original activated date preserved');
+    p.evalVm('verifyLicenseToken = async (t, pk, m) => ({ ok: true, expiry: "00000000" });');
+    await p.evalVm('assessLicense()');
+    p.evalVm('updateLicenseUI()');
+    assert.strictEqual(p.els('runBtn').disabled, false, 'still licensed after upgrade');
+    assert.strictEqual(p.els('licensedNote').style.display, 'block');
   } finally { p.close(); }
 });
 

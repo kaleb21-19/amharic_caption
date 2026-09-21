@@ -6,12 +6,15 @@ extension. Runs on Vercel — no GitHub account name in the URL.
 - `/` — single English-first landing page
 - `/install/` — platform downloads + step-by-step install (Windows, macOS)
 - `/pricing/`, `/faq/` — sales + help pages
+- `/legal/` — EULA, privacy policy, refund policy (also shipped as plain-text
+  `EULA.txt` / `PRIVACY.txt` / `REFUND.txt` at the root of every release zip;
+  sources: `website/app/legal/page.jsx` + `tools/legal/`)
 - `sitemap.xml`, `robots.txt`, JSON-LD `SoftwareApplication` schema — generated
   at build time for SEO
 
 ## Tech
 - Next.js 14 (App Router), React 18, pure JSX (no TypeScript)
-- Deployed on Vercel → https://amharic-captions-pro.vercel.app
+- Deployed on Vercel → https://amharic-caption-pro.vercel.app
 - Add your own domain later under Vercel → Project → Settings → Domains
 
 ## Central config
@@ -44,4 +47,8 @@ npm run dev        # http://localhost:3000
 ## Deploy
 Push to `main` — Vercel auto-deploys the `website` project on every change.
 First time only: Vercel → Add New Project → import the GitHub repo → framework
-auto-detects Next.js → project name `amharic-captions-pro` → Deploy.
+auto-detects Next.js → project name `amharic-caption-pro` → Deploy.
+
+The deployed host must stay in sync with `SITE_URL` in `lib/site.js`, the
+release notes URL in `.github/workflows/build.yml`, and the `SITE_URL`
+constants in `tools/telegram-worker/src/worker.js` and `tools/telegram/bot.py`.

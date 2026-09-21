@@ -1,0 +1,51 @@
+WRITTEN OFFER FOR CORRESPONDING SOURCE CODE
+===========================================
+
+Amharic Captions Pro is distributed with an unmodified copy of FFmpeg
+(https://ffmpeg.org), a separate command-line program that this product
+invokes as a child process. FFmpeg is not linked into, statically or
+dynamically, any part of Amharic Captions Pro.
+
+The FFmpeg binary included in this package is built with --enable-gpl, so it
+is licensed to you under the GNU General Public License. The applicable
+licence text for your platform is in this same folder:
+
+  macOS (Apple Silicon)  GPL version 2 or later  -> COPYING.GPLv2.txt
+  macOS (Intel)          GPL version 3 or later  -> COPYING.GPLv3.txt
+  Windows                GPL version 3 or later  -> COPYING.GPLv3.txt
+
+Portions of FFmpeg remain under the GNU Lesser General Public License version
+2.1 or later; that text is included as COPYING.LGPLv2.1.txt.
+
+
+THE OFFER
+---------
+
+For a period of three (3) years from the date you received this package, we
+will give any third party, upon request, a complete machine-readable copy of
+the corresponding source code for the FFmpeg binary distributed here, together
+with the exact build configuration used to produce it, for no more than our
+reasonable cost of physically performing the distribution.
+
+To request the source, contact:
+
+  KALEB TEGEGEN
+  Telegram: https://t.me/sumpak6
+
+Please state which platform build you received (macOS Apple Silicon, macOS
+Intel, or Windows) and the version shown in THIRD-PARTY-NOTICES.md, so we can
+send you the source that corresponds exactly to your binary.
+
+The corresponding source for the exact FFmpeg version in this package is also
+published at https://ffmpeg.org/download.html and
+https://github.com/FFmpeg/FFmpeg. The precise upstream version, build origin
+and configure line for the binary you received are recorded in
+THIRD-PARTY-NOTICES.md in this folder.
+
+
+NO WARRANTY
+-----------
+
+FFmpeg is distributed WITHOUT ANY WARRANTY, without even the implied warranty
+of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the applicable GPL
+text for full details.

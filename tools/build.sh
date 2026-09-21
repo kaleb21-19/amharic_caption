@@ -197,11 +197,40 @@ PYEOF
     ;;
 esac
 
+# ---- 2c. licences + third-party notices ------------------------------------
+# Mandatory, not cosmetic: the bundled ffmpeg is a GPL build, and the GPL
+# requires the licence text and a written offer for corresponding source to
+# accompany the binary. Shipped at the zip ROOT so a customer (or an auditor)
+# sees it without opening the extension folder.
+LICSRC="${ROOT}/tools/licenses"
+LICDST="${BUILD_DIR}/licenses"
+mkdir -p "$LICDST"
+cp "$LICSRC/COPYING.GPLv2.txt" "$LICSRC/COPYING.GPLv3.txt" \
+   "$LICSRC/COPYING.LGPLv2.1.txt" "$LICSRC/WRITTEN-OFFER.txt" "$LICDST/"
+# Generated from the artefacts actually staged above, so the notice can never
+# describe a different ffmpeg than the one in the zip. Hard-fails on a nonfree
+# binary even if prepare_python.sh was skipped.
+python3 "$LICSRC/gen_notices.py" \
+  --ffmpeg "$RT/bin/$FFSUFFIX" \
+  --runtime "$RT" \
+  --target "$TARGET" \
+  --out "$LICDST/THIRD-PARTY-NOTICES.md" || exit 1
+echo "  [ok] licenses/ (GPL text + written offer + third-party notices)"
+
+# ---- 2d. EULA + privacy + refund (consumer-facing) -----------------------
+# Plain-text version of the legal page (website/app/legal). Shipped at the zip
+# ROOT next to licenses/ so every customer sees them when they unzip.
+LEGALSRC="${ROOT}/tools/legal"
+for f in EULA.txt PRIVACY.txt REFUND.txt; do
+  if [[ -f "$LEGALSRC/$f" ]]; then cp "$LEGALSRC/$f" "${BUILD_DIR}/$f"; fi
+done
+echo "  [ok] legal/ (EULA + privacy + refund)"
+
 # ---- 3. zip it ------------------------------------------------------------
 ZIP="${DIST}/amharic-captions-${TARGET}.zip"
 rm -f "$ZIP"
 (
   cd "$BUILD_DIR"
-  zip -r -q "$ZIP" "$NAME" Install.* verify_win.cmd VERIFY.md -x "*.DS_Store"
+  zip -r -q "$ZIP" "$NAME" licenses Install.* verify_win.cmd VERIFY.md EULA.txt PRIVACY.txt REFUND.txt -x "*.DS_Store"
 )
 echo "== wrote $ZIP ($(du -sh "$ZIP" | cut -f1)) =="
