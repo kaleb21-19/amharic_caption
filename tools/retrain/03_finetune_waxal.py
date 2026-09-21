@@ -228,20 +228,38 @@ def mix_musan(audio, musan_dir, snr_range=(-2, 8)):
 
 
 class Trainer:
-    def __init__(self, model, device, blank_id=0):
+    def __init__(self, model, device, blank_id=0, amp=False):
         self.model = model.to(device)
         self.device = device
-        # CTC loss is not implemented on the MPS backend; run it on CPU tensors
-        # so the gradient still flows (logits become requires_grad from MPS).
-        self.loss_device = "cpu" if device in ("mps", "cuda") else device
+        # CTC has no MPS kernel, so only MPS needs the CPU detour. CUDA has a
+        # native one — routing CUDA through the CPU as well shipped the whole
+        # (T, N, C) log-prob tensor off the GPU and pulled the gradient back
+        # every single step, which is pure overhead on the box this is meant
+        # to run on.
+        self.loss_device = "cpu" if device == "mps" else device
         self.blank_id = blank_id
+        # fp16 (not bf16): the free Kaggle GPU is a T4, which is Turing and has
+        # no usable bf16. fp16 therefore needs a GradScaler.
+        self.amp = bool(amp) and device == "cuda"
+        if amp and not self.amp:
+            print(f"[warn] --amp ignored: mixed precision is CUDA-only and "
+                  f"this run is on {device}. Training in fp32.", file=sys.stderr)
+        # torch.cuda.amp.GradScaler is deprecated (FutureWarning on 2.13).
+        self.scaler = torch.amp.GradScaler("cuda") if self.amp else None
 
     def step(self, batch, optimizer, lr_sched=None):
         b = {k: v.to(self.device) if v is not None else None
              for k, v in batch.items()}
-        out = self.model(input_features=b["input_features"],
-                         attention_mask=b["attention_mask"])
-        logits = out.logits  # (N, T, C)
+        if self.amp:
+            with torch.autocast("cuda", dtype=torch.float16):
+                out = self.model(input_features=b["input_features"],
+                                 attention_mask=b["attention_mask"])
+        else:
+            out = self.model(input_features=b["input_features"],
+                             attention_mask=b["attention_mask"])
+        # CTC in fp32 regardless — log_softmax over 411 classes in fp16
+        # underflows and the loss goes to nan a few hundred steps in.
+        logits = out.logits.float()  # (N, T, C)
         N, T, C = logits.shape
         import torch.nn.functional as F
         # torch 2.13 ctc_loss requires (T, N, C); MPS has no ctc_loss so compute
@@ -263,9 +281,16 @@ class Trainer:
         loss = F.ctc_loss(log_probs, labels_flat, inp_len, tgt_len,
                           blank=self.blank_id, zero_infinity=True) if N else \
             torch.tensor(0.0, requires_grad=True)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
-        optimizer.step()
+        if self.scaler is not None:
+            self.scaler.scale(loss).backward()
+            self.scaler.unscale_(optimizer)       # unscale before clipping
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+            self.scaler.step(optimizer)
+            self.scaler.update()
+        else:
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+            optimizer.step()
         optimizer.zero_grad()
         if lr_sched:
             lr_sched.step()
@@ -305,7 +330,19 @@ def main():
     ap.add_argument("--max-secs", type=float, default=30.0,
                     help="drop manifest rows longer than this (default 30s)")
     ap.add_argument("--freeze-encoder", action="store_true",
-                    help="keep trunk/folds frozen, train only the CTC head")
+                    help="keep trunk/folds frozen, train only the CTC head. "
+                         "NOTE: cannot learn acoustic robustness — the head is "
+                         "one linear layer. Pointless to combine with audio "
+                         "augmentation; prefer --unfreeze-top-n.")
+    ap.add_argument("--unfreeze-top-n", type=int, default=0,
+                    help="train the top N encoder layers plus the CTC head. "
+                         "8 is a good fit for a 16 GB T4 with --amp and "
+                         "--grad-checkpointing.")
+    ap.add_argument("--amp", action="store_true",
+                    help="fp16 mixed precision on CUDA (CTC stays fp32)")
+    ap.add_argument("--grad-checkpointing", action="store_true",
+                    help="trade compute for memory in the encoder; needed to "
+                         "fit meaningful batch sizes on a 16 GB GPU")
     ap.add_argument("--grad-accum", type=int, default=1)
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
@@ -347,11 +384,42 @@ def main():
                   f"inflate the WER gate.")
 
     processor = Wav2Vec2Processor.from_pretrained(args.src)
-    model = Wav2Vec2BertForCTC.from_pretrained(args.src)
+    # Always train in fp32 weights, whatever dtype the source checkpoint is in.
+    # tools/stage/model-fp16 is fp16 on disk, and backward through fp16 weights
+    # is both wrong (the optimizer needs fp32 master weights; fp16 updates
+    # underflow) and an immediate hard crash on MPS:
+    #   "Destination NDArray and Accumulator NDArray cannot have different
+    #    datatype in MPSNDArrayMatrixMultiplication"
+    # Mixed precision is --amp, which keeps fp32 weights and casts only the
+    # forward activations. That is a different thing from fp16 weights.
+    model = Wav2Vec2BertForCTC.from_pretrained(args.src, torch_dtype=torch.float32)
+    if args.freeze_encoder and args.unfreeze_top_n:
+        raise SystemExit("[fail] --freeze-encoder and --unfreeze-top-n are "
+                         "mutually exclusive")
     if args.freeze_encoder:
         for p in model.wav2vec2_bert.parameters():
             p.requires_grad = False
         print("[info] encoder frozen, training CTC head only")
+        if args.reverb_prob or args.narrowband_prob or args.musan:
+            # This combination silently wastes the run, so say so loudly.
+            print("[warn] audio augmentation is ON but the encoder is FROZEN. "
+                  "Only the CTC head (a single 1024->vocab linear) can learn, "
+                  "and acoustic robustness to reverb/noise/bandwidth lives in "
+                  "the encoder. Augmenting here mostly adds label noise. Use "
+                  "--unfreeze-top-n (see TESTING.md 1.2h).", file=sys.stderr)
+    elif args.unfreeze_top_n:
+        # Middle path between "head only" (can't learn acoustics at all) and a
+        # full 580M-param fine-tune (won't fit a free T4). The upper encoder
+        # layers are where task-specific acoustic adaptation mostly happens.
+        for p in model.wav2vec2_bert.parameters():
+            p.requires_grad = False
+        layers = model.wav2vec2_bert.encoder.layers
+        n = min(args.unfreeze_top_n, len(layers))
+        for layer in layers[-n:]:
+            for p in layer.parameters():
+                p.requires_grad = True
+        print(f"[info] encoder: top {n}/{len(layers)} layers trainable "
+              f"(+ CTC head)")
 
     ds = WaxalDataset(args.manifest, processor, musan=args.musan,
                       reverb_prob=args.reverb_prob,
@@ -364,9 +432,24 @@ def main():
         ds, batch_size=args.batch_size, shuffle=True,
         collate_fn=Collator(processor), num_workers=2, persistent_workers=False)
 
-    trainer = Trainer(model, device, blank_id=processor.tokenizer.pad_token_id)
+    if args.grad_checkpointing:
+        # use_reentrant=False is NOT optional here. With the lower encoder
+        # frozen, the input to a checkpointed top-N layer has
+        # requires_grad=False, and the reentrant autograd.Function then
+        # computes no gradient for that layer's own parameters -- the run
+        # completes, reports a falling loss, and has silently trained only the
+        # CTC head. transformers>=5 defaults to False, but 4.x (what a Kaggle
+        # image is likely to have) defaults to True, so pass it explicitly
+        # rather than inheriting whichever default the box happens to ship.
+        model.gradient_checkpointing_enable(
+            gradient_checkpointing_kwargs={"use_reentrant": False})
+        print("[info] gradient checkpointing on (use_reentrant=False)")
+    trainer = Trainer(model, device, blank_id=processor.tokenizer.pad_token_id,
+                      amp=args.amp)
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"[info] trainable params: {n_params / 1e6:.1f}M")
+    total = sum(p.numel() for p in model.parameters())
+    print(f"[info] trainable params: {n_params / 1e6:.1f}M "
+          f"of {total / 1e6:.1f}M ({100 * n_params / total:.1f}%)")
     total_steps = args.epochs * (len(ds) // (args.batch_size * args.grad_accum) + 1)
     if args.max_steps:
         total_steps = args.max_steps
