@@ -350,3 +350,23 @@ jobs:
             --title "Amharic Captions v${VER}" \
             --notes "Amharic Captions v${VER} — self-contained builds for Windows 10/11, macOS (Apple Silicon), and macOS (Intel). Download the zip for your platform and install into Adobe CEP extensions. See the install guide: https://amharic-caption-pro.vercel.app/install/" \
             || { echo "release create failed"; exit 1; }
+
+      # Mirror the same three zips to the PUBLIC downloads-only repo
+      # (kaleb21-19/amharic-captions-downloads) so customers can download
+      # anonymously. The main repo is private, so its release assets 404 for
+      # anyone not signed in (GitHub only serves private assets to authed API
+      # clients); website/lib/site.js points at THIS repo instead. Tag is
+      # "v{VER}" (proper semver) so GitHub's releases/latest always resolves.
+      - name: Publish zips to public downloads repo
+        env:
+          GH_TOKEN: ${{ secrets.PUBLISH_PAT }}
+        run: |
+          set -euo pipefail
+          VER="$(grep -o 'ExtensionBundleVersion="[^"]*"' panel/CSXS/manifest.xml | head -1 | sed 's/[^"]*"//;s/"//')"
+          TAG="v${VER}"
+          gh release delete "$TAG" --repo kaleb21-19/amharic-captions-downloads --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" --repo kaleb21-19/amharic-captions-downloads \
+            --title "Amharic Captions v${VER}" \
+            --notes "Amharic Captions v${VER} — self-contained builds for Windows 10/11, macOS (Apple Silicon), and macOS (Intel). Download the zip for your platform and install into Adobe CEP extensions. Install guide: https://amharic-caption-pro.vercel.app/install/" \
+            zips/*.zip zips/CHECKSUMS.txt \
+            || { echo "public release create failed"; exit 1; }

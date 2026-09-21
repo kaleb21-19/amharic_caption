@@ -21,16 +21,18 @@ export const ACCOUNTS = [
 ];
 export const ACCOUNTS_LABEL = "CBE 1000504159977 · Abyssinia 402393939 · Zemen 1031111343277015";
 
-// Download links. Pointed at "releases/latest/download/..." so they always
-// resolve to the newest release that carries the zip (GitHub redirects the
-// latest tag to the current head of main's build).
-export const RELEASES_URL = "https://github.com/kaleb21-19/amharic_caption/releases/latest";
+// Download links. Pointed at the PUBLIC downloads-only repo
+// (kaleb21-19/amharic-captions-downloads), which mirrors every build's zips
+// so anyone can download without a GitHub account. The main repo is private,
+// so its release assets 404 anonymously. "releases/latest/download/..." keeps
+// resolving to the newest published release.
+export const RELEASES_URL = "https://github.com/kaleb21-19/amharic-captions-downloads/releases/latest";
 export const DL_WIN =
-  "https://github.com/kaleb21-19/amharic_caption/releases/latest/download/amharic-captions-win-x64.zip";
+  "https://github.com/kaleb21-19/amharic-captions-downloads/releases/latest/download/amharic-captions-win-x64.zip";
 export const DL_MAC_ARM =
-  "https://github.com/kaleb21-19/amharic_caption/releases/latest/download/amharic-captions-mac-arm64.zip";
+  "https://github.com/kaleb21-19/amharic-captions-downloads/releases/latest/download/amharic-captions-mac-arm64.zip";
 // Intel Macs: same latest-tag mechanism — the x64 build runs on the arm64
 // macOS runner (AMH_TARGET=mac-x64) and publishes with the others, so this
 // link always resolves.
 export const DL_MAC_X64 =
-  "https://github.com/kaleb21-19/amharic_caption/releases/latest/download/amharic-captions-mac-x64.zip";
+  "https://github.com/kaleb21-19/amharic-captions-downloads/releases/latest/download/amharic-captions-mac-x64.zip";
