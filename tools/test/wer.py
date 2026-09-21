@@ -18,7 +18,12 @@ Two Amharic-specific evaluations are folded in (see tools/retrain/IMPROVEMENTS.m
     fraction of a CER error.
 """
 import argparse
+import os
 import re
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(HERE))
 
 # Modern-Amharic homophone letter classes, mapped order-by-order to the
 # surviving letter (ኀ merged into ሐ then ሀ; ሠ→ሰ; ፀ→ጸ; the ʿayn series ዐ-ዕ
@@ -104,6 +109,81 @@ def cer(ref: list, hyp: list) -> float:
     return (d / len(s_ref)) if s_ref else (0.0 if not s_hyp else 1.0)
 
 
+# ---- Option A: Amharic-aware "word-grid" scoring ------------------------------
+# Plain WER matches the reference and hypothesis as space-delimited runs, so an
+# agglutinative boundary disagreement ("ነውአሉ" vs "ነው አሉ") costs a full error
+# even when the words are identical. The word grid re-segments BOTH sides with
+# the product's own glued-word splitter (amh_lm.AmharicLM.split_word) along a
+# real-corpus word list, so both spellings of the same utterance collapse to
+# the same token stream and the boundary confound drops out of WER. Genuine
+# misses still count: only confident splits are applied (every part a real
+# corpus word with count >= min_part_count, min_margin nats of evidence; known
+# tokens and non-Ethiopic tokens are never touched), so correct tokens survive.
+#
+# `--approx-vowel` (EXPERIMENT, never a default) additionally collapses the
+# order-0 ("schwa") vs order-3 ("a") glyph of each letter family, e.g. ተ/ታ and
+# ከ/ካ — the "vowel-length" spelling alternation behind ተዓምር/ታዕምር. These are
+# partly contrastive in careful Amharic, so the flag is only a measurement of
+# how much of today's WER is spelling-only; it must stay off in the gate.
+
+# Order-0 ↔ order-3 of every main consonant family (families are consecutive
+# 7-glyph Unicode runs: order1..6 follow the base glyph) — the schwa/"a"
+# alternation (ተ↔ታ, ከ↔ካ, ሰ↔ሳ, ...) behind spelling variants like ተዓምር/ታዕምር.
+# PLUS the glottal families' orders {0,3,5} collapse (አ↔ኣ↔እ, ሀ↔ሃ↔ህ): the
+# homophone table maps ዓ/ዕ into ኣ/እ rather than a single glyph, so joining the
+# three vowel-order spellings is what finally treats ተዓምር and ታዕምር as equal.
+_AMH_VOWEL_APPROX = {}
+# glottal three-ways: 0↔3↔5 all collapse to base order 0
+for base in (0x1200, 0x12A0):            # ሀ-family, አ-family
+    for order in (base, base + 3, base + 5):
+        _AMH_VOWEL_APPROX[order] = base
+# consonant two-ways: both order 0 and order 3 collapse to order 0
+for base in (ord(c) for c in
+             "ለሐመሠረሰሸቀቐበቨተቸኀነከኸወዐዘዠየደዸጀገጠጨጰጸፀፈፐ"):
+    _AMH_VOWEL_APPROX[base] = base
+    _AMH_VOWEL_APPROX[base + 3] = base
+_AMH_VOWEL_APPROX = str.maketrans(_AMH_VOWEL_APPROX)
+
+
+def _load_lm(path=None):
+    """Return the bundled AmharicLM (tools/lm/amh_lm.json.gz, else the runtime's
+    amh_lm module default), or None if neither loads (grid mode then degrades
+    to plain word scoring with a warning)."""
+    for cand in ([path] if path else [
+            os.path.join(HERE, "..", "lm", "amh_lm.json.gz")]):
+        cand = os.path.abspath(cand)
+        if not os.path.isfile(cand):
+            continue
+        try:
+            sys.path.insert(0, ROOT)   # repo amh_lm.py (paired with the json)
+            from amh_lm import AmharicLM
+        except ImportError:
+            break
+        try:
+            return AmharicLM(lm_path=cand)
+        except Exception:
+            return None
+    try:
+        from amh_lm import get_default_lm
+        return get_default_lm()
+    except Exception:
+        return None
+
+
+def grid_tokens(tokens: list, lm, approx_vowel: bool = False) -> list:
+    """Re-segment normalized tokens along the word-LM's grid, then (optionally,
+    EXPERIMENT) collapse the vowel-length spelling alternation."""
+    out = []
+    for tok in tokens:
+        try:
+            out.extend(lm.split_word(tok))
+        except Exception:
+            out.append(tok)
+    if approx_vowel:
+        out = [t.translate(_AMH_VOWEL_APPROX) for t in out]
+    return out
+
+
 def cer_nospace(ref: list, hyp: list) -> float:
     """CER with ALL word breaks removed from both sides first.
 
@@ -132,7 +212,20 @@ def main():
     ap.add_argument("--hyp-is-text", action="store_true")
     ap.add_argument("--max-wer", type=float, default=0.40,
                     help="hard gate; exits 1 above this WER (default 0.40)")
+    ap.add_argument("--grid", action="store_true",
+                    help="Option A: re-segment both sides along the bundled "
+                         "word-LM grid before matching, so agglutinative "
+                         "boundary disagreements stop costing WER errors")
+    ap.add_argument("--approx-vowel", action="store_true",
+                    help="EXPERIMENT (never a gate default): additionally "
+                         "collapse the schwa/a vowel-length spelling "
+                         "alternation (ተ/ታ, ከ/ካ, ...) to measure spelling-only "
+                         "WER; implies --grid")
+    ap.add_argument("--dict", default=None,
+                    help="path to amh_lm.json.gz word-LM (default: repo "
+                         "tools/lm/ or the runtime's amh_lm)")
     args = ap.parse_args()
+    args.grid = args.grid or args.approx_vowel
 
     with open(args.truth, encoding="utf-8") as f:
         ref = normalize(f.read())
@@ -143,6 +236,19 @@ def main():
         hyp_src = read_srt_text(args.hyp)
     hyp = normalize(hyp_src)
 
+    if args.grid:
+        lm = _load_lm(args.dict)
+        if lm is None:
+            print("  [warn] word-LM not found; grid mode falls back to plain "
+                  "word scoring")
+        ref_g = grid_tokens(ref, lm, args.approx_vowel) if lm else ref
+        hyp_g = grid_tokens(hyp, lm, args.approx_vowel) if lm else hyp
+    else:
+        ref_g = ref
+        hyp_g = hyp
+
+    # The blank clip rule (empty gold must yield empty hypothesis) is decided on
+    # the RAW stream too, so a split that produces tokens is still a regression.
     if not ref:
         # Blank gold: the clip is expected to be silence. Only an equally empty
         # hypothesis passes; any generated tokens are a regression.
@@ -153,17 +259,30 @@ def main():
         print("  -> FAIL: blank audio produced text")
         raise SystemExit(1)
 
+    # Score in BOTH worlds: the committed raw metrics (what the shipped gate
+    # uses today) and, when --grid, the Option-A grid view side by side.
     rate = wer(ref, hyp)
     c_rate = cer(ref, hyp)
     cn_rate = cer_nospace(ref, hyp)
-    gate = max(0.0, args.max_wer)
     print(f"ref tokens: {len(ref)}  hyp tokens: {len(hyp)}  "
           f"WER: {rate*100:.1f}%  CER: {c_rate*100:.1f}%  "
           f"CER-nospace: {cn_rate*100:.1f}%")
-    if rate > gate:
-        print(f"  -> FAIL: WER above gate ({rate*100:.1f}% > {gate*100:.0f}%)")
+    gate = max(0.0, args.max_wer)
+    chosen = rate
+    if args.grid and lm is not None:
+        g_rate = wer(ref_g, hyp_g)
+        g_c_rate = cer(ref_g, hyp_g)
+        g_cn_rate = cer_nospace(ref_g, hyp_g)
+        print(f"grid tokens: {len(ref_g)}  hyp tokens: {len(hyp_g)}  "
+              f"WER: {g_rate*100:.1f}%  CER: {g_c_rate*100:.1f}%  "
+              f"CER-nospace: {g_cn_rate*100:.1f}%"
+              + ("  [approx-vowel]" if args.approx_vowel else ""))
+        chosen = g_rate
+    if chosen > gate:
+        print(f"  -> FAIL: {'grid ' if args.grid else ''}WER above gate "
+              f"({chosen*100:.1f}% > {gate*100:.0f}%)")
         raise SystemExit(1)
-    print("  -> PASS" if rate <= 0.15 else "  -> WARNING")
+    print("  -> PASS" if chosen <= 0.15 else "  -> WARNING")
     raise SystemExit(0)
 
 

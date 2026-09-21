@@ -143,10 +143,29 @@ def main():
                          "transcribing, to measure whether it earns its place")
     ap.add_argument("--taps", type=int, default=40)
     ap.add_argument("--delay", type=int, default=2)
+    ap.add_argument("--grid", action="store_true",
+                    help="score with the Amharic-aware word-grid tokenizer "
+                         "(wer.py --grid): agglutinative boundary disagreements "
+                         "stop costing WER errors")
+    ap.add_argument("--approx-vowel", action="store_true",
+                    help="EXPERIMENT (not a gate default): also collapse the "
+                         "schwa/a vowel-length spelling alternation; implies "
+                         "--grid")
     args = ap.parse_args()
 
     import ethio_srt as E
     from wer import normalize, wer, cer, cer_nospace
+    if args.grid or args.approx_vowel:
+        from wer import grid_tokens, _load_lm
+        args.grid = True
+        _lm = _load_lm()
+        if _lm is None:
+            print("[warn] word-LM not found; grid mode falls back to plain "
+                  "word scoring")
+        tokenize = (lambda toks: grid_tokens(toks, _lm, args.approx_vowel)
+                    if _lm else toks)
+    else:
+        tokenize = (lambda toks: toks)
 
     pre = (lambda a: a)
     if args.dereverb:
@@ -175,7 +194,10 @@ def main():
     print(f"[info] {len(pairs)} verified clips x 5 conditions "
           f"(music/noise mixed at {args.snr:g} dB SNR, seed {args.seed})"
           + (f" [DEREVERB taps={args.taps} delay={args.delay}]"
-             if args.dereverb else ""))
+             if args.dereverb else "")
+          + ("  scorer: Amharic word-grid"
+             + (" + vowel-length approx [EXPERIMENT]" if args.approx_vowel
+                else "") if args.grid else ""))
     engine = E.load_pipeline()
 
     order = ["clean", "music", "noise", "phone", "reverb", "twospeaker"]
@@ -186,7 +208,7 @@ def main():
         text, spans, fdur = engine.transcribe(audio)
         cues = E.make_cues("grouped", 3, spans, fdur, text, engine.glyphs, max_chars=42)
         hyp = " ".join(c[0] for c in cues)
-        r, h = normalize(truth), normalize(hyp)
+        r, h = tokenize(normalize(truth)), tokenize(normalize(hyp))
         a = acc[cond]
         a["wer"] += wer(r, h); a["cer"] += cer(r, h); a["nos"] += cer_nospace(r, h)
         a["n"] += 1

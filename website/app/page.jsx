@@ -95,6 +95,55 @@ export default function HomePage() {
         </div>
       </section>
 
+      <section className="audio-tips section" id="audio-tips">
+        <div className="container">
+          <Reveal>
+            <p className="eyebrow">Best results</p>
+            <h2>Get the best transcription quality.</h2>
+            <p className="section-sub">
+              Clear speech gives the best results. Here&apos;s what works well and what to avoid.
+            </p>
+          </Reveal>
+          <div className="tips-grid">
+            <Reveal><div className="tip-card tip-good">
+              <span className="tip-icon" aria-hidden="true">✓</span>
+              <h3>Works great</h3>
+              <ul>
+                <li><strong>Clear speech</strong> — studio recordings, news-style delivery</li>
+                <li><strong>Quiet background</strong> — minimal noise or music</li>
+                <li><strong>Close microphone</strong> — lapel or desk mic</li>
+                <li><strong>Indoor spaces</strong> — small rooms with soft furnishings</li>
+              </ul>
+            </div></Reveal>
+            <Reveal delay={90}><div className="tip-card tip-caution">
+              <span className="tip-icon" aria-hidden="true">⚠</span>
+              <h3>May need editing</h3>
+              <ul>
+                <li><strong>Outdoor footage</strong> — wind, traffic, crowd noise</li>
+                <li><strong>Phone recordings</strong> — bandwidth-limited audio</li>
+                <li><strong>Multiple speakers</strong> — overlapping dialogue</li>
+              </ul>
+            </div></Reveal>
+            <Reveal delay={180}><div className="tip-card tip-avoid">
+              <span className="tip-icon" aria-hidden="true">✗</span>
+              <h3>Avoid when possible</h3>
+              <ul>
+                <li><strong>Music beds under speech</strong> — mute or remove before transcribing</li>
+                <li><strong>Large halls / churches</strong> — strong reverb degrades accuracy</li>
+                <li><strong>Low-quality mics</strong> — use your best available audio</li>
+              </ul>
+            </div></Reveal>
+          </div>
+          <Reveal delay={240}><div className="tip-box">
+            <p>
+              <strong>Pro tip:</strong> If your footage has background music, mute the music track 
+              in Premiere before transcribing, then unmute it after. Captions sync to the original 
+              timeline — your music stays in the final cut.
+            </p>
+          </div></Reveal>
+        </div>
+      </section>
+
       <section className="pricing-home section">
         <div className="container">
           <Reveal>

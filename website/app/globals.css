@@ -494,3 +494,26 @@ a { color: var(--brand); }
   .safe-grid { grid-template-columns: 1fr; }
   .safe-card { padding: 22px; }
 }
+
+/* ── Audio tips section ───────────────────────────────────────── */
+.audio-tips { background: var(--bg-soft); }
+.tips-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; margin-top: 40px; }
+.tip-card { background: var(--bg-card); border: 1px solid var(--line); border-radius: var(--radius); padding: 28px; box-shadow: var(--shadow-sm); }
+.tip-card h3 { margin: 12px 0 16px; font-size: 1.1rem; }
+.tip-card ul { list-style: none; margin: 0; padding: 0; }
+.tip-card li { margin-bottom: 12px; padding-left: 0; color: var(--muted); line-height: 1.5; }
+.tip-card li:last-child { margin-bottom: 0; }
+.tip-card li strong { color: var(--ink); }
+.tip-icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 10px; font-size: 1.5rem; font-weight: 800; }
+.tip-good .tip-icon { background: rgba(52,192,125,0.15); color: var(--brand); }
+.tip-good { border-color: rgba(52,192,125,0.25); }
+.tip-caution .tip-icon { background: rgba(255,193,7,0.15); color: #ffc107; }
+.tip-caution { border-color: rgba(255,193,7,0.25); }
+.tip-avoid .tip-icon { background: rgba(239,83,80,0.15); color: #ef5350; }
+.tip-avoid { border-color: rgba(239,83,80,0.25); }
+.tip-box { margin-top: 32px; max-width: 700px; margin-left: auto; margin-right: auto; background: var(--bg-card); border: 1px solid var(--brand-100); border-radius: var(--radius); padding: 24px; text-align: center; }
+.tip-box p { margin: 0; color: var(--muted); }
+.tip-box strong { color: var(--brand); }
+@media (max-width: 760px) {
+  .tips-grid { grid-template-columns: 1fr; }
+}

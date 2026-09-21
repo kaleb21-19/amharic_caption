@@ -14,6 +14,7 @@ const faqs = [
   { q: "How does the license work?", a: "One license per machine, hardware-locked to your computer. A free 2-caption trial lets you test before buying." },
   { q: "How do I pay and get my key?", a: `Order through our Telegram bot (@AmharicCaptionsBot), pay ${PRICE}, and the bot delivers your key locked to your machine.` },
   { q: "Can I try it before paying?", a: "Yes — every new machine gets 2 free captions to try on your own Premiere, no card required." },
+  { q: "What audio gives the best results?", a: "Clear speech works best: studio recordings, close microphones, quiet backgrounds. Music under speech degrades accuracy — mute music tracks before transcribing, then unmute after. Large halls with echo and phone-quality audio may need more editing." },
   { q: "What if Premiere doesn't show the panel?", a: "Third-party extensions need the CEP debug mode enabled for your Premiere version. Message us on Telegram and we'll walk you through it." },
   { q: "Do I need a separate license for each computer?", a: "Yes. The key is hardware-locked to a single machine to prevent sharing." },
 ];
