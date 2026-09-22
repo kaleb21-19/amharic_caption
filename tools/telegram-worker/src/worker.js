@@ -110,6 +110,13 @@ function pemToDer(pem) {
 // Since generateKey must be sync in places but WebCrypto is async, we cache.
 // For simplicity we compute keys lazily with an await in approve (async anyway).
 let SECRET = '';
+// Previous HMAC secret, accepted at VALIDATION only — never used to mint.
+// Without it, one `wrangler secret put AMH_SECRET` silently invalidates every
+// key ever issued: the signature check runs before the database lookup, so
+// every existing customer gets "Key not recognized" with nothing in the logs
+// tying it to the rotation. Set AMH_SECRET_PREV to the old value when
+// rotating, leave it for a release or two, then clear it.
+let SECRET_PREV = '';
 let TOKEN = '';
 let ADMIN_ID = ''; // may be comma-separated (multi-admin)
 let GROUP_ID = '';
@@ -141,6 +148,7 @@ function initEnv(env) {
   ACCT_NAME = env.AMH_ACCT_NAME || ACCT_NAME;
   PAY_ACCOUNTS = env.AMH_PAY_ACCOUNTS || PAY_ACCOUNTS;
   SECRET = env.AMH_SECRET || '';
+  SECRET_PREV = env.AMH_SECRET_PREV || '';
   WEBHOOK_SECRET = env.AMH_WEBHOOK_SECRET || '';
   API_KEY = env.AMH_API_KEY || '';
   SIGN_KEY = env.AMH_LICENSE_SIGNING_KEY || '';
@@ -1360,9 +1368,22 @@ export default {
             return json({ error: 'server not configured' }, 500);
           }
           const expected = await hmacHex(SECRET, `${kmid}|${kexp}`);
+          let sigOk = safeEqual(expected.slice(0, 16), ksig);
+          // Rotation grace: a key minted under the previous secret is still
+          // honoured. Checked ONLY after the current secret fails, and never
+          // used for minting, so rotating still takes effect for new keys.
+          if (!sigOk && SECRET_PREV) {
+            const prev = await hmacHex(SECRET_PREV, `${kmid}|${kexp}`);
+            sigOk = safeEqual(prev.slice(0, 16), ksig);
+            if (sigOk) {
+              // Tells you whether the old secret is still load-bearing, i.e.
+              // whether it is safe to clear AMH_SECRET_PREV yet.
+              log('warn', 'key_validated_with_previous_secret', { mid: String(mid) });
+            }
+          }
           if (kmid !== String(mid).toLowerCase()) {
             out = { valid: false, reason: 'machine_mismatch' };
-          } else if (!safeEqual(expected.slice(0, 16), ksig)) {
+          } else if (!sigOk) {
             out = { valid: false, reason: 'bad_signature', retry: true };
           } else {
             // Signature is authentic → fall through to the authoritative DB row

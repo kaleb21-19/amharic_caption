@@ -78,6 +78,35 @@ node scripts/auto_webhook.mjs
 > Keep `AMH_WEBHOOK_SECRET` in sync between the Worker secret and the bot.env
 > value used by `auto_webhook.mjs`.
 >
+
+### ⚠️ Rotating `AMH_SECRET` — read before you do it
+
+Every license key is an HMAC of `machineid|expiry` under `AMH_SECRET`, and
+`/api/validate` checks that signature **before** it looks the key up in the
+database. So replacing `AMH_SECRET` invalidates **every key ever issued, for
+every customer, instantly** — they all see *"Key not recognized"* and nothing
+in the logs connects it to the rotation.
+
+`AMH_SECRET_PREV` exists to make that survivable. Validation accepts the
+current secret **or** the previous one; minting always uses the current one.
+
+```bash
+# 1. keep the outgoing value first — old keys keep working
+npx wrangler secret put AMH_SECRET_PREV     # paste the CURRENT secret
+# 2. then rotate
+npx wrangler secret put AMH_SECRET          # paste the NEW secret
+# 3. later, once nobody is still on an old key, drop the fallback
+npx wrangler secret delete AMH_SECRET_PREV
+```
+
+Before step 3, check whether the old secret is still load-bearing: every key
+accepted under it logs `key_validated_with_previous_secret` with the machine
+id. No such entries for a full re-activation cycle means it is safe to clear.
+
+Covered by `test/e2e.mjs` (“AMH_SECRET rotation”), which asserts that without
+`AMH_SECRET_PREV` a pre-rotation key is rejected, that with it the same key
+validates, and that a key signed with neither secret is still refused.
+
 > **Webhook secret is now mandatory**: the Worker refuses every update (HTTP
 > 500, surfaced as a Telegram webhook error) when `AMH_WEBHOOK_SECRET` is
 > unset. Do not deploy without it.

@@ -181,9 +181,12 @@ const api = async (env, path, { method = 'GET', body, headers = {} } = {}) => {
   });
   return worker.fetch(req, env);
 };
-function keyFor(mid, expiry = '00000000') {
-  const sig = createHmac('sha256', Buffer.from(SECRET, 'utf8')).update(`${mid}|${expiry}`).digest('hex').slice(0, 16);
+function keyForWith(secret, mid, expiry = '00000000') {
+  const sig = createHmac('sha256', Buffer.from(secret, 'utf8')).update(`${mid}|${expiry}`).digest('hex').slice(0, 16);
   return 'AMH-' + (mid + expiry + sig).match(/.{1,4}/g).join('-');
+}
+function keyFor(mid, expiry = '00000000') {
+  return keyForWith(SECRET, mid, expiry);
 }
 const rows = (env, sql, ...a) => env.DB.prepare(sql).bind(...a).all().results;
 const row = (env, sql, ...a) => env.DB.prepare(sql).bind(...a).first();
@@ -289,6 +292,64 @@ console.log('\n:: scenario 1 — happy path, full sale, DM only');
   j = await r.json();
   assert.equal(j.valid, false);
   ok('/api/validate accepts real key, rejects forged');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: scenario 1b — rotating AMH_SECRET must not kill existing keys');
+
+{
+  // Rotating the HMAC secret used to invalidate EVERY key ever issued: the
+  // signature check runs before the database lookup, so every customer got
+  // "Key not recognized" and nothing in the logs connected it to the rotation.
+  // AMH_SECRET_PREV keeps old keys working through a rotation window.
+  const OLD = 'old-secret-value-from-before-the-rotation';
+  const NEW = 'brand-new-secret-value';
+  const MID = 'a1b2c3d4';
+
+  const oldKey = keyForWith(OLD, MID);
+  const newKey = keyForWith(NEW, MID);
+
+  // --- without the fallback: rotation breaks the old key (the bug) ---------
+  {
+    const { env } = fresh({ AMH_SECRET: NEW });
+    env.DB.prepare('INSERT INTO customers (machine_id, key, expiry, revoked) VALUES (?,?,?,0)')
+      .bind(MID, oldKey, '00000000').run();
+    const r = await api(env, '/api/validate', { method: 'POST', body: { mid: MID, key: oldKey }, headers: { 'CF-Connecting-IP': '203.0.113.11' } });
+    const j = await r.json();
+    assert.equal(j.valid, false, 'sanity: with no PREV set, a pre-rotation key is rejected');
+    assert.equal(j.reason, 'bad_signature', 'and it is rejected for the signature, not the row');
+  }
+
+  // --- with the fallback: the old key still works -------------------------
+  {
+    const { env } = fresh({ AMH_SECRET: NEW, AMH_SECRET_PREV: OLD });
+    env.DB.prepare('INSERT INTO customers (machine_id, key, expiry, revoked) VALUES (?,?,?,0)')
+      .bind(MID, oldKey, '00000000').run();
+    const r = await api(env, '/api/validate', { method: 'POST', body: { mid: MID, key: oldKey }, headers: { 'CF-Connecting-IP': '203.0.113.12' } });
+    const j = await r.json();
+    assert.equal(j.valid, true, 'a key minted under the PREVIOUS secret still validates');
+  }
+
+  // --- new keys work too, and PREV does not weaken anything ---------------
+  {
+    const { env } = fresh({ AMH_SECRET: NEW, AMH_SECRET_PREV: OLD });
+    env.DB.prepare('INSERT INTO customers (machine_id, key, expiry, revoked) VALUES (?,?,?,0)')
+      .bind(MID, newKey, '00000000').run();
+    let r = await api(env, '/api/validate', { method: 'POST', body: { mid: MID, key: newKey }, headers: { 'CF-Connecting-IP': '203.0.113.13' } });
+    assert.equal((await r.json()).valid, true, 'a key minted under the CURRENT secret validates');
+
+    // A key signed with neither secret is still refused. Uses its own machine
+    // id: /api/validate rate-limits per mid as well as per IP, and reusing MID
+    // here measured the throttle instead of the signature check.
+    const MID2 = 'b2c3d4e5';
+    const forged = keyForWith('a-third-secret-nobody-has', MID2);
+    r = await api(env, '/api/validate', { method: 'POST', body: { mid: MID2, key: forged }, headers: { 'CF-Connecting-IP': '203.0.113.14' } });
+    const j = await r.json();
+    assert.equal(j.valid, false, 'a key signed with an unrelated secret is still forged');
+    assert.equal(j.reason, 'bad_signature', 'and reported as a bad signature');
+  }
+
+  ok('AMH_SECRET rotation: old keys survive via AMH_SECRET_PREV, forgeries still fail');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
