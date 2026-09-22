@@ -55,10 +55,20 @@ export const metadata = {
   description:
     "Amharic captions inside Adobe Premiere Pro — fully on your machine. No uploads, no cloud, no internet needed. One-time ETB 2,500 lifetime license. Free 2-caption trial.",
   openGraph: {
-    title: "Amharic Captions Pro — 100% Offline Amharic Captions for Premiere Pro",
+    title: "Amharic Captions Pro — Amharic subtitles inside Adobe Premiere Pro",
+    description:
+      "Editable Amharic captions straight onto your Premiere timeline. Runs on your computer — no uploads, no internet needed. One-time ETB 2,500.",
     type: "website",
     locale: "en_US",
     url: SITE_URL,
+    // NB: og:image itself comes from app/opengraph-image.jsx (the file
+    // convention wins over anything set here). trailingSlash:true means that
+    // URL 308-redirects once before serving; verified it resolves in one hop
+    // to a 1200x630 PNG, and every major crawler follows redirects.
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Amharic Captions Pro — Amharic subtitles inside Adobe Premiere Pro",
   },
   alternates: {
     canonical: "/",

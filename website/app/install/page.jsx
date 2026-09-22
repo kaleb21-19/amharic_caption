@@ -42,7 +42,7 @@ export default function InstallPage() {
           <div className="req-row">
             <span className="req"><b>Premiere Pro 2024+</b> (v24 or newer)</span>
             <span className="req"><b>Windows 10/11</b> or <b>macOS</b></span>
-            <span className="req"><b>~1.5 GB</b> free disk space</span>
+            <span className="req"><b>~2 GB</b> free disk space</span>
           </div>
         </div>
       </section>
