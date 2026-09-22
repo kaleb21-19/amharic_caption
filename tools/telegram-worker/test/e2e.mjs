@@ -435,6 +435,51 @@ console.log('\n:: scenario 1d — admin history is browsable and decisions are r
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: scenario 1e — support lookup, and stale flows expire');
+
+{
+  const { env } = fresh();
+  env.DB.prepare("INSERT INTO orders (uid, chat_id, username, machine_id, photo_key, status, expiry, amount_etb, created_at) VALUES (?,?,?,?,?, 'approved', '00000000', 2500, datetime('now'))")
+    .bind('7001', '7001', 'someone', 'c0ffee11', 'PH').run();
+  env.DB.prepare("INSERT INTO customers (machine_id, name, expiry, key, status, uid) VALUES (?,?,?,?, 'sold', ?)")
+    .bind('c0ffee11', '@someone', '00000000', 'AMH-FIND-ME', '7001').run();
+
+  // the actual support request: "my key doesn't work", here is my machine id
+  OUTBOUND.length = 0;
+  await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: '/find c0ffee11' }));
+  const found = OUTBOUND.filter((o) => o.method === 'sendMessage').at(-1);
+  assert.ok(found.body.text.includes('AMH-FIND-ME'), 'lookup shows the key');
+  assert.ok(found.body.text.includes('Licensed'), 'lookup shows licence state');
+  const kb = JSON.stringify(found.body.reply_markup);
+  assert.ok(kb.includes('admin:detail:'), 'lookup links to the order');
+  assert.ok(kb.includes('admin:revoke:'), 'lookup offers revoke directly');
+
+  // unknown machine gets a useful answer, not silence
+  OUTBOUND.length = 0;
+  await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: '/find deadbe11' }));
+  assert.ok(OUTBOUND.filter((o) => o.method === 'sendMessage').at(-1).body.text.includes('Nothing found'),
+    'unknown machine id is reported clearly');
+
+  // buyers must not be able to look each other up
+  OUTBOUND.length = 0;
+  await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { text: '/find c0ffee11' }));
+  assert.ok(!JSON.stringify(OUTBOUND).includes('AMH-FIND-ME'),
+    'a non-admin cannot read someone else\'s key');
+
+  // a purchase flow abandoned long ago must not resurface
+  env.DB.prepare("INSERT INTO fsm (uid, step, mid, hint, updated_at) VALUES (?, 'photo', 'c0ffee11', 1, datetime('now','-40 days'))")
+    .bind('7002').run();
+  const stale = await (async () => {
+    OUTBOUND.length = 0;
+    await post(env, msg(7002, { id: 7002 }, { text: 'hello?' }));
+    return row(env, 'SELECT * FROM fsm WHERE uid=?', '7002');
+  })();
+  assert.ok(!stale, 'a 40-day-old flow is dropped rather than resumed');
+
+  ok('support lookup by Machine ID (admin only); stale purchase flows expire');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 console.log('\n:: scenario 2 — screenshot as document (pdf rejected, image accepted)');
 
 {

@@ -239,6 +239,7 @@ function adminGreeting() {
   return (
     '🛠 <b>Admin</b>\n\n' +
     'Welcome back, boss 👋\n' +
+    '🔍 <code>/find a1b2c3d4</code> — look up any buyer by Machine ID\n' +
     '📥 Open <b>Requests</b> to review the queue (newest first) — approve, decline, or view details on each.\n' +
     '🧾 <b>History</b> shows the last 30 days of activity.'
   );
@@ -300,16 +301,31 @@ async function pruneOld() {
   // window, then drop them (run_set ttl; privacy: do not hold IPs indefinitely).
   const k = await DB.prepare("DELETE FROM key_activations WHERE last_seen < datetime('now', '-30 days')").run();
   const c = await DB.prepare("DELETE FROM ip_counters WHERE updated_at < datetime('now', '-30 days')").run();
+  // Abandoned purchase flows: getFsm ignores them after 24h, this clears the rows.
+  const fs = await DB.prepare("DELETE FROM fsm WHERE updated_at < datetime('now', '-2 days')").run();
   log('info', 'prune_run', {
     orders: o && o.meta ? o.meta.changes : 0,
     funnel: f && f.meta ? f.meta.changes : 0,
     key_activations: k && k.meta ? k.meta.changes : 0,
     ip_counters: c && c.meta ? c.meta.changes : 0,
+    fsm: fs && fs.meta ? fs.meta.changes : 0,
   });
 }
+// An in-progress purchase is only meaningful for a day. Without this, a buyer
+// who tapped "I've paid", sent a Machine ID and then wandered off would come
+// back WEEKS later, send an unrelated photo, and have it booked as payment
+// proof against that ancient flow — or get "I'm waiting for your screenshot"
+// for something they no longer remember starting.
+const FSM_TTL_HOURS = 24;
 async function getFsm(uid) {
-  const r = await DB.prepare('SELECT * FROM fsm WHERE uid = ?').bind(uid).first();
-  return r || null;
+  const r = await DB.prepare(
+    "SELECT * FROM fsm WHERE uid = ? AND updated_at >= datetime('now', ?)")
+    .bind(uid, `-${FSM_TTL_HOURS} hours`).first();
+  if (r) return r;
+  // Self-healing: drop the stale row so the buyer starts clean rather than
+  // sitting in a step the bot no longer honours.
+  await DB.prepare('DELETE FROM fsm WHERE uid = ?').bind(uid).run();
+  return null;
 }
 async function setFsm(uid, s) {
   if (!s) {
@@ -466,6 +482,48 @@ async function handleMessage(msg, env) {
     const urv = text.match(/^\/(?:unrevoke|unban)\s+(\d+)$/i);
     if (urv) {
       await revokeOrder(chatId, urv[1], false);
+      return;
+    }
+
+    // Look a customer up by Machine ID. This is THE support request — someone
+    // messages "my key doesn't work" and gives their 8-character id — and
+    // there was no way to answer it: history is browsable but not searchable,
+    // and /revoke needs an ORDER id nobody has to hand. Paste the machine id
+    // and get the whole picture, with the actions attached.
+    const look = text.match(/^\/(?:find|lookup|who)\s+([0-9a-fA-F]{8})$/);
+    if (look) {
+      const mid = look[1].toLowerCase();
+      const c = await DB.prepare('SELECT * FROM customers WHERE machine_id=?').bind(mid).first();
+      const o = await DB.prepare(
+        'SELECT * FROM orders WHERE machine_id=? ORDER BY id DESC LIMIT 1').bind(mid).first();
+      const t = await DB.prepare('SELECT used, max_free FROM trials WHERE machine_id=?').bind(mid).first();
+      if (!c && !o && !t) {
+        await sendText(chatId,
+          `🔍 Nothing found for <code>${mid}</code>.\n\n` +
+          'They may have typed it wrong, or never opened the panel on this machine.');
+        return;
+      }
+      const lines = [`🔍 <b>Machine</b> <code>${mid}</code>`, ''];
+      if (c) {
+        lines.push(
+          `🔑 <b>Licensed</b>${c.revoked ? ' — <b>REVOKED</b> 🚫' : ' ✅'}`,
+          `Key: <code>${c.key}</code>`,
+          `Expiry: ${c.expiry === '00000000' ? 'perpetual' : c.expiry}`,
+          `Buyer: ${c.name || 'unknown'}`);
+      } else {
+        lines.push('🔑 <b>No license</b> on this machine.');
+      }
+      if (t) lines.push('', `🎁 Trial: ${t.used}/${t.max_free} used`);
+      if (o) lines.push('', `🧾 Last order <b>#${o.id}</b> · ${o.status} · ${shortTs(o.created_at)}`);
+      const kb = [];
+      if (o) kb.push([{ text: `🧾 Open order #${o.id}`, callback_data: `admin:detail:${o.id}` }]);
+      if (c && o) {
+        kb.push([c.revoked
+          ? { text: '♻ Restore key', callback_data: `admin:unrevoke:${o.id}` }
+          : { text: '🚫 Revoke key', callback_data: `admin:revoke:${o.id}` }]);
+      }
+      kb.push([{ text: '🛠 Admin', callback_data: 'admin:panel' }]);
+      await sendText(chatId, lines.join('\n'), kb);
       return;
     }
   }
