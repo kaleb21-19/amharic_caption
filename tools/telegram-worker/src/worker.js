@@ -124,6 +124,24 @@ let PRICE = 'ETB 2,500'; // display string
 let PRICE_ETB = 2500;    // numeric (source of truth for revenue/orders)
 let ACCT_NAME = 'KALEB TEGEGEN';
 let PAY_ACCOUNTS = 'CBE 1000504159977 · Abyssinia 402393939 · Zemen 1031111343277015';
+
+// Render the accounts one per line with each NUMBER in <code>. Telegram makes
+// <code> tap-to-copy on mobile, and copying one account number into a banking
+// app is the single most error-prone action in the whole sale. As a run-on
+// bold string ("CBE 100… · Abyssinia 402… · Zemen 103…") it wrapped across
+// two or three lines on a phone and the buyer had to hand-select a substring.
+function accountLines() {
+  return String(PAY_ACCOUNTS)
+    .split('·')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const m = /^(.*?)\s+([0-9][0-9\s-]*)$/.exec(part);
+      return m ? `   <b>${m[1].trim()}</b>  <code>${m[2].replace(/[\s-]/g, '')}</code>`
+               : `   <code>${part}</code>`;
+    })
+    .join('\n');
+}
 let ALLOWED_ORIGIN = ''; // comma-separated CORS allow-list ('' => * open)
 const SUPPORT_URL = 'https://t.me/sumpak6';
 const SITE_URL = 'https://amharic-caption-pro.vercel.app';
@@ -220,13 +238,23 @@ function adminGreeting() {
   );
 }
 
+// Amharic first, English under it. This is the screen where someone parts with
+// ETB 2,500, and it was English-only — the panel and the website both speak
+// Amharic, but the one moment that involves their money did not.
 function payText() {
   return (
-    '💰 <b>Pay</b>\n\n' +
-    `💵 Amount: <s>ETB 3,500</s> → <b>${PRICE}</b> — one-time, forever license\n` +
-    `🏦 Paid to: <b>${ACCT_NAME}</b> — ${PAY_ACCOUNTS}\n` +
-    '🔑 Your license key arrives <b>in this chat</b> after we confirm payment.\n\n' +
-    '👇 Tap below after you sent the money.'
+    '💰 <b>ክፍያ / Pay</b>\n\n' +
+    `💵 ዋጋ: <s>ETB 3,500</s> → <b>${PRICE}</b> — አንድ ጊዜ ብቻ (one-time, forever)\n\n` +
+    `🏦 የሚከፈለው ለ: <b>${ACCT_NAME}</b>\n` +
+    'ባንክ ዝውውር (bank transfer) — ቁጥሩን ለመቅዳት ይንኩት:\n' +
+    accountLines() + '\n\n' +
+    '🔑 ክፍያዎ ከተረጋገጠ በኋላ ቁልፍዎ (license key) <b>በዚሁ ቻት</b> ይላክልዎታል።\n' +
+    'Your key arrives <b>in this chat</b> once we confirm the payment.\n\n' +
+    '⚠️ <b>ጥንቃቄ / Important</b>\n' +
+    `ከላይ ካሉት አካውንቶች ውጭ ለማንም አይክፈሉ። ስም <b>${ACCT_NAME}</b> ብቻ ነው።\n` +
+    'We will never ask you to pay a different name or account, and never for an ' +
+    'extra fee. If someone does, they are not us.\n\n' +
+    '👇 ከከፈሉ በኋላ ከታች ይንኩ / Tap below once you have paid.'
   );
 }
 const payKeyboard = () => [
@@ -481,7 +509,9 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
 
   // step photo: waiting for screenshot
   if (step === 'photo') {
-    await sendText(chatId, '📸 I’m waiting for your <b>screenshot</b> — send the bank-transfer payment screenshot as a <b>photo</b>.', [
+    await sendText(chatId,
+      '📸 የክፍያ ማረጋገጫ <b>ፎቶ</b> እየጠበቅሁ ነው — የባንክ ዝውውሩን screenshot ይላኩ።\n' +
+      '<i>Waiting for your screenshot — send the bank-transfer confirmation as a photo.</i>', [
       [{ text: '✖ Cancel', callback_data: 'proof:cancel' }],
     ]);
     return;
@@ -492,7 +522,8 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
     const m = text.match(MACHINE_ID_RE);
     if (!m) {
       await sendHintKb(chatId,
-        `⚠️ I need your <b>Machine ID</b> — the <b>8-character</b> code from the panel's <b>License</b> section (e.g. <code>a1b2c3d4</code>).`);
+        '⚠️ የእርስዎ <b>Machine ID</b> ያስፈልገኛል — በፓናሉ <b>License</b> ክፍል ውስጥ ያለው <b>8 ፊደል</b> ኮድ ነው።\n' +
+        `<i>I need your Machine ID — the 8-character code in the panel's License section (e.g. <code>a1b2c3d4</code>).</i>`);
       return;
     }
     const mid = m[0].toLowerCase();
@@ -506,7 +537,9 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
     }
     if (suspiciousMid(mid)) {
       await sendText(chatId,
-        `⚠️ <code>${mid}</code> doesn’t look like a real <b>Machine ID</b>.\n\nYour Machine ID is the <b>8 characters</b> shown under "Your Machine ID" in the panel’s License section (e.g. <code>a1b2c3d4</code>).`,
+        `⚠️ <code>${mid}</code> ትክክለኛ <b>Machine ID</b> አይመስልም።\n\n` +
+        'በፓናሉ <b>License</b> ክፍል ውስጥ "Your Machine ID" ስር ያለውን <b>8 ፊደል</b> ኮድ ይላኩ (ለምሳሌ <code>a1b2c3d4</code>)።\n' +
+        '<i>That does not look like a Machine ID — send the 8-character code from the panel.</i>',
         [[{ text: '📍 Where is my Machine ID?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
       return;
     }
@@ -514,7 +547,9 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
     await setFsm(uid, { step: 'photo', mid, photo_key: null, hint: 1 });
     await addFunnel(uid, 'mid_sent');
     await sendText(chatId,
-      '✅ Machine ID received!\n\n📤 <b>Step 2/2</b> — now send your <b>bank-transfer screenshot</b> as a <b>photo</b> (the "payment success" screen).',
+      '✅ Machine ID ደርሶናል!\n\n' +
+      '📤 <b>ደረጃ 2/2</b> — አሁን የባንክ ዝውውር ማረጋገጫ <b>ፎቶ</b> (screenshot) ይላኩ።\n' +
+      '<i>Step 2 of 2 — now send your bank-transfer screenshot as a photo.</i>',
       [[{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
     return;
   }
@@ -560,7 +595,7 @@ async function handlePhoto(msg, uid, chatId, privateChat, text) {
     const objectKey = await storeProof(fileId);
     await setFsm(uid, { ...s, photo_key: objectKey, step: 'confirm' });
     await addFunnel(uid, 'screenshot_sent');
-    await sendText(chatId, '✅ Screenshot received!\n\n📤 Let’s do a quick final check of your order:');
+    await sendText(chatId, '✅ ፎቶው ደርሶናል!\n\n📤 ትዕዛዝዎን በአጭሩ እናረጋግጥ:\n<i>Screenshot received — a quick check of your order:</i>');
     await reviewConfirm(uid, chatId);
     return;
   }
@@ -572,7 +607,8 @@ async function handlePhoto(msg, uid, chatId, privateChat, text) {
   if (step === 'mid') {
     const objectKey = await storeProof(fileId);
     await setFsm(uid, { ...s, photo_key: objectKey });
-    await sendText(chatId, '📸 Screenshot saved! Now send your <b>Machine ID</b> (8 characters from the panel\'s License section).',
+    await sendText(chatId, '📸 ፎቶው ተቀምጧል! አሁን የእርስዎን <b>Machine ID</b> ይላኩ (በፓናሉ License ክፍል ውስጥ ያለው 8 ፊደል ኮድ)።\n' +
+      '<i>Screenshot saved — now send your Machine ID.</i>',
       [[{ text: '📍 Where is my Machine ID?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
     return;
   }
@@ -651,11 +687,13 @@ async function completeProof(uid, chatId, uname, privateChat) {
   // status + ETA to buyer
   const pos = await pendingCount();
   const statusText =
-    '📦 <b>Order received — now pending</b>\n\n' +
+    '📦 <b>ትዕዛዝዎ ደርሶናል / Order received</b>\n\n' +
     `🤖 Machine ID: <code>${s.mid}</code>\n` +
-    `💵 Amount: <b>${PRICE}</b>\n\n` +
-    `⏳ <b>Status: Pending</b> — you're <b>#${pos}</b> in line.\n` +
-    'Keys are usually issued within a few hours (Ethiopian working hours). We’ll send it right here. 🙏';
+    `💵 ዋጋ / Amount: <b>${PRICE}</b>\n\n` +
+    `⏳ <b>በመጠባበቅ ላይ / Pending</b> — በተራ <b>#${pos}</b> ላይ ነዎት።\n` +
+    'ቁልፍዎ አብዛኛውን ጊዜ በጥቂት ሰዓታት ውስጥ (በኢትዮጵያ የስራ ሰዓት) በዚሁ ቻት ይላክልዎታል። 🙏\n' +
+    '<i>Keys are usually issued within a few hours, Ethiopian working hours. ' +
+    "We'll send it right here.</i>";
   const r = await sendText(chatId, statusText);
   const statusMsgId = r && r.ok ? r.result.message_id : null;
   if (statusMsgId) await DB.prepare('UPDATE orders SET status_msg_id=? WHERE id=?').bind(statusMsgId, orderId).run();
@@ -681,15 +719,18 @@ async function adminList() {
 // ── show my key ─────────────────────────────────────────────────────────────
 function keyDeliveryMessage(key, expiry, chatType) {
   const lines = [
-    '✅ <b>Payment confirmed — your license key is ready!</b>',
+    '✅ <b>ክፍያዎ ተረጋግጧል — ቁልፍዎ ደርሷል!</b>',
+    '<i>Payment confirmed — your license key is ready.</i>',
     '', `<code>${key}</code>`, '',
-    '<b>①</b> Copy the key',
-    '<b>②</b> Premiere Pro → open the panel → License',
-    '<b>③</b> Paste it → tap <b>Activate</b>',
+    '<b>①</b> ቁልፉን ይቅዱ (ይንኩት) — <i>tap the key to copy</i>',
+    '<b>②</b> Premiere Pro → ፓናሉን ይክፈቱ → <b>License</b>',
+    '<b>③</b> ይለጥፉ → <b>Activate</b> ይንኩ — <i>paste, then Activate</i>',
   ];
-  if (expiry !== '00000000') lines.push('', `⏰ Expires: ${expiry}`);
-  if (chatType !== 'private') lines.push('', '🔒 For privacy, ask for your key in a private DM.');
-  lines.push('', 'Thank you! 🙏 If you have any trouble, message the seller.');
+  if (expiry !== '00000000') lines.push('', `⏰ የሚያበቃበት / Expires: ${expiry}`);
+  if (chatType !== 'private') {
+    lines.push('', '🔒 ለደህንነትዎ ቁልፍዎን በግል መልእክት (DM) ይጠይቁ።\n<i>For privacy, ask for your key in a private DM.</i>');
+  }
+  lines.push('', 'እናመሰግናለን! 🙏 ችግር ካጋጠመዎት ይጻፉልን።\n<i>Thank you — message us if anything goes wrong.</i>');
   return lines.join('\n');
 }
 

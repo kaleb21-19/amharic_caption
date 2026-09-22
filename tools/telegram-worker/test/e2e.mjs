@@ -216,7 +216,12 @@ console.log('\n:: scenario 1 — happy path, full sale, DM only');
 
   let res = await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { text: 'a1b2c3d4' }));
   assert.equal(res.status, 200);
-  assert.ok(JSON.stringify(OUTBOUND).includes('Step 2/2'), 'asks for screenshot');
+  // Assert on the state machine, not on prose: the buyer-facing copy is
+  // bilingual now and will keep being reworded, but "after a valid Machine ID
+  // we are waiting for a photo" is the actual contract.
+  assert.equal(row(env, 'SELECT step FROM fsm WHERE uid=?', BUYER).step, 'photo',
+    'a valid Machine ID advances the flow to awaiting the screenshot');
+  assert.ok(JSON.stringify(OUTBOUND).includes('2/2'), 'buyer is told this is step 2 of 2');
 
   const m = msg(Number(BUYER), { id: Number(BUYER) }, { photo: [{ file_id: 'FA', width: 1, height: 1 }, { file_id: 'FB', width: 2, height: 2 }] });
   res = await post(env, m);
