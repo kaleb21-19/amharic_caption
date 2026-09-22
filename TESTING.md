@@ -531,6 +531,50 @@ warn=0`, down from `warn=2`. Regression coverage added as section 7 of
 `tools/test/test_long.py` (pure, no model): the exact observed shape, plus
 roomy-neighbour, gap-fits and max_dur cases — so CI catches a reintroduction.
 
+### 1.2l VAD A/B on the real clips — suggestive, UNDERPOWERED, not acted on (2026-09-22)
+
+Follow-up to the §1.2j lead. Scored all 19 real Common Voice clips (the only
+labelled natural audio we have) twice through the same runtime, changing only
+`AMH_VAD`. Corpus WER = total word errors / total reference words:
+
+| config | WER | CER |
+|---|---|---|
+| `AMH_VAD=1` (shipped default) | 49.6% | 17.3% |
+| `AMH_VAD=0` (what CI scored) | **43.6%** | **14.6%** |
+
+Aggregate favours VAD-off by 6.0 pp WER / 2.7 pp CER — **but do not act on that
+number yet.** Per clip it is 5 better, 4 worse, 10 tied, which is not
+significant by a sign test, and the whole set is **117 reference tokens**, so
+6 pp is about 7 words. The shape is at least interesting: the five wins are
+large (2–3 errors each; `37952747` goes 80% → 20%) while all four regressions
+are exactly +1 error.
+
+**The §1.2j concatenated fixture is NOT independent corroboration** — it is
+built from these same 19 clips. Both results are one piece of evidence from one
+small pool of audio, not two.
+
+**What it would take to act:** more labelled natural audio, ideally in the
+editors' own domain. Note also that VAD is not a free switch — `_plan_windows`
+uses VAD segments to snap long-audio window cuts to silence, so disabling it
+changes windowing too, and VAD trimming is what keeps silence out of the
+encoder on long clips.
+
+**What WAS fixed:** `accuracy-gate` in `.github/workflows/build.yml` used to set
+`AMH_VAD: "0"` *and* build a `fake_runtime/` with no `silero_vad.onnx` and no
+`onnxruntime` installed — three independent reasons it scored a configuration
+no customer runs, on a job whose whole purpose is measuring product accuracy.
+It now installs `onnxruntime`, copies `tools/vad/silero_vad.onnx` into the fake
+runtime, drops `AMH_VAD=0`, and **asserts `amh_vad._load_session()` is not None
+before scoring** — because the failure mode is silent, so absence of an error
+proves nothing. Verified locally: the assert exits 1 without the onnx and 0
+with it. Expect the reported gate WER to rise ~6 pp; that is the number getting
+*more* honest, not a regression.
+
+**Panel:** `main.js` now logs a visible WARNING when `silero_vad.onnx` is absent
+from the runtime, while leaving status 'ready' — `tools/build.sh` deliberately
+supports building without VAD, so this must not block the panel, but it must
+not be silent either.
+
 ### 1.3 Correctness of caption grouping / timing (visual)
 
 For `long5min` import into Premiere and verify:

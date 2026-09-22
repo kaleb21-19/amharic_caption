@@ -209,8 +209,12 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install inference deps (CT2 runtime only — no torch)
-        run: python -m pip install --quiet numpy soundfile "ctranslate2==4.8.1"
+      - name: Install inference deps (CT2 runtime + onnxruntime for VAD — no torch)
+        # onnxruntime is REQUIRED here even though it is only used by the VAD:
+        # amh_vad.py returns no segments *silently* when either onnxruntime or
+        # silero_vad.onnx is unavailable, so without it this job would quietly
+        # score a VAD-off configuration that no customer runs (TESTING.md §1.2j).
+        run: python -m pip install --quiet numpy soundfile "ctranslate2==4.8.1" onnxruntime
 
       - name: Download CT2 int8 model
         uses: actions/download-artifact@v4
@@ -224,11 +228,33 @@ jobs:
           mkdir -p fake_runtime/python/bin
           ln -s "$(command -v python3)" fake_runtime/python/bin/python3
           cp ethio_srt.py amh_correct.py amh_lm.py amh_lm.json.gz amh_mel.py amh_vad.py ctc_beam.py fake_runtime/
+          # amh_vad.py loads silero_vad.onnx from ITS OWN directory. Omitting it
+          # disables speech-gap detection with no error at all, which is exactly
+          # how this gate came to measure something the product does not do.
+          cp tools/vad/silero_vad.onnx fake_runtime/
+          test -f fake_runtime/silero_vad.onnx
+
+      # Assert the VAD is actually live before scoring anything. A silent
+      # fallback to "no segments" is the failure mode this job had for its whole
+      # existence, and it moves WER by ~6pp on these clips — enough to make the
+      # number meaningless without ever going red.
+      - name: Verify the VAD really loaded (no silent fallback)
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, "fake_runtime")
+          import amh_vad
+          if amh_vad._load_session() is None:
+              raise SystemExit("VAD did not load — this gate would score a configuration nobody ships")
+          print("VAD session loaded OK")
+          PY
 
       - name: Real-golden WER gate (Common Voice Amharic, §1.2g)
+        # NB: AMH_VAD is deliberately NOT set to 0 any more. This job exists to
+        # measure what customers run, and they run with VAD on.
         env:
           AMH_MODEL_DIR: ${{ github.workspace }}/tools/stage/model-ct2-int8
-          AMH_VAD: "0"
         run: |
           RUNTIME="${{ github.workspace }}/fake_runtime" \
             bash tools/test/run_engine.sh --fixtures tools/test/fixtures_real --max-wer 0.15
