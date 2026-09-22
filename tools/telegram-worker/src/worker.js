@@ -1018,50 +1018,104 @@ async function adminDetail(chatId, messageId, cbId, orderId) {
     `Amount: ${o.amount_etb ? `ETB ${money(o.amount_etb)}` : PRICE}\n` +
     `Expiry: ${o.expiry === '00000000' ? 'perpetual' : o.expiry}\n` +
     `Received: ${shortTs(o.created_at)}`;
-  const kb = o.status === 'pending'
-    ? [[
-        { text: '✅ Approve', callback_data: `approve:${o.id}` },
-        { text: '❌ Decline', callback_data: `reject:${o.id}` },
-      ], [{ text: '🛠 Admin', callback_data: 'admin:panel' }]]
-    : [[{ text: '🛠 Admin', callback_data: 'admin:panel' }]];
+  // A decided order used to offer NO actions at all — so an order approved to
+  // the wrong person, or declined by mistake, could not be corrected through
+  // the interface. revokeOrder() already existed and was reachable only by
+  // typing "/revoke 42" from memory; it is a button now.
+  let actions;
+  if (o.status === 'pending') {
+    actions = [
+      { text: '✅ Approve', callback_data: `approve:${o.id}` },
+      { text: '❌ Decline', callback_data: `reject:${o.id}` },
+    ];
+  } else if (o.status === 'approved') {
+    // Kills the key on the next panel check (revokeOrder busts the KV cache).
+    actions = [{ text: '🚫 Revoke key', callback_data: `admin:revoke:${o.id}` }];
+  } else if (o.status === 'revoked') {
+    actions = [{ text: '♻ Restore key', callback_data: `admin:unrevoke:${o.id}` }];
+  } else if (o.status === 'rejected') {
+    // Declined by mistake, or the buyer sorted out whatever was wrong — approve
+    // without making them resubmit everything.
+    actions = [{ text: '✅ Approve anyway', callback_data: `approve:${o.id}` }];
+  } else {
+    actions = [];
+  }
+  const kb = [
+    ...(actions.length ? [actions] : []),
+    [{ text: '🧾 History', callback_data: 'admin:history' },
+     { text: '🛠 Admin', callback_data: 'admin:panel' }],
+  ];
   await answerCb(cbId, '');
   if (o.photo_key) await sendPhoto(chatId, o.photo_key, cap, kb);
   else await sendText(chatId, cap, kb);
 }
 
-async function adminHistory(chatId, messageId) {
+const HISTORY_PAGE = 8;
+
+// History is browsable, not a dead list. It used to print 25 orders as plain
+// text with no button on any of them, "+N more" for the rest, and a footer
+// telling the admin to "tap any order in the queue" — but the queue only holds
+// PENDING orders, so anything already decided was unreachable through the
+// interface at all.
+async function adminHistory(chatId, messageId, cbId, offset = 0) {
   await pruneOld();
-  const { results } = await DB.prepare(
-    "SELECT * FROM orders WHERE created_at >= datetime('now','-30 days') ORDER BY id DESC").all();
-  if (!results.length) {
+  const totalRow = await DB.prepare(
+    "SELECT COUNT(*) AS n FROM orders WHERE created_at >= datetime('now','-30 days')").first();
+  const total = totalRow ? totalRow.n : 0;
+  if (!total) {
     await editText(chatId, messageId,
       '🧾 <b>No orders in the last 30 days.</b>',
       [[{ text: '🛠 Admin', callback_data: 'admin:panel' }]]);
     return;
   }
-  const pend = results.filter((r) => r.status === 'pending').length;
-  const ap = results.filter((r) => r.status === 'approved').length;
-  const rj = results.filter((r) => r.status === 'rejected').length;
-  const sold30 = ap;
-  const revenue = sold30 * PRICE_ETB;
 
-  const statusEmoji = { approved: '✅', rejected: '❌', pending: '📥' };
-  let list = results.slice(0, 25).map((o) =>
-    `#${o.id} ${statusEmoji[o.status] || '·'} ${o.username ? '@' + o.username : 'anon'} <code>${o.machine_id}</code> · ${shortTs(o.created_at)}`
+  const sums = await DB.prepare(
+    "SELECT COALESCE(SUM(status='approved'),0) AS ap, " +
+    "COALESCE(SUM(status='rejected'),0) AS rj, " +
+    "COALESCE(SUM(status='pending'),0) AS pd, " +
+    "COALESCE(SUM(status='revoked'),0) AS rv " +
+    "FROM orders WHERE created_at >= datetime('now','-30 days')").first();
+  const revenue = (sums.ap || 0) * PRICE_ETB;
+
+  const { results } = await DB.prepare(
+    "SELECT * FROM orders WHERE created_at >= datetime('now','-30 days') " +
+    "ORDER BY id DESC LIMIT ? OFFSET ?").bind(HISTORY_PAGE, offset).all();
+
+  const statusEmoji = { approved: '✅', rejected: '❌', pending: '📥', revoked: '🚫' };
+  const lines = results.map((o) =>
+    `${statusEmoji[o.status] || '·'} <b>#${o.id}</b> · ${o.username ? '@' + o.username : 'anon'} · ` +
+    `<code>${o.machine_id}</code> · ETB ${money(o.amount_etb || PRICE_ETB)} · ${shortTs(o.created_at)}`
   ).join('\n');
 
+  const from = offset + 1;
+  const to = offset + results.length;
   const text =
-    `🧾 <b>History · last 30 days</b>\n\n` +
-    `✅ ${ap} approved · ❌ ${rj} declined · 📥 ${pend} pending · 💵 <b>ETB ${money(revenue)}</b>\n\n` +
-    `${list}${results.length > 25 ? `\n… +${results.length - 25} more` : ''}\n\n` +
-    `Tap any order in the queue to open Details → Approve / Decline.`;
-  const kb = [[
+    '🧾 <b>History · last 30 days</b>\n\n' +
+    `✅ ${sums.ap} approved · ❌ ${sums.rj} declined · 📥 ${sums.pd} pending` +
+    `${sums.rv ? ` · 🚫 ${sums.rv} revoked` : ''}\n` +
+    `💵 Revenue: <b>ETB ${money(revenue)}</b>\n\n` +
+    `${lines}\n\n` +
+    `Showing <b>${from}–${to}</b> of <b>${total}</b> · tap an order below to open it.`;
+
+  // One button per order — this is the part that was missing.
+  const kb = results.map((o) => ([{
+    text: `${statusEmoji[o.status] || '·'} #${o.id} · ${o.machine_id}`,
+    callback_data: `admin:detail:${o.id}`,
+  }]));
+  const nav = [];
+  if (offset > 0) nav.push({ text: '◀ Newer', callback_data: 'admin:histp:' + Math.max(0, offset - HISTORY_PAGE) });
+  if (to < total) nav.push({ text: 'Older ▶', callback_data: 'admin:histp:' + (offset + HISTORY_PAGE) });
+  if (nav.length) kb.push(nav);
+  kb.push([
     { text: '📥 Requests', callback_data: 'admin:queue' },
     { text: '🛠 Admin', callback_data: 'admin:panel' },
-  ]];
+  ]);
+
+  if (cbId) await answerCb(cbId, `${total} in 30 days`);
   if (messageId) await editText(chatId, messageId, text, kb);
   else await sendText(chatId, text, kb);
 }
+
 
 async function adminSales(chatId, messageId) {
   const sold = await DB.prepare("SELECT COUNT(*) AS n FROM customers WHERE status='sold'").first();
@@ -1310,7 +1364,12 @@ async function handleCallback(cb) {
     if (action === 'panel') await adminPanel(chatId, messageId);
     else if (action === 'queue' || action === 'pending') await adminQueue(chatId, messageId, cbId, 0);
     else if (action === 'queuep') await adminQueue(chatId, messageId, cbId, parseInt(parts[2] || '0', 10));
-    else if (action === 'history') await adminHistory(chatId, messageId);
+    else if (action === 'history') await adminHistory(chatId, messageId, cbId, 0);
+    else if (action === 'histp') await adminHistory(chatId, messageId, cbId, parseInt(parts[2] || '0', 10));
+    else if (action === 'revoke' || action === 'unrevoke') {
+      await revokeOrder(chatId, parts[2], action === 'revoke');
+      await answerCb(cbId, action === 'revoke' ? '🚫 Key revoked' : '♻ Key restored');
+    }
     else if (action === 'detail') await adminDetail(chatId, messageId, cbId, parts[2]);
     else if (action === 'sales') await adminSales(chatId, messageId);
     else if (action === 'export') await adminExport(chatId, messageId, cbId);

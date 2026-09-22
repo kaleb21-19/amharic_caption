@@ -390,6 +390,51 @@ console.log('\n:: scenario 1c — arriving from the panel skips the Machine ID s
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: scenario 1d — admin history is browsable and decisions are reversible');
+
+{
+  const { env } = fresh();
+  // three decided orders + one pending
+  for (let i = 1; i <= 3; i++) {
+    env.DB.prepare("INSERT INTO orders (uid, chat_id, username, machine_id, photo_key, status, expiry, amount_etb, created_at) VALUES (?,?,?,?,?,?,?,?,datetime('now'))")
+      .bind(String(9000 + i), String(9000 + i), 'buyer' + i, 'aaaaaaa' + i, 'PH' + i,
+            ['approved', 'rejected', 'pending'][i - 1], '00000000', 2500).run();
+  }
+
+  // history must offer a button per order — it used to be plain text only
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:history');
+  const hist = OUTBOUND.filter((o) => o.method === 'editMessageText').at(-1);
+  const kb = JSON.stringify(hist.body.reply_markup.inline_keyboard);
+  assert.ok(kb.includes('admin:detail:1'), 'history row 1 opens that order');
+  assert.ok(kb.includes('admin:detail:3'), 'history row 3 opens that order');
+  assert.ok(hist.body.text.includes('of <b>3</b>'), 'history states the total');
+
+  // an APPROVED order must offer revoke — the function existed but was only
+  // reachable by typing /revoke from memory
+  env.DB.prepare("INSERT INTO customers (machine_id, name, expiry, key, status, uid) VALUES (?,?,?,?, 'sold', ?)")
+    .bind('aaaaaaa1', '@buyer1', '00000000', 'AMH-TEST', '9001').run();
+  OUTBOUND.length = 0;
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:detail:1');
+  let card = OUTBOUND.filter((o) => o.method === 'sendPhoto' || o.method === 'sendMessage').at(-1);
+  assert.ok(JSON.stringify(card.body.reply_markup).includes('admin:revoke:1'),
+    'an approved order can be revoked from its detail card');
+
+  // and revoking actually kills the key
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:revoke:1');
+  assert.equal(row(env, 'SELECT revoked FROM customers WHERE machine_id=?', 'aaaaaaa1').revoked, 1,
+    'revoke flips the customer row');
+
+  // a REJECTED order must offer a way back — declining by mistake was final
+  OUTBOUND.length = 0;
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:detail:2');
+  card = OUTBOUND.filter((o) => o.method === 'sendPhoto' || o.method === 'sendMessage').at(-1);
+  assert.ok(JSON.stringify(card.body.reply_markup).includes('approve:2'),
+    'a declined order can still be approved afterwards');
+
+  ok('history opens any order; approve/decline are reversible from the card');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 console.log('\n:: scenario 2 — screenshot as document (pdf rejected, image accepted)');
 
 {
