@@ -22,18 +22,6 @@ const steps = [
   },
 ];
 
-// The comparison every competitor forces and this site never made. Each cloud
-// tool listed genuinely requires an upload and a recurring fee; the figures are
-// their own published entry prices.
-const compareRows = [
-  ["Where your footage goes", "Never leaves your computer", "Uploaded to their servers"],
-  ["Works without internet", "Yes — fully offline", "No — upload required"],
-  ["Cost", "One payment, forever", "Monthly, forever"],
-  ["Per-minute fees", "None — caption all you like", "Common once your quota runs out"],
-  ["Where captions appear", "On your Premiere timeline", "Download a file, then import it"],
-  ["Client confidentiality", "Nothing to leak", "Depends on their policy"],
-];
-
 const faqs = [
   {
     q: "Do I need internet to use it?",
@@ -90,90 +78,66 @@ export default function HomePage() {
       <section className="hero" id="top">
         <div className="container">
           <div className="hero-grid">
-            <div>
-              <span className="hero-peak">100% offline · nothing uploaded</span>
-              <h1>Amharic captions, right inside Premiere&nbsp;Pro.</h1>
+            <div className="hero-copy">
+              <p className="eyebrow">For Adobe Premiere Pro</p>
+
+              <h1>
+                Amharic subtitles in minutes,
+                <br className="hide-sm" /> not hours.
+              </h1>
+
               <p className="hero-sub">
-                Turn Amharic speech into an editable caption track on your timeline —
-                without uploading a single frame.
+                Generate editable Amharic captions straight onto your Premiere timeline —
+                instead of typing every line by hand.
               </p>
+
               <p className="hero-amh amh" lang="am">
-                የአማርኛ ጽሑፍ በቀጥታ በፕሪሚየር ፕሮ ውስጥ — ሙሉ በሙሉ በኮምፒውተርዎ ላይ።
+                የአማርኛ ጽሑፍ በደቂቃዎች ውስጥ — በፕሪሚየር ፕሮ ውስጥ በቀጥታ።
               </p>
 
               <div className="hero-cta cta-row">
                 <a className="btn btn-primary btn-lg" href={BOT_URL} target="_blank" rel="noopener">
-                  Get your lifetime key
+                  Get your key — {PRICE}
                 </a>
                 <Link className="btn btn-ghost btn-lg" href="/install/">
                   Install guide
                 </Link>
               </div>
-              <p className="hero-note">
-                2 free captions first · One-time <strong>{PRICE}</strong> · Never expires
-              </p>
 
-              <div className="hero-stats">
-                <div className="hero-stat"><strong>0</strong><span>frames uploaded</span></div>
-                <div className="hero-stat"><strong>100%</strong><span>on your machine</span></div>
-                <div className="hero-stat"><strong>2</strong><span>free captions</span></div>
-                <div className="hero-stat"><strong>∞</strong><span>lifetime license</span></div>
-              </div>
+              <p className="hero-note">
+                Try 2 captions free first · One-time payment · No subscription
+              </p>
             </div>
 
-            <Reveal delay={120}>
+            {/* Deliberately NOT wrapped in Reveal: this is the hero visual and
+                the largest paint on the page. Fading it in delays the one thing
+                a visitor came to see, for an effect they never scrolled to. */}
+            <div className="hero-visual">
               <PanelMock />
-            </Reveal>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* ------------------------------------------------------- why offline */}
-      <section className="section" id="offline">
+      {/* A thin band, not a section: the practical reasons this matters to an
+          editor in Ethiopia, said plainly. Replaces the old "Why offline"
+          section, which explained a technical concept instead of a benefit. */}
+      <section className="strip">
         <div className="container">
-          <Reveal>
-            <div className="section-head center">
-              <p className="eyebrow">Why it matters</p>
-              <h2>Your footage never leaves the room.</h2>
-              <p className="section-sub">
-                Every other Amharic transcription tool asks you to upload your video first.
-                This one doesn&apos;t — the work happens where your project already lives.
-              </p>
-            </div>
-          </Reveal>
-
-          <div className="grid-3">
-            <Reveal>
-              <div className="card">
-                <span className="card-icon" aria-hidden="true">🔒</span>
-                <h3>Client-safe by design</h3>
-                <p>
-                  Unreleased footage, interviews, private events — none of it crosses your
-                  network. There is nothing to leak because nothing is sent.
-                </p>
-              </div>
-            </Reveal>
-            <Reveal delay={90}>
-              <div className="card">
-                <span className="card-icon" aria-hidden="true">📶</span>
-                <h3>No connection needed</h3>
-                <p>
-                  Patchy network, expensive data, or none at all. Once installed it runs the
-                  same whether you&apos;re online or not.
-                </p>
-              </div>
-            </Reveal>
-            <Reveal delay={180}>
-              <div className="card">
-                <span className="card-icon" aria-hidden="true">⏱</span>
-                <h3>No upload, no queue</h3>
-                <p>
-                  A one-hour interview is gigabytes. Skip the upload entirely — captions start
-                  the moment you press generate.
-                </p>
-              </div>
-            </Reveal>
-          </div>
+          <ul className="strip-list">
+            <li>
+              <strong>No internet needed</strong>
+              <span>Works when the connection doesn&apos;t</span>
+            </li>
+            <li>
+              <strong>No data charges</strong>
+              <span>Nothing is uploaded, ever</span>
+            </li>
+            <li>
+              <strong>No monthly fee</strong>
+              <span>Pay once, use it forever</span>
+            </li>
+          </ul>
         </div>
       </section>
 
@@ -200,48 +164,8 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* -------------------------------------------------------- comparison */}
-      <section className="section" id="compare">
-        <div className="container">
-          <Reveal>
-            <div className="section-head center">
-              <p className="eyebrow">The difference</p>
-              <h2>Offline and yours, versus rented in the cloud.</h2>
-              <p className="section-sub">
-                Cloud transcription services charge every month and need your footage on their
-                servers. This is a one-time purchase that runs on your own machine.
-              </p>
-            </div>
-          </Reveal>
-
-          <Reveal delay={80}>
-            <div className="compare-wrap">
-              <table className="compare">
-                <thead>
-                  <tr>
-                    <th scope="col" />
-                    <th scope="col" className="col-us">Amharic Captions Pro</th>
-                    <th scope="col">Cloud transcription tools</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {compareRows.map(([label, us, them]) => (
-                    <tr key={label}>
-                      <th scope="row">{label}</th>
-                      <td className="col-us">{us}</td>
-                      <td>{them}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="scroll-hint">Swipe the table sideways to compare →</p>
-          </Reveal>
-        </div>
-      </section>
-
       {/* ----------------------------------------------------- audio quality */}
-      <section className="section" id="quality" style={{ background: "var(--bg-soft)" }}>
+      <section className="section" id="quality">
         <div className="container">
           <Reveal>
             <div className="section-head center">

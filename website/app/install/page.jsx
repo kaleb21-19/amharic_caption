@@ -1,133 +1,74 @@
-import Reveal from "@/components/Reveal";
-import { DL_WIN, DL_MAC_ARM, DL_MAC_X64, RELEASES_URL, BOT_URL, GROUP_URL } from "@/lib/site";
+import Link from "next/link";
+import InstallGuide from "@/components/InstallGuide";
+import { BOT_URL, GROUP_URL, PRICE } from "@/lib/site";
 
 export const metadata = {
   title: "Install — Amharic Captions for Premiere Pro",
   description:
-    "Step-by-step install guide for the Amharic Captions Premiere Pro extension on Windows and macOS (Intel and Apple Silicon). Download, install into Adobe CEP extensions, and restart Premiere.",
-};
-
-const winSteps = [
-  { t: "Download", c: "Get the Windows build below and unzip it (right-click the zip → Extract All). It must contain a folder named com.amharic.captions and a file named Install.cmd — keep them side by side." },
-  { t: "Double-click Install.cmd", c: "No administrator rights are needed. The installer copies the extension into your user's Adobe folder, enables the required settings, and verifies everything automatically (a window shows progress and says DONE when finished)." },
-  { t: "Restart Premiere", c: "Fully quit Premiere Pro (File → Exit — closing the window is not enough), reopen it and open/continue a project. Then open Window → Extensions → Amharic Captions (note: the Extensions menu is greyed out on the start screen until a project is open)." },
-  { t: "Activate", c: "Copy your Machine ID, pay via the Telegram bot, and paste your license key to activate." },
-];
-
-const macSteps = [
-  { t: "Download", c: "Choose the build for your chip: Apple Silicon (arm64) or Intel (x64), then unzip. It must contain a folder named com.amharic.captions and a file named Install.command — keep them side by side." },
-  { t: "Double-click Install.command", c: "Terminal opens and runs the installer automatically. If macOS asks \"are you sure?\", click Open. Type your Mac password when asked. It copies the extension, clears the macOS “can't be verified” warning, and enables the required settings — no commands to type." },
-  { t: "Restart Premiere", c: "Fully quit and reopen Premiere Pro, then open Extensions > Amharic Captions." },
-  { t: "Activate", c: "Copy your Machine ID, pay via the Telegram bot, and paste your license key to activate." },
-];
-
-const manualNote = {
-  t: "Advanced (manual)",
-  c: "If your extension folder has no Install.cmd / Install.command (older download), install manually: Windows — copy com.amharic.captions into %AppData%\\Adobe\\CEP\\extensions (that's your user's Adobe folder — same place the one-click installer uses), then regedit → HKEY_CURRENT_USER\\Software\\Adobe\\CSXS.11 (Premiere 2024) or CSXS.12 (Premiere 2025) → create PlayerDebugMode=1. macOS — copy into ~/Library/Application Support/Adobe/CEP/extensions, then run xattr -dr com.apple.quarantine <path> and defaults write com.adobe.CSXS.11 PlayerDebugMode \"1\" (or CSXS.12 for 2025) in Terminal.",
+    "Install the Amharic Captions panel for Adobe Premiere Pro on Windows 10/11 or macOS (Apple Silicon and Intel). Download, double-click the installer, restart Premiere.",
+  alternates: { canonical: "/install/" },
 };
 
 export default function InstallPage() {
+  const howToLd = {
+    "@context": "https://schema.org",
+    "@type": "HowTo",
+    name: "Install Amharic Captions for Adobe Premiere Pro",
+    totalTime: "PT5M",
+    step: [
+      { "@type": "HowToStep", name: "Download and unzip", text: "Download the build for your platform and extract the zip." },
+      { "@type": "HowToStep", name: "Run the installer", text: "Double-click Install.cmd on Windows or Install.command on macOS." },
+      { "@type": "HowToStep", name: "Restart Premiere Pro", text: "Fully quit Premiere Pro and reopen it, then open a project." },
+      { "@type": "HowToStep", name: "Open the panel", text: "Window → Extensions → Amharic Captions, then activate with your license key." },
+    ],
+  };
+
   return (
     <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(howToLd) }}
+      />
+
       <section className="page-hero">
         <div className="container">
-          <p className="eyebrow">Installation guide</p>
-          <h1>Get Amharic Captions running in minutes.</h1>
+          <p className="eyebrow">Installation</p>
+          <h1>Running in about five minutes.</h1>
           <p className="hero-sub">
-            Download your platform&apos;s build, unzip it, and double-click the
-            included installer — it does the rest automatically. No Terminal, no
-            registry, no copy-paste.
+            Download, double-click the installer, restart Premiere. No Terminal, no registry
+            editing, no administrator rights.
           </p>
-        </div>
-      </section>
 
-      <section className="downloads section">
-        <div className="container">
-          <h2>Download</h2>
-          <div className="dl-grid">
-            <Reveal><div className="dl-card">
-              <span className="dl-os">Windows</span>
-              <h3>Windows 10 / 11</h3>
-              <a className="btn btn-primary" href={DL_WIN}>Download win-x64</a>
-            </div></Reveal>
-            <Reveal delay={90}><div className="dl-card">
-              <span className="dl-os">macOS · Apple Silicon</span>
-              <h3>M1 / M2 / M3 / M4</h3>
-              <a className="btn btn-primary" href={DL_MAC_ARM}>Download mac-arm64</a>
-            </div></Reveal>
-            <Reveal delay={180}><div className="dl-card">
-              <span className="dl-os">macOS · Intel</span>
-              <h3>Intel Mac</h3>
-              <a className="btn btn-primary" href={DL_MAC_X64}>Download mac-x64</a>
-            </div></Reveal>
+          <div className="req-row">
+            <span className="req"><b>Premiere Pro 2024+</b> (v24 or newer)</span>
+            <span className="req"><b>Windows 10/11</b> or <b>macOS</b></span>
+            <span className="req"><b>~1.5 GB</b> free disk space</span>
           </div>
-          <p className="center-note">
-            Need another option? Browse <a href={RELEASES_URL} target="_blank" rel="noopener">all releases</a>.
-          </p>
         </div>
       </section>
 
-      <section className="install-steps section">
+      <InstallGuide />
+
+      <section className="section" style={{ background: "var(--bg-soft)" }}>
         <div className="container">
-          <div className="os-tabs">
-            <div>
-              <h2>Windows</h2>
-              <div className="numbered">
-                {winSteps.map((s, i) => (
-                  <Reveal key={i} delay={i * 80}><div className="nstep">
-                    <span>{i + 1}</span>
-                    <div><h3>{s.t}</h3><p>{s.c}</p></div>
-                  </div></Reveal>
-                ))}
-              </div>
+          <div className="final-cta">
+            <h2>Stuck on a step?</h2>
+            <p className="section-sub" style={{ marginInline: "auto" }}>
+              Send us a message — the support group has illustrated Windows and macOS
+              walkthroughs, and people usually reply fast.
+            </p>
+            <div className="cta-row">
+              <a className="btn btn-primary btn-lg" href={GROUP_URL} target="_blank" rel="noopener">
+                Join the support group
+              </a>
+              <a className="btn btn-ghost btn-lg" href={BOT_URL} target="_blank" rel="noopener">
+                Buy or activate ({PRICE})
+              </a>
             </div>
-            <div>
-              <h2>macOS</h2>
-              <div className="numbered">
-                {macSteps.map((s, i) => (
-                  <Reveal key={i} delay={i * 80}><div className="nstep">
-                    <span>{i + 1}</span>
-                    <div><h3>{s.t}</h3><p>{s.c}</p></div>
-                  </div></Reveal>
-                ))}
-              </div>
-            </div>
+            <p className="tiny" style={{ marginTop: "var(--s-5)" }}>
+              Not bought yet? Every new machine gets <Link href="/#pricing">2 free captions</Link> first.
+            </p>
           </div>
-          <details className="manual-note">
-            <summary>{manualNote.t}</summary>
-            <p>{manualNote.c}</p>
-          </details>
-          <details className="manual-note">
-            <summary>Troubleshooting &amp; edge cases</summary>
-            <p>
-              The installer is safe in every common scenario: folders with spaces, brackets
-              like "{`(1)`}" (e.g. a repeated download), or non-English usernames — it never
-              needs administrator rights and never leaves a half-installed copy behind.
-            </p>
-            <ul className="tip-list">
-              <li>Always “Extract All” the zip first. Double-clicking the zip only previews it — there is no <b>Install.cmd</b> to click until it is unzipped.</li>
-              <li>If Windows shows “Windows protected your PC” on first run → more info → <b>Run anyway</b>. It is an unsigned installer (normal for this size of hobby tool); the extension itself is safe.</li>
-              <li>The installer writes a log for support: Windows <code>%TEMP%\amharic-captions-install.log</code> · macOS <code>/tmp/amharic-captions-install.log</code>.</li>
-              <li>If you still see an old version after installing, a copy may exist in Premiere&apos;s system-wide folder (the one inside Program Files / /Library) which loads before this one. Delete it, fully quit Premiere, and reopen.</li>
-              <li>macOS: the package is unsigned, so you may see “Apple can’t verify” — the installer clears it permanently. On modern macOS double-clicking an unsigned installer may require right-click → Open.</li>
-            </ul>
-          </details>
-        </div>
-      </section>
-
-      <section className="note-section section">
-        <div className="container">
-          <Reveal><div className="tip">
-            <h3>Need a hand?</h3>
-            <p>
-              Stuck on any step? Join our Telegram group — the full Windows &
-              macOS guides live there with images, and members help fast.
-            </p>
-            <div className="tip-actions">
-              <a className="btn btn-primary" href={GROUP_URL} target="_blank" rel="noopener">Join the group</a>
-              <a className="btn btn-ghost" href={BOT_URL} target="_blank" rel="noopener">Buy / activate via bot</a>
-            </div>
-          </div></Reveal>
         </div>
       </section>
     </>

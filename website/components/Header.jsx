@@ -10,7 +10,6 @@ import { BOT_URL, PRICE } from "@/lib/site";
 // with the one decision a visitor has to make.
 const links = [
   { href: "/#how", label: "How it works" },
-  { href: "/#compare", label: "Why offline" },
   { href: "/#pricing", label: "Pricing" },
   { href: "/install/", label: "Install" },
   { href: "/#faq", label: "FAQ" },
@@ -32,7 +31,7 @@ export default function Header() {
     <header className="site-header">
       <div className="trust-bar">
         <div className="container trust-inner">
-          <span>100% offline — your footage never leaves your machine</span>
+          <span>Runs on your computer — no internet, no uploads, no data charges</span>
           <span>Lifetime license · {PRICE} one-time</span>
         </div>
       </div>

@@ -19,7 +19,6 @@ export default function Footer() {
         <div className="footer-col">
           <h4>Product</h4>
           <Link href="/#how">How it works</Link>
-          <Link href="/#compare">Why offline</Link>
           <Link href="/#pricing">Pricing</Link>
           <Link href="/install/">Install guide</Link>
           <Link href="/#faq">FAQ</Link>
