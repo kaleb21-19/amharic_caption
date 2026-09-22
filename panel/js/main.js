@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.4.26';
+const APP_VERSION = '1.4.27';
 
 const csi = new CSInterface();
 
@@ -2532,7 +2532,6 @@ function setup() {
     try { if (warmChild && !warmChild.killed) warmChild.kill(); } catch (e) {}
   });
 
-  $('choose').addEventListener('click', () => $('fileInput').click());
   $('fileInput').addEventListener('change', () => runFromFile($('fileInput')));
 
   $('diag').addEventListener('click', async (e) => {
@@ -2611,6 +2610,18 @@ function setup() {
     log('Reinstall the correct runtime for your platform and restart Premiere.');
   } else {
     setStatus('ready', 'ready');
+    // silero_vad.onnx is OPTIONAL to run (tools/build.sh will cut a zip without
+    // it and amh_vad.py just returns no segments) — but its absence silently
+    // changes transcription: speech-gap detection collapses to one segment, so
+    // captions are cut and timed differently and accuracy moves measurably.
+    // Losing that quietly is the worst outcome, so say so. Status stays 'ready'
+    // because the panel really does still work. See TESTING.md 1.2j.
+    if (!fs.existsSync(path.join(RUNTIME, 'silero_vad.onnx'))) {
+      log('WARNING: silero_vad.onnx is missing from the runtime.');
+      log('Transcription still works, but speech-gap detection is disabled,');
+      log('which changes caption timing and accuracy. Re-extract the zip or');
+      log('reinstall to restore it.');
+    }
   }
 
   // P0 polish: token theme applied already; keep health + onboarding in sync.

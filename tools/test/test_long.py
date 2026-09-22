@@ -136,5 +136,39 @@ except ValueError as e:
     check("preflight 300-sample zeros raises 'audio too short'",
           str(e).startswith("audio too short"))
 
+# ---- 7. enforce_min_duration never emits overlapping cues (1.2k) ----------
+# The min_dur extension used to be left in place whenever the NEXT cue started
+# within tail_room, because the old guard required `limit > s` and simply gave
+# up otherwise -- shipping cues that overlap the following one. Karaoke mode
+# (one word per cue) hits this on real audio: 2/19 Common Voice clips.
+
+def _no_overlaps(cues):
+    return all(cues[i][2] <= cues[i + 1][1] + 1e-9 for i in range(len(cues) - 1))
+
+# the exact shape observed on cv_common_voice_am_37952747 (karaoke):
+# cue at 1.372 extended to 2.372 by min_dur while the next starts at 1.492.
+got = E.enforce_min_duration(
+    [("\u1218\u1308\u122d", 0.814, 0.863),
+     ("\u1208\u12ed", 1.372, 1.400),
+     ("\u1270\u1230\u1240", 1.492, 1.520)],
+    min_dur=1.0, max_dur=5.0, tail_room=0.15)
+check("min_dur extension does not overlap a close next cue", _no_overlaps(got))
+check("cue is butted against the next cue's start", abs(got[1][2] - 1.492) < 1e-9)
+
+# a comfortable gap still keeps tail_room
+got = E.enforce_min_duration(
+    [("a", 0.0, 0.1), ("b", 5.0, 5.1)], min_dur=1.0, max_dur=5.0, tail_room=0.15)
+check("roomy neighbours still get the full min_dur", abs(got[0][2] - 1.0) < 1e-9)
+
+# clamping to tail_room still applies when there IS room for a gap
+got = E.enforce_min_duration(
+    [("a", 0.0, 0.1), ("b", 0.8, 0.9)], min_dur=1.0, max_dur=5.0, tail_room=0.15)
+check("tail_room gap preserved when it fits", abs(got[0][2] - 0.65) < 1e-9)
+check("no overlap in the tail_room case", _no_overlaps(got))
+
+# max_dur trim still applies
+got = E.enforce_min_duration([("a", 0.0, 90.0)], min_dur=1.0, max_dur=5.0)
+check("max_dur still trims a long cue", abs(got[0][2] - 5.0) < 1e-9)
+
 print("\nALL PASS" if fails == 0 else f"\n{fails} FAILED")
 sys.exit(1 if fails else 0)

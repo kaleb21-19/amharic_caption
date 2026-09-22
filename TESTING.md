@@ -120,7 +120,7 @@ at 64.3% (the harness now strips Ethiopic punctuation U+1360–U+1368 before sco
 | noisy | 92.9% | |
 | numbers | 72.4% | digits badly mangled |
 | short1 | 100.0% | 1s clip, both tokens wrong |
-| long5min | completes (no OOM) | 5-min clip windowed at VAD boundaries (~60s via `AMH_WINDOW_SECS`); full 5:00 covered, peak RSS ~4.8GB; resumable |
+| long5min | completes (no OOM) | 5-min clip windowed at VAD boundaries (~20s via `AMH_WINDOW_SECS`, was 60s — see §1.2j); full 5:00 covered, peak RSS ~4.8GB measured at the old 60s default; resumable |
 | silence | n/a | ground truth empty — no crash, correct |
 
 **Honest reading:** these synthetic/TTS-domain fixtures are far harder than the
@@ -143,7 +143,7 @@ Engine changes on top of 1.4.14 (repo; shipped in the next version):
   Applied in `make_cues()` *after* digit re-gluing so numbers stay intact. Verified on
   `news`: `...አስታውቅዋል።` and a final `ተልዮዋል።`, WER unchanged.
 - **Resumable long audio.** Audio longer than `AMH_LONG_SECS` (300s) uses `_run_long()`:
-  VAD-boundary windows of ~`AMH_WINDOW_SECS` (60s). After every window it rewrites a
+  VAD-boundary windows of ~`AMH_WINDOW_SECS` (20s since §1.2j; was 60s). After every window it rewrites a
   valid partial SRT and a journal `<out_srt>.part.json` (`{fp,total,done,cues,texts}`).
   A killed/timed-out run resumes (fingerprint-checked against the WAV) and processes only
   the remaining windows; the journal is deleted on clean finish. Verified end-to-end:
