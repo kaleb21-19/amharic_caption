@@ -494,6 +494,43 @@ byte-identical at 60s vs 20s; the 25.9s `abu` clip unchanged (17 cues, 66
 words) — `_plan_windows` tolerates overshoot, so it plans ONE 26s window at a
 20s target and the 20–26s band gets no split.
 
+### 1.2k Karaoke mode shipped OVERLAPPING cues — FIXED (2026-09-22)
+
+Found by the structural half of `run_engine.sh` (`test_srt.py`), which had been
+reporting `warn=2` without anyone chasing it down.
+
+**Symptom.** In karaoke mode (`--words`) captions could overlap, putting two on
+screen at once in Premiere. 2 of 19 real Common Voice clips were affected
+(`cv_common_voice_am_37952747`, `cv_common_voice_am_39362368`); grouped mode
+passed on both. This violated the §3 pass criterion "cues are non-overlapping
+and sorted". Pre-existing, unrelated to the §1.2j window change — reproduced
+byte-identically against the untouched installed runtime, and both clips are
+short enough to take a single window.
+
+```
+3  00:00:01,372 --> 00:00:02,372   ላይ
+4  00:00:01,492 --> 00:00:02,492   ተሰቅምታየ።      <- starts 880ms before cue 3 ends
+```
+
+**Cause.** `enforce_min_duration()` extends a short cue's END to `min_dur`,
+then clamps it to `next_start - tail_room` to keep a gap. That clamp was
+guarded by `if e > limit and limit > s:` — so when the next cue started
+*within* `tail_room` of this one, `limit <= s`, the guard fell through and the
+min_dur extension was left in place, overlapping the next cue. The one case
+that most needed clamping was the one case that skipped it.
+
+**Fix.** When there is no room for the gap, butt the cue against the next one
+(`e = max(s, nxt_s)`) instead of giving up. A zero-gap cue is correct; an
+overlapping cue is not. Roomy neighbours still get the full `min_dur`, the
+`tail_room` gap is still preserved whenever it fits, and `max_dur` trimming is
+unchanged.
+
+**Verification.** Both clips now PASS `test_srt.py` with all caption text
+preserved (5 words before and after on 37952747); full gate `pass=38 fail=0
+warn=0`, down from `warn=2`. Regression coverage added as section 7 of
+`tools/test/test_long.py` (pure, no model): the exact observed shape, plus
+roomy-neighbour, gap-fits and max_dur cases — so CI catches a reintroduction.
+
 ### 1.3 Correctness of caption grouping / timing (visual)
 
 For `long5min` import into Premiere and verify:

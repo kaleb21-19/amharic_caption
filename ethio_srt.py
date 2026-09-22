@@ -563,8 +563,17 @@ def enforce_min_duration(cues, min_dur=1.0, max_dur=5.0, tail_room=0.15):
         if idx + 1 < n:
             nxt_s = cues[idx + 1][1]
             limit = nxt_s - tail_room
-            if e > limit and limit > s:
-                e = limit
+            if limit > s:
+                if e > limit:
+                    e = limit
+            elif e > nxt_s:
+                # The next cue starts within tail_room of this one, so the gap
+                # cannot be kept. Butt this cue up against the next instead of
+                # leaving the min_dur extension in place -- the old guard gave
+                # up here (`limit > s` was false) and shipped OVERLAPPING cues,
+                # which put two captions on screen at once in Premiere. Seen on
+                # 2/19 real clips in karaoke mode (TESTING.md 1.2k).
+                e = max(s, nxt_s)
         out.append((txt, s, e))
     return out
 
