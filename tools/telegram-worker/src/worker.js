@@ -345,6 +345,17 @@ function editText(chatId, messageId, text, kb) {
   if (kb) params.reply_markup = { inline_keyboard: kb };
   return safeSend(tg(TOKEN, 'editMessageText', params));
 }
+// Swap only the buttons on an existing message. The order card can be a PHOTO
+// (the payment screenshot) as well as text, and editMessageText fails on a
+// photo message — editMessageReplyMarkup works for both, which matters because
+// the decline-reason picker replaces the buttons under whichever it is.
+function editKeyboard(chatId, messageId, kb) {
+  return safeSend(tg(TOKEN, 'editMessageReplyMarkup', {
+    chat_id: chatId, message_id: messageId,
+    reply_markup: { inline_keyboard: kb },
+  }));
+}
+
 function sendPhoto(chatId, photo, caption, kb) {
   const params = { chat_id: chatId, photo, caption, parse_mode: 'HTML' };
   if (kb) params.reply_markup = { inline_keyboard: kb };
@@ -1095,7 +1106,43 @@ async function approve(chatId, messageId, orderId, cbId) {
   log('info', 'order_approved', { orderId, mid: o.machine_id, uid: o.uid, amount_etb: o.amount_etb });
 }
 
-async function reject(chatId, messageId, orderId, cbId) {
+// Decline reasons. The admin used to have one ❌ and the buyer got a generic
+// list of everything that MIGHT have been wrong, so they guessed — and often
+// guessed wrong and were declined twice. One extra tap here removes a support
+// conversation: the buyer is told exactly what to fix.
+const REJECT_REASONS = {
+  photo: {
+    admin: '📷 Unclear photo',
+    buyer: 'ፎቶው ግልጽ አይደለም — የክፍያውን ማረጋገጫ በግልጽ የሚያሳይ ፎቶ ይላኩ።\n' +
+           '<i>The screenshot was unclear. Send one that clearly shows the transfer.</i>',
+  },
+  amount: {
+    admin: '💵 Wrong amount',
+    buyer: 'የተላከው መጠን ትክክል አይደለም።\n' +
+           '<i>The amount did not match. Please send exactly the price shown, then try again.</i>',
+  },
+  account: {
+    admin: '🏦 Wrong account',
+    buyer: 'ክፍያው ወደ ሌላ አካውንት ተልኳል — ከታች ካሉት አካውንቶች ወደ አንዱ ብቻ ይላኩ።\n' +
+           '<i>The payment went to a different account. Use only the accounts listed under Pay.</i>',
+  },
+  other: {
+    admin: '❔ Other',
+    buyer: 'ማረጋገጫው ሊረጋገጥ አልቻለም።\n<i>We could not verify the payment proof.</i>',
+  },
+};
+
+function rejectReasonKeyboard(orderId) {
+  return [
+    [{ text: REJECT_REASONS.photo.admin, callback_data: `rej:photo:${orderId}` },
+     { text: REJECT_REASONS.amount.admin, callback_data: `rej:amount:${orderId}` }],
+    [{ text: REJECT_REASONS.account.admin, callback_data: `rej:account:${orderId}` },
+     { text: REJECT_REASONS.other.admin, callback_data: `rej:other:${orderId}` }],
+    [{ text: '↩ Back', callback_data: `admin:detail:${orderId}` }],
+  ];
+}
+
+async function reject(chatId, messageId, orderId, cbId, reasonKey) {
   const o = await DB.prepare('SELECT * FROM orders WHERE id=?').bind(orderId).first();
   if (!o) return;
   const claim = await DB.prepare(
@@ -1108,7 +1155,8 @@ async function reject(chatId, messageId, orderId, cbId) {
   await addFunnel(o.uid, 'rejected');
   const left = await pendingCount();
   await editText(chatId, messageId,
-    `❌ <b>Declined #${orderId}</b> — @${o.username} <code>${o.machine_id}</code>\n` +
+    `❌ <b>Declined #${orderId}</b> — ${(REJECT_REASONS[reasonKey] || REJECT_REASONS.other).admin}\n` +
+    `@${o.username} <code>${o.machine_id}</code>\n` +
     `${left ? `📥 ${left} request(s) left in queue.` : '🎉 Queue is clear.'}`);
   // The buyer was watching a live status message that said "Pending — you're
   // #N in line". approve() edits it; reject() never did, so a declined buyer
@@ -1123,15 +1171,13 @@ async function reject(chatId, messageId, orderId, cbId) {
   // — at the single worst moment in the product, where someone believes they
   // have paid. Give the usual causes and two buttons out.
   if (o.chat_id) {
+    const reason = REJECT_REASONS[reasonKey] || REJECT_REASONS.other;
     await sendText(o.chat_id,
       '❌ <b>የክፍያ ማረጋገጫው አልተረጋገጠም</b>\n' +
       '<i>We could not verify your payment proof. No key was sent.</i>\n\n' +
-      '<b>በአብዛኛው ምክንያቱ:</b>\n' +
-      '• ፎቶው ግልጽ አይደለም — <i>the screenshot was unclear</i>\n' +
-      `• የተላከው መጠን ${PRICE} አይደለም — <i>the amount did not match</i>\n` +
-      `• ወደ ሌላ አካውንት ተልኳል — <i>it went to a different account</i>\n\n` +
-      'ግልጽ የሆነ ፎቶ ይዘው እንደገና መሞከር ይችላሉ።\n' +
-      '<i>You can try again with a clearer screenshot, or message us.</i>',
+      '<b>ምክንያት / Reason</b>\n' + reason.buyer + '\n\n' +
+      'ችግሩን አስተካክለው እንደገና መሞከር ይችላሉ።\n' +
+      '<i>Fix that and try again — or message us if you are stuck.</i>',
       [[{ text: '🔄 እንደገና ልሞክር · Try again', callback_data: 'pay:proof' }],
        [{ text: '💬 ድጋፍ · Contact support', url: SUPPORT_URL }]]);
   }
@@ -1150,8 +1196,8 @@ async function handleCallback(cb) {
   const messageId = chat.message_id;
 
   // admin-only gates
-  const adminPrefixes = ['admin:', 'approve:', 'reject:'];
-  if (data.startsWith('approve:') || data.startsWith('reject:') || data.startsWith('admin:')) {
+  const adminPrefixes = ['admin:', 'approve:', 'reject:', 'rej:'];
+  if (data.startsWith('approve:') || data.startsWith('reject:') || data.startsWith('rej:') || data.startsWith('admin:')) {
     if (!isAdmin(fromUid)) { await answerCb(cbId, '🔒 Admin only'); return; }
   }
 
@@ -1232,7 +1278,15 @@ async function handleCallback(cb) {
     return;
   }
   if (data.startsWith('reject:')) {
-    await reject(chatId, messageId, data.split(':')[1], cbId);
+    // Ask WHY before declining — the buyer needs it more than we do.
+    const orderId = data.split(':')[1];
+    await editKeyboard(chatId, messageId, rejectReasonKeyboard(orderId));
+    await answerCb(cbId, 'Pick a reason');
+    return;
+  }
+  if (data.startsWith('rej:')) {
+    const [, reasonKey, orderId] = data.split(':');
+    await reject(chatId, messageId, orderId, cbId, reasonKey);
     return;
   }
 

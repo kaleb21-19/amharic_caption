@@ -479,7 +479,18 @@ console.log('\n:: scenario 6 — reject path');
   await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { photo: [{ file_id: 'R1' }] }));
   await cb(env, { id: Number(BUYER) }, 'proof:confirm', { chatId: Number(BUYER) });
   const o = row(env, 'SELECT * FROM orders');
+  // Declining is two taps now: ❌ opens a reason picker, the reason declines.
+  // The buyer needs to know WHICH thing to fix, so the reason is not optional.
   let res = await cb(env, { id: Number(ADMIN_ID) }, `reject:${o.id}`);
+  assert.equal(res.status, 200);
+  assert.equal(row(env, 'SELECT status FROM orders WHERE id=?', o.id).status, 'pending',
+    'tapping Decline alone does NOT decline — it asks why first');
+  const picker = OUTBOUND.filter((x) => x.method === 'editMessageReplyMarkup');
+  assert.ok(picker.length, 'the reason picker replaces the card buttons');
+  assert.ok(JSON.stringify(picker[picker.length - 1].body).includes('rej:amount'),
+    'picker offers a wrong-amount reason');
+
+  res = await cb(env, { id: Number(ADMIN_ID) }, `rej:amount:${o.id}`);
   assert.equal(res.status, 200);
   assert.equal(row(env, 'SELECT status FROM orders WHERE id=?', o.id).status, 'rejected');
   assert.equal(rows(env, 'SELECT * FROM customers').length, 0, 'no key minted');
@@ -494,14 +505,18 @@ console.log('\n:: scenario 6 — reject path');
   const kb = JSON.stringify(buyerMsg[buyerMsg.length - 1].body.reply_markup || {});
   assert.ok(kb.includes('pay:proof'), 'declined buyer gets a Try again button');
   assert.ok(kb.includes('t.me'), 'declined buyer gets a way to reach support');
+  // the specific reason, not a generic list of everything that could be wrong
+  assert.ok(buyerMsg[buyerMsg.length - 1].body.text.includes('amount did not match'),
+    'buyer is told the specific reason the admin chose');
   // and the pending status they were watching is resolved, not left hanging
   const edited = OUTBOUND.filter((x) => x.method === 'editMessageText'
     && String(x.body.chat_id) === BUYER
     && (x.body.text || '').includes('Declined'));
   assert.ok(edited.length, 'the live status message is updated to Declined');
-  res = await cb(env, { id: Number(ADMIN_ID) }, `reject:${o.id}`);
+  // re-declining an already-declined order is a no-op
+  res = await cb(env, { id: Number(ADMIN_ID) }, `rej:amount:${o.id}`);
   assert.equal(res.status, 200);
-  ok('reject works, idempotent, buyer notified, no key');
+  ok('decline asks why, tells the buyer that reason, offers a way back, idempotent');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
