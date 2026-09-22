@@ -29,8 +29,41 @@ jobs:
   # model. Shipping int8 lets the runtime drop torch/transformers (~-1.7GB).
   model-ct2:
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
+
+      # Free the Actions artifact storage quota before we add anything. zips no
+      # longer ride through the artifact store (each build job publishes its
+      # zip straight to the public downloads repo), but stale artifacts from
+      # old runs still count against the quota until their 30-day retention
+      # expires. Sweep anything older than a day so quota recalculation (every
+      # 6-12h) never strands a build.
+      - name: Prune old artifacts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+            let page = 0, deleted = 0;
+            while (true) {
+              const { data } = await github.rest.actions.listArtifactsForRepo({
+                owner: context.repo.owner, repo: context.repo.repo, per_page: 100, page,
+              });
+              if (data.artifacts.length === 0) break;
+              for (const a of data.artifacts) {
+                if (new Date(a.created_at).getTime() < cutoff) {
+                  await github.rest.actions.deleteArtifact({
+                    owner: context.repo.owner, repo: context.repo.repo, artifact_id: a.id,
+                  });
+                  deleted++;
+                }
+              }
+              if (data.total_count <= (page + 1) * 100) break;
+              page++;
+            }
+            console.log(`deleted ${deleted} artifact(s) older than 1 day`);
 
       - uses: actions/setup-python@v5
         with:
@@ -62,7 +95,7 @@ jobs:
         with:
           name: model-ct2-int8
           path: tools/stage/model-ct2-int8
-          retention-days: 30
+          retention-days: 1
 
   # ---- 1.5. version-drift gate ----------------------------------------------
   # Single source of truth for the shipped version string is APP_VERSION in
@@ -230,13 +263,11 @@ jobs:
       - name: Assemble + zip
         run: bash tools/build.sh mac-arm64
 
-      - name: Upload zip
-        uses: actions/upload-artifact@v4
-        with:
-          name: amharic-captions-mac-arm64
-          path: dist/amharic-captions-mac-arm64.zip
-          retention-days: 30
-          if-no-files-found: error
+      - name: Publish zip to public downloads repo
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PUBLISH_PAT }}
+        run: bash tools/publish_public_zip.sh dist/amharic-captions-mac-arm64.zip
 
 # Intel Mac — runs on the arm64 macOS runner (macos-14, much less queued
   # than the old macos-13) and uses AMH_TARGET to stage the x86_64 runtime.
@@ -267,13 +298,11 @@ jobs:
       - name: Assemble + zip
         run: bash tools/build.sh mac-x64
 
-      - name: Upload zip
-        uses: actions/upload-artifact@v4
-        with:
-          name: amharic-captions-mac-x64
-          path: dist/amharic-captions-mac-x64.zip
-          retention-days: 30
-          if-no-files-found: error
+      - name: Publish zip to public downloads repo
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PUBLISH_PAT }}
+        run: bash tools/publish_public_zip.sh dist/amharic-captions-mac-x64.zip
 
   # Windows build — standalone job so it can use the native PowerShell (pwsh)
   # shell without needing `matrix` in the `shell:` key.
@@ -305,68 +334,26 @@ jobs:
         shell: pwsh
         run: powershell -ExecutionPolicy Bypass -File tools/build_win.ps1
 
-      - name: Upload zip
-        uses: actions/upload-artifact@v4
-        with:
-          name: amharic-captions-win-x64
-          path: dist/amharic-captions-win-x64.zip
-          retention-days: 30
-          if-no-files-found: error
+      - name: Publish zip to public downloads repo
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.PUBLISH_PAT }}
+        run: bash tools/publish_public_zip.sh dist/amharic-captions-win-x64.zip
 
-  # ---- 3. attach zips to a GitHub Release (one-click downloads) -------------
-  # Waits for ALL three platform builds so every release always carries the
-  # win-x64, mac-arm64, and mac-x64 zips (the x64 build runs on macos-14 now,
-  # so it finishes like the others and can be part of the gate).
-  release:
+  # ---- 3. publish gate -------------------------------------------------------
+  # Each platform build publishes its own zip directly to the PUBLIC
+  # downloads-only repo (kaleb21-19/amharic-captions-downloads) the moment it
+  # finishes, so customers never depend on Actions artifacts (which used to
+  # blow the storage quota: 3 x ~700MB zips per run) and never 404 against the
+  # private main repo. This job just surfaces one green "all three shipped"
+  # marker once every platform build + the version/test gates have passed.
+  publish-ready:
     needs: [build-ar, build-win, build-x64, check-version, test]
     runs-on: ubuntu-latest
     if: ${{ always() && needs.build-ar.result == 'success' && needs.build-win.result == 'success' && needs.build-x64.result == 'success' && needs.check-version.result == 'success' && needs.test.result == 'success' }}
-    permissions:
-      contents: write
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Download all three zips
-        uses: actions/download-artifact@v4
-        with:
-          path: zips
-          merge-multiple: true
-
-      - name: Generate SHA256 checksums
+      - name: All three platform zips published
         run: |
-          set -euo pipefail
-          (cd zips && sha256sum *.zip > CHECKSUMS.txt)
-          cat zips/CHECKSUMS.txt
-
-      - name: Create/update GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          TAG="build-${GITHUB_RUN_ID}"
-          VER="$(grep -o 'ExtensionBundleVersion="[^"]*"' panel/CSXS/manifest.xml | head -1 | sed 's/[^"]*"//;s/"//')"
-          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
-          gh release create "$TAG" zips/*.zip zips/CHECKSUMS.txt \
-            --title "Amharic Captions v${VER}" \
-            --notes "Amharic Captions v${VER} — self-contained builds for Windows 10/11, macOS (Apple Silicon), and macOS (Intel). Download the zip for your platform and install into Adobe CEP extensions. See the install guide: https://amharic-caption-pro.vercel.app/install/" \
-            || { echo "release create failed"; exit 1; }
-
-      # Mirror the same three zips to the PUBLIC downloads-only repo
-      # (kaleb21-19/amharic-captions-downloads) so customers can download
-      # anonymously. The main repo is private, so its release assets 404 for
-      # anyone not signed in (GitHub only serves private assets to authed API
-      # clients); website/lib/site.js points at THIS repo instead. Tag is
-      # "v{VER}" (proper semver) so GitHub's releases/latest always resolves.
-      - name: Publish zips to public downloads repo
-        env:
-          GH_TOKEN: ${{ secrets.PUBLISH_PAT }}
-        run: |
-          set -euo pipefail
-          VER="$(grep -o 'ExtensionBundleVersion="[^"]*"' panel/CSXS/manifest.xml | head -1 | sed 's/[^"]*"//;s/"//')"
-          TAG="v${VER}"
-          gh release delete "$TAG" --repo kaleb21-19/amharic-captions-downloads --yes --cleanup-tag 2>/dev/null || true
-          gh release create "$TAG" --repo kaleb21-19/amharic-captions-downloads \
-            --title "Amharic Captions v${VER}" \
-            --notes "Amharic Captions v${VER} — self-contained builds for Windows 10/11, macOS (Apple Silicon), and macOS (Intel). Download the zip for your platform and install into Adobe CEP extensions. Install guide: https://amharic-caption-pro.vercel.app/install/" \
-            zips/*.zip zips/CHECKSUMS.txt \
-            || { echo "public release create failed"; exit 1; }
+          echo "win-x64, mac-arm64, mac-x64 all published to:"
+          echo "  https://github.com/kaleb21-19/amharic-captions-downloads/releases/latest"
+          echo "Customers install from https://amharic-caption-pro.vercel.app/install"
