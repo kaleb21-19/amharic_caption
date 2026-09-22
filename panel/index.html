@@ -1,5 +1,7 @@
 <!DOCTYPE html>
-<html>
+<!-- lang was missing entirely; assistive tech had no idea what language
+     to read the interface in, and the captions it shows are Amharic. -->
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <style>
@@ -425,10 +427,10 @@
         <span class="card-title">Source</span>
         <span class="card-hint">what to caption</span>
       </div>
-      <div class="seg" id="srcSeg">
-        <button id="srcClip" data-src="clip" class="active">Selected Clip</button>
-        <button id="srcWork" data-src="work">Work Area</button>
-        <button id="srcWhole" data-src="whole">Whole Edit</button>
+      <div class="seg" id="srcSeg" role="radiogroup" aria-label="What to caption">
+        <button data-src="clip" class="active">Selected Clip</button>
+        <button data-src="work">Work Area</button>
+        <button data-src="whole">Whole Edit</button>
       </div>
       <div style="height:4px;"></div>
       <input type="file" id="fileInput" accept="audio/*,video/*,.mp3,.wav,.m4a,.aac,.mp4,.mov,.mkv,.wmv" style="display:none;">
@@ -443,9 +445,9 @@
       </div>
       <div class="field">
         <label class="field-label" for="capSeg">Caption style</label>
-        <div class="seg" id="capSeg">
-          <button id="capWords" data-cap="words" class="active">Karaoke</button>
-          <button id="capGroup" data-cap="grouped">Grouped</button>
+        <div class="seg" id="capSeg" role="radiogroup" aria-label="Caption style">
+          <button data-cap="words" class="active">Karaoke</button>
+          <button data-cap="grouped">Grouped</button>
         </div>
       </div>
       <div class="row">
@@ -479,9 +481,11 @@
       </div>
       <button id="runBtn" class="btn btn-primary" disabled>▶ Generate Captions</button>
       <div class="progress-wrap">
-        <div class="progress"><div id="progBar"></div></div>
-        <span id="progLabel"></span>
-        <button id="cancelBtn">Cancel</button>
+        <div class="progress" id="progTrack" role="progressbar"
+             aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
+             aria-labelledby="progLabel"><div id="progBar"></div></div>
+        <span id="progLabel" aria-live="polite"></span>
+        <button id="cancelBtn" title="Stop this transcription">Cancel</button>
       </div>
     </div>
 
@@ -529,18 +533,20 @@
       bank transfer per the instructions there, and activate with your key.
     </div>
 
-    <!-- Output / details -->
+    <!-- Engine log. Deliberately NOT numbered: it used to be presented as
+         "4 · Output — review", so anyone following the steps arrived at what
+         is really a debug pane. The actual fourth step is the review overlay
+         that opens on its own once a transcription finishes. -->
     <div class="card" style="margin-top:2px;">
       <div class="card-head">
-        <div class="step-num">4</div>
-        <span class="card-title">Output</span>
-        <span class="card-hint">review</span>
+        <span class="card-title">Log</span>
+        <span class="card-hint">what the engine is doing</span>
       </div>
 
       <div style="height:4px;"></div>
 
       <button class="disclosure" id="logDisc"><span class="chevron">▶</span> Log</button>
-      <div class="disclosure-content" id="logWrap">
+      <div class="disclosure-content">
         <div id="logBox" class="mono">Pick a source, set options, then Generate.</div>
       </div>
     </div>

@@ -1901,6 +1901,10 @@ function renderReview() {
 
     const ta = document.createElement('textarea');
     ta.value = cue.text || ''; ta.placeholder = 'caption text';
+    // The captions are Amharic. Without this the whole review list is read as
+    // English, and a screen reader pronounces Ge'ez with the wrong voice.
+    ta.setAttribute('lang', 'am');
+    ta.setAttribute('aria-label', 'Caption ' + (i + 1) + ' text');
 
     const del = document.createElement('button');
     del.className = 'del'; del.textContent = '✕'; del.title = 'Delete this caption';
@@ -2292,10 +2296,15 @@ function initReview() {
 
 // ---------------------------------------------------------------- runners
 function setProgress(pct, text) {
+  const value = Math.round(pct * 100);
   const bar = $('progBar');
-  if (bar) bar.style.width = (Math.round(pct * 100)) + '%';
+  if (bar) bar.style.width = value + '%';
   const label = $('progLabel');
   if (label) label.textContent = text || '';
+  // Keep the exposed value in step with the painted width, otherwise a screen
+  // reader announces a bar that never moves while the sighted one fills.
+  const track = $('progTrack');
+  if (track) track.setAttribute('aria-valuenow', String(value));
 }
 
 // Set while a single clip is transcribing. The engine streams
