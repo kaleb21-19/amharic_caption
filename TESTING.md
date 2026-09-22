@@ -419,6 +419,230 @@ self-check.
 > stack of matrices) surfaced as a silent pass-through. It now calls the core
 > path unguarded and asserts effect sizes. A test that cannot fail is not a test.
 
+### 1.2j Window length 60s -> 20s, and a VAD trap that invalidates measurements (2026-09-22)
+
+**Change:** `AMH_WINDOW_SECS` (`ethio_srt.py:_window_target_samples`) default
+**60s -> 20s**. 60s was picked in §1.2b to stop an OOM and never re-examined.
+
+**Why the 19-clip real set cannot see this.** Longest scored fixture is 6.59s;
+`_plan_windows` returns a single window whenever audio is shorter than the
+target, so every clip in `fixtures_real/` is byte-identical at any setting from
+8s to 60s (verified: a 6.6s clip diffs clean at 60s vs 20s). This is a property
+of the code, not a measurement.
+
+**Fixture that does exercise it.** The 19 clips concatenated in 4 shuffled
+orders with 0.4s gaps — 340.6s, 468 reference words. Different orders put the
+cuts in different places. Over 300s, so it also uses the `_run_long()`
+resumable path. Greedy decode, **VAD on**, shipped runtime, Apple M4.
+
+| window | wall | peak RSS | hyp tokens (ref 468) | WER | CER | CER-nospace |
+|---|---|---|---|---|---|---|
+| 60s (old default) | 105.8s | 2.84 GB | 282 | 64.7% | 31.8% | 29.1% |
+| 30s | 82.3s | 2.00 GB | 386 | 52.1% | 22.1% | 22.2% |
+| **20s (new default)** | 78.5s | **1.52 GB** | 387 | **50.9%** | 21.3% | 21.1% |
+| 15s | 76.3s | 1.57 GB | 399 | 50.9% | 21.1% | 21.5% |
+
+60s -> 20s wins on every axis at once: **-13.8 pp WER, -10.5 pp CER,
+-1.32 GB peak RSS, -26% wall**. 15s buys nothing over 20s.
+
+**The engine is deterministic.** Verified two ways: the 60s row was reproduced
+**byte-identically** a day later, and three repeats at each of 60s/20s produced
+identical output. Any apparent run-to-run variation is an environment
+difference, not the model — see the trap below.
+
+**THE VAD TRAP — read this before measuring anything.** `amh_vad.py` loads
+`silero_vad.onnx` from its own directory and **returns None silently** if the
+file (or onnxruntime) is missing. A hand-staged runtime that copies the `.py`
+files but not the 1.8 MB `.onnx` therefore runs with VAD effectively off:
+93 VAD segments on the fixture become **1**. Nothing errors, nothing warns.
+
+This cost a day of work. A staged runtime missing the file produced numbers
+6–14 pp apart from the shipped runtime, and three wrong conclusions were drawn
+from comparing the two environments against each other:
+- "long windows make the model under-generate" — unsupported,
+- "`_run_long()` drops content" — unsupported; the 121-word gap was the VAD,
+  and the two paths are equivalent on inspection (both call `_plan_windows`
+  then `engine._transcribe_one(wav[st:en])` with the same shift math),
+- "the engine is non-deterministic" — false, see above.
+
+**Always** check `len(ethio_srt._vad_segments(wav))` is plausible (dozens, not
+1) before trusting a measurement from a non-shipped runtime.
+
+**Open item 1 — VAD may be COSTING accuracy.** With VAD off, the same fixture
+scored *better* at every window (60s: 50.0% vs 64.7%; 20s: 43.6% vs 50.9%).
+Treat as a lead, not a finding: the fixture's 0.4s digital-silence gaps are
+exactly the artefact that could make a neural VAD misbehave. Re-test on natural
+continuous audio before acting.
+
+**Open item 2 — the CI accuracy gate does not measure the shipped product.**
+`accuracy-gate` builds `fake_runtime/` without `silero_vad.onnx` AND sets
+`AMH_VAD=0` (`.github/workflows/build.yml`), so it scores VAD-off behaviour
+while every customer runs VAD-on — conditions measured 6–14 pp apart. Either
+ship the onnx into that fake runtime and drop `AMH_VAD=0`, or rename the job so
+it is not read as product accuracy.
+
+**Open item 3 — missing VAD degrades silently in the product too.**
+`tools/build.sh` warns but still builds a zip if `tools/vad/silero_vad.onnx` is
+absent, and `runtimeComplete()` (`panel/js/main.js`) checks `ethio_srt.py`,
+`model`, `ffmpeg` and `python` but **not** the VAD asset — so such an install
+reports healthy and quietly produces worse captions. The file IS tracked in git
+today, so shipped zips are fine; add it to `runtimeComplete()` so they stay fine.
+
+**Regression checks after the change:** `run_engine.sh --fixtures
+fixtures_real` 38/38 pass, 0 fail; `test_long.py` ALL PASS; 6.6s clip
+byte-identical at 60s vs 20s; the 25.9s `abu` clip unchanged (17 cues, 66
+words) — `_plan_windows` tolerates overshoot, so it plans ONE 26s window at a
+20s target and the 20–26s band gets no split.
+
+### 1.2k Karaoke mode shipped OVERLAPPING cues — FIXED (2026-09-22)
+
+Found by the structural half of `run_engine.sh` (`test_srt.py`), which had been
+reporting `warn=2` without anyone chasing it down.
+
+**Symptom.** In karaoke mode (`--words`) captions could overlap, putting two on
+screen at once in Premiere. 2 of 19 real Common Voice clips were affected
+(`cv_common_voice_am_37952747`, `cv_common_voice_am_39362368`); grouped mode
+passed on both. This violated the §3 pass criterion "cues are non-overlapping
+and sorted". Pre-existing, unrelated to the §1.2j window change — reproduced
+byte-identically against the untouched installed runtime, and both clips are
+short enough to take a single window.
+
+```
+3  00:00:01,372 --> 00:00:02,372   ላይ
+4  00:00:01,492 --> 00:00:02,492   ተሰቅምታየ።      <- starts 880ms before cue 3 ends
+```
+
+**Cause.** `enforce_min_duration()` extends a short cue's END to `min_dur`,
+then clamps it to `next_start - tail_room` to keep a gap. That clamp was
+guarded by `if e > limit and limit > s:` — so when the next cue started
+*within* `tail_room` of this one, `limit <= s`, the guard fell through and the
+min_dur extension was left in place, overlapping the next cue. The one case
+that most needed clamping was the one case that skipped it.
+
+**Fix.** When there is no room for the gap, butt the cue against the next one
+(`e = max(s, nxt_s)`) instead of giving up. A zero-gap cue is correct; an
+overlapping cue is not. Roomy neighbours still get the full `min_dur`, the
+`tail_room` gap is still preserved whenever it fits, and `max_dur` trimming is
+unchanged.
+
+**Verification.** Both clips now PASS `test_srt.py` with all caption text
+preserved (5 words before and after on 37952747); full gate `pass=38 fail=0
+warn=0`, down from `warn=2`. Regression coverage added as section 7 of
+`tools/test/test_long.py` (pure, no model): the exact observed shape, plus
+roomy-neighbour, gap-fits and max_dur cases — so CI catches a reintroduction.
+
+### 1.2l VAD A/B on the real clips — suggestive, UNDERPOWERED, not acted on (2026-09-22)
+
+Follow-up to the §1.2j lead. Scored all 19 real Common Voice clips (the only
+labelled natural audio we have) twice through the same runtime, changing only
+`AMH_VAD`. Corpus WER = total word errors / total reference words:
+
+| config | WER | CER |
+|---|---|---|
+| `AMH_VAD=1` (shipped default) | 49.6% | 17.3% |
+| `AMH_VAD=0` (what CI scored) | **43.6%** | **14.6%** |
+
+Aggregate favours VAD-off by 6.0 pp WER / 2.7 pp CER — **but do not act on that
+number yet.** Per clip it is 5 better, 4 worse, 10 tied, which is not
+significant by a sign test, and the whole set is **117 reference tokens**, so
+6 pp is about 7 words. The shape is at least interesting: the five wins are
+large (2–3 errors each; `37952747` goes 80% → 20%) while all four regressions
+are exactly +1 error.
+
+**The §1.2j concatenated fixture is NOT independent corroboration** — it is
+built from these same 19 clips. Both results are one piece of evidence from one
+small pool of audio, not two.
+
+**What it would take to act:** more labelled natural audio, ideally in the
+editors' own domain. Note also that VAD is not a free switch — `_plan_windows`
+uses VAD segments to snap long-audio window cuts to silence, so disabling it
+changes windowing too, and VAD trimming is what keeps silence out of the
+encoder on long clips.
+
+**What WAS fixed:** `accuracy-gate` in `.github/workflows/build.yml` used to set
+`AMH_VAD: "0"` *and* build a `fake_runtime/` with no `silero_vad.onnx` and no
+`onnxruntime` installed — three independent reasons it scored a configuration
+no customer runs, on a job whose whole purpose is measuring product accuracy.
+It now installs `onnxruntime`, copies `tools/vad/silero_vad.onnx` into the fake
+runtime, drops `AMH_VAD=0`, and **asserts `amh_vad._load_session()` is not None
+before scoring** — because the failure mode is silent, so absence of an error
+proves nothing. Verified locally: the assert exits 1 without the onnx and 0
+with it. Expect the reported gate WER to rise ~6 pp; that is the number getting
+*more* honest, not a regression.
+
+**Panel:** `main.js` now logs a visible WARNING when `silero_vad.onnx` is absent
+from the runtime, while leaving status 'ready' — `tools/build.sh` deliberately
+supports building without VAD, so this must not block the panel, but it must
+not be silent either.
+
+### 1.2m A Premiere upgrade silently de-licensed a paying customer — FIXED (2026-09-22)
+
+Found on the author's own machine: the panel demanded a license key from an
+install that was already activated, and showed *"This machine record was
+created on another computer … contact support"*. Two independent bugs.
+
+**Bug 1 — the license lived only in CEP localStorage.** CEP stores it per
+extension AND per host version:
+
+```
+~/Library/Caches/CSXS/cep_cache/PPRO_26.3.2_com.amharic.captions.panel/Local Storage/
+```
+
+That directory had been created fresh that morning; its leveldb held
+`amh.machineId`, `amh.trial.used`, `amh.onboarded`, `amh.settings` and **no
+`amh.license` at all**. Nothing was corrupt — the whole store was new, because
+the path is keyed by `PPRO_<version>`. **Upgrading Premiere, reinstalling the
+panel, or clearing the CEP cache therefore de-licenses every customer.** No CEP
+cache anywhere on the disk still held the license, so it was unrecoverable.
+
+There was also no way back: `/api/validate` needs the key itself and the server
+exposes no mid-only lookup, so a customer who lost their Telegram message had
+to contact support to re-obtain a key they had already paid for.
+
+*Fix:* the license is now written to `~/.amharic_captions_license.json` and
+localStorage is only a cache (`getLicense`/`setLicense` in `panel/js/main.js`).
+The home-dir file is proven durable — the machine record in the same directory
+survived this exact wipe. Kept as a SEPARATE file from the machine record so a
+license write can never endanger the machine ID. Copying the file to another PC
+gains nothing: the lease is an ECDSA signature bound to that Machine ID and
+`verifyLicenseToken()` checks it.
+
+**Bug 2 — the "another computer" warning was a false alarm.**
+`hostFingerprint()` was `sha256(os.hostname() + "|" + username)`, and macOS
+reports `Name.local` on Wi-Fi, `Name.lan` behind some routers and bare `Name`
+otherwise. **Changing network was enough to tell a paying customer their
+license record came from another machine.** It never invalidated anything (the
+license binds to the Machine ID, not the host) — it just sent people to support.
+
+*Fix:* the fingerprint is now `username|homedir|platform` — stable across
+networks, still catching a record copied to another PC or another account. The
+inputs changed, so the record carries `hv: HOST_FP_VERSION`; a record without
+it predates the change, is **not comparable**, and is silently re-stamped with
+the machine ID preserved. Without that migration every existing install would
+show the false warning exactly once.
+
+**Recovery for the affected machine:** Machine ID `7cc97f2e` was preserved
+(`getOrCreateMachineId` path 2 recovered it from localStorage and rewrote the
+record), so re-entering the existing key reactivates it — no new purchase.
+
+**Tests.** `panel/test/machine-id.test.mjs` gains cases 6–8 (legacy record is
+re-stamped not warned; stable across a boot; the SAME record survives a
+hostname change with an identical fingerprint) and `tools/test/test_panel_dom.js`
+gains case 9 (license round-trips a localStorage wipe, re-seeds the cache, and
+still fails closed when both copies are gone). **Both were verified to FAIL
+against the old implementation** — the identity test fails on exactly
+`hostname change must NOT be reported as another computer`.
+
+`machine-id.test.mjs` had never been wired into CI at all; it now runs in the
+`test` job, so neither regression can ship unnoticed again.
+
+**NOT done — needs a decision.** A `mid`-only re-activation endpoint would let
+a wiped install restore itself with no customer action. It is deliberately not
+implemented: the Machine ID is displayed in the panel and sent to support, so
+serving a lease for a bare mid would let anyone who learns one license that
+machine. The durable file above removes the failure without weakening the
+model; add the endpoint only as a considered trade-off.
+
 ### 1.3 Correctness of caption grouping / timing (visual)
 
 For `long5min` import into Premiere and verify:

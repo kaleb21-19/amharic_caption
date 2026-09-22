@@ -71,11 +71,61 @@ try {
   r = await run(home);
   assert.match(r.mid, /^[0-9a-f]{8}$/, 'corrupt file falls through to fresh id');
 
-  // 5) node record with a foreign host fingerprint -> mismatch flagged
-  writeFileSync(r.file, JSON.stringify({ id: 'deadc0de', host: '11111111' }));
+  // 5) node record with a foreign host fingerprint -> mismatch flagged.
+  //    hv must match HOST_FP_VERSION, otherwise the record predates the
+  //    current fingerprint algorithm and is deliberately not comparable.
+  writeFileSync(r.file, JSON.stringify({ id: 'deadc0de', host: '11111111', hv: 2 }));
   r = await run(home);
   assert.equal(r.mid, 'deadc0de', 'foreign-host id preserved (license still keyed to it)');
   assert.equal(r.mismatch, true, 'host mismatch detected and surfaced');
+
+  // 6) LEGACY record (no hv): written by the old hostname-based fingerprint,
+  //    which drifted with the network on macOS. It must NOT warn — otherwise
+  //    every existing install shows "created on another computer" once — and
+  //    it must be re-stamped in place, keeping the id so the license survives.
+  writeFileSync(r.file, JSON.stringify({ id: 'feedface', host: '11111111' }));
+  r = await run(home);
+  assert.equal(r.mid, 'feedface', 'legacy id preserved through re-stamping');
+  assert.equal(r.mismatch, false, 'legacy record must not raise a false mismatch');
+  let healed = JSON.parse(readFileSync(r.file, 'utf8'));
+  assert.equal(healed.id, 'feedface', 're-stamp keeps the machine id');
+  assert.equal(healed.hv, 2, 're-stamped to the current fingerprint version');
+  assert.match(healed.host, /^[0-9a-f]{8}$/, 're-stamped host is a real fingerprint');
+
+  // 7) re-stamped record is stable on the next boot (no repeat warning)
+  r = await run(home);
+  assert.equal(r.mid, 'feedface', 'id still stable after re-stamp');
+  assert.equal(r.mismatch, false, 'no mismatch on the boot after re-stamping');
+
+  // 8) the fingerprint must not depend on os.hostname(): macOS returns
+  //    Name.local / Name.lan / Name depending on the network, and that drift
+  //    fired the false "another computer" warning at paying customers.
+  //    Create the record under one hostname, then reload the SAME record
+  //    under a different one — the record must survive without warning.
+  {
+    const os = nodeRequire('node:os');
+    const realHostname = os.hostname;
+    try {
+      rmSync(r.file, { force: true });
+      os.hostname = () => 'machine-on-wifi.local';
+      const created = await run(home);
+      const idA = created.mid;
+      const recA = JSON.parse(readFileSync(created.file, 'utf8'));
+
+      // same machine, same user, different network name
+      os.hostname = () => 'machine-on-ethernet.lan';
+      const reloaded = await run(home);
+      const recB = JSON.parse(readFileSync(reloaded.file, 'utf8'));
+
+      assert.equal(reloaded.mid, idA, 'machine id survives a hostname change');
+      assert.equal(reloaded.mismatch, false,
+        'hostname change must NOT be reported as another computer');
+      assert.equal(recB.host, recA.host,
+        'fingerprint is identical across hostnames (hostname is not an input)');
+    } finally {
+      os.hostname = realHostname;
+    }
+  }
 
   console.log('panel machine-identity: all green');
 } finally {
