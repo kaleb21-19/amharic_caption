@@ -1210,11 +1210,17 @@ async function approve(chatId, messageId, orderId, cbId) {
   // Atomic claim: the first request to flip pending→approved wins; every
   // duplicate tap / Telegram retry after that is a harmless no-op. This
   // keeps keys, funnel events and buyer DMs single-delivery.
+  // pending OR rejected: "Approve anyway" exists so a decline made by mistake,
+  // or one the buyer has since sorted out, can be reversed without asking them
+  // to submit everything again. Restricting the claim to 'pending' made that
+  // button change 0 rows and answer "Already handled" — it looked broken
+  // because it WAS broken. Still atomic, so duplicate taps remain no-ops and a
+  // key is never minted twice.
   const claim = await DB.prepare(
-    "UPDATE orders SET status='approved' WHERE id=? AND status='pending'"
+    "UPDATE orders SET status='approved' WHERE id=? AND status IN ('pending','rejected')"
   ).bind(orderId).run();
   if (!claim || !claim.meta || claim.meta.changes < 1) {
-    await answerCb(cbId, 'Already handled'); return;
+    await answerCb(cbId, 'Already approved'); return;
   }
   await kvDel('pending:count');
 
@@ -1427,6 +1433,10 @@ async function handleCallback(cb) {
     else if (action === 'revoke' || action === 'unrevoke') {
       await revokeOrder(chatId, parts[2], action === 'revoke');
       await answerCb(cbId, action === 'revoke' ? '🚫 Key revoked' : '♻ Key restored');
+      // Redraw the card. Without this the order still reads APPROVED with a
+      // Revoke button under it after a successful revoke, so the action looks
+      // like it did nothing even though the key is already dead.
+      await adminDetail(chatId, null, null, parts[2]);
     }
     else if (action === 'detail') await adminDetail(chatId, messageId, cbId, parts[2]);
     else if (action === 'sales') await adminSales(chatId, messageId);

@@ -424,12 +424,30 @@ console.log('\n:: scenario 1d — admin history is browsable and decisions are r
   assert.equal(row(env, 'SELECT revoked FROM customers WHERE machine_id=?', 'aaaaaaa1').revoked, 1,
     'revoke flips the customer row');
 
+  // Revoking must visibly change the card, not just the database — otherwise
+  // the order still reads APPROVED with a Revoke button and looks like the tap
+  // did nothing.
+  const after = OUTBOUND.filter((o) => o.method === 'sendPhoto' || o.method === 'sendMessage').at(-1);
+  assert.ok(String(after.body.caption || after.body.text || '').toUpperCase().includes('REVOKED'),
+    'the card is redrawn showing the new status');
+  assert.ok(JSON.stringify(after.body.reply_markup).includes('admin:unrevoke:'),
+    'and now offers Restore instead of Revoke');
+
   // a REJECTED order must offer a way back — declining by mistake was final
   OUTBOUND.length = 0;
   await cb(env, { id: Number(ADMIN_ID) }, 'admin:detail:2');
   card = OUTBOUND.filter((o) => o.method === 'sendPhoto' || o.method === 'sendMessage').at(-1);
   assert.ok(JSON.stringify(card.body.reply_markup).includes('approve:2'),
     'a declined order can still be approved afterwards');
+
+  // AND it must actually work. Asserting the button exists proved nothing:
+  // approve() claimed WHERE status='pending', so on a rejected order it
+  // changed 0 rows and answered "Already handled" while looking fine.
+  await cb(env, { id: Number(ADMIN_ID) }, 'approve:2');
+  assert.equal(row(env, 'SELECT status FROM orders WHERE id=?', 2).status, 'approved',
+    'Approve anyway actually approves a previously rejected order');
+  assert.ok(row(env, 'SELECT * FROM customers WHERE machine_id=?', 'aaaaaaa2'),
+    'and mints the key it owes the buyer');
 
   ok('history opens any order; approve/decline are reversible from the card');
 }
