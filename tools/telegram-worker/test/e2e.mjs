@@ -358,6 +358,38 @@ console.log('\n:: scenario 1b — rotating AMH_SECRET must not kill existing key
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: scenario 1c — arriving from the panel skips the Machine ID step');
+
+{
+  // The panel's Buy button opens this chat with the id already in the message.
+  // The bot used to acknowledge it and then ask for it again, making the buyer
+  // hand-copy an 8-character id the panel had already filled in.
+  const { env } = fresh();
+  await post(env, msg(Number(BUYER), { id: Number(BUYER) },
+    { text: 'Hello! I want to buy Amharic Captions.\nMachine ID: a1b2c3d4' }));
+
+  const st = row(env, 'SELECT * FROM fsm WHERE uid=?', BUYER);
+  assert.ok(st, 'arriving with a Machine ID starts a state');
+  assert.equal(st.mid, 'a1b2c3d4', 'the Machine ID is remembered, not discarded');
+
+  // tapping "I've paid" must go straight to the screenshot
+  OUTBOUND.length = 0;
+  await cb(env, { id: Number(BUYER) }, 'pay:proof', { chatId: Number(BUYER) });
+  assert.equal(row(env, 'SELECT step FROM fsm WHERE uid=?', BUYER).step, 'photo',
+    'skips the Machine ID step — goes straight to awaiting the screenshot');
+  const said = JSON.stringify(OUTBOUND);
+  assert.ok(said.includes('a1b2c3d4'), 'the remembered id is shown back for confirmation');
+
+  // and the flow still completes from there
+  await post(env, msg(Number(BUYER), { id: Number(BUYER) },
+    { photo: [{ file_id: 'P1', width: 9, height: 9 }] }));
+  assert.equal(row(env, 'SELECT step FROM fsm WHERE uid=?', BUYER).step, 'confirm',
+    'screenshot advances to the confirm step with no Machine ID prompt in between');
+
+  ok('panel hand-off: Machine ID carried through, one step removed');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 console.log('\n:: scenario 2 — screenshot as document (pdf rejected, image accepted)');
 
 {

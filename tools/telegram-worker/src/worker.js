@@ -584,8 +584,24 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
     else await sendText(chatId, MENU, MENU_KEYBOARD);
     return;
   }
+  // Remember it. The panel's Buy button opens this chat with the Machine ID
+  // already in the message, and we used to acknowledge it and then ask for it
+  // again later — throwing away the one thing the panel had just prefilled and
+  // making the buyer hand-copy an 8-character id after all. Stash it now and
+  // the proof flow skips straight to the screenshot.
+  const seen = m[0].toLowerCase();
+  if (!suspiciousMid(seen)) {
+    await setFsm(uid, { step: 'have_mid', mid: seen, photo_key: null, ref: '', hint: 1 });
+    await sendText(chatId,
+      `✅ Machine ID ተቀብያለሁ: <code>${seen}</code>\n` +
+      '<i>Got your Machine ID — you will not need to type it again.</i>\n\n' +
+      'ክፍያውን ለመፈጸም ከታች ይንኩ።\n<i>Tap below to see the payment details.</i>',
+      [[{ text: '💳 ክፍያ · Pay', callback_data: 'menu:pay' }]]);
+    return;
+  }
   await sendText(chatId,
-    '👋 Got it — that looks like a Machine ID. To pay, use the guided flow:\n\n1️⃣ Tap <b>💳 Pay</b>\n2️⃣ Tap <b>I’ve paid — send proof</b>',
+    '👋 ይህ Machine ID ይመስላል። ለመክፈል ከታች ይጀምሩ።\n' +
+    '<i>That looks like a Machine ID — tap Pay to start.</i>',
     [[{ text: '💳 ክፍያ · Pay', callback_data: 'menu:pay' }]]);
 }
 
@@ -644,11 +660,13 @@ async function reviewConfirm(uid, chatId) {
   const s = await getFsm(uid);
   if (!s) return;
   const text =
-    '🧾 <b>Review your order</b>\n\n' +
+    '🧾 <b>ትዕዛዝዎን ያረጋግጡ / Review your order</b>\n\n' +
     `🤖 Machine ID: <code>${s.mid}</code>\n` +
-    `💵 Amount: <b>${PRICE}</b> (one-time, +0 fees)\n` +
-    `🏦 Paid to: <b>${ACCT_NAME}</b>\n\n` +
-    '🔑 On approval, your key arrives <b>right here</b>.\nLook right? Tap <b>Confirm</b>.';
+    `💵 ዋጋ / Amount: <b>${PRICE}</b>\n` +
+    `🏦 የተከፈለው ለ / Paid to: <b>${ACCT_NAME}</b>\n\n` +
+    '🔑 ከተረጋገጠ በኋላ ቁልፍዎ በዚሁ ቻት ይደርስዎታል።\n' +
+    '<i>Once approved, your key arrives right here.</i>\n\n' +
+    'ትክክል ከሆነ <b>አረጋግጥ</b> ይንኩ።\n<i>If this looks right, tap Confirm.</i>';
   const kb = [
     [{ text: '✅ ትዕዛዙን አረጋግጥ · Confirm', callback_data: 'proof:confirm' }],
     [{ text: '✖ ተው · Cancel', callback_data: 'proof:cancel' }],
@@ -1220,6 +1238,21 @@ async function handleCallback(cb) {
         await editText(chatId, messageId, '📤 <b>Send proof</b>\n\nAlmost done — two short steps:\n\n1️⃣ <b>Machine ID</b> (8 characters)\n2️⃣ Payment <b>screenshot</b>\n\n→ Start with <b>Step 1/2</b>: send your <b>Machine ID</b>.', [
           [{ text: '📍 Machine ID የት ነው? · Where is it?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ ተው · Cancel', callback_data: 'proof:cancel' }],
         ]);
+        return;
+      }
+      // Already know the machine id (they arrived from the panel's Buy button)?
+      // Then there is only one step left, and asking for it again would be
+      // asking for something we are already holding.
+      const known = await getFsm(fromUid);
+      if (known && known.mid && !suspiciousMid(known.mid)) {
+        await setFsm(fromUid, { ...known, step: 'photo' });
+        await addFunnel(fromUid, 'proof_start');
+        await editText(chatId, messageId,
+          '📤 <b>ማረጋገጫ ይላኩ / Send proof</b>\n\n' +
+          `🤖 Machine ID: <code>${known.mid}</code> ✅\n\n` +
+          'የቀረው አንድ ነገር ብቻ ነው — የክፍያውን <b>ፎቶ</b> (screenshot) ይላኩ።\n' +
+          '<i>One thing left: send the payment screenshot as a photo.</i>',
+          [[{ text: '✖ ተው · Cancel', callback_data: 'proof:cancel' }]]);
         return;
       }
       await setFsm(fromUid, { step: 'mid', mid: null, photo_key: null, ref: '', hint: 1 });
