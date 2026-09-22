@@ -22,11 +22,16 @@ env:
   AMH_FFMPEG_ALLOW_GPL: "1"
 
 jobs:
-  # ---- 1. build the CTranslate2 INT8 model once, upload for reuse ----------
+  # ---- 1. build the CTranslate2 INT8 model once, reuse via public repo ------
   # The CT2 int8 conversion is platform-independent and identical for all three
   # target zips, so we do it a single time (on a cheap ubuntu runner with CPU
-  # torch + ctranslate2) and let the platform jobs download the converted
-  # model. Shipping int8 lets the runtime drop torch/transformers (~-1.7GB).
+  # torch + ctranslate2) and let the platform jobs fetch the converted model.
+  # Shipping int8 lets the runtime drop torch/transformers (~-1.7GB).
+  # The model is published to the PUBLIC downloads-only repo as a prerelease
+  # tag (model-ct2-int8): prereleases never become releases/latest (so the zip
+  # release stays latest) but their assets are anonymously downloadable, and
+  # they do NOT count against the Actions artifact quota — which is what was
+  # failing every run ("Artifact storage quota has been hit").
   model-ct2:
     runs-on: ubuntu-latest
     permissions:
@@ -90,12 +95,23 @@ jobs:
           PYTHON_BIN: python
         run: bash tools/make_model_ct2_int8.sh
 
-      - name: Upload CT2 int8 model
-        uses: actions/upload-artifact@v4
-        with:
-          name: model-ct2-int8
-          path: tools/stage/model-ct2-int8
-          retention-days: 1
+      - name: Package CT2 int8 model
+        run: tar -czf model-ct2-int8.tar.gz -C tools/stage model-ct2-int8
+
+      - name: Publish CT2 int8 model to public downloads repo
+        env:
+          GH_TOKEN: ${{ secrets.PUBLISH_PAT }}
+        run: |
+          set -euo pipefail
+          TAG="model-ct2-int8"
+          gh release view "$TAG" --repo kaleb21-19/amharic-captions-downloads >/dev/null 2>&1 || \
+            gh release create "$TAG" --repo kaleb21-19/amharic-captions-downloads \
+              --prerelease \
+              --title "CT2 int8 model assets" \
+              --notes "Platform-independent CTranslate2 int8 converter output shared by every platform build. Published as a prerelease on purpose: prereleases never resolve to releases/latest, so it can never shadow the product zips." \
+              >/dev/null 2>&1 || true
+          gh release upload "$TAG" --repo kaleb21-19/amharic-captions-downloads model-ct2-int8.tar.gz --clobber
+          echo "published model -> $TAG"
 
   # ---- 1.5. version-drift gate ----------------------------------------------
   # Single source of truth for the shipped version string is APP_VERSION in
@@ -137,11 +153,14 @@ jobs:
         # stub-engine tests never actually read a real audio file.
         run: python -m pip install --quiet numpy soundfile
 
-      - name: Download CT2 int8 model assets (mel_filters.npy / window.npy only)
-        uses: actions/download-artifact@v4
-        with:
-          name: model-ct2-int8
-          path: tools/stage/model-ct2-int8
+      - name: Download CT2 int8 model (mel_filters.npy / window.npy by path)
+        run: |
+          set -euo pipefail
+          mkdir -p tools/stage
+          curl -fL --retry 3 \
+            "https://github.com/kaleb21-19/amharic-captions-downloads/releases/download/model-ct2-int8/model-ct2-int8.tar.gz" \
+            -o /tmp/model-ct2-int8.tar.gz
+          tar -xzf /tmp/model-ct2-int8.tar.gz -C tools/stage
 
       - name: Panel unit tests (Node, no deps)
         run: node tools/test/test_panel.js
@@ -213,10 +232,14 @@ jobs:
         run: python -m pip install --quiet numpy soundfile "ctranslate2==4.8.1"
 
       - name: Download CT2 int8 model
-        uses: actions/download-artifact@v4
-        with:
-          name: model-ct2-int8
-          path: tools/stage/model-ct2-int8
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tools/stage
+          curl -fL --retry 3 \
+            "https://github.com/kaleb21-19/amharic-captions-downloads/releases/download/model-ct2-int8/model-ct2-int8.tar.gz" \
+            -o /tmp/model-ct2-int8.tar.gz
+          tar -xzf /tmp/model-ct2-int8.tar.gz -C tools/stage
 
       - name: Build a minimal fake "runtime" dir for run_engine.sh
         run: |
@@ -249,10 +272,14 @@ jobs:
           python-version: "3.11"
 
       - name: Download CT2 int8 model
-        uses: actions/download-artifact@v4
-        with:
-          name: model-ct2-int8
-          path: tools/stage/model-ct2-int8
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tools/stage
+          curl -fL --retry 3 \
+            "https://github.com/kaleb21-19/amharic-captions-downloads/releases/download/model-ct2-int8/model-ct2-int8.tar.gz" \
+            -o /tmp/model-ct2-int8.tar.gz
+          tar -xzf /tmp/model-ct2-int8.tar.gz -C tools/stage
 
       - name: Fetch speaker-embedding model
         run: bash tools/embed/fetch_model.sh
@@ -284,10 +311,14 @@ jobs:
           python-version: "3.11"
 
       - name: Download CT2 int8 model
-        uses: actions/download-artifact@v4
-        with:
-          name: model-ct2-int8
-          path: tools/stage/model-ct2-int8
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tools/stage
+          curl -fL --retry 3 \
+            "https://github.com/kaleb21-19/amharic-captions-downloads/releases/download/model-ct2-int8/model-ct2-int8.tar.gz" \
+            -o /tmp/model-ct2-int8.tar.gz
+          tar -xzf /tmp/model-ct2-int8.tar.gz -C tools/stage
 
       - name: Fetch speaker-embedding model
         run: bash tools/embed/fetch_model.sh
@@ -317,10 +348,14 @@ jobs:
           python-version: "3.11"
 
       - name: Download CT2 int8 model
-        uses: actions/download-artifact@v4
-        with:
-          name: model-ct2-int8
-          path: tools/stage/model-ct2-int8
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tools/stage
+          curl -fL --retry 3 \
+            "https://github.com/kaleb21-19/amharic-captions-downloads/releases/download/model-ct2-int8/model-ct2-int8.tar.gz" \
+            -o /tmp/model-ct2-int8.tar.gz
+          tar -xzf /tmp/model-ct2-int8.tar.gz -C tools/stage
 
       - name: Fetch speaker-embedding model
         shell: bash
