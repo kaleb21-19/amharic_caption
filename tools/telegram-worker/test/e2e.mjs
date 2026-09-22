@@ -779,18 +779,29 @@ console.log('\n:: scenario 12 — broadcast, /setexpiry, reply-keyboard hint');
   assert.equal(await kv.get('bcast:await:' + ADMIN_ID), null, 'broadcast draft cleared');
   ok('broadcast fans out to all buyers and skips admins');
 
-  // reply-keyboard hint attached to the Machine ID prompt
+  // The Machine ID prompt must use an INLINE keyboard, never a reply keyboard.
+  // A reply keyboard pins itself to the bottom of the chat until something
+  // explicitly removes it, and Back/Cancel did not — so the prompt stayed on
+  // screen after the buyer had left the flow. Reported from real use.
   const envH = fresh();
   envH.env.DB.prepare("INSERT INTO fsm (uid, step, mid, hint, updated_at) VALUES (?, 'mid', NULL, 1, datetime('now'))").bind(BUYER).run();
   OUTBOUND.length = 0; MSG = 0;
   r = await post(envH.env, msg(Number(BUYER), {}, { text: 'notamachineid' }));
   assert.equal(r.status, 200);
   const hintMsg = OUTBOUND.filter((o) => o.method === 'sendMessage').at(-1);
-  assert.ok(
-    hintMsg.body.reply_markup && hintMsg.body.reply_markup.keyboard && hintMsg.body.reply_markup.keyboard[0][0].text === '📍 Show me where to find my Machine ID',
-    'reply keyboard hint attached'
-  );
-  ok('reply-keyboard hint offered at the Machine ID prompt');
+  const rm = hintMsg.body.reply_markup || {};
+  assert.ok(!rm.keyboard, 'no reply keyboard — it cannot be dismissed by Back');
+  assert.ok(rm.inline_keyboard, 'help is offered as an inline keyboard instead');
+  assert.ok(JSON.stringify(rm.inline_keyboard).includes('proof:cancel'),
+    'the prompt offers a way back out of the flow');
+
+  // and Back clears any reply keyboard left over from an older build
+  OUTBOUND.length = 0;
+  await cb(envH.env, { id: Number(BUYER) }, 'proof:cancel', { chatId: Number(BUYER) });
+  const cleared = OUTBOUND.filter((o) => o.method === 'sendMessage'
+    && o.body.reply_markup && o.body.reply_markup.remove_keyboard === true);
+  assert.ok(cleared.length, 'Back removes a stuck reply keyboard');
+  ok('Machine ID prompt is inline-only; Back clears any stuck keyboard');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

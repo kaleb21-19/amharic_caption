@@ -367,17 +367,32 @@ function answerCb(id, text) {
 
 // One-time reply keyboard hint for the Machine ID prompt (a cheap affordance —
 // the keyboard vanishes after the first tap thanks to one_time_keyboard).
+// Kept only so the old reply-keyboard button still works for anyone who has
+// one stuck in their chat from a previous version.
 const MACHINE_ID_HINT_KEY = '📍 Show me where to find my Machine ID';
+
+// The Machine ID prompt used to carry a REPLY keyboard (the bar pinned to the
+// bottom of the chat). Telegram leaves those on screen until something removes
+// them, and Cancel never did — so "Send your Machine ID (8 characters)" stayed
+// visible after the buyer had abandoned the flow. It also duplicated an inline
+// "Where is it?" button that was already on the same message. Inline only now,
+// so nothing can get stuck.
+const MID_HELP_KB = [
+  [{ text: '📍 Machine ID የት ነው? · Where is it?', url: `${SITE_URL}/install` }],
+  [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }],
+];
 function sendHintKb(chatId, text) {
-  const params = {
+  return sendText(chatId, text, MID_HELP_KB);
+}
+
+// Clears a reply keyboard left over from an older version of the bot. Telegram
+// has no way to remove one except by sending a message, so this rides along
+// with something the buyer wanted anyway.
+function sendClearingKb(chatId, text) {
+  return safeSend(tg(TOKEN, 'sendMessage', {
     chat_id: chatId, text, parse_mode: 'HTML',
-    reply_markup: {
-      keyboard: [[{ text: MACHINE_ID_HINT_KEY }]],
-      one_time_keyboard: true,
-      resize_keyboard: true,
-    },
-  };
-  return safeSend(tg(TOKEN, 'sendMessage', params));
+    reply_markup: { remove_keyboard: true },
+  }));
 }
 
 // Generic thin reply via raw Bot API for any method.
@@ -527,7 +542,7 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
     await sendText(chatId,
       '📸 የክፍያ ማረጋገጫ <b>ፎቶ</b> እየጠበቅሁ ነው — የባንክ ዝውውሩን screenshot ይላኩ።\n' +
       '<i>Waiting for your screenshot — send the bank-transfer confirmation as a photo.</i>', [
-      [{ text: '✖ ተው · Cancel', callback_data: 'proof:cancel' }],
+      [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }],
     ]);
     return;
   }
@@ -546,7 +561,7 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
     if (existing) {
       await sendText(chatId,
         `🔑 This Machine ID (<code>${mid}</code>) already has a key.\n\nTap <b>My Key</b> below to see it, or contact the seller if it's not working.`,
-        [[{ text: '🔑 ቁልፌ · My Key', callback_data: 'proof:mykey' }], [{ text: '✖ ተው · Cancel', callback_data: 'proof:cancel' }]]);
+        [[{ text: '🔑 ቁልፌ · My Key', callback_data: 'proof:mykey' }], [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
       await setFsm(uid, null);
       return;
     }
@@ -555,7 +570,7 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
         `⚠️ <code>${mid}</code> ትክክለኛ <b>Machine ID</b> አይመስልም።\n\n` +
         'በፓናሉ <b>License</b> ክፍል ውስጥ "Your Machine ID" ስር ያለውን <b>8 ፊደል</b> ኮድ ይላኩ (ለምሳሌ <code>a1b2c3d4</code>)።\n' +
         '<i>That does not look like a Machine ID — send the 8-character code from the panel.</i>',
-        [[{ text: '📍 Machine ID የት ነው? · Where is it?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ ተው · Cancel', callback_data: 'proof:cancel' }]]);
+        [[{ text: '📍 Machine ID የት ነው? · Where is it?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
       return;
     }
     // valid new machine -> ask for screenshot
@@ -565,7 +580,7 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
       '✅ Machine ID ደርሶናል!\n\n' +
       '📤 <b>ደረጃ 2/2</b> — አሁን የባንክ ዝውውር ማረጋገጫ <b>ፎቶ</b> (screenshot) ይላኩ።\n' +
       '<i>Step 2 of 2 — now send your bank-transfer screenshot as a photo.</i>',
-      [[{ text: '✖ ተው · Cancel', callback_data: 'proof:cancel' }]]);
+      [[{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
     return;
   }
 
@@ -620,7 +635,7 @@ async function handlePhoto(msg, uid, chatId, privateChat, text) {
     if (isDocument && !mime.startsWith('image/')) {
       await sendText(chatId,
         '📁 That came through as a <b>file</b>, not a photo.\n\nSend the payment screenshot as a <b>photo/image</b> so we can verify it.',
-        [[{ text: '✖ ተው · Cancel', callback_data: 'proof:cancel' }]]);
+        [[{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
       return;
     }
     const objectKey = await storeProof(fileId);
@@ -640,7 +655,7 @@ async function handlePhoto(msg, uid, chatId, privateChat, text) {
     await setFsm(uid, { ...s, photo_key: objectKey });
     await sendText(chatId, '📸 ፎቶው ተቀምጧል! አሁን የእርስዎን <b>Machine ID</b> ይላኩ (በፓናሉ License ክፍል ውስጥ ያለው 8 ፊደል ኮድ)።\n' +
       '<i>Screenshot saved — now send your Machine ID.</i>',
-      [[{ text: '📍 Machine ID የት ነው? · Where is it?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ ተው · Cancel', callback_data: 'proof:cancel' }]]);
+      [[{ text: '📍 Machine ID የት ነው? · Where is it?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
     return;
   }
   await sendText(chatId,
@@ -669,7 +684,7 @@ async function reviewConfirm(uid, chatId) {
     'ትክክል ከሆነ <b>አረጋግጥ</b> ይንኩ።\n<i>If this looks right, tap Confirm.</i>';
   const kb = [
     [{ text: '✅ ትዕዛዙን አረጋግጥ · Confirm', callback_data: 'proof:confirm' }],
-    [{ text: '✖ ተው · Cancel', callback_data: 'proof:cancel' }],
+    [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }],
   ];
   const r = await sendText(chatId, text, kb);
   if (r && r.ok) await setFsm(uid, { ...s, status_msg_id: r.result.message_id });
@@ -687,7 +702,7 @@ async function completeProof(uid, chatId, uname, privateChat) {
     await setFsm(uid, { ...s, step: 'photo' });
     await sendText(chatId,
       '⚠️ <b>Screenshot missing.</b> Please resend your payment screenshot as a photo.',
-      [[{ text: '✖ ተው · Cancel', callback_data: 'proof:cancel' }]]);
+      [[{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
     return;
   }
 
@@ -1236,7 +1251,7 @@ async function handleCallback(cb) {
       const s = await getFsm(fromUid);
       if (s && s.step === 'mid' && s.hint) {
         await editText(chatId, messageId, '📤 <b>Send proof</b>\n\nAlmost done — two short steps:\n\n1️⃣ <b>Machine ID</b> (8 characters)\n2️⃣ Payment <b>screenshot</b>\n\n→ Start with <b>Step 1/2</b>: send your <b>Machine ID</b>.', [
-          [{ text: '📍 Machine ID የት ነው? · Where is it?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ ተው · Cancel', callback_data: 'proof:cancel' }],
+          [{ text: '📍 Machine ID የት ነው? · Where is it?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }],
         ]);
         return;
       }
@@ -1252,7 +1267,7 @@ async function handleCallback(cb) {
           `🤖 Machine ID: <code>${known.mid}</code> ✅\n\n` +
           'የቀረው አንድ ነገር ብቻ ነው — የክፍያውን <b>ፎቶ</b> (screenshot) ይላኩ።\n' +
           '<i>One thing left: send the payment screenshot as a photo.</i>',
-          [[{ text: '✖ ተው · Cancel', callback_data: 'proof:cancel' }]]);
+          [[{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
         return;
       }
       await setFsm(fromUid, { step: 'mid', mid: null, photo_key: null, ref: '', hint: 1 });
@@ -1260,7 +1275,7 @@ async function handleCallback(cb) {
       await sendHintKb(chatId, '📤 Send your <b>Machine ID</b> (8 characters).');
       // also edit the tapped button
       await editText(chatId, messageId, '📤 <b>Send proof</b>\n\nStart with <b>Step 1/2</b>: send your <b>Machine ID</b>.', [
-        [{ text: '📍 Machine ID የት ነው? · Where is it?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ ተው · Cancel', callback_data: 'proof:cancel' }],
+        [{ text: '📍 Machine ID የት ነው? · Where is it?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }],
       ]);
     }
     return;
@@ -1272,6 +1287,9 @@ async function handleCallback(cb) {
     if (action === 'cancel') {
       await setFsm(fromUid, null);
       await editText(chatId, messageId, MENU, MENU_KEYBOARD);
+      // Sweep away a reply keyboard from an older build, which would otherwise
+      // sit at the bottom of the chat forever asking for a Machine ID.
+      await sendClearingKb(chatId, '⬅ ወደ ዋና ገጽ ተመልሰዋል። / Back to the menu.');
       return;
     }
     if (action === 'mykey') { await showMyKey(cb, chatId, messageId); return; }
