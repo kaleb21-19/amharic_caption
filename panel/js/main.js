@@ -2704,6 +2704,16 @@ function setup() {
     $('logDisc').classList.toggle('open');
   });
 
+  // Advanced options (Max chars). Same disclosure mechanic as the Log.
+  const adv = $('advDisc');
+  if (adv) {
+    adv.addEventListener('click', (e) => {
+      e.preventDefault();
+      adv.classList.toggle('open');
+      adv.setAttribute('aria-expanded', adv.classList.contains('open') ? 'true' : 'false');
+    });
+  }
+
   // Model credits — required attribution for the CC-BY-4.0 licensed acoustic
   // model this product bundles and redistributes (badrex/Ethio-ASR-amharic,
   // Hugging Face). See README.md "Credits" for the full text.

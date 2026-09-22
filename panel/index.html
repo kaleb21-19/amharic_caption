@@ -450,15 +450,9 @@
           <button data-cap="grouped">Grouped</button>
         </div>
       </div>
-      <div class="row">
-        <div class="field">
-          <label class="field-label" for="groupSize">Words / caption</label>
-          <input type="number" id="groupSize" min="1" max="12" value="3">
-        </div>
-        <div class="field">
-          <label class="field-label" for="maxChars">Max chars</label>
-          <input type="number" id="maxChars" min="10" max="200" value="42">
-        </div>
+      <div class="field">
+        <label class="field-label" for="groupSize">Words / caption</label>
+        <input type="number" id="groupSize" min="1" max="12" value="3">
       </div>
       <div class="field">
         <label class="field-label" for="speakersToggle" style="display:flex;align-items:center;gap:6px;cursor:pointer;">
@@ -467,8 +461,25 @@
         </label>
       </div>
       <div class="hint">
-        <b>Karaoke</b> = 1 word per caption (Words/caption is off). <b>Grouped</b> = Words/caption
-        words per caption. Max chars caps how long any caption can be.
+        <b>Karaoke</b> shows one word at a time. <b>Grouped</b> shows several
+        words per caption.
+      </div>
+
+      <!-- Max chars lives behind a disclosure rather than beside Words/caption.
+           42 is the standard subtitle line length and almost nobody needs to
+           change it, but two number inputs side by side made the options card
+           the most complicated thing in the panel. Hidden, not removed: it
+           still works for anyone who wants it. -->
+      <button class="disclosure" id="advDisc" aria-expanded="false"><span class="chevron">▶</span> Advanced</button>
+      <div class="disclosure-content" id="advWrap">
+        <div class="field" style="margin-top:6px;">
+          <label class="field-label" for="maxChars">Max characters per caption</label>
+          <input type="number" id="maxChars" min="10" max="200" value="42">
+          <div class="hint" style="margin-top:4px;">
+            Caps how long any single caption can get. 42 is the usual subtitle
+            line length — leave it unless you have a reason.
+          </div>
+        </div>
       </div>
     </div>
 
