@@ -613,6 +613,48 @@ await t('8. review: empty list renders (no ReferenceError) when filter matches n
   } finally { restoreCache(snap); }
 });
 
+await t('9. license survives a CEP localStorage wipe (Premiere upgrade)', async () => {
+  // CEP keeps localStorage in a cache dir keyed by the HOST VERSION:
+  //   ~/Library/Caches/CSXS/cep_cache/PPRO_<ver>_com.amharic.captions.panel/
+  // so upgrading Premiere hands the panel an empty store. The license used to
+  // live only there, which silently de-licensed paying customers with no way
+  // back (the server has no mid-only lookup). It must now round-trip through
+  // the home-dir file. Observed in the wild 2026-09-22.
+  const machineHome = fs.mkdtempSync(path.join(os.tmpdir(),'amh_dom_lic_'));
+  const licFile = path.join(machineHome, '.amharic_captions_license.json');
+  try {
+    const lic = { token: 'fake.lease.token', valid: true, serverValidated: true, activated: Date.now() };
+
+    // 1) a license saved by the panel is written to the durable file
+    let p = loadPanel({ machineHome });
+    try {
+      p.evalVm('setLicense(' + JSON.stringify(lic) + ')');
+      assert.ok(fs.existsSync(licFile), 'setLicense writes the home-dir file');
+      assert.strictEqual(JSON.parse(fs.readFileSync(licFile,'utf8')).token, lic.token,
+        'durable file carries the lease token');
+    } finally { p.close(); }
+
+    // 2) reload with a COMPLETELY FRESH localStorage (the Premiere-upgrade
+    //    case) -> the license is recovered from the file
+    p = loadPanel({ machineHome, storage: makeLocalStorage() });
+    try {
+      const got = p.evalVm('JSON.stringify(getLicense())');
+      assert.ok(got && got !== 'null', 'license recovered after a localStorage wipe');
+      assert.strictEqual(JSON.parse(got).token, lic.token, 'recovered lease token matches');
+      // and the cache is re-seeded so the rest of the session is normal
+      assert.ok(p.storage.getItem('amh.license'), 'localStorage cache re-seeded from the file');
+    } finally { p.close(); }
+
+    // 3) no file and no localStorage -> genuinely unlicensed (fails closed)
+    fs.rmSync(licFile, { force: true });
+    p = loadPanel({ machineHome, storage: makeLocalStorage() });
+    try {
+      assert.strictEqual(p.evalVm('JSON.stringify(getLicense())'), 'null',
+        'no durable copy and no cache means unlicensed');
+    } finally { p.close(); }
+  } finally { fs.rmSync(machineHome,{recursive:true,force:true}); }
+});
+
 console.log('\n' + (fail===0 ? 'ALL PASS' : 'FAILURES: '+fail) + '  (' + pass + ' passed, ' + fail + ' failed)');
 process.exit(fail===0 ? 0 : 1);
 })().catch((e) => { console.error('Fatal:', e); process.exit(1); });

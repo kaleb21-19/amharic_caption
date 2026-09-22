@@ -78,22 +78,58 @@ const nodeFs = (() => { try { return NODE && NODE('fs'); } catch (e) { return nu
 const nodeOs = (() => { try { return NODE && NODE('os'); } catch (e) { return null; } })();
 const nodePath = (() => { try { return NODE && NODE('path'); } catch (e) { return null; } })();
 
-function machineFilePath() {
+function identityHome() {
   if (!nodeOs) return null;
   // AMH_MACHINE_HOME optionally relocates the identity store (support /
   // portable installs / tests). Defaults to the user's home directory.
-  const home = (process && process.env && process.env.AMH_MACHINE_HOME)
-    || (nodeOs.homedir && nodeOs.homedir());
-  if (!home) return null;
-  if (nodePath && nodePath.join) return nodePath.join(home, '.amharic_captions_machine.json');
-  return home + '/.amharic_captions_machine.json';
+  return (process && process.env && process.env.AMH_MACHINE_HOME)
+    || (nodeOs.homedir && nodeOs.homedir()) || null;
 }
+
+function identityFile(name) {
+  const home = identityHome();
+  if (!home) return null;
+  if (nodePath && nodePath.join) return nodePath.join(home, name);
+  return home + '/' + name;
+}
+
+function machineFilePath() {
+  return identityFile('.amharic_captions_machine.json');
+}
+
+// The license lives in the HOME DIRECTORY, not just localStorage. CEP's
+// localStorage is per-extension AND per-host-version — the real cache path is
+//   ~/Library/Caches/CSXS/cep_cache/PPRO_<ver>_com.amharic.captions.panel/
+// so a Premiere upgrade hands the panel a brand-new empty store and the
+// customer silently loses a license they paid for, with no way back (the
+// server has no mid-only lookup; /api/validate needs the key itself).
+// Observed in the wild 2026-09-22. Keep this file separate from the machine
+// record so a license write can never endanger the machine ID.
+function licenseFilePath() {
+  return identityFile('.amharic_captions_license.json');
+}
+
+// Bump when the fingerprint inputs change, so records stamped by an older
+// algorithm are never compared against a newer one (that would flag every
+// existing install as "moved to another computer" exactly once).
+const HOST_FP_VERSION = 2;
 
 function hostFingerprint() {
   try {
     if (!nodeOs || !NODE) return null;
     const u = nodeOs.userInfo && nodeOs.userInfo();
-    const raw = String(nodeOs.hostname() || '') + '|' + String((u && u.username) || '');
+    // Deliberately NOT os.hostname(). On macOS it follows the network —
+    // "Name.local" on Wi-Fi, "Name.lan" on some routers, bare "Name"
+    // otherwise — so a paying customer changing networks saw "This machine
+    // record was created on another computer. ... contact support", for a
+    // machine that had not changed at all. username+homedir+platform still
+    // catches a record copied to a different PC or a different account, which
+    // is the only thing this flag is for.
+    const raw = [
+      String((u && u.username) || ''),
+      String((u && u.homedir) || ''),
+      String((nodeOs.platform && nodeOs.platform()) || '')
+    ].join('|');
     return NODE('crypto').createHash('sha256').update(raw).digest('hex').slice(0, 8);
   } catch (e) { return null; }
 }
@@ -115,7 +151,11 @@ function loadMachineRecord() {
   try {
     const rec = JSON.parse(nodeFs.readFileSync(p, 'utf8'));
     if (rec && /^[0-9a-f]{8}$/.test(rec.id)) {
-      return { id: rec.id, host: typeof rec.host === 'string' ? rec.host : null };
+      return {
+        id: rec.id,
+        host: typeof rec.host === 'string' ? rec.host : null,
+        hv: Number(rec.hv) || 1
+      };
     }
   } catch (e) {}
   return null;
@@ -125,7 +165,8 @@ function saveMachineRecord(id, host) {
   const p = machineFilePath();
   if (!p || !nodeFs) return false;
   try {
-    nodeFs.writeFileSync(p, JSON.stringify({ id: id, host: host || null }), 'utf8');
+    nodeFs.writeFileSync(
+      p, JSON.stringify({ id: id, host: host || null, hv: HOST_FP_VERSION }), 'utf8');
     return true;
   } catch (e) { return false; }
 }
@@ -158,7 +199,17 @@ function getOrCreateMachineId() {
 const MACHINE_HOST_MISMATCH = (() => {
   const rec = loadMachineRecord();
   const cur = hostFingerprint();
-  return !!rec && !!rec.host && !!cur && cur !== rec.host;
+  if (!rec || !cur) return false;
+  if (rec.hv !== HOST_FP_VERSION) {
+    // Stamped by the old hostname-based algorithm, so its value is not
+    // comparable to `cur`. Re-stamp with the stable fingerprint and stay
+    // quiet: warning here would show "created on another computer" to every
+    // existing install exactly once, which is the false alarm this removes.
+    // The machine ID is passed through untouched, so the license stays valid.
+    saveMachineRecord(rec.id, cur);
+    return false;
+  }
+  return !!rec.host && cur !== rec.host;
 })();
 
 const MACHINE_ID = getOrCreateMachineId();
@@ -409,14 +460,47 @@ function initVersion() {
   if (el) el.textContent = APP_VERSION;
 }
 
+function readLicenseFile() {
+  const p = licenseFilePath();
+  if (!p || !nodeFs) return null;
+  try {
+    const o = JSON.parse(nodeFs.readFileSync(p, 'utf8'));
+    return (o && typeof o === 'object') ? o : null;
+  } catch (e) { return null; }
+}
+
+function writeLicenseFile(obj) {
+  const p = licenseFilePath();
+  if (!p || !nodeFs) return false;
+  try { nodeFs.writeFileSync(p, JSON.stringify(obj), 'utf8'); return true; }
+  catch (e) { return false; }
+}
+
+// localStorage is a CACHE, the home-dir file is the durable copy. CEP wipes
+// localStorage on a Premiere upgrade (the cache dir is keyed by host version),
+// which silently de-licensed a paying customer with no way to recover — the
+// server has no mid-only lookup, so they had to find their key again.
+// Copying the file to another machine gains nothing: the lease is an ECDSA
+// signature bound to THIS Machine ID and verifyLicenseToken() checks that.
 function getLicense() {
-  try { return JSON.parse(localStorage.getItem('amh.license') || 'null'); }
-  catch (e) { return null; }
+  let ls = null;
+  try { ls = JSON.parse(localStorage.getItem('amh.license') || 'null'); }
+  catch (e) { ls = null; }
+  if (ls) return ls;
+  const fromFile = readLicenseFile();
+  if (fromFile) {
+    // Re-seed the cache so the rest of the session behaves normally.
+    try { localStorage.setItem('amh.license', JSON.stringify(fromFile)); }
+    catch (e) {}
+    return fromFile;
+  }
+  return null;
 }
 
 function setLicense(licenseObj) {
   try { localStorage.setItem('amh.license', JSON.stringify(licenseObj)); }
   catch (e) {}
+  writeLicenseFile(licenseObj);
 }
 
 // validateLicense() (structural-only key check) lives in js/core.js so it can

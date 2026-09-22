@@ -183,6 +183,13 @@ jobs:
       - name: Panel DOM tests (Node, no deps)
         run: node tools/test/test_panel_dom.js
 
+      # Machine identity + license durability. This suite existed but had never
+      # been wired into CI, so the regressions it covers (a Premiere upgrade
+      # wiping the license, a hostname change reported as "another computer")
+      # could ship unnoticed — both were found in the wild on 2026-09-22.
+      - name: Panel machine-identity tests (Node, no deps)
+        run: node panel/test/machine-id.test.mjs
+
       - name: ctc_beam self-check (incl. LM shallow-fusion safe-default + reset)
         run: python ctc_beam.py
 

@@ -575,6 +575,74 @@ from the runtime, while leaving status 'ready' — `tools/build.sh` deliberately
 supports building without VAD, so this must not block the panel, but it must
 not be silent either.
 
+### 1.2m A Premiere upgrade silently de-licensed a paying customer — FIXED (2026-09-22)
+
+Found on the author's own machine: the panel demanded a license key from an
+install that was already activated, and showed *"This machine record was
+created on another computer … contact support"*. Two independent bugs.
+
+**Bug 1 — the license lived only in CEP localStorage.** CEP stores it per
+extension AND per host version:
+
+```
+~/Library/Caches/CSXS/cep_cache/PPRO_26.3.2_com.amharic.captions.panel/Local Storage/
+```
+
+That directory had been created fresh that morning; its leveldb held
+`amh.machineId`, `amh.trial.used`, `amh.onboarded`, `amh.settings` and **no
+`amh.license` at all**. Nothing was corrupt — the whole store was new, because
+the path is keyed by `PPRO_<version>`. **Upgrading Premiere, reinstalling the
+panel, or clearing the CEP cache therefore de-licenses every customer.** No CEP
+cache anywhere on the disk still held the license, so it was unrecoverable.
+
+There was also no way back: `/api/validate` needs the key itself and the server
+exposes no mid-only lookup, so a customer who lost their Telegram message had
+to contact support to re-obtain a key they had already paid for.
+
+*Fix:* the license is now written to `~/.amharic_captions_license.json` and
+localStorage is only a cache (`getLicense`/`setLicense` in `panel/js/main.js`).
+The home-dir file is proven durable — the machine record in the same directory
+survived this exact wipe. Kept as a SEPARATE file from the machine record so a
+license write can never endanger the machine ID. Copying the file to another PC
+gains nothing: the lease is an ECDSA signature bound to that Machine ID and
+`verifyLicenseToken()` checks it.
+
+**Bug 2 — the "another computer" warning was a false alarm.**
+`hostFingerprint()` was `sha256(os.hostname() + "|" + username)`, and macOS
+reports `Name.local` on Wi-Fi, `Name.lan` behind some routers and bare `Name`
+otherwise. **Changing network was enough to tell a paying customer their
+license record came from another machine.** It never invalidated anything (the
+license binds to the Machine ID, not the host) — it just sent people to support.
+
+*Fix:* the fingerprint is now `username|homedir|platform` — stable across
+networks, still catching a record copied to another PC or another account. The
+inputs changed, so the record carries `hv: HOST_FP_VERSION`; a record without
+it predates the change, is **not comparable**, and is silently re-stamped with
+the machine ID preserved. Without that migration every existing install would
+show the false warning exactly once.
+
+**Recovery for the affected machine:** Machine ID `7cc97f2e` was preserved
+(`getOrCreateMachineId` path 2 recovered it from localStorage and rewrote the
+record), so re-entering the existing key reactivates it — no new purchase.
+
+**Tests.** `panel/test/machine-id.test.mjs` gains cases 6–8 (legacy record is
+re-stamped not warned; stable across a boot; the SAME record survives a
+hostname change with an identical fingerprint) and `tools/test/test_panel_dom.js`
+gains case 9 (license round-trips a localStorage wipe, re-seeds the cache, and
+still fails closed when both copies are gone). **Both were verified to FAIL
+against the old implementation** — the identity test fails on exactly
+`hostname change must NOT be reported as another computer`.
+
+`machine-id.test.mjs` had never been wired into CI at all; it now runs in the
+`test` job, so neither regression can ship unnoticed again.
+
+**NOT done — needs a decision.** A `mid`-only re-activation endpoint would let
+a wiped install restore itself with no customer action. It is deliberately not
+implemented: the Machine ID is displayed in the panel and sent to support, so
+serving a lease for a bare mid would let anyone who learns one license that
+machine. The durable file above removes the failure without weakening the
+model; add the endpoint only as a considered trade-off.
+
 ### 1.3 Correctness of caption grouping / timing (visual)
 
 For `long5min` import into Premiere and verify:
