@@ -1,23 +1,24 @@
 #!/usr/bin/env bash
 #
-# Upload one platform's built zip to the PUBLIC downloads-only repo
-# (kaleb21-19/amharic-captions-downloads) so customers can download it
-# anonymously. The main repo is private, so GitHub only serves its release
-# assets to authed API clients (browsers get 404). Each build job calls this
-# with its zip; the release tag is the semver extension version so GitHub's
-# releases/latest always resolves to the newest build.
+# Upload one platform's built zip to THIS repo's releases (kaleb21-19/
+# amharic_caption), which is public, so customers can download the asset
+# anonymously — GitHub only serves release assets of private repos to authed
+# API clients (browsers get 404). Each build job calls this with its zip; the
+# release tag is the semver extension version so GitHub's releases/latest
+# always resolves to the newest build.
 #
 # Usage: bash tools/publish_public_zip.sh <path-to-zip>
 #
-# Requires GH_TOKEN (the PUBLISH_PAT repository secret). The release is created
-# on first publish and assets are overwritten (--clobber) on re-runs.
+# Requires GH_TOKEN (the workflow's GITHUB_TOKEN, with contents: write). The
+# release is created on first publish and assets are overwritten (--clobber)
+# on re-runs.
 set -euo pipefail
 
 ZIP="${1:?usage: publish_public_zip.sh <path-to-zip>}"
 test -f "$ZIP" || { echo "zip not found: $ZIP" >&2; exit 1; }
 test -n "${GH_TOKEN:-}" || { echo "GH_TOKEN not set" >&2; exit 1; }
 
-PUB="kaleb21-19/amharic-captions-downloads"
+PUB="kaleb21-19/amharic_caption"
 VER="$(grep -o 'ExtensionBundleVersion="[^"]*"' panel/CSXS/manifest.xml | head -1 | sed 's/[^"]*"//;s/"//')"
 test -n "$VER" || { echo "could not read ExtensionBundleVersion from panel/CSXS/manifest.xml" >&2; exit 1; }
 TAG="v${VER}"
