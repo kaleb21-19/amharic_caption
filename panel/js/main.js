@@ -2532,7 +2532,6 @@ function setup() {
     try { if (warmChild && !warmChild.killed) warmChild.kill(); } catch (e) {}
   });
 
-  $('choose').addEventListener('click', () => $('fileInput').click());
   $('fileInput').addEventListener('change', () => runFromFile($('fileInput')));
 
   $('diag').addEventListener('click', async (e) => {
