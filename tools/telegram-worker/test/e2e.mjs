@@ -498,6 +498,49 @@ console.log('\n:: scenario 1e — support lookup, and stale flows expire');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: scenario 1f — buyer buttons answer, and Back always lands');
+
+{
+  // Telegram spins a button until its callback query is ANSWERED. No
+  // buyer-facing branch did that, so every buyer tap sat "loading" for ~30s
+  // even when it had worked — which is what "Back to menu doesn't work"
+  // looked like from the buyer's side.
+  const { env } = fresh();
+
+  for (const data of ['menu:pay', 'pay:proof', 'proof:cancel', 'menu:home']) {
+    OUTBOUND.length = 0;
+    await cb(env, { id: Number(BUYER) }, data, { chatId: Number(BUYER) });
+    assert.ok(OUTBOUND.some((o) => o.method === 'answerCallbackQuery'),
+      `${data} answers the callback query (button stops spinning)`);
+  }
+
+  // Back must leave the buyer on the menu, and clear the flow
+  env.DB.prepare("INSERT INTO fsm (uid, step, mid, hint, updated_at) VALUES (?, 'mid', NULL, 1, datetime('now'))")
+    .bind(BUYER).run();
+  OUTBOUND.length = 0;
+  await cb(env, { id: Number(BUYER) }, 'proof:cancel', { chatId: Number(BUYER) });
+  assert.ok(!row(env, 'SELECT * FROM fsm WHERE uid=?', BUYER), 'Back clears the purchase flow');
+  const showsMenu = OUTBOUND.some((o) =>
+    (o.method === 'editMessageText' || o.method === 'sendMessage')
+    && JSON.stringify(o.body.reply_markup || {}).includes('menu:pay'));
+  assert.ok(showsMenu, 'Back puts the main menu back on screen');
+
+  // and if the edit fails (photo message, or unchanged content — safeSend
+  // swallows both), the menu must still be sent rather than nothing happening
+  OUTBOUND.length = 0;
+  // cancel makes three outbound calls: answerCb, the reply-keyboard sweep, then
+  // the edit. Fail all three so the edit is the one that falls over.
+  FAIL_NEXT = 3;
+  await cb(env, { id: Number(BUYER) }, 'proof:cancel', { chatId: Number(BUYER) });
+  FAIL_NEXT = 0;
+  const fellBack = OUTBOUND.some((o) => o.method === 'sendMessage'
+    && JSON.stringify(o.body.reply_markup || {}).includes('menu:pay'));
+  assert.ok(fellBack, 'a failed edit falls back to sending the menu');
+
+  ok('buyer taps are acknowledged; Back always lands on the menu');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 console.log('\n:: scenario 2 — screenshot as document (pdf rejected, image accepted)');
 
 {
@@ -581,8 +624,10 @@ console.log('\n:: scenario 5 — Telegram retries + network blips');
   // blip: the status message fails to send
   FAIL_NEXT = 0;
   const cbBody = { callback_query: { id: 'blip', from: { id: Number(BUYER), first_name: 'B' }, message: { message_id: 700, date: 1, chat: { id: Number(BUYER), type: 'private' } }, data: 'proof:confirm' } };
-  // simulate: make the FIRST outbound on confirm fail (the status text)
-  FAIL_NEXT = 1;
+  // Simulate the status message failing to send. Confirm now answers the
+  // callback query first (so the button stops spinning), so the status text is
+  // the SECOND outbound call, not the first.
+  FAIL_NEXT = 2;
   let res = await post(env, cbBody);
   assert.equal(res.status, 200, 'worker still answers 200 despite blip');
   let orders = rows(env, 'SELECT * FROM orders');

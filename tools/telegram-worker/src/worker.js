@@ -365,6 +365,21 @@ function editText(chatId, messageId, text, kb) {
 // (the payment screenshot) as well as text, and editMessageText fails on a
 // photo message — editMessageReplyMarkup works for both, which matters because
 // the decline-reason picker replaces the buttons under whichever it is.
+// Show the main menu, whatever state the tapped message is in.
+//
+// editText goes through safeSend, which swallows EVERY error and returns
+// {ok:false}: editing fails on a photo message, and Telegram also rejects an
+// edit whose content is unchanged. Either way nothing moved on screen and
+// nobody was told — which is what "Back to menu doesn't work" looked like.
+// Fall back to sending the menu so the tap always produces something visible.
+async function showMenu(chatId, messageId) {
+  if (messageId) {
+    const r = await editText(chatId, messageId, MENU, MENU_KEYBOARD);
+    if (r && r.ok) return r;
+  }
+  return sendText(chatId, MENU, MENU_KEYBOARD);
+}
+
 function editKeyboard(chatId, messageId, kb) {
   return safeSend(tg(TOKEN, 'editMessageReplyMarkup', {
     chat_id: chatId, message_id: messageId,
@@ -1354,16 +1369,21 @@ async function handleCallback(cb) {
 
   // menu navigation
   if (data.startsWith('menu:')) {
+    await answerCb(cbId, '');
     const kind = data.split(':')[1];
-    if (kind === 'home') await editText(chatId, messageId, MENU, MENU_KEYBOARD);
+    if (kind === 'home') await showMenu(chatId, messageId);
     else if (kind === 'pay') {
-      await editText(chatId, messageId, payText(), payKeyboard());
+      const r = await editText(chatId, messageId, payText(), payKeyboard());
+      // Same fallback as showMenu: an edit that fails must not leave the buyer
+      // staring at an unchanged screen after tapping Pay.
+      if (!r || !r.ok) await sendText(chatId, payText(), payKeyboard());
     } else if (kind === 'mykey') await showMyKey(cb, chatId, messageId);
     return;
   }
 
   // pay:proof start
   if (data.startsWith('pay:')) {
+    await answerCb(cbId, '');
     const action = data.split(':')[1];
     if (action === 'proof') {
       const s = await getFsm(fromUid);
@@ -1403,15 +1423,20 @@ async function handleCallback(cb) {
   if (data.startsWith('proof:')) {
     const action = data.split(':')[1];
     if (action === 'cancel') {
+      // Answer FIRST. Telegram spins the button until the callback query is
+      // answered; none of the buyer-facing branches did this, so every buyer
+      // button sat "loading" for ~30s even when it had worked.
+      await answerCb(cbId, '⬅');
       await setFsm(fromUid, null);
-      await editText(chatId, messageId, MENU, MENU_KEYBOARD);
       // Sweep away a reply keyboard from an older build, which would otherwise
       // sit at the bottom of the chat forever asking for a Machine ID.
       await sendClearingKb(chatId, '⬅ ወደ ዋና ገጽ ተመልሰዋል። / Back to the menu.');
+      await showMenu(chatId, messageId);
       return;
     }
-    if (action === 'mykey') { await showMyKey(cb, chatId, messageId); return; }
+    if (action === 'mykey') { await answerCb(cbId, ''); await showMyKey(cb, chatId, messageId); return; }
     if (action === 'confirm') {
+      await answerCb(cbId, '');
       const s = await getFsm(fromUid);
       if (s && s.step === 'confirm' && s.mid) {
         await completeProof(fromUid, chatId, fromUser.username || fromUser.first_name || '', isPrivateChat(chatId, fromUid));
