@@ -483,8 +483,22 @@ console.log('\n:: scenario 6 — reject path');
   assert.equal(res.status, 200);
   assert.equal(row(env, 'SELECT status FROM orders WHERE id=?', o.id).status, 'rejected');
   assert.equal(rows(env, 'SELECT * FROM customers').length, 0, 'no key minted');
-  const buyerMsg = OUTBOUND.filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === BUYER && (x.body.text || '').includes('proof not verified'));
-  assert.ok(buyerMsg.length, 'buyer told proof not verified');
+  // Assert the buyer is not left at a dead end, rather than on a phrase: they
+  // must be told, AND given a way back. A decline used to send one English
+  // sentence with no reason and no buttons, while the live status message they
+  // were watching still said "Pending".
+  const buyerMsg = OUTBOUND.filter((x) => x.method === 'sendMessage'
+    && String(x.body.chat_id) === BUYER
+    && (x.body.text || '').includes('could not verify'));
+  assert.ok(buyerMsg.length, 'buyer is told the proof was not verified');
+  const kb = JSON.stringify(buyerMsg[buyerMsg.length - 1].body.reply_markup || {});
+  assert.ok(kb.includes('pay:proof'), 'declined buyer gets a Try again button');
+  assert.ok(kb.includes('t.me'), 'declined buyer gets a way to reach support');
+  // and the pending status they were watching is resolved, not left hanging
+  const edited = OUTBOUND.filter((x) => x.method === 'editMessageText'
+    && String(x.body.chat_id) === BUYER
+    && (x.body.text || '').includes('Declined'));
+  assert.ok(edited.length, 'the live status message is updated to Declined');
   res = await cb(env, { id: Number(ADMIN_ID) }, `reject:${o.id}`);
   assert.equal(res.status, 200);
   ok('reject works, idempotent, buyer notified, no key');

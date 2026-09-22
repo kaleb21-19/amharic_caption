@@ -269,12 +269,10 @@ const payKeyboard = () => [
 ];
 
 const MENU = 'ሰላም! 👋 ከታች ይምረጡ / Choose below:';
-const MENU_KEYBOARD = [
-  [{ text: '💳 ክፍያ · Pay', callback_data: 'menu:pay' }],
-  [{ text: '🔑 ቁልፌ · My Key', callback_data: 'menu:mykey' }],
-  [{ text: '📲 አጫጫን · Install guide', url: `${SITE_URL}/install` }],
-  [{ text: '💬 ድጋፍ · Support', url: 'https://t.me/+L-bMfmIRyEo3MDg0' }],
-];
+// Was a byte-identical copy of heroKeyboard(). Two definitions of one menu is
+// how they drift apart — this one still said "Pay" in English after the other
+// had been translated.
+const MENU_KEYBOARD = heroKeyboard();
 
 // ── D1 helpers ──────────────────────────────────────────────────────────────
 async function findKey(mid) {
@@ -1112,7 +1110,31 @@ async function reject(chatId, messageId, orderId, cbId) {
   await editText(chatId, messageId,
     `❌ <b>Declined #${orderId}</b> — @${o.username} <code>${o.machine_id}</code>\n` +
     `${left ? `📥 ${left} request(s) left in queue.` : '🎉 Queue is clear.'}`);
-  if (o.chat_id) await sendText(o.chat_id, 'Sorry — payment proof not verified. No key was sent. If you believe this is an error, contact the seller.');
+  // The buyer was watching a live status message that said "Pending — you're
+  // #N in line". approve() edits it; reject() never did, so a declined buyer
+  // was left with two contradictory messages in the same chat: a pending
+  // status that never resolves, and a refusal underneath it.
+  if (o.status_msg_id) {
+    await editText(o.chat_id || o.uid, o.status_msg_id,
+      '🔴 <b>ትዕዛዝ አልተሳካም / Order declined</b>\n\n' +
+      `🤖 Machine ID: <code>${o.machine_id}</code>\n🔴 <b>ሁኔታ / Status: Declined</b>`);
+  }
+  // And it was a dead end: no reason, no way to retry, no way to reach a human
+  // — at the single worst moment in the product, where someone believes they
+  // have paid. Give the usual causes and two buttons out.
+  if (o.chat_id) {
+    await sendText(o.chat_id,
+      '❌ <b>የክፍያ ማረጋገጫው አልተረጋገጠም</b>\n' +
+      '<i>We could not verify your payment proof. No key was sent.</i>\n\n' +
+      '<b>በአብዛኛው ምክንያቱ:</b>\n' +
+      '• ፎቶው ግልጽ አይደለም — <i>the screenshot was unclear</i>\n' +
+      `• የተላከው መጠን ${PRICE} አይደለም — <i>the amount did not match</i>\n` +
+      `• ወደ ሌላ አካውንት ተልኳል — <i>it went to a different account</i>\n\n` +
+      'ግልጽ የሆነ ፎቶ ይዘው እንደገና መሞከር ይችላሉ።\n' +
+      '<i>You can try again with a clearer screenshot, or message us.</i>',
+      [[{ text: '🔄 እንደገና ልሞክር · Try again', callback_data: 'pay:proof' }],
+       [{ text: '💬 ድጋፍ · Contact support', url: SUPPORT_URL }]]);
+  }
   await answerCb(cbId, '❌ Declined');
   log('warn', 'order_rejected', { orderId, mid: o.machine_id, uid: o.uid });
 }
