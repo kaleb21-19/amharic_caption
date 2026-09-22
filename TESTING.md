@@ -643,6 +643,56 @@ serving a lease for a bare mid would let anyone who learns one license that
 machine. The durable file above removes the failure without weakening the
 model; add the endpoint only as a considered trade-off.
 
+### 1.2n The website's Windows download 404s — release shipped without the Windows zip (2026-09-22)
+
+Reported as "the website download redirects to not found". It is **Windows
+only**, which is the platform most buyers are on.
+
+```
+404  amharic-captions-win-x64.zip     <- every Windows customer
+200  amharic-captions-mac-arm64.zip
+200  amharic-captions-mac-x64.zip
+
+releases/latest -> v1.4.26
+assets: mac-arm64.zip, mac-arm64.zip.sha256, mac-x64.zip, mac-x64.zip.sha256
+```
+
+The link is not broken — the asset does not exist. `v1.4.26` was published with
+both macOS zips and no Windows zip. Older `build-*` tags DO contain
+`amharic-captions-win-x64.zip`, so Windows builds work; what is new is the
+per-job publish step.
+
+**Most likely cause:** `tools/publish_public_zip.sh` ran `shasum -a 256` under
+`set -euo pipefail`. `shasum` is a Perl script and is not guaranteed on Git
+Bash's PATH on the Windows runner, and the checksum is computed BEFORE the
+upload — so a missing tool aborts the script with nothing uploaded. That fits
+the evidence exactly: Windows is missing **both** its zip and its `.sha256`,
+while macOS has both. NOT confirmed against the Actions log (not readable from
+here), so treat it as the leading hypothesis, not a proven root cause — the
+fixes below make the pipeline fail loudly whichever of these it is.
+
+**Fixes.**
+1. *Portable checksum.* `sha256_into()` tries `sha256sum`, then `shasum`, then
+   `openssl`, and fails with a named error if none exists. The three runner
+   OSes genuinely disagree here: `sha256sum` is absent on macOS, `shasum`
+   unreliable on Git Bash.
+2. *Verify the upload landed.* `gh release upload` can report success for an
+   asset that is not on the release. The script now re-reads the release and
+   greps for the filename, failing if absent.
+3. *The systemic one — `publish-ready` now VERIFIES instead of assuming.* It
+   used to print "all three published" purely because the three build jobs
+   reported success; it never looked at the release. It now reads the release
+   assets AND `curl -I -L`s the three public
+   `releases/latest/download/...` URLs the website links to, failing the build
+   if any is missing or not serving 200.
+
+**Verified:** the new gate was dry-run against the live broken release and
+correctly exits 1 on `[MISSING] amharic-captions-win-x64.zip`.
+
+**Still to do:** re-run the build so `v1.4.26` gets its Windows zip. Until then
+Windows customers cannot install. If the re-run fails again, the Actions log
+for `build-win` will now name the reason.
+
 ### 1.3 Correctness of caption grouping / timing (visual)
 
 For `long5min` import into Premiere and verify:
