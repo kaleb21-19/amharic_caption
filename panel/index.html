@@ -497,11 +497,25 @@
           <div class="machine-id" id="machineIdDisplay" title="Click to select all">loading…</div>
           <button type="button" id="machineIdCopy" class="btn btn-neutral" style="flex:0 0 auto;min-width:70px;" title="Copy Machine ID">📋 Copy</button>
         </div>
+        <!-- One button instead of "copy this, open that, paste it there". It
+             opens the bot with the Machine ID already in the message, so the
+             most error-prone step of the purchase — hand-copying an 8-char id
+             into a chat — disappears. Copy stays for anyone who prefers to
+             paste it themselves or has no Telegram on this machine. -->
+        <button type="button" id="buyBtn" class="btn btn-primary" style="margin-top:8px;width:100%;">
+          Buy a license — ETB 2,500
+        </button>
         <div class="hint" style="margin-top:6px;line-height:1.5;">
-          <b style="color:var(--text-primary);">1)</b> Tap <b>📋 Copy</b> → open the Telegram bot → <b>paste</b> it.<br>
-          <b style="color:var(--text-primary);">2)</b> Pay <b>ETB 2,500</b> by bank transfer to <b>KALEB TEGEGEN</b> — CBE <b>1000504159977</b> · Abyssinia <b>402393939</b> · Zemen <b>1031111343277015</b>.<br>
-          <b style="color:var(--text-primary);">3)</b> Send this Machine ID <b>+ your payment screenshot</b> in the bot →
-          you'll get your key <b>there (in the bot)</b>.
+          Opens the Telegram bot with your Machine ID filled in. Pay
+          <b>ETB 2,500</b> by bank transfer to <b>KALEB TEGEGEN</b>, send the
+          screenshot in the bot, and your key arrives in that chat.
+          <a href="#" id="bankDetails">Bank accounts</a>
+        </div>
+        <div class="hint" id="bankBox" style="display:none;margin-top:6px;line-height:1.6;">
+          <b>CBE</b> 1000504159977<br>
+          <b>Abyssinia</b> 402393939<br>
+          <b>Zemen</b> 1031111343277015<br>
+          Account name: <b>KALEB TEGEGEN</b> — pay no one else.
         </div>
       </div>
 

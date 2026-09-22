@@ -698,6 +698,37 @@ await t('10. single-clip progress: engine window lines drive the bar', async () 
   } finally { p.close(); }
 });
 
+await t('11. a failed run says so on screen, not only in the log', async () => {
+  // A failure used to print one ERROR line into a collapsed Log and reset the
+  // bar to zero — visually identical to "nothing happened". The user clicks
+  // Generate again, it fails again, and support gets "it doesn't work".
+  const p = loadPanel({});
+  try {
+    // raw engine text is translated into something an editor can act on
+    const cases = [
+      ['audio too short (35 ms)', 'too short'],
+      ['Python failed: worker exited', 'engine stopped'],
+      ['ffmpeg failed with code 1', 'Could not read'],
+      ['ENOSPC: no space left on device', 'disk is full'],
+      ['runtime incomplete', 'runtime is missing'],
+      ['something nobody predicted', 'Transcription failed'],
+    ];
+    for (const [raw, expect] of cases) {
+      const got = p.evalVm('humanError(' + JSON.stringify(raw) + ')');
+      has(got, expect, 'humanError(' + JSON.stringify(raw) + ') mentions "' + expect + '"');
+    }
+
+    // failRun puts the message where the user is looking AND flips the pill
+    p.evalVm('failRun("Python failed: worker exited")');
+    assert.strictEqual(p.els('statusText').textContent, 'failed',
+      'status pill reports the failure');
+    has(p.els('progLabel').textContent, 'engine stopped',
+      'the human message is shown next to the Generate button');
+    has(p.els('progLabel').textContent, 'Log',
+      'and points at the Log for detail');
+  } finally { p.close(); }
+});
+
 console.log('\n' + (fail===0 ? 'ALL PASS' : 'FAILURES: '+fail) + '  (' + pass + ' passed, ' + fail + ' failed)');
 process.exit(fail===0 ? 0 : 1);
 })().catch((e) => { console.error('Fatal:', e); process.exit(1); });

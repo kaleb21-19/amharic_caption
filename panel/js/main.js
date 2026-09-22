@@ -439,6 +439,34 @@ function initSupport() {
   }
 }
 
+// Buy: open the sales bot with the Machine ID already in the message. The
+// three-step "copy / open / paste" instruction it replaces put the single
+// most error-prone action in the purchase — transcribing an 8-character id
+// into a chat by hand — on the customer.
+function initBuy() {
+  const b = document.getElementById('buyBtn');
+  if (b) {
+    b.addEventListener('click', (e) => {
+      e.preventDefault();
+      const msg = encodeURIComponent(
+        'Hello! I want to buy Amharic Captions.\nMachine ID: ' + MACHINE_ID);
+      const url = 'https://t.me/AmharicCaptionsBot?text=' + msg;
+      try { window.__adobe_cep__ && window.cep.util.openURLInDefaultBrowser(url); }
+      catch (err) { window.open(url, '_blank'); }
+    });
+  }
+  // Bank details stay one tap away rather than occupying the panel by
+  // default — they matter at payment time, not while reading.
+  const t = document.getElementById('bankDetails');
+  const box = document.getElementById('bankBox');
+  if (t && box) {
+    t.addEventListener('click', (e) => {
+      e.preventDefault();
+      box.style.display = box.style.display === 'none' ? 'block' : 'none';
+    });
+  }
+}
+
 // Terms link: open the license, privacy & refund page in the default browser.
 function initLegal() {
   const a = document.getElementById('legalLink');
@@ -2332,6 +2360,7 @@ async function run() {
   if (reviewOpen) closeReview();
   clearLog();
   cancelRequested = false;
+  runFailed = false;
   setProgress(0, '');
   if (!RUNTIME) {
     log('ERROR: Transcription runtime not found.');
@@ -2353,12 +2382,47 @@ async function run() {
     if (SOURCE === 'clip') { await runSelectedClip(); return; }
     await runWorkArea();
   } catch (e) {
-    if (!cancelRequested) log('ERROR: ' + (e && e.message ? e.message : e));
+    if (!cancelRequested) {
+      const raw = (e && e.message) ? e.message : String(e);
+      log('ERROR: ' + raw);
+      // Say it where the user is actually looking. Previously a failed run
+      // only printed into the Log and silently reset the bar to zero, which
+      // is indistinguishable from "nothing happened" — the user re-clicks
+      // Generate, it fails again, and they message support with "it doesn't
+      // work" and no detail.
+      failRun(raw);
+    }
   } finally {
     setBusy(false);
-    setProgress(0, '');
+    if (!cancelRequested && !runFailed) setProgress(0, '');
     updateLicenseUI();
   }
+}
+
+// Set for the lifetime of one failed run so the finally block does not wipe
+// the message it just put on screen.
+let runFailed = false;
+
+// Turn an engine/transport error into something an editor can act on. The raw
+// text is still written to the Log for support; this is the one line they see.
+function humanError(raw) {
+  const t = String(raw || '').toLowerCase();
+  if (t.includes('audio too short')) return 'That clip is too short to transcribe.';
+  if (t.includes('no speech')) return 'No speech found in that audio.';
+  if (t.includes('ffmpeg')) return 'Could not read that media file.';
+  if (t.includes('enospc') || t.includes('no space')) return 'Your disk is full.';
+  if (t.includes('python failed') || t.includes('worker')) return 'The transcription engine stopped unexpectedly.';
+  if (t.includes('runtime')) return 'The transcription runtime is missing or incomplete.';
+  if (t.includes('cancel')) return 'Cancelled.';
+  return 'Transcription failed.';
+}
+
+function failRun(raw) {
+  runFailed = true;
+  const msg = humanError(raw);
+  setStatus('err', 'failed');
+  // progLabel is an aria-live region, so this is announced as well as shown.
+  setProgress(0, msg + ' See the Log for details.');
 }
 
 async function runSelectedClip() {
@@ -2714,6 +2778,7 @@ function setup() {
   renderHealthList();
   initOnboarding();
   initSupport();
+  initBuy();
   initLegal();
   initVersion();
   initReview();
