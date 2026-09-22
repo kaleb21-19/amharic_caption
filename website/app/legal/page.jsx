@@ -221,7 +221,7 @@ export default function LegalPage() {
             Questions? Message{" "}
             <a href={CONTACT_URL} target="_blank" rel="noopener">@sumpak6</a>,
             or read the{" "}
-            <Link href="/faq/">FAQ</Link>.
+            <Link href="/#faq">FAQ</Link>.
           </p>
         </div>
       </section>
