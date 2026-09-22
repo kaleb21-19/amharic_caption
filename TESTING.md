@@ -120,7 +120,7 @@ at 64.3% (the harness now strips Ethiopic punctuation U+1360–U+1368 before sco
 | noisy | 92.9% | |
 | numbers | 72.4% | digits badly mangled |
 | short1 | 100.0% | 1s clip, both tokens wrong |
-| long5min | completes (no OOM) | 5-min clip windowed at VAD boundaries (~60s via `AMH_WINDOW_SECS`); full 5:00 covered, peak RSS ~4.8GB; resumable |
+| long5min | completes (no OOM) | 5-min clip windowed at VAD boundaries (~20s via `AMH_WINDOW_SECS`, was 60s — see §1.2j); full 5:00 covered, peak RSS ~4.8GB measured at the old 60s default; resumable |
 | silence | n/a | ground truth empty — no crash, correct |
 
 **Honest reading:** these synthetic/TTS-domain fixtures are far harder than the
@@ -143,7 +143,7 @@ Engine changes on top of 1.4.14 (repo; shipped in the next version):
   Applied in `make_cues()` *after* digit re-gluing so numbers stay intact. Verified on
   `news`: `...አስታውቅዋል።` and a final `ተልዮዋል።`, WER unchanged.
 - **Resumable long audio.** Audio longer than `AMH_LONG_SECS` (300s) uses `_run_long()`:
-  VAD-boundary windows of ~`AMH_WINDOW_SECS` (60s). After every window it rewrites a
+  VAD-boundary windows of ~`AMH_WINDOW_SECS` (20s since §1.2j; was 60s). After every window it rewrites a
   valid partial SRT and a journal `<out_srt>.part.json` (`{fp,total,done,cues,texts}`).
   A killed/timed-out run resumes (fingerprint-checked against the WAV) and processes only
   the remaining windows; the journal is deleted on clean finish. Verified end-to-end:
@@ -418,6 +418,81 @@ self-check.
 > genuine `ValueError` (numpy>=2 changed batched `np.linalg.solve` to require a
 > stack of matrices) surfaced as a silent pass-through. It now calls the core
 > path unguarded and asserts effect sizes. A test that cannot fail is not a test.
+
+### 1.2j Window length 60s -> 20s, and a VAD trap that invalidates measurements (2026-09-22)
+
+**Change:** `AMH_WINDOW_SECS` (`ethio_srt.py:_window_target_samples`) default
+**60s -> 20s**. 60s was picked in §1.2b to stop an OOM and never re-examined.
+
+**Why the 19-clip real set cannot see this.** Longest scored fixture is 6.59s;
+`_plan_windows` returns a single window whenever audio is shorter than the
+target, so every clip in `fixtures_real/` is byte-identical at any setting from
+8s to 60s (verified: a 6.6s clip diffs clean at 60s vs 20s). This is a property
+of the code, not a measurement.
+
+**Fixture that does exercise it.** The 19 clips concatenated in 4 shuffled
+orders with 0.4s gaps — 340.6s, 468 reference words. Different orders put the
+cuts in different places. Over 300s, so it also uses the `_run_long()`
+resumable path. Greedy decode, **VAD on**, shipped runtime, Apple M4.
+
+| window | wall | peak RSS | hyp tokens (ref 468) | WER | CER | CER-nospace |
+|---|---|---|---|---|---|---|
+| 60s (old default) | 105.8s | 2.84 GB | 282 | 64.7% | 31.8% | 29.1% |
+| 30s | 82.3s | 2.00 GB | 386 | 52.1% | 22.1% | 22.2% |
+| **20s (new default)** | 78.5s | **1.52 GB** | 387 | **50.9%** | 21.3% | 21.1% |
+| 15s | 76.3s | 1.57 GB | 399 | 50.9% | 21.1% | 21.5% |
+
+60s -> 20s wins on every axis at once: **-13.8 pp WER, -10.5 pp CER,
+-1.32 GB peak RSS, -26% wall**. 15s buys nothing over 20s.
+
+**The engine is deterministic.** Verified two ways: the 60s row was reproduced
+**byte-identically** a day later, and three repeats at each of 60s/20s produced
+identical output. Any apparent run-to-run variation is an environment
+difference, not the model — see the trap below.
+
+**THE VAD TRAP — read this before measuring anything.** `amh_vad.py` loads
+`silero_vad.onnx` from its own directory and **returns None silently** if the
+file (or onnxruntime) is missing. A hand-staged runtime that copies the `.py`
+files but not the 1.8 MB `.onnx` therefore runs with VAD effectively off:
+93 VAD segments on the fixture become **1**. Nothing errors, nothing warns.
+
+This cost a day of work. A staged runtime missing the file produced numbers
+6–14 pp apart from the shipped runtime, and three wrong conclusions were drawn
+from comparing the two environments against each other:
+- "long windows make the model under-generate" — unsupported,
+- "`_run_long()` drops content" — unsupported; the 121-word gap was the VAD,
+  and the two paths are equivalent on inspection (both call `_plan_windows`
+  then `engine._transcribe_one(wav[st:en])` with the same shift math),
+- "the engine is non-deterministic" — false, see above.
+
+**Always** check `len(ethio_srt._vad_segments(wav))` is plausible (dozens, not
+1) before trusting a measurement from a non-shipped runtime.
+
+**Open item 1 — VAD may be COSTING accuracy.** With VAD off, the same fixture
+scored *better* at every window (60s: 50.0% vs 64.7%; 20s: 43.6% vs 50.9%).
+Treat as a lead, not a finding: the fixture's 0.4s digital-silence gaps are
+exactly the artefact that could make a neural VAD misbehave. Re-test on natural
+continuous audio before acting.
+
+**Open item 2 — the CI accuracy gate does not measure the shipped product.**
+`accuracy-gate` builds `fake_runtime/` without `silero_vad.onnx` AND sets
+`AMH_VAD=0` (`.github/workflows/build.yml`), so it scores VAD-off behaviour
+while every customer runs VAD-on — conditions measured 6–14 pp apart. Either
+ship the onnx into that fake runtime and drop `AMH_VAD=0`, or rename the job so
+it is not read as product accuracy.
+
+**Open item 3 — missing VAD degrades silently in the product too.**
+`tools/build.sh` warns but still builds a zip if `tools/vad/silero_vad.onnx` is
+absent, and `runtimeComplete()` (`panel/js/main.js`) checks `ethio_srt.py`,
+`model`, `ffmpeg` and `python` but **not** the VAD asset — so such an install
+reports healthy and quietly produces worse captions. The file IS tracked in git
+today, so shipped zips are fine; add it to `runtimeComplete()` so they stay fine.
+
+**Regression checks after the change:** `run_engine.sh --fixtures
+fixtures_real` 38/38 pass, 0 fail; `test_long.py` ALL PASS; 6.6s clip
+byte-identical at 60s vs 20s; the 25.9s `abu` clip unchanged (17 cues, 66
+words) — `_plan_windows` tolerates overshoot, so it plans ONE 26s window at a
+20s target and the 20–26s band gets no split.
 
 ### 1.3 Correctness of caption grouping / timing (visual)
 
