@@ -1326,8 +1326,14 @@ function warmStart() {
   // panel log instead of vanishing.
   child.stderr.setEncoding('utf8');
   child.stderr.on('data', (d) => {
-    const t = String(d).trim();
-    if (t) log('[worker] ' + t);
+    // Split: a single chunk can carry several lines, and progress lines must
+    // be consumed individually rather than logged as one blob.
+    String(d).split('\n').forEach((raw) => {
+      const t = raw.trim();
+      if (!t) return;
+      if (consumeProgressLine(t)) return;
+      log('[worker] ' + t);
+    });
   });
   child.on('error', () => { if (warmChild === child) warmDiscard('worker error'); });
   child.on('exit', () => { if (warmChild === child) warmDiscard('worker exited'); });
@@ -1579,7 +1585,7 @@ async function transcribe(sourcePath, outSrt, range, offset) {
   try {
     if (!warmStart()) {
       // Server unavailable → one-shot process.
-      return transcribeOneShot(sourcePath, outSrt, range, offset, wav, () => {});
+      return transcribeOneShot(sourcePath, outSrt, range, offset, wav);
     }
     const r = await warmSend(Object.assign({
       wav, out_srt: outSrt, offset: offset || 0
@@ -1599,14 +1605,17 @@ async function transcribe(sourcePath, outSrt, range, offset) {
     if (e && e.message === 'Cancelled') throw e;
     if (!e || !WARM_TRANSPORT_ERRS.has(e.message)) throw e;
     // One-shot fallback (worker missing or failed this request).
-    return transcribeOneShot(sourcePath, outSrt, range, offset, wav, () => {});
+    return transcribeOneShot(sourcePath, outSrt, range, offset, wav);
   } finally {
     try { fs.unlinkSync(wav); } catch (e) {}
   }
 }
 
 // Original per-run python process (fallback when the warm worker is absent).
-function transcribeOneShot(sourcePath, outSrt, range, offset, wav, onProgress) {
+// `onProgress` used to be a parameter here that every caller passed as an empty
+// function and nothing ever invoked. Progress now flows the same way as on the
+// warm path — parsed off the child's stderr — so the dead parameter is gone.
+function transcribeOneShot(sourcePath, outSrt, range, offset, wav) {
   return new Promise((resolve, reject) => {
     const pyArgs = [SCRIPT, wav, outSrt].concat(pyFlags());
     if (offset && offset !== 0) pyArgs.push('--offset', String(offset));
@@ -1621,6 +1630,20 @@ function transcribeOneShot(sourcePath, outSrt, range, offset, wav, onProgress) {
       lastSrtPath = outSrt;
       resolve({ outSrt, cues, transcript });
     });
+    // execFile buffers stderr for the callback, but we also want it live so
+    // the bar moves while the run is happening rather than all at once at the
+    // end. Attaching a listener does not disturb the buffered copy.
+    try {
+      if (activeChild && activeChild.stderr) {
+        activeChild.stderr.setEncoding('utf8');
+        activeChild.stderr.on('data', (d) => {
+          String(d).split('\n').forEach((raw) => {
+            const t = raw.trim();
+            if (t) consumeProgressLine(t);
+          });
+        });
+      }
+    } catch (e) {}
   });
 }
 
@@ -2275,6 +2298,26 @@ function setProgress(pct, text) {
   if (label) label.textContent = text || '';
 }
 
+// Set while a single clip is transcribing. The engine streams
+// `[progress] done/total` on stderr once per window; the warm worker's stderr
+// drain routes matching lines here. Null at every other time, so batch runs
+// (which drive the bar from their own clip counter) are unaffected.
+let windowProgress = null;
+
+// Parse one engine stderr line. Returns true when it was a progress line and
+// has been consumed, so the caller can keep it out of the log — one line per
+// 20s window would otherwise bury real messages on a long clip.
+function consumeProgressLine(line) {
+  const m = /^\[progress\]\s+(\d+)\/(\d+)\s*$/.exec(String(line).trim());
+  if (!m) return false;
+  if (!windowProgress) return true;
+  const done = Number(m[1]);
+  const total = Number(m[2]);
+  if (!total) return true;
+  windowProgress(done, total);
+  return true;
+}
+
 async function run() {
   // A fresh run replaces whatever review/overlay was showing.
   if (reviewOpen) closeReview();
@@ -2324,11 +2367,45 @@ async function runSelectedClip() {
   const cleanName = (c.name.replace(/\.[^.]+$/, '') || 'captions');
 
   const outSrt = path.join(os.tmpdir(), 'amh_captions_' + Date.now() + '.srt');
-  setProgress(0.4, 'Transcribing…');
+  setProgress(0.15, 'Transcribing…');
+
+  // Drive the bar from the engine's real per-window progress instead of
+  // parking it at a fixed percentage. Before this, a single clip — the
+  // DEFAULT source — sat at 40% with "Transcribing…" from start to finish,
+  // so a ten-minute interview looked exactly like a hang and invited the user
+  // to kill Premiere mid-run. Batch mode already had per-clip progress; this
+  // gives the single-clip path the same honesty.
+  // Window work spans 0.15 -> 0.9, leaving room for extraction before and
+  // placement after.
+  const startedAt = Date.now();
+  windowProgress = (done, total) => {
+    const frac = Math.max(0, Math.min(1, done / total));
+    let eta = '';
+    // Only estimate once a window has actually completed, otherwise the first
+    // guess is wild and the number visibly lurches.
+    if (done > 0 && done < total) {
+      const perWindow = (Date.now() - startedAt) / done;
+      const left = Math.round((perWindow * (total - done)) / 1000);
+      if (left > 0) {
+        eta = left >= 60
+          ? ' · about ' + Math.ceil(left / 60) + ' min left'
+          : ' · about ' + left + 's left';
+      }
+    }
+    setProgress(0.15 + frac * 0.75, 'Transcribing ' + done + '/' + total + eta);
+  };
+
   // Bake the clip's absolute timeline position into the SRT timestamps (so the
   // cues carry their real timeline times), then place the caption band at 0.
-  const r = await transcribe(c.sourcePath, outSrt,
-    { sourceIn: c.sourceIn, duration: c.duration }, c.timelineStart);
+  let r;
+  try {
+    r = await transcribe(c.sourcePath, outSrt,
+      { sourceIn: c.sourceIn, duration: c.duration }, c.timelineStart);
+  } finally {
+    // Always clear, including on cancel or error — a stale reporter would
+    // otherwise keep moving the bar during the next run.
+    windowProgress = null;
+  }
   setProgress(0.9, 'Transcription complete');
 
   if (!r.cues.length) log('No speech detected in this audio — nothing to place.');

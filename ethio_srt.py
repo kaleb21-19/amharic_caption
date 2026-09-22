@@ -686,6 +686,24 @@ def _plan_windows(wav, target):
     return out
 
 
+def _emit_progress(done, total):
+    """Announce window progress on stderr as `[progress] done/total`.
+
+    stderr (not stdout) because stdout carries the transcript. The panel
+    parses these and drives its progress bar; anything that cannot parse them
+    just sees an info line. Silent for single-window audio, where a bar would
+    finish before it rendered. flush=True matters: python buffers stderr when
+    it is a pipe, and a progress line that arrives after the work is done is
+    worse than none.
+    """
+    if total <= 1:
+        return
+    try:
+        print("[progress] %d/%d" % (done, total), file=sys.stderr, flush=True)
+    except Exception:
+        pass
+
+
 def _windowed_transcribe(engine, wav):
     """Transcribe arbitrary-length audio in bounded VAD-aligned windows so
     memory stays flat, merging per-window spans back onto the original timeline.
@@ -699,7 +717,15 @@ def _windowed_transcribe(engine, wav):
         return engine._transcribe_one(wav)
     texts = []
     out_spans = []
-    for st, en in _plan_windows(wav, target):
+    wins = _plan_windows(wav, target)
+    # Per-window progress. The caller (the panel) shows a bar that otherwise
+    # sits frozen for the whole transcription: a single clip used to jump to
+    # 40% and not move again until it finished, which on a long interview
+    # reads as a hang. One line per window is enough to drive a real bar.
+    # Only emitted when there IS more than one window — a short clip finishes
+    # before a progress bar would mean anything.
+    _emit_progress(0, len(wins))
+    for k, (st, en) in enumerate(wins):
         try:
             text, spans, fdur = engine._transcribe_one(wav[st:en])
         except ValueError as e:
@@ -708,6 +734,7 @@ def _windowed_transcribe(engine, wav):
             if not str(e).startswith("audio too short"):
                 raise
             print("[info] window %d-%d skipped: %s" % (st, en, e), file=sys.stderr)
+            _emit_progress(k + 1, len(wins))
             continue
         if text:
             texts.append(text)
@@ -715,6 +742,7 @@ def _windowed_transcribe(engine, wav):
             ss = st + int(round(s * fdur * 16000))
             ee = st + int(round((e + 1) * fdur * 16000))
             out_spans.append((tok, ss, max(ss, ee)))
+        _emit_progress(k + 1, len(wins))
     return " ".join(texts), out_spans, 1.0 / 16000.0
 
 
@@ -914,6 +942,7 @@ def _run_long(engine, wav, mode, group_size, max_chars, offset, out_srt):
                       % (done, total), file=sys.stderr)
         except Exception:
             done, cues, texts = 0, [], []
+    _emit_progress(done, total)
     for k in range(done, total):
         st, en = wins[k]
         text, wcues = _win_cues(engine, wav, st, en, mode, group_size, max_chars)
@@ -921,6 +950,7 @@ def _run_long(engine, wav, mode, group_size, max_chars, offset, out_srt):
             texts.append(text)
         cues.extend(wcues)
         done = k + 1
+        _emit_progress(done, total)
         if out_srt:
             write_srt(out_srt, cues, offset)  # partial, fully valid SRT
         try:

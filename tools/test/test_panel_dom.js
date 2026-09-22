@@ -655,6 +655,49 @@ await t('9. license survives a CEP localStorage wipe (Premiere upgrade)', async 
   } finally { fs.rmSync(machineHome,{recursive:true,force:true}); }
 });
 
+await t('10. single-clip progress: engine window lines drive the bar', async () => {
+  // A single clip is the DEFAULT source, and its bar used to be parked at a
+  // fixed 40% for the whole transcription — a ten-minute interview looked
+  // identical to a hang. The engine now streams `[progress] done/total` per
+  // ~20s window; these assert the panel actually consumes it.
+  const p = loadPanel({});
+  try {
+    // Arrays built inside the vm have that realm's prototype, so compare
+    // primitives rather than deepStrictEqual across the boundary.
+    p.evalVm('__seen = []; windowProgress = (d, t) => { __seen.push(d + "/" + t); };');
+
+    // a well-formed line is consumed (returns true) and reported
+    assert.strictEqual(p.evalVm('consumeProgressLine("[progress] 3/12")'), true,
+      'progress line is recognised');
+    assert.strictEqual(p.evalVm('__seen[__seen.length-1]'), '3/12',
+      'done/total parsed and forwarded');
+
+    // it must be CONSUMED, not logged — one line per window would bury real
+    // messages in the log on a long clip
+    assert.strictEqual(p.evalVm('consumeProgressLine("[progress] 12/12")'), true,
+      'final progress line consumed');
+
+    // ordinary engine chatter must pass through untouched
+    assert.strictEqual(p.evalVm('consumeProgressLine("[info] loading audio: x.wav")'), false,
+      'non-progress stderr is not swallowed');
+    assert.strictEqual(p.evalVm('consumeProgressLine("Traceback (most recent call last):")'), false,
+      'a crash line is never swallowed');
+
+    // malformed variants must not throw or report
+    const before = p.evalVm('__seen.length');
+    assert.strictEqual(p.evalVm('consumeProgressLine("[progress] notanumber")'), false,
+      'malformed progress line is not treated as progress');
+    assert.strictEqual(p.evalVm('__seen.length'), before,
+      'malformed line reported nothing');
+
+    // with no active reporter it is still consumed (batch runs drive their own
+    // bar and must not be disturbed by stray lines)
+    p.evalVm('windowProgress = null;');
+    assert.strictEqual(p.evalVm('consumeProgressLine("[progress] 1/5")'), true,
+      'consumed even with no reporter attached');
+  } finally { p.close(); }
+});
+
 console.log('\n' + (fail===0 ? 'ALL PASS' : 'FAILURES: '+fail) + '  (' + pass + ' passed, ' + fail + ' failed)');
 process.exit(fail===0 ? 0 : 1);
 })().catch((e) => { console.error('Fatal:', e); process.exit(1); });
