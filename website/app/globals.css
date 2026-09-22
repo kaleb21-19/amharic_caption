@@ -753,6 +753,18 @@ code {
   background: var(--bg-card);
   height: 100%;
 }
+/* Match .card-icon on the homepage — these were unstyled, so the safety cards
+   showed a bare emoji where every other card on the site shows a framed mark. */
+.safe-icon {
+  display: grid;
+  place-items: center;
+  width: 40px; height: 40px;
+  margin-bottom: var(--s-4);
+  border-radius: 12px;
+  border: 1px solid var(--brand-line);
+  background: rgba(61,220,138,0.08);
+  font-size: 1.05rem;
+}
 .safe-card p { font-size: var(--t-sm); color: var(--muted); }
 .safe-accounts { list-style: none; margin: var(--s-3) 0 0; padding: 0; display: grid; gap: 7px; }
 .safe-accounts li {
@@ -1027,6 +1039,59 @@ code {
   border-left: 2px solid var(--brand-line);
   color: var(--muted-2) !important;
   font-size: var(--t-xs) !important;
+}
+
+/* -------------------------------------------------------------------- legal */
+/* A long document, not a landing section: narrower measure for readability and
+   real vertical separation between the three policies. */
+.legal {
+  max-width: var(--max-narrow);
+}
+.legal h2 {
+  text-align: left;
+  margin-top: var(--s-8);
+  margin-bottom: var(--s-4);
+  padding-top: var(--s-5);
+  border-top: 1px solid var(--line-soft);
+  /* anchor links from the TOC must not land under the sticky header */
+  scroll-margin-top: 90px;
+}
+.legal h2:first-of-type { margin-top: var(--s-5); }
+.legal h3 { margin-top: var(--s-5); }
+.legal p, .legal li { color: var(--muted); font-size: var(--t-sm); }
+.legal ul, .legal ol { padding-left: 1.15rem; display: grid; gap: var(--s-2); }
+.legal strong { color: var(--ink-dim); }
+.legal code {
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(0,0,0,0.3);
+  color: var(--ink);
+  word-break: break-word;
+}
+
+.legal-toc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+}
+.legal-toc a {
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,0.02);
+  color: var(--ink-dim);
+  font-size: var(--t-xs);
+  font-weight: 600;
+}
+.legal-toc a:hover {
+  border-color: var(--brand-line);
+  color: var(--brand);
+  text-decoration: none;
 }
 
 /* ------------------------------------------------------------------ footer */

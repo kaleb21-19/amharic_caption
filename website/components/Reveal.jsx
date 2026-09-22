@@ -52,7 +52,7 @@ export default function Reveal({
   return (
     <Tag
       ref={ref}
-      className={`reveal ${visible ? "is-in" : ""} ${className}`.trim()}
+      className={["reveal", visible ? "is-in" : "", className].filter(Boolean).join(" ")}
       style={{ ...style, "--reveal-delay": `${delay}ms` }}
     >
       {children}

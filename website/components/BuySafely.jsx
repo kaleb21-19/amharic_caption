@@ -7,7 +7,7 @@ export default function BuySafely() {
   return (
     <section className="safe section" id="safety">
       <div className="container">
-        <Reveal>
+        <Reveal className="section-head center">
           <h2>How to buy safely — no scams, ever.</h2>
           <p className="section-sub">
             Telegram is full of fake sellers. We make it impossible to pay anyone
