@@ -425,8 +425,47 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ always() && needs.build-ar.result == 'success' && needs.build-win.result == 'success' && needs.build-x64.result == 'success' && needs.check-version.result == 'success' && needs.test.result == 'success' }}
     steps:
-      - name: All three platform zips published
+      - uses: actions/checkout@v4
+
+      # VERIFY, don't assume. This job used to print "all three published"
+      # purely because the three build jobs reported success — it never looked
+      # at the release. v1.4.26 shipped with both macOS zips and NO win-x64
+      # zip, so the website's Windows download 404'd (the platform most buyers
+      # are on) while the pipeline looked green. Check the artifacts customers
+      # actually download, via the exact URL the website links to.
+      - name: Verify all three zips are on releases/latest
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "win-x64, mac-arm64, mac-x64 all published to:"
-          echo "  https://github.com/kaleb21-19/amharic_caption/releases/latest"
+          set -euo pipefail
+          VER="$(grep -o 'ExtensionBundleVersion="[^"]*"' panel/CSXS/manifest.xml | head -1 | sed 's/[^"]*"//;s/"//')"
+          TAG="v${VER}"
+          echo "checking release $TAG"
+          ASSETS="$(gh release view "$TAG" --repo "${{ github.repository }}" --json assets --jq '.assets[].name')"
+          echo "$ASSETS"
+          missing=0
+          for z in amharic-captions-win-x64.zip \
+                   amharic-captions-mac-arm64.zip \
+                   amharic-captions-mac-x64.zip; do
+            if echo "$ASSETS" | grep -Fxq "$z"; then
+              echo "  [ok] $z"
+            else
+              echo "  [MISSING] $z"; missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || { echo "release $TAG is incomplete — customers would get a 404" >&2; exit 1; }
+
+          # And prove the public download URL really resolves (this is the link
+          # on the website, following GitHub's redirect to the asset CDN).
+          for z in amharic-captions-win-x64.zip \
+                   amharic-captions-mac-arm64.zip \
+                   amharic-captions-mac-x64.zip; do
+            url="https://github.com/${{ github.repository }}/releases/latest/download/$z"
+            code="$(curl -s -o /dev/null -I -L -w '%{http_code}' "$url")"
+            echo "  $code  $url"
+            [ "$code" = "200" ] || { echo "download URL not serving: $z" >&2; exit 1; }
+          done
+
+          echo "win-x64, mac-arm64, mac-x64 all downloadable from:"
+          echo "  https://github.com/${{ github.repository }}/releases/latest"
           echo "Customers install from https://amharic-caption-pro.vercel.app/install"
