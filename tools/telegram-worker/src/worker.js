@@ -210,17 +210,23 @@ const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 function heroText(first = '') {
   const name = first ? `${first}, ` : '';
   return (
-    `${name}Welcome to <b>Amharic Captions</b> 👋\n\n` +
-    '💯 <b>100% offline</b> — runs on your own computer, no internet needed.\n\n' +
-    '🎁 <b>Try it free</b> — your first <b>2 captions are free</b>.\n\n' +
-    `💰 One-time <s>ETB 3,500</s> → <b>${PRICE}</b> — <b>forever license</b>.`
+    `${name}ወደ <b>አማርኛ ካፕሽን</b> እንኳን በደህና መጡ 👋\n` +
+    '<i>Welcome to Amharic Captions</i>\n\n' +
+    '💯 ሙሉ በሙሉ <b>በኮምፒውተርዎ ላይ</b> ይሰራል — ኢንተርኔት አያስፈልግም።\n' +
+    '<i>100% offline — no internet needed, nothing is uploaded.</i>\n\n' +
+    '🎁 <b>2 ካፕሽን በነጻ</b> ይሞክሩ — ከወደዱት በኋላ ብቻ ይክፈሉ።\n' +
+    '<i>Try 2 captions free — pay only if you like it.</i>\n\n' +
+    `💰 <s>ETB 3,500</s> → <b>${PRICE}</b> — አንድ ጊዜ ብቻ፣ ለዘላለም።\n` +
+    '<i>One-time payment, lifetime license.</i>'
   );
 }
+// One button per row on purpose: Amharic labels are longer than their English
+// equivalents, and two per row truncates them with an ellipsis on a phone.
 const heroKeyboard = () => [
-  [{ text: '💳 Pay', callback_data: 'menu:pay' }],
-  [{ text: '🔑 My Key', callback_data: 'menu:mykey' }],
-  [{ text: '📲 Install guide', url: `${SITE_URL}/install` }],
-  [{ text: '💬 Support group', url: 'https://t.me/+L-bMfmIRyEo3MDg0' }],
+  [{ text: '💳 ክፍያ · Pay', callback_data: 'menu:pay' }],
+  [{ text: '🔑 ቁልፌ · My Key', callback_data: 'menu:mykey' }],
+  [{ text: '📲 አጫጫን · Install guide', url: `${SITE_URL}/install` }],
+  [{ text: '💬 ድጋፍ · Support', url: 'https://t.me/+L-bMfmIRyEo3MDg0' }],
 ];
 
 // Admin-only keyboard (no buyer buttons). Tapped on /start by the shop owner.
@@ -258,16 +264,16 @@ function payText() {
   );
 }
 const payKeyboard = () => [
-  [{ text: '✅ I’ve paid — send proof', callback_data: 'pay:proof' }],
-  [{ text: '🎁 Try free first (2 captions)', url: `${SITE_URL}/install` }],
+  [{ text: '✅ ከፍያለሁ — ማረጋገጫ ልላክ · I’ve paid', callback_data: 'pay:proof' }],
+  [{ text: '🎁 መጀመሪያ በነጻ ልሞክር · Try 2 free', url: `${SITE_URL}/install` }],
 ];
 
-const MENU = 'Hello! 👋 Choose below:';
+const MENU = 'ሰላም! 👋 ከታች ይምረጡ / Choose below:';
 const MENU_KEYBOARD = [
-  [{ text: '💳 Pay', callback_data: 'menu:pay' }],
-  [{ text: '🔑 My Key', callback_data: 'menu:mykey' }],
-  [{ text: '📲 Install guide', url: `${SITE_URL}/install` }],
-  [{ text: '💬 Support group', url: 'https://t.me/+L-bMfmIRyEo3MDg0' }],
+  [{ text: '💳 ክፍያ · Pay', callback_data: 'menu:pay' }],
+  [{ text: '🔑 ቁልፌ · My Key', callback_data: 'menu:mykey' }],
+  [{ text: '📲 አጫጫን · Install guide', url: `${SITE_URL}/install` }],
+  [{ text: '💬 ድጋፍ · Support', url: 'https://t.me/+L-bMfmIRyEo3MDg0' }],
 ];
 
 // ── D1 helpers ──────────────────────────────────────────────────────────────
@@ -475,7 +481,7 @@ function groupWelcome() {
     '(subtitle) ያስቀምጥልዎታል። ሙሉ በሙሉ በኮምፒውተርዎ ላይ ነው የሚሰራው (offline)።\n\n' +
     `💰 ዋጋ: <s>ETB 3,500</s> → <b>${PRICE}</b> (አንድ ጊዜ)\n` +
     `🏦 የሚከፈለው: ባንክ ዝውውር (bank transfer) ወደ <b>${ACCT_NAME}</b>\n` +
-    `🏛 አካውንት: <b>${PAY_ACCOUNTS}</b>\n` +
+    accountLines() + '\n' +
     '🖥 Windows & Mac\n' +
     '⏰ <b>መግቢያ ዋጋ</b> — አሁኑኑ ይጠቀሙ!'
   );
@@ -503,7 +509,7 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
   if (text === MACHINE_ID_HINT_KEY) {
     await sendText(chatId,
       '📲 <b>Where is my Machine ID?</b>\n\nOpen the <b>Amharic Captions panel</b> in Premiere Pro → <b>License</b> tab → your ID is the <b>8-character code</b> under <i>“Your Machine ID”</i> (e.g. <code>a1b2c3d4</code>).\n\nThen send it here.',
-      [[{ text: '📲 Install guide', url: `${SITE_URL}/install` }]]);
+      [[{ text: '📲 አጫጫን · Install guide', url: `${SITE_URL}/install` }]]);
     return;
   }
 
@@ -512,7 +518,7 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
     await sendText(chatId,
       '📸 የክፍያ ማረጋገጫ <b>ፎቶ</b> እየጠበቅሁ ነው — የባንክ ዝውውሩን screenshot ይላኩ።\n' +
       '<i>Waiting for your screenshot — send the bank-transfer confirmation as a photo.</i>', [
-      [{ text: '✖ Cancel', callback_data: 'proof:cancel' }],
+      [{ text: '✖ ተው · Cancel', callback_data: 'proof:cancel' }],
     ]);
     return;
   }
@@ -531,7 +537,7 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
     if (existing) {
       await sendText(chatId,
         `🔑 This Machine ID (<code>${mid}</code>) already has a key.\n\nTap <b>My Key</b> below to see it, or contact the seller if it's not working.`,
-        [[{ text: '🔑 My Key', callback_data: 'proof:mykey' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
+        [[{ text: '🔑 ቁልፌ · My Key', callback_data: 'proof:mykey' }], [{ text: '✖ ተው · Cancel', callback_data: 'proof:cancel' }]]);
       await setFsm(uid, null);
       return;
     }
@@ -540,7 +546,7 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
         `⚠️ <code>${mid}</code> ትክክለኛ <b>Machine ID</b> አይመስልም።\n\n` +
         'በፓናሉ <b>License</b> ክፍል ውስጥ "Your Machine ID" ስር ያለውን <b>8 ፊደል</b> ኮድ ይላኩ (ለምሳሌ <code>a1b2c3d4</code>)።\n' +
         '<i>That does not look like a Machine ID — send the 8-character code from the panel.</i>',
-        [[{ text: '📍 Where is my Machine ID?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
+        [[{ text: '📍 Machine ID የት ነው? · Where is it?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ ተው · Cancel', callback_data: 'proof:cancel' }]]);
       return;
     }
     // valid new machine -> ask for screenshot
@@ -550,7 +556,7 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
       '✅ Machine ID ደርሶናል!\n\n' +
       '📤 <b>ደረጃ 2/2</b> — አሁን የባንክ ዝውውር ማረጋገጫ <b>ፎቶ</b> (screenshot) ይላኩ።\n' +
       '<i>Step 2 of 2 — now send your bank-transfer screenshot as a photo.</i>',
-      [[{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
+      [[{ text: '✖ ተው · Cancel', callback_data: 'proof:cancel' }]]);
     return;
   }
 
@@ -571,7 +577,7 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
   }
   await sendText(chatId,
     '👋 Got it — that looks like a Machine ID. To pay, use the guided flow:\n\n1️⃣ Tap <b>💳 Pay</b>\n2️⃣ Tap <b>I’ve paid — send proof</b>',
-    [[{ text: '💳 Pay', callback_data: 'menu:pay' }]]);
+    [[{ text: '💳 ክፍያ · Pay', callback_data: 'menu:pay' }]]);
 }
 
 // ── screenshots (photo/document) ────────────────────────────────────────────
@@ -589,7 +595,7 @@ async function handlePhoto(msg, uid, chatId, privateChat, text) {
     if (isDocument && !mime.startsWith('image/')) {
       await sendText(chatId,
         '📁 That came through as a <b>file</b>, not a photo.\n\nSend the payment screenshot as a <b>photo/image</b> so we can verify it.',
-        [[{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
+        [[{ text: '✖ ተው · Cancel', callback_data: 'proof:cancel' }]]);
       return;
     }
     const objectKey = await storeProof(fileId);
@@ -609,12 +615,12 @@ async function handlePhoto(msg, uid, chatId, privateChat, text) {
     await setFsm(uid, { ...s, photo_key: objectKey });
     await sendText(chatId, '📸 ፎቶው ተቀምጧል! አሁን የእርስዎን <b>Machine ID</b> ይላኩ (በፓናሉ License ክፍል ውስጥ ያለው 8 ፊደል ኮድ)።\n' +
       '<i>Screenshot saved — now send your Machine ID.</i>',
-      [[{ text: '📍 Where is my Machine ID?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
+      [[{ text: '📍 Machine ID የት ነው? · Where is it?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ ተው · Cancel', callback_data: 'proof:cancel' }]]);
     return;
   }
   await sendText(chatId,
     '🖼 Thanks — but to place an order please start the guided flow and send your <b>Machine ID</b> first:\n\n1️⃣ Tap <b>💳 Pay</b>\n2️⃣ Tap <b>I\'ve paid — send proof</b>',
-    [[{ text: '💳 Pay', callback_data: 'menu:pay' }]]);
+    [[{ text: '💳 ክፍያ · Pay', callback_data: 'menu:pay' }]]);
 }
 
 async function storeProof(fileId) {
@@ -635,8 +641,8 @@ async function reviewConfirm(uid, chatId) {
     `🏦 Paid to: <b>${ACCT_NAME}</b>\n\n` +
     '🔑 On approval, your key arrives <b>right here</b>.\nLook right? Tap <b>Confirm</b>.';
   const kb = [
-    [{ text: '✅ Confirm order', callback_data: 'proof:confirm' }],
-    [{ text: '✖ Cancel', callback_data: 'proof:cancel' }],
+    [{ text: '✅ ትዕዛዙን አረጋግጥ · Confirm', callback_data: 'proof:confirm' }],
+    [{ text: '✖ ተው · Cancel', callback_data: 'proof:cancel' }],
   ];
   const r = await sendText(chatId, text, kb);
   if (r && r.ok) await setFsm(uid, { ...s, status_msg_id: r.result.message_id });
@@ -654,7 +660,7 @@ async function completeProof(uid, chatId, uname, privateChat) {
     await setFsm(uid, { ...s, step: 'photo' });
     await sendText(chatId,
       '⚠️ <b>Screenshot missing.</b> Please resend your payment screenshot as a photo.',
-      [[{ text: '✖ Cancel', callback_data: 'proof:cancel' }]]);
+      [[{ text: '✖ ተው · Cancel', callback_data: 'proof:cancel' }]]);
     return;
   }
 
@@ -788,7 +794,7 @@ async function adminPanel(chatId, messageId) {
     `📥 <b>New requests:</b> ${pend}\n` +
     `   ├ ✅ Approved today: ${todayRow.ap}\n` +
     `   ├ ❌ Declined today: ${todayRow.rj}\n` +
-    `   └ 🌀 Pending today:  ${todayRow.pd}\n\n` +
+    `   └ ⏳ Pending today:  ${todayRow.pd}\n\n` +
     `💵 <b>Revenue (30d):</b> ${sold30.n} × ${PRICE} = <b>ETB ${money(revenue)}</b>\n\n` +
     `⬇️ Review the request queue, or check recent activity.`;
   const kb = [
@@ -1144,7 +1150,7 @@ async function handleCallback(cb) {
       const s = await getFsm(fromUid);
       if (s && s.step === 'mid' && s.hint) {
         await editText(chatId, messageId, '📤 <b>Send proof</b>\n\nAlmost done — two short steps:\n\n1️⃣ <b>Machine ID</b> (8 characters)\n2️⃣ Payment <b>screenshot</b>\n\n→ Start with <b>Step 1/2</b>: send your <b>Machine ID</b>.', [
-          [{ text: '📍 Where is my Machine ID?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }],
+          [{ text: '📍 Machine ID የት ነው? · Where is it?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ ተው · Cancel', callback_data: 'proof:cancel' }],
         ]);
         return;
       }
@@ -1153,7 +1159,7 @@ async function handleCallback(cb) {
       await sendHintKb(chatId, '📤 Send your <b>Machine ID</b> (8 characters).');
       // also edit the tapped button
       await editText(chatId, messageId, '📤 <b>Send proof</b>\n\nStart with <b>Step 1/2</b>: send your <b>Machine ID</b>.', [
-        [{ text: '📍 Where is my Machine ID?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ Cancel', callback_data: 'proof:cancel' }],
+        [{ text: '📍 Machine ID የት ነው? · Where is it?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '✖ ተው · Cancel', callback_data: 'proof:cancel' }],
       ]);
     }
     return;
