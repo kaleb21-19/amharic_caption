@@ -729,6 +729,39 @@ await t('11. a failed run says so on screen, not only in the log', async () => {
   } finally { p.close(); }
 });
 
+await t('12. the boot ping really is once per day', async () => {
+  // The comment claimed once per day; the code pinged on every panel open. At
+  // one customer that is free. At ten thousand it is the difference between
+  // fitting in a request budget and not — for telemetry nobody reads twice.
+  const store = makeLocalStorage();
+  let calls = 0;
+  const fetchCounting = async (url) => {
+    if (String(url).includes('/api/ping')) calls++;
+    return { ok: false, json: async () => null };
+  };
+
+  let p = loadPanel({ storage: store, fetch: fetchCounting });
+  try { p.evalVm('pingPanel()'); } finally { p.close(); }
+  assert.strictEqual(calls, 1, 'first open pings');
+
+  // reopening with the SAME storage must not ping again
+  p = loadPanel({ storage: store, fetch: fetchCounting });
+  try { p.evalVm('pingPanel()'); p.evalVm('pingPanel()'); } finally { p.close(); }
+  assert.strictEqual(calls, 1, 'subsequent opens inside 24h do not ping');
+
+  // a day later it pings again
+  store.setItem('amh.lastPing', String(Date.now() - 25 * 60 * 60 * 1000));
+  p = loadPanel({ storage: store, fetch: fetchCounting });
+  try { p.evalVm('pingPanel()'); } finally { p.close(); }
+  assert.strictEqual(calls, 2, 'pings again after 24h');
+
+  // a clock that jumped backwards must not silence it forever
+  store.setItem('amh.lastPing', String(Date.now() + 90 * 24 * 60 * 60 * 1000));
+  p = loadPanel({ storage: store, fetch: fetchCounting });
+  try { p.evalVm('pingPanel()'); } finally { p.close(); }
+  assert.strictEqual(calls, 3, 'a future timestamp does not disable pings forever');
+});
+
 console.log('\n' + (fail===0 ? 'ALL PASS' : 'FAILURES: '+fail) + '  (' + pass + ' passed, ' + fail + ' failed)');
 process.exit(fail===0 ? 0 : 1);
 })().catch((e) => { console.error('Fatal:', e); process.exit(1); });

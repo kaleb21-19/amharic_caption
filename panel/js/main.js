@@ -214,11 +214,23 @@ const MACHINE_HOST_MISMATCH = (() => {
 
 const MACHINE_ID = getOrCreateMachineId();
 
-// Boot ping: announce {version, mid} to the server once per day. Lets support
-// identify which build a machine runs and surfaces the Origin a real CEP panel
-// sends (used to lock the worker's CORS allow-list). Fire-and-forget.
+// Boot ping: announce {version, mid} so support can tell which build a machine
+// is running. Fire-and-forget, and genuinely once per day.
+//
+// The comment here used to claim "once per day" while the code pinged on EVERY
+// panel open — an editor who opens Premiere four times a day sent four. That
+// is free at one customer and is the difference between fitting in a request
+// budget and not at ten thousand, for telemetry nobody reads more than once.
+const PING_KEY = 'amh.lastPing';
+const PING_EVERY_MS = 24 * 60 * 60 * 1000;
 function pingPanel() {
   try {
+    let last = 0;
+    try { last = Number(localStorage.getItem(PING_KEY)) || 0; } catch (e) {}
+    const now = Date.now();
+    // A clock that jumped backwards must not silence the ping forever.
+    if (last && now - last < PING_EVERY_MS && now >= last) return;
+    try { localStorage.setItem(PING_KEY, String(now)); } catch (e) {}
     apiPost('/api/ping?v=1', { v: APP_VERSION, mid: MACHINE_ID });
   } catch (e) {}
 }
