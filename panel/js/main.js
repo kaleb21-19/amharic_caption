@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.4.28';
+const APP_VERSION = '1.4.29';
 
 const csi = new CSInterface();
 
@@ -1531,10 +1531,44 @@ function srtFromCues(cues) {
   return out;
 }
 
-// Map freshly-transcribed cues back to their source item. Clips occupy
-// disjoint timeline ranges, so a cue belongs to the item whose [offset,
-// offset+duration] window holds its start (nearest item if none does). This
-// attribution only affects cache granularity, never the placed captions.
+// Items whose timeline window overlaps another item's. Per-clip caching is
+// UNSOUND for these: when two clips play at once (dialogue + music bed, a
+// J-cut, B-roll audio over an interview, a duplicated safety track) a cue's
+// start time cannot identify which clip produced it.
+//
+// Left unhandled this duplicates captions, which a customer sees directly:
+// attributeCues() gives every overlapping cue to the FIRST item, so the second
+// item caches nothing; an empty entry reads back as a cache MISS, so next run
+// it is transcribed again while the first item replays the same cues from
+// cache. Run 1 yields 3 captions, run 2 yields 6 — see tools/test/test_panel_dom.js
+// "work area: overlapping clips must not duplicate captions on re-run".
+//
+// Overlapping items therefore neither READ nor WRITE the cache: they are
+// re-transcribed every run. That costs time on sequences with a music bed,
+// but it is always correct, and non-overlapping clips still cache normally.
+function overlappingItems(items) {
+  const bad = new Set();
+  for (let i = 0; i < items.length; i++) {
+    const a = items[i];
+    const aStart = a.offset || 0;
+    const aEnd = aStart + (a.duration || 0);
+    for (let j = i + 1; j < items.length; j++) {
+      const b = items[j];
+      const bStart = b.offset || 0;
+      const bEnd = bStart + (b.duration || 0);
+      // Touching end-to-start is not an overlap; a shared instant is fine.
+      if (aStart < bEnd && bStart < aEnd) { bad.add(a); bad.add(b); }
+    }
+  }
+  return bad;
+}
+
+// Map freshly-transcribed cues back to their source item. For items with
+// disjoint timeline ranges a cue belongs to the item whose [offset,
+// offset+duration] window holds its start (nearest item if none does).
+// Overlapping items are excluded from caching by overlappingItems() above, so
+// their attribution here is best-effort and only affects the current run,
+// where every cue is written out exactly once regardless of attribution.
 function attributeCues(cues, items) {
   const byItem = new Map();
   for (const it of items) byItem.set(it, []);
@@ -1692,8 +1726,11 @@ function transcribeOneShot(sourcePath, outSrt, range, offset, wav) {
 // merged (sorted) into one SRT in item order.
 // items: [{ sourcePath?, sourceIn?, duration?, wav?, offset, name?, cached? }].
 async function transcribeBatch(items, outSrt, onProgress) {
-  const hits = items.map((it) => it.cached ||
-    (it.sourcePath ? cacheLookup(clipCacheKey(it)) : null));
+  // Clips that share timeline time can't be cached per-clip without risking
+  // duplicated or misattributed captions — see overlappingItems().
+  const ambiguous = overlappingItems(items);
+  const hits = items.map((it) => (ambiguous.has(it) ? null : (it.cached ||
+    (it.sourcePath ? cacheLookup(clipCacheKey(it)) : null))));
   const misses = items.filter((it, i) => !hits[i]);
 
   const finish = (byItem, transcript) => {
@@ -1750,6 +1787,7 @@ async function transcribeBatch(items, outSrt, onProgress) {
 
   for (const it of misses) {
     if (!it.sourcePath) continue;
+    if (ambiguous.has(it)) continue;   // overlapping clip: attribution unreliable
     const cs = byItem.get(it) || [];
     if (!cs.length) continue;
     await cacheStore(clipCacheKey(it), srtFromCues(cs), '');
@@ -2251,6 +2289,13 @@ function humanError(raw) {
   const t = String(raw || '').toLowerCase();
   if (t.includes('audio too short')) return 'That clip is too short to transcribe.';
   if (t.includes('no speech')) return 'No speech found in that audio.';
+  if (t.includes('audio-bearing')) return 'No transcribable clips in that range.';
+  if (t.includes('no clip found') || t.includes('no selected clip') || t.includes('select a clip')) {
+    return 'Select a clip on the timeline (or put the playhead on it), then try again.';
+  }
+  if (t.includes('source path') || t.includes('no media file')) {
+    return 'That item has no media file — try a regular video or audio clip.';
+  }
   if (t.includes('ffmpeg')) return 'Could not read that media file.';
   if (t.includes('enospc') || t.includes('no space')) return 'Your disk is full.';
   if (t.includes('python failed') || t.includes('worker')) return 'The transcription engine stopped unexpectedly.';
@@ -2336,8 +2381,7 @@ async function runWorkArea() {
   if (!info.ok || !info.clips) throw new Error(info.error || 'No sequence info.');
   const clips = info.clips;
   if (clips.length === 0) {
-    log('No audio-bearing clips with a resolvable source in this sequence/work area.');
-    return;
+    throw new Error('No audio-bearing clips with a resolvable source in this range.');
   }
   // Whole-edit mode: ignore the work-area bounds (transcribe every clip).
   const rangeLabel = (SOURCE === 'whole')
@@ -2354,14 +2398,18 @@ async function runWorkArea() {
   // skip audio extraction AND transcription entirely.
   // Per-clip cache: build an item per clip and look each one up. Only clips
   // whose key changed are extracted + transcribed below.
-  const items = clips.map((clip) => {
-    const it = {
-      offset: clip.timelineStart, name: clip.name, duration: clip.duration,
-      sourcePath: clip.sourcePath, sourceIn: clip.sourceIn, cached: null
-    };
-    if (it.sourcePath) it.cached = cacheLookup(clipCacheKey(it));
-    return it;
-  });
+  const items = clips.map((clip) => ({
+    offset: clip.timelineStart, name: clip.name, duration: clip.duration,
+    sourcePath: clip.sourcePath, sourceIn: clip.sourceIn, cached: null
+  }));
+  // Clips sharing timeline time are never served from cache — their cues
+  // cannot be attributed to one clip, and doing so duplicates captions on the
+  // next run. Entries written by an older build may still exist, so this also
+  // guards against a stale one.
+  const ambiguous = overlappingItems(items);
+  for (const it of items) {
+    if (it.sourcePath && !ambiguous.has(it)) it.cached = cacheLookup(clipCacheKey(it));
+  }
 
   // Fast path: every clip already cached → skip extraction AND transcription.
   if (items.length && items.every((it) => it.cached)) {

@@ -29,14 +29,38 @@ os.environ.setdefault("TQDM_DISABLE", "1")
 
 # ----- thread policy ---------------------------------------------------------
 # numpy (OpenBLAS) and CTranslate2 (MKL/OpenMP on x64) can both spin up
-# thread pools and thrash each other. Pin both to the same cap (physical
-# cores, best-effort) so inference stays efficient whether the panel spawns
-# one or several workers. This must run BEFORE numpy/ctranslate2 import.
+# thread pools and thrash each other. Pin both to the same cap so inference
+# stays efficient whether the panel spawns one or several workers. This must
+# run BEFORE numpy/ctranslate2 import.
+#
+# The cap is os.cpu_count() — every core the OS advertises. Whether that is
+# optimal is an OPEN QUESTION, not a settled one:
+#   * On an M4 (4 performance + 6 efficiency cores), a 60s in-process benchmark
+#     showed 4 threads ~15% FASTER than 10, consistent with efficiency cores
+#     stalling the fast ones at each sync point.
+#   * The same comparison on a 300s end-to-end run showed the OPPOSITE — 10
+#     threads faster in both reps.
+#   * Run-to-run drift on an identical config was ~28% (132s vs 169s), i.e.
+#     larger than the effect. The box was thermally saturated.
+# So the default is left at the advertised count until someone measures this
+# on a cool machine, with enough reps to beat that drift, on the platform that
+# matters (low-end Windows x64 — no benchmark exists there at all).
+# Use tools/test/bench_threads.py, which enforces cool-down and reports spread.
+#
+# AMH_THREADS overrides the cap — for that benchmarking, and for users who want
+# to leave CPU headroom for Premiere while a batch runs.
 def _thread_cap():
+    import os as _os
     try:
-        import os as _os
+        env = _os.environ.get("AMH_THREADS", "").strip()
+        if env:
+            return max(1, int(env))
+    except Exception:
+        pass
+    try:
         n = _os.cpu_count() or 4
         if hasattr(_os, "sched_getaffinity"):
+            # cgroup/taskset limits are a hard ceiling — never exceed them.
             n = min(n, len(_os.sched_getaffinity(0)))
         return max(1, n)
     except Exception:

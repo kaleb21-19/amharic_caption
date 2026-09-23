@@ -181,7 +181,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^[0-9a-f]{8}$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.4.28');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.4.29');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -566,6 +566,95 @@ await t('7. batch cache unit: key determinism, attribution windows, srtFromCues 
     assert.strictEqual(formatted, srtTextFromCues(cues), 'srtFromCues mirrors the core disk writer');
     has(formatted, '1\n00:00:01,250 --> 00:00:03,000', 'SRT block one');
     has(formatted, '2\n00:00:05,000 --> 00:00:06,500', 'SRT block two');
+  } finally { p.close(); }
+});
+
+
+// A work area normally contains clips that play AT THE SAME TIME: dialogue
+// plus a music bed, a J-cut, B-roll audio over an interview, a duplicated
+// safety track. attributeCues() can only guess which clip produced a cue from
+// its start time, so for overlapping clips it hands every cue to the first one.
+// That used to duplicate captions on the second run: the second clip cached
+// nothing, an empty entry reads back as a MISS, so it was transcribed again
+// while the first clip replayed the same cues from cache — 3 captions became 6.
+await t('8. work area: overlapping clips must not duplicate captions on re-run', async () => {
+  const p = loadPanel({ hooks: { warmStart: () => true, warmSend: async () => ({ ok: true }) } });
+  try {
+    const overlappingItems = p.evalVm('overlappingItems');
+    const it = (name, o, d) => ({ name, sourcePath: '/tmp/' + name, sourceIn: 0, duration: d, offset: o, cached: null });
+
+    // adjacent clips (A ends exactly where B starts) are NOT overlapping —
+    // this is the ordinary cut, and it must keep caching as before (test 6).
+    const adjacent = [it('a.mov', 0, 3), it('b.mov', 3, 4)];
+    assert.strictEqual(overlappingItems(adjacent).size, 0, 'a clean cut is not an overlap');
+
+    // dialogue + music bed over the same 30s
+    const stacked = [it('dialogue.mov', 0, 30), it('music.mp3', 0, 30)];
+    assert.strictEqual(overlappingItems(stacked).size, 2, 'stacked tracks flagged');
+
+    // J-cut: audio pulled 2s ahead of the video it belongs to
+    const jcut = [it('iv_audio.mov', 8, 12), it('iv_video.mov', 10, 10)];
+    assert.strictEqual(overlappingItems(jcut).size, 2, 'J-cut flagged');
+
+    // a clip fully inside another (B-roll audio under a long interview)
+    const nested = [it('long.mov', 0, 60), it('broll.mov', 10, 5)];
+    assert.strictEqual(overlappingItems(nested).size, 2, 'nested clip flagged');
+
+    // only the overlapping pair is penalised; an unrelated clip still caches
+    const mixed = [it('d.mov', 0, 30), it('m.mp3', 0, 30), it('tail.mov', 40, 5)];
+    const bad = overlappingItems(mixed);
+    assert.strictEqual(bad.size, 2, 'only the overlapping pair is flagged');
+    assert.ok(!bad.has(mixed[2]), 'the disjoint clip is still cacheable');
+  } finally { p.close(); }
+});
+
+
+// End-to-end proof of the same bug through transcribeBatch: two clips that
+// share timeline time, transcribed twice. The second run must produce exactly
+// the same captions as the first, not double them.
+await t('9. work area: second run over stacked clips returns identical captions', async () => {
+  const fmtTs = (s) => {
+    const ms = Math.round(s * 1000);
+    const hh = String(Math.floor(ms / 3600000)).padStart(2, '0');
+    const mm = String(Math.floor(ms / 60000) % 60).padStart(2, '0');
+    const ss = String(Math.floor(ms / 1000) % 60).padStart(2, '0');
+    return hh + ':' + mm + ':' + ss + ',' + String(ms % 1000).padStart(3, '0');
+  };
+  const sends = [];
+  const hooks = {
+    warmStart: () => true,
+    warmSend: async (req) => {
+      sends.push(req.batch.map((b) => b.name));
+      // Fake engine: emit one cue per submitted clip, at its own offset.
+      const cues = req.batch.map((b) => ({ start: b.offset + 1, end: b.offset + 2, text: 'cue ' + b.name }));
+      fs.writeFileSync(req.out_srt, cues.map((c, i) =>
+        [i + 1, fmtTs(c.start) + ' --> ' + fmtTs(c.end), c.text, ''].join('\n')).join('\n'), 'utf8');
+      return { ok: true, text: '' };
+    },
+  };
+  const p = loadPanel({ hooks });
+  try {
+    const transcribeBatch = p.evalVm('transcribeBatch');
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_overlap_'));
+    const out = (n) => path.join(outDir, 'o' + n + '.srt');
+    // dialogue and music both occupy 0..30s — the ordinary "music bed" edit
+    const mk = () => ([
+      { name: 'dialogue.mov', sourcePath: path.join(REPO, 'tools/test/fixtures/fast.wav'),
+        sourceIn: 0, duration: 30, offset: 0, cached: null, wav: 'd.wav' },
+      { name: 'music.mp3', sourcePath: path.join(REPO, 'tools/test/fixtures/twospeaker.wav'),
+        sourceIn: 0, duration: 30, offset: 0, cached: null, wav: 'm.wav' },
+    ]);
+
+    const r1 = await transcribeBatch(mk(), out(1), () => {});
+    const r2 = await transcribeBatch(mk(), out(2), () => {});
+
+    assert.strictEqual(r1.cues.length, 2, 'run1 yields one cue per clip');
+    assert.strictEqual(r2.cues.length, r1.cues.length,
+      'run2 must NOT duplicate captions (was 4 instead of 2 before the overlap guard)');
+    assert.strictEqual(fs.readFileSync(out(2), 'utf8'), fs.readFileSync(out(1), 'utf8'),
+      'run2 SRT is byte-identical to run1');
+    assert.strictEqual(r2.cached, false, 'overlapping clips are never served from cache');
+    try { fs.rmSync(outDir, { recursive: true, force: true }); } catch (e) {}
   } finally { p.close(); }
 });
 

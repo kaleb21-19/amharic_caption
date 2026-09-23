@@ -390,10 +390,18 @@ function amharic_getSequenceInfo(all) {
             return null;
         };
 
-        // Work-area in/out (fall back to 0 / huge so everything is included).
+        // Work-area bounds. The bar the editor drags is the Work Area bar
+        // (workAreaBarStart/End). Sequence getInPoint()/getOutPoint() are the
+        // separate In/Out MARKERS — reading those made "Work Area" silently
+        // transcribe the whole edit (or the marker span) instead of the bar,
+        // which is exactly what a customer reports as "doesn't work".
         var inP = null, outP = null;
-        try { inP = toSec(seq.getInPoint()); } catch (e) { inP = null; }
-        try { outP = toSec(seq.getOutPoint()); } catch (e) { outP = null; }
+        try { inP = toSec(seq.workAreaBarStart); } catch (e) { inP = null; }
+        try { outP = toSec(seq.workAreaBarEnd); } catch (e) { outP = null; }
+        // If Premiere does not expose the bar on this build, fall back to the
+        // sequence In/Out points; last resort is the full timeline.
+        if (inP === null || isNaN(inP)) { try { inP = toSec(seq.getInPoint()); } catch (e) { inP = null; } }
+        if (outP === null || isNaN(outP) || outP <= inP) { try { outP = toSec(seq.getOutPoint()); } catch (e) { outP = null; } }
         if (inP === null || isNaN(inP)) { inP = 0; }
         if (outP === null || isNaN(outP) || outP <= inP) { outP = 1e12; }
 
