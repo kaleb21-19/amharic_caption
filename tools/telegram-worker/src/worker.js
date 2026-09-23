@@ -561,7 +561,28 @@ async function handleMessage(msg, env) {
 
   // generic buy-flow commands
   if (['/buy', '/buy@amhariccaptionsbot'].includes(lower)) {
-    await sendText(chatId, heroText(first), heroKeyboard());
+    await sendText(chatId, payText(), payKeyboard());
+    return;
+  }
+
+  // /help — a buyer who is stuck types this before anything else, and the bot
+  // used to answer "I didn't understand that" and show a menu, which reads as
+  // "you are on your own". Answer the three questions support actually gets.
+  if (['/help', '/help@amhariccaptionsbot'].includes(lower)) {
+    await sendText(chatId,
+      '❓ <b>እገዛ / Help</b>\n\n' +
+      '<b>1. እንዴት እገዛለሁ? / How do I buy?</b>\n' +
+      `ከታች <b>ክፍያ</b> ይንኩ → ${PRICE} በባንክ ይላኩ → የክፍያ ፎቶ ይላኩ → ቁልፍዎ በዚሁ ቻት ይደርሳል።\n` +
+      '<i>Tap Pay, transfer the amount, send the screenshot, get your key here.</i>\n\n' +
+      '<b>2. Machine ID የት ነው? / Where is my Machine ID?</b>\n' +
+      'በ Premiere Pro ውስጥ ፓናሉን ይክፈቱ → <b>License</b> → 8 ፊደል ኮድ።\n' +
+      '<i>Open the panel in Premiere Pro → License → the 8-character code.</i>\n\n' +
+      '<b>3. ቁልፌ አይሰራም / My key does not work</b>\n' +
+      'ቁልፉ ለአንድ ኮምፒውተር ብቻ ነው። ሌላ ኮምፒውተር ከሆነ ይጻፉልን።\n' +
+      '<i>A key is locked to one computer. Message us if you changed machines.</i>',
+      [[{ text: '💳 ክፍያ · Pay', callback_data: 'menu:pay' }],
+       [{ text: '🔑 ቁልፌ · My Key', callback_data: 'menu:mykey' }],
+       [{ text: '💬 ድጋፍ · Contact support', url: SUPPORT_URL }]]);
     return;
   }
 
@@ -633,7 +654,10 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
     const existing = await findKey(mid);
     if (existing) {
       await sendText(chatId,
-        `🔑 This Machine ID (<code>${mid}</code>) already has a key.\n\nTap <b>My Key</b> below to see it, or contact the seller if it's not working.`,
+        `🔑 ይህ Machine ID (<code>${mid}</code>) ቀድሞውኑ ቁልፍ አለው።\n` +
+        '<i>This machine already has a key.</i>\n\n' +
+        'ለማየት <b>ቁልፌ</b> ይንኩ። የማይሰራ ከሆነ ይጻፉልን።\n' +
+        '<i>Tap My Key to see it, or message us if it is not working.</i>',
         [[{ text: '🔑 ቁልፌ · My Key', callback_data: 'proof:mykey' }], [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
       await setFsm(uid, null);
       return;
@@ -668,7 +692,9 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
   if (!m) {
     // unknown input
     const buyerName = (msg.from && msg.from.first_name) || '';
-    if (privateChat) await sendText(chatId, `😊 ${buyerName}, I didn't understand that. What would you like to do? Choose below:`, MENU_KEYBOARD);
+    if (privateChat) await sendText(chatId,
+      `😊 ${buyerName}, አልገባኝም። ከታች ይምረጡ።\n<i>Sorry, I did not understand that — choose below.</i>`,
+      MENU_KEYBOARD);
     else await sendText(chatId, MENU, MENU_KEYBOARD);
     return;
   }
@@ -707,7 +733,9 @@ async function handlePhoto(msg, uid, chatId, privateChat, text) {
   if (step === 'photo') {
     if (isDocument && !mime.startsWith('image/')) {
       await sendText(chatId,
-        '📁 That came through as a <b>file</b>, not a photo.\n\nSend the payment screenshot as a <b>photo/image</b> so we can verify it.',
+        '📁 እንደ <b>ፋይል</b> ነው የተላከው፣ እንደ ፎቶ አይደለም።\n' +
+        'የክፍያውን ማረጋገጫ እንደ <b>ፎቶ</b> ይላኩ።\n' +
+        '<i>That arrived as a file, not a photo. Send the screenshot as an image so we can read it.</i>',
         [[{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
       return;
     }
@@ -719,7 +747,8 @@ async function handlePhoto(msg, uid, chatId, privateChat, text) {
     return;
   }
   if (step === 'confirm') {
-    await sendText(chatId, '✅ We already have your screenshot! Here’s your order review:');
+    await sendText(chatId,
+      '✅ ፎቶዎ ደርሶናል። ትዕዛዝዎ ይኸውና:\n<i>We already have your screenshot — here is your order:</i>');
     await reviewConfirm(uid, chatId);
     return;
   }
@@ -732,7 +761,8 @@ async function handlePhoto(msg, uid, chatId, privateChat, text) {
     return;
   }
   await sendText(chatId,
-    '🖼 Thanks — but to place an order please start the guided flow and send your <b>Machine ID</b> first:\n\n1️⃣ Tap <b>💳 Pay</b>\n2️⃣ Tap <b>I\'ve paid — send proof</b>',
+    '🖼 አመሰግናለሁ — ትዕዛዝ ለመስጠት ግን መጀመሪያ ከታች <b>ክፍያ</b> ይንኩ።\n' +
+    '<i>Thanks — to place an order, start from the Pay button below.</i>',
     [[{ text: '💳 ክፍያ · Pay', callback_data: 'menu:pay' }]]);
 }
 
@@ -774,7 +804,8 @@ async function completeProof(uid, chatId, uname, privateChat) {
   if (!s.photo_key) {
     await setFsm(uid, { ...s, step: 'photo' });
     await sendText(chatId,
-      '⚠️ <b>Screenshot missing.</b> Please resend your payment screenshot as a photo.',
+      '⚠️ <b>ፎቶው የለም።</b> እባክዎ የክፍያ ማረጋገጫ ፎቶውን እንደገና ይላኩ።\n' +
+      '<i>The screenshot is missing — please send it again as a photo.</i>',
       [[{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
     return;
   }

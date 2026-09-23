@@ -541,6 +541,45 @@ console.log('\n:: scenario 1f — buyer buttons answer, and Back always lands');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: scenario 1g — every buyer message speaks Amharic; /help answers');
+
+{
+  const { env } = fresh();
+  const geez = (t) => /[\u1200-\u137F]/.test(t);
+
+  // The whole point: a buyer must never be dropped into English at a moment
+  // of confusion. Walk the states a confused buyer actually reaches.
+  const probes = [
+    ['unknown input', { text: 'asdfghjk' }],
+    ['photo sent outside the flow', { photo: [{ file_id: 'X1', width: 4, height: 4 }] }],
+    ['a PDF instead of a screenshot', { document: { file_id: 'D1', mime_type: 'application/pdf' } }],
+  ];
+  for (const [what, payload] of probes) {
+    OUTBOUND.length = 0;
+    await post(env, msg(Number(BUYER), { id: Number(BUYER) }, payload));
+    const said = OUTBOUND.filter((o) => o.method === 'sendMessage').map((o) => o.body.text || '').join(' ');
+    assert.ok(geez(said), `${what}: the reply speaks Amharic`);
+  }
+
+  // /help must answer rather than fall through to "I didn't understand"
+  OUTBOUND.length = 0;
+  await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { text: '/help' }));
+  const help = OUTBOUND.filter((o) => o.method === 'sendMessage').at(-1);
+  assert.ok(geez(help.body.text), '/help answers in Amharic');
+  assert.ok(help.body.text.includes('Machine ID'), '/help covers where to find the Machine ID');
+  assert.ok(JSON.stringify(help.body.reply_markup).includes('menu:pay'), '/help routes to Pay');
+
+  // /buy goes straight to the payment details, not back to the welcome
+  OUTBOUND.length = 0;
+  await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { text: '/buy' }));
+  const buy = OUTBOUND.filter((o) => o.method === 'sendMessage').at(-1);
+  assert.ok(JSON.stringify(buy.body.reply_markup).includes('pay:proof'),
+    '/buy opens the payment screen directly');
+
+  ok('confused-buyer paths all answer in Amharic; /help and /buy work');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 console.log('\n:: scenario 2 — screenshot as document (pdf rejected, image accepted)');
 
 {
@@ -553,7 +592,11 @@ console.log('\n:: scenario 2 — screenshot as document (pdf rejected, image acc
   // PDF document -> rejected as "file, not photo", still waiting
   let res = await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { document: { file_id: 'PDF1', mime_type: 'application/pdf' } }));
   assert.equal(res.status, 200);
-  assert.ok(JSON.stringify(OUTBOUND).includes('as a <b>file</b>, not a photo'), 'pdf rejected');
+  // Assert the behaviour, not the sentence: buyer copy is bilingual and keeps
+  // being reworded, but "a PDF is refused and we stay on the photo step" is
+  // the contract. (The English half is checked loosely so a rewrite of the
+  // Amharic does not break the suite.)
+  assert.ok(JSON.stringify(OUTBOUND).toLowerCase().includes('not a photo'), 'pdf rejected');
   assert.equal(row(env, 'SELECT step FROM fsm WHERE uid=?', BUYER).step, 'photo', 'still awaiting photo');
 
   // image mimetype sent as a document -> accepted as proof
