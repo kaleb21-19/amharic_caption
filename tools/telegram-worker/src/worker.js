@@ -249,21 +249,25 @@ function adminGreeting() {
 // ETB 2,500, and it was English-only — the panel and the website both speak
 // Amharic, but the one moment that involves their money did not.
 function payText() {
+  // Deliberately short. This screen exists so the buyer can do ONE thing: send
+  // money to one of three accounts. The previous version ran 18 lines and 587
+  // characters on a phone — price, accounts, a two-line key promise in both
+  // languages, a three-line scam warning and a "tap below" instruction the
+  // button already gives. Everything that is not the amount, the accounts or
+  // the one risk that costs them money has been cut.
   return (
-    '💰 <b>ክፍያ / Pay</b>\n\n' +
-    `💵 ዋጋ: <s>ETB 3,500</s> → <b>${PRICE}</b> — አንድ ጊዜ ብቻ (one-time, forever)\n\n` +
-    `🏦 የሚከፈለው ለ: <b>${ACCT_NAME}</b>\n` +
-    'ባንክ ዝውውር (bank transfer) — ቁጥሩን ለመቅዳት ይንኩት:\n' +
+    `💰 <b>${PRICE}</b> · አንድ ጊዜ ብቻ / one-time\n` +
+    `<s>ETB 3,500</s> — መግቢያ ዋጋ / launch price\n\n` +
+    `🏦 <b>${ACCT_NAME}</b> — ባንክ ዝውውር / bank transfer\n` +
+    'ቁጥሩን ለመቅዳት ይንኩት / tap a number to copy:\n' +
     accountLines() + '\n\n' +
-    '🔑 ክፍያዎ ከተረጋገጠ በኋላ ቁልፍዎ (license key) <b>በዚሁ ቻት</b> ይላክልዎታል።\n' +
-    'Your key arrives <b>in this chat</b> once we confirm the payment.\n\n' +
-    '⚠️ <b>ጥንቃቄ / Important</b>\n' +
-    `ከላይ ካሉት አካውንቶች ውጭ ለማንም አይክፈሉ። ስም <b>${ACCT_NAME}</b> ብቻ ነው።\n` +
-    'We will never ask you to pay a different name or account, and never for an ' +
-    'extra fee. If someone does, they are not us.\n\n' +
-    '👇 ከከፈሉ በኋላ ከታች ይንኩ / Tap below once you have paid.'
+    '🔑 ከተረጋገጠ በኋላ ቁልፍዎ በዚሁ ቻት ይደርሳል።\n' +
+    '<i>Your key arrives here once we confirm.</i>\n\n' +
+    `⚠️ <b>${ACCT_NAME}</b> ብቻ ይክፈሉ — ሌላ ስም ወይም አካውንት ቢጠየቁ እኛ አይደለንም።\n` +
+    '<i>Pay only this name. Anyone asking for a different account is not us.</i>'
   );
 }
+
 const payKeyboard = () => [
   [{ text: '✅ ከፍያለሁ — ማረጋገጫ ልላክ · I’ve paid', callback_data: 'pay:proof' }],
   [{ text: '🎁 መጀመሪያ በነጻ ልሞክር · Try 2 free', url: `${SITE_URL}/install` }],
@@ -1417,35 +1421,44 @@ async function handleCallback(cb) {
     await answerCb(cbId, '');
     const action = data.split(':')[1];
     if (action === 'proof') {
-      const s = await getFsm(fromUid);
-      if (s && s.step === 'mid' && s.hint) {
-        await editText(chatId, messageId, '📤 <b>Send proof</b>\n\nAlmost done — two short steps:\n\n1️⃣ <b>Machine ID</b> (8 characters)\n2️⃣ Payment <b>screenshot</b>\n\n→ Start with <b>Step 1/2</b>: send your <b>Machine ID</b>.', [
-          [{ text: '📍 Machine ID የት ነው? · Where is it?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }],
-        ]);
-        return;
-      }
-      // Already know the machine id (they arrived from the panel's Buy button)?
-      // Then there is only one step left, and asking for it again would be
-      // asking for something we are already holding.
+      // ONE message. This used to edit the tapped message AND send a second
+      // one saying the same thing ("Send proof — Step 1/2" followed by "Send
+      // your Machine ID (8 characters)"), so tapping "I've paid" produced two
+      // near-identical prompts at once — and the second was English with no
+      // way back. Editing the tapped message keeps the chat to a single
+      // screen the buyer is already looking at.
       const known = await getFsm(fromUid);
+
+      // Arrived from the panel's Buy button, so the Machine ID is already
+      // known: one step left, do not ask for something we are holding.
       if (known && known.mid && !suspiciousMid(known.mid)) {
         await setFsm(fromUid, { ...known, step: 'photo' });
         await addFunnel(fromUid, 'proof_start');
-        await editText(chatId, messageId,
+        const t =
           '📤 <b>ማረጋገጫ ይላኩ / Send proof</b>\n\n' +
           `🤖 Machine ID: <code>${known.mid}</code> ✅\n\n` +
-          'የቀረው አንድ ነገር ብቻ ነው — የክፍያውን <b>ፎቶ</b> (screenshot) ይላኩ።\n' +
-          '<i>One thing left: send the payment screenshot as a photo.</i>',
-          [[{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
+          'የቀረው አንድ ነገር ብቻ ነው — የክፍያውን <b>ፎቶ</b> ይላኩ።\n' +
+          '<i>One thing left: send the payment screenshot as a photo.</i>';
+        const kb = [[{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]];
+        const r = await editText(chatId, messageId, t, kb);
+        if (!r || !r.ok) await sendText(chatId, t, kb);
         return;
       }
+
       await setFsm(fromUid, { step: 'mid', mid: null, photo_key: null, ref: '', hint: 1 });
       await addFunnel(fromUid, 'proof_start');
-      await sendHintKb(chatId, '📤 Send your <b>Machine ID</b> (8 characters).');
-      // also edit the tapped button
-      await editText(chatId, messageId, '📤 <b>Send proof</b>\n\nStart with <b>Step 1/2</b>: send your <b>Machine ID</b>.', [
-        [{ text: '📍 Machine ID የት ነው? · Where is it?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }],
-      ]);
+      const t =
+        '📤 <b>ማረጋገጫ ይላኩ / Send proof</b>\n\n' +
+        '<b>ደረጃ 1 ከ 2</b> — የእርስዎን <b>Machine ID</b> ይላኩ (8 ፊደል)።\n' +
+        '<i>Step 1 of 2 — send your Machine ID (8 characters).</i>\n\n' +
+        'በ Premiere Pro ውስጥ ፓናሉን ይክፈቱ → <b>License</b>።\n' +
+        '<i>Open the panel in Premiere Pro → License.</i>';
+      const kb = [
+        [{ text: '📍 Machine ID የት ነው? · Where is it?', url: `${SITE_URL}/install` }],
+        [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }],
+      ];
+      const r = await editText(chatId, messageId, t, kb);
+      if (!r || !r.ok) await sendText(chatId, t, kb);
     }
     return;
   }

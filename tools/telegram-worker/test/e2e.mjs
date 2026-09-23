@@ -580,6 +580,38 @@ console.log('\n:: scenario 1g — every buyer message speaks Amharic; /help answ
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: scenario 1h — "I have paid" sends exactly one prompt');
+
+{
+  // Tapping "I've paid" used to edit the tapped message AND send a second one
+  // saying the same thing, so two near-identical prompts arrived at once and
+  // the second was English with no way back. Reported from real use.
+  const { env } = fresh();
+  OUTBOUND.length = 0;
+  await cb(env, { id: Number(BUYER) }, 'pay:proof', { chatId: Number(BUYER) });
+
+  const shown = OUTBOUND.filter((o) => o.method === 'sendMessage' || o.method === 'editMessageText');
+  assert.equal(shown.length, 1, 'exactly one prompt, not two');
+  const only = shown[0];
+  assert.ok(/[\u1200-\u137F]/.test(only.body.text), 'the prompt speaks Amharic');
+  assert.ok(JSON.stringify(only.body.reply_markup).includes('proof:cancel'),
+    'and carries a Back button');
+
+  // the same must hold on the panel hand-off path (mid already known)
+  const env2 = fresh().env;
+  env2.DB.prepare("INSERT INTO fsm (uid, step, mid, hint, updated_at) VALUES (?, 'have_mid', 'a1b2c3d4', 1, datetime('now'))")
+    .bind(BUYER).run();
+  OUTBOUND.length = 0;
+  await cb(env2, { id: Number(BUYER) }, 'pay:proof', { chatId: Number(BUYER) });
+  const shown2 = OUTBOUND.filter((o) => o.method === 'sendMessage' || o.method === 'editMessageText');
+  assert.equal(shown2.length, 1, 'one prompt on the known-machine path too');
+  assert.ok(JSON.stringify(shown2[0].body.reply_markup).includes('proof:cancel'),
+    'which also has a Back button');
+
+  ok('"I have paid" shows one Amharic prompt with a way back');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 console.log('\n:: scenario 2 — screenshot as document (pdf rejected, image accepted)');
 
 {
