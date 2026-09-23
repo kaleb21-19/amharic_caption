@@ -530,24 +530,46 @@ function amh_importCaptions(argsJSON) {
 
         // Find the imported item by (in order) human label, SRT file base name,
         // or the most recently added caption item as a last resort.
-        var captionItem = amhFindCaptionItem(bin, baseName) || amhFindCaptionItem(bin, srtBase)
-                       || amhFindLastCaptionItem(bin);
+        // Find the caption item. The human label (baseName) can COLLIDE with a
+        // media clip's name — a caption on a Selected Clip is labeled with the
+        // clip's name (e.g. "Tiktok.mp3"), and the clip itself lives in this bin,
+        // so a baseName lookup can silently hand Sequence.createCaptionTrack the
+        // *media clip*, which makes it return false (no error thrown). Prefer the
+        // SRT file base name first — it uniquely names the imported caption item
+        // (amh_review_*/amh_file_*/amh_captions_*) — and only accept a baseName
+        // match when it's caption-typed or .srt/.vtt-named.
+        var captionItem = null;
+        var firstMatch = null;
+        var tryFind = function (name) {
+            var it = amhFindCaptionItem(bin, name);
+            if (!it) { return null; }
+            if (firstMatch === null) { firstMatch = it; }
+            var nm = "";
+            try { nm = String(it.name || ""); } catch (e) {}
+            if (amhIsCaptionItem(it) || /\.(srt|vtt)$/i.test(nm)) { return it; }
+            return null;
+        };
+        captionItem = tryFind(srtBase) || tryFind(baseName) || firstMatch;
+        if (!captionItem) {
+            try { captionItem = amhFindLastCaptionItem(bin); } catch (e) {}
+        }
         if (!captionItem) {
             return amhErr("Import reported success but no caption item was found in '" +
                           AMH_CAPTION_BIN + "' (looked for '" + baseName + "' / '" + srtBase + "').");
         }
         // Windows quirk: with suppressUI=true an .srt sometimes lands in the bin
-        // as a PLAIN clip (footage type "Video", no caption track capability), and
-        // Sequence.createCaptionTrack returns false instead of throwing. Re-import
-        // with the UI flag off (caption files import silently anyway) and prefer a
-        // genuinely caption-typed item if one appears.
-        if (!amhIsCaptionItem(captionItem)) {
-            try {
-                var reimp = app.project.importFiles([args.srtPath], false, bin, false);
-                var reItem = amhFindCaptionItem(bin, baseName) || amhFindCaptionItem(bin, srtBase)
-                          || amhFindLastCaptionItem(bin);
-                if (reItem) { captionItem = reItem; }
-            } catch (e) {}
+        // as a PLAIN clip. Only when we found nothing caption-ish do we risk a UI
+        // re-import (caption files usually import without a dialog anyway) and
+        // pick a genuine caption item if one then appears.
+        {
+            var foundN = "";
+            try { foundN = String(captionItem.name || ""); } catch (e) {}
+            if (!amhIsCaptionItem(captionItem) && !/\.(srt|vtt)$/i.test(foundN)) {
+                try {
+                    app.project.importFiles([args.srtPath], false, bin, false);
+                    captionItem = tryFind(srtBase) || tryFind(baseName) || firstMatch;
+                } catch (e) {}
+            }
         }
 
         var startSeconds = (args.startSeconds || 0);
@@ -585,6 +607,9 @@ function amh_importCaptions(argsJSON) {
             landedEnd: landedEnd,
             note: result.note || "",
             diag: {
+                captionItemName: (function () {
+                    try { return String(captionItem.name || ""); } catch (e) { return ""; }
+                })(),
                 isCaptionItem: !!amhIsCaptionItem(captionItem),
                 footageType: (function () {
                     try { return String(captionItem.footage ? captionItem.footage.type : ""); } catch (e) { return ""; }
@@ -624,6 +649,10 @@ function amhFindCaptionItem(bin, baseName) {
 }
 
 function amhIsCaptionItem(ch) {
+    try {
+        var nm0 = String(ch.name || "");
+        if (/\.(srt|vtt)$/i.test(nm0)) return true;
+    } catch (e) {}
     try {
         // Caption items in PPRO have a media type/tapeline of caption; inspect
         // the footage type if exposed, else fall back to name heuristics below.

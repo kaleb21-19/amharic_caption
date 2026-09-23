@@ -1822,7 +1822,7 @@ async function finishImport(outSrt, label, startSeconds) {
       log('Note: ' + imp.note);
       if (imp.diag && imp.diag.isCaptionItem !== undefined) {
         const d = imp.diag;
-        log('Diag: captionItem=' + (d.isCaptionItem ? 'YES' : 'NO') +
+        log('Diag: name="' + d.captionItemName + '" captionItem=' + (d.isCaptionItem ? 'YES' : 'NO') +
             ' type="' + d.footageType + '" captionTracks=' + d.captionTracks +
             ' seq="' + d.seqName + '" prem=' + d.premVer);
       }
