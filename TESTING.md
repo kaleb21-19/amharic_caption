@@ -693,6 +693,46 @@ correctly exits 1 on `[MISSING] amharic-captions-win-x64.zip`.
 Windows customers cannot install. If the re-run fails again, the Actions log
 for `build-win` will now name the reason.
 
+### 1.2o Numbers, and VAD trimming off by default (2026-09-23)
+
+Started from the numbers fixture (69% WER). Two causes, both decode-side:
+
+**1. The model learned numbers both ways.** At nearly every number word its
+runner-up token is a digit (ሶ/`3`, አ/`4`, ባ/`7`, ጠ/`9`, ሮ/`0`) — the
+training transcripts evidently write numbers as words *and* digits. Greedy
+stitches halves of each: "አምስት" → `5mሰት`, the year → `boሁለትሺi0ህ 20`.
+`_masked_token_ids` now removes Latin a–z, 0–9 and ASCII symbols from the
+logits (`AMH_TOKEN_MASK`, empty disables). Numbers CER 37.1% → 31.0%; the 19
+CV clips byte-identical; long5min 50.1% → 49.6% WER. A beam constraint that
+lets digits and letters compete as whole words was tried and scored no better
+than the mask, so it was dropped.
+
+**2. VAD trimming was clipping speech** (follows §1.2l). Grid over the
+trim margin, same staged runtime, VAD asserted live. CER:
+
+| config | clean | music | noise | phone | reverb | 2spk | long5min | numbers |
+|---|---|---|---|---|---|---|---|---|
+| trim, 0.05 s margin (old) | 19.8 | 27.1 | 28.6 | 66.4 | 48.4 | 18.8 | 16.9 | 31.0 |
+| trim, 0.2 s | 17.5 | 18.6 | 27.1 | 58.7 | 43.8 | 21.2 | 13.4 | 19.0 |
+| trim, 0.3 s | 16.3 | 18.5 | 28.6 | 57.9 | 41.9 | 18.6 | 16.4 | 22.4 |
+| trim, 0.5 s | 16.9 | 18.6 | 28.0 | 49.2 | 40.4 | 18.0 | 17.1 | 22.4 |
+| trim, 0.2 s + 0.3 s gap | 17.9 | 19.2 | 26.8 | 59.2 | 43.5 | 17.8 | 13.4 | 21.6 |
+| **no trim, VAD plans windows (new)** | 16.6 | 15.8 | 27.6 | **31.8** | 44.7 | 15.4 | **13.2** | 22.4 |
+
+The gap between concatenated segments barely matters; the margin does —
+the cut was eating word edges. Phone is the headline: Silero misses
+narrowband speech, so trimming discarded real words (this likely also
+explains the older 57.6% phone figure, measured when VAD was silently off).
+
+Checked before switching: 8 s of music bed, crowd noise or room tone before a
+real sentence produced **no** captions with trimming off; appending 0.5 s of
+digital zero to all 19 CV clips emptied none of them; long5min wall time
+unchanged (78–80 s vs 73–80 s). One regression: the synthetic `short1`
+(1.7 s, ends in 0.35 s of digital zero) now decodes empty instead of a wrong
+"የንደሚ አደ" — its output flips on 50 ms edits either way and no variant is
+correct. Numbers remaining errors (ሁለት, ዘጠኝ→መጠኝ, ዜሮ→ሜሮ) are acoustic and
+consistent across every config: retrain territory (IMPROVEMENTS.md B3.5).
+
 ### 1.3 Correctness of caption grouping / timing (visual)
 
 For `long5min` import into Premiere and verify:

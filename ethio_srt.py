@@ -186,6 +186,7 @@ class _CT2Engine:
         raw = json.load(open(os.path.join(model_dir, "vocab.json")))
         self.glyphs = {int(tid): tok for tok, tid in raw.items()}
         self._skip = {"[PAD]", "[UNK]", "<s>", "</s>"}
+        self._masked = _masked_token_ids(self.glyphs)
 
     def transcribe(self, wav):
         # Very long audio (e.g. a 5-minute clip) makes the conformer attention
@@ -219,6 +220,9 @@ class _CT2Engine:
     def _align(self, wav, logits):
         T = logits.shape[1]
         frame_dur = (len(wav) / 16000) / T
+        if self._masked:
+            logits = np.array(logits, dtype=np.float32)
+            logits[..., self._masked] = -1e9
         # Decoding. Greedy argmax is the DEFAULT as of 2026-09-20, because
         # measuring beam search against it on the 19 real Common Voice clips
         # showed beam is not worth its cost:
@@ -337,6 +341,28 @@ def format_ts(seconds: float) -> str:
     m = (int(seconds) // 60) % 60
     h = int(seconds) // 3600
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+_MASK_CLASSES = {
+    "latin": lambda t: len(t) == 1 and "a" <= t <= "z",
+    "digits": lambda t: len(t) == 1 and "0" <= t <= "9",
+    "symbols": lambda t: t in set("!#$%&'*+,-.=?@€"),
+}
+
+
+def _masked_token_ids(glyphs):
+    """Token ids the decoder may never emit.
+
+    The vocab carries Latin a-z, 0-9 and ASCII symbols, and on Amharic speech
+    the model reaches for them mid-word — "አምስት" came out as "5mሰት", the
+    year as "boሁለትሺi0ህ". Nothing an Amharic caption needs lives there, so
+    those columns are removed from the logits and the next-best (Ethiopic)
+    token wins. AMH_TOKEN_MASK is a comma list of classes (latin, digits,
+    symbols); empty disables the mask.
+    """
+    spec = os.environ.get("AMH_TOKEN_MASK", "latin,digits,symbols")
+    tests = [_MASK_CLASSES[c] for c in (s.strip() for s in spec.split(",")) if c in _MASK_CLASSES]
+    return sorted(tid for tid, tok in glyphs.items() if any(f(tok) for f in tests))
 
 
 def ctc_align(logits, blank_id, frame_dur, text):
@@ -809,7 +835,19 @@ def _vad_trim(wav):
     speech segments + tiny pad) and a mapping back to the original timeline.
     Returns (wav, seg_table) where seg_table is a list of
     (trim_start_sample, orig_start_sample, seg_len) or (wav, None) to keep the
-    default single-shot path (no meaningful cuts)."""
+    default single-shot path (no meaningful cuts).
+
+    OFF by default since 2026-09-23 (AMH_VAD_TRIM=1 restores it). Cutting the
+    audio before the encoder cost accuracy everywhere it was measured: the
+    50 ms margin clipped word onsets (ሁለት -> "ቡኡሁለት"), and on narrowband
+    phone audio Silero misses speech outright. CER, trim on -> off:
+        phone 66.4% -> 31.8%   music 27.1% -> 15.8%   clean 19.8% -> 16.6%
+        numbers 31.0% -> 22.4%   long5min 16.9% -> 13.2%   reverb 48.4 -> 44.7
+    No hallucinated captions appeared over 8s of music, crowd noise or room
+    tone with trimming off, and wall time on long5min was unchanged. VAD
+    still plans the long-audio window cuts (_plan_windows). TESTING.md 1.2o."""
+    if os.environ.get("AMH_VAD_TRIM", "0") != "1":
+        return wav, None
     try:
         segs = _vad_segments(wav)
         if len(segs) < 1:
