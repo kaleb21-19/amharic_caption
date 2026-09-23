@@ -99,20 +99,25 @@ def main():
             if not text:
                 continue
             text = " ".join(text.split())
-            audio = row.get("audio") or {}
-            raw = audio.get("bytes")
-            if not raw:
-                continue
-            try:
-                y, a_sr = decode_audio(raw)
-                x = resample_f32(y, a_sr, args.sample_rate)
-            except Exception:
-                continue
-            if len(x) < args.sample_rate:  # <1s of audio — skip
-                continue
             ident = str(row.get("id", f"row{n}"))
             wav = os.path.join(args.wavs, f"{ident}.wav")
-            wav_write(wav, (x * 32767).astype("<i2").tobytes(), args.sample_rate)
+            # Resumable: a wav already written by an interrupted run is kept
+            # (written via .tmp + rename, so an existing file is complete).
+            if not os.path.isfile(wav):
+                audio = row.get("audio") or {}
+                raw = audio.get("bytes")
+                if not raw:
+                    continue
+                try:
+                    y, a_sr = decode_audio(raw)
+                    x = resample_f32(y, a_sr, args.sample_rate)
+                except Exception:
+                    continue
+                if len(x) < args.sample_rate:  # <1s of audio — skip
+                    continue
+                wav_write(wav + ".tmp", (x * 32767).astype("<i2").tobytes(),
+                          args.sample_rate)
+                os.replace(wav + ".tmp", wav)
             manifest.write(f"{wav}\t{row.get('speaker_id','')}\t{text}\n")
             n += 1
     manifest.close()

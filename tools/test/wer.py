@@ -46,42 +46,8 @@ _AMH_HOMOPHONE = str.maketrans(
 # references spell them out. Scoring spells the caption's digits back out so
 # WER/CER keep measuring RECOGNITION, comparable with every earlier run;
 # whether the digits are formatted right is amh_correct's self-check's job.
-_ONES = ["ዜሮ", "አንድ", "ሁለት", "ሶስት", "አራት", "አምስት", "ስድስት", "ሰባት", "ስምንት", "ዘጠኝ"]
-_TENS = {10: "አስር", 20: "ሃያ", 30: "ሰላሳ", 40: "አርባ", 50: "ሃምሳ",
-         60: "ስልሳ", 70: "ሰባ", 80: "ሰማንያ", 90: "ዘጠና"}
-
-
-def _say_int(n: int) -> list:
-    if n < 10:
-        return [_ONES[n]]
-    for scale, word in ((10 ** 9, "ቢሊዮን"), (10 ** 6, "ሚሊዮን"), (1000, "ሺህ")):
-        if n >= scale:
-            hi, lo = divmod(n, scale)
-            return _say_int(hi) + [word] + (_say_int(lo) if lo else [])
-    if n >= 100:
-        hi, lo = divmod(n, 100)
-        return ([] if hi == 1 else _say_int(hi)) + ["መቶ"] + (_say_int(lo) if lo else [])
-    t, u = divmod(n, 10)
-    if t == 1:
-        return ["አስር"] if u == 0 else ["አስራ", _ONES[u]]
-    return [_TENS[t * 10]] + ([_ONES[u]] if u else [])
-
-
-def _say_number(tok: str) -> str:
-    m = re.fullmatch(r"(\D*?)(\d+(?:[.-]\d+)?)(\W*)", tok)
-    if not m:
-        return tok
-    prefix, num, trail = m.groups()
-    if "." in num or "-" in num:
-        a, sep, b = re.split(r"([.-])", num)
-        mid = ["ነጥብ"] if sep == "." else []
-        words = _say_int(int(a)) + mid + (_say_int(int(b)) if sep == "-" else [_ONES[int(d)] for d in b])
-    elif num.startswith("0") and len(num) > 1:
-        words = [_ONES[int(d)] for d in num]  # phone number / id: digit by digit
-    else:
-        words = _say_int(int(num))
-    words[0] = prefix + words[0]
-    return " ".join(words) + trail
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from amh_numwords import say_number as _say_number  # noqa: E402
 
 
 def normalize(text: str) -> list:

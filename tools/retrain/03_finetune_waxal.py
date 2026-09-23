@@ -28,11 +28,15 @@ Requires the dev venv (torch, transformers, pyarrow, soxr/librosa).
 """
 import argparse
 import os
+import re
 import sys
 import glob
 import random
 
 import torch
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from amh_numwords import say_digits_in  # noqa: E402
 
 from transformers import Wav2Vec2BertForCTC, Wav2Vec2Processor
 
@@ -49,23 +53,54 @@ def load_audio(path):
     return torch.from_numpy(w).float()
 
 
+def clean_transcript(text, vocab):
+    """Transcript -> training target, or None to drop the row.
+
+    * digits are spelled out ("ከ150 ብር" -> "ከመቶ ሃምሳ ብር"): ~2% of WAXAL
+      writes numbers as digits and the rest in words, and training on both
+      taught the model to hover between them ("5mሰት"; TESTING.md 1.2o). The
+      product masks digit tokens and writes digits itself, so the model only
+      ever needs the words.
+    * rows with Latin letters are dropped: code-switched English the model
+      cannot spell in Ge'ez, and the product masks Latin tokens anyway.
+    * any other character outside the vocab becomes a space instead of an
+      [UNK] target.
+    """
+    if re.search(r"[A-Za-z]", text):
+        return None
+    text = say_digits_in(text)
+    if re.search(r"[0-9]", text):      # "3ኛ" and friends: no clean spelling
+        return None
+    text = "".join(c if (c in vocab or c == " ") else " " for c in text)
+    text = " ".join(text.split())
+    return text or None
+
+
 class WaxalDataset(torch.utils.data.Dataset):
     def __init__(self, manifest, processor, musan=None, max_rows=None, seed=0,
                  max_secs=30.0, reverb_prob=0.0, narrowband_prob=0.0,
                  rir_dir=None):
         import soundfile as sf
         self.rows = []
+        vocab = set(processor.tokenizer.get_vocab())
+        self.dropped = 0          # transcript unusable (clean_transcript)
+        self.too_long = 0         # outside [0.3 s, max_secs]
         with open(manifest, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
                     continue
                 path, _spk, text = line.split("\t", 2)
+                text = clean_transcript(text, vocab)
+                if text is None:
+                    self.dropped += 1
+                    continue
                 try:
                     info = sf.info(path)
                 except Exception:
                     continue
                 if info.duration > max_secs or info.duration < 0.3:
+                    self.too_long += 1
                     continue
                 self.rows.append((path, text))
                 if max_rows and len(self.rows) >= max_rows:
@@ -247,7 +282,10 @@ class Trainer:
         # torch.cuda.amp.GradScaler is deprecated (FutureWarning on 2.13).
         self.scaler = torch.amp.GradScaler("cuda") if self.amp else None
 
-    def step(self, batch, optimizer, lr_sched=None):
+    def step(self, batch, optimizer, lr_sched=None, accum=1, update=True):
+        """Forward + backward one batch. Gradients accumulate across calls;
+        the optimizer only steps when `update` is True, with the loss scaled
+        by 1/accum so an accumulated step equals one big batch."""
         b = {k: v.to(self.device) if v is not None else None
              for k, v in batch.items()}
         if self.amp:
@@ -268,7 +306,12 @@ class Trainer:
         log_probs = log_probs.to(self.loss_device)
         labels = b["labels"].to(self.loss_device)
         if b["attention_mask"] is not None:
-            inp_len = b["attention_mask"].sum(-1).to(self.loss_device)
+            # The adapter (stride 2) halves the frame count, so the feature
+            # mask length is NOT the logit length. Using it unconverted told
+            # CTC that every clip shorter than the batch's longest ran into
+            # the padding.
+            inp_len = self.model._get_feat_extract_output_lengths(
+                b["attention_mask"].sum(-1)).long().to(self.loss_device)
             inp_len = inp_len.clamp(max=T)
         else:
             inp_len = torch.full((N,), T, device=self.loss_device,
@@ -281,20 +324,65 @@ class Trainer:
         loss = F.ctc_loss(log_probs, labels_flat, inp_len, tgt_len,
                           blank=self.blank_id, zero_infinity=True) if N else \
             torch.tensor(0.0, requires_grad=True)
+        scaled = loss / accum
         if self.scaler is not None:
-            self.scaler.scale(loss).backward()
+            self.scaler.scale(scaled).backward()
+        else:
+            scaled.backward()
+        if not update:
+            return float(loss.detach()), logits
+        if self.scaler is not None:
             self.scaler.unscale_(optimizer)       # unscale before clipping
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
             self.scaler.step(optimizer)
             self.scaler.update()
         else:
-            loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
             optimizer.step()
         optimizer.zero_grad()
         if lr_sched:
             lr_sched.step()
         return float(loss.detach()), logits
+
+
+def _cer(ref, hyp):
+    r, h = ref.replace(" ", ""), hyp.replace(" ", "")
+    prev = list(range(len(h) + 1))
+    for i, a in enumerate(r, 1):
+        cur = [i]
+        for j, b in enumerate(h, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a != b)))
+        prev = cur
+    return prev[-1], max(1, len(r))
+
+
+@torch.no_grad()
+def dev_cer(model, processor, rows, device):
+    """Greedy CER (spaces ignored) over held-out rows, pooled. Spaces are
+    ignored so a re-segmentation cannot pass for an accuracy change
+    (TESTING.md: judge a retrain on CER-nospace)."""
+    was_training = model.training
+    model.eval()
+    blank = processor.tokenizer.pad_token_id
+    inv = {v: k for k, v in processor.tokenizer.get_vocab().items()}
+    errs = total = 0
+    for path, text in rows:
+        audio = load_audio(path)
+        feats = processor(audio, sampling_rate=SR, return_tensors="pt")
+        x = feats["input_features"] if "input_features" in feats else feats["input_values"]
+        ids = model(input_features=x.to(device)).logits[0].argmax(-1).tolist()
+        out, prev = [], None
+        for t in ids:
+            if t != prev and t != blank:
+                out.append(inv.get(t, ""))
+            prev = t
+        hyp = "".join(c for c in out if len(c) == 1).replace("|", " ")
+        e, n = _cer(text, hyp)
+        errs += e
+        total += n
+    if was_training:
+        model.train()
+    return errs / max(1, total)
 
 
 def main():
@@ -344,6 +432,22 @@ def main():
                     help="trade compute for memory in the encoder; needed to "
                          "fit meaningful batch sizes on a 16 GB GPU")
     ap.add_argument("--grad-accum", type=int, default=1)
+    ap.add_argument("--warmup-frac", type=float, default=0.05,
+                    help="fraction of steps to warm the lr up over, then "
+                         "linear decay to zero")
+    ap.add_argument("--mask-time-prob", type=float, default=None,
+                    help="SpecAugment time masking (the checkpoint ships 0.0); "
+                         "0.05 is a common fine-tuning value")
+    ap.add_argument("--eval-every", type=int, default=500,
+                    help="score --dev-manifest every N steps; the best CER "
+                         "is what gets saved to --out")
+    ap.add_argument("--eval-rows", type=int, default=80)
+    ap.add_argument("--max-hours", type=float, default=None,
+                    help="stop training after this many hours (then score and "
+                         "save as usual) — keeps a Kaggle session, which is "
+                         "killed at 12 h, from losing the run")
+    ap.add_argument("--resume", action="store_true",
+                    help="continue from <out>/last.pt if present")
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
 
@@ -392,7 +496,10 @@ def main():
     #    datatype in MPSNDArrayMatrixMultiplication"
     # Mixed precision is --amp, which keeps fp32 weights and casts only the
     # forward activations. That is a different thing from fp16 weights.
-    model = Wav2Vec2BertForCTC.from_pretrained(args.src, torch_dtype=torch.float32)
+    # mask_time_prob must reach the constructor: the SpecAugment mask
+    # embedding is only created when it is > 0 at init time.
+    extra = {} if args.mask_time_prob is None else {"mask_time_prob": args.mask_time_prob}
+    model = Wav2Vec2BertForCTC.from_pretrained(args.src, torch_dtype=torch.float32, **extra)
     if args.freeze_encoder and args.unfreeze_top_n:
         raise SystemExit("[fail] --freeze-encoder and --unfreeze-top-n are "
                          "mutually exclusive")
@@ -427,7 +534,9 @@ def main():
                       rir_dir=args.rir_dir,
                       max_rows=args.max_train_rows, seed=args.seed,
                       max_secs=args.max_secs)
-    print(f"[info] {len(ds)} training rows")
+    print(f"[info] {len(ds)} training rows "
+          f"(skipped: {ds.dropped} unusable transcript, "
+          f"{ds.too_long} longer than --max-secs {args.max_secs:g}s)")
     dl = torch.utils.data.DataLoader(
         ds, batch_size=args.batch_size, shuffle=True,
         collate_fn=Collator(processor), num_workers=2, persistent_workers=False)
@@ -455,30 +564,115 @@ def main():
         total_steps = args.max_steps
     optim = torch.optim.AdamW(
         [p for p in model.parameters() if p.requires_grad], lr=args.lr, weight_decay=0.01)
-    sched = torch.optim.lr_scheduler.LinearLR(optim, total_iters=max(total_steps, 1))
+    # Warm up, then decay linearly to zero. (This used to be a bare
+    # LinearLR, whose defaults RAISE the lr from lr/3 to lr over the run —
+    # the opposite of a decay, and hardest on the pretrained layers at the
+    # very end.)
+    warm = max(1, int(args.warmup_frac * total_steps))
 
-    step = 0
+    def lr_at(step):
+        if step < warm:
+            return (step + 1) / warm
+        return max(0.0, (total_steps - step) / max(1, total_steps - warm))
+    sched = torch.optim.lr_scheduler.LambdaLR(optim, lr_at)
+
+    os.makedirs(args.out, exist_ok=True)
+    last_pt = os.path.join(args.out, "last.pt")
+    step, best_cer = 0, None
+    if args.resume and os.path.isfile(last_pt):
+        ck = torch.load(last_pt, map_location="cpu", weights_only=False)
+        model.load_state_dict(ck["model"], strict=False)
+        optim.load_state_dict(ck["optim"])
+        sched.load_state_dict(ck["sched"])
+        step, best_cer = ck["step"], ck.get("best_cer")
+        random.setstate(ck["py_rng"])
+        print(f"[info] resumed at step {step} (best dev CER {best_cer})")
+
+    dev_rows = []
+    if args.dev_manifest:
+        vocab = set(processor.tokenizer.get_vocab())
+        with open(args.dev_manifest, encoding="utf-8") as f:
+            for ln in f:
+                parts = ln.rstrip("\n").split("\t")
+                if len(parts) >= 3:
+                    t = clean_transcript(parts[2], vocab)
+                    if t:
+                        dev_rows.append((parts[0], t))
+        dev_rows = dev_rows[:args.eval_rows]
+
+    def save_best():
+        model.save_pretrained(args.out)
+        processor.save_pretrained(args.out)
+        import shutil
+        for extra in ("preprocessor_config.json", "special_tokens_map.json"):
+            src = os.path.join(args.src, extra)
+            if os.path.isfile(src):
+                shutil.copy(src, os.path.join(args.out, extra))
+
+    def checkpoint():
+        trainable = {k: v for k, v in model.state_dict().items()
+                     if k in {n for n, p in model.named_parameters() if p.requires_grad}}
+        torch.save({"model": trainable, "optim": optim.state_dict(),
+                    "sched": sched.state_dict(), "step": step,
+                    "best_cer": best_cer, "py_rng": random.getstate()},
+                   last_pt + ".tmp")
+        os.replace(last_pt + ".tmp", last_pt)
+
+    def evaluate():
+        nonlocal best_cer
+        if not dev_rows:
+            return
+        cer = dev_cer(model, processor, dev_rows, device)
+        better = best_cer is None or cer < best_cer
+        print(f"  [eval] step {step}: dev CER {cer:.2%}"
+              f"{'  <- best, saved' if better else ''}", flush=True)
+        if better:
+            best_cer = cer
+            save_best()
+
+    if step == 0:
+        evaluate()                     # the untouched model's score to beat
+    # from_pretrained() returns the model in eval mode; without this, dropout
+    # and SpecAugment silently never run.
+    model.train()
+    batches_seen = 0
+    accum = max(1, args.grad_accum)
+    import time
+    t0, start_step = time.time(), step
     for epoch in range(args.epochs):
         print(f"[epoch {epoch + 1}/{args.epochs}]")
         for bi, batch in enumerate(dl):
-            loss, logits = trainer.step(batch, optim, sched)
-            if step % 5 == 0 or loss < 1.0:
-                print(f"  step {step}: loss={loss:.4f} lr={sched.get_last_lr()[0]:.2e}")
+            batches_seen += 1
+            if batches_seen <= step * accum:   # fast-forward on resume
+                continue
+            update = batches_seen % accum == 0
+            loss, logits = trainer.step(batch, optim, sched, accum=accum,
+                                        update=update)
+            if not update:
+                continue
+            if step % 20 == 0:
+                rate = (time.time() - t0) / max(1, step - start_step + 1)
+                print(f"  [{rate:.1f}s/step]", end="")
+                print(f"  step {step}: loss={loss:.4f} "
+                      f"lr={sched.get_last_lr()[0]:.2e}", flush=True)
             step += 1
-            if args.max_steps and step >= args.max_steps:
+            if step % args.eval_every == 0:
+                evaluate()
+                checkpoint()
+            if args.max_hours and time.time() - t0 > args.max_hours * 3600:
+                print(f"[info] --max-hours {args.max_hours:g} reached at step {step}")
+                total_steps = step
+            if step >= total_steps:
                 break
-        if args.max_steps and step >= args.max_steps:
+        if step >= total_steps:
             break
 
-    os.makedirs(args.out, exist_ok=True)
-    model.save_pretrained(args.out)
-    processor.save_pretrained(args.out)
-    import shutil
-    for extra in ("preprocessor_config.json", "special_tokens_map.json"):
-        src = os.path.join(args.src, extra)
-        if os.path.isfile(src):
-            shutil.copy(src, os.path.join(args.out, extra))
-    print(f"[ok] fine-tuned checkpoint -> {args.out}")
+    if not dev_rows:
+        save_best()
+    elif step % args.eval_every:
+        evaluate()                     # unless the loop just scored this step
+    checkpoint()
+    print(f"[ok] fine-tuned checkpoint -> {args.out} (best dev CER {best_cer})")
 
 
 if __name__ == "__main__":

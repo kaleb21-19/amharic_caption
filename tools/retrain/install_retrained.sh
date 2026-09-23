@@ -36,7 +36,10 @@ CT2_CUR="${STAGE}/model-ct2-int8"
 CT2_NEW_SRC="${BUNDLE}/bundle/model-ct2-int8-retrain"
 HF_NEW="${BUNDLE}/bundle/model-retrained"
 SUMMARY="${BUNDLE}/bundle/SUMMARY.txt"
-HOLDOUT="${STAGE}/waxal/dev.tsv"
+# Final exam = the fixed held-out speakers (tools/retrain/splits/), which no
+# Kaggle run trains on. Falls back to the old 352-row slice if absent.
+HOLDOUT="${STAGE}/waxal_full/holdout.tsv"
+[[ -f "$HOLDOUT" ]] || HOLDOUT="${STAGE}/waxal/dev.tsv"
 
 if [[ -z "$BUNDLE" || ! -d "$BUNDLE" ]]; then
   echo "usage: $0 /path/to/unzipped/retrain_output"
