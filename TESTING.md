@@ -733,6 +733,24 @@ unchanged (78–80 s vs 73–80 s). One regression: the synthetic `short1`
 correct. Numbers remaining errors (ሁለት, ዘጠኝ→መጠኝ, ዜሮ→ሜሮ) are acoustic and
 consistent across every config: retrain territory (IMPROVEMENTS.md B3.5).
 
+**Follow-up — captions write numbers as digits.** The owner chose digits
+(ዓመቱ 2026 ነው) over spelled-out words. Since the model may no longer emit digit
+tokens, `amh_correct.numbers_to_digits` converts the spelled-out words after
+decoding: cardinals (ሁለት ሺህ ሀያ ስድስት → 2026), phone numbers (ዜሮ ዘጠኝ … →
+09…), decimals (አራት ነጥብ አምስት → 4.5), ranges (ሁለት ሦስት → 2-3) and a
+leading በ/ከ/የ/ለ/እስከ (→ በ2016). A lone አንድ stays a word (it is usually the
+article "a"); counting runs stay separate (1 2 3). `AMH_DIGITS=0` disables.
+
+Scoring: `wer.py` spells caption digits back into words before comparing, so
+WER/CER still measure recognition and stay comparable with every earlier
+run — verified: numbers clip 51.7% / 22.4% with the pass on and off, 19 CV +
+numbers pooled unchanged at 45.2% / 16.5%. Scoring digits on both sides was
+tried first and rejected: one wrong digit fails a whole phone number and CER
+exceeded 100%. `wer.py` also no longer mistakes an all-digit caption line
+("2026" in karaoke mode) for a cue index. Every digit across all 31 fixture
+outputs was reviewed by hand: no false conversions (real `abu.mp4`:
+"ሶስት ትኩረት" → "3 ትኩረት" correct, "አንድ ስራ ፈጣሪ" left alone).
+
 ### 1.3 Correctness of caption grouping / timing (visual)
 
 For `long5min` import into Premiere and verify:

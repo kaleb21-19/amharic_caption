@@ -575,6 +575,14 @@ def make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=42):
         merged.append((tok, s, e))
         i += 1
     words = merged
+    # Spoken numbers -> digits (ሁለት ሺህ ሀያ ስድስት -> 2026). After the digit
+    # re-glue on purpose: a counting run is emitted as separate tokens
+    # ("1", "2", "3") and must not be glued back into "123".
+    try:
+        from amh_correct import numbers_to_digits
+        words = numbers_to_digits(words)
+    except Exception:
+        pass
     # Rule-based punctuation from inter-word silence (VAD pauses surface here
     # as large gaps). Done AFTER digit re-gluing so "2024" stays whole, and
     # before grouping so sentence marks drive group_cues() flushing.
