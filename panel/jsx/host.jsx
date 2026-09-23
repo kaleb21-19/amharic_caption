@@ -536,6 +536,19 @@ function amh_importCaptions(argsJSON) {
             return amhErr("Import reported success but no caption item was found in '" +
                           AMH_CAPTION_BIN + "' (looked for '" + baseName + "' / '" + srtBase + "').");
         }
+        // Windows quirk: with suppressUI=true an .srt sometimes lands in the bin
+        // as a PLAIN clip (footage type "Video", no caption track capability), and
+        // Sequence.createCaptionTrack returns false instead of throwing. Re-import
+        // with the UI flag off (caption files import silently anyway) and prefer a
+        // genuinely caption-typed item if one appears.
+        if (!amhIsCaptionItem(captionItem)) {
+            try {
+                var reimp = app.project.importFiles([args.srtPath], false, bin, false);
+                var reItem = amhFindCaptionItem(bin, baseName) || amhFindCaptionItem(bin, srtBase)
+                          || amhFindLastCaptionItem(bin);
+                if (reItem) { captionItem = reItem; }
+            } catch (e) {}
+        }
 
         var startSeconds = (args.startSeconds || 0);
         var ticks = amhSecondsToTicks(startSeconds);
@@ -570,7 +583,25 @@ function amh_importCaptions(argsJSON) {
             requestedStart: startSeconds,
             landedStart: landedStart,
             landedEnd: landedEnd,
-            note: result.note || ""
+            note: result.note || "",
+            diag: {
+                isCaptionItem: !!amhIsCaptionItem(captionItem),
+                footageType: (function () {
+                    try { return String(captionItem.footage ? captionItem.footage.type : ""); } catch (e) { return ""; }
+                })(),
+                videoComp: (function () {
+                    try { return String(captionItem.videoComponent ? captionItem.videoComponent.name : ""); } catch (e) { return ""; }
+                })(),
+                captionTracks: (function () {
+                    try { return seq.captionTracks ? seq.captionTracks.numTracks : -1; } catch (e) { return -1; }
+                })(),
+                seqName: (function () {
+                    try { return String(seq.name || ""); } catch (e) { return ""; }
+                })(),
+                premVer: (function () {
+                    try { return String(app.version || ""); } catch (e) { return ""; }
+                })()
+            }
         });
     });
 }
@@ -694,17 +725,24 @@ function amhPlaceCaptions(seq, captionItem, startTicks, startSeconds) {
         var fmt = null;
         try { fmt = Sequence.CAPTION_FORMAT_SUBTITLE; } catch (e) { fmt = null; }
         var forms = [];
+        // The documented, current signature is (captionItem, startSeconds, format)
+        // — start in SECONDS (a raw TickTime as the 2nd arg reads as ~26 trillion
+        // seconds and Premiere caps it), 3rd arg an integer constant, NOT a
+        // string/boolean ("Illegal Parameter type" otherwise). Try seconds far
+        // ahead of ticks so every modern version gets the correct unit first.
         if (fmt !== null && fmt !== undefined) {
+            forms.push({ how: "createCaptionTrack(item, seconds, CAPTION_FORMAT_SUBTITLE)",
+                         run: function () { return seq.createCaptionTrack(captionItem, startSeconds, fmt); } });
             forms.push({ how: "createCaptionTrack(item, ticks, CAPTION_FORMAT_SUBTITLE)",
                          run: function () { return seq.createCaptionTrack(captionItem, startTicks, fmt); } });
         }
         forms = forms.concat([
-            { how: "createCaptionTrack(item, ticks, true)",
-              run: function () { return seq.createCaptionTrack(captionItem, startTicks, true); } },
-            { how: "createCaptionTrack(item, ticks)",
-              run: function () { return seq.createCaptionTrack(captionItem, startTicks); } },
             { how: "createCaptionTrack(item, seconds)",
               run: function () { return seq.createCaptionTrack(captionItem, startSeconds); } },
+            { how: "createCaptionTrack(item, ticks)",
+              run: function () { return seq.createCaptionTrack(captionItem, startTicks); } },
+            { how: "createCaptionTrack(item, ticks, true)",
+              run: function () { return seq.createCaptionTrack(captionItem, startTicks, true); } },
             { how: "createCaptionTrack(item)",
               run: function () { return seq.createCaptionTrack(captionItem); } }
         ]);

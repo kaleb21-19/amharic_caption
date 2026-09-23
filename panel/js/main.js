@@ -1818,7 +1818,15 @@ async function finishImport(outSrt, label, startSeconds) {
           (imp.landedEnd !== null ? imp.landedEnd.toFixed(2) + 's' : '?') +
           '  (requested ' + imp.requestedStart.toFixed(2) + 's)');
     }
-    if (!imp.placed && imp.note) log('Note: ' + imp.note);
+    if (!imp.placed && imp.note) {
+      log('Note: ' + imp.note);
+      if (imp.diag && imp.diag.isCaptionItem !== undefined) {
+        const d = imp.diag;
+        log('Diag: captionItem=' + (d.isCaptionItem ? 'YES' : 'NO') +
+            ' type="' + d.footageType + '" captionTracks=' + d.captionTracks +
+            ' seq="' + d.seqName + '" prem=' + d.premVer);
+      }
+    }
     log('Can\'t see them? Expand the caption track (bottom of the timeline) and');
     log('  turn on the CC toggle in the Program Monitor.');
     log('To restyle, open Essential Graphics and set the caption font.');
