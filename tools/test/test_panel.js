@@ -234,15 +234,24 @@ function tAsync(name, fn) {
   );
 }
 
-let _kp = null, _pubPem = null;
-async function tokenKey() {
-  if (!_kp) {
-    _kp = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
-    const spki = await crypto.subtle.exportKey('spki', _kp.publicKey);
-    const b64 = Buffer.from(spki).toString('base64');
-    _pubPem = '-----BEGIN PUBLIC KEY-----\n' + b64.match(/.{1,64}/g).join('\n') + '\n-----END PUBLIC KEY-----';
+// Cache the keypair as a PROMISE so concurrent tAsync tests that call
+// tokenKey()/signToken() always share ONE key. (The old lazy `_kp` cache had a
+// race: two concurrent generateKey() calls could hand one test a public key
+// from key A while its token was signed with key B — flaky "signature
+// invalid" failures on valid tokens. That was a test-harness bug only; the
+// panel itself verifies single-shot with one key.)
+let _tokKey = null; // Promise<{ kp, pem }>
+function tokenKey() {
+  if (!_tokKey) {
+    _tokKey = (async () => {
+      const kp = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+      const spki = await crypto.subtle.exportKey('spki', kp.publicKey);
+      const b64 = Buffer.from(spki).toString('base64');
+      const pem = '-----BEGIN PUBLIC KEY-----\n' + b64.match(/.{1,64}/g).join('\n') + '\n-----END PUBLIC KEY-----';
+      return { kp, pem };
+    })();
   }
-  return { kp: _kp, pem: _pubPem };
+  return _tokKey;
 }
 async function signToken(mid, exp) {
   const { kp } = await tokenKey();
