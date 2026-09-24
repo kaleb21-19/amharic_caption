@@ -741,6 +741,12 @@ decoding: cardinals (ሁለት ሺህ ሀያ ስድስት → 2026), phone numbe
 leading በ/ከ/የ/ለ/እስከ (→ በ2016). A lone አንድ stays a word (it is usually the
 article "a"); counting runs stay separate (1 2 3). `AMH_DIGITS=0` disables.
 
+The CTC model also *glues* number words into one token (ሁለትሺህ, ዜሮዘጠኝአንድ,
+አስራአምስት, መቶሁለት) — `numbers_to_digits` splits a token that is a full tiling
+of number vocabulary into its parts before converting, so those become digits
+too (በሁለትሺህ → በ2000). A real word that merely *starts* with a number word
+(አንድነት, ሁለተኛ, አስረኛ, መቶኛ) is never touched — the whole token must tile.
+
 Scoring: `wer.py` spells caption digits back into words before comparing, so
 WER/CER still measure recognition and stay comparable with every earlier
 run — verified: numbers clip 51.7% / 22.4% with the pass on and off, 19 CV +

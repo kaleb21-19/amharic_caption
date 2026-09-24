@@ -146,6 +146,43 @@ _NUM_PREFIXES = ("እስከ", "በ", "ከ", "የ", "ለ")
 _NUM_TRAIL = "።፣፤፥፦፧.,?!"
 
 
+def _num_tile_words():
+    """All single number words, longest first, for splitting glued tokens."""
+    return sorted(set(_NUM_UNITS) | _NUM_TEEN | set(_NUM_TENS) | _NUM_HUNDRED
+                  | set(_NUM_SCALES), key=len, reverse=True)
+
+
+_NUM_TILE = _num_tile_words()
+
+
+def _split_num_glue(core):
+    """If `core` is a token glued from number words — ሁለትሺህ, ዜሮዘጠኝአንድ,
+    አስራአምስት, መቶሁለት — return its token list, else None.
+
+    The CTC model frequently joins number words it hears as one token; an
+    exact-word match in _num_kind() then misses them and the number stays
+    spelled out. A real Amharic word is essentially never a full tiling of
+    number vocabulary, so converting these is low-risk. Only whole-core tilings
+    of >=2 number words count (a single word is handled by _num_kind).
+    """
+    if not core:
+        return None
+    toks = []
+    i = 0
+    n = len(core)
+    while i < n:
+        matched = None
+        for v in _NUM_TILE:
+            if core.startswith(v, i):
+                matched = v
+                break
+        if matched is None:
+            return None
+        toks.append(matched)
+        i += len(matched)
+    return toks if len(toks) >= 2 else None
+
+
 def _num_kind(core):
     if core in _NUM_UNITS:
         return "unit"
@@ -237,11 +274,18 @@ def numbers_to_digits(words):
         if _num_kind(core) is None:
             for p in _NUM_PREFIXES:
                 rest = core[len(p):]
-                if core.startswith(p) and _num_kind(rest) in ("unit", "teen", "tens"):
+                if core.startswith(p) and (_num_kind(rest) in ("unit", "teen", "tens")
+                                           or _split_num_glue(rest)):
                     prefix, core = p, rest
                     break
         if _num_kind(core) is None:
-            out.append(words[i])
+            glued = _split_num_glue(core)
+            if glued:
+                # One token = one merged number (ሁለትሺህ -> 2000).
+                text = prefix + _render_run(glued)[0][0] + trail
+                out.append((text, words[i][1], words[i][2]) + tuple(words[i][3:]))
+            else:
+                out.append(words[i])
             i += 1
             continue
         # Gather the run: number words, stopping after any word that carries
@@ -378,6 +422,16 @@ if __name__ == "__main__":
         ("ዘጠኝ አስር።", "9 10።"),
         ("አንድ ሰው", "አንድ ሰው"),            # article, not a count
         ("ሁለቱም ሁለተኛ በመቶ", "ሁለቱም ሁለተኛ በመቶ"),  # suffixed / not numbers
+        # Glued number tokens (the model joins number words into one token).
+        ("አመቱ በሁለትሺህ ነው", "አመቱ በ2000 ነው"),      # prefix + glued scale
+        ("ስልክ ዜሮዘጠኝአንድአንድ ነው", "ስልክ 0911 ነው"),  # glued phone run
+        ("አስራአምስት ቀን ነበር", "15 ቀን ነበር"),        # teen+unit glued
+        ("መቶሁለት ተማሪዎች", "102 ተማሪዎች"),          # hundred+unit glued
+        # Real words that merely START with number words must NOT split.
+        ("አንድነት", "አንድነት"),        # unity — not "1 ነት"
+        ("ሁለተኛ", "ሁለተኛ"),          # second
+        ("አስረኛ", "አስረኛ"),          # tenth
+        ("መቶኛ", "መቶኛ"),            # hundredth
     ]
     for src, want in num_cases:
         got = " ".join(w for w, _, _ in numbers_to_digits(
