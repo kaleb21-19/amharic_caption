@@ -190,7 +190,7 @@ Engine changes on top of 1.4.14 (repo; shipped in the next version):
   (server/batch request) label cues on the single, batch and long paths; unavailable
   models log to stderr and continue unlabelled.
 - **Panel export.** Review now has an **Export SRT/VTT/TXT** button (folder picker,
-  fallback `Desktop/AmharicCaptions`). Pure serializers in `panel/js/core.js`
+  fallback `Documents/AmharicCaptions`). Pure serializers in `panel/js/core.js`
   (`srtTextFromCues`/`vttTextFromCues`/`txtTextFromCues`): SRT/TXT use `[S1] `/`S1: `,
   VTT uses `<v S1>`. `detectSpeaker`/`normalizeCues` lift the engine's `[Sx] ` prefix
   into `cue.speaker` so each format gets the right tag.
@@ -810,7 +810,7 @@ non-overlapping and sorted.
 
 | Test | Expected |
 |------|----------|
-| Export SRT | Valid `.srt`, sequential numbering, `HH:MM:SS,mmm` timestamps, saved to Desktop/AmharicCaptions |
+| Export SRT | Valid `.srt`, sequential numbering, `HH:MM:SS,mmm` timestamps, saved to Documents/AmharicCaptions |
 | Export VTT | Valid `.vtt` with `WEBVTT` header + `hh:mm:ss.mmm` times |
 | Full transcript with Amharic + punctuation | All characters preserved, no mojibake (UTF-8) |
 | Long transcript (> hours) | Timestamps roll over correctly, no negative/overflow |

@@ -1222,11 +1222,13 @@ let lastSrtPath = null;
 let lastCues = [];
 let activeChild = null;
 
-// Stable folder for placed caption SRTs. Premiere keeps a file link to the
+// Stable folder for placed caption SRTs, the same for every customer and
+// chosen automatically (never prompted). Premiere keeps a file link to the
 // imported caption SRT — deleting it makes Premiere ask to "Locate file"
 // (both right after adding the captions and every time the project reopens).
 // So placed SRTs live here permanently instead of a temp dir that gets wiped.
-const USER_CAPTIONS_DIR = path.join(os.homedir(), 'Desktop', 'AmharicCaptions');
+// Documents (not Desktop) so customer desktops stay clean.
+const USER_CAPTIONS_DIR = path.join(os.homedir(), 'Documents', 'AmharicCaptions');
 function ensureCaptionsDir() {
   try { fs.mkdirSync(USER_CAPTIONS_DIR, { recursive: true }); } catch (e) {}
   return USER_CAPTIONS_DIR;
