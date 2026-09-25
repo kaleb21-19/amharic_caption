@@ -54,7 +54,7 @@ mkdir -p "$(dirname "$DEST")"
 # Do not resume onto a known-corrupt file: a resumed wrong prefix can never
 # become the pinned asset even when the upstream server supports ranges.
 rm -f "$DEST"
-curl -L --fail --retry 3 -o "$DEST" "$URL"
+curl -L --fail --retry 3 --retry-all-errors --retry-delay 4 --connect-timeout 30 --speed-time 120 --speed-limit 1024 -o "$DEST" "$URL"
 
 have=$(size_of "$DEST")
 if [[ "$have" != "$SIZE" ]]; then

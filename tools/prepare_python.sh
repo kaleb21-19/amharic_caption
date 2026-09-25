@@ -107,7 +107,7 @@ trap 'rm -rf "$TMP"' EXIT
 # Atomic + verified: download to a temp dir, validate the gzip CRC (catches
 # truncation/corruption before it overwrites the staged python), THEN move into
 # place. A failed download never destroys a previously-good staging.
-curl -fL --retry 3 "$PBS_URL" -o "$TMP/py.tar.gz"
+curl -fL --retry 3 --retry-all-errors --retry-delay 4 --connect-timeout 30 --speed-time 120 --speed-limit 1024 "$PBS_URL" -o "$TMP/py.tar.gz"
 gzip -t "$TMP/py.tar.gz"
 PY_SHA256="${AMH_PYTHON_SHA256:-$PY_SHA256_DEFAULT}"
 if [[ -z "$PY_SHA256" || "$PY_SHA256" == "UNPINNED" ]]; then
@@ -213,7 +213,7 @@ if [[ ! -f "$FF" ]]; then
   fi
   echo "  [step] fetching static ffmpeg for $TARGET"
   TMP="$(mktemp -d)"
-  curl -fL --retry 3 "$FFURL_BASE" -o "$TMP/ff.zip"
+  curl -fL --retry 3 --retry-all-errors --retry-delay 4 --connect-timeout 30 --speed-time 120 --speed-limit 1024 "$FFURL_BASE" -o "$TMP/ff.zip"
   unzip -tq "$TMP/ff.zip" >/dev/null   # CRC-check the archive before use
 
   # Authenticity, not just integrity. The CRC above only proves the download

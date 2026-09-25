@@ -1,23 +1,29 @@
 #!/usr/bin/env bash
 # Stage one built platform zip on a *draft* product release.
 #
-# A build job must never make a customer-visible asset before the test and
-# accuracy gates pass. The final publish job verifies the draft and flips it to
-# public. Re-runs refuse to overwrite an existing asset; an already-present zip
-# is accepted only when its recorded SHA-256 matches the local build.
+# A dedicated publish job must never make a customer-visible asset before the
+# test and accuracy gates pass. The job stages a draft only after all gates;
+# re-runs refuse to overwrite an existing asset and verify its recorded digest.
 #
 # Usage: bash tools/publish_public_zip.sh <path-to-zip>
-# Env:   GH_TOKEN, optional RELEASE_TAG and GITHUB_REPOSITORY.
+# Env:   GH_TOKEN, GITHUB_REPOSITORY, GITHUB_SHA; RELEASE_TAG is optional but
+#        must match the manifest version when supplied.
 set -euo pipefail
 
 ZIP="${1:?usage: publish_public_zip.sh <path-to-zip>}"
 test -f "$ZIP" || { echo "zip not found: $ZIP" >&2; exit 1; }
 test -n "${GH_TOKEN:-}" || { echo "GH_TOKEN not set" >&2; exit 1; }
 
-PUB="${GITHUB_REPOSITORY:-kaleb21-19/amharic_caption}"
+PUB="${GITHUB_REPOSITORY:-}"
+test -n "$PUB" || { echo "GITHUB_REPOSITORY is required; refusing to guess a repository" >&2; exit 1; }
+: "${GITHUB_SHA:?GITHUB_SHA is required; release tags must be bound to the tested commit}"
 VER="$(grep -o 'ExtensionBundleVersion="[^"]*"' panel/CSXS/manifest.xml | head -1 | sed 's/[^"]*"//;s/"//')"
 test -n "$VER" || { echo "could not read ExtensionBundleVersion from panel/CSXS/manifest.xml" >&2; exit 1; }
-TAG="${RELEASE_TAG:-v${VER}}"
+TAG="v${VER}"
+if [ -n "${RELEASE_TAG:-}" ] && [ "$RELEASE_TAG" != "$TAG" ]; then
+  echo "RELEASE_TAG=$RELEASE_TAG does not match manifest version $TAG" >&2
+  exit 1
+fi
 BASE="$(basename "$ZIP")"
 CASE_SUM_NAME="${BASE}.sha256"
 CASE_SUM_PATH="${ZIP}.sha256"
@@ -43,43 +49,53 @@ LOCAL_HASH="$(awk '{print $1; exit}' "$CASE_SUM_PATH")"
 test -n "$LOCAL_HASH" || { echo "could not calculate SHA-256" >&2; exit 1; }
 
 if ! gh release view "$TAG" --repo "$PUB" >/dev/null 2>&1; then
-  gh release create "$TAG" --repo "$PUB" --draft \
+  gh release create "$TAG" --repo "$PUB" --draft --target "$GITHUB_SHA" \
     --title "Amharic Captions v${VER} (staged)" \
-    --notes "Staged build for v${VER}. This draft is not public until all platform builds, tests, and accuracy gates pass." \
-    >/dev/null || gh release view "$TAG" --repo "$PUB" >/dev/null
+    --notes "Staged build for v${VER}, commit ${GITHUB_SHA}. This draft is not public until all platform builds, tests, and accuracy gates pass." \
+    >/dev/null
 fi
+TAG_SHA="$(gh api "repos/${PUB}/commits/${TAG}" --jq .sha)"
+test "$TAG_SHA" = "$GITHUB_SHA" || {
+  echo "release tag $TAG points at $TAG_SHA, expected $GITHUB_SHA" >&2
+  exit 1
+}
 
 DRAFT="$(gh release view "$TAG" --repo "$PUB" --json isDraft --jq '.isDraft')"
 test "$DRAFT" = "true" || { echo "release $TAG is already public; refusing to add assets" >&2; exit 1; }
 
 assets="$(gh release view "$TAG" --repo "$PUB" --json assets --jq '.assets[].name')"
 if echo "$assets" | grep -Fxq "$BASE"; then
-  # Idempotent re-run: never use --clobber. Verify the recorded digest before
-  # accepting an asset that is already on the draft.
-  echo "$assets" | grep -Fxq "$CASE_SUM_NAME" || {
-    echo "$BASE already exists without its checksum; refusing to trust/replace it" >&2
-    exit 1
-  }
-  TMP="$(mktemp -d)"
-  trap 'rm -rf "$TMP"' EXIT
-  gh release download "$TAG" --repo "$PUB" --pattern "$CASE_SUM_NAME" --dir "$TMP" >/dev/null
-  REMOTE_HASH="$(awk '{print $1; exit}' "$TMP/$CASE_SUM_NAME")"
-  REMOTE_NAME="$(awk '{print $2; exit}' "$TMP/$CASE_SUM_NAME" | sed 's/^\*//')"
-  test "$REMOTE_NAME" = "$BASE" || {
-    echo "existing checksum record names $REMOTE_NAME, expected $BASE" >&2
-    exit 1
-  }
-  # Verify the archive bytes, not merely the separately stored digest text.
-  gh release download "$TAG" --repo "$PUB" --pattern "$BASE" --dir "$TMP" >/dev/null
-  ACTUAL_REMOTE_HASH="$(sha256_file "$TMP/$BASE")"
-  test "$REMOTE_HASH" = "$LOCAL_HASH" && test "$ACTUAL_REMOTE_HASH" = "$LOCAL_HASH" || {
-    echo "existing $BASE bytes/checksum differ; refusing mutable overwrite" >&2
-    exit 1
-  }
-  echo "already staged and verified: $BASE"
+  echo "zip already exists; it will be verified rather than overwritten"
 else
-  gh release upload "$TAG" --repo "$PUB" "$ZIP" "$CASE_SUM_PATH"
+  gh release upload "$TAG" --repo "$PUB" "$ZIP"
 fi
+
+assets="$(gh release view "$TAG" --repo "$PUB" --json assets --jq '.assets[].name')"
+if echo "$assets" | grep -Fxq "$CASE_SUM_NAME"; then
+  echo "checksum already exists; it will be verified rather than overwritten"
+else
+  gh release upload "$TAG" --repo "$PUB" "$CASE_SUM_PATH"
+fi
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+gh release download "$TAG" --repo "$PUB" --pattern "$CASE_SUM_NAME" --dir "$TMP" >/dev/null
+gh release download "$TAG" --repo "$PUB" --pattern "$BASE" --dir "$TMP" >/dev/null
+REMOTE_HASH="$(awk '{print $1; exit}' "$TMP/$CASE_SUM_NAME")"
+REMOTE_NAME="$(awk '{print $2; exit}' "$TMP/$CASE_SUM_NAME" | sed 's/^\*//')"
+test "$REMOTE_NAME" = "$BASE" || {
+  echo "existing checksum record names $REMOTE_NAME, expected $BASE" >&2
+  exit 1
+}
+test "$REMOTE_HASH" = "$LOCAL_HASH" || {
+  echo "existing checksum differs from the local archive" >&2
+  exit 1
+}
+ACTUAL_REMOTE_HASH="$(sha256_file "$TMP/$BASE")"
+test "$ACTUAL_REMOTE_HASH" = "$LOCAL_HASH" || {
+  echo "existing $BASE bytes differ from the local archive" >&2
+  exit 1
+}
 
 # Confirm both the archive and digest are actually attached to the draft.
 assets="$(gh release view "$TAG" --repo "$PUB" --json assets --jq '.assets[].name')"

@@ -1,13 +1,16 @@
 name: build-zips
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
 concurrency:
-  group: build-zips
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 # Pin the model to a known-good HF repo; change this only when you intend to
 # rebuild the CT2 int8 weights shipped in the bundle.
@@ -23,50 +26,18 @@ env:
   AMH_FFMPEG_ALLOW_GPL: "1"
 
 jobs:
-  # ---- 1. build the CTranslate2 INT8 model once, reuse via public repo ------
+  # ---- 1. build the CTranslate2 INT8 model once, reuse via run artifact ------
   # The CT2 int8 conversion is platform-independent and identical for all three
   # target zips, so we do it a single time (on a cheap ubuntu runner with CPU
-  # torch + ctranslate2) and let the platform jobs fetch the converted model.
-  # Shipping int8 lets the runtime drop torch/transformers (~-1.7GB).
-  # The model is published as an immutable prerelease tag containing the
-  # source commit SHA, so platform jobs can fetch exactly the model they tested.
+  # torch + ctranslate2) and let the platform jobs fetch the converted model
+  # from a short-lived Actions artifact. The artifact is checksum-verified by
+  # every consumer and is never made public before all gates pass.
   model:
     runs-on: ubuntu-latest
-    outputs:
-      model_tag: ${{ steps.model_tag.outputs.value }}
-    permissions:
-      actions: write
-      contents: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-
-      # Free the Actions artifact storage quota (nothing new is stored via
-      # artifacts anymore, but stale ones from old runs still count until their
-      # 30-day retention expires). Sweep anything older than a day so the quota
-      # recalculation (every 6-12h) never strands anything.
-      - name: Prune old artifacts
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
         with:
-          script: |
-            const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-            let page = 0, deleted = 0;
-            while (true) {
-              const { data } = await github.rest.actions.listArtifactsForRepo({
-                owner: context.repo.owner, repo: context.repo.repo, per_page: 100, page,
-              });
-              if (data.artifacts.length === 0) break;
-              for (const a of data.artifacts) {
-                if (new Date(a.created_at).getTime() < cutoff) {
-                  await github.rest.actions.deleteArtifact({
-                    owner: context.repo.owner, repo: context.repo.repo, artifact_id: a.id,
-                  });
-                  deleted++;
-                }
-              }
-              if (data.total_count <= (page + 1) * 100) break;
-              page++;
-            }
-            console.log(`deleted ${deleted} artifact(s) older than 1 day`);
+          persist-credentials: false
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
@@ -96,26 +67,18 @@ jobs:
       - name: Package CT2 int8 model
         run: tar -czf model-ct2-int8.tar.gz -C tools/stage model-ct2-int8
 
-      - name: Publish immutable CT2 int8 model for this commit
-        id: model_tag
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          TAG="model-ct2-int8-${GITHUB_SHA}"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          if ! gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            gh release create "$TAG" --repo "${{ github.repository }}" \
-              --prerelease \
-              --title "CT2 int8 model assets (${GITHUB_SHA})" \
-              --notes "Platform-independent CTranslate2 int8 output for commit ${GITHUB_SHA}. The commit is part of the tag so a rerun cannot replace the model used by a published product build."
-          fi
-          if ! gh release view "$TAG" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' | grep -Fxq 'model-ct2-int8.tar.gz'; then
-            gh release upload "$TAG" --repo "${{ github.repository }}" model-ct2-int8.tar.gz
-          else
-            echo "model asset already exists; refusing to overwrite immutable asset"
-          fi
-          echo "published model -> $TAG"
+      - name: Create CT2 model checksum
+        run: sha256sum model-ct2-int8.tar.gz > model-ct2-int8.tar.gz.sha256
+
+      - name: Upload CT2 model artifact for gated jobs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: model-ct2-int8
+          path: |
+            model-ct2-int8.tar.gz
+            model-ct2-int8.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 1
 
   # ---- 1.5. version-drift gate ----------------------------------------------
   # Single source of truth for the shipped version string is APP_VERSION in
@@ -126,6 +89,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
 
       - name: Verify version strings are consistent
         run: bash tools/check_versions.sh
@@ -142,6 +107,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
@@ -157,14 +124,19 @@ jobs:
         # stub-engine tests never actually read a real audio file.
         run: python -m pip install --quiet "numpy==1.26.4" "soundfile==0.13.1"
 
-      - name: Download CT2 int8 model (mel_filters.npy / window.npy by path)
+      - name: Download CT2 int8 model artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: model-ct2-int8
+          path: model-artifact
+
+      - name: Verify and unpack CT2 int8 model
+        shell: bash
         run: |
           set -euo pipefail
+          (cd model-artifact && sha256sum -c model-ct2-int8.tar.gz.sha256)
           mkdir -p tools/stage
-          curl -fL --retry 3 \
-            "https://github.com/${{ github.repository }}/releases/download/${{ needs.model.outputs.model_tag }}/model-ct2-int8.tar.gz" \
-            -o /tmp/model-ct2-int8.tar.gz
-          tar -xzf /tmp/model-ct2-int8.tar.gz -C tools/stage
+          tar -xzf model-artifact/model-ct2-int8.tar.gz -C tools/stage
 
       - name: Panel unit tests (Node, no deps)
         run: node tools/test/test_panel.js
@@ -232,6 +204,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "22"
@@ -257,6 +231,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
@@ -269,15 +245,19 @@ jobs:
         # score a VAD-off configuration that no customer runs (TESTING.md §1.2j).
         run: python -m pip install --quiet "numpy==1.26.4" "soundfile==0.13.1" "ctranslate2==4.8.1" "onnxruntime==1.20.1"
 
-      - name: Download CT2 int8 model
+      - name: Download CT2 int8 model artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: model-ct2-int8
+          path: model-artifact
+
+      - name: Verify and unpack CT2 int8 model
         shell: bash
         run: |
           set -euo pipefail
+          (cd model-artifact && sha256sum -c model-ct2-int8.tar.gz.sha256)
           mkdir -p tools/stage
-          curl -fL --retry 3 \
-            "https://github.com/${{ github.repository }}/releases/download/${{ needs.model.outputs.model_tag }}/model-ct2-int8.tar.gz" \
-            -o /tmp/model-ct2-int8.tar.gz
-          tar -xzf /tmp/model-ct2-int8.tar.gz -C tools/stage
+          tar -xzf model-artifact/model-ct2-int8.tar.gz -C tools/stage
 
       - name: Build a minimal fake "runtime" dir for run_engine.sh
         run: |
@@ -323,25 +303,29 @@ jobs:
   # release job waits for all of them so every release carries all 3 zips.
   build-ar:
     needs: model
-    runs-on: macos-14
-    permissions:
-      contents: write
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.11"
 
-      - name: Download CT2 int8 model
+      - name: Download CT2 int8 model artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: model-ct2-int8
+          path: model-artifact
+
+      - name: Verify and unpack CT2 int8 model
         shell: bash
         run: |
           set -euo pipefail
+          (cd model-artifact && sha256sum -c model-ct2-int8.tar.gz.sha256)
           mkdir -p tools/stage
-          curl -fL --retry 3 \
-            "https://github.com/${{ github.repository }}/releases/download/${{ needs.model.outputs.model_tag }}/model-ct2-int8.tar.gz" \
-            -o /tmp/model-ct2-int8.tar.gz
-          tar -xzf /tmp/model-ct2-int8.tar.gz -C tools/stage
+          tar -xzf model-artifact/model-ct2-int8.tar.gz -C tools/stage
 
       - name: Fetch speaker-embedding model
         run: bash tools/embed/fetch_model.sh
@@ -352,37 +336,48 @@ jobs:
       - name: Assemble + zip
         run: bash tools/build.sh mac-arm64
 
-      - name: Publish zip to this repo's releases
+      - name: Create mac-arm64 package checksum
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash tools/publish_public_zip.sh dist/amharic-captions-mac-arm64.zip
+        run: sha256sum dist/amharic-captions-mac-arm64.zip > dist/amharic-captions-mac-arm64.zip.sha256
 
-# Intel Mac — runs on the arm64 macOS runner (macos-14, much less queued
-  # than the old macos-13) and uses AMH_TARGET to stage the x86_64 runtime.
+      - name: Upload mac-arm64 package artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: package-mac-arm64
+          path: |
+            dist/amharic-captions-mac-arm64.zip
+            dist/amharic-captions-mac-arm64.zip.sha256
+          if-no-files-found: error
+          retention-days: 1
+
+# Intel Mac — cross-stages the x86_64 runtime from the arm64 macOS runner.
   build-x64:
     needs: model
-    runs-on: macos-14
+    runs-on: macos-15
     env:
       AMH_TARGET: mac-x64
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.11"
 
-      - name: Download CT2 int8 model
+      - name: Download CT2 int8 model artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: model-ct2-int8
+          path: model-artifact
+
+      - name: Verify and unpack CT2 int8 model
         shell: bash
         run: |
           set -euo pipefail
+          (cd model-artifact && sha256sum -c model-ct2-int8.tar.gz.sha256)
           mkdir -p tools/stage
-          curl -fL --retry 3 \
-            "https://github.com/${{ github.repository }}/releases/download/${{ needs.model.outputs.model_tag }}/model-ct2-int8.tar.gz" \
-            -o /tmp/model-ct2-int8.tar.gz
-          tar -xzf /tmp/model-ct2-int8.tar.gz -C tools/stage
+          tar -xzf model-artifact/model-ct2-int8.tar.gz -C tools/stage
 
       - name: Fetch speaker-embedding model
         run: bash tools/embed/fetch_model.sh
@@ -393,35 +388,47 @@ jobs:
       - name: Assemble + zip
         run: bash tools/build.sh mac-x64
 
-      - name: Publish zip to this repo's releases
+      - name: Create mac-x64 package checksum
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash tools/publish_public_zip.sh dist/amharic-captions-mac-x64.zip
+        run: sha256sum dist/amharic-captions-mac-x64.zip > dist/amharic-captions-mac-x64.zip.sha256
+
+      - name: Upload mac-x64 package artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: package-mac-x64
+          path: |
+            dist/amharic-captions-mac-x64.zip
+            dist/amharic-captions-mac-x64.zip.sha256
+          if-no-files-found: error
+          retention-days: 1
 
   # Windows build — standalone job so it can use the native PowerShell (pwsh)
   # shell without needing `matrix` in the `shell:` key.
   build-win:
     needs: model
     runs-on: windows-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.11"
 
-      - name: Download CT2 int8 model
+      - name: Download CT2 int8 model artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: model-ct2-int8
+          path: model-artifact
+
+      - name: Verify and unpack CT2 int8 model
         shell: bash
         run: |
           set -euo pipefail
+          (cd model-artifact && sha256sum -c model-ct2-int8.tar.gz.sha256)
           mkdir -p tools/stage
-          curl -fL --retry 3 \
-            "https://github.com/${{ github.repository }}/releases/download/${{ needs.model.outputs.model_tag }}/model-ct2-int8.tar.gz" \
-            -o /tmp/model-ct2-int8.tar.gz
-          tar -xzf /tmp/model-ct2-int8.tar.gz -C tools/stage
+          tar -xzf model-artifact/model-ct2-int8.tar.gz -C tools/stage
 
       - name: Fetch speaker-embedding model
         shell: bash
@@ -435,25 +442,69 @@ jobs:
         shell: pwsh
         run: powershell -ExecutionPolicy Bypass -File tools/build_win.ps1
 
-      - name: Publish zip to this repo's releases
+      - name: Create win-x64 package checksum
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash tools/publish_public_zip.sh dist/amharic-captions-win-x64.zip
+        run: sha256sum dist/amharic-captions-win-x64.zip > dist/amharic-captions-win-x64.zip.sha256
+
+      - name: Upload win-x64 package artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: package-win-x64
+          path: |
+            dist/amharic-captions-win-x64.zip
+            dist/amharic-captions-win-x64.zip.sha256
+          if-no-files-found: error
+          retention-days: 1
 
   # ---- 3. publish gate -------------------------------------------------------
-  # Build jobs stage assets on a draft release. Nothing customer-visible exists
-  # until this job verifies the complete set and flips the draft to public.
+  # Build jobs only upload short-lived Actions artifacts. Only this protected
+  # main-branch job has release write permission, and it runs after every gate.
   publish-ready:
     needs: [build-ar, build-win, build-x64, check-version, test, website, accuracy-gate]
     runs-on: ubuntu-latest
-    if: ${{ always() && needs.build-ar.result == 'success' && needs.build-win.result == 'success' && needs.build-x64.result == 'success' && needs.check-version.result == 'success' && needs.test.result == 'success' && needs.website.result == 'success' && needs.accuracy-gate.result == 'success' }}
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.build-ar.result == 'success' && needs.build-win.result == 'success' && needs.build-x64.result == 'success' && needs.check-version.result == 'success' && needs.test.result == 'success' && needs.website.result == 'success' && needs.accuracy-gate.result == 'success' }}
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
 
-      - name: Verify the complete release is still a draft
+      - name: Download gated package artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: package-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Verify package artifact checksums
+        run: |
+          set -euo pipefail
+          for z in amharic-captions-win-x64.zip \
+                   amharic-captions-mac-arm64.zip \
+                   amharic-captions-mac-x64.zip; do
+            test -f "release-assets/$z"
+            test -f "release-assets/$z.sha256"
+            (cd release-assets && sha256sum -c "$z.sha256")
+          done
+
+      - name: Stage verified packages in a commit-bound draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VER="$(grep -o 'ExtensionBundleVersion="[^"]*"' panel/CSXS/manifest.xml | head -1 | sed 's/[^"]*"//;s/"//')"
+          TAG="v${VER}"
+          export GITHUB_REPOSITORY="${{ github.repository }}"
+          export GITHUB_SHA="${GITHUB_SHA}"
+          export RELEASE_TAG="$TAG"
+          for z in amharic-captions-win-x64.zip \
+                   amharic-captions-mac-arm64.zip \
+                   amharic-captions-mac-x64.zip; do
+            bash tools/publish_public_zip.sh "release-assets/$z"
+          done
+
+      - name: Verify draft provenance and exact asset set
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -461,45 +512,44 @@ jobs:
           VER="$(grep -o 'ExtensionBundleVersion="[^"]*"' panel/CSXS/manifest.xml | head -1 | sed 's/[^"]*"//;s/"//')"
           TAG="v${VER}"
           DRAFT="$(gh release view "$TAG" --repo "${{ github.repository }}" --json isDraft --jq '.isDraft')"
-          test "$DRAFT" = "true" || { echo "$TAG is not a draft; refusing to publish over an existing release" >&2; exit 1; }
-          ASSETS="$(gh release view "$TAG" --repo "${{ github.repository }}" --json assets --jq '.assets[].name')"
-          echo "$ASSETS"
-          for z in amharic-captions-win-x64.zip \
-                   amharic-captions-mac-arm64.zip \
-                   amharic-captions-mac-x64.zip; do
-            echo "$ASSETS" | grep -Fxq "$z" || { echo "missing $z" >&2; exit 1; }
-            echo "$ASSETS" | grep -Fxq "$z.sha256" || { echo "missing checksum $z.sha256" >&2; exit 1; }
-          done
+          test "$DRAFT" = "true" || { echo "$TAG is not a draft; refusing to publish" >&2; exit 1; }
+          TAG_SHA="$(gh api "repos/${{ github.repository }}/commits/$TAG" --jq .sha)"
+          test "$TAG_SHA" = "$GITHUB_SHA" || { echo "release tag $TAG points at $TAG_SHA, expected $GITHUB_SHA" >&2; exit 1; }
+          ASSETS="$(gh release view "$TAG" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' | sort)"
+          EXPECTED="$(printf '%s\n' \
+            amharic-captions-win-x64.zip \
+            amharic-captions-win-x64.zip.sha256 \
+            amharic-captions-mac-arm64.zip \
+            amharic-captions-mac-arm64.zip.sha256 \
+            amharic-captions-mac-x64.zip \
+            amharic-captions-mac-x64.zip.sha256 | sort)"
+          diff -u <(printf '%s\n' "$EXPECTED") <(printf '%s\n' "$ASSETS")
           SUMDIR="$(mktemp -d)"
           trap 'rm -rf "$SUMDIR"' EXIT
           for z in amharic-captions-win-x64.zip \
                    amharic-captions-mac-arm64.zip \
                    amharic-captions-mac-x64.zip; do
             gh release download "$TAG" --repo "${{ github.repository }}" --pattern "$z.sha256" --dir "$SUMDIR" >/dev/null
-            awk -v z="$z" '
-              length($1) == 64 && $1 ~ /^[0-9a-f]+$/ {
-                name = $2; sub(/^\*/, "", name);
-                if (name == z) ok = 1
-              }
-              END { exit(ok ? 0 : 1) }
-            ' "$SUMDIR/$z.sha256" || {
-              echo "invalid checksum record for $z" >&2; exit 1;
-            }
             RECORDED="$(awk 'length($1) == 64 && $1 ~ /^[0-9a-f]+$/ { print $1; exit }' "$SUMDIR/$z.sha256")"
+            test -n "$RECORDED"
             gh release download "$TAG" --repo "${{ github.repository }}" --pattern "$z" --dir "$SUMDIR" >/dev/null
             ACTUAL="$(sha256sum "$SUMDIR/$z" | awk '{print $1; exit}')"
-            test "$RECORDED" = "$ACTUAL" || {
-              echo "archive bytes do not match checksum record for $z" >&2; exit 1;
-            }
+            test "$RECORDED" = "$ACTUAL"
           done
 
-      - name: Publish the verified draft atomically
+      - name: Publish the verified draft
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           VER="$(grep -o 'ExtensionBundleVersion="[^"]*"' panel/CSXS/manifest.xml | head -1 | sed 's/[^"]*"//;s/"//')"
-          gh release edit "v${VER}" --repo "${{ github.repository }}" --draft=false --latest
+          TAG="v${VER}"
+          LATEST="$(gh release view --repo "${{ github.repository }}" --json tagName --jq .tagName 2>/dev/null || true)"
+          if [ -n "$LATEST" ] && [ "$LATEST" != "$TAG" ]; then
+            LOWEST="$(printf '%s\n%s\n' "${LATEST#v}" "$VER" | sort -V | head -1)"
+            test "$LOWEST" = "$VER" || { echo "refusing to make $TAG latest over $LATEST" >&2; exit 1; }
+          fi
+          gh release edit "$TAG" --repo "${{ github.repository }}" --draft=false --latest
 
       - name: Verify public download URLs
         env:
@@ -516,10 +566,7 @@ jobs:
             [ "$code" = "200" ] || failed=1
           done
           if [ "$failed" -ne 0 ]; then
-            TAG="v$(grep -o 'ExtensionBundleVersion="[^"]*"' panel/CSXS/manifest.xml | head -1 | sed 's/[^"]*"//;s/"//')"
-            echo "Public URL verification failed; re-drafting $TAG" >&2
-            gh release edit "$TAG" --repo "${{ github.repository }}" --draft=true --latest=false >/dev/null 2>&1 || \
-              gh release edit "$TAG" --repo "${{ github.repository }}" --draft=true >/dev/null 2>&1 || true
+            echo "Release is public but URL verification failed; manual remediation is required" >&2
             exit 1
           fi
 
