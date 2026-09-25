@@ -282,7 +282,13 @@ It converted successfully and produced zero engine failures. On the same 40
 scored runs it achieved raw WER **36.35%**, grid WER **34.77%**, approximate
 WER **33.50%**, and raw CER **12.58%**; only 14/40 runs were at or below 15%.
 This is a meaningful improvement over the shipped model's 47.45%, but it is
-still **not release-ready** and is not adopted.
+**Windows diagnostic package (2026-09-25):** the feature-branch
+`amharic-captions-win-x64.zip` built successfully at **771,256,771 bytes**.
+Its SHA-256 is
+`afc29ac8a5142ee88ee0945a4f00a00f82337adc4a6650d5d099d62bac5a60e1`.
+After extraction, the included `verify_win.cmd` passed **10/10** runtime
+checks (Python, FFmpeg, CT2 model, imports, and warm-up). The archive is
+explicitly a diagnostic/degraded build marker and is not a production release.
 
 Inspection attributes part of the score to two **evaluation confounds**, not
 acoustic errors: (1) orthographic/diacritic variants — model output `ታዕምር` for
