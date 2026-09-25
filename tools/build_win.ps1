@@ -199,7 +199,20 @@ if (Get-Command 7z -ErrorAction SilentlyContinue) {
     & 7z a -tzip -r $ZIP @ZipEntries -xr!.DS_Store
     Pop-Location
 } else {
-    Compress-Archive -Path ($ZipEntries | ForEach-Object { Join-Path $BUILD $_ }) -DestinationPath $ZIP -CompressionLevel Optimal
+    # Compress-Archive can briefly collide with the just-exited ffmpeg child
+    # process that gen_notices.py used to read the version string. Retry a few
+    # times rather than turning a harmless Windows file-handle race into a failed
+    # package build.
+    for ($attempt = 1; $attempt -le 5; $attempt++) {
+        try {
+            if (Test-Path $ZIP) { Remove-Item -Force $ZIP -ErrorAction SilentlyContinue }
+            Compress-Archive -Path ($ZipEntries | ForEach-Object { Join-Path $BUILD $_ }) -DestinationPath $ZIP -CompressionLevel Optimal
+            break
+        } catch {
+            if ($attempt -eq 5) { throw }
+            Start-Sleep -Seconds (2 * $attempt)
+        }
+    }
 }
 Remove-Item -Recurse -Force $BUILD
 Write-Host "== wrote $ZIP =="
