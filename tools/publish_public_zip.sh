@@ -48,12 +48,28 @@ sha256_into "$ZIP" "$CASE_SUM_PATH"
 LOCAL_HASH="$(awk '{print $1; exit}' "$CASE_SUM_PATH")"
 test -n "$LOCAL_HASH" || { echo "could not calculate SHA-256" >&2; exit 1; }
 
-if ! gh release view "$TAG" --repo "$PUB" >/dev/null 2>&1; then
-  gh release create "$TAG" --repo "$PUB" --draft --target "$GITHUB_SHA" \
-    --title "Amharic Captions v${VER} (staged)" \
-    --notes "Staged build for v${VER}, commit ${GITHUB_SHA}. This draft is not public until all platform builds, tests, and accuracy gates pass." \
-    >/dev/null
-fi
+# Create the draft once, but tolerate the GitHub API's short-lived
+# unavailability/ eventual-consistency window. Do not let a transient release
+# API failure abort an otherwise fully verified build.
+release_ready=0
+for _attempt in 1 2 3 4 5 6 7 8 9 10; do
+  if gh release view "$TAG" --repo "$PUB" >/dev/null 2>&1; then
+    release_ready=1
+    break
+  fi
+  if gh release create "$TAG" --repo "$PUB" --draft --target "$GITHUB_SHA" \
+      --title "Amharic Captions v${VER} (staged)" \
+      --notes "Staged build for v${VER}, commit ${GITHUB_SHA}. This draft is not public until all platform builds, tests, and accuracy gates pass." \
+      >/dev/null; then
+    release_ready=1
+    break
+  fi
+  sleep 2
+done
+test "$release_ready" = "1" || {
+  echo "could not create or find draft release $TAG after retries" >&2
+  exit 1
+}
 # GitHub's release/tag creation endpoints are eventually consistent: a newly
 # created release can be visible a moment before its tag resolves through the
 # commits API. Retry the read instead of turning that transient state into a
