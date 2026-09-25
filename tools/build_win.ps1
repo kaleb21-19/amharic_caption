@@ -194,26 +194,17 @@ if (Test-Path $ZIP) { Remove-Item -Force $ZIP }
 
 $ZipEntries = @("com.amharic.captions", "licenses", "Install.cmd", "verify_win.cmd", "VERIFY.md", "EULA.txt", "PRIVACY.txt", "REFUND.txt")
 if (Test-Path (Join-Path $BUILD "DEGRADED_BUILD.txt")) { $ZipEntries += "DEGRADED_BUILD.txt" }
-if (Get-Command 7z -ErrorAction SilentlyContinue) {
-    Push-Location $BUILD
-    & 7z a -tzip -r $ZIP @ZipEntries -xr!.DS_Store
-    $zipRc = $LASTEXITCODE
-    Pop-Location
-    if ($zipRc -ne 0) { throw "7z failed with exit code $zipRc" }
-} else {
-    # Compress-Archive can briefly collide with the just-exited ffmpeg child
-    # process that gen_notices.py used to read the version string. Retry a few
-    # times rather than turning a harmless Windows file-handle race into a failed
-    # package build.
-    for ($attempt = 1; $attempt -le 5; $attempt++) {
-        try {
-            if (Test-Path $ZIP) { Remove-Item -Force $ZIP -ErrorAction SilentlyContinue }
-            Compress-Archive -Path ($ZipEntries | ForEach-Object { Join-Path $BUILD $_ }) -DestinationPath $ZIP -CompressionLevel Optimal
-            break
-        } catch {
-            if ($attempt -eq 5) { throw }
-            Start-Sleep -Seconds (2 * $attempt)
-        }
+# Use Compress-Archive consistently on Windows. GitHub's hosted runner may
+# expose a 7z command that exits without producing the requested archive;
+# selecting it silently made the job report a ZIP that was not on disk.
+for ($attempt = 1; $attempt -le 5; $attempt++) {
+    try {
+        if (Test-Path $ZIP) { Remove-Item -Force $ZIP -ErrorAction SilentlyContinue }
+        Compress-Archive -Path ($ZipEntries | ForEach-Object { Join-Path $BUILD $_ }) -DestinationPath $ZIP -CompressionLevel Optimal
+        break
+    } catch {
+        if ($attempt -eq 5) { throw }
+        Start-Sleep -Seconds (2 * $attempt)
     }
 }
 if (-not (Test-Path -LiteralPath $ZIP) -or (Get-Item -LiteralPath $ZIP).Length -le 0) {
