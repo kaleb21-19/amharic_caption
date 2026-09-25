@@ -298,6 +298,14 @@ benchmark's beam settings. The standard Windows-compatible ZIP is
 Windows `Expand-Archive` succeeded and its extracted `verify_win.cmd` passed
 10/10 checks. It is not the production package and must not be published.
 
+**Decoder-matched current-model package (2026-09-25):** a separate archive
+using the current Ethio-ASR-amharic model with beam decoding enabled by
+default was built for a fair Hohe-vs-current comparison. The standard ZIP is
+**744,614,517 bytes**, SHA-256
+`a76245a51c947eee4787e2336c76b803064996cc6777b92693753abeeee70d1f`.
+Windows `Expand-Archive` succeeded and its extracted `verify_win.cmd` passed
+10/10 checks. It is not the production configuration and must not be published.
+
 Inspection attributes part of the score to two **evaluation confounds**, not
 acoustic errors: (1) orthographic/diacritic variants — model output `ታዕምር` for
 truth `ተዓምር` (same word, both spellings standard; the ተ/ታ and ዓ/ዕ series collapse
