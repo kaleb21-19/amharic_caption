@@ -473,13 +473,22 @@ jobs:
         run: powershell -ExecutionPolicy Bypass -File tools/build_win.ps1
 
       - name: Create win-x64 package checksum
-        shell: pwsh
+        shell: bash
         run: |
-          $zip = "dist/amharic-captions-win-x64.zip"
-          $sum = "dist/amharic-captions-win-x64.zip.sha256"
-          if (-not (Test-Path -LiteralPath $zip)) { throw "missing $zip" }
-          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
-          "$hash  amharic-captions-win-x64.zip" | Set-Content -LiteralPath $sum -Encoding ascii -NoNewline
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          z = Path("dist/amharic-captions-win-x64.zip")
+          if not z.is_file():
+              raise SystemExit(f"missing {z}")
+          h = hashlib.sha256()
+          with z.open("rb") as f:
+              for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                  h.update(chunk)
+          Path(str(z) + ".sha256").write_text(
+              f"{h.hexdigest()}  {z.name}\n", encoding="ascii")
+          PY
 
       - name: Upload win-x64 package artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
