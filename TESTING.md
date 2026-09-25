@@ -107,9 +107,11 @@ no words silently dropped in `short1`; no crash on `silence`; reasonable WER eve
 ### Release policy (updated 2026-09-25)
 
 - **Stable/public release:** keep the locked WER ≤15% safety gate unchanged.
-- **Private beta/early-access:** target ≤30% WER, clearly labeled as beta, with
-  rollback instructions and no public-production claim. The current Hohe candidate
-  is not yet at this beta target (raw 36.35%, approximate 33.50%).
+- **Private beta/early-access:** target ≤30% WER. A one-time, explicitly approved
+  Hohe private-beta exception is allowed at the locked measured **33.50%
+  approximate / 36.35% raw WER** for A/B testing only; it must be labeled
+  experimental, retain the current package for rollback, and make no
+  public-production claim. This exception does not change the stable CI gate.
 - **Speed:** compare candidates on the same Windows machine and clips; record
   warm-model processing time, real-time factor, peak RAM, and package size before
   choosing a version. Do not select a model that is materially slower without an
