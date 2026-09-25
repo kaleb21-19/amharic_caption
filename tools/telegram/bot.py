@@ -18,12 +18,13 @@ Setup
 The bot NEVER sends a license key automatically. When a buyer sends a Machine
 ID it generates a key but keeps it PENDING until you (the admin) approve the
 sale with the Approve button, after you confirm the bank-transfer payment manually.
-Approving DM's the key to the buyer and logs it to customers.csv.
+Approving DM's the key to the buyer and logs it to the local, ignored customer ledger.
 """
 import argparse
 import csv
 import hmac
 import hashlib
+from datetime import date
 import json
 import os
 import re
@@ -45,7 +46,10 @@ GROUP_ID = _env("AMH_GROUP_ID", "").strip()
 PRICE = "ETB 2,500"
 ACCT_NAME = "KALEB TEGEGEN"
 PAY_ACCOUNTS = "CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015"
-LEDGER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "customers.csv")
+LEDGER = os.environ.get(
+    "AMH_CUSTOMER_LEDGER",
+    os.path.join(os.path.expanduser("~"), ".amharic_captions", "customers.csv"),
+)
 # ── HMAC secret ─────────────────────────────────────────────────────────────
 # Deliberately NOT hard-coded: lives only in Worker secret AMH_SECRET and in
 # tools/telegram/bot.env. This legacy long-poll fallback bot is decommissioned
@@ -66,8 +70,15 @@ API = "https://api.telegram.org/bot"
 # ── license key logic (same as tools/keygen.py / panel js/main.js) ──────────
 def generate_key(machine_id, expiry="00000000"):
     mid = machine_id.strip().lower()
-    if len(mid) != 8 or not all(c in "0123456789abcdef" for c in mid):
-        raise ValueError("Invalid Machine ID (need 8 hex chars, e.g. a1b2c3d4)")
+    if len(mid) not in (8, 16) or not all(c in "0123456789abcdef" for c in mid):
+        raise ValueError("Invalid Machine ID (need 8 or 16 hex chars)")
+    if len(expiry) != 8 or not expiry.isdigit():
+        raise ValueError("Invalid expiry (need YYYYMMDD or 00000000)")
+    if expiry != "00000000":
+        try:
+            date(int(expiry[:4]), int(expiry[4:6]), int(expiry[6:]))
+        except ValueError as e:
+            raise ValueError("Invalid calendar expiry") from e
     msg = f"{mid}|{expiry}".encode()
     sig = hmac.new(SECRET, msg, hashlib.sha256).hexdigest()[:16]
     raw = f"{mid}{expiry}{sig}"
@@ -98,10 +109,20 @@ def save_to_ledger(mid, name, expiry, key, status="sold"):
     rows = [r for r in rows if r["machine_id"] != mid]
     rows.append({"machine_id": mid, "name": name or "-", "expiry": expiry,
                  "key": key, "status": status})
-    with open(LEDGER, "w", newline="", encoding="utf-8") as f:
+    parent = os.path.dirname(os.path.abspath(LEDGER))
+    os.makedirs(parent, exist_ok=True)
+    tmp = os.path.join(parent, os.path.basename(LEDGER) + ".tmp")
+    with open(tmp, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=header)
         w.writeheader()
         w.writerows(rows)
+        f.flush()
+        os.fsync(f.fileno())
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:
+        pass
+    os.replace(tmp, LEDGER)
 
 
 def find_key(mid):
@@ -115,7 +136,10 @@ def find_key(mid):
 # In-memory. Keys: telegram user id -> {"machine_id", "expiry", "username"}
 PENDING = {}
 # optional file so pending survives a restart
-PENDING_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pending.json")
+PENDING_FILE = os.environ.get(
+    "AMH_PENDING_FILE",
+    os.path.join(os.path.expanduser("~"), ".amharic_captions", "pending.json"),
+)
 
 # ── per-user finite state machine for the "send proof" buy flow ──────────────
 # Every buyer is in exactly ONE of these states at a time:
@@ -170,8 +194,18 @@ def _dup_reply(uid, text, window=3.0):
 
 def save_pending():
     try:
-        with open(PENDING_FILE, "w", encoding="utf-8") as f:
+        parent = os.path.dirname(os.path.abspath(PENDING_FILE))
+        os.makedirs(parent, exist_ok=True)
+        tmp = PENDING_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(PENDING, f, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        try:
+            os.chmod(tmp, 0o600)
+        except OSError:
+            pass
+        os.replace(tmp, PENDING_FILE)
     except Exception:
         pass
 
@@ -476,9 +510,9 @@ def menu_payproof():
     text = (
         "📤 <b>Send proof</b>\n\n"
         "Almost done — two short steps:\n\n"
-        "1️⃣ <b>Machine ID</b> (8 characters)\n"
+        "1️⃣ <b>Machine ID</b> (16 characters)\n"
         "2️⃣ Payment <b>screenshot</b>\n\n"
-        "→ Start with <b>Step 1/2</b>: send your <b>Machine ID</b> (8 characters).\n"
+        "→ Start with <b>Step 1/2</b>: send your <b>Machine ID</b> (16 characters).\n"
         "It's in the panel's <b>License</b> section."
     )
     kb = [
@@ -496,7 +530,7 @@ def menu_key_welcome(uid):
         f"(see the guide at {SITE_URL}/install) and open the panel.\n\n"
         "Once installed:\n"
         "Open the panel → \"License\" section → copy your <b>Machine ID</b> "
-        "(8 characters) → send it here.\n\n"
+        "(16 characters) → send it here.\n\n"
         "Your key is only sent <b>after</b> your payment is verified."
     )
     kb = home_keyboard(back_row())
@@ -523,12 +557,12 @@ def key_delivery_message(key, expiry="00000000", chat_type="private"):
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────
-MACHINE_ID_RE = re.compile(r"\b[a-f0-9]{8}\b")
+MACHINE_ID_RE = re.compile(r"\b(?:[a-f0-9]{16}|[a-f0-9]{8})\b")
 
 def _suspicious_mid(mid):
     """Reject obviously-fake IDs that match the pattern by coincidence."""
     mid = mid.lower()
-    if len(mid) != 8:
+    if len(mid) not in (8, 16):
         return True
     if len(set(mid)) == 1:            # aaaaaaaa, 00000000, ffffffff
         return True
@@ -851,7 +885,7 @@ def handle_buyer_message(message):
     if step == "mid":
         m = MACHINE_ID_RE.search(text)
         if not m:
-            msg_ = ("⚠️ I need your <b>Machine ID</b> — the <b>8-character</b> "
+            msg_ = ("⚠️ I need your <b>Machine ID</b> — the <b>16-character</b> "
                     "code from the panel's <b>License</b> section "
                     "(e.g. <code>a1b2c3d4</code>).")
             if not _dup_reply(uid, msg_):
@@ -864,7 +898,7 @@ def handle_buyer_message(message):
         # Reject an obviously-fake Machine ID so we re-prompt instead of booking.
         if _suspicious_mid(mid):
             msg_ = (f"⚠️ <code>{mid}</code> doesn't look like a real <b>Machine ID</b>.\n\n"
-                    "Your Machine ID is the <b>8 characters</b> shown under "
+                    "Your Machine ID is the <b>16 characters</b> shown under "
                     "\"Your Machine ID\" in the panel's License section "
                     "(e.g. <code>a1b2c3d4</code>).\n"
                     "Please copy and send the real one.")
@@ -912,7 +946,7 @@ def handle_buyer_message(message):
 
     if _suspicious_mid(mid):
         msg_ = (f"⚠️ <code>{mid}</code> doesn't look like a real <b>Machine ID</b>.\n\n"
-                "Send the <b>8 characters</b> shown under \"Your Machine ID\" "
+                "Send the <b>16 characters</b> shown under \"Your Machine ID\" "
                 "in the panel (e.g. <code>a1b2c3d4</code>), or tap <b>💳 Pay</b> "
                 "to start the guided purchase.")
         if not _dup_reply(uid, msg_):
@@ -1016,7 +1050,7 @@ def handle_buyer_photo(message):
         s["photo"] = file_id
         save_fsm()
         msg_ = ("📸 Screenshot saved! Now send your <b>Machine ID</b> "
-                "(8 characters from the panel's License section).")
+                "(16 characters from the panel's License section).")
         if not _dup_reply(uid, msg_):
             send_text(chat_id, msg_,
                       keyboard=[[{"text": "📍 Where is my Machine ID?", "url": f"{SITE_URL}/install"}],
@@ -1102,7 +1136,7 @@ def handle_callback(cb):
             text, kb = menu_payproof()
             edit_text(chat, cb["message"]["message_id"], text, kb)
             send_with_hint(chat,
-                           "📤 Send your <b>Machine ID</b> (8 characters).",
+                           "📤 Send your <b>Machine ID</b> (16 characters).",
                            "Send Machine ID (e.g. a1b2c3d4)...")
         return
 

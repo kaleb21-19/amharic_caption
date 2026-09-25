@@ -9,27 +9,31 @@ You do not need internet to transcribe.
 
 WHAT THE SOFTWARE DOES SEND
 * License activation: when you activate a key, your Machine ID and the key are
-  sent to the license server to confirm the key belongs to your machine
-  (forged/stolen keys are rejected). A signed, machine-bound lease token is
+  sent to the license server to confirm the key belongs to this installation
+  (forged/stolen keys are rejected). A signed, installation-bound lease token is
   returned and verified locally on your machine thereafter.
-* Anonymous usage beacon: each time you open the panel, a single request is
-  sent with your application version and Machine ID — used to count installs
-  and detect abuse. No audio, text, transcript or personal data.
+* Usage beacon: when the panel opens, it may send your application version, a
+  pseudonymous Machine ID, origin, and network source information to the license
+  server. This is used to count installs, detect abuse, and support diagnostics.
+  It does not contain audio, text, or transcripts. Telemetry retention is
+  bounded separately from license records.
 * Free-trial usage: the number of free transcriptions used is synced so the
-  trial limit is enforced.
+  trial limit is enforced. Trial counters may be retained as pseudonymous
+  abuse-prevention records; request deletion where applicable.
 
 WHAT IS STORED AND WHERE
 License data lives on Cloudflare's platform (Workers + D1): Machine ID,
-license key, order record (nickname, account used, amount), and the source IP
-of activations for fraud detection. Old records are pruned after 30 days. Data
-is not sold or shared with any third party other than Cloudflare (hosting) and
-Telegram (ordering/support).
+license key, Telegram account identifiers, order record (nickname, account
+used, amount), and source IPs for fraud detection. Order history, webhook idempotency records, and short-lived telemetry are
+pruned separately; license and trial-abuse records may be retained while
+needed to support or protect an active license. Data is not sold. Service providers
+include Cloudflare, Vercel (website hosting), and Telegram (ordering/support).
 
 LOCAL IDENTITY STORAGE
-Your Machine ID is a random identifier stored in your user profile and the
-panel's local storage (no personal information). A hashed (one-way) fingerprint
-of hostname + username is stored locally so support can recognize records
-copied onto another computer; it is never sent anywhere.
+Your Machine ID is a random installation identifier stored in your user
+profile and the panel's local storage. A hashed fingerprint of your username,
+home-directory path, and platform is stored locally to help detect a copied
+profile; it is never sent anywhere.
 
 DELETION & YOUR RIGHTS
 Request deletion or correction of your license/order record any time via

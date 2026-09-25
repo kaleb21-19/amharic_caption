@@ -12,7 +12,7 @@ export default function Footer() {
           </p>
           <p className="footer-tag">
             Amharic speech-to-text captions for Adobe Premiere Pro. Runs entirely on your
-            machine — no uploads, no cloud, one-time {PRICE} lifetime license.
+            machine — no uploads, no cloud, one-time {PRICE} license (perpetual by default).
           </p>
         </div>
 

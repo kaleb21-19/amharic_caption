@@ -173,6 +173,44 @@ if not exist "%SRC%\index.html" (
 echo [OK] Extension files found.
 >> "%LOG%" echo Source files verified
 
+set "DEGRADED=0"
+if exist "%~dp0DEGRADED_BUILD.txt" (
+    set "DEGRADED=1"
+    echo [WARNING] Explicit local/test degraded build - optional ML assets may be absent.
+    >> "%LOG%" echo WARNING: DEGRADED_BUILD.txt present; not for release
+)
+
+if "!DEGRADED!"=="0" (
+    if not exist "%SRC%\runtime\model\model.bin" (
+        >> "%LOG%" echo ERROR 6: source package missing AI model
+        call :FAIL 6 "This archive is incomplete because its AI model is missing. Do not install it; download the archive again."
+        exit /b 6
+    )
+    if not exist "%SRC%\runtime\python\python.exe" (
+        >> "%LOG%" echo ERROR 6: source package missing Python runtime
+        call :FAIL 6 "This archive is incomplete because its Python runtime is missing. Do not install it; download the archive again."
+        exit /b 6
+    )
+    for %%F in (amh_lm.py amh_lm.json.gz amh_vad.py silero_vad.onnx amh_diarize.py speaker_embed.onnx) do (
+        if not exist "%SRC%\runtime\%%F" (
+            >> "%LOG%" echo ERROR 6: source package missing %%F
+            call :FAIL 6 "This archive is incomplete because a required caption feature is missing. Do not install it; download the archive again."
+            exit /b 6
+        )
+    )
+) else (
+    if not exist "%SRC%\runtime\model\model.bin" if not exist "%SRC%\runtime\model\model_meta.json" if not exist "%SRC%\runtime\model\config.json" (
+        >> "%LOG%" echo ERROR 6: degraded source package missing model
+        call :FAIL 6 "This degraded archive is missing its model. Do not install it; rebuild the archive."
+        exit /b 6
+    )
+    if not exist "%SRC%\runtime\python\python.exe" (
+        >> "%LOG%" echo ERROR 6: degraded source package missing Python runtime
+        call :FAIL 6 "This degraded archive is missing its Python runtime. Do not install it; rebuild the archive."
+        exit /b 6
+    )
+)
+
 rem ------------------------------------------------------------
 rem Read the version from the manifest for display. The attribute
 rem can sit anywhere on a line with other attributes, so drop the
@@ -311,9 +349,12 @@ echo.
 
 if not "!SRC_N!"=="!STAGE_N!" (
     color 0E
-    echo [WARNING] File count does not match, the numbers are shown above.
-    echo The extension may be incomplete. Re-unzip the download and try again.
-    >> "%LOG%" echo WARNING: file count mismatch !SRC_N! vs !STAGE_N!
+    echo [FAIL] File count does not match, the numbers are shown above.
+    echo The extension is incomplete. Re-unzip the download and try again.
+    >> "%LOG%" echo ERROR 6: file count mismatch !SRC_N! vs !STAGE_N!
+    rmdir /s /q "%STAGE%" 2>nul
+    call :FAIL 6 "The staged copy is incomplete (file count mismatch). Re-download and extract the zip again."
+    exit /b 6
 )
 
 echo [OK] Staged copy verified.
@@ -382,16 +423,28 @@ rem ------------------------------------------------------------
 
 if not exist "%DEST%\index.html" (
     >> "%LOG%" echo ERROR 8: index.html missing after install
+    call :RESTORE
     call :FAIL 8 "The installed copy is incomplete, index.html is missing. Run the installer once more, it repairs itself. If it repeats, send the log to @AmharicCaptionsBot."
     exit /b 8
 )
 
-if exist "%SRC%\runtime\model\model.bin" (
-    if exist "%DEST%\runtime\model\model.bin" (
-        echo [OK] AI model
-    ) else (
+if "!DEGRADED!"=="0" (
+    if not exist "%DEST%\runtime\model\model.bin" (
         color 0E
-        echo [WARNING] AI model was not copied.
+        echo [FAIL] AI model was not copied.
+        >> "%LOG%" echo ERROR 8: AI model missing after install
+        call :RESTORE
+        call :FAIL 8 "The installed copy is missing the AI model. Re-download the archive and contact support if it repeats."
+        exit /b 8
+    )
+) else (
+    if not exist "%DEST%\runtime\model\model.bin" if not exist "%DEST%\runtime\model\model_meta.json" if not exist "%DEST%\runtime\model\config.json" (
+        color 0E
+        echo [FAIL] AI model was not copied.
+        >> "%LOG%" echo ERROR 8: degraded AI model missing after install
+        call :RESTORE
+        call :FAIL 8 "The installed degraded copy is missing its model. Re-download the archive and contact support if it repeats."
+        exit /b 8
     )
 )
 
@@ -400,17 +453,55 @@ if exist "%SRC%\runtime\python\python.exe" (
         echo [OK] Python engine
     ) else (
         color 0E
-        echo [WARNING] Python engine was not copied.
+        echo [FAIL] Python engine was not copied.
+        >> "%LOG%" echo ERROR 8: Python engine missing after install
+        call :RESTORE
+        call :FAIL 8 "The installed copy is missing the Python engine. Re-download the archive and contact support if it repeats."
+        exit /b 8
     )
 )
 
-if exist "%SRC%\runtime\ffmpeg\ffmpeg.exe" (
-    if exist "%DEST%\runtime\ffmpeg\ffmpeg.exe" (
+rem The packaged runtime stores ffmpeg under runtime\bin, not runtime\ffmpeg.
+if exist "%SRC%\runtime\bin\ffmpeg.exe" (
+    if exist "%DEST%\runtime\bin\ffmpeg.exe" (
         echo [OK] FFmpeg engine
     ) else (
         color 0E
-        echo [WARNING] FFmpeg engine was not copied.
+        echo [FAIL] FFmpeg engine was not copied.
+        >> "%LOG%" echo ERROR 8: FFmpeg engine missing after install
+        call :RESTORE
+        call :FAIL 8 "The installed copy is missing FFmpeg. Re-download the archive and contact support if it repeats."
+        exit /b 8
     )
+) else (
+    color 0E
+    echo [FAIL] Package is missing runtime\bin\ffmpeg.exe.
+    >> "%LOG%" echo ERROR 8: source package missing FFmpeg
+    call :FAIL 8 "This archive is incomplete because its FFmpeg runtime is missing. Do not install it; download the archive again."
+    exit /b 8
+)
+
+if "!DEGRADED!"=="0" (
+    for %%F in (amh_lm.py amh_lm.json.gz amh_vad.py silero_vad.onnx amh_diarize.py speaker_embed.onnx) do (
+        if not exist "%SRC%\runtime\%%F" (
+            color 0E
+            echo [FAIL] Package is missing runtime\%%F.
+            >> "%LOG%" echo ERROR 8: source package missing %%F
+            call :RESTORE
+            call :FAIL 8 "This archive is incomplete because a required caption feature is missing. Do not install it; download the archive again."
+            exit /b 8
+        )
+        if not exist "%DEST%\runtime\%%F" (
+            color 0E
+            echo [FAIL] Required feature was not copied: runtime\%%F.
+            >> "%LOG%" echo ERROR 8: installed copy missing %%F
+            call :RESTORE
+            call :FAIL 8 "The installed copy is missing a required caption feature. Re-download the archive and contact support if it repeats."
+            exit /b 8
+        )
+    )
+) else (
+    echo [WARNING] Optional caption features may be absent in this explicit degraded test build.
 )
 
 set "DST_N=0"
@@ -437,7 +528,9 @@ for %%K in (7 8 9 10 11 12 13 14 15) do (
 set "REG_OK=0"
 
 for %%K in (11 12 13 14 15) do (
-    reg query "HKCU\Software\Adobe\CSXS.%%K" /v PlayerDebugMode >nul 2>&1 && set /A REG_OK+=1
+    for /f "tokens=1,2,3" %%A in ('reg query "HKCU\Software\Adobe\CSXS.%%K" /v PlayerDebugMode 2^>nul ^| find /i "PlayerDebugMode"') do (
+        if /I "%%B"=="REG_SZ" if "%%C"=="0x1" set /A REG_OK+=1
+    )
 )
 
 if "!REG_OK!"=="0" (
@@ -523,6 +616,15 @@ rem ============================================================
 rem Failure screen: red full-screen, popup dialog, log path,
 rem plain next steps and a path to human support.
 rem ============================================================
+
+:RESTORE
+if exist "%BACKUP%" (
+    rmdir /s /q "%DEST%" 2>nul
+    move /Y "%BACKUP%" "%DEST%" >nul 2>&1
+) else (
+    rmdir /s /q "%DEST%" 2>nul
+)
+exit /b 0
 
 :FAIL
 set "EC=%~1"

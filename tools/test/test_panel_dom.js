@@ -43,10 +43,12 @@ function detectRuntime() {
   const complete = (base) => {
     if (!base || !fs.existsSync(base)) return false;
     if (!fs.existsSync(path.join(base,'ethio_srt.py'))) return false;
-    const modelOk = fs.existsSync(path.join(base,'model')) || fs.existsSync(path.join(base,'ethio-asr'));
+    const modelOk = fs.existsSync(path.join(base,'model','model_meta.json')) || fs.existsSync(path.join(base,'ethio-asr','config.json'));
     const binOk   = fs.existsSync(path.join(base,'bin','ffmpeg'))   || fs.existsSync(path.join(base,'bin','ffmpeg.exe'));
     const pyOk    = fs.existsSync(path.join(base,'python','bin','python3')) || fs.existsSync(path.join(base,'python','python.exe'));
-    return modelOk && binOk && pyOk;
+    const featureOk = ['amh_lm.py','amh_lm.json.gz','amh_vad.py','silero_vad.onnx','amh_diarize.py','speaker_embed.onnx']
+      .every((f) => fs.existsSync(path.join(base, f)));
+    return modelOk && binOk && pyOk && featureOk;
   };
   for (const base of roots) { const c = path.join(base,'runtime'); if (complete(c)) return c; }
   if (complete(path.join(DEV,'runtime'))) return path.join(DEV,'runtime');
@@ -92,7 +94,7 @@ function restoreCache(raw) {
 
 /* ---------- harness ---------- */
 const defaultFetch = async () => ({ ok: false, json: async () => null });
-const csiReply = {ok:true,captionItemName:'Caption',placed:true,requestedStart:0,landedStart:1,landedEnd:3,note:null};
+const defaultCsiReply = {ok:true,captionItemName:'Caption',placed:true,requestedStart:0,landedStart:1,landedEnd:3,note:null};
 
 function loadPanel(opts) {
   opts = opts || {};
@@ -112,7 +114,7 @@ function loadPanel(opts) {
     navigator:  { userAgent: 'dom-shim-test' },
     localStorage: storage,
     document,
-    CSInterface: class { evalScript(jsx,cb) { cb(JSON.stringify(csiReply)); } },
+    CSInterface: class { evalScript(jsx,cb) { cb(JSON.stringify(opts.csiReply || defaultCsiReply)); } },
     cep: { fs:{ showOpenDialog(){ return opts.folderDialog ? opts.folderDialog() : {err:1}; } },
             util:{ openURLInDefaultBrowser(){} } },
     __adobe_cep__:{
@@ -142,7 +144,7 @@ function loadPanel(opts) {
   let mid = null;
   try {
     const rec = JSON.parse(fs.readFileSync(path.join(machineHome,'.amharic_captions_machine.json'),'utf8'));
-    if (rec && /^[0-9a-f]{8}$/.test(rec.id)) mid = rec.id;
+    if (rec && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(rec.id)) mid = rec.id;
   } catch (e) {}
 
   return {
@@ -178,10 +180,10 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
   const p = loadPanel();
   try {
     await flush(10);
-    assert.ok(p.mid && /^[0-9a-f]{8}$/.test(p.mid), 'machine id created');
+    assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.4.30');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.4.31');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -264,12 +266,13 @@ await t('3. license: initial trial, bad keys, activation', async () => {
     // valid key + server confirm -> Licensed
     const licFetch = async (url) => {
       const u = String(url);
-      if (u.includes('/api/validate')) return { ok:true, json:async()=>({valid:true}) };
+      if (u.includes('/api/validate')) return { ok:true, json:async()=>({valid:true, token:'v1.b1b2c3d400000000.' + '0'.repeat(128)}) };
       if (u.includes('/api/trial'))    return { ok:true, json:async()=>({used:0}) };
       return { ok:true, json:async()=>({ok:true}) };
     };
     const p2 = loadPanel({ storage: p.storage, machineHome: p.machineHome, fetch: licFetch, folderDialog: () => ({err:1}) });
     try {
+      p2.evalVm('verifyLicenseToken = async (t, pk, m) => ({ ok: true, expiry: "00000000" });');
       p2.els('licenseInput').value = mkKey(p.mid, '00000000', '0123456789abcdef');
       p2.els('licenseActivate').fire('click');
       await flush(30);
@@ -280,26 +283,28 @@ await t('3. license: initial trial, bad keys, activation', async () => {
       // main.js must append the success message even when the log box is
       // empty (fresh panel), so it is the on-screen confirmation.
       assert.strictEqual(JSON.parse(p2.storage.getItem('amh.license') || 'null').valid, true);
+      assert.ok(fs.existsSync(path.join(p2.machineHome, '.amharic_captions_license.json')),
+        'activation persists a durable license file');
       assert.ok(/License activated successfully./.test(p2.els('logBox').textContent),
         'activation message appended to log');
     } finally { p2.close(); }
   } finally { p.close(); }
 });
 
-await t('3.5 license: forged license refused — signed-lease migration window', async () => {
-  // (a) Legacy-shaped forgery (the audit #4 bypass) aged beyond the 30-day
-  // migration grace → refused, trial path enforced. Regression test.
+await t('3.5 license: unsigned legacy state is always refused', async () => {
+  // Legacy-shaped state is not a license. It is rejected even when its
+  // timestamp is current or in the future.
   const forged = makeLocalStorage();
-  forged.setItem('amh.trial.used', '2'); // exhaust trial so Generate must stay locked
+  forged.setItem('amh.trial.used', '2');
   forged.setItem('amh.license', JSON.stringify({
     key: mkKey('00000000', '00000000', '0123456789abcdef'),
     valid: true, serverValidated: true,
-    activated: Date.now() - 31 * 86400000, // too old even if it WERE server-legit
+    activated: Date.now() + 365 * 86400000,
   }));
   const pf = loadPanel({ storage: forged });
   try {
-    await flush(30); // let boot assessLicense() run (WebCrypto verify)
-    assert.strictEqual(pf.els('runBtn').disabled, true, 'forged beyond-grace license must NOT enable Generate');
+    await flush(30);
+    assert.strictEqual(pf.els('runBtn').disabled, true, 'unsigned legacy state must NOT enable Generate');
     assert.ok(/Trial used/.test(pf.els('licenseStatus').textContent), 'shows trial-exhausted state: ' + pf.els('licenseStatus').textContent);
     assert.strictEqual(pf.els('licensedNote').style.display, 'none', 'no licensed note');
   } finally { pf.close(); }
@@ -331,11 +336,9 @@ await t('3.5 license: forged license refused — signed-lease migration window',
   } finally { pg.close(); }
 });
 
-await t('3.6 license: legacy install upgraded to a signed token on boot', async () => {
-  // A pre-token buyer within grace, online: the panel must silently re-validate
-  // and STORE the server-minted token (migration completes on its own). Token
-  // verification itself is covered by the real-keypair unit tests in
-  // test_panel.js; here we mirror field logic (3.5c) for the success path.
+await t('3.6 license: legacy state is not silently upgraded or trusted', async () => {
+  // Unsigned client state cannot be migrated securely. The customer must
+  // activate a key online once and receive a signed lease.
   const legacy = makeLocalStorage();
   legacy.setItem('amh.trial.used', '2');
   legacy.setItem('amh.license', JSON.stringify({
@@ -351,13 +354,9 @@ await t('3.6 license: legacy install upgraded to a signed token on boot', async 
   try {
     await flush(40);
     const stored = JSON.parse(p.storage.getItem('amh.license') || 'null');
-    assert.ok(stored && stored.token, 'legacy license upgraded to a token');
-    assert.ok(stored.activated > 0 && String(stored.activated).length > 10, 'original activated date preserved');
-    p.evalVm('verifyLicenseToken = async (t, pk, m) => ({ ok: true, expiry: "00000000" });');
-    await p.evalVm('assessLicense()');
-    p.evalVm('updateLicenseUI()');
-    assert.strictEqual(p.els('runBtn').disabled, false, 'still licensed after upgrade');
-    assert.strictEqual(p.els('licensedNote').style.display, 'block');
+    assert.ok(!stored.token, 'legacy state must not be upgraded without explicit activation');
+    assert.strictEqual(p.els('runBtn').disabled, true, 'legacy state must not enable Generate');
+    assert.strictEqual(p.els('licensedNote').style.display, 'none', 'no licensed note');
   } finally { p.close(); }
 });
 
@@ -443,6 +442,62 @@ await t('5. review: cache-hit transcribe -> edit -> export (speaker tags) -> nud
   } finally { restoreCache(snap); }
 });
 
+
+await t('5b. review: Premiere placement=false keeps review open and reports failure', async () => {
+  const fixture = path.join(REPO, 'tools', 'test', 'fixtures', 'twospeaker.wav');
+  const key = cacheKeyFor(fixture, { cap:'words', group:3, chars:42, speakers:false });
+  const snap = snapshotCache();
+  try {
+    const base = snap !== null ? JSON.parse(snap) : {};
+    base[key] = { srt: CACHE_SEED_SRT, transcript: '', at: Date.now() };
+    restoreCache(JSON.stringify(base));
+    const p = loadPanel({
+      csiReply: { ok:true, captionItemName:'Caption', placed:false,
+        requestedStart:0, landedStart:null, landedEnd:null,
+        note:'all Premiere placement methods failed' }
+    });
+    try {
+      await flush(10);
+      p.els('fileInput').files = [{ path: fixture, name: 'twospeaker.wav' }];
+      p.els('fileInput').fire('change');
+      await flush(40);
+      assert.ok(p.els('review').classList.contains('show'), 'review opens before placement');
+      p.els('reviewPlace').fire('click');
+      await flush(30);
+      assert.ok(p.els('review').classList.contains('show'), 'review stays open when placement fails');
+      assert.ok(/ERROR|Premiere|placement/i.test(p.els('logBox').textContent), 'failure is visible');
+      assert.ok(!/Captions added/.test(p.els('logBox').textContent), 'no false success message');
+    } finally { p.close(); }
+  } finally { restoreCache(snap); }
+});
+
+await t('5c. trial: authoritative charge denial blocks review and placement', async () => {
+  const fixture = path.join(REPO, 'tools', 'test', 'fixtures', 'twospeaker.wav');
+  const key = cacheKeyFor(fixture, { cap:'words', group:3, chars:42, speakers:false });
+  const snap = snapshotCache();
+  try {
+    const base = snap !== null ? JSON.parse(snap) : {};
+    base[key] = { srt: CACHE_SEED_SRT, transcript: '', at: Date.now() };
+    restoreCache(JSON.stringify(base));
+    const p = loadPanel({
+      fetch: async (url) => {
+        const u = String(url);
+        if (u.includes('/api/trial?')) return { ok:true, json:async()=>({used:0, max:2, remaining:2}) };
+        if (u.includes('/api/trial/use')) return { ok:true, json:async()=>({used:2, max:2, remaining:0, charged:false}) };
+        return { ok:false, json:async()=>null };
+      }
+    });
+    try {
+      await flush(10);
+      p.els('fileInput').files = [{ path: fixture, name: 'twospeaker.wav' }];
+      p.els('fileInput').fire('change');
+      await flush(50);
+      assert.ok(!p.els('review').classList.contains('show'), 'denied trial charge never opens placement review');
+      assert.ok(/not placed|trial credit/i.test(p.els('logBox').textContent), 'denial is visible to the user');
+      assert.ok(!/Captions added/.test(p.els('logBox').textContent), 'no placement can occur after denial');
+    } finally { p.close(); }
+  } finally { restoreCache(snap); }
+});
 
 await t('6. batch cache: per-clip keys, unchanged clips served from cache, edit re-transcribes only the changed clip', async () => {
   const fast = path.join(REPO, 'tools', 'test', 'fixtures', 'fast.wav');
@@ -742,6 +797,24 @@ await t('9. license survives a CEP localStorage wipe (Premiere upgrade)', async 
         'no durable copy and no cache means unlicensed');
     } finally { p.close(); }
   } finally { fs.rmSync(machineHome,{recursive:true,force:true}); }
+});
+
+await t('9b. license: failed online revalidation does not start the 24h retry interval', async () => {
+  const machineHome = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_dom_recheck_'));
+  try {
+    const p = loadPanel({
+      machineHome,
+      fetch: async () => ({ ok: false, json: async () => null }),
+    });
+    try {
+      p.storage.setItem('amh.license', JSON.stringify({ key: mkKey(p.mid, '00000000', '0123456789abcdef'), token: 'v1.fake' }));
+      p.storage.removeItem('amh.license.lastCheck');
+      await p.evalVm('revalidateLicenseOnline(true)');
+      await flush(5);
+      assert.strictEqual(p.storage.getItem('amh.license.lastCheck'), null,
+        'network failure leaves revocation retry due immediately');
+    } finally { p.close(); }
+  } finally { fs.rmSync(machineHome, { recursive: true, force: true }); }
 });
 
 await t('10. single-clip progress: engine window lines drive the bar', async () => {

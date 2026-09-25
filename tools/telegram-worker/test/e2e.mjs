@@ -11,7 +11,7 @@
 // Requires Node 22+ (global WebCrypto, Request/Response, node:sqlite).
 
 import { DatabaseSync } from 'node:sqlite';
-import { createHmac, randomBytes } from 'node:crypto';
+import { createHmac, randomBytes, generateKeyPairSync } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 
@@ -25,6 +25,8 @@ const BUYER = '900000001';
 const GROUP = '-1000000000001';
 const SECRET = process.env.AMH_SECRET_TEST || randomBytes(32).toString('base64');
 const WEBHOOK_SECRET = process.env.AMH_WEBHOOK_SECRET_TEST || randomBytes(16).toString('hex');
+const SIGNING_KEY = generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey
+  .export({ type: 'pkcs8', format: 'pem' }).toString();
 const TG = 'abcdef:TOKEN';
 
 const WORKER_SRC = readFileSync(new URL('../src/worker.js', import.meta.url), 'utf8');
@@ -47,6 +49,9 @@ class D1 {
         photo_key TEXT, chat_id TEXT, status_msg_id INTEGER,
         status TEXT NOT NULL DEFAULT 'pending',
         amount_etb INTEGER NOT NULL DEFAULT 0,
+        key_issued_at TEXT, delivery_status TEXT NOT NULL DEFAULT 'pending',
+        delivery_attempts INTEGER NOT NULL DEFAULT 0, delivered_at TEXT,
+        delivery_lease_until TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
       `CREATE INDEX idx_orders_status ON orders(status)`,
       `CREATE INDEX idx_orders_uid ON orders(uid)`,
@@ -70,6 +75,12 @@ class D1 {
       `CREATE UNIQUE INDEX idx_orders_pending_mid ON orders(machine_id) WHERE status='pending'`,
       `CREATE INDEX idx_orders_mid ON orders(machine_id)`,
       `CREATE INDEX idx_customers_uid ON customers(uid)`,
+      `CREATE TABLE webhook_updates (update_id INTEGER PRIMARY KEY,
+        received_at TEXT NOT NULL DEFAULT (datetime('now')), completed_at TEXT,
+        claimed_at TEXT)`,
+      `CREATE TABLE trial_uses (run_id TEXT PRIMARY KEY,
+        machine_id TEXT NOT NULL, used_at TEXT NOT NULL DEFAULT (datetime('now')),
+        claimed_at TEXT, completed_at TEXT, result_json TEXT)`,
     ];
     for (const ddl of ddls) this.db.exec(ddl);
     this.db.exec("ALTER TABLE customers ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0"); // migration 0008
@@ -83,6 +94,17 @@ class D1 {
       all: () => ({ results: stmt.all(...(w.args || [])) }),
     };
     return w;
+  }
+  batch(statements) {
+    this.db.exec('BEGIN');
+    try {
+      const results = statements.map((s) => s.run());
+      this.db.exec('COMMIT');
+      return results;
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
   }
 }
 
@@ -142,7 +164,8 @@ function makeEnv(over = {}) {
   const db = new D1();
   const env = {
     AMH_TG_TOKEN: TG, AMH_ADMIN_ID: ADMIN_ID, AMH_SECRET: SECRET,
-    AMH_WEBHOOK_SECRET: WEBHOOK_SECRET, AMH_KV: kv, DB: db,
+    AMH_WEBHOOK_SECRET: WEBHOOK_SECRET, AMH_LICENSE_SIGNING_KEY: SIGNING_KEY,
+    AMH_KV: kv, DB: db,
     ...over,
   };
   for (const k of envKeys) assert.equal(k in env, true, `missing env ${k}`);
@@ -159,9 +182,17 @@ function msg(chat, from, extra = {}) {
     },
   };
 }
+let UPDATE_ID = 0;
+const UPDATE_IDS = new WeakMap();
+function withUpdateId(update) {
+  if (update && update.update_id !== undefined) return update;
+  let id = UPDATE_IDS.get(update);
+  if (!id) { id = ++UPDATE_ID; UPDATE_IDS.set(update, id); }
+  return { ...update, update_id: id };
+}
 async function post(env, update, secret = WEBHOOK_SECRET, extraHeaders = {}) {
   const headers = { 'Content-Type': 'application/json', 'X-Telegram-Bot-Api-Secret-Token': secret, ...extraHeaders };
-  const req = new Request('https://x.workers.dev/', { method: 'POST', headers, body: JSON.stringify(update) });
+  const req = new Request('https://x.workers.dev/', { method: 'POST', headers, body: JSON.stringify(withUpdateId(update)) });
   return worker.fetch(req, env);
 }
 async function cb(env, from, data, opts = {}) {
@@ -187,6 +218,9 @@ function keyForWith(secret, mid, expiry = '00000000') {
 }
 function keyFor(mid, expiry = '00000000') {
   return keyForWith(SECRET, mid, expiry);
+}
+function canonicalKey(k) {
+  return String(k || '').replace(/^amh/i, '').replace(/[\s-]+/g, '').toLowerCase();
 }
 const rows = (env, sql, ...a) => env.DB.prepare(sql).bind(...a).all().results;
 const row = (env, sql, ...a) => env.DB.prepare(sql).bind(...a).first();
@@ -293,10 +327,94 @@ console.log('\n:: scenario 1 — happy path, full sale, DM only');
   assert.equal(r.status, 200);
   let j = await r.json();
   assert.deepEqual({ valid: j.valid, expiry: j.expiry }, { valid: true, expiry: '00000000' });
+  assert.match(j.token || '', /^v1\.[0-9a-f]{16}\.[0-9a-f]{128}$/i, 'successful validation returns a signed lease');
   r = await api(env, '/api/validate', { method: 'POST', body: { mid: 'a1b2c3d4', key: 'AMH-' + 'f'.repeat(34) } });
   j = await r.json();
   assert.equal(j.valid, false);
   ok('/api/validate accepts real key, rejects forged');
+
+  // New installations use a 16-hex ID. Presentation normalization (case,
+  // spaces, and dashes) must resolve to the same customer row and cache key.
+  const mid16 = 'a1b2c3d4e5f60718';
+  const key16 = keyFor(mid16);
+  env.DB.prepare("INSERT INTO customers (machine_id, name, expiry, key, status, uid) VALUES (?, 'sold16', '00000000', ?, 'sold', '16')")
+    .bind(mid16, key16).run();
+  const pasted = 'amh ' + key16.slice(4).toLowerCase().replace(/(.{4})/g, '$1-').replace(/-$/, '');
+  r = await api(env, '/api/validate', { method: 'POST', body: { mid: mid16.toUpperCase(), key: pasted }, headers: { 'CF-Connecting-IP': '198.51.100.22' } });
+  j = await r.json();
+  assert.equal(j.valid, true, '16-hex installation key validates after paste normalization');
+  assert.match(j.token || '', /^v1\.[0-9a-f]{24}\./i, '16-hex lease payload is signed');
+  ok('16-hex machine IDs and normalized key paste validate end-to-end');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: scenario 1a — failed Telegram delivery is visible and retryable');
+
+{
+  const { env } = fresh();
+  await startBuyFlow(env);
+  await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { text: '1a2b3c4d' }));
+  await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { photo: [{ file_id: 'P-DELIVERY' }] }));
+  await cb(env, { id: Number(BUYER) }, 'proof:confirm', { chatId: Number(BUYER) });
+  const order = row(env, 'SELECT * FROM orders');
+  FAIL_NEXT = 1; // the key send fails; state must not claim delivery
+  await cb(env, { id: Number(ADMIN_ID) }, `approve:${order.id}`);
+  let o = row(env, 'SELECT status, delivery_status, delivery_attempts FROM orders WHERE id=?', order.id);
+  assert.equal(o.status, 'approved');
+  assert.equal(o.delivery_status, 'failed');
+  assert.equal(o.delivery_attempts, 1);
+  assert.ok(row(env, 'SELECT key FROM customers WHERE machine_id=?', '1a2b3c4d').key, 'key remains stored for retry');
+
+  await Promise.all([
+    cb(env, { id: Number(ADMIN_ID) }, `approve:${order.id}`),
+    cb(env, { id: Number(ADMIN_ID) }, `approve:${order.id}`),
+  ]);
+  o = row(env, 'SELECT status, delivery_status, delivery_attempts FROM orders WHERE id=?', order.id);
+  assert.equal(o.delivery_status, 'delivered');
+  assert.equal(o.delivery_attempts, 2, 'concurrent retries share one delivery lease');
+  ok('delivery failure is persisted and admin retry redelivers the key');
+}
+
+{
+  const { env } = fresh();
+  env.DB.prepare("INSERT INTO orders (id, uid, username, machine_id, ref, photo_key, chat_id, status, amount_etb, key_issued_at, delivery_status) VALUES (91, '91', '@pending', '91abcdef', '', '', '91', 'approved', 2500, datetime('now'), 'pending')").run();
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:detail:91');
+  const card = OUTBOUND.filter((x) =>
+    (x.method === 'editMessageText' || x.method === 'sendMessage') &&
+    String(x.body.text || '').includes('Order #91')).at(-1);
+  assert.ok(card, 'admin detail card was rendered');
+  assert.ok(JSON.stringify(card.body.reply_markup || {}).includes('admin:retry-delivery:91'),
+    'approved/pending delivery exposes a recovery action');
+  ok('approved orders with pending delivery remain recoverable');
+}
+
+{
+  const { env } = fresh({ AMH_LICENSE_SIGNING_KEY: '' });
+  await startBuyFlow(env);
+  await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { text: '2b3c4d5e' }));
+  await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { photo: [{ file_id: 'P-NOSIGN' }] }));
+  await cb(env, { id: Number(BUYER) }, 'proof:confirm', { chatId: Number(BUYER) });
+  const order = row(env, 'SELECT * FROM orders');
+  await cb(env, { id: Number(ADMIN_ID) }, `approve:${order.id}`);
+  assert.equal(row(env, 'SELECT status FROM orders WHERE id=?', order.id).status, 'pending');
+  assert.equal(rows(env, 'SELECT * FROM customers').length, 0, 'unready signer cannot mint/deliver a key');
+  ok('approval fails closed when the lease signer is unavailable');
+}
+
+// Full purchase flow with a new 16-hex installation ID.
+{
+  const { env } = fresh();
+  const mid = 'a1b2c3d4e5f60718';
+  await startBuyFlow(env);
+  await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { text: mid }));
+  await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { photo: [{ file_id: 'P16' }] }));
+  await cb(env, { id: Number(BUYER) }, 'proof:confirm', { chatId: Number(BUYER) });
+  const order = row(env, 'SELECT * FROM orders');
+  await cb(env, { id: Number(ADMIN_ID) }, `approve:${order.id}`);
+  const customer = row(env, 'SELECT machine_id, key FROM customers WHERE machine_id=?', mid);
+  assert.ok(customer && customer.key, '16-hex ID completes purchase and approval');
+  assert.equal(customer.machine_id, mid);
+  ok('16-hex Machine IDs work through the complete Telegram sale flow');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -363,7 +481,7 @@ console.log('\n:: scenario 1c — arriving from the panel skips the Machine ID s
 {
   // The panel's Buy button opens this chat with the id already in the message.
   // The bot used to acknowledge it and then ask for it again, making the buyer
-  // hand-copy an 8-character id the panel had already filled in.
+  // hand-copy a 16-character installation id the panel had already filled in.
   const { env } = fresh();
   await post(env, msg(Number(BUYER), { id: Number(BUYER) },
     { text: 'Hello! I want to buy Amharic Captions.\nMachine ID: a1b2c3d4' }));
@@ -673,7 +791,9 @@ console.log('\n:: scenario 4 — group start, DM finish');
   assert.equal(res.status, 200);
   assert.ok(JSON.stringify(OUTBOUND).includes('አማርኛ ካፕሽን'), 'group welcome sent');
   assert.equal(rows(env, 'SELECT * FROM fsm').length, 0, 'no fsm from group start');
-  ok('group /start only welcomes (no fsm)');
+  await cb(env, { id: Number(BUYER) }, 'pay:proof', { chatId: Number(GROUP) });
+  assert.equal(rows(env, 'SELECT * FROM fsm').length, 0, 'group payment callback cannot create an FSM');
+  ok('group /start only welcomes and payment callbacks stay private');
 
   // then complete the whole purchase in the DM
   await startBuyFlow(env);
@@ -801,6 +921,8 @@ console.log('\n:: scenario 8 — webhook auth: fail-closed');
   // health + removed debug
   let r = await api(env, '/ok');
   assert.equal(await r.text(), 'ok');
+  r = await api(env, '/ready');
+  assert.equal(r.status, 200, 'readiness checks crypto, bindings, and webhook config');
   r = await api(env, '/debug');
   assert.equal(r.status, 405, '/debug removed');
   ok('/ok works, /debug gone');
@@ -819,6 +941,25 @@ console.log('\n:: scenario 8 — webhook auth: fail-closed');
   const upd2 = await post(env2, msg(Number(BUYER), {}, { text: 'hi' }), 'anything');
   assert.equal(upd2.status, 500);
   ok('no webhook secret -> fail closed (500, no processing)');
+
+  // Telegram retries the same update_id: the idempotency ledger acknowledges
+  // the retry without sending a second reply.
+  const { env: env3 } = fresh();
+  const update = msg(Number(BUYER), { id: Number(BUYER) }, { text: '/start' });
+  update.update_id = 987654;
+  OUTBOUND.length = 0;
+  assert.equal((await post(env3, update)).status, 200);
+  const firstCount = OUTBOUND.length;
+  assert.equal((await post(env3, update)).status, 200);
+  assert.equal(OUTBOUND.length, firstCount, 'duplicate update is not replayed');
+  // A worker crash leaves a NULL completion; an expired lease is reclaimable.
+  env3.DB.prepare("INSERT INTO webhook_updates (update_id, completed_at, claimed_at) VALUES (987655, NULL, datetime('now','-11 minutes'))").run();
+  const stale = msg(Number(BUYER), { id: Number(BUYER) }, { text: '/start' });
+  stale.update_id = 987655;
+  OUTBOUND.length = 0;
+  assert.equal((await post(env3, stale)).status, 200);
+  assert.ok(OUTBOUND.length > 0, 'expired webhook claim is reclaimed and processed');
+  ok('webhook idempotency ledger reclaims abandoned processing leases');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -838,6 +979,7 @@ console.log('\n:: scenario 9 — extension API: trial, rate limits, API key togg
   r = await api(env, '/api/trial/use', { method: 'POST', body: { mid: 'a1b2c3d4' } });
   j = await r.json();
   assert.equal(j.used, 1);
+  assert.equal(j.charged, true, 'first charge is explicitly accepted');
   // same machine, another IP, immediately -> 2s mid marker collapses to used=1 (200)
   r = await api(env, '/api/trial/use', { method: 'POST', body: { mid: 'a1b2c3d4' }, headers: { 'CF-Connecting-IP': '203.0.113.9' } });
   assert.equal(r.status, 200);
@@ -848,7 +990,27 @@ console.log('\n:: scenario 9 — extension API: trial, rate limits, API key togg
   assert.equal(r.status, 200, 'rapid reuse returns 200 (never 429)');
   j = await r.json();
   assert.equal(j.used, 1, 'rapid reuse collapse: no blind increment');
+  assert.equal(j.charged, false, 'collapsed request is not treated as a new charge');
   ok('trial/use: per-mid SQL collapse is atomic (no KV race, no 429 -> no local-increment exploit)');
+
+  // New panels send a run ID. It is idempotent only for the MID that created it.
+  const runId = 'run-idempotency-12345678';
+  r = await api(env, '/api/trial/use', { method: 'POST', body: { mid: '13579bdf', run_id: runId }, headers: { 'CF-Connecting-IP': '198.51.100.30' } });
+  j = await r.json();
+  assert.equal(j.used, 1);
+  assert.equal(j.charged, true, 'run-id charge is explicitly accepted');
+  r = await api(env, '/api/trial/use', { method: 'POST', body: { mid: '13579bdf', run_id: runId }, headers: { 'CF-Connecting-IP': '198.51.100.31' } });
+  j = await r.json();
+  assert.equal(j.used, 1, 'same run retry is idempotent');
+  assert.equal(j.duplicate, true);
+  assert.equal(j.charged, true, 'duplicate run preserves the original charge result');
+  r = await api(env, '/api/trial/use', { method: 'POST', body: { mid: '2468ace0', run_id: runId }, headers: { 'CF-Connecting-IP': '198.51.100.32' } });
+  assert.equal(r.status, 200, 'run ID conflict fails closed with a blocking state');
+  j = await r.json();
+  assert.equal(j.remaining, 0);
+  assert.equal(j.charged, false, 'conflicting run ID is never charged');
+  assert.equal(row(env, 'SELECT used FROM trials WHERE machine_id=?', '2468ace0'), null);
+  ok('trial reservations are idempotent and bound to their machine ID');
 
   // trial caps at max_free
   for (let i = 0; i < 6; i++) {
@@ -858,7 +1020,9 @@ console.log('\n:: scenario 9 — extension API: trial, rate limits, API key togg
   }
   const used = row(env, 'SELECT used FROM trials WHERE machine_id=?', 'a1b2c3d4').used;
   assert.ok(used <= 2, `trial never exceeds cap (used=${used})`);
-  ok('trial hard-capped at max_free');
+  r = await api(env, '/api/trial?mid=A1B2C3D4');
+  assert.equal((await r.json()).used, used, 'trial GET canonicalizes Machine ID case');
+  ok('trial hard-capped at max_free and case-insensitive');
 
   // per-IP trial GET throttle: fresh IPs — first pass 200, next mid 429
   r = await api(env, '/api/trial?mid=ffffffff', { headers: { 'CF-Connecting-IP': '203.0.113.50' } });
@@ -874,27 +1038,33 @@ console.log('\n:: scenario 9 — extension API: trial, rate limits, API key togg
   assert.equal(r.status, 429, 'validate per-IP throttle');
   ok('validate throttling wired');
 
-  // API-key toggle: OFF by default (works), ON requires header
+  // API-key policy: the extension API is public by default; an optional
+  // deployment gate can require a header, but it is not license auth.
   const envA = fresh();
   r = await api(envA.env, '/api/trial?mid=b1b2c3d4', { headers: { 'CF-Connecting-IP': '203.0.113.60' } });
-  assert.equal(r.status, 200, 'API_KEY empty -> open as today');
-  const envK = fresh({ AMH_API_KEY: 'sekrit' });
+  assert.equal(r.status, 200, 'public extension API works without a client secret');
+  const envMissing = fresh({ AMH_REQUIRE_API_KEY: '1' });
+  r = await api(envMissing.env, '/api/trial?mid=b1b2c3d4', { headers: { 'CF-Connecting-IP': '203.0.113.60' } });
+  assert.equal(r.status, 503, 'optional API gate fails closed when misconfigured');
+  const envK = fresh({ AMH_REQUIRE_API_KEY: '1', AMH_API_KEY: 'sekrit' });
   r = await api(envK.env, '/api/trial?mid=c1c2c3d4', { headers: { 'CF-Connecting-IP': '203.0.113.61' } });
   assert.equal(r.status, 401, 'API_KEY set -> no header => 401');
   r = await api(envK.env, '/api/trial?mid=c1c2c3d4', { headers: { 'CF-Connecting-IP': '203.0.113.62', 'X-Api-Key': 'sekrit' } });
   assert.equal(r.status, 200, 'API_KEY set + header => allowed');
   r = await api(envK.env, '/api/trial?mid=c1c2c3d4', { headers: { 'CF-Connecting-IP': '203.0.113.63', 'X-Api-Key': 'nope' } });
   assert.equal(r.status, 401, 'wrong header => 401');
-  ok('AMH_API_KEY toggle: off now, on -> requires header');
+  ok('AMH_API_KEY: public by default; optional deployment gate enforced');
 
   // panel boot ping: version/Origin telemetry, also key-gated
   r = await api(envK.env, '/api/ping', { method: 'POST', body: { v: '1.4.1', mid: 'c2c2c2c2' }, headers: { 'CF-Connecting-IP': '203.0.113.70', 'X-Api-Key': 'sekrit' } });
   assert.equal(r.status, 200, 'ping allowed with key');
   const pingJ = await r.json();
   assert.equal(pingJ.ok, true, 'ping returns ok');
+  r = await api(envK.env, '/api/ping', { method: 'POST', body: { v: '1.4.1', mid: 'c3c3c3c3' }, headers: { 'CF-Connecting-IP': '203.0.113.70', 'X-Api-Key': 'sekrit' } });
+  assert.equal(r.status, 429, 'ping per-IP throttle blocks telemetry spray');
   r = await api(envK.env, '/api/ping', { method: 'POST', body: { v: '1.4.1' }, headers: { 'CF-Connecting-IP': '203.0.113.71' } });
   assert.equal(r.status, 401, 'ping without key => 401');
-  ok('/api/ping telemetry wired + gated');
+  ok('/api/ping telemetry wired, gated, and rate-limited');
 
   // CORS lock: whitelisted origins echoed, anything else gets no allow header
   const envL = fresh({ AMH_ALLOWED_ORIGIN: 'file://,null' });
@@ -1002,7 +1172,7 @@ console.log('\n:: scenario 12 — broadcast, /setexpiry, reply-keyboard hint');
   assert.equal(toBuyer.length, 1, 'broadcast reaches buyer DM');
   const toOther = OUTBOUND.filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === '900000002' && (x.body.text || '').includes('Hello buyers!'));
   assert.equal(toOther.length, 1, 'broadcast reaches order-only buyer');
-  const confirm = OUTBOUND.find((x) => x.method === 'sendMessage' && String(x.body.chat_id) === String(ADMIN_ID) && (x.body.text || '').includes('Broadcast sent'));
+  const confirm = OUTBOUND.find((x) => x.method === 'sendMessage' && String(x.body.chat_id) === String(ADMIN_ID) && (x.body.text || '').includes('Broadcast delivered'));
   assert.ok(confirm, 'admin sees broadcast confirmation');
   assert.equal(await kv.get('bcast:await:' + ADMIN_ID), null, 'broadcast draft cleared');
   ok('broadcast fans out to all buyers and skips admins');
@@ -1048,7 +1218,7 @@ console.log('\n:: scenario 13 — key spread (per-key distinct IPs) + fresh-mid 
   }
   const alert = OUTBOUND.filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === ADMIN_ID && (x.body.text || '').includes('Key spread alert'));
   assert.equal(alert.length, 1, 'one spread alert after 3rd distinct IP');
-  const acts = rows(env, 'SELECT * FROM key_activations WHERE key=?', key);
+  const acts = rows(env, 'SELECT * FROM key_activations WHERE key=?', canonicalKey(key));
   assert.equal(acts.length, 3, 'three (key, ip) rows recorded');
   ok('key spread: distinct-IP telemetry + throttled admin alert');
 
@@ -1122,5 +1292,30 @@ const { env, kv } = fresh();
   ok('/revoke + /unrevoke kill/restore a license end-to-end');
 }
 
-console.log('\n' + PASS.length + '/' + (st) + ' scenarios — all green ✅');
+// A customer can be revoked even after the order history has been pruned.
+{
+  const { env, kv } = fresh();
+  const mid = 'abcdef0123456789';
+  const key = keyFor(mid);
+  env.DB.prepare("INSERT INTO customers (machine_id, name, expiry, key, status, uid) VALUES (?, 'old', '00000000', ?, 'sold', '7')")
+    .bind(mid, key).run();
+  env.DB.prepare("INSERT INTO orders (uid, username, machine_id, ref, photo_key, chat_id, status, amount_etb) VALUES ('7', '@old', ?, '', '', '7', 'approved', 2500)")
+    .bind(mid).run();
+  let j = await (await api(env, '/api/validate', { method: 'POST', body: { mid, key }, headers: { 'CF-Connecting-IP': '198.51.100.40' } })).json();
+  assert.equal(j.valid, true);
+  await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: `/revoke-mid ${mid}` }));
+  assert.equal(row(env, 'SELECT status FROM orders WHERE machine_id=?', mid).status, 'revoked',
+    'MID revoke synchronizes order status');
+  j = await (await api(env, '/api/validate', { method: 'POST', body: { mid, key }, headers: { 'CF-Connecting-IP': '198.51.100.40' } })).json();
+  assert.equal(j.valid, false, 'MID revoke survives order pruning/cache hit');
+  await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: `/unrevoke-mid ${mid}` }));
+  assert.equal(row(env, 'SELECT status FROM orders WHERE machine_id=?', mid).status, 'approved',
+    'MID restore synchronizes order status');
+  await kv.delete('rl:val:' + mid);
+  j = await (await api(env, '/api/validate', { method: 'POST', body: { mid, key }, headers: { 'CF-Connecting-IP': '198.51.100.41' } })).json();
+  assert.equal(j.valid, true, 'MID restore works without an order row');
+  ok('MID-based revoke/restore works after order pruning');
+}
+
+console.log('\n' + PASS.length + ' checks — all green ✅');
 console.log('PASSED: ' + PASS.join(' · '));

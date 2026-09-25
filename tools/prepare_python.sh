@@ -68,12 +68,14 @@ case "$OS" in
         # previous Darwin-wide evermeet URL served an x86_64 binary here.
         FFURL_BASE="${AMH_FFURL_MAC_ARM64:-https://www.osxexperts.net/ffmpeg711arm.zip}"
         FF_SHA256="${AMH_FFSHA_MAC_ARM64:-59e39a5cec2e5d2307ed079c53227a9181e64b87454ed4de998349e044bfdc70}"
+        PY_SHA256_DEFAULT="a84adc050a29e0c7387c885ff13e6ac4b0027f9e841359e200d647313dbb5b03"
         FF_EXPECT_ARCH="arm64";;
       x86_64)
         TARGET="mac-x64"
         PBS_VARIANT="x86_64-apple-darwin"
         FFURL_BASE="${AMH_FFURL_MAC_X64:-https://evermeet.cx/ffmpeg/ffmpeg-7.1.zip}"
-        FF_SHA256="${AMH_FFSHA_MAC_X64:-}"
+        FF_SHA256="${AMH_FFSHA_MAC_X64:-5a1303c7babaffff3c32c141ff49c7f44bd3b3b3e7dcea992fd7d04b6558ef43}"
+        PY_SHA256_DEFAULT="77bfa2b959edc0d653830f14f08ab8260156d4b5930368886d4e1c6a76f1d2d4"
         FF_EXPECT_ARCH="x86_64";;
       *) echo "unsupported Mac arch: $ARCH"; exit 1;;
     esac
@@ -81,11 +83,9 @@ case "$OS" in
   MINGW*|MSYS*|CYGWIN*)
     TARGET="win-x64"
     PBS_VARIANT="x86_64-pc-windows-msvc"
-    FFURL_BASE="${AMH_FFURL_WIN_X64:-https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip}"
-    # Unpinned: the BtbN `latest` tag is a moving target, so a fixed hash would
-    # break on every upstream rebuild. Pin a versioned BtbN release and set a
-    # hash here when reproducible Windows builds are required.
-    FF_SHA256="${AMH_FFSHA_WIN_X64:-}"
+    FFURL_BASE="${AMH_FFURL_WIN_X64:-https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-24-14-14/ffmpeg-n8.1.3-win64-gpl-8.1.zip}"
+    FF_SHA256="${AMH_FFSHA_WIN_X64:-7a7895e2e3b04e0b15f145dd349372451c88ff389bdbcdfd85a1992a10bb361a}"
+    PY_SHA256_DEFAULT="f91242b07e318d2540f9da71162b92d494c39745abde9b994d7d906756453fc9"
     FF_EXPECT_ARCH="x86_64"
     FFNAME="ffmpeg.exe";;
   *)
@@ -103,11 +103,32 @@ PBS_NAME="cpython-3.11.16+${PBS_RELEASE}-${PBS_VARIANT}-install_only_stripped"
 PBS_URL="${PBS_BASE}/${PBS_NAME}.tar.gz"
 echo "  [step] downloading relocatable CPython ($PBS_NAME ~27MB)"
 TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
 # Atomic + verified: download to a temp dir, validate the gzip CRC (catches
 # truncation/corruption before it overwrites the staged python), THEN move into
 # place. A failed download never destroys a previously-good staging.
 curl -fL --retry 3 "$PBS_URL" -o "$TMP/py.tar.gz"
 gzip -t "$TMP/py.tar.gz"
+PY_SHA256="${AMH_PYTHON_SHA256:-$PY_SHA256_DEFAULT}"
+if [[ -z "$PY_SHA256" || "$PY_SHA256" == "UNPINNED" ]]; then
+  echo "  [FAIL] no pinned CPython SHA-256 for $TARGET (set AMH_PYTHON_SHA256 or use a reviewed pin)" >&2
+  exit 1
+fi
+if command -v sha256sum >/dev/null 2>&1; then
+  PY_GOT="$(sha256sum "$TMP/py.tar.gz" | awk '{print $1}')"
+elif command -v shasum >/dev/null 2>&1; then
+  PY_GOT="$(shasum -a 256 "$TMP/py.tar.gz" | awk '{print $1}')"
+else
+  echo "  [FAIL] no SHA-256 tool available for CPython verification" >&2
+  exit 1
+fi
+[[ "$PY_GOT" == "$PY_SHA256" ]] || {
+  echo "  [FAIL] CPython archive hash mismatch for $TARGET" >&2
+  echo "         expected: $PY_SHA256" >&2
+  echo "         actual:   $PY_GOT" >&2
+  exit 1
+}
+echo "  [ok] CPython archive SHA-256 verified"
 tar -xzf "$TMP/py.tar.gz" -C "$TMP"
 mv "$TMP/python" "$PYDIR"
 rm -rf "$TMP"
@@ -119,6 +140,19 @@ else
   PY="$PYDIR/bin/python3"
 fi
 
+# Direct runtime dependencies are pinned. Transitive wheels are still selected
+# by the package resolver, so release logs should archive the resulting
+# `pip freeze` output when changing this list.
+PY_DEPS=(
+  "ctranslate2==4.8.1"
+  "numpy==1.26.4"
+  "soundfile==0.13.1"
+  "cffi==1.17.1"
+  "pycparser==2.22"
+  "onnxruntime==1.20.1"
+  "sherpa-onnx==1.13.8"
+)
+
 # ---- 3. install the tiny ML runtime ---------------------------------------
 echo "  [step] installing deps (ctranslate2 + numpy + soundfile + onnxruntime + sherpa-onnx, ~120MB)"
 if [[ "$TARGET" == "win-x64" && "$ON_WINDOWS" == "0" ]]; then
@@ -128,8 +162,7 @@ if [[ "$TARGET" == "win-x64" && "$ON_WINDOWS" == "0" ]]; then
   "$ROOT/.venv/bin/python" -m pip download \
       --platform win_amd64 --only-binary=:all: \
       --python-version 311 --implementation cp --abi cp311 \
-      "ctranslate2==4.8.1" "numpy" "soundfile" "cffi" "pycparser" \
-      "onnxruntime" "sherpa-onnx==1.13.8" \
+      "${PY_DEPS[@]}" \
       -d "$XTMP" -q
   SPW="${PYDIR}/Lib/site-packages"
   for w in "$XTMP"/*.whl; do
@@ -138,7 +171,7 @@ if [[ "$TARGET" == "win-x64" && "$ON_WINDOWS" == "0" ]]; then
   rm -rf "$XTMP"
   echo "  [ok] cross-staged win_amd64 wheels (NOT runtime-verified here)"
 else
-  "$PY" -m pip install --quiet ctranslate2==4.8.1 numpy soundfile onnxruntime "sherpa-onnx==1.13.8"
+  "$PY" -m pip install --quiet "${PY_DEPS[@]}"
   echo "  [ok] deps installed"
 fi
 
@@ -154,6 +187,24 @@ fi
 
 # ---- 5. static ffmpeg -------------------------------------------------------
 FF="${TARGET_DIR}/${FFNAME}"
+FF_PIN="${FF}.pinned"
+hash_file() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}';
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}';
+  else printf '';
+  fi
+}
+if [[ -f "$FF" && -f "$FF_PIN" ]]; then
+  read -r FF_PIN_ARCHIVE FF_PIN_BINARY FF_PIN_URL < "$FF_PIN" || true
+  FF_EXISTING_HASH="$(hash_file "$FF")"
+  if [[ -n "$FF_EXISTING_HASH" && "$FF_PIN_ARCHIVE" == "${FF_SHA256:-UNPINNED}" && "$FF_PIN_BINARY" == "$FF_EXISTING_HASH" && "$FF_PIN_URL" == "$FFURL_BASE" ]]; then
+    echo "  [ok] ffmpeg already staged and verified"
+
+  else
+    echo "  [step] staged ffmpeg pin/hash mismatch — re-fetching"
+    rm -f "$FF" "$FF_PIN"
+  fi
+fi
 if [[ ! -f "$FF" ]]; then
   if [[ -z "$FFURL_BASE" ]]; then
     echo "  [FAIL] no ffmpeg URL configured for $TARGET." >&2
@@ -178,7 +229,11 @@ if [[ ! -f "$FF" ]]; then
       FF_GOT=""
     fi
     if [[ -z "$FF_GOT" ]]; then
-      echo "  [warn] no sha256 tool available — hash NOT verified"
+      if [[ "${ALLOW_UNPINNED_RUNTIME:-0}" != "1" ]]; then
+        echo "  [FAIL] no SHA-256 tool available to verify ffmpeg" >&2
+        rm -rf "$TMP"; exit 1
+      fi
+      echo "  [warn] no sha256 tool available — hash NOT verified (explicitly allowed)"
     elif [[ "$FF_GOT" != "$FF_SHA256" ]]; then
       echo "  [FAIL] ffmpeg archive hash mismatch for $TARGET" >&2
       echo "         url:      $FFURL_BASE" >&2
@@ -191,7 +246,11 @@ if [[ ! -f "$FF" ]]; then
       echo "  [ok] archive sha256 verified"
     fi
   else
-    echo "  [warn] no pinned sha256 for $TARGET (integrity checked, not authenticity)"
+    if [[ "${ALLOW_UNPINNED_RUNTIME:-0}" != "1" ]]; then
+      echo "  [FAIL] no pinned SHA-256 for FFmpeg target $TARGET" >&2
+      rm -rf "$TMP"; exit 1
+    fi
+    echo "  [warn] no pinned sha256 for $TARGET (explicitly allowed)"
   fi
 
   case "$TARGET" in
@@ -210,6 +269,12 @@ if [[ ! -f "$FF" ]]; then
       [[ -z "$FOUND" ]] && { echo "  [FAIL] no ffmpeg.exe inside $FFURL_BASE" >&2; rm -rf "$TMP"; exit 1; }
       cp "$FOUND" "$FF";;
   esac
+  FF_BIN_GOT="$(hash_file "$FF")"
+  if [[ -z "$FF_BIN_GOT" && "${ALLOW_UNPINNED_RUNTIME:-0}" != "1" ]]; then
+    echo "  [FAIL] no SHA-256 tool available to verify staged ffmpeg" >&2
+    rm -rf "$TMP"; exit 1
+  fi
+  printf '%s %s %s\n' "${FF_SHA256:-UNPINNED}" "$FF_BIN_GOT" "$FFURL_BASE" > "$FF_PIN"
   rm -rf "$TMP"
 else
   echo "  [ok] ffmpeg already staged at $FF"

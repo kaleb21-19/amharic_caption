@@ -4,6 +4,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://amharic-captions-bot.amhcaps.workers.dev; img-src 'self' data:; object-src 'none'; base-uri 'none'">
 <style>
   :root, html[data-theme="dark"] {
     color-scheme: dark;
@@ -509,7 +510,7 @@
         </div>
         <!-- One button instead of "copy this, open that, paste it there". It
              opens the bot with the Machine ID already in the message, so the
-             most error-prone step of the purchase — hand-copying an 8-char id
+             most error-prone step of the purchase — hand-copying a 16-character id
              into a chat — disappears. Copy stays for anyone who prefers to
              paste it themselves or has no Telegram on this machine. -->
         <button type="button" id="buyBtn" class="btn btn-primary" style="margin-top:8px;width:100%;">
@@ -537,14 +538,14 @@
       </div>
 
       <div id="licensedNote" class="licensed-note">
-        🔒 <b>Licensed &amp; locked.</b> This copy is activated for this computer.
-        The Machine ID is hidden because your license is bound to this machine.
+        🔒 <b>Licensed &amp; file-bound.</b> This copy is activated for this installation.
+        The Machine ID is hidden because your license is bound to the durable installation record.
       </div>
 
       <div class="field" style="margin-bottom:6px;">
         <label class="field-label" for="licenseInput">License Key</label>
         <div class="row">
-          <input type="text" id="licenseInput" placeholder="AMH-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" style="flex:1;">
+          <input type="text" id="licenseInput" placeholder="AMH-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" style="flex:1;">
           <button id="licenseActivate" class="btn btn-neutral" style="flex:0 0 auto;">Activate</button>
         </div>
       </div>
@@ -578,7 +579,7 @@
   </div>
 
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.4.30</span> · License ETB 2,500 one-time</span>
+    <span>v<span id="panelVersion">1.4.31</span> · License ETB 2,500 one-time</span>
     <span style="display:flex;gap:10px;align-items:center;">
       <a href="#" id="supportLink" title="Get help in Telegram">💬 Help</a>
       <a href="#" id="diag">Diagnostics</a>

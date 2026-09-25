@@ -18,6 +18,10 @@
 #   dist/amharic-captions-<target>.zip
 #
 set -euo pipefail
+# Release builds are strict by default. Set ALLOW_DEGRADED=1 only for a local
+# diagnostic archive; a customer build must not silently lose diarization, LM,
+# VAD, or the production model.
+ALLOW_DEGRADED="${ALLOW_DEGRADED:-0}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STAGE="${ROOT}/tools/stage"
@@ -26,9 +30,9 @@ NAME="com.amharic.captions"
 
 TARGET="${1:-}"
 case "$TARGET" in
-  mac-arm64) FFSUFFIX="ffmpeg";     PYEXE="python/bin/python3";;
-  mac-x64)   FFSUFFIX="ffmpeg";     PYEXE="python/bin/python3";;
-  win-x64)   FFSUFFIX="ffmpeg.exe"; PYEXE="python/python.exe";;
+  mac-arm64) FFSUFFIX="ffmpeg";;
+  mac-x64)   FFSUFFIX="ffmpeg";;
+  win-x64)   FFSUFFIX="ffmpeg.exe";;
   *) echo "usage: $0 <mac-arm64|mac-x64|win-x64>"; exit 1;;
 esac
 
@@ -38,6 +42,9 @@ mkdir -p "$DIST"
 BUILD_DIR="$(mktemp -d)"
 RT="${BUILD_DIR}/${NAME}/runtime"
 mkdir -p "${BUILD_DIR}/${NAME}" "$RT/bin" "$RT/python"
+if [[ "$ALLOW_DEGRADED" == "1" ]]; then
+  printf '%s\n' 'LOCAL/TEST DEGRADED BUILD — optional ML assets may be absent; NOT FOR RELEASE.' > "$BUILD_DIR/DEGRADED_BUILD.txt"
+fi
 trap 'rm -rf "$BUILD_DIR"' EXIT
 
 echo "== building runtime for: $TARGET =="
@@ -57,6 +64,7 @@ if [[ -f "$ROOT/tools/embed/nemo_en_titanet_small.onnx" ]]; then
   cp "$ROOT/tools/embed/nemo_en_titanet_small.onnx" "$RT/speaker_embed.onnx"
   echo "  [ok] amh_diarize.py + speaker_embed.onnx"
 else
+  if [[ "$ALLOW_DEGRADED" != "1" ]]; then echo "  [FAIL] speaker embedding model missing"; exit 1; fi
   echo "  [warn] tools/embed/nemo_en_titanet_small.onnx missing — speaker labels disabled"
 fi
 
@@ -67,6 +75,7 @@ if [[ -f "$ROOT/tools/lm/amh_lm.json.gz" ]]; then
   cp "$ROOT/tools/lm/amh_lm.json.gz" "$RT/amh_lm.json.gz"
   echo "  [ok] amh_lm.py + amh_lm.json.gz"
 else
+  if [[ "$ALLOW_DEGRADED" != "1" ]]; then echo "  [FAIL] Amharic word-LM missing"; exit 1; fi
   echo "  [warn] tools/lm/amh_lm.json.gz missing — word-LM disabled"
 fi
 
@@ -77,6 +86,7 @@ if [[ -f "$ROOT/tools/vad/silero_vad.onnx" ]]; then
   cp "$ROOT/amh_vad.py" "$RT/amh_vad.py"
   echo "  [ok] silero_vad.onnx + amh_vad.py"
 else
+  if [[ "$ALLOW_DEGRADED" != "1" ]]; then echo "  [FAIL] Silero VAD model missing"; exit 1; fi
   echo "  [warn] tools/vad/silero_vad.onnx missing — VAD disabled (whole-clip transcribe)"
 fi
 
@@ -85,14 +95,14 @@ fi
 if [[ -d "$ROOT/tools/stage/model-ct2-int8" && -f "$ROOT/tools/stage/model-ct2-int8/model_meta.json" ]]; then
   MODEL_SRC="$ROOT/tools/stage/model-ct2-int8"
   echo "  [model] CTranslate2 int8"
-elif [[ -d "$ROOT/tools/stage/model-fp16" && -f "$ROOT/tools/stage/model-fp16/config.json" ]]; then
+elif [[ "$ALLOW_DEGRADED" == "1" && -d "$ROOT/tools/stage/model-fp16" && -f "$ROOT/tools/stage/model-fp16/config.json" ]]; then
   MODEL_SRC="$ROOT/tools/stage/model-fp16"
-  echo "  [model] fp16 source"
-elif [[ -d "$ROOT/ethio-asr" && -f "$ROOT/ethio-asr/config.json" ]]; then
+  echo "  [model] fp16 source (degraded build)"
+elif [[ "$ALLOW_DEGRADED" == "1" && -d "$ROOT/ethio-asr" && -f "$ROOT/ethio-asr/config.json" ]]; then
   MODEL_SRC="$ROOT/ethio-asr"
-  echo "  [model] fp32 source"
+  echo "  [model] fp32 source (degraded build)"
 else
-  echo "  [FAIL] no model found (tools/stage/model-ct2-int8, model-fp16, or ethio-asr)"; exit 1
+  echo "  [FAIL] production CTranslate2 int8 model is missing"; exit 1
 fi
 mkdir -p "$RT/model"
 cp -R "$MODEL_SRC/." "$RT/model/"
@@ -222,15 +232,20 @@ echo "  [ok] licenses/ (GPL text + written offer + third-party notices)"
 # ROOT next to licenses/ so every customer sees them when they unzip.
 LEGALSRC="${ROOT}/tools/legal"
 for f in EULA.txt PRIVACY.txt REFUND.txt; do
-  if [[ -f "$LEGALSRC/$f" ]]; then cp "$LEGALSRC/$f" "${BUILD_DIR}/$f"; fi
+  if [[ ! -f "$LEGALSRC/$f" ]]; then
+    echo "  [FAIL] missing legal document: $LEGALSRC/$f"; exit 1
+  fi
+  cp "$LEGALSRC/$f" "${BUILD_DIR}/$f"
 done
 echo "  [ok] legal/ (EULA + privacy + refund)"
 
 # ---- 3. zip it ------------------------------------------------------------
 ZIP="${DIST}/amharic-captions-${TARGET}.zip"
 rm -f "$ZIP"
+ZIP_ENTRIES=("$NAME" licenses 'Install.*' verify_win.cmd VERIFY.md EULA.txt PRIVACY.txt REFUND.txt)
+[[ -f "$BUILD_DIR/DEGRADED_BUILD.txt" ]] && ZIP_ENTRIES+=(DEGRADED_BUILD.txt)
 (
   cd "$BUILD_DIR"
-  zip -r -q "$ZIP" "$NAME" licenses Install.* verify_win.cmd VERIFY.md EULA.txt PRIVACY.txt REFUND.txt -x "*.DS_Store"
+  zip -r -q "$ZIP" "${ZIP_ENTRIES[@]}" -x "*.DS_Store"
 )
 echo "== wrote $ZIP ($(du -sh "$ZIP" | cut -f1)) =="

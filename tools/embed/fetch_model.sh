@@ -38,15 +38,23 @@ sha_of() {
 if [[ -f "$DEST" ]]; then
   have=$(size_of "$DEST")
   if [[ "$have" == "$SIZE" ]]; then
-    echo "[ok] model already present: $DEST"
-    exit 0
+    got_existing=$(sha_of "$DEST")
+    if [[ "$got_existing" == "$SHA" ]]; then
+      echo "[ok] model already present and verified: $DEST"
+      exit 0
+    fi
+    echo "[step] existing model hash mismatch — re-fetching"
+  else
+    echo "[step] size mismatch ($have != $SIZE) — re-fetching"
   fi
-  echo "[step] size mismatch ($have != $SIZE) — re-fetching"
 fi
 
 echo "[step] downloading speaker embedding model (~40MB)"
 mkdir -p "$(dirname "$DEST")"
-curl -L --fail --retry 3 -C - -o "$DEST" "$URL"
+# Do not resume onto a known-corrupt file: a resumed wrong prefix can never
+# become the pinned asset even when the upstream server supports ranges.
+rm -f "$DEST"
+curl -L --fail --retry 3 -o "$DEST" "$URL"
 
 have=$(size_of "$DEST")
 if [[ "$have" != "$SIZE" ]]; then

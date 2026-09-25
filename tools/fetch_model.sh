@@ -16,11 +16,20 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DST="${ROOT}/ethio-asr"
 REPO="${HF_MODEL:-badrex/Ethio-ASR-amharic}"
+# Pin the source model revision. A moving `main` download makes a supposedly
+# immutable per-commit CT2 release non-reproducible.
+REVISION="${HF_REVISION:-edda1ab0af0d3cca4f4a6fd0b17ef3726bcce12a}"
 PY="${PYTHON_BIN:-python3}"
 
+REVISION_FILE="$DST/.hf_revision"
 if [[ -f "$DST/config.json" && -f "$DST/model.safetensors" ]]; then
-  echo "[skip] model already present at $DST"
-  exit 0
+  have_revision="$(cat "$REVISION_FILE" 2>/dev/null || true)"
+  if [[ "$have_revision" == "$REVISION" ]]; then
+    echo "[skip] model already present at $DST (revision $REVISION)"
+    exit 0
+  fi
+  echo "[step] replacing cached model with pinned revision $REVISION"
+  rm -rf "$DST"
 fi
 
 "$PY" -c "import huggingface_hub" 2>/dev/null || {
@@ -29,16 +38,17 @@ fi
 
 echo "[info] downloading $REPO -> $DST"
 mkdir -p "$DST"
-"$PY" - "$REPO" "$DST" <<'PY'
+"$PY" - "$REPO" "$DST" "$REVISION" <<'PY'
 import sys
 from huggingface_hub import snapshot_download
 
-repo, dst = sys.argv[1], sys.argv[2]
-out = snapshot_download(repo_id=repo, local_dir=dst, local_dir_use_symlinks=False)
+repo, dst, revision = sys.argv[1], sys.argv[2], sys.argv[3]
+out = snapshot_download(repo_id=repo, revision=revision, local_dir=dst, local_dir_use_symlinks=False)
 print("[ok] downloaded model:", out)
 PY
 
 if [[ ! -f "$DST/config.json" ]]; then
   echo "[FAIL] model download incomplete: $DST"; exit 1
 fi
-echo "== model ready: $(du -sh "$DST" | cut -f1) =="
+printf '%s\n' "$REVISION" > "$REVISION_FILE"
+echo "== model ready: $(du -sh "$DST" | cut -f1) (revision $REVISION) =="

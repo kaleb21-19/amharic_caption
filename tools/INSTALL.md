@@ -170,8 +170,6 @@ reg add "HKCU\Software\Adobe\CSXS.1X" /v PlayerDebugMode /t REG_SZ /d 1 /f
 where `1X` is the host's CSXS number — **Premiere 2024 uses `CSXS.11`;
 Premiere 2025 `CSXS.12`** — set the key that matches the version on the
 machine (setting all 11–15 is also safe).
-reg add "HKCU\Software\Adobe\CSXS.11" /v PlayerDebugMode /t REG_DWORD /d 1 /f
-reg add "HKCU\Software\Adobe\CSXS.12" /v PlayerDebugMode /t REG_DWORD /d 1 /f
 ```
 
 ### Host

@@ -128,6 +128,12 @@ t('txtTextFromCues: "Sx: text" lines, skips empties', () => {
   assert.strictEqual(out, 'S1: a\nS2: b');
 });
 
+t('vttTextFromCues: escapes caption markup', () => {
+  const text = core.vttTextFromCues([{ start: 0, end: 1, text: '<script>&' }]);
+  assert.ok(text.includes('&lt;script&gt;&amp;'));
+  assert.ok(!text.includes('<script>'));
+});
+
 t('unlabelled cues have no speaker decoration', () => {
   const c = [{ start: 0, end: 1, text: 'x' }];
   assert.strictEqual(core.txtTextFromCues(c), 'x');
@@ -161,7 +167,8 @@ t('normalizeCues: engine-labelled SRT exports correct per-format tags', () => {
 });
 
 // ────────────────────────────────────────────────────────── validateLicense
-// Key layout (after stripping AMH-/dashes): mid(8) exp(8) sig(16), 32 hex.
+// Key layout (after stripping AMH-/dashes): legacy mid(8) or new mid(16),
+// followed by expiry(8) and signature(16).
 const MID = 'a1b2c3d4';
 const SIG = '0123456789abcdef';
 const mk = (mid, exp, sig) =>
@@ -172,6 +179,13 @@ t('validateLicense: valid perpetual key for this machine', () => {
   const r = core.validateLicense(openKey, MID);
   assert.strictEqual(r.ok, true);
   assert.strictEqual(r.expiry, '00000000');
+});
+
+t('validateLicense: 16-hex installation IDs use the extended key layout', () => {
+  const mid16 = 'a1b2c3d4e5f60718';
+  const key16 = mk(mid16, '00000000', SIG);
+  assert.strictEqual(core.validateLicense(key16, mid16).ok, true);
+  assert.strictEqual(core.validateLicense(key16, MID).ok, false);
 });
 
 t('validateLicense: tolerated paste formats (case / dashless / spaces)', () => {
@@ -266,6 +280,13 @@ tAsync('license token: server-signed lease verifies locally (perpetual)', async 
   const v = await core.verifyLicenseToken(await signToken(MID, '00000000'), pem, MID);
   assert.strictEqual(v.ok, true);
   assert.strictEqual(v.expiry, '00000000');
+});
+
+tAsync('license token: 16-hex installation lease verifies', async () => {
+  const { pem } = await tokenKey();
+  const mid16 = 'a1b2c3d4e5f60718';
+  const v = await core.verifyLicenseToken(await signToken(mid16, '00000000'), pem, mid16);
+  assert.strictEqual(v.ok, true);
 });
 
 tAsync('license token: exped-limited lease verifies until expiry', async () => {

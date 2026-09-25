@@ -6,14 +6,15 @@
  */
 'use strict';
 
-const APP_VERSION = '1.4.30';
+const APP_VERSION = '1.4.31';
 
 const csi = new CSInterface();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // License system (runs FIRST, independently of CEP Node, so it also works in a
-// plain browser for testing). Machine ID = random 8-char hex, stored locally.
-// License key = AMH-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX, HMAC-SHA256 signed.
+// plain browser for testing). New Machine IDs are random 16-hex installation
+// identifiers, stored locally. Legacy 8-hex IDs remain readable for recovery.
+// License keys are HMAC-SHA256 signed and displayed in AMH- groups.
 // ─────────────────────────────────────────────────────────────────────────────
 // No HMAC secret is embedded here (ever). Key authenticity is decided by the
 // server /api/validate; this file only does a quick structural check so a
@@ -23,18 +24,12 @@ const csi = new CSInterface();
 // Deployed Worker URL — see tools/telegram-worker/DEPLOY.md.
 const API_URL = 'https://amharic-captions-bot.amhcaps.workers.dev';
 
-// Shared-secret header for the extension API. This is ENFORCED: the Worker
-// rejects every /api/* request that doesn't carry a matching `X-Api-Key`
-// (401), so this value MUST be byte-for-byte equal to the Worker `AMH_API_KEY`
-// secret (see tools/telegram-worker/DEPLOY.md, "AMH_API_KEY — REQUIRED").
-// It is NOT the license HMAC secret — that one is server-only, never shipped.
-// Rotation: `openssl rand -hex 24` -> put the new value here -> ship the panel
-// and let it spread -> then `wrangler secret put AMH_API_KEY` -> deploy. Order
-// matters: the panel build must ship BEFORE the Worker flips, or every panel
-// in the field is locked out for the gap. Old panel builds stop working when
-// the Worker flips — that is intentional (any build without the current key
-// is unauthenticated).
-const API_KEY_HINT = '3f8b2e4774f8b7982a2511719cd14a51b9a0164d44db4043';
+// The extension API is public by design: a desktop panel cannot keep a
+// meaningful shared secret. License authenticity is enforced by the Worker's
+// HMAC + D1 lookup; do not treat a client-embedded API key as authentication.
+// Deployments may set AMH_REQUIRE_API_KEY=1 as an optional infrastructure gate,
+// but that gate cannot protect a public desktop client.
+const API_KEY_HINT = '';
 
 function apiHeaders() {
   const headers = {};
@@ -42,37 +37,49 @@ function apiHeaders() {
   return headers;
 }
 
-async function apiGet(path) {
+const API_TIMEOUT_MS = 15000;
+const TRIAL_SYNC_TIMEOUT_MS = 3000;
+async function apiGet(path, timeoutMs) {
+  timeoutMs = timeoutMs || API_TIMEOUT_MS;
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = setTimeout(() => { if (controller) controller.abort(); }, timeoutMs);
   try {
-    const res = await fetch(API_URL + path, { method: 'GET', headers: apiHeaders() });
+    const res = await fetch(API_URL + path, { method: 'GET', headers: apiHeaders(), signal: controller && controller.signal });
     if (!res.ok) return null;
     return await res.json();
   } catch (e) { return null; }
+  finally { clearTimeout(timer); }
 }
 
 async function apiPost(path, body) {
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = setTimeout(() => { if (controller) controller.abort(); }, API_TIMEOUT_MS);
   try {
     const headers = { 'Content-Type': 'application/json', ...apiHeaders() };
     const res = await fetch(API_URL + path, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
+      signal: controller && controller.signal,
     });
     if (!res.ok) return null;
     return await res.json();
   } catch (e) { return null; }
+  finally { clearTimeout(timer); }
 }
 
 // ── Machine identity — Node-persisted, outside CEP's removable storage ───────
 // The panel runs inside CEP Chromium with Node integration (manifest has
 // --enable-nodejs, so `require` exists here — but NOT in a plain-browser test
-// page). The license anchor mid stays a random 8-hex value, but its source file
+// page). The license anchor mid stays a random 16-hex value (legacy 8-hex
+// records remain readable), but its source file
 // now lives in the user's HOME directory: clearing CEP cookies, uninstalling
 // the extension, or reinstalling CEP does NOT reset it, so deleting
 // localStorage no longer regenerates a fresh trial/license machine. A host
-// fingerprint (hostname + username) is stored alongside so support can spot a
-// record that was copied onto another PC. Degrades to localStorage-only when
-// Node's fs/os are unavailable (plain browser test page).
+// fingerprint (username + home-directory + platform) is stored alongside so
+// support can spot a record that was copied onto another PC. New records use a
+// random 16-hex installation ID; legacy 8-hex IDs remain readable. Degrades to
+// localStorage-only when Node's fs/os are unavailable (plain browser test page).
 const NODE = (typeof require === 'function') ? require : null;
 const nodeFs = (() => { try { return NODE && NODE('fs'); } catch (e) { return null; } })();
 const nodeOs = (() => { try { return NODE && NODE('os'); } catch (e) { return null; } })();
@@ -134,23 +141,23 @@ function hostFingerprint() {
   } catch (e) { return null; }
 }
 
-function randomHex8() {
+const MACHINE_ID_LENGTH = 16; // 64 bits for new installation identities
+
+function randomMachineId() {
   if (NODE) {
     try {
-      return Array.from(NODE('crypto').randomBytes(4))
+      return Array.from(NODE('crypto').randomBytes(MACHINE_ID_LENGTH / 2))
         .map((b) => b.toString(16).padStart(2, '0')).join('');
     } catch (e) {}
   }
-  return Array.from((window.crypto || globalThis.crypto).getRandomValues(new Uint8Array(4)))
+  return Array.from((window.crypto || globalThis.crypto).getRandomValues(new Uint8Array(MACHINE_ID_LENGTH / 2)))
     .map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-function loadMachineRecord() {
-  const p = machineFilePath();
-  if (!p || !nodeFs) return null;
+function parseMachineRecord(raw) {
   try {
-    const rec = JSON.parse(nodeFs.readFileSync(p, 'utf8'));
-    if (rec && /^[0-9a-f]{8}$/.test(rec.id)) {
+    const rec = JSON.parse(raw);
+    if (rec && (/^[0-9a-f]{8}$/.test(rec.id) || new RegExp('^[0-9a-f]{' + MACHINE_ID_LENGTH + '}$').test(rec.id))) {
       return {
         id: rec.id,
         host: typeof rec.host === 'string' ? rec.host : null,
@@ -161,14 +168,55 @@ function loadMachineRecord() {
   return null;
 }
 
+function loadMachineRecord() {
+  const p = machineFilePath();
+  if (!p || !nodeFs) return null;
+  try {
+    const primary = parseMachineRecord(nodeFs.readFileSync(p, 'utf8'));
+    if (primary) return primary;
+  } catch (e) {}
+  // A crash during a direct write must not mint a new paid license identity.
+  // Recover the last complete record before considering a fresh machine.
+  try {
+    const backup = parseMachineRecord(nodeFs.readFileSync(p + '.bak', 'utf8'));
+    if (backup) {
+      saveMachineRecord(backup.id, backup.host);
+      return backup;
+    }
+  } catch (e) {}
+  return null;
+}
+
 function saveMachineRecord(id, host) {
   const p = machineFilePath();
   if (!p || !nodeFs) return false;
+  const tmp = p + '.tmp-' + process.pid + '-' + Date.now();
   try {
-    nodeFs.writeFileSync(
-      p, JSON.stringify({ id: id, host: host || null, hv: HOST_FP_VERSION }), 'utf8');
+    nodeFs.mkdirSync(require('path').dirname(p), { recursive: true });
+    nodeFs.writeFileSync(tmp, JSON.stringify({ id: id, host: host || null, hv: HOST_FP_VERSION }), { encoding: 'utf8', mode: 0o600 });
+    try { nodeFs.chmodSync(tmp, 0o600); } catch (e) {}
+    // Keep one known-good copy before replacing the primary. Never overwrite a
+    // valid backup with a truncated primary while recovering from corruption.
+    try {
+      if (nodeFs.existsSync(p)) {
+        const current = parseMachineRecord(nodeFs.readFileSync(p, 'utf8'));
+        if (current) nodeFs.copyFileSync(p, p + '.bak');
+      }
+    } catch (e) {}
+    try {
+      nodeFs.renameSync(tmp, p);
+    } catch (e) {
+      // Windows can refuse rename-over-existing; the backup still protects the
+      // next boot if this fallback is interrupted.
+      nodeFs.copyFileSync(tmp, p);
+      nodeFs.unlinkSync(tmp);
+    }
+    try { nodeFs.chmodSync(p, 0o600); } catch (e) {}
     return true;
-  } catch (e) { return false; }
+  } catch (e) {
+    try { nodeFs.unlinkSync(tmp); } catch (cleanupError) {}
+    return false;
+  }
 }
 
 function getOrCreateMachineId() {
@@ -181,12 +229,12 @@ function getOrCreateMachineId() {
   // 2) A legacy localStorage id migrates into the Node file so existing
   //    license holders keep the same machine (no re-key after this update).
   const legacy = localStorage.getItem('amh.machineId');
-  if (legacy && /^[0-9a-f]{8}$/.test(legacy)) {
+  if (legacy && (/^[0-9a-f]{8}$/.test(legacy) || new RegExp('^[0-9a-f]{' + MACHINE_ID_LENGTH + '}$').test(legacy))) {
     saveMachineRecord(legacy, hostFingerprint());
     return legacy;
   }
   // 3) Brand-new machine.
-  const id = randomHex8();
+  const id = randomMachineId();
   saveMachineRecord(id, hostFingerprint());
   try { localStorage.setItem('amh.machineId', id); } catch (e) {}
   return id;
@@ -394,10 +442,15 @@ function hideOnboarding() {
 function healthChecks() {
   let runtime = false, python = false, ffmpeg = false, model = false;
   try {
-    runtime = !!RUNTIME && fs.existsSync(PYTHON) && fs.existsSync(FFMPEG) && fs.existsSync(MODEL_DIR);
+    const features = !!RUNTIME && (isDegradedRuntime(RUNTIME) || ['amh_lm.py', 'amh_lm.json.gz', 'amh_vad.py', 'silero_vad.onnx', 'amh_diarize.py', 'speaker_embed.onnx']
+      .every((f) => fs.existsSync(path.join(RUNTIME, f))));
+    runtime = !!RUNTIME && fs.existsSync(PYTHON) && fs.existsSync(FFMPEG) && fs.existsSync(MODEL_DIR) && features;
     python = !!RUNTIME && fs.existsSync(PYTHON);
     ffmpeg = !!RUNTIME && fs.existsSync(FFMPEG);
-    model = !!RUNTIME && fs.existsSync(MODEL_DIR);
+    model = !!RUNTIME && (
+      fs.existsSync(path.join(MODEL_DIR, 'model_meta.json')) ||
+      fs.existsSync(path.join(MODEL_DIR, 'config.json'))
+    );
   } catch (e) {}
   return { runtime, python, ffmpeg, model, font: AMH_FONT.ok };
 }
@@ -453,7 +506,7 @@ function initSupport() {
 
 // Buy: open the sales bot with the Machine ID already in the message. The
 // three-step "copy / open / paste" instruction it replaces put the single
-// most error-prone action in the purchase — transcribing an 8-character id
+// most error-prone action in the purchase — transcribing a 16-character id
 // into a chat by hand — on the customer.
 function initBuy() {
   const b = document.getElementById('buyBtn');
@@ -512,8 +565,28 @@ function readLicenseFile() {
 function writeLicenseFile(obj) {
   const p = licenseFilePath();
   if (!p || !nodeFs) return false;
-  try { nodeFs.writeFileSync(p, JSON.stringify(obj), 'utf8'); return true; }
-  catch (e) { return false; }
+  const tmp = p + '.tmp-' + process.pid + '-' + Date.now();
+  try {
+    const dir = nodePath && nodePath.dirname ? nodePath.dirname(p) : path.dirname(p);
+    nodeFs.mkdirSync(dir, { recursive: true });
+    // Write beside the destination, restrict permissions, then rename. A
+    // partially written license file must never become the durable copy.
+    nodeFs.writeFileSync(tmp, JSON.stringify(obj), { encoding: 'utf8', mode: 0o600 });
+    try { nodeFs.chmodSync(tmp, 0o600); } catch (e) {}
+    try {
+      nodeFs.renameSync(tmp, p);
+    } catch (e) {
+      // Windows may refuse rename-over-existing; retain atomic behavior on
+      // POSIX and use a guarded copy fallback only on that platform.
+      nodeFs.copyFileSync(tmp, p);
+      nodeFs.unlinkSync(tmp);
+    }
+    try { nodeFs.chmodSync(p, 0o600); } catch (e) {}
+    return true;
+  } catch (e) {
+    try { nodeFs.unlinkSync(tmp); } catch (cleanupError) {}
+    return false;
+  }
 }
 
 // localStorage is a CACHE, the home-dir file is the durable copy. CEP wipes
@@ -523,24 +596,35 @@ function writeLicenseFile(obj) {
 // Copying the file to another machine gains nothing: the lease is an ECDSA
 // signature bound to THIS Machine ID and verifyLicenseToken() checks that.
 function getLicense() {
-  let ls = null;
-  try { ls = JSON.parse(localStorage.getItem('amh.license') || 'null'); }
-  catch (e) { ls = null; }
-  if (ls) return ls;
+  // The home-dir file is the durable source of truth. CEP may wipe or retain a
+  // stale localStorage value independently, so never let that mask a valid file.
   const fromFile = readLicenseFile();
   if (fromFile) {
-    // Re-seed the cache so the rest of the session behaves normally.
     try { localStorage.setItem('amh.license', JSON.stringify(fromFile)); }
     catch (e) {}
     return fromFile;
   }
-  return null;
+  // If the durable file is genuinely absent (for example a pre-file install),
+  // allow the cache as a recovery path; once a file exists it is authoritative.
+  let ls = null;
+  try { ls = JSON.parse(localStorage.getItem('amh.license') || 'null'); }
+  catch (e) { ls = null; }
+  return ls;
 }
 
 function setLicense(licenseObj) {
+  let localOk = true;
   try { localStorage.setItem('amh.license', JSON.stringify(licenseObj)); }
-  catch (e) {}
-  writeLicenseFile(licenseObj);
+  catch (e) { localOk = false; }
+  const fileOk = writeLicenseFile(licenseObj);
+  // A normal CEP build has Node fs and must persist the lease. Development
+  // browser shims without Node can still use localStorage; a packaged build
+  // never silently downgrades a paid activation to that cache.
+  return nodeFs ? fileOk : localOk;
+}
+
+function canonicalPanelKey(value) {
+  return String(value || '').trim().replace(/^amh/i, '').replace(/[\s-]+/g, '').toLowerCase();
 }
 
 // validateLicense() (structural-only key check) lives in js/core.js so it can
@@ -554,66 +638,64 @@ let LICENSED = false;
 let LICENSED_REFRESH = false;
 let LICENSE_NOTE = '';
 
-// Bounded migration window that CLOSES the old bypass: a "valid" flag stored
-// by a pre-token panel is only honored while it is fresh (serverValidated +
-// activated within LEGACY_LICENSE_GRACE_DAYS). After the signed-lease scheme
-// is live this path disappears on its own — see assessLicense().
-const LEGACY_LICENSE_GRACE_DAYS = 30;
-function legacyLicenseWithinGrace(stored) {
-  if (!stored || !(Number(stored.activated) > 0)) return false;
-  return Date.now() - Number(stored.activated) <= LEGACY_LICENSE_GRACE_DAYS * 86400000;
-}
+// Signed leases are mandatory. Legacy `{valid, serverValidated, activated}`
+// objects are intentionally rejected because every field is user-controlled.
 
-// Recompute LICENSED / LICENSE_NOTE from the strongest available evidence:
-//   1. a server-signed lease token (verified locally with the embedded public
-//      key — a forged localStorage object cannot produce a valid signature), or
-//   2. a legacy server-validated flag inside its bounded grace window (only so
-//      pre-token customers keep working during migration).
+// Recompute LICENSED / LICENSE_NOTE from cryptographic evidence only.
 // Runs on boot and after every activation attempt.
 async function assessLicense() {
   const stored = getLicense();
   LICENSED = false;
   LICENSE_NOTE = '';
-  if (!stored) return;
-  if (stored.token) {
-    const v = await verifyLicenseToken(stored.token, LICENSE_TOKEN_PUBKEY_PEM, MACHINE_ID);
-    if (v.ok) {
-      LICENSED = true;
-      LICENSE_NOTE = 'Licensed' + (v.expiry && v.expiry !== '00000000' ? ' (expires ' + v.expiry + ')' : '');
-      return;
-    }
-    // Token present but invalid/forged → fail closed; do NOT fall back to a
-    // legacy flag. Clear it so the UI clearly asks for a fresh activation.
-    setLicense(Object.assign({}, stored, { valid: false }));
+  if (!stored || !stored.token) return;
+
+  const v = await verifyLicenseToken(stored.token, LICENSE_TOKEN_PUBKEY_PEM, MACHINE_ID);
+  if (v.ok) {
+    LICENSED = true;
+    LICENSE_NOTE = 'Licensed' + (v.expiry && v.expiry !== '00000000' ? ' (expires ' + v.expiry + ')' : '');
     return;
   }
-  // Legacy (pre-token) installs: keep the customer working offline during the
-  // migration, but bounded so a hand-written {valid:true} cannot stretch on.
-  // The silent server upgrade that mints a real lease token is kicked ONCE at
-  // boot (initLicense) — never from here, so assess→refresh→assess cannot loop.
-  if (stored.valid && stored.serverValidated && legacyLicenseWithinGrace(stored)) {
-    LICENSED = true;
-    LICENSE_NOTE = 'Licensed';
-  }
+  // Definitive signature/shape failures clear the lease. A transient WebCrypto
+  // or runtime failure must not destroy a valid offline license; it is simply
+  // not unlocked for this session and can be retried on the next boot/focus.
+  const transient = /No WebCrypto|verification failed/i.test(String(v.error || ''));
+  if (!transient) setLicense(Object.assign({}, stored, { valid: false, token: null }));
 }
 
-// One-shot upgrade helper (kicked at boot, see initLicense): legacy
-// (pre-token) installs get re-validated with the server and, when the
-// (redeployed) server issues one, the stored lease token replaces the plain
-// flag. Preserves the original `activated` date so an offline forgery can
-// never reset the migration grace by calling this.
-async function refreshLeaseFromServer(stored) {
-  try {
-    const r = await apiPost('/api/validate', { mid: MACHINE_ID, key: stored.key });
-    if (r && r.valid === true && r.token) {
-      setLicense(Object.assign({}, stored, {
-        valid: true,
-        serverValidated: true,
-        token: r.token,
-        expiry: (r.expiry && /^\d{8}$/.test(String(r.expiry))) ? r.expiry : (stored.expiry || '00000000'),
-      }));
-    }
-  } catch (e) { /* offline — keep whatever the grace window allows */ }
+// Online revocation check. Local signature verification remains the offline
+// gate; this best-effort check makes a revoked key fail on the next boot (or
+// focus) when the panel can reach the server. A network failure never destroys
+// a valid offline lease.
+const LICENSE_RECHECK_INTERVAL = 24 * 60 * 60 * 1000;
+async function revalidateLicenseOnline(force) {
+  const stored = getLicense();
+  if (!stored || !stored.token || !stored.key) return;
+  let last = 0;
+  try { last = parseInt(localStorage.getItem('amh.license.lastCheck') || '0', 10) || 0; } catch (e) {}
+  if (!force && last && Date.now() - last < LICENSE_RECHECK_INTERVAL) return;
+  const result = await apiPost('/api/validate', { mid: MACHINE_ID, key: stored.key });
+  // Only a real semantic response starts the retry interval. Network errors,
+  // 5xx responses, and malformed payloads must be retried on the next focus.
+  if (!result || (result.valid !== true && result.valid !== false)) return;
+  try { localStorage.setItem('amh.license.lastCheck', String(Date.now())); } catch (e) {}
+  if (result.valid === false) {
+    log('License revoked or rejected by server' + (result.reason ? ' (' + result.reason + ')' : '') + '.');
+    setLicense(Object.assign({}, stored, { valid: false, token: null }));
+    await assessLicense();
+    updateLicenseUI();
+    return;
+  }
+  if (result.valid === true && result.token) {
+    const durable = setLicense(Object.assign({}, stored, {
+      valid: true,
+      token: result.token,
+      expiry: result.expiry || stored.expiry || '00000000',
+      serverValidated: true,
+    }));
+    if (!durable) log('WARNING: refreshed lease could not be written to the durable license file.');
+    await assessLicense();
+    updateLicenseUI();
+  }
 }
 
 // Free-trial credits: an unlicensed user may run this many transcriptions
@@ -629,6 +711,30 @@ function setTrialUsed(n) {
 function trialRemaining() {
   return Math.max(0, TRIAL_ALLOWED - getTrialUsed());
 }
+
+let trialSyncPromise = null;
+async function refreshTrialFromServer() {
+  if (LICENSED) return trialRemaining();
+  if (trialSyncPromise) return trialSyncPromise;
+  trialSyncPromise = (async () => {
+    try {
+      const data = await apiGet('/api/trial?mid=' + encodeURIComponent(MACHINE_ID), TRIAL_SYNC_TIMEOUT_MS);
+      if (data && typeof data.used === 'number') {
+        setTrialUsed(data.used);
+        updateLicenseUI();
+      }
+    } catch (e) {
+      // Offline/localStorage fallback remains available; the post-transcription
+      // charge is still required before an unlicensed result can be placed.
+    }
+    return trialRemaining();
+  })();
+  try {
+    return await trialSyncPromise;
+  } finally {
+    trialSyncPromise = null;
+  }
+}
 // Shared license/trial gate for EVERY transcription entry point (run() and
 // runFile()). Fail-closed: unlicensed users may only transcribe while free
 // trial credits remain; licensed users always pass.
@@ -640,16 +746,51 @@ function assertCanRun() {
   }
   return true;
 }
-// Called once when an unlicensed user successfully places a transcription.
-// Counts toward the free-trial limit; licensed users are unaffected.
-// Uses server-side tracking (D1) with localStorage fallback for offline.
-async function consumeTrialCredit() {
-  if (LICENSED) return;
+function newRunId() {
+  try {
+    if (crypto && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  } catch (e) {}
+  return 'run-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+}
 
-  // Try server-side increment first
-  const serverResult = await apiPost('/api/trial/use', { mid: MACHINE_ID });
+// Called once when an unlicensed user produces a transcription result. Counts
+// toward the free-trial limit even if the user later discards the review;
+// licensed users are unaffected.
+// Uses server-side tracking (D1) with localStorage fallback for offline.
+async function consumeTrialCredit(runId) {
+  if (LICENSED) return { allowed: true, licensed: true };
+
+  // Try server-side increment first. The run ID makes retries idempotent.
+  const chargeRunId = runId || activeRunId || newRunId();
+  const serverResult = await apiPost('/api/trial/use', { mid: MACHINE_ID, run_id: chargeRunId });
+  // A duplicate request can arrive while the original Worker invocation still
+  // holds its D1 lease. Do not mistake that pending response for a completed
+  // zero-credit charge (or fall through to the local counter). Give the owner a
+  // short reconciliation window; if it is still pending, the server lease will
+  // finish or be reclaimed safely on a later retry.
+  if (serverResult && serverResult.pending) {
+    log('Trial charge is still being finalized; reconciling with the server…');
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const retry = await apiPost('/api/trial/use', { mid: MACHINE_ID, run_id: chargeRunId });
+    if (retry && !retry.pending && typeof retry.used === 'number') {
+      const charged = retry.charged === undefined
+        ? retry.used < TRIAL_ALLOWED
+        : retry.charged === true;
+      setTrialUsed(retry.used);
+      const retryLeft = retry.remaining;
+      log('Free trial: ' + retry.used + '/' + TRIAL_ALLOWED + ' used, ' + retryLeft + ' left.');
+      return { allowed: charged, charged, used: retry.used, remaining: retryLeft, pending: false };
+    }
+    log('The server will reconcile this trial charge; local state was not advanced.');
+    return { allowed: false, charged: false, pending: true };
+  }
   if (serverResult && typeof serverResult.used === 'number') {
-    // Sync local state from server
+    // New Workers return an explicit `charged` bit. The fallback inference keeps
+    // older local Worker deployments usable for a first credit, but an explicit
+    // false (cap reached, flood-blocked, or conflicting run ID) never places.
+    const charged = serverResult.charged === undefined
+      ? serverResult.used < TRIAL_ALLOWED
+      : serverResult.charged === true;
     setTrialUsed(serverResult.used);
     const left = serverResult.remaining;
     if (left > 0) {
@@ -657,7 +798,7 @@ async function consumeTrialCredit() {
     } else {
       log('Free trial used up (' + TRIAL_ALLOWED + '/' + TRIAL_ALLOWED + '). Enter a license key to continue.');
     }
-    return;
+    return { allowed: charged, charged, used: serverResult.used, remaining: left, pending: false };
   }
 
   // Fallback: local-only (offline or API unreachable).
@@ -667,7 +808,12 @@ async function consumeTrialCredit() {
   // is fully offline by design, so we cannot hard-require the server. If trial
   // abuse becomes a problem, gate the 2nd+ use on a successful /api/trial/use
   // round-trip instead of falling through here. See README "Known limitations".
-  setTrialUsed(getTrialUsed() + 1);
+  const before = getTrialUsed();
+  if (before >= TRIAL_ALLOWED) {
+    log('Free trial is already exhausted; no caption placement was allowed.');
+    return { allowed: false, charged: false, used: before, remaining: 0, offline: true };
+  }
+  setTrialUsed(before + 1);
   const used = getTrialUsed();
   const left = trialRemaining();
   if (left > 0) {
@@ -675,6 +821,7 @@ async function consumeTrialCredit() {
   } else {
     log('Free trial used up (' + TRIAL_ALLOWED + '/' + TRIAL_ALLOWED + '). Enter a license key to continue.');
   }
+  return { allowed: true, charged: true, used, remaining: left, offline: true };
 }
 
 function updateLicenseUI() {
@@ -779,30 +926,64 @@ async function activateLicense() {
       if (licStatus) { licStatus.textContent = reason; licStatus.style.color = 'var(--err)'; }
       return;
     }
-    if (serverResult && serverResult.valid === true) {
-      // confirmed by server today — cache the fact. Prefer the server's
-      // authoritative expiry over the locally-parsed one, and keep the
-      // server-signed lease token if the (redeployed) server issued one.
+    if (serverResult && serverResult.valid === true && serverResult.token) {
+      // A successful first activation is not complete until the server has
+      // issued a signed lease. Never cache a boolean-only "valid" response.
       const serverExpiry = (serverResult.expiry && /^\d{8}$/.test(String(serverResult.expiry))) ? serverResult.expiry : result.expiry;
-      const store = { key: key, valid: true, expiry: serverExpiry, activated: Date.now(), serverValidated: true };
-      if (serverResult.token) store.token = serverResult.token;
-      setLicense(store);
+      const store = {
+        key: key,
+        valid: true,
+        expiry: serverExpiry,
+        activated: Date.now(),
+        serverValidated: true,
+        token: serverResult.token
+      };
+      const durable = setLicense(store);
       await assessLicense();
       updateLicenseUI();
+      if (!durable) {
+        setLicense(Object.assign({}, store, { valid: false, token: null }));
+        await assessLicense();
+        updateLicenseUI();
+        if (licStatus) { licStatus.textContent = 'Could not save the signed lease to this installation. Check folder permissions and try again.'; licStatus.style.color = 'var(--err)'; }
+        return;
+      }
+      if (!LICENSED) {
+        if (licStatus) licStatus.textContent = 'Server returned no valid lease token. Contact support.';
+        return;
+      }
       const logBox = document.getElementById('logBox');
       if (logBox) logBox.textContent += (logBox.textContent ? '\n' : '') + 'License activated successfully.';
       return;
     }
-    // Server unreachable:
-    if (cached && cached.key === key && (cached.token || legacyLicenseWithinGrace(cached))) {
-      // previously validated server-side — allow offline, preserving the
-      // original activation time and token so offline reactivation cannot
-      // extend the legacy grace window forever.
-      const store = { key: key, valid: true, expiry: result.expiry, serverValidated: true, activated: cached.activated || Date.now() };
-      if (cached.token) store.token = cached.token;
-      setLicense(store);
+    if (serverResult && serverResult.valid === true && !serverResult.token) {
+      if (licStatus) licStatus.textContent = 'License server is not signing leases. Contact support.';
+      return;
+    }
+    // Server unreachable: only a previously verified signed lease may be reused.
+    if (cached && canonicalPanelKey(cached.key) === canonicalPanelKey(key) && cached.token) {
+      const store = {
+        key: key,
+        valid: true,
+        expiry: result.expiry,
+        serverValidated: true,
+        activated: cached.activated || Date.now(),
+        token: cached.token
+      };
+      const durable = setLicense(store);
       await assessLicense();
       updateLicenseUI();
+      if (!durable) {
+        setLicense(Object.assign({}, store, { valid: false, token: null }));
+        await assessLicense();
+        updateLicenseUI();
+        if (licStatus) { licStatus.textContent = 'Could not save the cached lease to this installation. Check folder permissions and try again.'; licStatus.style.color = 'var(--err)'; }
+        return;
+      }
+      if (!LICENSED) {
+        if (licStatus) licStatus.textContent = 'Cached lease could not be verified.';
+        return;
+      }
       const logBox = document.getElementById('logBox');
       if (logBox) logBox.textContent += (logBox.textContent ? '\n' : '') + 'License activated (offline, previously verified).';
       return;
@@ -846,24 +1027,23 @@ async function activateLicense() {
   }
   updateLicenseUI();
 
-  // Signed-lease assess: recompute LICENSED from a stored token (verified
-  // locally against the embedded public key) or the legacy grace window, then
-  // re-render once the (fast, WebCrypto) check resolves.
-  assessLicense().then(updateLicenseUI);
-
-  // One-shot silent migration: a legacy (pre-token) license is re-validated
-  // with the server and upgraded to a signed lease token when one is issued.
-  // Kicked exactly once at boot so it can never enter a refresh loop.
-  const legacy = getLicense();
-  if (legacy && legacy.valid && legacy.serverValidated && legacy.key && !legacy.token) {
-    refreshLeaseFromServer(legacy).then(() => assessLicense().then(updateLicenseUI));
-  }
+  // Recompute LICENSED only from a signed lease. Unsigned legacy state is
+  // deliberately ignored and must be activated again online. After the local
+  // check, make a best-effort online revocation check.
+  assessLicense().then(() => {
+    updateLicenseUI();
+    revalidateLicenseOnline();
+  });
 
   // Sync server-side trial count on load (best effort — silently ignore if offline)
-  if (!getLicense()) {
+  const storedLicense = getLicense();
+  if (!storedLicense || !storedLicense.token) {
     apiGet('/api/trial?mid=' + MACHINE_ID).then((data) => {
       if (data && typeof data.used === 'number') setTrialUsed(data.used);
     });
+  }
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('focus', () => revalidateLicenseOnline());
   }
 })();
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1002,19 +1182,36 @@ const EXT_DIR = (() => {
 
 const DEV_RUNTIME = path.join(os.homedir(), 'Documents', 'amharic-captions');
 
+function isDegradedRuntime(base) {
+  try {
+    return fs.existsSync(path.join(base, '..', 'DEGRADED_BUILD.txt')) ||
+      fs.existsSync(path.join(base, 'DEGRADED_BUILD.txt'));
+  } catch (e) { return false; }
+}
+
 function runtimeComplete(base) {
   if (!base || !fs.existsSync(base)) return false;
   if (!fs.existsSync(path.join(base, 'ethio_srt.py'))) return false;
   // A shipped, self-contained runtime must include the model, ffmpeg and a
   // python interpreter. (The dev fallback is handled separately below.)
-  let modelOk = fs.existsSync(path.join(base, 'model'))
-             || fs.existsSync(path.join(base, 'ethio-asr'));
+  const degraded = isDegradedRuntime(base);
+  const modelOk = fs.existsSync(path.join(base, 'model', 'model_meta.json'))
+             || (degraded && fs.existsSync(path.join(base, 'model', 'config.json')))
+             || fs.existsSync(path.join(base, 'ethio-asr', 'config.json'));
   let binOk = fs.existsSync(path.join(base, 'bin', IS_WIN ? 'ffmpeg.exe' : 'ffmpeg'))
            || fs.existsSync(path.join(base, 'bin', 'ffmpeg'));
   let pyOk = IS_WIN
     ? fs.existsSync(path.join(base, 'python', 'python.exe'))
     : fs.existsSync(path.join(base, 'python', 'bin', 'python3'));
-  return modelOk && binOk && pyOk;
+  const featureOk = isDegradedRuntime(base) || (
+    fs.existsSync(path.join(base, 'amh_lm.py')) &&
+    fs.existsSync(path.join(base, 'amh_lm.json.gz')) &&
+    fs.existsSync(path.join(base, 'amh_vad.py')) &&
+    fs.existsSync(path.join(base, 'silero_vad.onnx')) &&
+    fs.existsSync(path.join(base, 'amh_diarize.py')) &&
+    fs.existsSync(path.join(base, 'speaker_embed.onnx'))
+  );
+  return modelOk && binOk && pyOk && featureOk;
 }
 
 function pickRuntime() {
@@ -1059,8 +1256,11 @@ function resolveFFMPEG() {
     const cand = path.join(RUNTIME, 'bin', IS_WIN ? 'ffmpeg.exe' : 'ffmpeg');
     if (fs.existsSync(cand)) return cand;
   }
-  if (RUNTIME === DEV_RUNTIME && !IS_WIN) return '/opt/homebrew/bin/ffmpeg';
-  return IS_WIN ? 'ffmpeg' : 'ffmpeg';
+  if (RUNTIME === DEV_RUNTIME && !IS_WIN) {
+    const devFfmpeg = '/opt/homebrew/bin/ffmpeg';
+    return fs.existsSync(devFfmpeg) ? devFfmpeg : null;
+  }
+  return null;
 }
 const FFMPEG = resolveFFMPEG();
 
@@ -1141,7 +1341,7 @@ function setBusy(busy) {
     // of immediately overwriting it with the generic "ready" state.
     const pill = $('statusPill');
     const txt = $('statusText');
-    const keep = pill && pill.classList.contains('ready') && txt && /^✓/.test(txt.textContent);
+    const keep = pill && ((pill.classList.contains('ready') && txt && /^✓/.test(txt.textContent)) || pill.classList.contains('err'));
     if (!keep) setStatus('ready', 'ready');
   }
   $('runBtn').disabled = busy;
@@ -1164,18 +1364,26 @@ function escJson(s) {
 }
 function evalScript(jsx) {
   return new Promise((resolve, reject) => {
-    csi.evalScript(jsx, (result) => {
-      if (typeof result === 'string' && result.length > 0) {
-        try {
-          const parsed = JSON.parse(result);
-          resolve(parsed);
-        } catch (e) {
-          resolve({ ok: true, _raw: result });
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish({ ok: false, error: 'Premiere script timed out' }), 20000);
+    try {
+      csi.evalScript(jsx, (result) => {
+        if (typeof result === 'string' && result.length > 0) {
+          try { finish(JSON.parse(result)); }
+          catch (e) { finish({ ok: true, _raw: result }); }
+        } else {
+          finish({ ok: false, error: result || 'No result from Premiere' });
         }
-      } else {
-        resolve({ ok: false, error: result || 'No result from Premiere' });
-      }
-    });
+      });
+    } catch (e) {
+      finish({ ok: false, error: String(e && e.message || e) });
+    }
   });
 }
 
@@ -1230,7 +1438,10 @@ let activeChild = null;
 // Documents (not Desktop) so customer desktops stay clean.
 const USER_CAPTIONS_DIR = path.join(os.homedir(), 'Documents', 'AmharicCaptions');
 function ensureCaptionsDir() {
-  try { fs.mkdirSync(USER_CAPTIONS_DIR, { recursive: true }); } catch (e) {}
+  try {
+    fs.mkdirSync(USER_CAPTIONS_DIR, { recursive: true, mode: 0o700 });
+    fs.chmodSync(USER_CAPTIONS_DIR, 0o700);
+  } catch (e) {}
   return USER_CAPTIONS_DIR;
 }
 
@@ -1256,13 +1467,13 @@ function applySettings() {
 // parseSrt / formatSrtTs / cleanCueLines / *TextFromCues live in js/core.js
 // (pure, unit-tested). writeSrt / writeVtt below only add disk I/O + state.
 function writeSrt(outPath) {
-  fs.writeFileSync(outPath, srtTextFromCues(lastCues), 'utf8');
+  fs.writeFileSync(outPath, srtTextFromCues(lastCues), { encoding: 'utf8', mode: 0o600 });
   lastSrtPath = outPath;
   return outPath;
 }
 
 function writeVtt(outPath) {
-  fs.writeFileSync(outPath, vttTextFromCues(lastCues), 'utf8');
+  fs.writeFileSync(outPath, vttTextFromCues(lastCues), { encoding: 'utf8', mode: 0o600 });
   lastSrtPath = outPath;
   return outPath;
 }
@@ -1274,6 +1485,10 @@ function writeVtt(outPath) {
 const AUDIO_CLEAN_FILTER = 'highpass=f=80,lowpass=f=7500,afftdn=nf=-25';
 
 // Extract a timeline clip's trimmed source audio to a 16k mono wav via ffmpeg.
+function protectTempFile(filePath) {
+  try { if (filePath) fs.chmodSync(filePath, 0o600); } catch (e) {}
+}
+
 function extractAudio(clip, wav) {
   return new Promise((resolve, reject) => {
     // -ss BEFORE -i = fast input seek (jumps to the keyframe, then we use
@@ -1285,10 +1500,15 @@ function extractAudio(clip, wav) {
     if (clip.duration > 0) post.push('-t', String(clip.duration));
     post.push('-vn', '-sn', '-af', AUDIO_CLEAN_FILTER, '-ac', '1', '-ar', '16000', wav);
     // Track as the active child so Cancel kills the ffmpeg mid-extraction.
-    activeChild = execFile(FFMPEG, pre.concat(['-i', clip.sourcePath], post), (err) => {
+    activeChild = execFile(FFMPEG, pre.concat(['-i', clip.sourcePath], post), { timeout: 30 * 60 * 1000 }, (err) => {
       activeChild = null;
-      if (err) reject(new Error('ffmpeg failed for ' + clip.name + ': ' + (err.message || err)));
-      else resolve();
+      if (err) {
+        try { fs.unlinkSync(wav); } catch (e) {}
+        reject(new Error('ffmpeg failed for ' + clip.name + ': ' + (err.message || err)));
+      } else {
+        protectTempFile(wav);
+        resolve();
+      }
     });
   });
 }
@@ -1465,7 +1685,7 @@ if (typeof window !== 'undefined' && window.addEventListener) {
 // Keyed on media path + trim + caption style + model dir + file size + mtime,
 // so edited files and caption-style changes invalidate naturally.
 // --------------------------------------------------------------------------
-const CACHE_FILE = path.join(os.tmpdir(), 'amh_transcript_cache.json');
+const CACHE_FILE = process.env.AMH_CACHE_FILE || path.join(os.tmpdir(), 'amh_transcript_cache.json');
 let transcriptCache = null;
 
 function cacheLoad() {
@@ -1476,7 +1696,16 @@ function cacheLoad() {
   return transcriptCache;
 }
 function cacheSave() {
-  try { fs.writeFileSync(CACHE_FILE, JSON.stringify(transcriptCache)); } catch (e) {}
+  const tmp = CACHE_FILE + '.tmp-' + process.pid + '-' + Date.now();
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(transcriptCache), { encoding: 'utf8', mode: 0o600 });
+    try { fs.chmodSync(tmp, 0o600); } catch (e) {}
+    try { fs.renameSync(tmp, CACHE_FILE); }
+    catch (e) { fs.copyFileSync(tmp, CACHE_FILE); fs.unlinkSync(tmp); }
+    try { fs.chmodSync(CACHE_FILE, 0o600); } catch (e) {}
+  } catch (e) {
+    try { fs.unlinkSync(tmp); } catch (cleanupError) {}
+  }
 }
 
 // Lazy engine-version hash — includes mtimes of the shipped Python scripts
@@ -1520,17 +1749,10 @@ function clipCacheKey(it) {
   return cacheKey(it.sourcePath, { sourceIn: it.sourceIn, duration: it.duration }, it.offset);
 }
 
-// Serialize cues to SRT text (mirror of writeSrt, without touching disk).
+// Canonical SRT serializer. Keep every output path on core.js so speaker
+// labels cannot diverge between cache files, exports, and Premiere placement.
 function srtFromCues(cues) {
-  let out = '';
-  let idx = 0;
-  for (const cue of cues) {
-    idx += 1;
-    out += idx + '\n';
-    out += formatSrtTs(cue.start) + ' --> ' + formatSrtTs(cue.end) + '\n';
-    out += cleanCueLines(cue.text) + '\n\n';
-  }
-  return out;
+  return srtTextFromCues(cues);
 }
 
 // Items whose timeline window overlaps another item's. Per-clip caching is
@@ -1635,12 +1857,15 @@ function extractToWav(sourcePath, range) {
     if (range && range.duration > 0) ffArgs.push('-t', String(range.duration));
     ffArgs.push('-vn', '-sn', '-af', AUDIO_CLEAN_FILTER);
     ffArgs.push('-ac', '1', '-ar', '16000', wav);
-    activeChild = execFile(FFMPEG, ffArgs, (err) => {
+    activeChild = execFile(FFMPEG, ffArgs, { timeout: 30 * 60 * 1000 }, (err) => {
       activeChild = null;
       if (err) {
         try { fs.unlinkSync(wav); } catch (e) {}
         reject(new Error('ffmpeg failed: ' + (err.message || err)));
-      } else resolve(wav);
+      } else {
+        protectTempFile(wav);
+        resolve(wav);
+      }
     });
   });
 }
@@ -1652,6 +1877,7 @@ async function transcribe(sourcePath, outSrt, range, offset) {
   const hit = cacheLookup(key);
   if (hit) {
     fs.writeFileSync(outSrt, hit.srt, 'utf8');
+    protectTempFile(outSrt);
     lastCues = hit.cues;
     lastSrtPath = outSrt;
     return { outSrt, cues: hit.cues, transcript: hit.transcript, cached: true };
@@ -1667,6 +1893,7 @@ async function transcribe(sourcePath, outSrt, range, offset) {
       wav, out_srt: outSrt, offset: offset || 0
     }, warmStyle()));
     warmTouch();
+    protectTempFile(outSrt);
     let cues = [];
     try { cues = normalizeCues(parseSrt(fs.readFileSync(outSrt, 'utf8'))); } catch (e) {}
     lastCues = cues;
@@ -1695,11 +1922,12 @@ function transcribeOneShot(sourcePath, outSrt, range, offset, wav) {
   return new Promise((resolve, reject) => {
     const pyArgs = [SCRIPT, wav, outSrt].concat(pyFlags());
     if (offset && offset !== 0) pyArgs.push('--offset', String(offset));
-    activeChild = execFile(PYTHON, pyArgs, { maxBuffer: 32 * 1024 * 1024, env: AMH_ENV }, (perr, stdout) => {
+    activeChild = execFile(PYTHON, pyArgs, { maxBuffer: 32 * 1024 * 1024, env: AMH_ENV, timeout: 4 * 60 * 60 * 1000 }, (perr, stdout) => {
       activeChild = null;
       if (cancelRequested) { reject(new Error('Cancelled')); return; }
       if (perr) { reject(new Error('Python failed: ' + (perr.message || perr))); return; }
       const transcript = extractTranscripts(stdout).join('\n');
+      protectTempFile(outSrt);
       let cues = [];
       try { cues = normalizeCues(parseSrt(fs.readFileSync(outSrt, 'utf8'))); } catch (e) {}
       lastCues = cues;
@@ -1743,6 +1971,7 @@ async function transcribeBatch(items, outSrt, onProgress) {
     });
     all.sort((a, b) => a.start - b.start);
     fs.writeFileSync(outSrt, srtFromCues(all), 'utf8');
+    protectTempFile(outSrt);
     lastCues = all;
     lastSrtPath = outSrt;
     return { outSrt, cues: all, transcript: transcript || '', cached: misses.length === 0 };
@@ -1800,38 +2029,55 @@ async function transcribeBatch(items, outSrt, onProgress) {
 // Original multi-clip one-shot fallback (one process, one model load).
 function transcribeBatchOneShot(items, outSrt, onProgress) {
   const reqPath = path.join(os.tmpdir(), 'amharic_batch_' + Date.now() + '.json');
-  fs.writeFileSync(reqPath, JSON.stringify(items.map((it) => ({
-    wav: it.wav, offset: it.offset
-  }))), 'utf8');
+  try {
+    fs.writeFileSync(reqPath, JSON.stringify(items.map((it) => ({
+      wav: it.wav, offset: it.offset
+    }))), { encoding: 'utf8', mode: 0o600 });
+    protectTempFile(reqPath);
+  } catch (e) {
+    try { fs.unlinkSync(reqPath); } catch (cleanupError) {}
+    throw e;
+  }
   const pyArgs = [SCRIPT, '--batch', reqPath, outSrt].concat(pyFlags());
   return new Promise((resolve, reject) => {
-    const child = execFile(PYTHON, pyArgs, { maxBuffer: 64 * 1024 * 1024, env: AMH_ENV }, (perr, stdout) => {
-      activeChild = null;
-      if (cancelRequested) { reject(new Error('Cancelled')); return; }
-      if (perr) { reject(new Error('Python failed: ' + (perr.message || perr))); return; }
-      let transcript = '';
-      const lines = String(stdout || '').split('\n');
-      let inBlock = false, buf = [];
-      for (const ln of lines) {
-        const prog = ln.match(/^\[batch\] %+ (\d+)\/(\d+) (.+)$/);
-        if (prog) {
-          const name = String(prog[3]).replace(/\\/g, '/').split('/').pop() || prog[3];
-          if (onProgress) onProgress(parseInt(prog[1], 10), parseInt(prog[2], 10), name);
-          continue;
+    const cleanupReq = () => { try { fs.unlinkSync(reqPath); } catch (e) {} };
+    let child;
+    try {
+      child = execFile(PYTHON, pyArgs, { maxBuffer: 64 * 1024 * 1024, env: AMH_ENV, timeout: 4 * 60 * 60 * 1000 }, (perr, stdout) => {
+        activeChild = null;
+        if (cancelRequested) { cleanupReq(); reject(new Error('Cancelled')); return; }
+        if (perr) { cleanupReq(); reject(new Error('Python failed: ' + (perr.message || perr))); return; }
+        let transcript = '';
+        const lines = String(stdout || '').split('\n');
+        let inBlock = false, buf = [];
+        for (const ln of lines) {
+          const prog = ln.match(/^\[batch\] %+ (\d+)\/(\d+) (.+)$/);
+          if (prog) {
+            const name = String(prog[3]).replace(/\\/g, '/').split('/').pop() || prog[3];
+            if (onProgress) onProgress(parseInt(prog[1], 10), parseInt(prog[2], 10), name);
+            continue;
+          }
+          if (ln.indexOf('--- full transcription ---') === 0) { inBlock = true; buf = []; continue; }
+          if (ln.indexOf('[info]') === 0) { if (inBlock) { transcript += (transcript ? '\n' : '') + buf.join('\n').trim(); inBlock = false; } continue; }
+          if (inBlock) buf.push(ln);
         }
-        if (ln.indexOf('--- full transcription ---') === 0) { inBlock = true; buf = []; continue; }
-        if (ln.indexOf('[info]') === 0) { if (inBlock) { transcript += (transcript ? '\n' : '') + buf.join('\n').trim(); inBlock = false; } continue; }
-        if (inBlock) buf.push(ln);
-      }
-      if (inBlock) transcript += (transcript ? '\n' : '') + buf.join('\n').trim();
-      let cues = [];
-      try { cues = normalizeCues(parseSrt(fs.readFileSync(outSrt, 'utf8'))); } catch (e) {}
-      try { fs.unlinkSync(reqPath); } catch (e) {}
-      const byItem = attributeCues(cues, items);
-      lastCues = cues;
-      lastSrtPath = outSrt;
-      resolve({ outSrt, cues, transcript: transcript.trim(), byItem });
-    });
+        if (inBlock) transcript += (transcript ? '\n' : '') + buf.join('\n').trim();
+        protectTempFile(outSrt);
+        let cues = [];
+        try { cues = normalizeCues(parseSrt(fs.readFileSync(outSrt, 'utf8'))); } catch (e) {}
+        cleanupReq();
+        let byItem;
+        try { byItem = attributeCues(cues, items); }
+        catch (e) { reject(new Error('Could not attribute batch captions: ' + (e && e.message ? e.message : String(e)))); return; }
+        lastCues = cues;
+        lastSrtPath = outSrt;
+        resolve({ outSrt, cues, transcript: transcript.trim(), byItem });
+      });
+    } catch (e) {
+      cleanupReq();
+      reject(e);
+      return;
+    }
     // Track the child so the Cancel button can kill it immediately (the setup
     // cancel handler clears activeChild via child.kill()). The once-listener
     // is dropped — it stacked one listener per run and never detached.
@@ -1846,10 +2092,7 @@ function transcribeBatchOneShot(items, outSrt, onProgress) {
 async function finishImport(outSrt, label, startSeconds) {
   log('Placing captions on your timeline…');
   const imp = await importCaptions(outSrt, startSeconds || 0, label);
-  if (imp.ok) {
-    // A transcript was produced and placed: for an unlicensed trial user this
-    // counts as one free use.
-    await consumeTrialCredit();
+  if (imp && imp.ok && imp.placed === true) {
     log('✓ Captions added: ' + imp.captionItemName);
     setSuccess('✓ Captions on timeline');
     if (imp.requestedStart !== undefined && imp.landedStart !== undefined &&
@@ -1858,21 +2101,21 @@ async function finishImport(outSrt, label, startSeconds) {
           (imp.landedEnd !== null ? imp.landedEnd.toFixed(2) + 's' : '?') +
           '  (requested ' + imp.requestedStart.toFixed(2) + 's)');
     }
-    if (!imp.placed && imp.note) {
-      log('Note: ' + imp.note);
-      if (imp.diag && imp.diag.isCaptionItem !== undefined) {
-        const d = imp.diag;
-        log('Diag: name="' + d.captionItemName + '" captionItem=' + (d.isCaptionItem ? 'YES' : 'NO') +
-            ' type="' + d.footageType + '" captionTracks=' + d.captionTracks +
-            ' seq="' + d.seqName + '" prem=' + d.premVer);
-      }
-    }
+    if (imp.note) log('Placement method: ' + imp.note);
     log('Can\'t see them? Expand the caption track (bottom of the timeline) and');
     log('  turn on the CC toggle in the Program Monitor.');
     log('To restyle, open Essential Graphics and set the caption font.');
-  } else {
-    log('Import warning: ' + (imp.error || 'unknown'));
+    return true;
   }
+
+  const reason = (imp && imp.error) ||
+    (imp && imp._raw ? ('Premiere returned an unexpected response: ' + imp._raw) : null) ||
+    (imp && imp.note) ||
+    'Premiere did not confirm that the caption track was placed.';
+  log('ERROR: ' + reason);
+  log('Your existing captions were kept. Review the log and try again.');
+  setStatus('err', 'placement failed');
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -1883,6 +2126,9 @@ async function finishImport(outSrt, label, startSeconds) {
 
 let REVIEW = null; // { outSrt, label, startSeconds }
 let reviewOpen = false;
+let reviewPlacing = false;
+let reviewTrialCharged = false;
+let activeRunId = '';
 
 function fmtReviewTs(sec) {
   sec = Math.max(0, sec || 0);
@@ -1909,8 +2155,27 @@ function cueMatchesFilter(cue) {
 }
 
 
-function openReview(outSrt, label, startSeconds, opts) {
+async function openReview(outSrt, label, startSeconds, opts) {
   opts = opts || {};
+  // A transcription consumes a trial credit when it is produced, not only
+  // when the user chooses to place it. This prevents unlimited discard/retry
+  // loops. Licensed users are unaffected.
+  if (!reviewTrialCharged) {
+    const trial = await consumeTrialCredit(activeRunId || newRunId());
+    if (!trial || !trial.allowed) {
+      removeTempCaptionArtifact(outSrt);
+      if (lastSrtPath === outSrt) lastSrtPath = null;
+      log('Trial credit was not confirmed. The transcription was not placed; activate a license or retry when the server is available.');
+      setStatus('err', 'trial credit required');
+      updateLicenseUI();
+      return false;
+    }
+    reviewTrialCharged = true;
+  }
+  if (!LICENSED && !reviewTrialCharged) {
+    log('Placement blocked because no trial credit was charged.');
+    return false;
+  }
   REVIEW = {
     outSrt, label: label || 'captions', startSeconds: startSeconds || 0,
   };
@@ -1925,10 +2190,27 @@ function openReview(outSrt, label, startSeconds, opts) {
   renderReview();
   $('review').classList.add('show');
   log('Review your captions below — edit, then click "Place on timeline".');
+  return true;
 }
 
-function closeReview() {
+function removeTempCaptionArtifact(filePath) {
+  try {
+    if (!filePath) return;
+    const resolved = path.resolve(String(filePath));
+    const tempRoot = path.resolve(os.tmpdir());
+    const inTemp = resolved.indexOf(tempRoot + path.sep) === 0;
+    const generatedReview = path.basename(resolved).startsWith('amh_review_');
+    if (!inTemp && !generatedReview) return;
+    if (!path.basename(resolved).startsWith('amh_')) return;
+    fs.unlinkSync(resolved);
+  } catch (e) {}
+}
+
+function closeReview(keepArtifact) {
+  if (!keepArtifact && REVIEW && REVIEW.outSrt) removeTempCaptionArtifact(REVIEW.outSrt);
+  if (!keepArtifact) lastSrtPath = null;
   reviewOpen = false;
+  reviewPlacing = false;
   REVIEW = null;
   reviewCues = [];
   REVIEW_FILTER = '';
@@ -1972,7 +2254,9 @@ function renderReview() {
     const nudgeFwd = mk('\u25b7', 'Shift this caption +0.1s');
     const splitBtn = mk('\u2702', 'Split this caption into two');
     const mergeBtn = mk('\u21d3', 'Merge this caption into the next');
-    mergeBtn.disabled = (i >= reviewCues.length - 1);
+    const nextCue = reviewCues[i + 1];
+    mergeBtn.disabled = !nextCue ||
+      (cue.speaker && nextCue.speaker && cue.speaker !== nextCue.speaker);
     splitBtn.disabled = ((cue.text || '').trim().split(/\s+/).filter(Boolean).length <= 1);
     nudgeBack.addEventListener('click', () => nudgeReview(i, -0.1));
     nudgeFwd.addEventListener('click', () => nudgeReview(i, 0.1));
@@ -2056,7 +2340,9 @@ function splitReview(i) {
   const original = cue.end;
   cue.text = first;
   cue.end = Math.max(cue.start + 0.3, cut);
-  reviewCues.splice(i + 1, 0, { start: cue.end, end: original, text: second });
+  const secondCue = { start: cue.end, end: original, text: second };
+  if (cue.speaker) secondCue.speaker = cue.speaker;
+  reviewCues.splice(i + 1, 0, secondCue);
   renderReview();
 }
 
@@ -2064,6 +2350,7 @@ function mergeReview(i) {
   const cue = reviewCues[i];
   const next = reviewCues[i + 1];
   if (!cue || !next) return;
+  if (cue.speaker && next.speaker && cue.speaker !== next.speaker) return;
   cue.text = (cleanCueLines(cue.text) + ' ' + cleanCueLines(next.text)).trim();
   cue.end = next.end;
   reviewCues.splice(i + 1, 1);
@@ -2075,41 +2362,55 @@ function updateReviewCount() {
 }
 
 function writeReviewSrt(outDir) {
-  const sortable = reviewCues.slice().sort((a, b) => a.start - b.start);
-  let out = '';
-  let idx = 0;
-  sortable.forEach((cue) => {
-    const text = cleanCueLines(cue.text);
-    if (!text) return;
-    idx += 1;
-    out += idx + '\n';
-    out += formatSrtTs(cue.start) + ' --> ' + formatSrtTs(cue.end) + '\n';
-    out += text + '\n\n';
-  });
+  const out = srtTextFromCues(reviewCues);
   const dest = path.join(outDir || os.tmpdir(), 'amh_review_' + Date.now() + '.srt');
-  try { fs.mkdirSync(path.dirname(dest), { recursive: true }); } catch (e) {}
-  fs.writeFileSync(dest, out, 'utf8');
+  try { fs.mkdirSync(path.dirname(dest), { recursive: true, mode: 0o700 }); fs.chmodSync(path.dirname(dest), 0o700); } catch (e) {}
+  fs.writeFileSync(dest, out, { encoding: 'utf8', mode: 0o600 });
+  protectTempFile(dest);
   return dest;
 }
 
 async function placeReview() {
-  if (!reviewOpen || !REVIEW) return;
+  if (!reviewOpen || !REVIEW || reviewPlacing) return;
+  if (!LICENSED && !reviewTrialCharged) {
+    log('Placement blocked: the trial credit was not confirmed.');
+    setStatus('err', 'trial credit required');
+    return;
+  }
   reviewCues = reviewCues.filter((c) => (c.text || '').trim().length > 0);
   if (reviewCues.length === 0) { log('All captions are empty — nothing to place.'); return; }
-  // Commit the edited cues so export/transcript reflect what was placed.
-  lastCues = JSON.parse(JSON.stringify(reviewCues));
-  const dest = writeReviewSrt(ensureCaptionsDir());
-  lastSrtPath = dest;
-  log('Placing your edited captions (' + reviewCues.length + ')…');
-  await finishImport(dest, REVIEW.label || 'captions', REVIEW.startSeconds);
-  // Keep the SRT on disk: Premiere's caption item links to this file. Deleting
-  // it triggers the "Locate file" prompt on every project open.
-  log('Captions saved to ' + dest + '  (Premiere keeps a file link to this).');
-  closeReview();
+
+  reviewPlacing = true;
+  const placeBtn = $('reviewPlace');
+  const discardBtn = $('reviewDiscard');
+  if (placeBtn) placeBtn.disabled = true;
+  if (discardBtn) discardBtn.disabled = true;
+  try {
+    // Commit the edited cues only after we have a concrete placement target.
+    lastCues = JSON.parse(JSON.stringify(reviewCues));
+    const originalReviewSrt = REVIEW.outSrt;
+    const dest = writeReviewSrt(ensureCaptionsDir());
+    removeTempCaptionArtifact(originalReviewSrt);
+    REVIEW.outSrt = dest;
+    lastSrtPath = dest;
+    log('Placing your edited captions (' + reviewCues.length + ')…');
+    const placed = await finishImport(dest, REVIEW.label || 'captions', REVIEW.startSeconds);
+    if (!placed) return; // keep the review and edits open for recovery
+    // Premiere's caption item links to this file. Deleting it triggers a
+    // "Locate file" prompt on every project open.
+    log('Captions saved to ' + dest + '  (Premiere keeps a file link to this).');
+    closeReview(true);
+  } catch (e) {
+    log('ERROR: placement failed: ' + (e && e.message ? e.message : String(e)));
+  } finally {
+    reviewPlacing = false;
+    if (placeBtn) placeBtn.disabled = false;
+    if (discardBtn) discardBtn.disabled = false;
+  }
 }
 
 function discardReview() {
-  if (!reviewOpen) return;
+  if (!reviewOpen || reviewPlacing) return;
   log('Discarded — nothing was placed on the timeline.');
   closeReview();
 }
@@ -2139,9 +2440,9 @@ function exportReviewFiles() {
   const vtt = path.join(dir, base + '.vtt');
   const txt = path.join(dir, base + '.txt');
   try {
-    fs.writeFileSync(srt, srtTextFromCues(cues), 'utf8');
-    fs.writeFileSync(vtt, vttTextFromCues(cues), 'utf8');
-    fs.writeFileSync(txt, txtTextFromCues(cues), 'utf8');
+    fs.writeFileSync(srt, srtTextFromCues(cues), { encoding: 'utf8', mode: 0o600 });
+    fs.writeFileSync(vtt, vttTextFromCues(cues), { encoding: 'utf8', mode: 0o600 });
+    fs.writeFileSync(txt, txtTextFromCues(cues), { encoding: 'utf8', mode: 0o600 });
   } catch (e) {
     log('Export failed: ' + (e && e.message ? e.message : String(e)));
     return;
@@ -2238,11 +2539,21 @@ function consumeProgressLine(line) {
 }
 
 async function run() {
+  if (reviewPlacing) {
+    log('Wait for the current placement to finish.');
+    return;
+  }
+  if (runInProgress || runStartInProgress) {
+    log('A transcription is already running. Wait for it to finish or cancel it first.');
+    return;
+  }
   // A fresh run replaces whatever review/overlay was showing.
   if (reviewOpen) closeReview();
   clearLog();
   cancelRequested = false;
   runFailed = false;
+  reviewTrialCharged = false;
+  activeRunId = newRunId();
   setProgress(0, '');
   if (!RUNTIME) {
     log('ERROR: Transcription runtime not found.');
@@ -2251,14 +2562,19 @@ async function run() {
     if (typeof EXT_DIR !== 'undefined') log('Looking in: ' + EXT_DIR);
     return;
   }
-  if (!fs.existsSync(PYTHON) || !fs.existsSync(FFMPEG)) {
+  if (!PYTHON || !FFMPEG || !fs.existsSync(PYTHON) || !fs.existsSync(FFMPEG)) {
     log('ERROR: Runtime is incomplete — missing python or ffmpeg.');
     log('python: ' + PYTHON + ' -> ' + (fs.existsSync(PYTHON) ? 'OK' : 'MISSING'));
     log('ffmpeg: ' + FFMPEG + ' -> ' + (fs.existsSync(FFMPEG) ? 'OK' : 'MISSING'));
     log('Reinstall the correct platform build and restart Premiere.');
     return;
   }
+  runStartInProgress = true;
+  try { await refreshTrialFromServer(); }
+  finally { runStartInProgress = false; }
+  if (cancelRequested) return;
   if (!assertCanRun()) return;
+  runInProgress = true;
   setBusy(true);
   try {
     if (SOURCE === 'clip') { await runSelectedClip(); return; }
@@ -2275,15 +2591,25 @@ async function run() {
       failRun(raw);
     }
   } finally {
+    if (cancelRequested) {
+      removeTempCaptionArtifact(lastSrtPath);
+      lastSrtPath = null;
+    }
+    runInProgress = false;
     setBusy(false);
     if (!cancelRequested && !runFailed) setProgress(0, '');
     updateLicenseUI();
   }
 }
 
-// Set for the lifetime of one failed run so the finally block does not wipe
+// Set for the duration of one failed run so the finally block does not wipe
 // the message it just put on screen.
 let runFailed = false;
+let runInProgress = false;
+// Held only while the asynchronous trial preflight is in flight. This closes
+// the click race where two Generate presses could both pass the preflight
+// before either one sets runInProgress.
+let runStartInProgress = false;
 
 // Turn an engine/transport error into something an editor can act on. The raw
 // text is still written to the Log for support; this is the one line they see.
@@ -2308,6 +2634,7 @@ function humanError(raw) {
 
 function failRun(raw) {
   runFailed = true;
+  removeTempCaptionArtifact(lastSrtPath);
   const msg = humanError(raw);
   setStatus('err', 'failed');
   // progLabel is an aria-live region, so this is announced as well as shown.
@@ -2329,6 +2656,7 @@ async function runSelectedClip() {
   const cleanName = (c.name.replace(/\.[^.]+$/, '') || 'captions');
 
   const outSrt = path.join(os.tmpdir(), 'amh_captions_' + Date.now() + '.srt');
+  lastSrtPath = outSrt;
   setProgress(0.15, 'Transcribing…');
 
   // Drive the bar from the engine's real per-window progress instead of
@@ -2374,14 +2702,19 @@ async function runSelectedClip() {
   log('Done writing captions.');
 
   // Review flow: let the user edit before anything hits the timeline.
-  openReview(outSrt, cleanName, 0);
+  await openReview(outSrt, cleanName, 0);
 }
 
 async function runWorkArea() {
   log('Reading your edit area…');
   const info = await getSequenceInfo(SOURCE === 'whole');
   if (!info.ok || !info.clips) throw new Error(info.error || 'No sequence info.');
-  const clips = info.clips;
+  const unsupported = Array.isArray(info.unsupported) ? info.unsupported : [];
+  if (unsupported.length) {
+    log('Skipping ' + unsupported.length + ' clip(s) with unsupported speed/retime/reverse mapping.');
+    unsupported.slice(0, 8).forEach((u) => log('  - ' + (u.name || 'unnamed clip') + ': ' + (u.reason || 'unsupported')));
+  }
+  const clips = (info.clips || []).filter((c) => !c.unsupported);
   if (clips.length === 0) {
     throw new Error('No audio-bearing clips with a resolvable source in this range.');
   }
@@ -2394,6 +2727,7 @@ async function runWorkArea() {
   log('Extracting audio per clip, then writing captions in one pass…');
 
   const outSrt = path.join(os.tmpdir(), 'amh_sequence_' + Date.now() + '.srt');
+  lastSrtPath = outSrt;
   const stamp = Date.now();
 
   // Fast path: if every clip (by path+offset+mtime) is in the transcript cache,
@@ -2420,12 +2754,13 @@ async function runWorkArea() {
     for (const it of items) for (const c of it.cached.cues) all.push(c);
     all.sort((a, b) => a.start - b.start);
     fs.writeFileSync(outSrt, srtFromCues(all), 'utf8');
+    protectTempFile(outSrt);
     lastCues = all;
     lastSrtPath = outSrt;
     if (all.length === 0) log('No speech detected in these clips — nothing to place.');
     log('Done — ' + all.length + ' captions written (' +
         items.length + ' clip(s) cached).');
-    openReview(outSrt, 'sequence', 0, {});
+    await openReview(outSrt, 'sequence', 0, {});
     return;
   }
 
@@ -2434,43 +2769,81 @@ async function runWorkArea() {
     log('Using cached captions for ' + (items.length - misses.length) +
         ' unchanged clip(s); transcribing ' + misses.length + ' changed clip(s).');
   }
-  for (let n = 0; n < misses.length; n++) {
+  let extractionFailures = 0;
+  try {
+    for (let n = 0; n < misses.length; n++) {
+      if (cancelRequested) {
+        log('Cancelled by user.');
+        removeTempCaptionArtifact(outSrt);
+        lastSrtPath = null;
+        return;
+      }
+      const it = misses[n];
+      setProgress((n + 1) / misses.length / 2, 'Extracting audio ' + (n + 1) + '/' + misses.length);
+      const wav = path.join(os.tmpdir(), 'amh_extract_' + stamp + '_' + n + '.wav');
+      try {
+        await extractAudio(it, wav);
+        it.wav = wav;
+      } catch (e) {
+        extractionFailures += 1;
+        it.extractionError = String((e && e.message) || e);
+        log('WARNING: skipped "' + (it.name || path.basename(it.sourcePath || 'clip')) +
+            '" — ' + it.extractionError);
+        try { fs.unlinkSync(wav); } catch (cleanupError) {}
+      }
+    }
+
     if (cancelRequested) { log('Cancelled by user.'); return; }
-    const it = misses[n];
-    setProgress((n + 1) / misses.length / 2, 'Extracting audio ' + (n + 1) + '/' + misses.length);
-    const wav = path.join(os.tmpdir(), 'amh_extract_' + stamp + '_' + n + '.wav');
-    await extractAudio(it, wav);
-    it.wav = wav;
+    if (extractionFailures) {
+      log('Skipped ' + extractionFailures + ' clip(s) whose audio could not be extracted.');
+    }
+
+    // Cached clips plus successfully extracted clips are transcribed together;
+    // failed clips are excluded rather than poisoning the whole batch.
+    const batchItems = items.filter((it) => !it.extractionError);
+    if (!batchItems.length) {
+      throw new Error('No clip audio could be prepared for transcription.');
+    }
+
+    log('Transcribing ' + batchItems.length + ' clip(s) in one pass…');
+    const batchStart = Date.now();
+    const r = await transcribeBatch(batchItems, outSrt, (msgOrN, total, name) => {
+      // Warm-worker callback passes {at, of, name}; one-shot passes (n, total, name).
+      const done = typeof msgOrN === 'object' ? msgOrN.at : msgOrN;
+      const ofTotal = typeof msgOrN === 'object' ? msgOrN.of : total;
+      const label = typeof msgOrN === 'object' ? msgOrN.name : name;
+      // Live ETA from measured throughput.
+      const elapsedSec = (Date.now() - batchStart) / 1000;
+      const secPerClip = done > 0 ? elapsedSec / done : 0;
+      const etaSec = secPerClip * (ofTotal - done);
+      const etaText = etaSec > 0 ? (' · ~' + Math.ceil(etaSec) + 's left') : '';
+      setProgress(0.5 + (done / Math.max(1, ofTotal)) * 0.5,
+        'Transcribing ' + done + '/' + ofTotal + etaText +
+        (label && label.trim() ? ' (' + path.basename(label) + ')' : ''));
+    });
+
+    if (!r.cues.length) log('No speech detected in these clips — nothing to place.');
+    log('Done — ' + r.cues.length + ' captions written.');
+    await openReview(outSrt, 'sequence', 0, {});
+  } finally {
+    // Always remove every temporary WAV, including failures and cancellation.
+    for (const it of items) {
+      if (it.wav) { try { fs.unlinkSync(it.wav); } catch (e) {} }
+    }
+    // Temporary WAVs are gone; do not retain audio paths after this block.
   }
-
-  if (cancelRequested) { log('Cancelled by user.'); return; }
-
-  log('Transcribing ' + misses.length + ' clip(s) in one pass…');
-  const batchStart = Date.now();
-  const r = await transcribeBatch(items, outSrt, (msgOrN, total, name) => {
-    // Warm-worker callback passes {at, of, name}; one-shot passes (n, total, name).
-    const done = typeof msgOrN === 'object' ? msgOrN.at : msgOrN;
-    const ofTotal = typeof msgOrN === 'object' ? msgOrN.of : total;
-    const label = typeof msgOrN === 'object' ? msgOrN.name : name;
-    // Live ETA from measured throughput.
-    const elapsedSec = (Date.now() - batchStart) / 1000;
-    const secPerClip = done > 0 ? elapsedSec / done : 0;
-    const etaSec = secPerClip * (ofTotal - done);
-    const etaText = etaSec > 0 ? (' · ~' + Math.ceil(etaSec) + 's left') : '';
-    setProgress(0.5 + (done / ofTotal) * 0.5, 'Transcribing ' + done + '/' + ofTotal + etaText +
-      (label && label.trim() ? ' (' + path.basename(label) + ')' : ''));
-  });
-
-  for (const it of items) { if (it.wav) { try { fs.unlinkSync(it.wav); } catch (e) {} } }
-
-  if (!r.cues.length) log('No speech detected in these clips — nothing to place.');
-  log('Done — ' + r.cues.length + ' captions written.');
-
-  openReview(outSrt, 'sequence', 0, {});
 }
 
 // ------------------------------------------------------------ choose file
 async function runFromFile(input) {
+  if (reviewPlacing) {
+    log('Wait for the current placement to finish.');
+    return;
+  }
+  if (runInProgress || runStartInProgress) {
+    log('A transcription is already running. Wait for it to finish or cancel it first.');
+    return;
+  }
   if (!input.files || input.files.length === 0) return;
   const f = input.files[0];
   clearLog();
@@ -2489,14 +2862,29 @@ async function runFromFile(input) {
 }
 
 async function runFile(filePath, fileName) {
+  if (reviewOpen) closeReview();
   clearLog();
   cancelRequested = false;
+  reviewTrialCharged = false;
+  runFailed = false;
+  activeRunId = newRunId();
+  if (!RUNTIME || !PYTHON || !FFMPEG || !fs.existsSync(PYTHON) || !fs.existsSync(FFMPEG)) {
+    log('ERROR: Transcription runtime is missing or incomplete.');
+    log('Reinstall the correct platform build and restart Premiere.');
+    return;
+  }
+  runStartInProgress = true;
+  try { await refreshTrialFromServer(); }
+  finally { runStartInProgress = false; }
+  if (cancelRequested) return;
   if (!assertCanRun()) return;
+  runInProgress = true;
   setBusy(true);
   setProgress(0, '');
   try {
     const base = filePath.replace(/\.[^.]+$/, '');
     const outSrt = path.join(os.tmpdir(), 'amh_file_' + Date.now() + '.srt');
+    lastSrtPath = outSrt;
     const cleanName = (fileName || path.basename(base) || 'captions').replace(/\.[^.]+$/, '');
     log('Writing captions… this can take a minute.');
     setProgress(0.4, 'Transcribing…');
@@ -2504,12 +2892,22 @@ async function runFile(filePath, fileName) {
     setProgress(0.9, 'Transcription complete');
     if (!r.cues.length) log('No speech detected in this audio — nothing to place.');
     log('Done writing captions.');
-    openReview(outSrt, cleanName, 0);
+    await openReview(outSrt, cleanName, 0);
   } catch (e) {
-    if (!cancelRequested) log('ERROR: ' + (e && e.message ? e.message : e));
+    if (!cancelRequested) {
+      const raw = (e && e.message) ? e.message : String(e);
+      log('ERROR: ' + raw);
+      failRun(raw);
+    }
   } finally {
+    if (cancelRequested) {
+      removeTempCaptionArtifact(lastSrtPath);
+      lastSrtPath = null;
+    }
+    runInProgress = false;
     setBusy(false);
-    setProgress(0, '');
+    if (!cancelRequested && !runFailed) setProgress(0, '');
+    updateLicenseUI();
   }
 }
 

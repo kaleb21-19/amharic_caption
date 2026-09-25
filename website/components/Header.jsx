@@ -32,7 +32,7 @@ export default function Header() {
       <div className="trust-bar">
         <div className="container trust-inner">
           <span>Runs on your computer — no internet, no uploads, no data charges</span>
-          <span>Lifetime license · {PRICE} one-time</span>
+          <span>Perpetual by default · {PRICE} one-time</span>
         </div>
       </div>
 

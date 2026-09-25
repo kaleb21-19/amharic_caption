@@ -9,6 +9,8 @@ set "PY=%RT%\python\python.exe"
 set "FF=%RT%\bin\ffmpeg.exe"
 set "MD=%RT%\model"
 set "TMPW=%TEMP%\amh_verify_test.wav"
+set "DEGRADED=0"
+if exist "%ROOT%DEGRADED_BUILD.txt" set "DEGRADED=1"
 
 set /a PASS=0
 set /a FAIL=0
@@ -27,14 +29,18 @@ call :check "model.bin present"       exist "%MD%\model.bin"
 call :check "model_meta.json present" exist "%MD%\model_meta.json"
 call :check "vocab.json present"       exist "%MD%\vocab.json"
 call :check "config.json present"     exist "%MD%\config.json"
-call :check "speaker_embed.onnx present"    exist "%RT%\speaker_embed.onnx"
-call :check "silero_vad.onnx present"       exist "%RT%\silero_vad.onnx"
-call :check "amh_lm.json.gz present"  exist "%RT%\amh_lm.json.gz"
+if "%DEGRADED%"=="0" (
+  call :check "speaker_embed.onnx present"    exist "%RT%\speaker_embed.onnx"
+  call :check "silero_vad.onnx present"       exist "%RT%\silero_vad.onnx"
+  call :check "amh_lm.json.gz present"       exist "%RT%\amh_lm.json.gz"
+) else (
+  echo [WARN] Explicit degraded test build: optional ML feature checks skipped.
+)
 
 if "%FAIL%"=="0" (
   call :check "ctranslate2, numpy, soundfile imports" pyimport
-  call :check "onnxruntime (VAD) import"             pyimportort
-  call :check "sherpa_onnx (diarization) import"     pyimportsherpa
+  if "%DEGRADED%"=="0" call :check "onnxruntime (VAD) import"             pyimportort
+  if "%DEGRADED%"=="0" call :check "sherpa_onnx (diarization) import"     pyimportsherpa
   call :check "CTranslate2 model loads + warm"       pymodel
   call :check "ffmpeg runs (version)"               ffmpeg
 )

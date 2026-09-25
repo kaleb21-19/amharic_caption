@@ -1,4 +1,7 @@
 ﻿# build_win.ps1
+param(
+    [switch]$AllowDegraded
+)
 #
 # Windows assemble + zip step (equivalent of tools/build.sh for win-x64).
 #
@@ -47,18 +50,23 @@ $BUILD  = Join-Path $env:TEMP "amh_build_$([guid]::NewGuid().ToString('N'))"
 $BNAME  = Join-Path $BUILD "com.amharic.captions"
 New-Item -ItemType Directory -Force -Path (Join-Path $BNAME "runtime\bin") | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $BNAME "runtime\python") | Out-Null
+if ($AllowDegraded) {
+    Set-Content -Path (Join-Path $BUILD "DEGRADED_BUILD.txt") -Value "LOCAL/TEST DEGRADED BUILD - optional ML assets may be absent; NOT FOR RELEASE."
+}
 
 # model - prefer the CTranslate2 INT8 model (tools/stage/model-ct2-int8),
 # fall back to fp16/fp32. Never ships torch at runtime.
 $ModelSrc = Join-Path $STAGE "model-ct2-int8"
 if (Test-Path (Join-Path $ModelSrc "model_meta.json")) {
     Write-Host "  [model] CTranslate2 int8"
-} elseif (Test-Path (Join-Path $STAGE "model-fp16\config.json")) {
+} elseif ($AllowDegraded -and (Test-Path (Join-Path $STAGE "model-fp16\config.json"))) {
     $ModelSrc = Join-Path $STAGE "model-fp16"
-    Write-Host "  [model] fp16 source"
-} else {
+    Write-Host "  [model] fp16 source (degraded build)"
+} elseif ($AllowDegraded -and (Test-Path (Join-Path $ROOT "ethio-asr\config.json"))) {
     $ModelSrc = Join-Path $ROOT "ethio-asr"
-    Write-Host "  [model] fp32 source"
+    Write-Host "  [model] fp32 source (degraded build)"
+} else {
+    Write-Host "  [FAIL] production CTranslate2 int8 model is missing"; exit 1
 }
 Copy-Item $ModelSrc (Join-Path $BNAME "runtime\model") -Recurse
 
@@ -76,6 +84,7 @@ if (Test-Path "$ROOT\tools\embed\nemo_en_titanet_small.onnx") {
     Copy-Item "$ROOT\tools\embed\nemo_en_titanet_small.onnx" (Join-Path $BNAME "runtime\speaker_embed.onnx")
     Write-Host "  [ok] amh_diarize.py + speaker_embed.onnx"
 } else {
+    if (-not $AllowDegraded) { Write-Host "  [FAIL] speaker embedding model missing (use -AllowDegraded only for a non-release build)"; exit 1 }
     Write-Host "  [warn] tools\embed\nemo_en_titanet_small.onnx missing - speaker labels disabled"
 }
 
@@ -85,6 +94,7 @@ if (Test-Path "$ROOT\tools\lm\amh_lm.json.gz") {
     Copy-Item "$ROOT\tools\lm\amh_lm.json.gz" (Join-Path $BNAME "runtime\amh_lm.json.gz")
     Write-Host "  [ok] amh_lm.py + amh_lm.json.gz"
 } else {
+    if (-not $AllowDegraded) { Write-Host "  [FAIL] Amharic word-LM missing (use -AllowDegraded only for a non-release build)"; exit 1 }
     Write-Host "  [warn] tools\lm\amh_lm.json.gz missing - word-LM disabled"
 }
 
@@ -95,6 +105,7 @@ if (Test-Path "$ROOT\tools\vad\silero_vad.onnx") {
     Copy-Item "$ROOT\amh_vad.py" (Join-Path $BNAME "runtime\amh_vad.py")
     Write-Host "  [ok] silero_vad.onnx + amh_vad.py"
 } else {
+    if (-not $AllowDegraded) { Write-Host "  [FAIL] Silero VAD model missing (use -AllowDegraded only for a non-release build)"; exit 1 }
     Write-Host "  [warn] tools\vad\silero_vad.onnx missing - VAD disabled (whole-clip transcribe)"
 }
 
@@ -158,15 +169,29 @@ if (-not $py) { Write-Host "  [FAIL] python not on PATH; cannot generate THIRD-P
 if ($LASTEXITCODE -ne 0) { Write-Host "  [FAIL] gen_notices.py failed"; exit 1 }
 Write-Host "  [ok] licenses/ (GPL text + written offer + third-party notices)"
 
+# User-facing legal documents must travel with every platform archive, not
+# only inside the extension folder. Keep them at the ZIP root beside Install.cmd.
+$LEGAL = Join-Path $ROOT "tools\legal"
+foreach ($f in @("EULA.txt", "PRIVACY.txt", "REFUND.txt")) {
+    $src = Join-Path $LEGAL $f
+    if (-not (Test-Path $src)) { Write-Host "  [FAIL] missing legal document: $src"; exit 1 }
+    Copy-Item $src (Join-Path $BUILD $f)
+}
+Write-Host "  [ok] EULA.txt + PRIVACY.txt + REFUND.txt at zip root"
+
 # ---- 4. zip ----------------------------------------------------------------
 $ZIP = Join-Path $ROOT "dist\amharic-captions-$TARGET.zip"
 New-Item -ItemType Directory -Force -Path (Join-Path $ROOT "dist") | Out-Null
 if (Test-Path $ZIP) { Remove-Item -Force $ZIP }
 
+$ZipEntries = @("com.amharic.captions", "licenses", "Install.cmd", "verify_win.cmd", "VERIFY.md", "EULA.txt", "PRIVACY.txt", "REFUND.txt")
+if (Test-Path (Join-Path $BUILD "DEGRADED_BUILD.txt")) { $ZipEntries += "DEGRADED_BUILD.txt" }
 if (Get-Command 7z -ErrorAction SilentlyContinue) {
-    Push-Location $BUILD; 7z a -tzip -r $ZIP "com.amharic.captions" "licenses" "Install.cmd" "verify_win.cmd" "VERIFY.md" -xr!".DS_Store"; Pop-Location
+    Push-Location $BUILD
+    & 7z a -tzip -r $ZIP @ZipEntries -xr!.DS_Store
+    Pop-Location
 } else {
-    Compress-Archive -Path (Join-Path $BNAME), $LICDST, (Join-Path $BUILD "Install.cmd"), (Join-Path $BUILD "verify_win.cmd"), (Join-Path $BUILD "VERIFY.md") -DestinationPath $ZIP -CompressionLevel Optimal
+    Compress-Archive -Path ($ZipEntries | ForEach-Object { Join-Path $BUILD $_ }) -DestinationPath $ZIP -CompressionLevel Optimal
 }
 Remove-Item -Recurse -Force $BUILD
 Write-Host "== wrote $ZIP =="

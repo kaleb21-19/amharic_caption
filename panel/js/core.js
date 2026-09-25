@@ -98,6 +98,13 @@ function srtTextFromCues(cues) {
   return out;
 }
 
+function vttEscape(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 function vttTextFromCues(cues) {
   const ts = (sec) => {
     sec = Math.max(0, sec);
@@ -111,8 +118,9 @@ function vttTextFromCues(cues) {
   let out = 'WEBVTT\n\n';
   for (const cue of sortable) {
     out += ts(cue.start) + ' --> ' + ts(cue.end) + '\n';
-    const text = cleanCueLines(cue.text);
-    out += (cue.speaker ? '<v ' + cue.speaker + '>' + text + '</v>' : text) + '\n\n';
+    const text = vttEscape(cleanCueLines(cue.text));
+    const voice = cue.speaker ? String(cue.speaker).replace(/[^A-Za-z0-9_-]/g, '') : '';
+    out += (voice ? '<v ' + voice + '>' + text + '</v>' : text) + '\n\n';
   }
   return out;
 }
@@ -150,11 +158,12 @@ function validateLicense(key, machineId) {
     .replace(/^amh/i, '')
     .replace(/[\s-]+/g, '')
     .toLowerCase();
-  if (!/^[0-9a-f]{32}$/.test(clean)) return { ok: false, error: 'Invalid key format' };
+  const midLength = clean.length === 32 ? 8 : (clean.length === 40 ? 16 : 0);
+  if (!midLength || !/^[0-9a-f]+$/.test(clean)) return { ok: false, error: 'Invalid key format' };
 
-  const mid  = clean.substring(0, 8);
-  const exp  = clean.substring(8, 16);
-  const sig  = clean.substring(16, 32);
+  const mid  = clean.substring(0, midLength);
+  const exp  = clean.substring(midLength, midLength + 8);
+  const sig  = clean.substring(midLength + 8, midLength + 24);
 
   if (mid !== String(machineId || '').toLowerCase()) return { ok: false, error: 'Key is for a different machine' };
 
@@ -184,9 +193,9 @@ function validateLicense(key, machineId) {
 // honored locally until its expiry — but a forged localStorage object has no
 // valid signature and is refused.
 //
-// Token format (v1): "v1." + hex(mid8|exp8) + "." + hex(64-byte raw ECDSA
-// signature over the ASCII string "mid|exp"). Compact, safe to store, and the
-// signature is produced with WebCrypto on both ends (raw r||s, not DER).
+// Token format (v1): "v1." + hex(mid|exp8) + "." + hex(64-byte raw ECDSA
+// signature over the ASCII string "mid|exp"). New mid values are 16 hex
+// characters; the parser also accepts legacy 8-hex IDs.
 
 const LICENSE_TOKEN_PUBKEY_PEM =
   '-----BEGIN PUBLIC KEY-----\n' +
@@ -200,12 +209,13 @@ function licenseTokenParse(token) {
   if (parts.length !== 3 || parts[0] !== 'v1') return null;
   const payloadHex = parts[1];
   const sigHex = parts[2];
-  if (!/^[0-9a-f]{16}$/.test(payloadHex) || !/^[0-9a-f]{128}$/.test(sigHex)) return null;
+  const midLength = payloadHex.length === 16 ? 8 : (payloadHex.length === 24 ? 16 : 0);
+  if (!midLength || !/^[0-9a-f]+$/.test(payloadHex) || !/^[0-9a-f]{128}$/.test(sigHex)) return null;
   return {
-    mid: payloadHex.slice(0, 8),
-    exp: payloadHex.slice(8, 16),
+    mid: payloadHex.slice(0, midLength),
+    exp: payloadHex.slice(midLength, midLength + 8),
     sigHex: sigHex,
-    message: payloadHex.slice(0, 8) + '|' + payloadHex.slice(8, 16),
+    message: payloadHex.slice(0, midLength) + '|' + payloadHex.slice(midLength, midLength + 8),
   };
 }
 

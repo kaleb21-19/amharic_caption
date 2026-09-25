@@ -12,7 +12,8 @@ Examples:
     python3 deliver_key.py --search "@kaleb"     # see past key for that buyer
     python3 deliver_key.py --list                # show the whole ledger
 
-Machine IDs are 8-char hex strings shown in the panel's License section.
+Machine IDs are 8- or 16-character hex strings shown in the panel's License
+section. New panels generate 16-character IDs.
 Buyer already pays ETB 2,500 by bank transfer to KALEB TEGEGEN before this runs.
 """
 import argparse
@@ -21,6 +22,7 @@ import hmac
 import hashlib
 import os
 import sys
+from datetime import date
 
 # ── HMAC secret ─────────────────────────────────────────────────────────────
 # Deliberately NOT hard-coded: it lives only in Worker secret AMH_SECRET and
@@ -34,7 +36,10 @@ if not SECRET:
         file=sys.stderr,
     )
     sys.exit(2)
-LEDGER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "customers.csv")
+LEDGER = os.environ.get(
+    "AMH_CUSTOMER_LEDGER",
+    os.path.join(os.path.expanduser("~"), ".amharic_captions", "customers.csv"),
+)
 PAY_METHOD = "bank transfer to KALEB TEGEGEN (CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015)"
 PRICE = "ETB 2,500"
 
@@ -42,10 +47,15 @@ PRICE = "ETB 2,500"
 def generate_key(machine_id: str, expiry: str = "00000000") -> str:
     mid = machine_id.strip().lower()
     exp = expiry.strip()
-    if len(mid) != 8 or not all(c in "0123456789abcdef" for c in mid):
-        raise ValueError(f"Invalid machine ID: {mid!r} (need 8 hex chars)")
+    if len(mid) not in (8, 16) or not all(c in "0123456789abcdef" for c in mid):
+        raise ValueError(f"Invalid machine ID: {mid!r} (need 8 or 16 hex chars)")
     if len(exp) != 8 or not exp.isdigit():
         raise ValueError(f"Invalid expiry: {exp!r} (need YYYYMMDD or 00000000)")
+    if exp != "00000000":
+        try:
+            date(int(exp[:4]), int(exp[4:6]), int(exp[6:]))
+        except ValueError as e:
+            raise ValueError(f"Invalid calendar expiry: {exp!r}") from e
     msg = f"{mid}|{exp}".encode()
     sig = hmac.new(SECRET, msg, hashlib.sha256).hexdigest()[:16]
     raw = f"{mid}{exp}{sig}"
@@ -76,10 +86,20 @@ def save(mid, name, expiry, key):
     new = {"machine_id": mid, "name": name or "-", "expiry": expiry,
            "key": key, "status": "sold"}
     rows.append(new)
-    with open(LEDGER, "w", newline="", encoding="utf-8") as f:
+    parent = os.path.dirname(os.path.abspath(LEDGER))
+    os.makedirs(parent, exist_ok=True)
+    tmp = os.path.join(parent, os.path.basename(LEDGER) + ".tmp")
+    with open(tmp, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=header)
         w.writeheader()
         w.writerows(rows)
+        f.flush()
+        os.fsync(f.fileno())
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:
+        pass
+    os.replace(tmp, LEDGER)
 
 
 def telegram_message(mid, name, key, expiry):

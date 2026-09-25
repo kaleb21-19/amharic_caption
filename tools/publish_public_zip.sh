@@ -1,65 +1,93 @@
 #!/usr/bin/env bash
+# Stage one built platform zip on a *draft* product release.
 #
-# Upload one platform's built zip to THIS repo's releases (kaleb21-19/
-# amharic_caption), which is public, so customers can download the asset
-# anonymously — GitHub only serves release assets of private repos to authed
-# API clients (browsers get 404). Each build job calls this with its zip; the
-# release tag is the semver extension version so GitHub's releases/latest
-# always resolves to the newest build.
+# A build job must never make a customer-visible asset before the test and
+# accuracy gates pass. The final publish job verifies the draft and flips it to
+# public. Re-runs refuse to overwrite an existing asset; an already-present zip
+# is accepted only when its recorded SHA-256 matches the local build.
 #
 # Usage: bash tools/publish_public_zip.sh <path-to-zip>
-#
-# Requires GH_TOKEN (the workflow's GITHUB_TOKEN, with contents: write). The
-# release is created on first publish and assets are overwritten (--clobber)
-# on re-runs.
+# Env:   GH_TOKEN, optional RELEASE_TAG and GITHUB_REPOSITORY.
 set -euo pipefail
 
 ZIP="${1:?usage: publish_public_zip.sh <path-to-zip>}"
 test -f "$ZIP" || { echo "zip not found: $ZIP" >&2; exit 1; }
 test -n "${GH_TOKEN:-}" || { echo "GH_TOKEN not set" >&2; exit 1; }
 
-PUB="kaleb21-19/amharic_caption"
+PUB="${GITHUB_REPOSITORY:-kaleb21-19/amharic_caption}"
 VER="$(grep -o 'ExtensionBundleVersion="[^"]*"' panel/CSXS/manifest.xml | head -1 | sed 's/[^"]*"//;s/"//')"
 test -n "$VER" || { echo "could not read ExtensionBundleVersion from panel/CSXS/manifest.xml" >&2; exit 1; }
-TAG="v${VER}"
+TAG="${RELEASE_TAG:-v${VER}}"
+BASE="$(basename "$ZIP")"
+CASE_SUM_NAME="${BASE}.sha256"
+CASE_SUM_PATH="${ZIP}.sha256"
 
-# Portable SHA-256. This runs on ubuntu, macOS AND Windows (Git Bash), and the
-# three do not agree on which tool exists: coreutils `sha256sum` is absent on
-# macOS, and `shasum` is a Perl script that is not guaranteed to be on Git
-# Bash's PATH. Under `set -e` a missing tool killed the script BEFORE the
-# upload, which is how v1.4.26 shipped with both macOS zips and no Windows zip
-# at all — the release simply had no win-x64 asset, so the website's Windows
-# download 404'd while macOS worked.
-sha256_into() {
-  local file="$1" out="$2"
-  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$file" > "$out"
-  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$file" > "$out"
-  elif command -v openssl >/dev/null 2>&1; then openssl dgst -sha256 -r "$file" > "$out"
+sha256_file() {
+  local file="$1"
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$file" | awk '{print $1; exit}'
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$file" | awk '{print $1; exit}'
+  elif command -v openssl >/dev/null 2>&1; then openssl dgst -sha256 -r "$file" | awk '{print $1; exit}'
   else
     echo "no sha256 tool found (tried sha256sum, shasum, openssl)" >&2
     return 1
   fi
 }
-sha256_into "$ZIP" "$ZIP.sha256"
+sha256_into() {
+  local file="$1" out="$2" name hash
+  name="$(basename "$file")"
+  hash="$(sha256_file "$file")"
+  printf '%s  %s\n' "$hash" "$name" > "$out"
+}
+sha256_into "$ZIP" "$CASE_SUM_PATH"
+LOCAL_HASH="$(awk '{print $1; exit}' "$CASE_SUM_PATH")"
+test -n "$LOCAL_HASH" || { echo "could not calculate SHA-256" >&2; exit 1; }
 
-# Create the release once (first publishing job to reach it); later jobs just
-# upload --clobber. The tag stays semver so releases/latest always resolves.
-gh release view "$TAG" --repo "$PUB" >/dev/null 2>&1 || \
-  gh release create "$TAG" --repo "$PUB" \
-    --title "Amharic Captions v${VER}" \
-    --notes "Amharic Captions v${VER} — self-contained builds for Windows 10/11, macOS (Apple Silicon), Intel Mac. Download the zip for your platform and install into Adobe CEP extensions. Install guide: https://amharic-caption-pro.vercel.app/install/" \
-    >/dev/null 2>&1 || true
+if ! gh release view "$TAG" --repo "$PUB" >/dev/null 2>&1; then
+  gh release create "$TAG" --repo "$PUB" --draft \
+    --title "Amharic Captions v${VER} (staged)" \
+    --notes "Staged build for v${VER}. This draft is not public until all platform builds, tests, and accuracy gates pass." \
+    >/dev/null || gh release view "$TAG" --repo "$PUB" >/dev/null
+fi
 
-gh release upload "$TAG" --repo "$PUB" "$ZIP" "$ZIP.sha256" --clobber
+DRAFT="$(gh release view "$TAG" --repo "$PUB" --json isDraft --jq '.isDraft')"
+test "$DRAFT" = "true" || { echo "release $TAG is already public; refusing to add assets" >&2; exit 1; }
 
-# Confirm the asset is actually ON the release. `gh release upload` can report
-# success for an upload that does not land, and a missing zip is invisible
-# until a customer clicks Download and gets a 404.
-BASE="$(basename "$ZIP")"
-gh release view "$TAG" --repo "$PUB" --json assets \
-  --jq '.assets[].name' 2>/dev/null | grep -Fxq "$BASE" || {
-    echo "upload reported success but $BASE is NOT on release $TAG" >&2
+assets="$(gh release view "$TAG" --repo "$PUB" --json assets --jq '.assets[].name')"
+if echo "$assets" | grep -Fxq "$BASE"; then
+  # Idempotent re-run: never use --clobber. Verify the recorded digest before
+  # accepting an asset that is already on the draft.
+  echo "$assets" | grep -Fxq "$CASE_SUM_NAME" || {
+    echo "$BASE already exists without its checksum; refusing to trust/replace it" >&2
     exit 1
   }
+  TMP="$(mktemp -d)"
+  trap 'rm -rf "$TMP"' EXIT
+  gh release download "$TAG" --repo "$PUB" --pattern "$CASE_SUM_NAME" --dir "$TMP" >/dev/null
+  REMOTE_HASH="$(awk '{print $1; exit}' "$TMP/$CASE_SUM_NAME")"
+  REMOTE_NAME="$(awk '{print $2; exit}' "$TMP/$CASE_SUM_NAME" | sed 's/^\*//')"
+  test "$REMOTE_NAME" = "$BASE" || {
+    echo "existing checksum record names $REMOTE_NAME, expected $BASE" >&2
+    exit 1
+  }
+  # Verify the archive bytes, not merely the separately stored digest text.
+  gh release download "$TAG" --repo "$PUB" --pattern "$BASE" --dir "$TMP" >/dev/null
+  ACTUAL_REMOTE_HASH="$(sha256_file "$TMP/$BASE")"
+  test "$REMOTE_HASH" = "$LOCAL_HASH" && test "$ACTUAL_REMOTE_HASH" = "$LOCAL_HASH" || {
+    echo "existing $BASE bytes/checksum differ; refusing mutable overwrite" >&2
+    exit 1
+  }
+  echo "already staged and verified: $BASE"
+else
+  gh release upload "$TAG" --repo "$PUB" "$ZIP" "$CASE_SUM_PATH"
+fi
 
-echo "published $BASE -> $PUB $TAG (verified on the release)"
+# Confirm both the archive and digest are actually attached to the draft.
+assets="$(gh release view "$TAG" --repo "$PUB" --json assets --jq '.assets[].name')"
+for required in "$BASE" "$CASE_SUM_NAME"; do
+  echo "$assets" | grep -Fxq "$required" || {
+    echo "upload reported success but $required is not on draft $TAG" >&2
+    exit 1
+  }
+done
+
+echo "staged $BASE -> $PUB $TAG (draft; not public)"

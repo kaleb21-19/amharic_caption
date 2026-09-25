@@ -336,19 +336,33 @@ function amharic_getSelectedClip() {
             return null;
         };
 
-        // For a trimmed/razored track clip the SOURCE range we must transcribe
-        // is [inPoint, outPoint] in the media's timebase, and the TIMELINE
-        // length is outPoint - inPoint. Reading .duration directly is less
-        // reliable after trims on some versions, so prefer inPoint/outPoint.
+        // The source range and timeline range are separate. A speed change or
+        // reverse makes source seconds impossible to map with the fields
+        // exposed here, so reject it explicitly instead of placing wrong cues.
         var sourceIn = toSec(picked.inPoint);
-        var outPt    = toSec(picked.outPoint);
-        if (outPt === null) { outPt = (sourceIn === null ? 0 : sourceIn) + toSec(picked.duration); }
-        if (sourceIn === null) { sourceIn = 0; }
-        if (outPt === null) { outPt = sourceIn + toSec(picked.duration); }
-        var dur = outPt - sourceIn;
-        if (!(dur > 0)) { dur = toSec(picked.duration); if (!(dur > 0)) { dur = 0; } }
+        var outPt = toSec(picked.outPoint);
         var tlStart = toSec(picked.start);
+        var tlEnd = toSec(picked.end);
+        var pickedDuration = toSec(picked.duration);
+        if (tlEnd === null && tlStart !== null && pickedDuration !== null) {
+            tlEnd = tlStart + pickedDuration;
+        }
         if (tlStart === null) { tlStart = 0; }
+        if (tlEnd === null || !(tlEnd > tlStart)) { return amhErr("The selected clip has no usable timeline range."); }
+        var timelineDuration = tlEnd - tlStart;
+        var hasSourceRange = (sourceIn !== null && outPt !== null && outPt > sourceIn);
+        var sourceDuration = hasSourceRange ? (outPt - sourceIn) : timelineDuration;
+        if (sourceIn === null) { sourceIn = 0; }
+        if (!hasSourceRange) { outPt = sourceIn + sourceDuration; }
+        var reverse = false;
+        try {
+            if (typeof picked.isReverse === "function") { reverse = !!picked.isReverse(); }
+            else if (typeof picked.isReverse !== "undefined") { reverse = !!picked.isReverse; }
+        } catch (e) {}
+        if (reverse || Math.abs(sourceDuration - timelineDuration) > 0.05) {
+            return amhErr("This clip has speed, retime, or reverse playback that is not supported yet.");
+        }
+        var dur = sourceDuration;
 
         return amhOk({
             sourcePath: src,
@@ -356,6 +370,7 @@ function amharic_getSelectedClip() {
             sourceOut: outPt,
             duration: dur,
             timelineStart: tlStart,
+            timelineEnd: tlEnd,
             name: picked.projectItem.name,
             mode: "clip",
             via: pickedVia
@@ -408,6 +423,7 @@ function amharic_getSequenceInfo(all) {
         var filterByWorkArea = !(all === true);
 
         var clips = [];
+        var unsupported = [];
         var seen = {};
         var collections = [];
         try { collections.push(seq.videoTracks); } catch (e) {}
@@ -420,25 +436,71 @@ function amharic_getSequenceInfo(all) {
                         for (var c = 0; c < track.clips.numItems; c++) {
                             var clip = track.clips[c];
                             if (!clip || !clip.projectItem) { continue; }
-                            var tlStart = toSec(clip.start);
-                            var sIn = toSec(clip.inPoint);
-                            var outPt = toSec(clip.outPoint);
-                            var dur = (outPt !== null && sIn !== null) ? (outPt - sIn) : toSec(clip.duration);
                             var src = amhMediaPath(clip.projectItem);
-                            if (tlStart === null || dur === null || !(dur > 0)) { continue; }
+                            var tlStart = toSec(clip.start);
+                            var tlEnd = toSec(clip.end);
+                            var timelineDuration = toSec(clip.duration);
+                            if (tlEnd === null && tlStart !== null && timelineDuration !== null) {
+                                tlEnd = tlStart + timelineDuration;
+                            }
+                            if (tlStart === null || tlEnd === null || !(tlEnd > tlStart)) { continue; }
+                            timelineDuration = tlEnd - tlStart;
                             if (!src) { continue; }
-                            // skip clips entirely outside the work area
-                            if (filterByWorkArea && ((tlStart + dur) < inP || tlStart > outP)) { continue; }
-                            // avoid duplicate video+audio of the same linked clip
-                            var key = src + "@" + tlStart;
+
+                            var sIn = toSec(clip.inPoint);
+                            var sOut = toSec(clip.outPoint);
+                            var hasSourceRange = (sIn !== null && sOut !== null && sOut > sIn);
+                            var sourceDuration = hasSourceRange ? (sOut - sIn) : timelineDuration;
+                            if (sIn === null) { sIn = 0; }
+
+                            var reverse = false;
+                            try {
+                                if (typeof clip.isReverse === "function") { reverse = !!clip.isReverse(); }
+                                else if (typeof clip.isReverse !== "undefined") { reverse = !!clip.isReverse; }
+                            } catch (e) {}
+                            try {
+                                if (!reverse && typeof clip.projectItem.isReverse === "function") {
+                                    reverse = !!clip.projectItem.isReverse();
+                                }
+                            } catch (e) {}
+
+                            // A source duration that differs from the timeline
+                            // duration means a speed change/retime. We cannot
+                            // map source seconds to timeline seconds correctly
+                            // from these fields, so skip it explicitly rather
+                            // than placing captions at the wrong times.
+                            if (reverse || Math.abs(sourceDuration - timelineDuration) > 0.05) {
+                                unsupported.push({
+                                    name: clip.projectItem.name,
+                                    reason: reverse ? "reverse playback" : "speed/retime mapping"
+                                });
+                                continue;
+                            }
+
+                            var segStart = tlStart;
+                            var segEnd = tlEnd;
+                            if (filterByWorkArea) {
+                                segStart = Math.max(tlStart, inP);
+                                segEnd = Math.min(tlEnd, outP);
+                            }
+                            if (!(segEnd > segStart)) { continue; }
+
+                            var clippedSourceIn = sIn + (segStart - tlStart);
+                            var clippedDuration = segEnd - segStart;
+                            // Linked video/audio instances share this key. A
+                            // different trim at the same timeline position is
+                            // intentionally a separate clip.
+                            var key = src + "|" + segStart.toFixed(3) + "|" +
+                                clippedSourceIn.toFixed(3) + "|" + clippedDuration.toFixed(3);
                             if (seen[key]) { continue; }
                             seen[key] = true;
                             clips.push({
                                 name: clip.projectItem.name,
                                 sourcePath: src,
-                                sourceIn: (sIn === null ? 0 : sIn),
-                                duration: dur,
-                                timelineStart: tlStart
+                                sourceIn: clippedSourceIn,
+                                duration: clippedDuration,
+                                timelineStart: segStart,
+                                timelineEnd: segEnd
                             });
                         }
                     } catch (e) {}
@@ -447,7 +509,7 @@ function amharic_getSequenceInfo(all) {
         }
         clips.sort(function (a, b) { return a.timelineStart - b.timelineStart; });
 
-        return amhOk({ inPoint: inP, outPoint: outP, clips: clips });
+        return amhOk({ inPoint: inP, outPoint: outP, clips: clips, unsupported: unsupported });
     });
 }
 
@@ -511,30 +573,29 @@ function amh_importCaptions(argsJSON) {
         var srtBase = (String(args.srtPath || "").replace(/\\/g, "/").split("/").pop() || "")
                           .replace(/\.srt$/i, "");
         var bin = amhFindOrCreateBin(AMH_CAPTION_BIN);
-        // Clear OUR old caption track from a previous run so the timeline is
-        // clean before we remove old bin items (a deleted item's projectItem
-        // becomes unresolvable, so track identification must happen while the
-        // old clips still exist). Other user caption tracks are untouched.
-        amhClearCaptionTrack(seq, baseName, srtBase);
-        // Remove any pre-existing caption item with this name so a re-run
-        // always lands a single, freshly-updated caption item (no duplicates,
-        /// no stale content). Match the human label AND any leftover generated
-        // items (amh_captions_*, amh_sequence_*, amh_file_*) so re-runs stay
-        // clean even though Premiere names imported items after the temp file.
-        amhRemoveCaptionItems(bin, baseName);
-        amhRemoveCaptionItems(bin, "amh_captions_");
-        amhRemoveCaptionItems(bin, "amh_sequence_");
-        amhRemoveCaptionItems(bin, "amh_file_");
-        // P2+ writes the reviewed SRT with an amh_review_* temp name; Premiere
-        // names the imported caption item after that, so a re-run must also
-        // clean these or the previous run's captions stay on the timeline.
-        amhRemoveCaptionItems(bin, "amh_review_");
+        // Keep the previous caption track and bin items until the replacement
+        // has imported AND Premiere confirms placement. Destructive cleanup is
+        // intentionally deferred until after amhPlaceCaptions() succeeds.
 
-        // Import the SRT.
+        // Import the SRT. Do not fall back to an old item with the same name:
+        // deferred cleanup means stale extension items can still be in the bin.
         var imported = app.project.importFiles([args.srtPath], true, bin, false);
-        if (!imported && !amhFindCaptionItem(bin, baseName) && !amhFindCaptionItem(bin, srtBase)) {
-            return amhErr("Premiere refused to import the caption file.");
-        }
+        if (!imported) return amhErr("Premiere refused to import the caption file.");
+        var importedItem = null;
+        try {
+            if (typeof imported.length === "number" && imported.length > 0) {
+                for (var ii = imported.length - 1; ii >= 0; ii--) {
+                    var candidate = imported[ii];
+                    var candidateName = "";
+                    try { candidateName = String(candidate.name || ""); } catch (e) {}
+                    if (amhIsCaptionItem(candidate) || /\.(srt|vtt)$/i.test(candidateName)) {
+                        importedItem = candidate;
+                        break;
+                    }
+                }
+                if (!importedItem) importedItem = imported[imported.length - 1];
+            }
+        } catch (e) {}
 
         // Find the imported item by (in order) human label, SRT file base name,
         // or the most recently added caption item as a last resort.
@@ -546,7 +607,7 @@ function amh_importCaptions(argsJSON) {
         // SRT file base name first — it uniquely names the imported caption item
         // (amh_review_*/amh_file_*/amh_captions_*) — and only accept a baseName
         // match when it's caption-typed or .srt/.vtt-named.
-        var captionItem = null;
+        var captionItem = importedItem;
         var firstMatch = null;
         var tryFind = function (name) {
             var it = amhFindCaptionItem(bin, name);
@@ -557,7 +618,7 @@ function amh_importCaptions(argsJSON) {
             if (amhIsCaptionItem(it) || /\.(srt|vtt)$/i.test(nm)) { return it; }
             return null;
         };
-        captionItem = tryFind(srtBase) || tryFind(baseName) || firstMatch;
+        captionItem = captionItem || tryFind(srtBase) || tryFind(baseName) || firstMatch;
         if (!captionItem) {
             try { captionItem = amhFindLastCaptionItem(bin); } catch (e) {}
         }
@@ -574,8 +635,20 @@ function amh_importCaptions(argsJSON) {
             try { foundN = String(captionItem.name || ""); } catch (e) {}
             if (!amhIsCaptionItem(captionItem) && !/\.(srt|vtt)$/i.test(foundN)) {
                 try {
-                    app.project.importFiles([args.srtPath], false, bin, false);
-                    captionItem = tryFind(srtBase) || tryFind(baseName) || firstMatch;
+                    var reimported = app.project.importFiles([args.srtPath], false, bin, false);
+                    if (reimported && typeof reimported.length === "number" && reimported.length > 0) {
+                        importedItem = reimported[reimported.length - 1];
+                        for (var ri = reimported.length - 1; ri >= 0; ri--) {
+                            var rc = reimported[ri];
+                            var rn = "";
+                            try { rn = String(rc.name || ""); } catch (e) {}
+                            if (amhIsCaptionItem(rc) || /\.(srt|vtt)$/i.test(rn)) {
+                                importedItem = rc;
+                                break;
+                            }
+                        }
+                    }
+                    captionItem = importedItem || tryFind(srtBase) || tryFind(baseName) || firstMatch;
                 } catch (e) {}
             }
         }
@@ -584,6 +657,22 @@ function amh_importCaptions(argsJSON) {
         var ticks = amhSecondsToTicks(startSeconds);
 
         var result = amhPlaceCaptions(seq, captionItem, ticks, startSeconds);
+
+        if (result.placed) {
+            // Transactional cleanup: the new caption is live first. Only then
+            // remove old extension-owned tracks/items, and never the current
+            // unique import name.
+            amhClearCaptionTrack(seq, baseName, srtBase, srtBase);
+            amhRemoveCaptionItems(bin, baseName, srtBase);
+            amhRemoveCaptionItems(bin, "amh_captions_", srtBase);
+            amhRemoveCaptionItems(bin, "amh_sequence_", srtBase);
+            amhRemoveCaptionItems(bin, "amh_file_", srtBase);
+            amhRemoveCaptionItems(bin, "amh_review_", srtBase);
+        } else {
+            // Placement failed: remove only the exact unused import we just
+            // created. Existing captions remain untouched.
+            amhDeleteImportedItem(captionItem);
+        }
 
         // Diagnostic: read back where the caption actually landed on the
         // timeline so we can correlate "requested start" vs "real start".
@@ -607,7 +696,7 @@ function amh_importCaptions(argsJSON) {
         } catch (e) {}
 
         return amhOk({
-            captionItemName: captionItem.name,
+            captionItemName: (function () { try { return String(captionItem && captionItem.name || ""); } catch (e) { return ""; } })(),
             placement: result.how,
             placed: result.placed,
             requestedStart: startSeconds,
@@ -640,17 +729,19 @@ function amh_importCaptions(argsJSON) {
 }
 
 function amhFindCaptionItem(bin, baseName) {
-    // Return the LAST (most recently added) matching child so we never pick a
-    // stale caption item from a previous run.
+    // Only exact/generated names are eligible. Substring matching could select
+    // a media clip whose name happens to contain a user's label.
+    var target = String(baseName || "").toLowerCase();
     var found = null;
     try {
         for (var i = 0; i < bin.children.numItems; i++) {
             var ch = bin.children[i];
             var nm = "";
-            try { nm = String(ch.name); } catch (e) {}
-            if (nm.toLowerCase().indexOf(baseName.toLowerCase()) >= 0) {
-                found = ch;
-            }
+            try { nm = String(ch.name || ""); } catch (e) {}
+            var lower = nm.toLowerCase();
+            var exact = lower === target || lower === target + ".srt" || lower === target + ".vtt";
+            var generated = target.indexOf("amh_") === 0 && lower.indexOf(target) === 0;
+            if ((exact || generated) && amhIsCaptionItem(ch)) found = ch;
         }
     } catch (e) {}
     return found;
@@ -685,7 +776,7 @@ function amhFindLastCaptionItem(bin) {
             var ch = bin.children[i];
             var nm = "";
             try { nm = String(ch.name).toLowerCase(); } catch (e) {}
-            if (amhIsCaptionItem(ch) || nm.indexOf("caption") >= 0 || nm.indexOf(".srt") >= 0) {
+            if (amhIsCaptionItem(ch) || (nm.indexOf("amh_") === 0 && nm.indexOf(".srt") >= 0)) {
                 found = ch;
                 break;
             }
@@ -694,59 +785,180 @@ function amhFindLastCaptionItem(bin) {
     return found;
 }
 
-function amhRemoveCaptionItems(bin, baseName) {
+function amhCanonicalCaptionName(name) {
+    var n = String(name || "").toLowerCase();
+    n = n.replace(/\.(srt|vtt)$/, "");
+    return n;
+}
+
+function amhForEachSequence(fn) {
+    var seen = [];
+    var complete = true;
+    function sameObject(a, b) {
+        for (var i = 0; i < seen.length; i++) if (seen[i] === a) return true;
+        return false;
+    }
+    function visit(seq) {
+        if (!seq || sameObject(seq)) return;
+        seen.push(seq);
+        try {
+            if (fn(seq) === false) complete = false;
+        } catch (e) { complete = false; }
+    }
     try {
+        var project = app && app.project;
+        if (!project) return { complete: false, count: 0 };
+        var root = project.rootItem;
+        var walk = function (container) {
+            if (!container) { complete = false; return; }
+            var children;
+            try { children = container.children; } catch (e) { complete = false; return; }
+            if (!children) return; // ordinary media/leaf project item
+            if (typeof children.numItems !== 'number') { complete = false; return; }
+            for (var i = 0; i < children.numItems; i++) {
+                var child;
+                try { child = children[i]; } catch (e) { complete = false; continue; }
+                var isSequence = false;
+                var hasCaptionField = false;
+                try {
+                    var trackValue = child.captionTracks;
+                    hasCaptionField = trackValue !== undefined;
+                    isSequence = !!trackValue;
+                } catch (e) { complete = false; }
+                if (isSequence) visit(child);
+                else if (hasCaptionField) complete = false;
+                else walk(child);
+            }
+        };
+        walk(root);
+
+        // Some Premiere versions expose unsaved/non-active sequences only via
+        // project.sequences. Include them rather than assuming the root tree is
+        // complete.
+        try {
+            var sequences = project.sequences;
+            if (sequences) {
+                if (typeof sequences.numItems !== 'number') complete = false;
+                else for (var si = 0; si < sequences.numItems; si++) {
+                    try { visit(sequences[si]); } catch (e) { complete = false; }
+                }
+            }
+        } catch (e) { complete = false; }
+
+        // The active sequence can be outside the project-item tree until saved.
+        try { if (project.activeSequence) visit(project.activeSequence); }
+        catch (e) { complete = false; }
+        return { complete: complete, count: seen.length };
+    } catch (e) { return { complete: false, count: seen.length }; }
+}
+
+// A bin item is unsafe to remove if any sequence in the project references it.
+// Checking only app.project.activeSequence used to delete a caption still used
+// by another sequence. Any incomplete Premiere API view is treated as a
+// possible reference and therefore blocks deletion.
+function amhCaptionItemIsReferenced(item) {
+    if (!item) return false;
+    var target = amhCanonicalCaptionName(item.name);
+    if (!target) return true; // unnamed/ambiguous item: fail closed
+    var found = false;
+    var scan = amhForEachSequence(function (seq) {
+        if (found) return true;
+        try {
+            var tracks = seq.captionTracks;
+            if (!tracks || typeof tracks.numTracks !== 'number') return false;
+            for (var i = 0; i < tracks.numTracks; i++) {
+                var track = tracks[i];
+                var clips = track && track.clips;
+                if (!clips || typeof clips.numItems !== 'number') return false;
+                for (var j = 0; j < clips.numItems; j++) {
+                    var pj;
+                    try { pj = clips[j].projectItem; } catch (e) { return false; }
+                    if (!pj) return false;
+                    if (pj === item || amhCanonicalCaptionName(pj.name) === target) {
+                        found = true;
+                        return true;
+                    }
+                }
+            }
+            return true;
+        } catch (e) { return false; }
+    });
+    // If Premiere could not expose every sequence/track/clip, fail closed.
+    if (!scan || !scan.complete || !scan.count) return true;
+    return found;
+}
+
+function amhRemoveCaptionItems(bin, baseName, keepName) {
+    try {
+        var wanted = amhCanonicalCaptionName(baseName);
+        var keep = amhCanonicalCaptionName(keepName);
+        var isGenerated = wanted.indexOf("amh_") === 0;
         for (var i = bin.children.numItems - 1; i >= 0; i--) {
             var ch = bin.children[i];
-            var nm = "";
-            try { nm = String(ch.name); } catch (e) {}
-            if (nm.toLowerCase().indexOf(baseName.toLowerCase()) < 0) { continue; }
-            // Try every plausible delete method; caption items sometimes only
-            // respond to one of them.
-            try { ch.deleteMatchingFootage(); } catch (e) {}
-            try { ch.deleteSelf(); } catch (e) {}
-            try { ch.media.detach(); } catch (e) {}
+            var lower = amhCanonicalCaptionName(ch.name);
+            if (keep && lower === keep) { continue; }
+
+            // Prefix cleanup is intentionally limited to our generated names.
+            // Human labels use exact matching, never substring matching against
+            // arbitrary media/project items.
+            var owned = isGenerated
+                ? lower.indexOf(wanted) === 0
+                : (lower === wanted);
+            if (!owned || !amhIsCaptionItem(ch) || amhCaptionItemIsReferenced(ch)) { continue; }
+            amhDeleteImportedItem(ch);
         }
     } catch (e) {}
 }
 
-// Non-destructive: only remove OUR caption tracks from a previous run, leaving
-// any other user caption tracks untouched. A track is "ours" when at least one
-// of its clips references our bin item (imported SRT base names amh_captions_*,
-// amh_sequence_*, amh_file_*, or the human label baseName / srtBase).
-function amhCaptionTrackIsOurs(t, baseName, srtBase) {
+// Delete an exact item created by this extension. Never use
+// deleteMatchingFootage(): that API can remove unrelated project/media items.
+// If Premiere refuses deleteSelf, leave the item in the bin for manual review.
+function amhDeleteImportedItem(item) {
+    if (!item || !amhIsCaptionItem(item) || amhCaptionItemIsReferenced(item)) return false;
+    try { item.deleteSelf(); return true; } catch (e) { return false; }
+}
+
+// Non-destructive: remove a caption track only when every clip is known to be
+// extension-owned. A track containing one user clip is never removed.
+function amhCaptionTrackIsOurs(t, baseName, srtBase, keepSrtBase) {
     try {
-        var clips = t.clips;
-        if (clips && clips.numItems > 0) {
-            for (var i = 0; i < clips.numItems; i++) {
-                var ci = clips[i];
-                var pj = null;
-                try { pj = ci.projectItem; } catch (e) { pj = null; }
-                var nm = pj ? String(pj.name || "") : "";
-                if (nm === "") {
-                    try { nm = String(ci.name || ""); } catch (e) { nm = ""; }
-                }
-                if (nm.length > 0) {
-                    if (nm.indexOf("amh_captions_") === 0) return true;
-                    if (nm.indexOf("amh_sequence_") === 0) return true;
-                    if (nm.indexOf("amh_file_") === 0) return true;
-                    if (nm.indexOf("amh_review_") === 0) return true;
-                    if (nm === baseName || nm === srtBase) return true;
-                }
+        var clips = t && t.clips;
+        if (!clips || clips.numItems < 1) return false;
+        var wantedBase = amhCanonicalCaptionName(baseName);
+        var wantedSrt = amhCanonicalCaptionName(srtBase);
+        var keep = amhCanonicalCaptionName(keepSrtBase);
+        for (var i = 0; i < clips.numItems; i++) {
+            var ci = clips[i];
+            var pj = null;
+            try { pj = ci.projectItem; } catch (e) { pj = null; }
+            if (!pj || !amhIsCaptionItem(pj)) return false;
+            var nm = pj ? String(pj.name || "") : "";
+            if (nm === "") {
+                try { nm = String(ci.name || ""); } catch (e) { nm = ""; }
             }
+            var canonical = amhCanonicalCaptionName(nm);
+            if (!canonical) return false;
+            if (keep && canonical === keep) return false;
+            var generated = canonical.indexOf("amh_captions_") === 0 ||
+                canonical.indexOf("amh_sequence_") === 0 ||
+                canonical.indexOf("amh_file_") === 0 ||
+                canonical.indexOf("amh_review_") === 0;
+            if (generated && pj && !amhIsCaptionItem(pj)) return false;
+            if (!generated && canonical !== wantedBase && canonical !== wantedSrt) return false;
         }
+        return true;
     } catch (e) {}
     return false;
 }
 
-function amhClearCaptionTrack(seq, baseName, srtBase) {
+function amhClearCaptionTrack(seq, baseName, srtBase, keepSrtBase) {
     try {
         var tracks = seq.captionTracks;
         if (tracks && tracks.numTracks > 0) {
             for (var i = 0; i < tracks.numTracks; i++) {
                 var t = tracks[i];
                 try {
-                    if (amhCaptionTrackIsOurs(t, baseName, srtBase)) t.remove();
+                    if (amhCaptionTrackIsOurs(t, baseName, srtBase, keepSrtBase)) t.remove();
                 } catch (e) {}
             }
         }

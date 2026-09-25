@@ -11,6 +11,6 @@
     "set-webhook": "node scripts/set_webhook.mjs"
   },
   "devDependencies": {
-    "wrangler": "^4.0.0"
+    "wrangler": "4.139.0"
   }
 }

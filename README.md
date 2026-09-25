@@ -1,12 +1,12 @@
 # Amharic Captions — Premiere Pro Extension
 
-Local Amharic speech-to-text captions for Adobe Premiere Pro. Runs entirely on-device — no uploads, no internet required after install.
+Local Amharic speech-to-text captions for Adobe Premiere Pro. Transcription runs entirely on-device; no footage, audio, or transcript is uploaded. A connection is needed for first activation, trial sync, and optional online license checks.
 
 ## Pricing
 
 - **One-time license fee:** ETB 2,500 (~$30)
 - **Payment:** Bank transfer to KALEB TEGEGEN (CBE / Abyssinia / Zemen)
-- **License:** Per-machine, hardware-locked (one key per PC)
+- **License:** Per-installation, file-bound (one key per licensed installation)
 
 ## Requirements
 
@@ -22,37 +22,41 @@ Pay **ETB 2,500** by bank transfer to **KALEB TEGEGEN** — CBE 1000504159977 ·
 2. Restart Premiere Pro → Extensions → Amharic Captions
 3. Copy the **Machine ID** shown in the License section
 4. Send payment by bank transfer to **KALEB TEGEGEN** (CBE 1000504159977 · Abyssinia 402393939 · Zemen 1031111343277015), then send your **Machine ID** + payment screenshot to get your license key
-5. Paste the key into the panel → **Activate** → done. One key per machine (hardware-locked).
+5. Paste the key into the panel → **Activate** → done. One key per licensed installation; do not share the identity or license files.
 
 > **Free trial:** every new machine gets **2 free transcriptions** before a
 > license key is required, so buyers can try it on their own Premiere first.
 
 ### Known limitations
 
-- **Licenses are pinned by a server-signed lease (v1.4.26+).** The panel no
-  longer trusts a bare `{valid:true}` flag in `localStorage` on its own. At
-  activation the license server signs an *install lease* (ECDSA P-256) binding
-  the Machine ID + expiry, and the panel verifies that signature locally with an
-  embedded public key — so a hand-edited storage entry can't unlock it, even
-  offline. Installs activated before this scheme keep a bounded 30-day migration
-  grace (measured from activation) so no existing customer gets locked out; once
-  the license server is redeployed every activation stores a signed token.
+- **Licenses require a server-signed lease.** The panel accepts only a valid
+  ECDSA P-256 lease token bound to the installation's Machine ID. Unsigned
+  `{valid:true}` state is never accepted. The current license is file-bound:
+  the identity and lease files live in the user profile, so copying both files
+  can move a license. Do not share them; online validation can detect and block
+  a key used from multiple locations.
+- **Offline revocation has a deliberate limit.** A previously issued offline
+  lease can be honored without a network connection. Revocation and key-spread
+  enforcement take effect when the panel next contacts the license server; a
+  fully offline client cannot provide an immediate kill switch.
 - **Trial is best-effort offline.** The 2-use trial counter is stored locally
-  (and synced to the server when online). Because the panel must work fully
-  offline, a user who is offline — or who clears the panel's `localStorage` —
-  can reset the trial. We accept this trade-off over breaking offline use. To
-  harden it, gate the 2nd+ use on a successful server round-trip (see
-  `consumeTrialCredit()` in `panel/js/main.js`).
+  and synchronized/charged authoritatively when the server is reachable; a
+  denied or unfinished charge blocks placement. Because the panel must work
+  fully offline, a user who is offline — or who clears the panel's
+  `localStorage` — can still reset the local fallback counter. We accept this
+  trade-off over breaking offline use; the online gate and its limitations are
+  documented in `TESTING.md`.
 - **Batch is per-clip resilient.** If one clip in a work-area run can't be
   decoded or transcribed, it is skipped (logged + counted) instead of aborting
   the whole run. A skipped count is reported when the batch finishes.
 - **Editing a work area is cheap.** Results are cached per clip, so re-running
   a sequence after trimming, moving, or adding a clip only re-transcribes the
   clip(s) that changed.
-- **Long clips are windowed and resumable.** Audio over 5 minutes is transcribed
-  in ~60-second windows snapped to speech boundaries; a partial `.srt` plus a
-  resume journal are written after each window, so an interrupted run continues
-  from where it stopped instead of restarting.
+- **Long clips are windowed and resumable in the standalone engine.** Audio over
+  5 minutes is transcribed in ~20-second windows snapped to speech boundaries;
+  a partial `.srt` plus a resume journal are written after each window. The
+  panel currently creates a new job path for each run, so a killed panel job may
+  need to be started again.
 - **Punctuation is rule-based.** Sentence (`።`) and clause (`፣`) marks are placed
   at detected pauses; the recognizer itself does not predict punctuation.
 - **Speaker labels are opt-in and best-effort.** The "Label speakers (2)" toggle
@@ -70,7 +74,7 @@ Pay **ETB 2,500** by bank transfer to **KALEB TEGEGEN** — CBE 1000504159977 ·
    (no administrator rights needed; create the `extensions` folder if it doesn't exist)
 3. If Adobe doesn't show third-party extensions, force-enable CEP debug mode:
    in the Registry Editor, open
-   `HKEY_CURRENT_USER\Software\Adobe\CSXS.11` and set the DWORD
+   `HKEY_CURRENT_USER\Software\Adobe\CSXS.11` and set the string (REG_SZ)
    `PlayerDebugMode` = `1` (create the key/value if missing), then restart
    Premiere. Using Premiere 2025 (v25) or newer? Also set the same
    `PlayerDebugMode` = `1` under `HKEY_CURRENT_USER\Software\Adobe\CSXS.12`.
@@ -106,7 +110,7 @@ Pay **ETB 2,500** by bank transfer to **KALEB TEGEGEN** — CBE 1000504159977 ·
 
 ```bash
 cd tools
-python3 keygen.py <8-char-hex-machine-id> [YYYYMMDD-expiry]
+python3 keygen.py <8-or-16-char-hex-machine-id> [YYYYMMDD-expiry]
 ```
 
 Examples:
@@ -120,7 +124,8 @@ python3 keygen.py deadbeef 20271231     # expires 2027-12-31
 ```bash
 cd tools
 ./prepare_python.sh    # fetches relocatable python-build-standalone
-./build.sh             # creates dist/amharic-captions-{mac-arm64,mac-x64,win-x64}.zip
+./build.sh mac-arm64   # or mac-x64; Windows uses build_win.ps1
+# creates dist/amharic-captions-<target>.zip
 ```
 
 Or let CI do it: push to `main` and the GitHub Actions workflow builds all 3 zips.
@@ -128,10 +133,11 @@ Or let CI do it: push to `main` and the GitHub Actions workflow builds all 3 zip
 ### Server settings (license/trial/telegram backend)
 
 The Cloudflare Worker docs (`tools/telegram-worker/DEPLOY.md`) cover the
-extension API (`/api/*`), the `AMH_API_KEY` shared-secret header the panel
-sends on every call, and how to rotate it. The license **HMAC secret is never
-stored in this repo and never shipped** — it lives only in Worker secrets, so
-keys can't be forged from the public source.
+extension API (`/api/*`) and deployment security. The API is transport-public;
+a desktop panel cannot keep a meaningful shared secret. License authenticity
+comes from the Worker-only HMAC + D1 row and the required ECDSA signing key.
+The license **HMAC secret is never stored in this repo and never shipped** —
+it lives only in Worker secrets, so keys can't be forged from the public source.
 
 ## Legal, privacy & refunds
 
@@ -143,9 +149,9 @@ Customer-facing terms are published at
 
 Key points, stated plainly in the privacy policy: transcription is fully
 on-device (audio/transcripts never leave the machine); the panel sends a
-version + Machine ID beacon each time it opens, plus activation + trial-usage
-calls; no personal data is sold or shared beyond Cloudflare (hosting) and
-Telegram (ordering/support).
+version + pseudonymous Machine ID beacon when it opens, plus activation and
+trial-usage calls; no personal data is sold or shared beyond Cloudflare, Vercel,
+and Telegram (ordering/support).
 
 ## Tech stack
 

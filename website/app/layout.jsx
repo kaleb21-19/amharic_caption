@@ -53,7 +53,7 @@ export const metadata = {
   metadataBase: new URL(SITE_URL),
   title: "Amharic Captions Pro — 100% Offline Amharic Speech-to-Text for Premiere Pro",
   description:
-    "Amharic captions inside Adobe Premiere Pro — fully on your machine. No uploads, no cloud, no internet needed. One-time ETB 2,500 lifetime license. Free 2-caption trial.",
+    "Amharic captions inside Adobe Premiere Pro — fully on your machine. No uploads, no cloud, no internet needed. One-time ETB 2,500 license (perpetual by default). Free 2-caption trial.",
   openGraph: {
     title: "Amharic Captions Pro — Amharic subtitles inside Adobe Premiere Pro",
     description:
@@ -101,7 +101,7 @@ export default function RootLayout({ children }) {
           "@type": "Offer",
           price: "2500",
           priceCurrency: "ETB",
-          description: "One-time lifetime license.",
+          description: "One-time license, perpetual by default.",
           url: SITE_URL,
           availability: "https://schema.org/InStock",
           priceValidUntil: "2027-12-31",

@@ -81,7 +81,7 @@ key delivery).
 
 1. Buyer joins your group (or DMs the bot) → bot sends the welcome + menu:
    **💳 How to buy · 🛠 Install · ❓ FAQ · 🔑 Get my key**
-2. Buyer sends their **Machine ID** (8 hex chars from the panel's License section).
+2. Buyer sends their **Machine ID** (16 hex chars from the panel's License section; legacy 8-char IDs remain readable).
 3. Bot replies: "Machine ID received — please send ETB 2,500 by bank transfer to KALEB TEGEGEN (CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015)" and **notifies you** with an Approve / Reject / Expire keyboard.
 4. **You check the bank-transfer payment manually.** If received, press **✅ Approve**.
 5. Bot DM's the buyer their license key and logs the sale in `customers.csv`.

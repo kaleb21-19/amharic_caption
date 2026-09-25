@@ -60,8 +60,9 @@ function base64ToArrayBuffer(b64) {
 // NOTE: key derivation is async (HMAC via WebCrypto). The key is computed in
 // `approve()`; do NOT derive it in a sync context.
 async function keyFor(machineId, expiry = '00000000') {
-  const mid = String(machineId).toLowerCase();
-  if (mid.length !== 8 || !/^[0-9a-f]{8}$/.test(mid)) throw new Error('Invalid Machine ID');
+  const mid = String(machineId).trim().toLowerCase();
+  if (!((mid.length === 8 || mid.length === 16) && /^[0-9a-f]+$/.test(mid))) throw new Error('Invalid Machine ID');
+  if (!isValidExpiry(expiry)) throw new Error('Invalid expiry');
   const sig = await hmacHex(SECRET, `${mid}|${expiry}`);
   const raw = mid + expiry + sig.slice(0, 16);
   return 'AMH-' + raw.match(/.{1,4}/g).join('-');
@@ -79,16 +80,38 @@ function hmacHex(secret, msg) {
   });
 }
 
+// License keys are displayed with a human-readable prefix and dashes, while
+// D1 historically stored that formatted form. Compare one canonical body so
+// `AMH-...`, spaced, dashless, and mixed-case pastes cannot select a different
+// cache entry or miss the customer row.
+function canonicalLicenseKey(value) {
+  return String(value || '').trim().replace(/^amh/i, '').replace(/[\s-]+/g, '').toLowerCase();
+}
+
+function isValidMid(value) {
+  return /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(String(value || '').trim().toLowerCase());
+}
+
+function isValidExpiry(value) {
+  const exp = String(value || '');
+  if (!/^\d{8}$/.test(exp)) return false;
+  if (exp === '00000000') return true;
+  const y = Number(exp.slice(0, 4));
+  const m = Number(exp.slice(4, 6));
+  const d = Number(exp.slice(6, 8));
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
 // ── signed install lease (verify side: panel/js/core.js verifyLicenseToken) ─
 // The panel ships only LICENSE_TOKEN_PUBKEY_PEM — the public half of the key
 // below — so a stored localStorage license can be verified LOCALLY, and a
-// hand-written {valid:true} cannot unlock the panel once the lease scheme is
-// live. The private half lives only in this worker: env secret
-// AMH_LICENSE_SIGNING_KEY (PKCS8 PEM). While that secret is unset, /api/validate
-// simply returns no `token` and the current panel keeps its legacy accept path,
-// so the scheme can be enabled progressively (set secret -> redeploy panel).
+// hand-written {valid:true} cannot unlock the panel. The private half lives only
+// in this worker: env secret AMH_LICENSE_SIGNING_KEY (PKCS8 PEM). The signing
+// secret is required for successful validation; a missing or invalid key makes
+// the endpoint fail closed rather than returning a boolean-only success.
 async function signLease(machineId, expiry) {
-  const mid = String(machineId).toLowerCase();
+  const mid = String(machineId).trim().toLowerCase();
   const exp = String(expiry || '00000000');
   const der = pemToDer(SIGN_KEY);
   if (!der) throw new Error('AMH_LICENSE_SIGNING_KEY not set');
@@ -97,6 +120,20 @@ async function signLease(machineId, expiry) {
   const raw = new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, msg));
   const sigHex = [...raw].map((b) => b.toString(16).padStart(2, '0')).join('');
   return 'v1.' + mid + exp + '.' + sigHex; // matches licenseTokenParse() in core.js
+}
+
+async function licenseServicesReady() {
+  if (!SECRET || !SIGN_KEY) return false;
+  try {
+    // Exercise both cryptographic services before an approval changes order
+    // state. This catches a missing HMAC secret or malformed signing PEM.
+    await keyFor('00000000', '00000000');
+    await signLease('00000000', '00000000');
+    return true;
+  } catch (e) {
+    log('error', 'license_service_preflight_failed', { err: String(e && e.message || e) });
+    return false;
+  }
 }
 
 function pemToDer(pem) {
@@ -146,12 +183,13 @@ let ALLOWED_ORIGIN = ''; // comma-separated CORS allow-list ('' => * open)
 const SUPPORT_URL = 'https://t.me/sumpak6';
 const SITE_URL = 'https://amharic-caption-pro.vercel.app';
 let WEBHOOK_SECRET = '';
-let API_KEY = ''; // shared secret for /api/* (panel). Enforcement on when set.
-let SIGN_KEY = ''; // PKCS8 PEM (ECDSA P-256) for signing install leases. Optional.
+let API_KEY = ''; // Optional deployment-level gate; never a license security boundary.
+let API_KEY_REQUIRED = false;
+let SIGN_KEY = ''; // PKCS8 PEM (ECDSA P-256) for signing install leases. Required for activation.
 let CACHE = null; // optional KV namespace (AMH_KV). Absent => graceful fallback.
 let BLOCK_SHARED = false;  // when '1', /api/validate refuses a key seen from too many IPs
 let SPREAD_THRESHOLD = 3;  // distinct source IPs per key before we alert/flag a spread
-let FRESH_MID_LIMIT = 5;   // max new (never-before-seen) mids per IP per day before /api/trial/use 429s
+let FRESH_MID_LIMIT = 5;   // max new (never-before-seen) mids per IP/day before trial use saturates
 
 // ── config / env ────────────────────────────────────────────────────────────
 function initEnv(env) {
@@ -169,6 +207,9 @@ function initEnv(env) {
   SECRET_PREV = env.AMH_SECRET_PREV || '';
   WEBHOOK_SECRET = env.AMH_WEBHOOK_SECRET || '';
   API_KEY = env.AMH_API_KEY || '';
+  // The client cannot keep a secret: a desktop panel is public code. API-key
+  // enforcement is therefore opt-in infrastructure gating, not the auth model.
+  API_KEY_REQUIRED = String(env.AMH_REQUIRE_API_KEY || '') === '1';
   SIGN_KEY = env.AMH_LICENSE_SIGNING_KEY || '';
   ALLOWED_ORIGIN = env.AMH_ALLOWED_ORIGIN || '';
   PRICE_ETB = parseInt(env.AMH_PRICE_ETB, 10) || parseInt(PRICE.replace(/[^\d]/g, ''), 10) || 2500;
@@ -186,9 +227,45 @@ function safeEqual(a, b) {
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
 }
-async function kvGet(key) { try { return CACHE ? await CACHE.get(key) : null; } catch (e) { return null; } }
-async function kvPut(key, val, ttl) { try { if (CACHE) await CACHE.put(key, String(val), { expirationTtl: ttl }); } catch (e) {} }
-async function kvDel(key) { try { if (CACHE) await CACHE.delete(key); } catch (e) {} }
+async function kvGet(key) {
+  try {
+    return CACHE ? await CACHE.get(key) : null;
+  } catch (e) {
+    log('error', 'kv_get_failed', { message: String((e && e.message) || e) });
+    return null;
+  }
+}
+async function kvPut(key, val, ttl) {
+  try {
+    if (!CACHE) return false;
+    const options = {};
+    if (ttl !== undefined && ttl !== null) {
+      const seconds = Number(ttl);
+      if (!Number.isFinite(seconds) || seconds < 60) {
+        log('error', 'kv_ttl_invalid', { seconds: String(ttl) });
+        return false;
+      }
+      options.expirationTtl = Math.floor(seconds);
+    }
+    await CACHE.put(key, String(val), options);
+    return true;
+  } catch (e) {
+    // KV failures must be visible. Silently swallowing them previously made
+    // rate-limit writes look successful while no marker was stored.
+    log('error', 'kv_put_failed', { message: String((e && e.message) || e) });
+    return false;
+  }
+}
+async function kvDel(key) {
+  try {
+    if (!CACHE) return false;
+    await CACHE.delete(key);
+    return true;
+  } catch (e) {
+    log('error', 'kv_delete_failed', { message: String((e && e.message) || e) });
+    return false;
+  }
+}
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 // ── structured logging (single JSON line per event → wrangler tail / dashboard)
@@ -208,16 +285,16 @@ const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 
 // ── menu text (port from bot.py) ────────────────────────────────────────────
 function heroText(first = '') {
-  const name = first ? `${first}, ` : '';
+  const name = first ? `${esc(first)}, ` : '';
   return (
     `${name}ወደ <b>አማርኛ ካፕሽን</b> እንኳን በደህና መጡ 👋\n` +
     '<i>Welcome to Amharic Captions</i>\n\n' +
     '💯 ሙሉ በሙሉ <b>በኮምፒውተርዎ ላይ</b> ይሰራል — ኢንተርኔት አያስፈልግም።\n' +
-    '<i>100% offline — no internet needed, nothing is uploaded.</i>\n\n' +
+    '<i>Transcription is 100% offline — no footage or transcript is uploaded.</i>\n\n' +
     '🎁 <b>2 ካፕሽን በነጻ</b> ይሞክሩ — ከወደዱት በኋላ ብቻ ይክፈሉ።\n' +
     '<i>Try 2 captions free — pay only if you like it.</i>\n\n' +
     `💰 <s>ETB 3,500</s> → <b>${PRICE}</b> — አንድ ጊዜ ብቻ፣ ለዘላለም።\n` +
-    '<i>One-time payment, lifetime license.</i>'
+    '<i>One-time payment, perpetual by default unless a dated key is explicitly issued.</i>'
   );
 }
 // One button per row on purpose: Amharic labels are longer than their English
@@ -239,7 +316,7 @@ function adminGreeting() {
   return (
     '🛠 <b>Admin</b>\n\n' +
     'Welcome back, boss 👋\n' +
-    '🔍 <code>/find a1b2c3d4</code> — look up any buyer by Machine ID\n' +
+    '🔍 <code>/find a1b2c3d4e5f60718</code> — look up any buyer by Machine ID\n' +
     '📥 Open <b>Requests</b> to review the queue (newest first) — approve, decline, or view details on each.\n' +
     '🧾 <b>History</b> shows the last 30 days of activity.'
   );
@@ -293,7 +370,7 @@ async function pendingCount() {
   if (cached) { const n = parseInt(cached, 10); if (!isNaN(n)) return n; }
   const r = await DB.prepare("SELECT COUNT(*) AS n FROM orders WHERE status='pending'").first();
   const n = r ? r.n : 0;
-  await kvPut('pending:count', n, 5);
+  await kvPut('pending:count', n, 60);
   return n;
 }
 // Auto-prune: keep only the last 30 days of orders + funnel events. Called on
@@ -307,12 +384,16 @@ async function pruneOld() {
   const c = await DB.prepare("DELETE FROM ip_counters WHERE updated_at < datetime('now', '-30 days')").run();
   // Abandoned purchase flows: getFsm ignores them after 24h, this clears the rows.
   const fs = await DB.prepare("DELETE FROM fsm WHERE updated_at < datetime('now', '-2 days')").run();
+  const tu = await DB.prepare("DELETE FROM trial_uses WHERE used_at < datetime('now', '-30 days')").run();
+  const wu = await DB.prepare("DELETE FROM webhook_updates WHERE received_at < datetime('now', '-30 days')").run();
   log('info', 'prune_run', {
     orders: o && o.meta ? o.meta.changes : 0,
     funnel: f && f.meta ? f.meta.changes : 0,
     key_activations: k && k.meta ? k.meta.changes : 0,
     ip_counters: c && c.meta ? c.meta.changes : 0,
     fsm: fs && fs.meta ? fs.meta.changes : 0,
+    trial_uses: tu && tu.meta ? tu.meta.changes : 0,
+    webhook_updates: wu && wu.meta ? wu.meta.changes : 0,
   });
 }
 // An in-progress purchase is only meaningful for a day. Without this, a buyer
@@ -408,7 +489,7 @@ const MACHINE_ID_HINT_KEY = '📍 Show me where to find my Machine ID';
 
 // The Machine ID prompt used to carry a REPLY keyboard (the bar pinned to the
 // bottom of the chat). Telegram leaves those on screen until something removes
-// them, and Cancel never did — so "Send your Machine ID (8 characters)" stayed
+// them, and Cancel never did — so "Send your Machine ID (16 characters)" stayed
 // visible after the buyer had abandoned the flow. It also duplicated an inline
 // "Where is it?" button that was already on the same message. Inline only now,
 // so nothing can get stuck.
@@ -476,17 +557,23 @@ async function handleMessage(msg, env) {
     return;
   }
 
-  // admin: custom expiry for a pending/approved order → /setexpiry ORDERID YYYYMMDD
+  // admin: custom expiry for a pending/rejected order → /setexpiry ORDERID YYYYMMDD
   if (privateChat && isAdmin(user.id)) {
     const ex = text.match(/^\/(?:setexpiry|expiry)\s+(\d+)\s+(\d{4})(\d{2})(\d{2})$/i);
     if (ex) {
       const id = ex[1];
       const exp = ex[2] + ex[3] + ex[4];
-      const r = await DB.prepare('UPDATE orders SET expiry=? WHERE id=?').bind(exp, id).run();
+      if (!isValidExpiry(exp)) {
+        await sendText(chatId, '⚠️ Expiry must be a real calendar date in YYYYMMDD form, or 00000000 for perpetual.');
+        return;
+      }
+      const r = await DB.prepare(
+        "UPDATE orders SET expiry=? WHERE id=? AND status IN ('pending','rejected')"
+      ).bind(exp, id).run();
       const n = r && r.meta ? r.meta.changes : 0;
       await sendText(chatId, n
         ? `⏰ Order <b>#${id}</b> → expiry <code>${exp}</code>. Approve it and the key will embed this date.`
-        : `⚠️ Order <b>#${id}</b> not found.`);
+        : `⚠️ Order <b>#${id}</b> was not found or has already been issued.`);
       return;
     }
   }
@@ -503,13 +590,23 @@ async function handleMessage(msg, env) {
       await revokeOrder(chatId, urv[1], false);
       return;
     }
+    const rm = text.match(/^\/revoke-mid\s+([0-9a-f]{8}|[0-9a-f]{16})$/i);
+    if (rm) {
+      await revokeMid(chatId, rm[1], true);
+      return;
+    }
+    const urm = text.match(/^\/unrevoke-mid\s+([0-9a-f]{8}|[0-9a-f]{16})$/i);
+    if (urm) {
+      await revokeMid(chatId, urm[1], false);
+      return;
+    }
 
     // Look a customer up by Machine ID. This is THE support request — someone
-    // messages "my key doesn't work" and gives their 8-character id — and
+    // messages "my key doesn't work" and gives their installation id — and
     // there was no way to answer it: history is browsable but not searchable,
     // and /revoke needs an ORDER id nobody has to hand. Paste the machine id
     // and get the whole picture, with the actions attached.
-    const look = text.match(/^\/(?:find|lookup|who)\s+([0-9a-fA-F]{8})$/);
+    const look = text.match(/^\/(?:find|lookup|who)\s+([0-9a-fA-F]{8}|[0-9a-fA-F]{16})$/);
     if (look) {
       const mid = look[1].toLowerCase();
       const c = await DB.prepare('SELECT * FROM customers WHERE machine_id=?').bind(mid).first();
@@ -526,9 +623,9 @@ async function handleMessage(msg, env) {
       if (c) {
         lines.push(
           `🔑 <b>Licensed</b>${c.revoked ? ' — <b>REVOKED</b> 🚫' : ' ✅'}`,
-          `Key: <code>${c.key}</code>`,
-          `Expiry: ${c.expiry === '00000000' ? 'perpetual' : c.expiry}`,
-          `Buyer: ${c.name || 'unknown'}`);
+          `Key: <code>${esc(c.key)}</code>`,
+          `Expiry: ${c.expiry === '00000000' ? 'perpetual' : esc(c.expiry)}`,
+          `Buyer: ${esc(c.name || 'unknown')}`);
       } else {
         lines.push('🔑 <b>No license</b> on this machine.');
       }
@@ -540,6 +637,8 @@ async function handleMessage(msg, env) {
         kb.push([c.revoked
           ? { text: '♻ Restore key', callback_data: `admin:unrevoke:${o.id}` }
           : { text: '🚫 Revoke key', callback_data: `admin:revoke:${o.id}` }]);
+      } else if (c) {
+        kb.push([{ text: c.revoked ? '♻ Restore key' : '🚫 Revoke key', callback_data: `admin:${c.revoked ? 'unrevoke' : 'revoke'}-mid:${mid}` }]);
       }
       kb.push([{ text: '🛠 Admin', callback_data: 'admin:panel' }]);
       await sendText(chatId, lines.join('\n'), kb);
@@ -559,6 +658,10 @@ async function handleMessage(msg, env) {
 
   // photos / documents (payment screenshot)
   if (msg.photo || msg.document) {
+    if (!privateChat) {
+      await sendText(chatId, '🔒 Please send payment screenshots and Machine IDs in a private chat.\n<i>For your privacy, start a DM with this bot first.</i>');
+      return;
+    }
     await handlePhoto(msg, uid, chatId, privateChat, text);
     return;
   }
@@ -579,11 +682,11 @@ async function handleMessage(msg, env) {
       `ከታች <b>ክፍያ</b> ይንኩ → ${PRICE} በባንክ ይላኩ → የክፍያ ፎቶ ይላኩ → ቁልፍዎ በዚሁ ቻት ይደርሳል።\n` +
       '<i>Tap Pay, transfer the amount, send the screenshot, get your key here.</i>\n\n' +
       '<b>2. Machine ID የት ነው? / Where is my Machine ID?</b>\n' +
-      'በ Premiere Pro ውስጥ ፓናሉን ይክፈቱ → <b>License</b> → 8 ፊደል ኮድ።\n' +
-      '<i>Open the panel in Premiere Pro → License → the 8-character code.</i>\n\n' +
+      'በ Premiere Pro ውስጥ ፓናሉን ይክፈቱ → <b>License</b> → 16 ፊደል ኮድ።\n' +
+      '<i>Open the panel in Premiere Pro → License → the 16-character installation code.</i>\n\n' +
       '<b>3. ቁልፌ አይሰራም / My key does not work</b>\n' +
-      'ቁልፉ ለአንድ ኮምፒውተር ብቻ ነው። ሌላ ኮምፒውተር ከሆነ ይጻፉልን።\n' +
-      '<i>A key is locked to one computer. Message us if you changed machines.</i>',
+      'ቁልፉ ለአንድ ተቀምጠ መጫን ነው። ሌላ ኮምፒዩተር ከሆነ ይጻፉልን።\n' +
+      '<i>The key is file-bound to one installation. Message us if you changed machines.</i>',
       [[{ text: '💳 ክፍያ · Pay', callback_data: 'menu:pay' }],
        [{ text: '🔑 ቁልፌ · My Key', callback_data: 'menu:mykey' }],
        [{ text: '💬 ድጋፍ · Contact support', url: SUPPORT_URL }]]);
@@ -610,12 +713,13 @@ function groupWelcome() {
 }
 
 // ── Buyer FSM flow (port of handle_buyer_message) ───────────────────────────
-const MACHINE_ID_RE = /\b[0-9a-f]{8}\b/;
+const MACHINE_ID_RE = /\b(?:[0-9a-f]{16}|[0-9a-f]{8})\b/i;
 function suspiciousMid(mid) {
   mid = mid.toLowerCase();
-  if (mid.length !== 8) return true;
+  if (mid.length !== 8 && mid.length !== 16) return true;
   if (new Set(mid).size === 1) return true;
   if (['00000000', '11111111', '12345678', 'abcdef01', 'deadbeef', 'feedface', 'cafebabe'].includes(mid)) return true;
+  if (mid.length === 16 && mid === mid.slice(0, 8).repeat(2)) return true;
   const seq = '0123456789abcdef';
   for (let i = 0; i <= seq.length - 8; i++) {
     if (mid === seq.slice(i, i + 8) || mid === [...seq.slice(i, i + 8)].reverse().join('')) return true;
@@ -624,13 +728,17 @@ function suspiciousMid(mid) {
 }
 
 async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
+  if (!privateChat) {
+    await sendText(chatId, '🔒 Please continue in a private chat so your Machine ID and payment details stay private.\n<i>Start a DM with this bot, then tap Pay.</i>');
+    return;
+  }
   const s = await getFsm(uid);
   const step = s ? s.step : null;
 
   // reply-keyboard hint tapped → show where to find the Machine ID
   if (text === MACHINE_ID_HINT_KEY) {
     await sendText(chatId,
-      '📲 <b>Where is my Machine ID?</b>\n\nOpen the <b>Amharic Captions panel</b> in Premiere Pro → <b>License</b> tab → your ID is the <b>8-character code</b> under <i>“Your Machine ID”</i> (e.g. <code>a1b2c3d4</code>).\n\nThen send it here.',
+      '📲 <b>Where is my Machine ID?</b>\n\nOpen the <b>Amharic Captions panel</b> in Premiere Pro → <b>License</b> tab → your ID is the <b>16-character installation code</b> under <i>“Your Machine ID”</i> (e.g. <code>a1b2c3d4e5f60718</code>).\n\nThen send it here.',
       [[{ text: '📲 አጫጫን · Install guide', url: `${SITE_URL}/install` }]]);
     return;
   }
@@ -650,8 +758,8 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
     const m = text.match(MACHINE_ID_RE);
     if (!m) {
       await sendHintKb(chatId,
-        '⚠️ የእርስዎ <b>Machine ID</b> ያስፈልገኛል — በፓናሉ <b>License</b> ክፍል ውስጥ ያለው <b>8 ፊደል</b> ኮድ ነው።\n' +
-        `<i>I need your Machine ID — the 8-character code in the panel's License section (e.g. <code>a1b2c3d4</code>).</i>`);
+        '⚠️ የእርስዎ <b>Machine ID</b> ያስፈልገኛል — በፓናሉ <b>License</b> ክፍል ውስጥ ያለው <b>16 ፊደል</b> ኮድ ነው።\n' +
+        `<i>I need your Machine ID — the 16-character installation code in the panel's License section (e.g. <code>a1b2c3d4e5f60718</code>).</i>`);
       return;
     }
     const mid = m[0].toLowerCase();
@@ -669,8 +777,8 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
     if (suspiciousMid(mid)) {
       await sendText(chatId,
         `⚠️ <code>${mid}</code> ትክክለኛ <b>Machine ID</b> አይመስልም።\n\n` +
-        'በፓናሉ <b>License</b> ክፍል ውስጥ "Your Machine ID" ስር ያለውን <b>8 ፊደል</b> ኮድ ይላኩ (ለምሳሌ <code>a1b2c3d4</code>)።\n' +
-        '<i>That does not look like a Machine ID — send the 8-character code from the panel.</i>',
+        'በፓናሉ <b>License</b> ክፍል ውስጥ "Your Machine ID" ስር ያለውን <b>16 ፊደል</b> ኮድ ይላኩ (ለምሳሌ <code>a1b2c3d4e5f60718</code>)።\n' +
+        '<i>That does not look like a Machine ID — send the 16-character installation code from the panel.</i>',
         [[{ text: '📍 Machine ID የት ነው? · Where is it?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
       return;
     }
@@ -705,7 +813,7 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
   // Remember it. The panel's Buy button opens this chat with the Machine ID
   // already in the message, and we used to acknowledge it and then ask for it
   // again later — throwing away the one thing the panel had just prefilled and
-  // making the buyer hand-copy an 8-character id after all. Stash it now and
+  // making the buyer hand-copy a 16-character id after all. Stash it now and
   // the proof flow skips straight to the screenshot.
   const seen = m[0].toLowerCase();
   if (!suspiciousMid(seen)) {
@@ -759,7 +867,7 @@ async function handlePhoto(msg, uid, chatId, privateChat, text) {
   if (step === 'mid') {
     const objectKey = await storeProof(fileId);
     await setFsm(uid, { ...s, photo_key: objectKey });
-    await sendText(chatId, '📸 ፎቶው ተቀምጧል! አሁን የእርስዎን <b>Machine ID</b> ይላኩ (በፓናሉ License ክፍል ውስጥ ያለው 8 ፊደል ኮድ)።\n' +
+    await sendText(chatId, '📸 ፎቶው ተቀምጧል! አሁን የእርስዎን <b>Machine ID</b> ይላኩ (በፓናሉ License ክፍል ውስጥ ያለው 16 ፊደል ኮድ)።\n' +
       '<i>Screenshot saved — now send your Machine ID.</i>',
       [[{ text: '📍 Machine ID የት ነው? · Where is it?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
     return;
@@ -859,7 +967,7 @@ async function completeProof(uid, chatId, uname, privateChat) {
   for (const adm of admins) {
     const caption =
       '🧾 <b>New order — payment proof</b>\n\n' +
-      `Machine ID: <code>${s.mid}</code>\nUser: @${uname} (id ${uid})\nSource: ${privateChat ? 'DM' : 'Group'}\n\n` +
+      `Machine ID: <code>${esc(s.mid)}</code>\nUser: @${esc(uname)} (id ${esc(uid)})\nSource: ${privateChat ? 'DM' : 'Group'}\n\n` +
       'Check the screenshot, then Approve or Reject:';
     if (s.photo_key) await sendPhoto(adm, s.photo_key, caption, adminKeyboardPend(orderId));
     else await sendText(adm, caption, adminKeyboardPend(orderId));
@@ -874,23 +982,31 @@ async function adminList() {
 
 // ── show my key ─────────────────────────────────────────────────────────────
 function keyDeliveryMessage(key, expiry, chatType) {
+  expiry = String(expiry || '00000000');
+  if (chatType !== 'private') {
+    return '🔒 <b>Your key is private</b>\n\n' +
+      'For your security, the license key is only sent in a private Telegram chat.\n' +
+      '<i>Open a DM with this bot and tap My Key.</i>';
+  }
   const lines = [
     '✅ <b>ክፍያዎ ተረጋግጧል — ቁልፍዎ ደርሷል!</b>',
     '<i>Payment confirmed — your license key is ready.</i>',
-    '', `<code>${key}</code>`, '',
+    '', `<code>${esc(key)}</code>`, '',
     '<b>①</b> ቁልፉን ይቅዱ (ይንኩት) — <i>tap the key to copy</i>',
     '<b>②</b> Premiere Pro → ፓናሉን ይክፈቱ → <b>License</b>',
     '<b>③</b> ይለጥፉ → <b>Activate</b> ይንኩ — <i>paste, then Activate</i>',
   ];
-  if (expiry !== '00000000') lines.push('', `⏰ የሚያበቃበት / Expires: ${expiry}`);
-  if (chatType !== 'private') {
-    lines.push('', '🔒 ለደህንነትዎ ቁልፍዎን በግል መልእክት (DM) ይጠይቁ።\n<i>For privacy, ask for your key in a private DM.</i>');
-  }
+  if (expiry !== '00000000') lines.push('', `⏰ የሚያበቃበት / Expires: ${esc(expiry)}`);
   lines.push('', 'እናመሰግናለን! 🙏 ችግር ካጋጠመዎት ይጻፉልን።\n<i>Thank you — message us if anything goes wrong.</i>');
   return lines.join('\n');
 }
 
 async function showMyKey(msg, chatId, messageId) {
+  const chat = (msg && msg.chat) || (msg && msg.message && msg.message.chat);
+  if (!chat || chat.type !== 'private') {
+    await sendText(chatId, '🔒 Your license key is only available in a private chat.\n<i>Open a DM with this bot and tap My Key.</i>');
+    return;
+  }
   const user = msg.from || {};
   const uid = String(user.id || '');
   // Customers.uid is stamped at approve time — read directly so buyers
@@ -908,7 +1024,7 @@ async function showMyKey(msg, chatId, messageId) {
     else await sendText(chatId, text, undefined);
     return;
   }
-  const text = list.map((r) => `🤖 <code>${r.machine_id}</code>\n🔑 <code>${r.key}</code>\n`).join('\n');
+  const text = list.map((r) => `🤖 <code>${esc(r.machine_id)}</code>\n🔑 <code>${esc(r.key)}</code>\n`).join('\n');
   if (messageId) await editText(chatId, messageId, '🔑 <b>Your key(s)</b>\n\n' + text, undefined);
   else await sendText(chatId, '🔑 <b>Your key(s)</b>\n\n' + text, undefined);
 }
@@ -917,7 +1033,7 @@ async function showMyKey(msg, chatId, messageId) {
 const money = (n) => n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 const shortTs = (s) => (s ? String(s).slice(5, 16).replace(' ', ' ') : '—');
 const orderSummary = (o) =>
-  `<b>#${o.id}</b> · ${o.username ? '@' + o.username : 'anon'} · <code>${o.machine_id}</code> · ${shortTs(o.created_at)}`;
+  `<b>#${o.id}</b> · ${o.username ? '@' + esc(o.username) : 'anon'} · <code>${esc(o.machine_id)}</code> · ${shortTs(o.created_at)}`;
 
 function adminKeyboardPend(orderId) {
   return [[
@@ -936,8 +1052,11 @@ async function adminPanel(chatId, messageId) {
     "COALESCE(SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END),0) AS pd " +
     "FROM orders WHERE date(created_at)=date('now')").first();
   const sold30 = await DB.prepare(
-    "SELECT COUNT(*) AS n FROM orders WHERE status='approved' AND created_at >= datetime('now','-30 days')").first();
-  const revenue = (sold30 ? sold30.n : 0) * PRICE_ETB;
+    "SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN amount_etb > 0 THEN amount_etb ELSE ? END), 0) AS revenue " +
+    "FROM orders WHERE status='approved' AND created_at >= datetime('now','-30 days')"
+  ).bind(PRICE_ETB).first();
+  const soldCount = sold30 ? sold30.n : 0;
+  const revenue = sold30 ? sold30.revenue : 0;
 
   const text =
     `🛠 <b>Admin · Dashboard</b>\n\n` +
@@ -945,7 +1064,7 @@ async function adminPanel(chatId, messageId) {
     `   ├ ✅ Approved today: ${todayRow.ap}\n` +
     `   ├ ❌ Declined today: ${todayRow.rj}\n` +
     `   └ ⏳ Pending today:  ${todayRow.pd}\n\n` +
-    `💵 <b>Revenue (30d):</b> ${sold30.n} × ${PRICE} = <b>ETB ${money(revenue)}</b>\n\n` +
+    `💵 <b>Revenue (30d):</b> ${soldCount} order(s) = <b>ETB ${money(revenue)}</b>\n\n` +
     `⬇️ Review the request queue, or check recent activity.`;
   const kb = [
     [{ text: `📥 Requests (${pend})`, callback_data: 'admin:queue' }],
@@ -995,13 +1114,31 @@ async function adminQueue(chatId, messageId, cbId, offset = 0) {
 
 async function adminExport(chatId, messageId, cbId) {
   const { results } = await DB.prepare(
-    'SELECT machine_id, name, expiry, key, status, uid FROM customers ORDER BY machine_id').all();
+    'SELECT machine_id, name, expiry, key, status, revoked, uid FROM customers ORDER BY machine_id').all();
   if (!results.length) { await answerCb(cbId, 'No customers'); return; }
-  await answerCb(cbId, `${results.length} customers exported`);
   const lines = results.map((c) =>
-    `${c.machine_id}\t${c.name || ''}\t${c.expiry || '00000000'}\t${String(c.key || '').replace('AMH-', '')}\t${c.status}\t${c.uid || ''}`);
-  await sendText(chatId,
-    `📤 <b>Customers (${results.length})</b> — machine | name | expiry | key | status | uid\n\n<pre>${esc('machine\tname\texpiry\tkey\tstatus\tuid\n' + lines.join('\n'))}</pre>`);
+    esc(`${c.machine_id}\t${c.name || ''}\t${c.expiry || '00000000'}\t${String(c.key || '').replace('AMH-', '')}\t${c.revoked ? 'revoked' : c.status}\t${c.uid || ''}`));
+  const header = `📤 <b>Customers (${results.length})</b> — machine | name | expiry | key | status | uid\n\n<pre>machine\tname\texpiry\tkey\tstatus\tuid\n`;
+  const prefix = '<pre>';
+  const suffix = '</pre>';
+  let sent = 0;
+  let chunk = header;
+  let count = 0;
+  const flush = async () => {
+    if (!count) return;
+    const r = await sendText(chatId, chunk + suffix);
+    if (r && r.ok) sent += count;
+    chunk = prefix;
+    count = 0;
+  };
+  for (const line of lines) {
+    if (count && chunk.length + line.length + 1 > 3500) await flush();
+    chunk += line + '\n';
+    count += 1;
+  }
+  await flush();
+  if (sent !== results.length) log('error', 'admin_export_incomplete', { sent, expected: results.length });
+  await answerCb(cbId, sent === results.length ? `${sent} customers exported` : `exported ${sent}/${results.length}`);
 }
 
 async function broadcastText(chatId, text) {
@@ -1009,34 +1146,70 @@ async function broadcastText(chatId, text) {
   const a = await DB.prepare("SELECT uid FROM customers WHERE uid <> ''").all();
   const b = await DB.prepare("SELECT uid FROM orders WHERE uid <> ''").all();
   const admins = adminUids();
+  let sent = 0;
   for (const r of [...(a.results || []), ...(b.results || [])]) {
     if (!r.uid || seen.has(r.uid) || admins.includes(String(r.uid))) continue;
     seen.add(r.uid);
-    await sendText(r.uid, text);
+    const result = await sendText(r.uid, text);
+    if (result && result.ok) sent++;
     await sleep(90);
   }
-  log('info', 'broadcast_sent', { recipients: seen.size });
+  log('info', 'broadcast_sent', { recipients: seen.size, delivered: sent });
   await sendText(chatId,
-    `📣 Broadcast sent to <b>${seen.size}</b> chat(s).${seen.size ? '' : ' (no buyers yet)'}`);
+    `📣 Broadcast delivered to <b>${sent}</b> of <b>${seen.size}</b> chat(s).${seen.size ? '' : ' (no buyers yet)'}`);
 }
 
 // ── revoke / unrevoke a sold license ────────────────────────────────────────
+async function setCustomerRevoked(machineId, revoke) {
+  const mid = String(machineId || '').toLowerCase();
+  if (!isValidMid(mid)) return { ok: false, error: 'invalid mid' };
+  const cust = await DB.prepare('SELECT key FROM customers WHERE machine_id=?').bind(mid).first();
+  if (!cust) return { ok: false, error: 'customer not found' };
+  await DB.prepare('UPDATE customers SET revoked=? WHERE machine_id=?').bind(revoke ? 1 : 0, mid).run();
+  // Keep order/admin views consistent with the authoritative customer flag.
+  // Pending/rejected orders are never silently turned into sales by a MID-wide
+  // revoke; only an already-issued approval changes state.
+  await DB.prepare(
+    revoke
+      ? "UPDATE orders SET status='revoked' WHERE machine_id=? AND status='approved'"
+      : "UPDATE orders SET status='approved' WHERE machine_id=? AND status='revoked'"
+  ).bind(mid).run();
+  const canonical = canonicalLicenseKey(cust.key);
+  const cacheKey = 'val:' + mid + ':' + canonical;
+  let cacheDeleted = await kvDel(cacheKey);
+  if (String(cust.key).toLowerCase() !== canonical) {
+    cacheDeleted = (await kvDel('val:' + mid + ':' + String(cust.key))) && cacheDeleted;
+  }
+  // Validation also checks D1 on a positive cache hit, so a failed KV delete
+  // cannot leave a revoked key usable.
+  return { ok: true, mid, key: cust.key, cacheDeleted };
+}
+
+async function revokeMid(chatId, mid, revoke) {
+  const result = await setCustomerRevoked(mid, revoke);
+  if (!result.ok) {
+    await sendText(chatId, `⚠️ Cannot ${revoke ? 'revoke' : 'restore'} <code>${String(mid).toLowerCase()}</code>: ${result.error}.`);
+    return result;
+  }
+  const word = revoke ? '⛔' : '✅';
+  await sendText(chatId, `${word} License for Machine ID <code>${result.mid}</code> ${revoke ? 'revoked' : 'restored'}.`);
+  if (!result.cacheDeleted) log('warn', 'revocation_cache_delete_failed', { mid: result.mid });
+  log('info', revoke ? 'mid_revoke' : 'mid_restore', { machine_id: result.mid });
+  return result;
+}
+
 async function revokeOrder(chatId, orderId, revoke) {
   const o = await DB.prepare('SELECT machine_id, chat_id, status_msg_id FROM orders WHERE id=?').bind(orderId).first();
   if (!o) { await sendText(chatId, `⚠️ Order <b>#${orderId}</b> not found.`); return; }
-  const cust = await DB.prepare('SELECT key FROM customers WHERE machine_id=?').bind(o.machine_id).first();
-  if (!cust) { await sendText(chatId, `⚠️ No customer row for order <b>#${orderId}</b>.`); return; }
-
-  await DB.prepare('UPDATE customers SET revoked=? WHERE machine_id=?')
-    .bind(revoke ? 1 : 0, o.machine_id).run();
-
-  // Bust the validation cache so the next panel call re-evaluates immediately.
-  try { await kvDel('val:' + o.machine_id + ':' + cust.key); } catch (e) {}
+  const result = await setCustomerRevoked(o.machine_id, revoke);
+  if (!result.ok) {
+    await sendText(chatId, `⚠️ No customer row for order <b>#${orderId}</b>.`);
+    return;
+  }
+  if (!result.cacheDeleted) log('warn', 'revocation_cache_delete_failed', { orderId, machine_id: o.machine_id });
 
   const targetStatus = revoke ? 'revoked' : 'approved';
   await DB.prepare('UPDATE orders SET status=? WHERE id=?').bind(targetStatus, orderId).run();
-
-  // Notify the buyer.
   if (o.chat_id) {
     const msg = revoke
       ? '⚠️ Your license was revoked.\nContact @sumpak6 on Telegram for help.'
@@ -1047,7 +1220,6 @@ async function revokeOrder(chatId, orderId, revoke) {
       await sendText(o.chat_id, msg);
     }
   }
-
   const word = revoke ? '⛔' : '✅';
   await sendText(chatId, `${word} Order <b>#${orderId}</b> → ${targetStatus}.`);
   log('info', 'order_revoke', { orderId, machine_id: o.machine_id, revoke });
@@ -1122,9 +1294,9 @@ async function adminDetail(chatId, messageId, cbId, orderId) {
     `🧾 <b>Order #${o.id} · ${o.status.toUpperCase()}</b>\n\n` +
     `${orderSummary(o)}\n` +
     `UID: <code>${o.uid}</code>\n` +
-    `Machine ID: <code>${o.machine_id}</code>\n` +
-    `Amount: ${o.amount_etb ? `ETB ${money(o.amount_etb)}` : PRICE}\n` +
-    `Expiry: ${o.expiry === '00000000' ? 'perpetual' : o.expiry}\n` +
+    `Machine ID: <code>${esc(o.machine_id)}</code>\n` +
+    `Amount: ${o.amount_etb ? `ETB ${money(o.amount_etb)}` : esc(PRICE)}\n` +
+    `Expiry: ${o.expiry === '00000000' ? 'perpetual' : esc(o.expiry)}\n` +
     `Received: ${shortTs(o.created_at)}`;
   // A decided order used to offer NO actions at all — so an order approved to
   // the wrong person, or declined by mistake, could not be corrected through
@@ -1138,7 +1310,11 @@ async function adminDetail(chatId, messageId, cbId, orderId) {
     ];
   } else if (o.status === 'approved') {
     // Kills the key on the next panel check (revokeOrder busts the KV cache).
-    actions = [{ text: '🚫 Revoke key', callback_data: `admin:revoke:${o.id}` }];
+    actions = [];
+    if (o.delivery_status === 'pending' || o.delivery_status === 'failed' || o.delivery_status === 'sending') {
+      actions.push({ text: '📨 Retry key delivery', callback_data: `admin:retry-delivery:${o.id}` });
+    }
+    actions.push({ text: '🚫 Revoke key', callback_data: `admin:revoke:${o.id}` });
   } else if (o.status === 'revoked') {
     actions = [{ text: '♻ Restore key', callback_data: `admin:unrevoke:${o.id}` }];
   } else if (o.status === 'rejected') {
@@ -1181,9 +1357,11 @@ async function adminHistory(chatId, messageId, cbId, offset = 0) {
     "SELECT COALESCE(SUM(status='approved'),0) AS ap, " +
     "COALESCE(SUM(status='rejected'),0) AS rj, " +
     "COALESCE(SUM(status='pending'),0) AS pd, " +
-    "COALESCE(SUM(status='revoked'),0) AS rv " +
-    "FROM orders WHERE created_at >= datetime('now','-30 days')").first();
-  const revenue = (sums.ap || 0) * PRICE_ETB;
+    "COALESCE(SUM(status='revoked'),0) AS rv, " +
+    "COALESCE(SUM(CASE WHEN status='approved' THEN (CASE WHEN amount_etb > 0 THEN amount_etb ELSE ? END) ELSE 0 END),0) AS revenue " +
+    "FROM orders WHERE created_at >= datetime('now','-30 days')"
+  ).bind(PRICE_ETB).first();
+  const revenue = sums.revenue || 0;
 
   const { results } = await DB.prepare(
     "SELECT * FROM orders WHERE created_at >= datetime('now','-30 days') " +
@@ -1191,8 +1369,8 @@ async function adminHistory(chatId, messageId, cbId, offset = 0) {
 
   const statusEmoji = { approved: '✅', rejected: '❌', pending: '📥', revoked: '🚫' };
   const lines = results.map((o) =>
-    `${statusEmoji[o.status] || '·'} <b>#${o.id}</b> · ${o.username ? '@' + o.username : 'anon'} · ` +
-    `<code>${o.machine_id}</code> · ETB ${money(o.amount_etb || PRICE_ETB)} · ${shortTs(o.created_at)}`
+    `${statusEmoji[o.status] || '·'} <b>#${o.id}</b> · ${o.username ? '@' + esc(o.username) : 'anon'} · ` +
+    `<code>${esc(o.machine_id)}</code> · ETB ${money(o.amount_etb || PRICE_ETB)} · ${shortTs(o.created_at)}`
   ).join('\n');
 
   const from = offset + 1;
@@ -1226,9 +1404,12 @@ async function adminHistory(chatId, messageId, cbId, offset = 0) {
 
 
 async function adminSales(chatId, messageId) {
-  const sold = await DB.prepare("SELECT COUNT(*) AS n FROM customers WHERE status='sold'").first();
+  const sold = await DB.prepare(
+    "SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN amount_etb > 0 THEN amount_etb ELSE ? END), 0) AS revenue " +
+    "FROM orders WHERE status='approved'"
+  ).bind(PRICE_ETB).first();
   const nSold = sold ? sold.n : 0;
-  const rev = nSold * PRICE_ETB;
+  const rev = sold ? sold.revenue : 0;
   const counts = {};
   const events = ['proof_start', 'mid_sent', 'screenshot_sent', 'order_confirmed', 'approved', 'rejected'];
   for (const ev of events) {
@@ -1239,7 +1420,7 @@ async function adminSales(chatId, messageId) {
   const started = counts.proof_start;
   const text =
     '📈 <b>Sales & Funnel</b>\n\n' +
-    `💵 <b>Revenue</b>: ${nSold} keys × ${PRICE} = <b>ETB ${rev.toLocaleString()}</b>\n\n` +
+    `💵 <b>Revenue</b>: ${nSold} approved order(s) = <b>ETB ${Number(rev || 0).toLocaleString()}</b>\n\n` +
     '<b>Funnel — all-time:</b>\n' +
     `🟦 Started: ${started}\n` +
     `🟩 Machine ID: ${counts.mid_sent} (${pct(started, counts.mid_sent)} of started)\n` +
@@ -1256,55 +1437,120 @@ async function adminSales(chatId, messageId) {
 async function approve(chatId, messageId, orderId, cbId) {
   const o = await DB.prepare('SELECT * FROM orders WHERE id=?').bind(orderId).first();
   if (!o) { await answerCb(cbId, 'Order not found.'); return; }
-
-  // Atomic claim: the first request to flip pending→approved wins; every
-  // duplicate tap / Telegram retry after that is a harmless no-op. This
-  // keeps keys, funnel events and buyer DMs single-delivery.
-  // pending OR rejected: "Approve anyway" exists so a decline made by mistake,
-  // or one the buyer has since sorted out, can be reversed without asking them
-  // to submit everything again. Restricting the claim to 'pending' made that
-  // button change 0 rows and answer "Already handled" — it looked broken
-  // because it WAS broken. Still atomic, so duplicate taps remain no-ops and a
-  // key is never minted twice.
-  const claim = await DB.prepare(
-    "UPDATE orders SET status='approved' WHERE id=? AND status IN ('pending','rejected')"
-  ).bind(orderId).run();
-  if (!claim || !claim.meta || claim.meta.changes < 1) {
-    await answerCb(cbId, 'Already approved'); return;
+  if (!(await licenseServicesReady())) {
+    await answerCb(cbId, 'License service is not ready; order was not changed.');
+    log('error', 'approval_blocked_unready', { orderId });
+    return;
   }
-  await kvDel('pending:count');
 
-  // generate the key (async because HMAC)
-  const key = await keyFor(o.machine_id, o.expiry);
+  let customer = await DB.prepare('SELECT key, expiry FROM customers WHERE machine_id=?').bind(o.machine_id).first();
+  let key = customer && customer.key;
+  let issuedNow = false;
 
-  // record in customers — stamps the buyer uid so "My Key" still works
-  // after orders are pruned.
-  await DB.prepare(`INSERT INTO customers (machine_id, name, expiry, key, status, uid)
-    VALUES (?,?,?,?, 'sold', ?) ON CONFLICT(machine_id) DO UPDATE SET
-      key=excluded.key, name=excluded.name, expiry=excluded.expiry,
-      status='sold', uid=excluded.uid`)
-    .bind(o.machine_id, '@' + (o.username || 'anon'), o.expiry, key, o.uid || '').run();
+  // A completed delivery is idempotent: a duplicate Telegram callback must not
+  // send a second copy of the key. Failed deliveries remain retryable.
+  if (o.status === 'approved' && o.delivery_status === 'delivered') {
+    await answerCb(cbId, 'Already delivered');
+    return;
+  }
 
-  await addFunnel(o.uid, 'approved');
+  if (!customer || !key) {
+    try {
+      key = await keyFor(o.machine_id, o.expiry);
+    } catch (e) {
+      log('error', 'key_generation_failed', { orderId, err: String(e && e.message || e) });
+      await answerCb(cbId, 'Could not generate key; order remains pending.');
+      return;
+    }
+  }
 
-  // edit buyer status to Approved
+  // Claim only pending/rejected orders. An already-approved order with a
+  // missing customer row is repaired below, which covers a crash between the
+  // status update and the D1 upsert.
+  if (o.status !== 'approved') {
+    const claim = await DB.prepare(
+      `UPDATE orders
+       SET status='approved', key_issued_at=COALESCE(key_issued_at, datetime('now')),
+           delivery_status=CASE WHEN delivery_status='delivered' THEN 'delivered' ELSE 'pending' END
+       WHERE id=? AND status IN ('pending','rejected')`
+    ).bind(orderId).run();
+    if (!claim || !claim.meta || claim.meta.changes < 1) {
+      await answerCb(cbId, 'Already handled');
+      return;
+    }
+    issuedNow = true;
+    await kvDel('pending:count');
+  } else if (!o.key_issued_at) {
+    issuedNow = true;
+  }
+
+  // Record/repair the customer before attempting delivery. If Telegram is down,
+  // the key remains available for a later redelivery instead of being lost.
+  if (!customer || !customer.key || issuedNow) {
+    await DB.prepare(`INSERT INTO customers (machine_id, name, expiry, key, status, uid)
+      VALUES (?,?,?,?, 'sold', ?) ON CONFLICT(machine_id) DO UPDATE SET
+        key=excluded.key, name=excluded.name, expiry=excluded.expiry,
+        status='sold', uid=excluded.uid`)
+      .bind(o.machine_id, '@' + (o.username || 'anon'), o.expiry, key, o.uid || '').run();
+    await DB.prepare(
+      `UPDATE orders SET key_issued_at=COALESCE(key_issued_at, datetime('now')),
+       delivery_status=CASE WHEN delivery_status='delivered' THEN 'delivered' ELSE 'pending' END
+       WHERE id=?`
+    ).bind(orderId).run();
+    if (issuedNow && !o.key_issued_at) await addFunnel(o.uid, 'approved');
+  }
+
+  // Claim the delivery itself, not just the order status. A second admin tap
+  // or Telegram retry cannot send the bearer key concurrently. A crashed send
+  // becomes retryable after the five-minute lease.
+  const deliveryClaim = await DB.prepare(
+    `UPDATE orders
+     SET delivery_status='sending', delivery_lease_until=datetime('now','+5 minutes')
+     WHERE id=? AND status='approved'
+       AND (
+         delivery_status IN ('pending','failed')
+         OR (delivery_status='sending'
+             AND (delivery_lease_until IS NULL OR delivery_lease_until='' OR delivery_lease_until < datetime('now')))
+       )
+       AND (delivery_lease_until IS NULL OR delivery_lease_until='' OR delivery_lease_until < datetime('now'))`
+  ).bind(orderId).run();
+  if (!deliveryClaim || !deliveryClaim.meta || deliveryClaim.meta.changes < 1) {
+    await answerCb(cbId, 'Delivery is already in progress.');
+    return;
+  }
+  await DB.prepare(
+    'UPDATE orders SET delivery_attempts=COALESCE(delivery_attempts, 0)+1 WHERE id=?'
+  ).bind(orderId).run();
+  const delivery = await sendText(o.uid, keyDeliveryMessage(key, o.expiry, 'private'));
+  const delivered = !!(delivery && delivery.ok);
+  await DB.prepare(
+    delivered
+      ? "UPDATE orders SET delivery_status='delivered', delivered_at=datetime('now'), delivery_lease_until=NULL WHERE id=?"
+      : "UPDATE orders SET delivery_status='failed', delivery_lease_until=NULL WHERE id=?"
+  ).bind(orderId).run();
+
   const buyerStatusMsg = o.status_msg_id;
   if (buyerStatusMsg) {
-    await editText(o.chat_id || o.uid, buyerStatusMsg,
-      '✅ <b>Order approved — key on the way!</b>\n\n' +
-      `🤖 Machine ID: <code>${o.machine_id}</code>\n🟢 <b>Status: Approved</b> ✓`);
+    await editText(o.chat_id || o.uid, buyerStatusMsg, delivered
+      ? ('✅ <b>Order approved — key delivered.</b>\n\n' +
+         `🤖 Machine ID: <code>${o.machine_id}</code>\n🟢 <b>Status: Approved</b> ✓`)
+      : ('⚠️ <b>Order approved, but Telegram delivery failed.</b>\n\n' +
+         `🤖 Machine ID: <code>${o.machine_id}</code>\nThe seller will retry delivery.`));
   }
 
-  // deliver key + receipt to buyer's DM
-  await sendText(o.uid, keyDeliveryMessage(key, o.expiry, 'private'));
-  // confirm to admin (with remaining queue count)
   const left = await pendingCount();
-  await editText(chatId, messageId,
-    `✅ <b>Approved #${orderId}</b> — key delivered & logged.\n` +
-    `Machine ID: <code>${o.machine_id}</code> · @${o.username} · DM: ✅\n` +
-    `${left ? `📥 ${left} request(s) left in queue.` : '🎉 Queue is clear.'}`);
-  await answerCb(cbId, '✅ Approved & key sent');
-  log('info', 'order_approved', { orderId, mid: o.machine_id, uid: o.uid, amount_etb: o.amount_etb });
+  await editText(chatId, messageId, delivered
+    ? (`✅ <b>Approved #${orderId}</b> — key delivered & logged.\n` +
+       `Machine ID: <code>${esc(o.machine_id)}</code> · @${esc(o.username)} · DM: ✅\n` +
+       `${left ? `📥 ${left} request(s) left in queue.` : '🎉 Queue is clear.'}`)
+    : (`⚠️ <b>Approved #${orderId}</b> — key stored, delivery failed.\n` +
+       `Machine ID: <code>${o.machine_id}</code>\n` +
+       `Retry approval to send it again.`));
+  await answerCb(cbId, delivered ? '✅ Approved & key sent' : '⚠️ Approved; delivery failed — retry');
+  log('info', delivered ? 'order_approved' : 'order_delivery_failed', {
+    orderId, mid: o.machine_id, uid: o.uid, amount_etb: o.amount_etb,
+    delivery_attempt: true,
+  });
 }
 
 // Decline reasons. The admin used to have one ❌ and the buyer got a generic
@@ -1357,7 +1603,7 @@ async function reject(chatId, messageId, orderId, cbId, reasonKey) {
   const left = await pendingCount();
   await editText(chatId, messageId,
     `❌ <b>Declined #${orderId}</b> — ${(REJECT_REASONS[reasonKey] || REJECT_REASONS.other).admin}\n` +
-    `@${o.username} <code>${o.machine_id}</code>\n` +
+    `@${esc(o.username)} <code>${esc(o.machine_id)}</code>\n` +
     `${left ? `📥 ${left} request(s) left in queue.` : '🎉 Queue is clear.'}`);
   // The buyer was watching a live status message that said "Pending — you're
   // #N in line". approve() edits it; reject() never did, so a declined buyer
@@ -1397,9 +1643,14 @@ async function handleCallback(cb) {
   const messageId = chat.message_id;
 
   // admin-only gates
-  const adminPrefixes = ['admin:', 'approve:', 'reject:', 'rej:'];
   if (data.startsWith('approve:') || data.startsWith('reject:') || data.startsWith('rej:') || data.startsWith('admin:')) {
     if (!isAdmin(fromUid)) { await answerCb(cbId, '🔒 Admin only'); return; }
+    // Admin cards, exports, and revoke actions can contain full bearer keys or
+    // buyer data; never render them into a group chat.
+    if (!isPrivateChat(chatId, fromUid)) {
+      await answerCb(cbId, '🔒 Admin actions are private-chat only.');
+      return;
+    }
   }
 
   // menu navigation
@@ -1416,6 +1667,14 @@ async function handleCallback(cb) {
     return;
   }
 
+  // Payment-flow callbacks are private-chat only. A stale group button must
+  // never advance an FSM or attach a screenshot/order to a public chat.
+  if (data.startsWith('pay:') && !isPrivateChat(chatId, fromUid)) {
+    await answerCb(cbId, '🔒 Please continue in a private chat.');
+    await sendText(chatId, '🔒 Please continue in a private chat so your payment details stay private.');
+    return;
+  }
+
   // pay:proof start
   if (data.startsWith('pay:')) {
     await answerCb(cbId, '');
@@ -1423,7 +1682,7 @@ async function handleCallback(cb) {
     if (action === 'proof') {
       // ONE message. This used to edit the tapped message AND send a second
       // one saying the same thing ("Send proof — Step 1/2" followed by "Send
-      // your Machine ID (8 characters)"), so tapping "I've paid" produced two
+      // your Machine ID (16 characters)"), so tapping "I've paid" produced two
       // near-identical prompts at once — and the second was English with no
       // way back. Editing the tapped message keeps the chat to a single
       // screen the buyer is already looking at.
@@ -1449,8 +1708,8 @@ async function handleCallback(cb) {
       await addFunnel(fromUid, 'proof_start');
       const t =
         '📤 <b>ማረጋገጫ ይላኩ / Send proof</b>\n\n' +
-        '<b>ደረጃ 1 ከ 2</b> — የእርስዎን <b>Machine ID</b> ይላኩ (8 ፊደል)።\n' +
-        '<i>Step 1 of 2 — send your Machine ID (8 characters).</i>\n\n' +
+        '<b>ደረጃ 1 ከ 2</b> — የእርስዎን <b>Machine ID</b> ይላኩ (16 ፊደል)።\n' +
+        '<i>Step 1 of 2 — send your Machine ID (16 characters).</i>\n\n' +
         'በ Premiere Pro ውስጥ ፓናሉን ይክፈቱ → <b>License</b>።\n' +
         '<i>Open the panel in Premiere Pro → License.</i>';
       const kb = [
@@ -1480,6 +1739,11 @@ async function handleCallback(cb) {
     }
     if (action === 'mykey') { await answerCb(cbId, ''); await showMyKey(cb, chatId, messageId); return; }
     if (action === 'confirm') {
+      if (!isPrivateChat(chatId, fromUid)) {
+        await answerCb(cbId, '🔒 Please continue in a private chat.');
+        await sendText(chatId, '🔒 Please confirm the order in a private chat.');
+        return;
+      }
       await answerCb(cbId, '');
       const s = await getFsm(fromUid);
       if (s && s.step === 'confirm' && s.mid) {
@@ -1507,7 +1771,15 @@ async function handleCallback(cb) {
       // like it did nothing even though the key is already dead.
       await adminDetail(chatId, null, null, parts[2]);
     }
+    else if (action === 'revoke-mid' || action === 'unrevoke-mid') {
+      await revokeMid(chatId, parts[2], action === 'revoke-mid');
+      await answerCb(cbId, action === 'revoke-mid' ? '🚫 Key revoked' : '♻ Key restored');
+    }
     else if (action === 'detail') await adminDetail(chatId, messageId, cbId, parts[2]);
+    else if (action === 'retry-delivery') {
+      await approve(chatId, messageId, parts[2], cbId);
+      await adminDetail(chatId, null, null, parts[2]);
+    }
     else if (action === 'sales') await adminSales(chatId, messageId);
     else if (action === 'export') await adminExport(chatId, messageId, cbId);
     else if (action === 'broadcast') {
@@ -1546,12 +1818,9 @@ function isPrivateChat(chatId, uid) {
 
 // ── CORS allow-list ─────────────────────────────────────────────────────────
 // ALLOWED_ORIGIN (env AMH_ALLOWED_ORIGIN, comma-separated). DEFAULT IS
-// FAIL-CLOSED: unset => NO Access-Control-Allow-Origin header at all, so a
-// browser page can never read responses cross-origin. Installed CEP panels
-// still work because the panel's CEF is launched with --disable-web-security
-// (it does not enforce CORS). To serve browsers explicitly set
-// AMH_ALLOWED_ORIGIN='*' (or a comma-separated allow-list including 'null'
-// for CEP file:// origins).
+// FAIL-CLOSED: unset => no Access-Control-Allow-Origin header, so browser
+// callers cannot read cross-origin responses. CEP panels should use the
+// explicit `null` origin in AMH_ALLOWED_ORIGIN.
 function corsFor(request) {
   const base = {
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -1577,41 +1846,78 @@ export default {
     if (request.method === 'GET' && url.pathname === '/ok') {
       return new Response('ok', { status: 200 });
     }
+    if (request.method === 'GET' && url.pathname === '/ready') {
+      const missing = [];
+      if (!TOKEN) missing.push('AMH_TG_TOKEN');
+      if (!ADMIN_ID) missing.push('AMH_ADMIN_ID');
+      if (!WEBHOOK_SECRET) missing.push('AMH_WEBHOOK_SECRET');
+      if (API_KEY_REQUIRED && !API_KEY) missing.push('AMH_API_KEY');
+      if (!SECRET) missing.push('AMH_SECRET');
+      if (!SIGN_KEY) missing.push('AMH_LICENSE_SIGNING_KEY');
+      if (!DB) missing.push('DB');
+      if (!CACHE) missing.push('AMH_KV');
+      if (!missing.length && !(await licenseServicesReady())) {
+        missing.push('license crypto preflight');
+      }
+      if (missing.length) {
+        return new Response(JSON.stringify({ ok: false, missing }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
 
     // ── Extension API ──────────────────────────────────────────────────────
     // CORS for extension calls. CEP panels run from file:// origins, which the
-    // browser exposes as "Origin: null". By default we stay wide open ('*');
-    // set AMH_ALLOWED_ORIGIN to a comma-separated list (include 'null' for
-    // CEP panels) once the panel ships a proper Origin header.
+    // browser exposes as "Origin: null"; deployments should explicitly include
+    // that origin in AMH_ALLOWED_ORIGIN.
     const corsHeaders = corsFor(request);
     const json = (obj, status = 200) => new Response(JSON.stringify(obj), {
       status,
-      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...corsHeaders },
     });
     const rateLimited = async (k, ttl) => {
       const v = await kvGet(k);
       if (v) return true;
-      await kvPut(k, '1', ttl);
+      const stored = await kvPut(k, '1', ttl);
+      // A missing/failed rate-limit write must not silently turn the endpoint
+      // into an unthrottled public service.
+      if (!stored) {
+        log('error', 'rate_limit_write_failed', { key: String(k) });
+        return true;
+      }
       return false;
     };
     const clientIp = () => request.headers.get('CF-Connecting-IP') || '0.0.0.0';
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders });
     }
-    // Shared secret for the /api/* endpoints. When the AMH_API_KEY Worker
-    // secret is set, every /api call must present it (X-Api-Key). Enforcement
-    // is LIVE: the deployed Worker has AMH_API_KEY set and shipped panels
-    // (>= v1.4.x) send the matching header — requests without it get 401.
-    // Rotate with care: ship the panel carrying the new API_KEY_HINT first,
-    // then update the secret (see DEPLOY.md).
-    if (url.pathname.startsWith('/api/') && API_KEY) {
-      const givenKey = request.headers.get('X-Api-Key') || '';
-      if (!safeEqual(givenKey, API_KEY)) {
-        log('warn', 'api_unauthorized', { ip: clientIp() });
-        return json({ error: 'unauthorized' }, 401);
+    // The extension API is intentionally public at the transport layer: a
+    // desktop client cannot hold a meaningful shared secret. License checks
+    // are protected by the HMAC + D1 row; optional API-key gating is only for
+    // deployments that put the Worker behind an additional network policy.
+    if (url.pathname.startsWith('/api/')) {
+      if (API_KEY_REQUIRED && !API_KEY) {
+        log('error', 'api_key_missing');
+        return json({ error: 'server not configured' }, 503);
+      }
+      if (!CACHE) {
+        log('error', 'api_kv_missing');
+        return json({ error: 'server not configured' }, 503);
+      }
+      if (API_KEY_REQUIRED) {
+        const givenKey = request.headers.get('X-Api-Key') || '';
+        if (!safeEqual(givenKey, API_KEY)) {
+          log('warn', 'api_unauthorized', { ip: clientIp() });
+          return json({ error: 'unauthorized' }, 401);
+        }
       }
     }
-    // Telemetry for authenticated /api calls (used once to lock down CORS:
+    // Telemetry for /api calls (used once to lock down CORS:
     // the Origin header a real CEP panel sends is what AMH_ALLOWED_ORIGIN
     // must whitelist).
     if (url.pathname.startsWith('/api/')) {
@@ -1629,24 +1935,32 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/ping') {
       let b = {};
       try { b = await request.json(); } catch (e) {}
-      const mid = String((b && b.mid) || '');
+      const mid = String((b && b.mid) || '').toLowerCase();
       const v = String((b && b.v) || '');
-      const throttleKey = 'ping:' + (mid || clientIp());
+      if (!isValidMid(mid) || !v || v.length > 32) {
+        return json({ error: 'bad ping payload' }, 400);
+      }
+      // Telemetry must not become an unbounded KV-cost write endpoint for
+      // arbitrary Machine IDs. A normal panel pings once per day; one request
+      // per source IP per minute is ample and still allows multiple installs
+      // behind a shared NAT to report eventually.
+      if (await rateLimited('rl:ip:' + clientIp() + ':ping', 60)) {
+        return json({ error: 'throttled', retry: true }, 429);
+      }
+      const throttleKey = 'ping:' + mid;
       if (!(await kvGet(throttleKey))) {
-        const origin = request.headers.get('Origin') || '(none)';
-        log('info', 'panel_ping', { v, mid: mid || '(none)', origin, ip: clientIp() });
+        const origin = (request.headers.get('Origin') || '(none)').slice(0, 128);
+        log('info', 'panel_ping', { v, mid, origin, ip: clientIp() });
         await kvPut(throttleKey, '1', 86400);
-        if (mid) {
-          await kvPut('beacon:' + mid, JSON.stringify({ v, mid, origin, ip: clientIp(), ts: new Date().toISOString() }));
-        }
+        await kvPut('beacon:' + mid, JSON.stringify({ v, mid, origin, ip: clientIp(), ts: new Date().toISOString() }), 30 * 86400);
       }
       return json({ ok: true });
     }
 
     // GET /api/trial?mid=XXXX → {used, max, remaining}
     if (request.method === 'GET' && url.pathname === '/api/trial') {
-      const mid = url.searchParams.get('mid');
-      if (!mid || !/^[0-9a-f]{8}$/.test(mid)) {
+      const mid = (url.searchParams.get('mid') || '').trim().toLowerCase();
+      if (!mid || !isValidMid(mid)) {
         return json({ error: 'bad mid' }, 400);
       }
       const cacheKey = 'trial:' + mid;
@@ -1654,49 +1968,123 @@ export default {
       if (cached) { try { return json(JSON.parse(cached)); } catch (e) {} }
       // Per-IP throttle so a scraper spraying many machine IDs can't burn
       // D1 reads. A legit user only ever queries their own mid (cache hit).
-      if (await rateLimited('rl:ip:' + clientIp() + ':trial', 5)) {
+      if (await rateLimited('rl:ip:' + clientIp() + ':trial', 60)) {
         return json({ error: 'throttled' }, 429);
       }
       const row = await DB.prepare('SELECT used, max_free FROM trials WHERE machine_id = ?').bind(mid).first();
       const used = row ? row.used : 0;
       const maxFree = row ? row.max_free : 2;
       const out = { used, max: maxFree, remaining: Math.max(0, maxFree - used) };
-      await kvPut(cacheKey, JSON.stringify(out), 45);
+      await kvPut(cacheKey, JSON.stringify(out), 60);
       return json(out);
     }
 
-    // POST /api/trial/use → {mid} → increment trial usage, return {used, remaining}
+    // POST /api/trial/use → {mid, run_id} → idempotent charge; return
+    // {used, remaining, charged}. charged=false must block placement.
     if (request.method === 'POST' && url.pathname === '/api/trial/use') {
       let body;
       try { body = await request.json(); } catch { return json({ error: 'bad json' }, 400); }
-      const mid = body && body.mid;
-      if (!mid || !/^[0-9a-f]{8}$/.test(mid)) {
-        return json({ error: 'bad mid' }, 400);
+      const mid = String((body && body.mid) || '').trim().toLowerCase();
+      const runId = body && body.run_id != null ? String(body.run_id) : '';
+      if (!isValidMid(mid) || (runId && !/^[A-Za-z0-9._:-]{8,96}$/.test(runId))) {
+        return json({ error: 'bad mid or run_id' }, 400);
+      }
+      // A run ID makes retries idempotent and is bound to the MID that created
+      // it. Pending rows are leases: a crashed worker can be reclaimed after a
+      // short timeout instead of acknowledging a lost update forever.
+      const trialState = async (machineId) => {
+        const prior = await DB.prepare('SELECT used, max_free FROM trials WHERE machine_id = ?').bind(machineId).first();
+        const priorUsed = prior ? prior.used : 0;
+        const priorMax = prior ? prior.max_free : 2;
+        return { used: priorUsed, max: priorMax, remaining: Math.max(0, priorMax - priorUsed) };
+      };
+      const finishReservation = async (out) => {
+        if (runId) {
+          await DB.prepare(
+            `UPDATE trial_uses SET completed_at=datetime('now'), result_json=?
+             WHERE run_id=? AND machine_id=?`
+          ).bind(JSON.stringify(out), runId, mid).run();
+        }
+        await kvPut('trial:' + mid, JSON.stringify(out), 60);
+        return json(out);
+      };
+      if (runId) {
+        const claim = await DB.prepare(
+          `INSERT OR IGNORE INTO trial_uses
+             (run_id, machine_id, claimed_at, completed_at, result_json)
+           VALUES (?, ?, datetime('now'), NULL, NULL)`
+        ).bind(runId, mid).run();
+        if (!claim || !claim.meta || claim.meta.changes < 1) {
+          const prior = await DB.prepare(
+            'SELECT machine_id, completed_at, result_json FROM trial_uses WHERE run_id=?'
+          ).bind(runId).first();
+          if (!prior || prior.machine_id !== mid) {
+            // Fail closed for clients that otherwise fall back to a local
+            // counter on non-2xx responses.
+            return json({ error: 'run_id_conflict', used: 2, max: 2, remaining: 0, charged: false });
+          }
+          if (prior.completed_at) {
+            const state = await trialState(mid);
+            if (prior.result_json) {
+              try { return json(Object.assign(JSON.parse(prior.result_json), { duplicate: true })); } catch (e) {}
+            }
+            return json(Object.assign(state, { duplicate: true, charged: false }));
+          }
+          const reclaimed = await DB.prepare(
+            `UPDATE trial_uses SET claimed_at=datetime('now')
+             WHERE run_id=? AND machine_id=? AND completed_at IS NULL
+               AND (claimed_at IS NULL OR claimed_at='' OR claimed_at < datetime('now','-30 seconds'))`
+          ).bind(runId, mid).run();
+          if (!reclaimed || !reclaimed.meta || reclaimed.meta.changes < 1) {
+            return json(Object.assign(await trialState(mid), { duplicate: true, pending: true, charged: false }));
+          }
+        }
       }
       // Fresh-machine flood guard: a mid with no prior trial row is the classic
       // clearing-localStorage reset. Cap fresh mids per IP per day — SATURATE at
       // the cap instead of 429 so the panel syncs to remaining:0 and its trial
       // gate actually blocks, rather than dipping into the local fallback.
       if (await recordFreshTrialUse(clientIp(), mid) > FRESH_MID_LIMIT) {
-        return json({ used: 2, remaining: 0 });
+        return finishReservation({ used: 2, remaining: 0, charged: false });
       }
-      // Atomic "one credit per 2 s per machine" — done in SQL, NOT via a KV
-      // marker, because KV read-after-write across requests is eventual and a
-      // double-fire could slip a second increment past. The UPDATE changes rows
-      // only when the machine's last increment is older than 2 s and it's under
-      // the cap; a fast double-fire simply changes zero rows and we echo state.
       await DB.prepare('INSERT OR IGNORE INTO trials (machine_id, used, max_free) VALUES (?, 0, 2)').bind(mid).run();
-      await DB.prepare(
-        `UPDATE trials SET used = used + 1, last_at = datetime('now')
-         WHERE machine_id = ? AND used < max_free
-           AND (last_at = '' OR last_at IS NULL OR last_at < datetime('now', '-2 seconds'))`
-      ).bind(mid).run();
-      const row = await DB.prepare('SELECT used, max_free FROM trials WHERE machine_id = ?').bind(mid).first();
-      const used = row ? row.used : 0;
-      const maxFree = row ? row.max_free : 2;
-      const out = { used, remaining: Math.max(0, maxFree - used) };
-      await kvPut('trial:' + mid, JSON.stringify(out), 45);
-      return json(out);
+      const updateTrial = runId
+        ? `UPDATE trials SET used = used + 1, last_at = datetime('now')
+           WHERE machine_id = ? AND used < max_free`
+        : `UPDATE trials SET used = used + 1, last_at = datetime('now')
+           WHERE machine_id = ? AND used < max_free
+             AND (last_at = '' OR last_at IS NULL OR last_at < datetime('now', '-2 seconds'))`;
+      let charged = false;
+      if (runId && typeof DB.batch === 'function') {
+        // D1 batch is transactional: the credit and the completed reservation
+        // commit together, so a crash cannot charge twice on reclaim.
+        const batchResults = await DB.batch([
+          DB.prepare(updateTrial).bind(mid),
+          DB.prepare(
+            `UPDATE trial_uses SET completed_at=datetime('now'), result_json=?
+             WHERE run_id=? AND machine_id=?`
+          ).bind(null, runId, mid),
+        ]);
+        const credit = batchResults && batchResults[0];
+        charged = !!(credit && credit.meta && credit.meta.changes >= 1);
+      } else {
+        const credit = await DB.prepare(updateTrial).bind(mid).run();
+        charged = !!(credit && credit.meta && credit.meta.changes >= 1);
+        if (runId) {
+          await DB.prepare(
+            `UPDATE trial_uses SET completed_at=datetime('now')
+             WHERE run_id=? AND machine_id=?`
+          ).bind(runId, mid).run();
+        }
+      }
+      const out = Object.assign(await trialState(mid), { charged });
+      if (runId) {
+        // Store the actual post-charge result for duplicate retries.
+        await DB.prepare('UPDATE trial_uses SET result_json=? WHERE run_id=? AND machine_id=?')
+          .bind(JSON.stringify(out), runId, mid).run();
+      }
+      return finishReservation(out);
+
     }
 
     // POST /api/validate → {mid, key} → {valid, expiry?}
@@ -1704,38 +2092,78 @@ export default {
       let body;
       try { body = await request.json(); } catch { return json({ error: 'bad json' }, 400); }
       const { mid, key } = body || {};
-      if (!mid || !key || !/^[0-9a-f]{8}$/.test(String(mid)) || typeof key !== 'string') {
+      if (!mid || !key || !isValidMid(mid) || typeof key !== 'string' || key.length > 256) {
         return json({ error: 'missing mid or key' }, 400);
       }
-      // Parse the key exactly like the panel/core.js: AMH- prefix, dashes and
-      // case are tolerated; the 32-char hex body is mid|expiry|hmac16.
-      const cacheKey = 'val:' + String(mid) + ':' + key;
+      if (!SECRET) {
+        log('error', 'license_hmac_secret_missing');
+        return json({ error: 'license validation unavailable' }, 503);
+      }
+      if (!SIGN_KEY) {
+        log('error', 'lease_signing_key_missing');
+        return json({ error: 'lease signing unavailable' }, 503);
+      }
+      const midKey = String(mid).trim().toLowerCase();
+      const clean = canonicalLicenseKey(key);
+      const keyMidLength = clean.length === 32 ? 8 : (clean.length === 40 ? 16 : 0);
+      const hasValidKeyShape = keyMidLength > 0 && /^[0-9a-f]+$/.test(clean);
+      // Do not cache malformed input: a later correctly-formatted key with the
+      // same Machine ID must not inherit the malformed request's result.
+      const cacheKey = hasValidKeyShape ? ('val:' + midKey + ':' + clean) : null;
       let out = null;
-      const cached = await kvGet(cacheKey);
-      if (cached) { try { out = JSON.parse(cached); } catch (e) {} }
+      if (cacheKey) {
+        const cached = await kvGet(cacheKey);
+        if (cached) { try { out = JSON.parse(cached); } catch (e) {} }
+      }
+      // A positive KV hit is only a performance hint. Re-check the authoritative
+      // customer row so revocation/expiry cannot remain live for an hour when a
+      // cache invalidation request fails or races with a deploy.
+      if (out && out.valid) {
+        const row = await DB.prepare('SELECT expiry, revoked, key FROM customers WHERE machine_id=?').bind(midKey).first();
+        let rowReason = '';
+        if (!row || canonicalLicenseKey(row.key) !== clean) rowReason = 'not_found';
+        else if (row.revoked) rowReason = 'revoked';
+        else {
+          const cachedMid = clean.slice(0, keyMidLength);
+          const cachedExp = clean.slice(keyMidLength, keyMidLength + 8);
+          const cachedSig = clean.slice(keyMidLength + 8, keyMidLength + 24).toLowerCase();
+          const primarySig = await hmacHex(SECRET, `${cachedMid}|${cachedExp}`);
+          const previousSig = SECRET_PREV ? await hmacHex(SECRET_PREV, `${cachedMid}|${cachedExp}`) : '';
+          if (!safeEqual(cachedSig, primarySig.slice(0, 16)) && !safeEqual(cachedSig, previousSig.slice(0, 16))) {
+            rowReason = 'bad_signature';
+          }
+        }
+        if (!rowReason && row.expiry && row.expiry !== '00000000') {
+          const expDate = new Date(row.expiry.slice(0, 4) + '-' + row.expiry.slice(4, 6) + '-' + row.expiry.slice(6, 8));
+          if (isNaN(expDate.getTime()) || expDate < new Date()) rowReason = 'expired';
+        }
+        if (rowReason) {
+          out = { valid: false, reason: rowReason };
+          await kvDel(cacheKey);
+        }
+      }
       if (!out) {
         // Brute-force/throttle guards cover EVERY cache miss (malformed keys
         // included) — a spray of random keys must be cooled per IP before it
         // even reaches signature checks, let alone D1.
-        if (await rateLimited('rl:ip:' + clientIp() + ':validate', 3)) {
+        if (await rateLimited('rl:ip:' + clientIp() + ':validate', 60)) {
           return json({ valid: false, reason: 'throttled', retry: true }, 429);
         }
-        if (await rateLimited('rl:val:' + String(mid), 3)) {
+        if (await rateLimited('rl:val:' + midKey, 60)) {
           return json({ valid: false, reason: 'throttled', retry: true }, 429);
         }
-        const clean = String(key).replace(/^amh/i, '').replace(/[\s-]+/g, '').toLowerCase();
-        if (!/^[0-9a-f]{32}$/.test(clean)) {
+        if (!hasValidKeyShape) {
           out = { valid: false, retry: true };
         } else {
-          const kmid = clean.slice(0, 8);
-          const kexp = clean.slice(8, 16);
-          const ksig = clean.slice(16, 32);
+          const kmid = clean.slice(0, keyMidLength);
+          const kexp = clean.slice(keyMidLength, keyMidLength + 8);
+          const ksig = clean.slice(keyMidLength + 8, keyMidLength + 24);
           // Cryptographic gate (the row check alone is NOT an auth boundary: a
           // key leaked from logs/exports must not validate). Re-derive the HMAC
           // over mid|expiry exactly like keygen.py / keyFor() does at mint time.
           if (!SECRET) {
             log('error', 'validate_missing_secret');
-            return json({ error: 'server not configured' }, 500);
+            return json({ error: 'server not configured' }, 503);
           }
           const expected = await hmacHex(SECRET, `${kmid}|${kexp}`);
           let sigOk = safeEqual(expected.slice(0, 16), ksig);
@@ -1751,15 +2179,18 @@ export default {
               log('warn', 'key_validated_with_previous_secret', { mid: String(mid) });
             }
           }
-          if (kmid !== String(mid).toLowerCase()) {
+          if (kmid !== String(mid).trim().toLowerCase()) {
             out = { valid: false, reason: 'machine_mismatch' };
           } else if (!sigOk) {
             out = { valid: false, reason: 'bad_signature', retry: true };
           } else {
             // Signature is authentic → fall through to the authoritative DB row
             // (revoked / expiry / shared-spread logic unchanged).
-            const row = await DB.prepare('SELECT expiry, revoked FROM customers WHERE machine_id = ? AND key = ?').bind(String(mid), key).first();
-            if (!row) {
+            // Read by the unique Machine ID, then compare canonical key bodies
+            // in JS. This supports both legacy formatted rows and the new
+            // canonical representation without trusting presentation format.
+            const row = await DB.prepare('SELECT expiry, revoked, key FROM customers WHERE machine_id = ?').bind(midKey).first();
+            if (!row || canonicalLicenseKey(row.key) !== clean) {
               out = { valid: false };
             } else if (row.revoked) {
               out = { valid: false, reason: 'revoked' };
@@ -1773,25 +2204,27 @@ export default {
             }
           }
         }
-        await kvPut(cacheKey, JSON.stringify(out), out.valid ? 3600 : 60);
+        if (cacheKey) await kvPut(cacheKey, JSON.stringify(out), out.valid ? 3600 : 60);
       }
       // A known-good key is served from cache for an hour — but every VALID
       // response still records a (key, source IP) activation so distinct-IP
       // spread detection sees repeat validations, not just the first one.
       if (out.valid) {
-        const okActivation = await recordKeyActivation(key, String(mid), clientIp());
+        const okActivation = await recordKeyActivation(clean, midKey, clientIp());
         if (!okActivation) {
           out = { valid: false, reason: 'shared' };
-          await kvPut(cacheKey, JSON.stringify(out), 60);
+          if (cacheKey) await kvPut(cacheKey, JSON.stringify(out), 60);
         }
       }
-      if (out.valid && SIGN_KEY) {
+      if (out.valid) {
         try {
-          // Sign an install lease bound to THIS machine + expiry so the panel
-          // can verify offline with its embedded public key (see signLease).
-          out.token = await signLease(String(mid).toLowerCase(), out.expiry || '00000000');
+          // A valid license without a signed lease is not activatable by the
+          // current panel. Never return a boolean-only success to a client
+          // that is required to verify a lease.
+          out.token = await signLease(midKey, out.expiry || '00000000');
         } catch (e) {
           log('error', 'lease_sign_failed', { err: String(e && e.message || e) });
+          return json({ error: 'lease signing unavailable' }, 503);
         }
       }
       return json(out);
@@ -1808,6 +2241,10 @@ export default {
         log('error', 'webhook_secret_missing');
         return new Response('webhook secret not configured', { status: 500 });
       }
+      if (!TOKEN || !ADMIN_ID) {
+        log('error', 'telegram_config_missing');
+        return new Response('telegram configuration incomplete', { status: 503 });
+      }
       const given = request.headers.get('X-Telegram-Bot-Api-Secret-Token') || '';
       if (!safeEqual(given, WEBHOOK_SECRET)) {
         log('warn', 'webhook_auth_failed');
@@ -1815,18 +2252,55 @@ export default {
       }
       let update;
       try { update = await request.json(); } catch { return new Response('bad', { status: 400 }); }
+      const updateId = Number(update && update.update_id);
+      if (!Number.isSafeInteger(updateId) || updateId < 0) {
+        return new Response('missing update_id', { status: 400 });
+      }
+
+      // Claim the Telegram update before doing any work. Completed retries are
+      // acknowledged; a still-running claim returns 5xx so Telegram retries,
+      // and an abandoned claim older than the lease is reclaimed atomically.
+      try {
+        const claim = await DB.prepare(
+          `INSERT OR IGNORE INTO webhook_updates
+             (update_id, completed_at, claimed_at)
+           VALUES (?, NULL, datetime('now'))`
+        ).bind(updateId).run();
+        if (!claim || !claim.meta || claim.meta.changes < 1) {
+          const prior = await DB.prepare(
+            'SELECT completed_at, claimed_at FROM webhook_updates WHERE update_id=?'
+          ).bind(updateId).first();
+          if (prior && prior.completed_at) return new Response('duplicate', { status: 200 });
+          const reclaimed = await DB.prepare(
+            `UPDATE webhook_updates SET claimed_at=datetime('now')
+             WHERE update_id=? AND completed_at IS NULL
+               AND (claimed_at IS NULL OR claimed_at='' OR claimed_at < datetime('now','-10 minutes'))`
+          ).bind(updateId).run();
+          if (!reclaimed || !reclaimed.meta || reclaimed.meta.changes < 1) {
+            return new Response('update already processing', { status: 503 });
+          }
+        }
+      } catch (e) {
+        log('error', 'webhook_claim_failed', { update_id: updateId, err: String(e && e.message || e) });
+        return new Response('webhook storage unavailable', { status: 503 });
+      }
 
       try {
         if (update.message) await handleMessage(update.message, env);
         else if (update.callback_query) await handleCallback(update.callback_query);
+        await DB.prepare(
+          'UPDATE webhook_updates SET completed_at = datetime(\'now\'), claimed_at = NULL WHERE update_id = ?'
+        ).bind(updateId).run();
+        return new Response('ok', { status: 200 });
       } catch (e) {
-        // Internal bug. All outbound calls already swallow their own errors,
-        // so an exception here is exceptional. Return 200 anyway: echoing a
-        // 500 makes Telegram re-deliver the SAME update forever, which is
-        // what produced the stuck 500-loop this hardening fixes.
-        log('error', 'handler_error', { err: String(e && e.message || e) });
+        try {
+          await DB.prepare('DELETE FROM webhook_updates WHERE update_id = ?').bind(updateId).run();
+        } catch (cleanupError) {
+          log('error', 'webhook_claim_release_failed', { update_id: updateId });
+        }
+        log('error', 'handler_error', { update_id: updateId, err: String(e && e.message || e) });
+        return new Response('handler error', { status: 500 });
       }
-      return new Response('ok', { status: 200 });
     }
 
     return new Response('method not allowed', { status: 405 });

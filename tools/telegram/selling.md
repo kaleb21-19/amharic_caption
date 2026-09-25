@@ -19,15 +19,15 @@ the group, post offers, and handle buyers — copy-paste ready.
 > Automatic Amharic captions (subtitles) for Premiere Pro. On-device, offline,
 > one-time price.
 >
-> 💰 ዋጋ: **ETB 2,500** (one-time, per computer)
+> 💰 ዋጋ: **ETB 2,500** (one-time, per licensed installation)
 > 🏦 የሚከፈለው: ባንክ ዝውውር → **KALEB TEGEGEN** (CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015)
 > 🖥 Windows & Mac
 >
 > እንዴት እንደሚገዙ ለማወቅ: pinned message ይመልከቱ 👇
 
 ### Rules (pinned note)
-- No spam, no reselling the key, no sharing your key with others (each key is
-  locked to one computer).
+- No spam, no reselling the key, no sharing your key or identity/license files
+  (each key is file-bound to one licensed installation).
 - For support, reply under a post or DM the admin.
 - Payment is by bank transfer (CBE, Abyssinia, or Zemen).
 
@@ -74,10 +74,11 @@ Every new user can run **2 free** transcriptions. Open the panel → Generate
 Captions → see the result, then buy if you like it.
 
 **ሊሰንስ ኬይ ለብዙ ኮምፒውተር ይሰራል?**
-No. Each key is locked to **one** computer (hardware ID). To use on another
-computer you need a separate key.
+No. Each key is file-bound to one licensed installation. It is not a hardware
+attestation; do not copy the identity/license files. To use another installation,
+you need a separate key.
 
-**መቼ ነው የሚቆየው?** One-time purchase, permanent (no subscription).
+**መቼ ነው የሚቆየው?** One-time purchase, perpetual by default (no subscription; a dated key is issued only when explicitly disclosed before approval).
 
 **እንዴት እከፍላለሁ?** ባንክ ዝውውር ወደ **KALEB TEGEGEN** — CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015.
 
@@ -93,7 +94,7 @@ only registers on PPRO v24.0+). The Amharic model runs fully on your machine (no
 ---
 
 ## 5. Support/anti-question tips
-- If someone shares their key publicly, remind them it's one-computer only and
-  that sharing breaks their own activation policy.
+- If someone shares their key publicly, remind them it is file-bound to one
+  installation and that copying the identity/license files violates the policy.
 - Keep a simple log of who paid (the `deliver_key.py` tool helps).
 - Attach the install steps post (see `INSTALL_POST.md`) as a sticky for buyers.

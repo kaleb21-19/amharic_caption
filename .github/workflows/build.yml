@@ -13,6 +13,7 @@ concurrency:
 # rebuild the CT2 int8 weights shipped in the bundle.
 env:
   HF_MODEL: badrex/Ethio-ASR-amharic
+  HF_REVISION: edda1ab0af0d3cca4f4a6fd0b17ef3726bcce12a
   # Deliberate, documented licence choice. The bundled ffmpeg is a GPL build
   # (it needs libx264 for the burn-in encoder and libass for the subtitles
   # filter), so prepare_python.sh requires this explicit opt-in before it will
@@ -27,25 +28,25 @@ jobs:
   # target zips, so we do it a single time (on a cheap ubuntu runner with CPU
   # torch + ctranslate2) and let the platform jobs fetch the converted model.
   # Shipping int8 lets the runtime drop torch/transformers (~-1.7GB).
-  # The model is published to THIS repo's releases as a prerelease tag
-  # (model-ct2-int8): prereleases never become releases/latest (so the zip
-  # release stays latest) but their assets are anonymously downloadable, and
-  # they do NOT count against the Actions artifact quota — which is what was
-  # failing every run ("Artifact storage quota has been hit").
-  model-ct2:
+  # The model is published as an immutable prerelease tag containing the
+  # source commit SHA, so platform jobs can fetch exactly the model they tested.
+  model:
+    id: model
     runs-on: ubuntu-latest
+    outputs:
+      model_tag: ${{ steps.model_tag.outputs.value }}
     permissions:
       actions: write
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       # Free the Actions artifact storage quota (nothing new is stored via
       # artifacts anymore, but stale ones from old runs still count until their
       # 30-day retention expires). Sweep anything older than a day so the quota
       # recalculation (every 6-12h) never strands anything.
       - name: Prune old artifacts
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
         with:
           script: |
             const cutoff = Date.now() - 24 * 60 * 60 * 1000;
@@ -68,20 +69,20 @@ jobs:
             }
             console.log(`deleted ${deleted} artifact(s) older than 1 day`);
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.11"
 
       - name: Cache HF model download
-        uses: actions/cache@v3
+        uses: actions/cache@6f8efc29b200d32929f49075959781ed54ec270c
         with:
           path: ethio-asr
-          key: ethio-asr-${{ env.HF_MODEL }}
+          key: ethio-asr-${{ env.HF_MODEL }}-${{ env.HF_REVISION }}
 
       - name: Install conversion deps
         run: >
-          python -m pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu &&
-          python -m pip install --quiet "ctranslate2==4.8.1" transformers huggingface_hub scipy
+          python -m pip install --quiet "torch==2.7.1" --index-url https://download.pytorch.org/whl/cpu &&
+          python -m pip install --quiet "ctranslate2==4.8.1" "transformers==4.53.2" "huggingface_hub==0.33.4" "scipy==1.15.3" "sentencepiece==0.2.0"
 
       - name: Download fp32 model
         env:
@@ -96,19 +97,25 @@ jobs:
       - name: Package CT2 int8 model
         run: tar -czf model-ct2-int8.tar.gz -C tools/stage model-ct2-int8
 
-      - name: Publish CT2 int8 model to releases
+      - name: Publish immutable CT2 int8 model for this commit
+        id: model_tag
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG="model-ct2-int8"
-          gh release view "$TAG" --repo kaleb21-19/amharic_caption >/dev/null 2>&1 || \
-            gh release create "$TAG" --repo kaleb21-19/amharic_caption \
+          TAG="model-ct2-int8-${GITHUB_SHA}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if ! gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "${{ github.repository }}" \
               --prerelease \
-              --title "CT2 int8 model assets" \
-              --notes "Platform-independent CTranslate2 int8 converter output shared by every platform build. Published as a prerelease on purpose: prereleases never resolve to releases/latest, so it can never shadow the product zips." \
-              >/dev/null 2>&1 || true
-          gh release upload "$TAG" --repo kaleb21-19/amharic_caption model-ct2-int8.tar.gz --clobber
+              --title "CT2 int8 model assets (${GITHUB_SHA})" \
+              --notes "Platform-independent CTranslate2 int8 output for commit ${GITHUB_SHA}. The commit is part of the tag so a rerun cannot replace the model used by a published product build."
+          fi
+          if ! gh release view "$TAG" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' | grep -Fxq 'model-ct2-int8.tar.gz'; then
+            gh release upload "$TAG" --repo "${{ github.repository }}" model-ct2-int8.tar.gz
+          else
+            echo "model asset already exists; refusing to overwrite immutable asset"
+          fi
           echo "published model -> $TAG"
 
   # ---- 1.5. version-drift gate ----------------------------------------------
@@ -119,7 +126,7 @@ jobs:
   check-version:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Verify version strings are consistent
         run: bash tools/check_versions.sh
@@ -129,19 +136,19 @@ jobs:
   # (TESTING.md §8#2/#8#3/§9): panel unit + DOM tests, the engine self-checks,
   # long-audio/diarization/mel-edge-case units, and the Worker's HMAC/license/
   # trial e2e harness. None of these need the full assembled runtime (ffmpeg +
-  # relocatable python), so this stays cheap and fast — it is a REQUIRED gate
-  # for `release` below, unlike accuracy-gate (see that job for why).
+  # relocatable python), so this stays cheap and fast. It is a REQUIRED gate
+  # for the draft release, together with the real-golden accuracy gate.
   test:
-    needs: model-ct2
+    needs: model
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.11"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "22"
 
@@ -149,14 +156,14 @@ jobs:
         # ethio_srt.py imports soundfile at module level (used by read_wav);
         # test_long.py imports ethio_srt, so it needs this even though the
         # stub-engine tests never actually read a real audio file.
-        run: python -m pip install --quiet numpy soundfile
+        run: python -m pip install --quiet "numpy==1.26.4" "soundfile==0.13.1"
 
       - name: Download CT2 int8 model (mel_filters.npy / window.npy by path)
         run: |
           set -euo pipefail
           mkdir -p tools/stage
           curl -fL --retry 3 \
-            "https://github.com/kaleb21-19/amharic_caption/releases/download/model-ct2-int8/model-ct2-int8.tar.gz" \
+            "https://github.com/${{ github.repository }}/releases/download/${{ needs.model.outputs.model_tag }}/model-ct2-int8.tar.gz" \
             -o /tmp/model-ct2-int8.tar.gz
           tar -xzf /tmp/model-ct2-int8.tar.gz -C tools/stage
 
@@ -177,6 +184,8 @@ jobs:
           set -euo pipefail
           mkdir -p runtime/bin runtime/python/bin runtime/model
           cp ethio_srt.py ctc_beam.py amh_correct.py amh_vad.py amh_lm.py amh_lm.json.gz runtime/
+          cp amh_diarize.py runtime/
+          touch runtime/silero_vad.onnx runtime/speaker_embed.onnx runtime/model/model_meta.json
           ln -s "$(command -v python3)" runtime/python/bin/python3
           touch runtime/bin/ffmpeg && chmod +x runtime/bin/ffmpeg
 
@@ -189,6 +198,9 @@ jobs:
       # could ship unnoticed — both were found in the wild on 2026-09-22.
       - name: Panel machine-identity tests (Node, no deps)
         run: node panel/test/machine-id.test.mjs
+
+      - name: Premiere host safety regression (Node, no deps)
+        run: node panel/test/host-safety.test.mjs
 
       - name: ctc_beam self-check (incl. LM shallow-fusion safe-default + reset)
         run: python ctc_beam.py
@@ -208,28 +220,46 @@ jobs:
       - name: Mel extractor edge cases (ultra-short audio)
         run: python tools/test/test_mel_short.py
 
-      - name: Worker e2e — HMAC, trials, license, webhook auth (38 checks)
+      - name: Worker e2e — HMAC, trials, license, webhook auth
         working-directory: tools/telegram-worker
         run: |
-          npm install --no-fund --no-audit
+          npm ci --no-fund --no-audit
+          npm audit --audit-level=high
+          npx wrangler d1 migrations apply amh_bot --local
           node test/e2e.mjs
 
-  # ---- 1.7. accuracy gate (informational) ------------------------------------
-  # Real-golden WER against Common Voice Amharic clips (TESTING.md §1.2g).
-  # This is currently RED (mean WER ~52% vs a 15% target) and tracked as an
-  # open item, not a regression — hard-blocking `release` on it would stop
-  # every release until the model/LM work in tools/retrain/IMPROVEMENTS.md
-  # lands. Kept as continue-on-error so the number is visible on every build
-  # without silently gating shipping on a known, already-logged issue.
-  # Remove continue-on-error once a model upgrade clears the gate.
-  accuracy-gate:
-    needs: model-ct2
+  # ---- 1.65. website build + dependency gate --------------------------------
+  website:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - name: Install locked website dependencies
+        working-directory: website
+        run: npm ci --no-fund --no-audit
+      - name: Build website
+        working-directory: website
+        run: npm run build
+      - name: Audit production website dependencies
+        working-directory: website
+        run: npm audit --omit=dev --audit-level=high
 
-      - uses: actions/setup-python@v5
+  # ---- 1.7. accuracy gate (release-blocking) --------------------------------
+  # Real-golden WER against Common Voice Amharic clips (TESTING.md §1.2g).
+  # A release is not publishable while the measured result exceeds the product
+  # target. The current model is expected to fail this gate; that is precisely
+  # why publication remains frozen until the model/LM work clears it.
+  accuracy-gate:
+    needs: model
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.11"
 
@@ -238,7 +268,7 @@ jobs:
         # amh_vad.py returns no segments *silently* when either onnxruntime or
         # silero_vad.onnx is unavailable, so without it this job would quietly
         # score a VAD-off configuration that no customer runs (TESTING.md §1.2j).
-        run: python -m pip install --quiet numpy soundfile "ctranslate2==4.8.1" onnxruntime
+        run: python -m pip install --quiet "numpy==1.26.4" "soundfile==0.13.1" "ctranslate2==4.8.1" "onnxruntime==1.20.1"
 
       - name: Download CT2 int8 model
         shell: bash
@@ -246,7 +276,7 @@ jobs:
           set -euo pipefail
           mkdir -p tools/stage
           curl -fL --retry 3 \
-            "https://github.com/kaleb21-19/amharic_caption/releases/download/model-ct2-int8/model-ct2-int8.tar.gz" \
+            "https://github.com/${{ github.repository }}/releases/download/${{ needs.model.outputs.model_tag }}/model-ct2-int8.tar.gz" \
             -o /tmp/model-ct2-int8.tar.gz
           tar -xzf /tmp/model-ct2-int8.tar.gz -C tools/stage
 
@@ -293,14 +323,14 @@ jobs:
   # not allow `matrix` in the `shell:` key). Each platform is its own job; the
   # release job waits for all of them so every release carries all 3 zips.
   build-ar:
-    needs: model-ct2
+    needs: model
     runs-on: macos-14
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.11"
 
@@ -310,7 +340,7 @@ jobs:
           set -euo pipefail
           mkdir -p tools/stage
           curl -fL --retry 3 \
-            "https://github.com/kaleb21-19/amharic_caption/releases/download/model-ct2-int8/model-ct2-int8.tar.gz" \
+            "https://github.com/${{ github.repository }}/releases/download/${{ needs.model.outputs.model_tag }}/model-ct2-int8.tar.gz" \
             -o /tmp/model-ct2-int8.tar.gz
           tar -xzf /tmp/model-ct2-int8.tar.gz -C tools/stage
 
@@ -332,16 +362,16 @@ jobs:
 # Intel Mac — runs on the arm64 macOS runner (macos-14, much less queued
   # than the old macos-13) and uses AMH_TARGET to stage the x86_64 runtime.
   build-x64:
-    needs: model-ct2
+    needs: model
     runs-on: macos-14
     env:
       AMH_TARGET: mac-x64
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.11"
 
@@ -351,7 +381,7 @@ jobs:
           set -euo pipefail
           mkdir -p tools/stage
           curl -fL --retry 3 \
-            "https://github.com/kaleb21-19/amharic_caption/releases/download/model-ct2-int8/model-ct2-int8.tar.gz" \
+            "https://github.com/${{ github.repository }}/releases/download/${{ needs.model.outputs.model_tag }}/model-ct2-int8.tar.gz" \
             -o /tmp/model-ct2-int8.tar.gz
           tar -xzf /tmp/model-ct2-int8.tar.gz -C tools/stage
 
@@ -373,14 +403,14 @@ jobs:
   # Windows build — standalone job so it can use the native PowerShell (pwsh)
   # shell without needing `matrix` in the `shell:` key.
   build-win:
-    needs: model-ct2
+    needs: model
     runs-on: windows-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.11"
 
@@ -390,7 +420,7 @@ jobs:
           set -euo pipefail
           mkdir -p tools/stage
           curl -fL --retry 3 \
-            "https://github.com/kaleb21-19/amharic_caption/releases/download/model-ct2-int8/model-ct2-int8.tar.gz" \
+            "https://github.com/${{ github.repository }}/releases/download/${{ needs.model.outputs.model_tag }}/model-ct2-int8.tar.gz" \
             -o /tmp/model-ct2-int8.tar.gz
           tar -xzf /tmp/model-ct2-int8.tar.gz -C tools/stage
 
@@ -413,59 +443,85 @@ jobs:
         run: bash tools/publish_public_zip.sh dist/amharic-captions-win-x64.zip
 
   # ---- 3. publish gate -------------------------------------------------------
-  # Each platform build publishes its own zip straight to this repo's releases
-  # the moment it finishes, so customers never depend on Actions artifacts
-  # (which used to blow the storage quota: 3 x ~700MB zips per run). The repo
-  # is public now, so its release assets are anonymously downloadable and
-  # /releases/latest resolves straight to the newest zip set. This job just
-  # surfaces one green "all three shipped" marker once every platform build +
-  # the version/test gates have passed.
+  # Build jobs stage assets on a draft release. Nothing customer-visible exists
+  # until this job verifies the complete set and flips the draft to public.
   publish-ready:
-    needs: [build-ar, build-win, build-x64, check-version, test]
+    needs: [build-ar, build-win, build-x64, check-version, test, website, accuracy-gate]
     runs-on: ubuntu-latest
-    if: ${{ always() && needs.build-ar.result == 'success' && needs.build-win.result == 'success' && needs.build-x64.result == 'success' && needs.check-version.result == 'success' && needs.test.result == 'success' }}
+    if: ${{ always() && needs.build-ar.result == 'success' && needs.build-win.result == 'success' && needs.build-x64.result == 'success' && needs.check-version.result == 'success' && needs.test.result == 'success' && needs.website.result == 'success' && needs.accuracy-gate.result == 'success' }}
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
-      # VERIFY, don't assume. This job used to print "all three published"
-      # purely because the three build jobs reported success — it never looked
-      # at the release. v1.4.26 shipped with both macOS zips and NO win-x64
-      # zip, so the website's Windows download 404'd (the platform most buyers
-      # are on) while the pipeline looked green. Check the artifacts customers
-      # actually download, via the exact URL the website links to.
-      - name: Verify all three zips are on releases/latest
+      - name: Verify the complete release is still a draft
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           VER="$(grep -o 'ExtensionBundleVersion="[^"]*"' panel/CSXS/manifest.xml | head -1 | sed 's/[^"]*"//;s/"//')"
           TAG="v${VER}"
-          echo "checking release $TAG"
+          DRAFT="$(gh release view "$TAG" --repo "${{ github.repository }}" --json isDraft --jq '.isDraft')"
+          test "$DRAFT" = "true" || { echo "$TAG is not a draft; refusing to publish over an existing release" >&2; exit 1; }
           ASSETS="$(gh release view "$TAG" --repo "${{ github.repository }}" --json assets --jq '.assets[].name')"
           echo "$ASSETS"
-          missing=0
           for z in amharic-captions-win-x64.zip \
                    amharic-captions-mac-arm64.zip \
                    amharic-captions-mac-x64.zip; do
-            if echo "$ASSETS" | grep -Fxq "$z"; then
-              echo "  [ok] $z"
-            else
-              echo "  [MISSING] $z"; missing=1
-            fi
+            echo "$ASSETS" | grep -Fxq "$z" || { echo "missing $z" >&2; exit 1; }
+            echo "$ASSETS" | grep -Fxq "$z.sha256" || { echo "missing checksum $z.sha256" >&2; exit 1; }
           done
-          [ "$missing" -eq 0 ] || { echo "release $TAG is incomplete — customers would get a 404" >&2; exit 1; }
+          SUMDIR="$(mktemp -d)"
+          trap 'rm -rf "$SUMDIR"' EXIT
+          for z in amharic-captions-win-x64.zip \
+                   amharic-captions-mac-arm64.zip \
+                   amharic-captions-mac-x64.zip; do
+            gh release download "$TAG" --repo "${{ github.repository }}" --pattern "$z.sha256" --dir "$SUMDIR" >/dev/null
+            awk -v z="$z" '
+              length($1) == 64 && $1 ~ /^[0-9a-f]+$/ {
+                name = $2; sub(/^\*/, "", name);
+                if (name == z) ok = 1
+              }
+              END { exit(ok ? 0 : 1) }
+            ' "$SUMDIR/$z.sha256" || {
+              echo "invalid checksum record for $z" >&2; exit 1;
+            }
+            RECORDED="$(awk 'length($1) == 64 && $1 ~ /^[0-9a-f]+$/ { print $1; exit }' "$SUMDIR/$z.sha256")"
+            gh release download "$TAG" --repo "${{ github.repository }}" --pattern "$z" --dir "$SUMDIR" >/dev/null
+            ACTUAL="$(sha256sum "$SUMDIR/$z" | awk '{print $1; exit}')"
+            test "$RECORDED" = "$ACTUAL" || {
+              echo "archive bytes do not match checksum record for $z" >&2; exit 1;
+            }
+          done
 
-          # And prove the public download URL really resolves (this is the link
-          # on the website, following GitHub's redirect to the asset CDN).
+      - name: Publish the verified draft atomically
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VER="$(grep -o 'ExtensionBundleVersion="[^"]*"' panel/CSXS/manifest.xml | head -1 | sed 's/[^"]*"//;s/"//')"
+          gh release edit "v${VER}" --repo "${{ github.repository }}" --draft=false --latest
+
+      - name: Verify public download URLs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          failed=0
           for z in amharic-captions-win-x64.zip \
                    amharic-captions-mac-arm64.zip \
                    amharic-captions-mac-x64.zip; do
             url="https://github.com/${{ github.repository }}/releases/latest/download/$z"
-            code="$(curl -s -o /dev/null -I -L -w '%{http_code}' "$url")"
+            code="$(curl -s -o /dev/null -I -L -w '%{http_code}' "$url" || true)"
             echo "  $code  $url"
-            [ "$code" = "200" ] || { echo "download URL not serving: $z" >&2; exit 1; }
+            [ "$code" = "200" ] || failed=1
           done
+          if [ "$failed" -ne 0 ]; then
+            TAG="v$(grep -o 'ExtensionBundleVersion="[^"]*"' panel/CSXS/manifest.xml | head -1 | sed 's/[^"]*"//;s/"//')"
+            echo "Public URL verification failed; re-drafting $TAG" >&2
+            gh release edit "$TAG" --repo "${{ github.repository }}" --draft=true --latest=false >/dev/null 2>&1 || \
+              gh release edit "$TAG" --repo "${{ github.repository }}" --draft=true >/dev/null 2>&1 || true
+            exit 1
+          fi
 
-          echo "win-x64, mac-arm64, mac-x64 all downloadable from:"
-          echo "  https://github.com/${{ github.repository }}/releases/latest"
           echo "Customers install from https://amharic-caption-pro.vercel.app/install"

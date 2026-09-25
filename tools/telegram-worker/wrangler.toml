@@ -27,11 +27,14 @@ id = "49415337946e41168f0f2c8958ea3ede"
 # AMH_SECRET        : the HMAC license-key secret
 # AMH_WEBHOOK_SECRET: random string, ALSO registered as Telegram's webhook
 #                     secret_token so forged updates are rejected (401).
-# AMH_API_KEY       : shared key for /api/* (panel). When SET it is REQUIRED
-#                     (X-Api-Key header). Set it in the same release as a panel
-#                     build that sends the header — see DEPLOY.md transition.
-# AMH_ALLOWED_ORIGIN: optional CORS allow-list, comma-separated (include 'null'
-#                     for CEP file:// panels). Empty => '*'.
+# AMH_API_KEY       : optional deployment-level gate for /api/*; public desktop
+#                     clients cannot keep a meaningful shared secret. Set
+#                     AMH_REQUIRE_API_KEY=1 only when an external network policy
+#                     also protects the Worker.
+# AMH_LICENSE_SIGNING_KEY: required PKCS8 ECDSA P-256 private key used to sign
+#                     install leases. Successful validation fails closed without it.
+# AMH_ALLOWED_ORIGIN: CORS allow-list, comma-separated (include 'null' and
+#                     'file://' for CEP panels). Empty => no browser origin is allowed.
 
 [vars]
 AMH_GROUP_ID = "-1004403686687"
@@ -39,6 +42,10 @@ AMH_PRICE = "ETB 2,500"
 AMH_PRICE_ETB = "2500"
 AMH_ACCT_NAME = "KALEB TEGEGEN"
 AMH_PAY_ACCOUNTS = "CBE 1000504159977 · Abyssinia 402393939 · Zemen 1031111343277015"
+AMH_REQUIRE_API_KEY = "0"
+# Narrow browser origins for the CEP panel; the CEF has no disable-web-security
+# flag, so an unset allow-list would block activation/trial fetches.
+AMH_ALLOWED_ORIGIN = "null,file://"
 
 # Daily prune: every 6h the worker deletes orders/funnel older than 30 days
 # (keeps history window consistent without depending on admin activity).

@@ -37,8 +37,9 @@ node tools/test/test_panel_dom.js  # main.js driven through a dom_shim inside vm
 "$PY" "$HOME/Library/Application Support/Adobe/CEP/extensions/com.amharic.captions/runtime/amh_lm.py"
 
 # 4) Server-side worker auth (requires Node 22+, in tools/telegram-worker):
-node test/e2e.mjs               # all 38 checks: HMAC validate, admin auth,
-                                # webhook signing — secrets from env (AMH_*_TEST)
+node test/e2e.mjs               # all 53 checks: HMAC validate, admin auth,
+                                # webhook signing, trial leases, delivery/revocation
+                                # secrets from env (AMH_*_TEST)
 ```
 
 ### A. End-to-end transcription smoke test (offline, no Premiere)
@@ -161,10 +162,10 @@ Engine changes on top of 1.4.14 (repo; shipped in the next version):
   entry, all-cached re-runs never touch the worker, an edit busts only that clip's key,
   and `attributeCues` window/nearest-fallback attribution + `srtFromCues`⇄
   `srtTextFromCues` mirroring are asserted.
-- **API key (server).** Verified 2026-09-17 against the deployed Worker
-  (`amharic-captions-bot.amhcaps.workers.dev`): `POST /api/ping` returns
-  `200 {"ok":true}` with the shipped `X-Api-Key`, and `401 {"error":"unauthorized"}`
-  without it or with a wrong key. Enforcement is live and the panel key matches.
+- **API key (server).** The extension API is public by design; a desktop
+  client cannot safely embed an authentication secret. `AMH_REQUIRE_API_KEY=1`
+  is an optional deployment/network gate, off in the shipped `wrangler.toml`.
+  The E2E suite covers the disabled-by-default policy and the opt-in 401 gate.
 
 ### 1.2d Speaker labels + multi-format export (2026-09-18)
 
@@ -474,19 +475,15 @@ Treat as a lead, not a finding: the fixture's 0.4s digital-silence gaps are
 exactly the artefact that could make a neural VAD misbehave. Re-test on natural
 continuous audio before acting.
 
-**Open item 2 — the CI accuracy gate does not measure the shipped product.**
-`accuracy-gate` builds `fake_runtime/` without `silero_vad.onnx` AND sets
-`AMH_VAD=0` (`.github/workflows/build.yml`), so it scores VAD-off behaviour
-while every customer runs VAD-on — conditions measured 6–14 pp apart. Either
-ship the onnx into that fake runtime and drop `AMH_VAD=0`, or rename the job so
-it is not read as product accuracy.
+**Resolved CI accuracy configuration:** `accuracy-gate` now installs
+`onnxruntime`, stages the Silero VAD asset, verifies that the VAD session loads,
+and scores the shipped VAD-on configuration. It is release-blocking.
 
-**Open item 3 — missing VAD degrades silently in the product too.**
-`tools/build.sh` warns but still builds a zip if `tools/vad/silero_vad.onnx` is
-absent, and `runtimeComplete()` (`panel/js/main.js`) checks `ethio_srt.py`,
-`model`, `ffmpeg` and `python` but **not** the VAD asset — so such an install
-reports healthy and quietly produces worse captions. The file IS tracked in git
-today, so shipped zips are fine; add it to `runtimeComplete()` so they stay fine.
+**Resolved packaging gate:** `tools/build.sh` and `build_win.ps1` fail
+release builds when the VAD, speaker model, word-LM, or production CT2 model is
+missing. A deliberately degraded local/test archive requires the explicit
+`ALLOW_DEGRADED=1` / `-AllowDegraded` opt-in and carries `DEGRADED_BUILD.txt`;
+customer/release builds cannot silently omit these assets.
 
 **Regression checks after the change:** `run_engine.sh --fixtures
 fixtures_real` 38/38 pass, 0 fail; `test_long.py` ALL PASS; 6.6s clip
@@ -840,7 +837,7 @@ non-overlapping and sorted.
 | 9 | Licensed user's own trial counter | Trials ignored (counter doesn't block licensed user) |
 | 10 | Reload panel while licensed | Stays licensed (state persists in localStorage) |
 | 11 | Button liveness | Generate disabled exactly when trial exhausted AND unlicensed |
-| 12 | Machine-ID copy | Clipboard gets the 8-char ID; button shows ✓ Copied |
+| 12 | Machine-ID copy | Clipboard gets the 16-char installation ID (legacy 8-char IDs remain readable); button shows ✓ Copied |
 
 **Test keys** (use for scenario 4): generate via `python3 tools/keygen.py <machine_id>`.
 Cross-check a negative: a hand-edited sig must FAIL (`tools/keygen.py` is the source of
@@ -852,12 +849,12 @@ for validity — `ACTIVATE` is confirmed against the Worker's database and retur
 server's real expiry, and any caught-corruption/tamper comes back as `reason: invalid`.
 Scenarios 4–9 above are therefore verified end-to-end in Premiere with a live key, plus
 automatically in `tools/test/test_panel.js` (local structure) and
-`tools/telegram-worker/test/e2e.mjs` (server: forged key → 403, wrong machine →
-`mismatch`, stale/revoked/expired → correct 4xx). Trials (scenarios 1–3, 11) are counted
-client-side, but the `consumeTrialCredit()` decrement **is awaited** before a run starts,
-and the trial-gate check also guards the **File Import** path (`run()` and `runFile()`
-both call `assertCanRun()`) so no transcription — clip, active-sequence, work area, or
-imported file — can bypass the two-trial limit.
+`tools/telegram-worker/test/e2e.mjs` (server: forged key → semantic `valid:false`,
+wrong machine → `mismatch`, stale/revoked/expired → an explicit reason). Trials
+(scenarios 1–3, 11) are synchronized with the server before a run, charged with
+an idempotent run ID after a result is produced, and an unconfirmed/exhausted
+charge blocks the review and placement flow. The trial gate covers clip,
+active-sequence, work-area, and imported-file paths (`run()` and `runFile()`).
 
 ---
 
@@ -907,13 +904,13 @@ imported file — can bypass the two-trial limit.
    It also exercises the per-clip batch cache end-to-end (single-clip cache sharing,
    all-cached fast path, edit re-transcribes only the changed clip). **FIXED
    2026-09-20:** none of this ran in CI before — `.github/workflows/build.yml`
-   now has a `test` job (panel unit + DOM, both self-checks, `test_long.py`,
-   `test_diarize.py`, `test_mel_short.py`, the Worker's 38-check `e2e.mjs`)
-   that is a **required gate on `release`** — a regression now blocks the
-   public zip from being cut, not just from being noticed later. A separate
-   `accuracy-gate` job runs the real-golden WER gate (§1.2g) on every build
-   too, but stays `continue-on-error` (informational) since it is currently
-   RED and hard-blocking it would stop all releases — see that job's comment.
+   now has a `test` job (panel unit + DOM, host-safety, machine identity, both
+   self-checks, `test_long.py`, `test_diarize.py`, `test_mel_short.py`, and the
+   Worker's 53-check `e2e.mjs`) that is a **required gate on `release`** — a
+   regression now blocks the public zip from being cut, not just from being
+   noticed later. The separate `accuracy-gate` job runs the real-golden WER gate
+   (§1.2g) on every build and is also required; it is intentionally RED until
+   the WER ≤15% target passes.
 3. **No golden audio `fixtures/`** — harness built 2026-09-19; real recorded
    goldens added 2026-09-19, accuracy gate measured (§1.2g). `tools/test/wer.py`,
    `tools/test/run_engine.sh` (now `--fixtures DIR` + `--max-wer` aware) and

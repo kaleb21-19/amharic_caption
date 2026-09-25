@@ -48,7 +48,7 @@ const home = mkdtempSync(join(tmpdir(), 'amh-mid-'));
 try {
   // 1) brand-new machine -> file created, id echoed to localStorage, no mismatch
   let r = await run(home);
-  assert.match(r.mid, /^[0-9a-f]{8}$/, 'fresh id is 8-hex');
+  assert.match(r.mid, /^[0-9a-f]{16}$/, 'fresh id is 16-hex');
   assert.ok(existsSync(r.file), 'node file created');
   const first = r.mid;
   assert.equal(r.localStored, first, 'localStorage mirrors the node id');
@@ -69,7 +69,15 @@ try {
   // 4) corrupt node file -> fresh id, never crashes
   writeFileSync(r.file, '{oops');
   r = await run(home);
-  assert.match(r.mid, /^[0-9a-f]{8}$/, 'corrupt file falls through to fresh id');
+  assert.match(r.mid, /^[0-9a-f]{16}$/, 'corrupt file falls through to fresh id');
+
+  // A truncated primary with a valid backup must recover the paid identity.
+  const recovered = r.mid;
+  writeFileSync(r.file + '.bak', JSON.stringify({ id: recovered, host: null, hv: 2 }));
+  writeFileSync(r.file, '{truncated');
+  r = await run(home);
+  assert.equal(r.mid, recovered, 'valid backup recovers a truncated machine record');
+  assert.equal(JSON.parse(readFileSync(r.file, 'utf8')).id, recovered, 'primary record is healed');
 
   // 5) node record with a foreign host fingerprint -> mismatch flagged.
   //    hv must match HOST_FP_VERSION, otherwise the record predates the

@@ -12,7 +12,7 @@ import { PRICE } from "@/lib/site";
 // with lib/site.js, which is exactly how the old panel screenshot ended up
 // advertising ETB 1,500.
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 export const alt = "Amharic Captions Pro — Amharic subtitles inside Adobe Premiere Pro";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";

@@ -41,11 +41,11 @@ const faqs = [
   },
   {
     q: "How accurate is it?",
-    a: "On clear speech it is strong enough to be much faster than typing from scratch — you review and fix rather than type. Accuracy drops on heavy echo (large halls, churches) and phone-recorded audio, so those clips need more editing. See the audio guidance above.",
+    a: "Accuracy varies substantially with the speaker, accent, recording, noise, and echo. The current model is not yet validated against the project's ≤15% real-audio WER target, so treat every transcription as a draft that needs review and correction before publishing.",
   },
   {
     q: "How does the license work?",
-    a: "One key per computer, locked to that machine. Pay once and it never expires. If you reinstall on the same machine your key keeps working; message support to move it to a new one.",
+    a: "One key per licensed installation, file-bound to the panel identity. Pay once; keys are perpetual by default unless the seller explicitly issues a dated key. Do not share the identity/license files.",
   },
 ];
 
@@ -135,7 +135,7 @@ export default function HomePage() {
             </li>
             <li>
               <strong>No monthly fee</strong>
-              <span>Pay once, use it forever</span>
+              <span>Pay once; perpetual by default</span>
             </li>
           </ul>
         </div>
@@ -230,13 +230,13 @@ export default function HomePage() {
           <Reveal>
             <div className="section-head center">
               <p className="eyebrow">Pricing</p>
-              <h2>Pay once. Keep it forever.</h2>
+              <h2>One-time license, perpetual by default.</h2>
             </div>
           </Reveal>
 
           <Reveal delay={80}>
             <div className="price-card">
-              <span className="price-badge">Lifetime · One-time · Never expires</span>
+              <span className="price-badge">One-time · Perpetual by default</span>
               <div className="price">
                 <span className="price-old">ETB {oldLbl}</span>
                 <span className="price-cur">ETB</span>
@@ -251,7 +251,7 @@ export default function HomePage() {
                 <li>2 free captions before you pay anything</li>
                 <li>Editable caption tracks, native to Premiere</li>
                 <li>Premiere Pro 2024+ · Windows 10/11 &amp; macOS</li>
-                <li>Works fully offline, forever</li>
+                <li>Works fully offline after activation</li>
                 <li>Support on Telegram from the people who built it</li>
               </ul>
 
@@ -260,7 +260,7 @@ export default function HomePage() {
               </a>
               <p className="tiny">
                 Pay by bank transfer. The bot confirms your payment and sends the key straight
-                into the chat, locked to your machine. <a href="#safety">Verify the official accounts</a>.
+                into the chat, file-bound to that installation. <a href="#safety">Verify the official accounts</a>.
               </p>
             </div>
           </Reveal>
@@ -303,7 +303,7 @@ export default function HomePage() {
               </p>
               <div className="cta-row">
                 <a className="btn btn-primary btn-lg" href={BOT_URL} target="_blank" rel="noopener">
-                  Get your lifetime key
+                  Get your license key
                 </a>
                 <Link className="btn btn-ghost btn-lg" href="/install/">
                   Read the install guide

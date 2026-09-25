@@ -293,8 +293,11 @@ class _TorchEngine:
     def __init__(self, model_dir):
         torch, AutoProcessor, AutoModelForCTC = _load_torch()
         self.device = "mps" if torch.backends.mps.is_available() else "cpu"
-        self.processor = AutoProcessor.from_pretrained(model_dir)
-        model = AutoModelForCTC.from_pretrained(model_dir)
+        # The dev fallback is still local-only. If a model directory is
+        # incomplete, fail instead of letting transformers silently fetch
+        # weights from the network during a transcription request.
+        self.processor = AutoProcessor.from_pretrained(model_dir, local_files_only=True)
+        model = AutoModelForCTC.from_pretrained(model_dir, local_files_only=True)
         if os.environ.get("AMH_USE_FP32") != "1":
             model = model.half()
         self.model = model.to(self.device).eval()

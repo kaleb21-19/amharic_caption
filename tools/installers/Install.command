@@ -40,10 +40,16 @@ NAME="com.amharic.captions"
 LOG="/tmp/amharic-captions-install.log"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SRC="$HERE/$NAME"
+model_present() {
+  [[ -f "$1/runtime/model/model.bin" || -f "$1/runtime/model/model_meta.json" || -f "$1/runtime/model/config.json" ]]
+}
 EXT_DIR="$HOME/Library/Application Support/Adobe/CEP/extensions"
 DEST="$EXT_DIR/$NAME"
-STAGE="$EXT_DIR/.$NAME.staging"
-BACKUP="$EXT_DIR/$NAME.old"
+# Keep staging outside the scanned extensions directory as well as the backup.
+STAGE="$HOME/Library/Application Support/Adobe/CEP/.$NAME.staging"
+# Keep rollback outside CEP's scanned extensions directory. A backup containing
+# CSXS/manifest.xml under extensions/ can be loaded as a duplicate extension.
+BACKUP="$HOME/Library/Application Support/Adobe/CEP/$NAME.old"
 
 SILENT=0
 if [[ "${1:-}" == "/silent" || "${1:-}" == "silent" ]]; then
@@ -122,6 +128,42 @@ fi
 echo "  [OK] Extension files found."
 echo ""
 log "Source files verified"
+
+DEGRADED=0
+if [[ -f "$HERE/DEGRADED_BUILD.txt" ]]; then
+  DEGRADED=1
+  echo "  [WARNING] Explicit local/test degraded build; optional ML assets may be absent."
+  log "WARNING: DEGRADED_BUILD.txt present; not for release"
+fi
+
+if [[ "$DEGRADED" -eq 0 ]]; then
+  for f in \
+    runtime/model/model.bin runtime/bin/ffmpeg runtime/python/bin/python3 \
+    runtime/amh_lm.py runtime/amh_lm.json.gz runtime/amh_vad.py \
+    runtime/silero_vad.onnx runtime/amh_diarize.py runtime/speaker_embed.onnx; do
+    if [[ ! -f "$SRC/$f" ]]; then
+      echo "  [ERROR] Required package file is missing: $f"
+      log "ERROR(6): source package missing $f"
+      press_enter
+      exit 6
+    fi
+  done
+else
+  if ! model_present "$SRC"; then
+    echo "  [ERROR] Required package model is missing."
+    log "ERROR(6): source package missing model"
+    press_enter
+    exit 6
+  fi
+  for f in runtime/bin/ffmpeg runtime/python/bin/python3; do
+    if [[ ! -f "$SRC/$f" ]]; then
+      echo "  [ERROR] Required core package file is missing: $f"
+      log "ERROR(6): source package missing core file $f"
+      press_enter
+      exit 6
+    fi
+  done
+fi
 
 # ---- warn if an older system-wide copy exists ----
 
@@ -216,12 +258,14 @@ log "Source files: $SRC_COUNT"
 log "Staged files: $STAGE_COUNT"
 
 if [[ "$SRC_COUNT" != "$STAGE_COUNT" ]]; then
-  echo "  [WARNING] File count does not match."
+  echo "  [ERROR] File count does not match; staged copy is incomplete."
   echo ""
-  echo "  The extension may be incomplete. Re-unzip the original download"
-  echo "  and try again."
+  echo "  Re-unzip the original download and try again."
   echo ""
-  log "WARNING: File count mismatch ($SRC_COUNT vs $STAGE_COUNT)"
+  log "ERROR(6): File count mismatch ($SRC_COUNT vs $STAGE_COUNT)"
+  rm -rf "$STAGE" 2>/dev/null || true
+  press_enter
+  exit 6
 fi
 
 echo "  [OK] Staged copy verified."
@@ -283,31 +327,56 @@ if [[ ! -f "$DEST/CSXS/manifest.xml" || ! -f "$DEST/index.html" ]]; then
   exit 8
 fi
 
-# ---- check the optional heavy runtime pieces (warn only) ----
+# ---- verify required runtime pieces (never ship a partial production install) ----
 
-if [[ -f "$SRC/runtime/model/model.bin" ]]; then
-  if [[ -f "$DEST/runtime/model/model.bin" ]]; then
-    echo "  [OK] AI model"
-  else
-    echo "  [WARNING] AI model was not copied."
+if [[ "$DEGRADED" -eq 0 ]]; then
+  for f in \
+    runtime/model/model.bin runtime/bin/ffmpeg runtime/python/bin/python3 \
+    runtime/amh_lm.py runtime/amh_lm.json.gz runtime/amh_vad.py \
+    runtime/silero_vad.onnx runtime/amh_diarize.py runtime/speaker_embed.onnx; do
+    if [[ ! -f "$DEST/$f" ]]; then
+      echo "  [ERROR] Required runtime file is missing after install: $f"
+      log "ERROR(8): installed copy missing $f"
+      if [[ -d "$BACKUP" ]]; then
+        rm -rf "$DEST" 2>/dev/null || true
+        mv "$BACKUP" "$DEST" 2>/dev/null || true
+      else
+        rm -rf "$DEST" 2>/dev/null || true
+      fi
+      press_enter
+      exit 8
+    fi
+  done
+else
+  if ! model_present "$DEST"; then
+    echo "  [ERROR] Required core runtime model is missing after install."
+    log "ERROR(8): installed degraded copy missing model"
+    if [[ -d "$BACKUP" ]]; then
+      rm -rf "$DEST" 2>/dev/null || true
+      mv "$BACKUP" "$DEST" 2>/dev/null || true
+    else
+      rm -rf "$DEST" 2>/dev/null || true
+    fi
+    press_enter
+    exit 8
   fi
+  for f in runtime/bin/ffmpeg runtime/python/bin/python3; do
+    if [[ ! -f "$DEST/$f" ]]; then
+      echo "  [ERROR] Required core runtime file is missing after install: $f"
+      log "ERROR(8): installed degraded copy missing core file $f"
+      if [[ -d "$BACKUP" ]]; then
+        rm -rf "$DEST" 2>/dev/null || true
+        mv "$BACKUP" "$DEST" 2>/dev/null || true
+      else
+        rm -rf "$DEST" 2>/dev/null || true
+      fi
+      press_enter
+      exit 8
+    fi
+  done
 fi
 
-if [[ -f "$SRC/runtime/bin/ffmpeg" ]]; then
-  if [[ -f "$DEST/runtime/bin/ffmpeg" ]]; then
-    echo "  [OK] FFmpeg engine"
-  else
-    echo "  [WARNING] FFmpeg engine was not copied."
-  fi
-fi
-
-if [[ -f "$SRC/runtime/python/bin/python3" ]]; then
-  if [[ -f "$DEST/runtime/python/bin/python3" ]]; then
-    echo "  [OK] Python engine"
-  else
-    echo "  [WARNING] Python engine was not copied."
-  fi
-fi
+echo "  [OK] Required runtime files verified."
 
 echo ""
 

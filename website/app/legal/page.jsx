@@ -4,7 +4,7 @@ import { BOT_URL, CONTACT_URL, ACCT_NAME, ACCOUNTS_LABEL, PRICE } from "@/lib/si
 export const metadata = {
   title: "License, Privacy & Refund — Amharic Captions for Premiere Pro",
   description:
-    "End User License Agreement, privacy policy and refund policy for Amharic Captions Pro. One-time ETB 2,500 lifetime license, fully offline transcription, machine-locked keys.",
+    "End User License Agreement, privacy policy and refund policy for Amharic Captions Pro. One-time ETB 2,500 license, local transcription, file-bound license terms.",
 };
 
 export default function LegalPage() {
@@ -15,9 +15,9 @@ export default function LegalPage() {
           <p className="eyebrow">Legal</p>
           <h1>License, privacy & refunds.</h1>
           <p className="hero-sub">
-            The short version: 100% offline transcription, one license per
-            machine, and a clear money-back path if it does not work on your
-            setup. The full terms are below.
+            The short version: local transcription, one license per licensed
+            installation, and a clear money-back path if it does not work on
+            your setup. The full terms are below.
           </p>
         </div>
       </section>
@@ -41,17 +41,18 @@ export default function LegalPage() {
           <h3>1. Grant of license</h3>
           <p>
             The Licensor grants you a non-exclusive, non-transferable, personal
-            right to install and use the Software on a single machine, subject
-            to the terms below. The license is perpetual — you pay once
-            ({PRICE} one-time payment) and the key never expires.
+            right to install and use the Software on a single licensed installation, subject
+            to the terms below. The license is perpetual by default — you pay once
+            ({PRICE} one-time payment). If the seller explicitly issues a dated key before approval, that disclosed expiry applies.
           </p>
 
-          <h3>2. Machine locking</h3>
+          <h3>2. License boundary</h3>
           <p>
-            Each license key is hardware-locked to the "Machine ID"
-            generated on your computer. The key activates only on the exact
-            machine whose ID was used to purchase it. One key = one machine. To
-            run the Software on another computer you must obtain a second key.
+            Each license key is bound to a random installation identifier stored
+            in your user profile. This is a file-bound license, not a hardware
+            attestation or TPM-backed lock. Do not copy the identity/license
+            files or share them with another person. A second licensed
+            installation requires a second key.
           </p>
 
           <h3>3. Free trial</h3>
@@ -74,18 +75,21 @@ export default function LegalPage() {
           <p>
             The Licensor may refuse or revoke a license key if it was obtained
             or used improperly — for example fraud, a chargeback, a refund
-            abuse, or a key repeatedly used/activated across many machines.
-            Revocation is communicated to the key holder by Telegram. Legitimate
-            keys are never revoked.
+            abuse, or a key repeatedly used across installations. Revocation is
+            communicated to the key holder by Telegram. Online checks can
+            enforce revocation; an already-issued offline lease may remain
+            usable until the client next contacts the license server.
+            Legitimate keys are not revoked.
           </p>
 
           <h3>6. Transcription accuracy</h3>
           <p>
             Transcription is produced on your machine by speech-recognition
-            models. Accuracy depends on the audio quality of your footage —
-            clean studio sound, phone microphones, background noise, music and
-            reverberation all affect results, and captions may need minor edits.
-            You remain responsible for reviewing captions before publishing.
+            models. Accuracy depends on audio quality, speaker, accent,
+            background noise, music and reverberation. Captions may require substantial
+            correction; the current model has not yet met the project's ≤15%
+            real-audio WER target. You are responsible for reviewing and
+            correcting every caption before publishing.
           </p>
 
           <h3>7. No warranty</h3>
@@ -140,21 +144,24 @@ export default function LegalPage() {
             <li>
               <strong>License activation.</strong> When you activate a key, the
               Software sends your Machine ID and the key to the license server
-              to confirm the key belongs to your machine. The server also
+              to confirm the key belongs to this installation. The server also
               re-derives the key&rsquo;s cryptographic signature — this is how
-              forged or stolen keys are rejected.
+              forged or stolen keys are rejected. The license is file-bound,
+              not a hardware attestation; do not share the identity/license files.
             </li>
             <li>
-              <strong>Anonymous usage beacon.</strong> Each time you open the
-              panel, a single request is sent containing your application
-              version and your Machine ID. It is used to count installs, detect
-              abuse, and (for support) confirm which version you run. It
-              contains no audio, text, transcript, or personal data.
+              <strong>Usage beacon.</strong> When the panel opens, it may send
+              your application version, a pseudonymous Machine ID, origin, and
+              network source information to the license server. It is used to
+              count installs, detect abuse, and support version diagnostics. It
+              does not contain audio, text, or transcripts. Telemetry retention
+              is bounded separately from license records.
             </li>
             <li>
               <strong>Free-trial usage.</strong> The number of free
-              transcriptions used on your machine is synced with the license
-              server so the trial limit is enforced.
+              transcriptions used on your installation is synced with the
+              license server so the trial limit is enforced. Trial counters may
+              be retained as pseudonymous abuse-prevention records.
             </li>
           </ul>
 
@@ -162,21 +169,23 @@ export default function LegalPage() {
           <p>
             License data lives on Cloudflare&rsquo;s platform (Workers + D1
             database): Machine ID, license key, order record (name/nickname,
-            account used, amount), and the source IP of activations for fraud
-            detection. Old order/history records are automatically pruned after
-            30 days. We do not sell or share your data with any third party
-            other than the hosting provider (Cloudflare) and the messaging
-            service you use to order (Telegram).
+            account used, amount), Telegram account identifiers, and source
+            IPs for fraud detection. Order history, webhook idempotency records,
+            and short-lived telemetry are pruned separately; license and
+            trial-abuse records may be retained while needed to support or
+            protect an active license. We do not sell your data. Service
+            providers include Cloudflare, Vercel (website hosting), and Telegram
+            (ordering and support).
           </p>
 
           <h3>Local identity storage</h3>
           <p>
             Your Machine ID is stored in a small file in your user profile and
-            in the panel&rsquo;s local storage; it is a random identifier with
-            no personal information. A hashed (one-way) fingerprint of your
-            hostname and username is stored locally so support can recognize
-            records copied onto another computer. That fingerprint is not sent
-            to any server and never leaves your machine.
+            in the panel&rsquo;s local storage; it is a random installation
+            identifier. A hashed fingerprint of your username, home-directory
+            path, and platform is stored locally to help detect a copied
+            profile. That fingerprint is not sent to any server and never
+            leaves your machine.
           </p>
 
           <h3>Deletion &amp; your rights</h3>

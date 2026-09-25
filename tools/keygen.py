@@ -8,12 +8,14 @@ Examples:
     python3 keygen.py a1b2c3d4                # perpetual license
     python3 keygen.py a1b2c3d4 20270101        # expires 2027-01-01
 
-Machine IDs are 8-char hex strings shown in the panel's License section.
+Machine IDs are 8- or 16-character hex strings shown in the panel's License
+section. New panels generate 16-character IDs.
 """
 import hmac
 import hashlib
 import os
 import sys
+from datetime import date
 
 # ── HMAC secret ─────────────────────────────────────────────────────────────
 # Deliberately NOT hard-coded: it lives only in Worker secret AMH_SECRET and
@@ -30,19 +32,24 @@ if not SECRET:
     sys.exit(2)
 
 def generate_key(machine_id: str, expiry: str = "00000000") -> str:
-    """Return an AMH-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX license key."""
+    """Return a grouped AMH license key for a legacy or 16-hex Machine ID."""
     mid = machine_id.strip().lower()
     exp = expiry.strip()
-    if len(mid) != 8 or not all(c in "0123456789abcdef" for c in mid):
-        raise ValueError(f"Invalid machine ID: {mid!r} (need 8 hex chars)")
+    if len(mid) not in (8, 16) or not all(c in "0123456789abcdef" for c in mid):
+        raise ValueError(f"Invalid machine ID: {mid!r} (need 8 or 16 hex chars)")
     if len(exp) != 8 or not exp.isdigit():
         raise ValueError(f"Invalid expiry: {exp!r} (need YYYYMMDD or 00000000)")
+    if exp != "00000000":
+        try:
+            date(int(exp[:4]), int(exp[4:6]), int(exp[6:]))
+        except ValueError as e:
+            raise ValueError(f"Invalid calendar expiry: {exp!r}") from e
 
     msg = f"{mid}|{exp}".encode()
     sig = hmac.new(SECRET, msg, hashlib.sha256).hexdigest()[:16]
 
     raw = f"{mid}{exp}{sig}"
-    # Format as AMH-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX (32 chars total)
+    # Format as AMH-XXXX-...; legacy 8-hex and new 16-hex IDs are supported.
     parts = [raw[i:i+4] for i in range(0, len(raw), 4)]
     return "AMH-" + "-".join(parts)
 

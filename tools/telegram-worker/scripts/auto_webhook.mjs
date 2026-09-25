@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Auto webhook setter. Reads the Telegram bot token from bot.env so the
-// secret never needs to appear in any chat or terminal-visible command.
+// Auto webhook setter. Reads the Telegram bot token and webhook secret from
+// bot.env so secrets never need to appear in a command line.
 // Usage: node scripts/auto_webhook.mjs
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
@@ -10,55 +10,61 @@ const here = dirname(fileURLToPath(import.meta.url));
 const botEnv = resolve(here, '../telegram/bot.env');
 const webhookUrl = process.env.AMH_WEBHOOK_URL || 'https://amharic-captions-bot.amhcaps.workers.dev';
 
-function readBotToken() {
-  // try different env-file locations so it works from anywhere in the repo
-  const candidates = [
-    botEnv,
-    resolve(here, '../../telegram/bot.env'),
-    resolve(here, 'telegram/bot.env'),
-  ];
-  for (const p of candidates) {
+function fail(message) {
+  console.error('[FAIL] ' + message);
+  process.exit(1);
+}
+
+function readEnvValue(names) {
+  for (const p of [botEnv, resolve(here, '../../telegram/bot.env'), resolve(here, 'telegram/bot.env')]) {
     try {
       const txt = readFileSync(p, 'utf8');
-      const m = txt.match(/^\s*(?:TELEGRAM_BOT_TOKEN|BOT_TOKEN|AMH_TG_TOKEN)\s*=\s*"?([A-Za-z0-9:_-]+)"?\s*$/m);
-      if (m) return m[1];
+      for (const name of names) {
+        const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const m = txt.match(new RegExp(`^\\s*${escaped}\\s*=\\s*"?([^"\\r\\n]+)"?\\s*$`, 'm'));
+        if (m && m[1].trim()) return m[1].trim();
+      }
     } catch {}
   }
   return null;
 }
 
-const token = readBotToken();
-if (!token) {
-  console.error('Could not find the bot token in bot.env. Open tools/telegram/bot.env and check the key name.');
-  process.exit(1);
-}
+const token = process.env.AMH_TG_TOKEN || readEnvValue(['TELEGRAM_BOT_TOKEN', 'BOT_TOKEN', 'AMH_TG_TOKEN']);
+if (!token) fail('Could not find AMH_TG_TOKEN/TELEGRAM_BOT_TOKEN in the environment or bot.env.');
+const secret = process.env.AMH_WEBHOOK_SECRET || readEnvValue(['AMH_WEBHOOK_SECRET']);
+if (!secret) fail('AMH_WEBHOOK_SECRET is required; the Worker rejects unsigned webhook updates.');
+if (!/^[A-Za-z0-9_-]{1,256}$/.test(secret)) fail('AMH_WEBHOOK_SECRET must be 1–256 characters using only A-Z, a-z, 0-9, underscore, or hyphen.');
+let parsedUrl;
+try { parsedUrl = new URL(webhookUrl); } catch { parsedUrl = null; }
+if (!parsedUrl || parsedUrl.protocol !== 'https:') fail('AMH_WEBHOOK_URL must be a valid https:// URL.');
 
-// Webhook secret_token (guard against forged updates). Read from bot.env or env.
-function readWebhookSecret() {
-  if (process.env.AMH_WEBHOOK_SECRET) return process.env.AMH_WEBHOOK_SECRET;
-  for (const p of [botEnv, resolve(here, '../../telegram/bot.env')]) {
-    try {
-      const txt = readFileSync(p, 'utf8');
-      const m = txt.match(/^\s*AMH_WEBHOOK_SECRET\s*=\s*"?([A-Za-z0-9_-]+)"?\s*$/m);
-      if (m) return m[1];
-    } catch {}
+async function telegram(method, params = {}) {
+  const query = new URLSearchParams(params);
+  const suffix = query.toString() ? '?' + query.toString() : '';
+  const res = await fetch(`https://api.telegram.org/bot${token}/${method}${suffix}`);
+  let body;
+  try { body = await res.json(); } catch { body = { ok: false, description: `HTTP ${res.status}` }; }
+  if (!res.ok || !body.ok) {
+    throw new Error(`${method} failed (HTTP ${res.status}): ${body.description || 'unknown Telegram error'}`);
   }
-  return '';
+  return body.result;
 }
 
-const secret = readWebhookSecret();
-const params = new URLSearchParams({ url: webhookUrl });
-if (secret) params.set('secret_token', secret);
-params.set('allowed_updates', JSON.stringify(['message', 'callback_query', 'my_chat_member']));
-
-const url = `https://api.telegram.org/bot${token}/setWebhook?${params.toString()}`;
-const res = await fetch(url);
-const json = await res.json();
-console.log('setWebhook result:', JSON.stringify(json), secret ? '(secret_token: on)' : '(WARNING: no secret_token)');
-// verify
-const me = await (await fetch(`https://api.telegram.org/bot${token}/getMe`)).json();
-console.log('getMe:', me.ok ? `bot is @${me.result.username}` : 'FAILED');
-
-// also confirm which URL Telegram has registered
-const info = await (await fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`)).json();
-console.log('webhook info:', JSON.stringify(info.result));
+try {
+  const me = await telegram('getMe');
+  if (!me || !me.username) throw new Error('getMe returned no bot identity');
+  const setResult = await telegram('setWebhook', {
+    url: webhookUrl,
+    secret_token: secret,
+    allowed_updates: JSON.stringify(['message', 'callback_query', 'my_chat_member']),
+  });
+  if (setResult !== true) throw new Error('setWebhook did not return true');
+  const info = await telegram('getWebhookInfo');
+  if (!info || info.url !== webhookUrl) {
+    throw new Error(`registered webhook URL mismatch: ${info && info.url ? info.url : '(none)'}`);
+  }
+  if (info.last_error_message) console.warn('[WARN] Telegram reports a last webhook error:', info.last_error_message);
+  console.log(`Webhook verified for @${me.username}: ${webhookUrl} (secret_token: on)`);
+} catch (error) {
+  fail(error && error.message ? error.message : String(error));
+}

@@ -29,5 +29,13 @@ tools/telegram/bot.env
 # Telegram bot runtime log
 tools/telegram/bot_live.log
 
+# Local license/customer ledgers (may contain bearer keys)
+tools/**/customers.csv
+tools/**/customers.csv.tmp
+tools/telegram/fsm.json
+tools/telegram/contacts.json
+tools/telegram/funnel.csv
+tools/telegram/pending.json
+
 # OS cruft
 .DS_Store

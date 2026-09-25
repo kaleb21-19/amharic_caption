@@ -218,7 +218,7 @@ export default function InstallGuide() {
                     <code>%AppData%\Adobe\CEP\extensions</code>, then in{" "}
                     <code>regedit</code> open{" "}
                     <code>HKEY_CURRENT_USER\Software\Adobe\CSXS.11</code> (Premiere 2024) or{" "}
-                    <code>CSXS.12</code> (2025+) and create a DWORD{" "}
+                    <code>CSXS.12</code> (2025+) and create a string (REG_SZ){" "}
                     <code>PlayerDebugMode</code> set to <code>1</code>.
                   </>
                 ) : (
