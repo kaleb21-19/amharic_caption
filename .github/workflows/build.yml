@@ -31,7 +31,6 @@ jobs:
   # The model is published as an immutable prerelease tag containing the
   # source commit SHA, so platform jobs can fetch exactly the model they tested.
   model:
-    id: model
     runs-on: ubuntu-latest
     outputs:
       model_tag: ${{ steps.model_tag.outputs.value }}
