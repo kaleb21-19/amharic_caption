@@ -291,9 +291,9 @@ checks (Python, FFmpeg, CT2 model, imports, and warm-up). The archive is
 explicitly a diagnostic/degraded build marker and is not a production release.
 
 **Hohe A/B diagnostic package (2026-09-25):** a separate Windows archive
-using the Hohe candidate was built for local comparison only. It is
-**772,371,513 bytes**, SHA-256
-`b559ec39c2eb58750872e231c3b1cc4e45590b9100cfc4814184e2187149cc4f`,
+using the Hohe candidate was built for local comparison only, with the
+benchmark's beam settings. It is **772,371,608 bytes**, SHA-256
+`d2a95901103e40fd49eb69a77690f2004c639dc2a171f1965d23b608054f6280`,
 and its extracted `verify_win.cmd` passed 10/10 checks. It is not the
 production package and must not be published.
 
