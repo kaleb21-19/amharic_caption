@@ -134,7 +134,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          (cd model-artifact && sha256sum -c model-ct2-int8.tar.gz.sha256)
+          if command -v sha256sum >/dev/null 2>&1; then
+            (cd model-artifact && sha256sum -c model-ct2-int8.tar.gz.sha256)
+          else
+            (cd model-artifact && shasum -a 256 -c model-ct2-int8.tar.gz.sha256)
+          fi
           mkdir -p tools/stage
           tar -xzf model-artifact/model-ct2-int8.tar.gz -C tools/stage
 
@@ -255,7 +259,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          (cd model-artifact && sha256sum -c model-ct2-int8.tar.gz.sha256)
+          if command -v sha256sum >/dev/null 2>&1; then
+            (cd model-artifact && sha256sum -c model-ct2-int8.tar.gz.sha256)
+          else
+            (cd model-artifact && shasum -a 256 -c model-ct2-int8.tar.gz.sha256)
+          fi
           mkdir -p tools/stage
           tar -xzf model-artifact/model-ct2-int8.tar.gz -C tools/stage
 
@@ -323,7 +331,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          (cd model-artifact && sha256sum -c model-ct2-int8.tar.gz.sha256)
+          if command -v sha256sum >/dev/null 2>&1; then
+            (cd model-artifact && sha256sum -c model-ct2-int8.tar.gz.sha256)
+          else
+            (cd model-artifact && shasum -a 256 -c model-ct2-int8.tar.gz.sha256)
+          fi
           mkdir -p tools/stage
           tar -xzf model-artifact/model-ct2-int8.tar.gz -C tools/stage
 
@@ -338,7 +350,12 @@ jobs:
 
       - name: Create mac-arm64 package checksum
         shell: bash
-        run: sha256sum dist/amharic-captions-mac-arm64.zip > dist/amharic-captions-mac-arm64.zip.sha256
+        run: |
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum dist/amharic-captions-mac-arm64.zip > dist/amharic-captions-mac-arm64.zip.sha256
+          else
+            shasum -a 256 dist/amharic-captions-mac-arm64.zip > dist/amharic-captions-mac-arm64.zip.sha256
+          fi
 
       - name: Upload mac-arm64 package artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -375,7 +392,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          (cd model-artifact && sha256sum -c model-ct2-int8.tar.gz.sha256)
+          if command -v sha256sum >/dev/null 2>&1; then
+            (cd model-artifact && sha256sum -c model-ct2-int8.tar.gz.sha256)
+          else
+            (cd model-artifact && shasum -a 256 -c model-ct2-int8.tar.gz.sha256)
+          fi
           mkdir -p tools/stage
           tar -xzf model-artifact/model-ct2-int8.tar.gz -C tools/stage
 
@@ -390,7 +411,12 @@ jobs:
 
       - name: Create mac-x64 package checksum
         shell: bash
-        run: sha256sum dist/amharic-captions-mac-x64.zip > dist/amharic-captions-mac-x64.zip.sha256
+        run: |
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum dist/amharic-captions-mac-x64.zip > dist/amharic-captions-mac-x64.zip.sha256
+          else
+            shasum -a 256 dist/amharic-captions-mac-x64.zip > dist/amharic-captions-mac-x64.zip.sha256
+          fi
 
       - name: Upload mac-x64 package artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -426,7 +452,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          (cd model-artifact && sha256sum -c model-ct2-int8.tar.gz.sha256)
+          if command -v sha256sum >/dev/null 2>&1; then
+            (cd model-artifact && sha256sum -c model-ct2-int8.tar.gz.sha256)
+          else
+            (cd model-artifact && shasum -a 256 -c model-ct2-int8.tar.gz.sha256)
+          fi
           mkdir -p tools/stage
           tar -xzf model-artifact/model-ct2-int8.tar.gz -C tools/stage
 
@@ -444,7 +474,12 @@ jobs:
 
       - name: Create win-x64 package checksum
         shell: bash
-        run: sha256sum dist/amharic-captions-win-x64.zip > dist/amharic-captions-win-x64.zip.sha256
+        run: |
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum dist/amharic-captions-win-x64.zip > dist/amharic-captions-win-x64.zip.sha256
+          else
+            shasum -a 256 dist/amharic-captions-win-x64.zip > dist/amharic-captions-win-x64.zip.sha256
+          fi
 
       - name: Upload win-x64 package artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
