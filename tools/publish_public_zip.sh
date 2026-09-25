@@ -57,12 +57,13 @@ for _attempt in 1 2 3 4 5 6 7 8 9 10; do
     release_ready=1
     break
   fi
-  if gh release create "$TAG" --repo "$PUB" --draft --target "$GITHUB_SHA" \
+  if release_output=$(gh release create "$TAG" --repo "$PUB" --draft --target "$GITHUB_SHA" \
       --title "Amharic Captions v${VER} (staged)" \
-      --notes "Staged build for v${VER}, commit ${GITHUB_SHA}. This draft is not public until all platform builds, tests, and accuracy gates pass." \
-      >/dev/null; then
+      --notes "Staged build for v${VER}, commit ${GITHUB_SHA}. This draft is not public until all platform builds, tests, and accuracy gates pass." 2>&1); then
     release_ready=1
     break
+  else
+    printf '::error title=GitHub release creation failed::%s\n' "$(printf '%s' "$release_output" | tr '\n' ' ' | cut -c1-900)"
   fi
   sleep 2
 done
