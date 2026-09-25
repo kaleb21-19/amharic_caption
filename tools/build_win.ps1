@@ -215,13 +215,25 @@ if (Get-Command 7z -ErrorAction SilentlyContinue) {
     }
 }
 # Create the checksum while the build process still owns the exact ZIP path.
-# Keeping this beside the archive write avoids a second CI step racing the
-# Windows filesystem/Compress-Archive handle.
+# Use the staged runtime interpreter (already used for gen_notices above)
+# rather than a PATH-dependent Windows Store shim or a second CI step.
 $sum = "$ZIP.sha256"
-$hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $ZIP).Hash.ToLowerInvariant()
-[System.IO.File]::WriteAllText(
-    $sum,
-    "$hash  $(Split-Path -Leaf $ZIP)`n",
-    [System.Text.Encoding]::ASCII)
+$hashCode = @'
+import hashlib
+import sys
+from pathlib import Path
+z = Path(sys.argv[1])
+out = Path(sys.argv[2])
+if not z.is_file():
+    raise SystemExit(f"missing {z}")
+h = hashlib.sha256()
+with z.open("rb") as f:
+    for chunk in iter(lambda: f.read(1024 * 1024), b""):
+        h.update(chunk)
+out.write_text(f"{h.hexdigest()}  {z.name}\n", encoding="ascii")
+print(h.hexdigest())
+'@
+$hash = (& $pyPath -c $hashCode $ZIP $sum)
+if ($LASTEXITCODE -ne 0) { Write-Host "  [FAIL] checksum generation failed"; exit 1 }
 Write-Host "== wrote $ZIP =="
 Write-Host "== wrote $sum ($hash) =="
