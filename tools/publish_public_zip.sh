@@ -10,6 +10,8 @@
 #        must match the manifest version when supplied.
 set -euo pipefail
 
+trap 'rc=$?; printf "::error title=publish_public_zip failed::line=%s command=%s rc=%s\\n" "$LINENO" "$BASH_COMMAND" "$rc"; exit "$rc"' ERR
+
 ZIP="${1:?usage: publish_public_zip.sh <path-to-zip>}"
 test -f "$ZIP" || { echo "zip not found: $ZIP" >&2; exit 1; }
 test -n "${GH_TOKEN:-}" || { echo "GH_TOKEN not set" >&2; exit 1; }
