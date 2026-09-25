@@ -54,7 +54,20 @@ if ! gh release view "$TAG" --repo "$PUB" >/dev/null 2>&1; then
     --notes "Staged build for v${VER}, commit ${GITHUB_SHA}. This draft is not public until all platform builds, tests, and accuracy gates pass." \
     >/dev/null
 fi
-TAG_SHA="$(gh api "repos/${PUB}/commits/${TAG}" --jq .sha)"
+# GitHub's release/tag creation endpoints are eventually consistent: a newly
+# created release can be visible a moment before its tag resolves through the
+# commits API. Retry the read instead of turning that transient state into a
+# failed publish.
+TAG_SHA=""
+for _attempt in 1 2 3 4 5 6 7 8 9 10; do
+  TAG_SHA="$(gh api "repos/${PUB}/commits/${TAG}" --jq .sha 2>/dev/null || true)"
+  [ -n "$TAG_SHA" ] && break
+  sleep 2
+done
+test -n "$TAG_SHA" || {
+  echo "release tag $TAG did not become visible after creation" >&2
+  exit 1
+}
 test "$TAG_SHA" = "$GITHUB_SHA" || {
   echo "release tag $TAG points at $TAG_SHA, expected $GITHUB_SHA" >&2
   exit 1
