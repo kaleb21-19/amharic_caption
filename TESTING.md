@@ -338,6 +338,14 @@ The standard ZIP is **744,949,489 bytes**, SHA-256
 Windows `Expand-Archive` succeeded and the extracted `verify_win.cmd` passed
 **15/15** checks. It is not a public production release.
 
+**Hohe production-candidate package (2026-09-25):** a clean package rebuilt
+from feature-branch commit `bac6b87` with generated Hohe model attribution is
+**744,949,528 bytes**, SHA-256
+`33b5bd21c5221ad89a658090e5c0bc8107f51fedb1bed27380b5bbcf0f905ba5`.
+Windows `Expand-Archive` succeeded and the extracted `verify_win.cmd` passed
+**15/15** checks. It is a local candidate only; no tag, public release, merge
+to main, or production deployment was performed.
+
 **Production model decision (2026-09-25):** Hohe is approved as the intended
 production model under the explicit aggregate raw-WER ≤40% policy. The current
 badrex model remains the rollback package until the Hohe production candidate
