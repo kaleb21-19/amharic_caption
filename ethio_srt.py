@@ -165,7 +165,8 @@ class _CT2Engine:
     def __init__(self, model_dir):
         ctranslate2 = _load_ct2()
         from amh_mel import MelExtractor  # noqa: E402
-        meta = json.load(open(os.path.join(model_dir, "model_meta.json")))
+        with open(os.path.join(model_dir, "model_meta.json"), encoding="utf-8") as f:
+            meta = json.load(f)
         self.blank_id = int(meta.get("blank_id", 408))
         self.model = ctranslate2.models.Wav2Vec2Bert(
             model_dir, device="cpu", compute_type="int8",
@@ -183,7 +184,8 @@ class _CT2Engine:
         self.lm_w = np.load(lw).astype(np.float32) if os.path.isfile(lw) else None
         self.lm_b = np.load(lb).astype(np.float32) if os.path.isfile(lb) else None
         # glyph id<->token from the HF vocab.json (matches the model output ids)
-        raw = json.load(open(os.path.join(model_dir, "vocab.json")))
+        with open(os.path.join(model_dir, "vocab.json"), encoding="utf-8") as f:
+            raw = json.load(f)
         self.glyphs = {int(tid): tok for tok, tid in raw.items()}
         self._skip = {"[PAD]", "[UNK]", "<s>", "</s>"}
         self._masked = _masked_token_ids(self.glyphs)
