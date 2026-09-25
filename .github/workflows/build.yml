@@ -497,7 +497,7 @@ jobs:
   publish-ready:
     needs: [build-ar, build-win, build-x64, check-version, test, website, accuracy-gate]
     runs-on: ubuntu-latest
-    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.build-ar.result == 'success' && needs.build-win.result == 'success' && needs.build-x64.result == 'success' && needs.check-version.result == 'success' && needs.test.result == 'success' && needs.website.result == 'success' && needs.accuracy-gate.result == 'success' }}
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.ref_protected == true && needs.build-ar.result == 'success' && needs.build-win.result == 'success' && needs.build-x64.result == 'success' && needs.check-version.result == 'success' && needs.test.result == 'success' && needs.website.result == 'success' && needs.accuracy-gate.result == 'success' }}
     permissions:
       contents: write
     steps:
