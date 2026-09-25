@@ -50,6 +50,13 @@ sha256_into() {
   hash="$(sha256_file "$file")"
   printf '%s  %s\n' "$hash" "$name" > "$out"
 }
+lookup_tag_sha() {
+  # A missing tag makes `gh api` print a JSON error object. Never treat that
+  # object as a SHA; only accept output from a successful API call.
+  if _tag_json="$(gh api "repos/${PUB}/commits?sha=${TAG}&per_page=1" 2>/dev/null)"; then
+    printf '%s' "$_tag_json" | jq -r '.[0].sha // empty' 2>/dev/null || true
+  fi
+}
 sha256_into "$ZIP" "$CASE_SUM_PATH"
 LOCAL_HASH="$(awk '{print $1; exit}' "$CASE_SUM_PATH")"
 test -n "$LOCAL_HASH" || { echo "could not calculate SHA-256" >&2; exit 1; }
@@ -71,7 +78,7 @@ test -n "$LOCAL_HASH" || { echo "could not calculate SHA-256" >&2; exit 1; }
 #
 # This must run before `gh release create`: GitHub ignores target_commitish
 # once the tag exists, which is what we want, since we just pinned it.
-TAG_SHA="$(gh api "repos/${PUB}/commits?sha=${TAG}&per_page=1" --jq '.[0].sha // empty' 2>/dev/null || true)"
+TAG_SHA="$(lookup_tag_sha)"
 if [ -n "$TAG_SHA" ] && [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
   fail "release tag $TAG already points at $TAG_SHA, expected $GITHUB_SHA; a released version must map to exactly one tested commit -- bump ExtensionBundleVersion in panel/CSXS/manifest.xml"
 fi
@@ -80,13 +87,13 @@ if [ -z "$TAG_SHA" ]; then
   # (or a concurrent run won the race), so re-read rather than fail the build.
   if ! gh api -X POST "repos/${PUB}/git/refs" \
         -f ref="refs/tags/${TAG}" -f sha="$GITHUB_SHA" >/dev/null 2>&1; then
-    TAG_SHA="$(gh api "repos/${PUB}/commits?sha=${TAG}&per_page=1" --jq '.[0].sha // empty' 2>/dev/null || true)"
+    TAG_SHA="$(lookup_tag_sha)"
     [ -n "$TAG_SHA" ] || fail "could not create tag $TAG bound to $GITHUB_SHA"
   fi
   # The ref is written before it is readable through the commits API. Unlike
   # the case above this wait really is transient, so a short retry is correct.
   for _attempt in 1 2 3 4 5 6; do
-    TAG_SHA="$(gh api "repos/${PUB}/commits?sha=${TAG}&per_page=1" --jq '.[0].sha // empty' 2>/dev/null || true)"
+    TAG_SHA="$(lookup_tag_sha)"
     [ -n "$TAG_SHA" ] && break
     sleep 2
   done
