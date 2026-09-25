@@ -197,7 +197,9 @@ if (Test-Path (Join-Path $BUILD "DEGRADED_BUILD.txt")) { $ZipEntries += "DEGRADE
 if (Get-Command 7z -ErrorAction SilentlyContinue) {
     Push-Location $BUILD
     & 7z a -tzip -r $ZIP @ZipEntries -xr!.DS_Store
+    $zipRc = $LASTEXITCODE
     Pop-Location
+    if ($zipRc -ne 0) { throw "7z failed with exit code $zipRc" }
 } else {
     # Compress-Archive can briefly collide with the just-exited ffmpeg child
     # process that gen_notices.py used to read the version string. Retry a few
@@ -213,6 +215,9 @@ if (Get-Command 7z -ErrorAction SilentlyContinue) {
             Start-Sleep -Seconds (2 * $attempt)
         }
     }
+}
+if (-not (Test-Path -LiteralPath $ZIP) -or (Get-Item -LiteralPath $ZIP).Length -le 0) {
+    throw "compression produced no usable archive: $ZIP"
 }
 Remove-Item -Recurse -Force $BUILD
 Write-Host "== wrote $ZIP =="
