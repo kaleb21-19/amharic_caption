@@ -476,9 +476,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: package-win-x64
-          path: |
-            dist/amharic-captions-win-x64.zip
-            dist/amharic-captions-win-x64.zip.sha256
+          path: dist/amharic-captions-win-x64.zip
           if-no-files-found: error
           retention-days: 1
 
@@ -503,15 +501,14 @@ jobs:
           path: release-assets
           merge-multiple: true
 
-      - name: Verify package artifact checksums
+      - name: Generate and verify package checksums
         run: |
           set -euo pipefail
           for z in amharic-captions-win-x64.zip \
                    amharic-captions-mac-arm64.zip \
                    amharic-captions-mac-x64.zip; do
             test -f "release-assets/$z"
-            test -f "release-assets/$z.sha256"
-            (cd release-assets && sha256sum -c "$z.sha256")
+            (cd release-assets && sha256sum "$z" > "$z.sha256" && sha256sum -c "$z.sha256")
           done
 
       - name: Stage verified packages in a commit-bound draft
