@@ -324,13 +324,20 @@ SHA-256 `5d9d854a5e07a704cb1e3bb6914a506ca420bd698f4476624f44ab0ea31918bc`.
 Windows `Expand-Archive` succeeded and the extracted `verify_win.cmd` passed
 **15/15** checks. It is not a public production release.
 
+**Private Hohe beta package (2026-09-25):** a clean, non-degraded Hohe
+archive using the same greedy decoder was built for a fair private A/B test.
+The standard ZIP is **744,949,489 bytes**, SHA-256
+`153554fb9a9174f62149905e02c42a86acf7072bc51f865ce62714b8155adda0`.
+Windows `Expand-Archive` succeeded and the extracted `verify_win.cmd` passed
+**15/15** checks. It is not a public production release.
+
 **Current-vs-Hohe runtime benchmark (2026-09-25):** three repeated passes used
 the same eight public fixtures, greedy decoder, four threads, Python runtime,
 and Windows PC. Median warm real-time factor was **0.3807x** for current and
 **0.3794x** for Hohe; median total warm time was 26.061 s and 25.974 s
 respectively. Startup medians were 3.526 s and 3.386 s. The CT2 `model.bin`
 payloads are 610,309,480 and 610,314,640 bytes, and the comparable standard
-ZIPs differ by only 333,975 bytes. Hohe is therefore substantially more
+ZIPs differ by only 334,490 bytes. Hohe is therefore substantially more
 accurate but effectively tied on speed and download size. Windows memory
 counters in this environment were not reliable enough for a RAM claim; both
 processes reported the same virtual footprint.
