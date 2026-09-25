@@ -37,24 +37,22 @@ if "%DEGRADED%"=="0" (
   echo [WARN] Explicit degraded test build: optional ML feature checks skipped.
 )
 
-if "%FAIL%"=="0" (
-  call :check "ctranslate2, numpy, soundfile imports" pyimport
-  if "%DEGRADED%"=="0" call :check "onnxruntime (VAD) import"             pyimportort
-  if "%DEGRADED%"=="0" call :check "sherpa_onnx (diarization) import"     pyimportsherpa
-  call :check "CTranslate2 model loads + warm"       pymodel
-  call :check "ffmpeg runs (version)"               ffmpeg
-)
+if "%FAIL%"=="0" call :check "ctranslate2, numpy, soundfile imports" pyimport
+if "%FAIL%"=="0" if "%DEGRADED%"=="0" call :check "onnxruntime VAD import" pyimportort
+if "%FAIL%"=="0" if "%DEGRADED%"=="0" call :check "sherpa_onnx diarization import" pyimportsherpa
+if "%FAIL%"=="0" call :check "CTranslate2 model loads + warm" pymodel
+if "%FAIL%"=="0" call :check "ffmpeg runs - version" ffmpeg
 
 if exist "%TMPW%" del "%TMPW%" >nul 2>&1
 
 echo.
 echo =================================================================
 if "%FAIL%"=="0" (
-  echo   RESULT: ALL CHECKS PASSED (%PASS%/%PASS%)  - runtime is healthy.
+  echo   RESULT: ALL CHECKS PASSED - %PASS%/%PASS% checks - runtime is healthy.
   echo =================================================================
   exit /b 0
 ) else (
-  echo   RESULT: %FAIL% CHECK(S) FAILED - see messages above.
+  echo   RESULT: %FAIL% CHECKS FAILED - see messages above.
   echo   Fix the filesystem locations listed and re-run this script.
   echo =================================================================
   exit /b 1
@@ -110,7 +108,6 @@ if "%FAIL%"=="0" (
     exit /b 0
   )
   if "%kind%"=="pymodel" (
-    cd /d "%RT%"
     rem Paths travel via the ENVIRONMENT, not string interpolation: embedding
     rem %RT%/%MD% inside the -c literal would corrupt on ' or non-ASCII chars.
     set "AMH_RT=%RT%"
