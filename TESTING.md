@@ -255,6 +255,15 @@ grouped modes, identical WERs): **the ≤15% gate FAILS** — WER mean ≈ 52%
 (range 0–100%), 3 of 19 clips perfect (`37842349`, `38629723`, `39643423`),
 CER mean ≈ 19%, pass 6/38 scored runs.
 
+**Current Windows re-run (2026-09-25):** the pinned source model
+`edda1ab0af0d3cca4f4a6fd0b17ef3726bcce12a` downloaded and hash-verified,
+converted to CT2 INT8, and was scored on all 20 truth-backed fixtures in both
+caption modes (40 runs). Mean WER was **47.45%**, maximum WER was **100%**,
+and **30/40** runs exceeded the 15% gate. This confirms the release blocker;
+it is not a packaging or Windows-runtime false positive. The Windows UTF-8
+runtime fix and compatible conversion pins are tracked separately in the
+feature branch.
+
 Inspection attributes part of the score to two **evaluation confounds**, not
 acoustic errors: (1) orthographic/diacritic variants — model output `ታዕምር` for
 truth `ተዓምር` (same word, both spellings standard; the ተ/ታ and ዓ/ዕ series collapse
