@@ -158,10 +158,18 @@ foreach ($f in @("COPYING.GPLv2.txt", "COPYING.GPLv3.txt", "COPYING.LGPLv2.1.txt
 }
 # Generated from the staged artefacts, so the notice always describes the
 # ffmpeg actually in this zip. Hard-fails on a nonfree binary.
-$py = (Get-Command python -ErrorAction SilentlyContinue)
-if (-not $py) { $py = (Get-Command python3 -ErrorAction SilentlyContinue) }
-if (-not $py) { Write-Host "  [FAIL] python not on PATH; cannot generate THIRD-PARTY-NOTICES.md"; exit 1 }
-& $py.Source (Join-Path $LICSRC "gen_notices.py") `
+# Use the staged, relocatable interpreter rather than PATH. On Windows,
+# `Get-Command python` can resolve the Microsoft Store shim, which exits
+# without running Python and used to make notice generation fail after the
+# runtime had already been assembled.
+$pyPath = Join-Path $PYDIR "python.exe"
+if (-not (Test-Path $pyPath)) {
+    $py = Get-Command py.exe -ErrorAction SilentlyContinue
+    if (-not $py) { $py = Get-Command python.exe -ErrorAction SilentlyContinue }
+    if (-not $py) { Write-Host "  [FAIL] no usable Python interpreter; cannot generate THIRD-PARTY-NOTICES.md"; exit 1 }
+    $pyPath = $py.Source
+}
+& $pyPath (Join-Path $LICSRC "gen_notices.py") `
     --ffmpeg  (Join-Path $BNAME "runtime\bin\ffmpeg.exe") `
     --runtime (Join-Path $BNAME "runtime") `
     --target  $TARGET `
