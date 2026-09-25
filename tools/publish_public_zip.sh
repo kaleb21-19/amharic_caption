@@ -10,7 +10,11 @@
 #        must match the manifest version when supplied.
 set -euo pipefail
 
-trap 'rc=$?; printf "::error title=publish_public_zip failed::line=%s command=%s rc=%s\\n" "$LINENO" "$BASH_COMMAND" "$rc"; exit "$rc"' ERR
+fail() {
+  printf '::error title=Publish failure::%s\\n' "$1"
+  printf '%s\\n' "$1" >&2
+  exit 1
+}
 
 ZIP="${1:?usage: publish_public_zip.sh <path-to-zip>}"
 test -f "$ZIP" || { echo "zip not found: $ZIP" >&2; exit 1; }
@@ -50,6 +54,46 @@ sha256_into "$ZIP" "$CASE_SUM_PATH"
 LOCAL_HASH="$(awk '{print $1; exit}' "$CASE_SUM_PATH")"
 test -n "$LOCAL_HASH" || { echo "could not calculate SHA-256" >&2; exit 1; }
 
+# Bind the tag to the tested commit BEFORE the draft exists.
+#
+# GitHub only materialises a release's git tag when that release is PUBLISHED.
+# A draft release has no tag at all, so resolving commits/$TAG and comparing it
+# with GITHUB_SHA can never succeed while this script is still staging a draft:
+# the read waits on a ref that is not created until the "Publish the verified
+# draft" step, which is itself gated behind this very check. No amount of
+# retrying fixes that, because it is not a propagation delay -- the check is
+# unsatisfiable while the release is a draft.
+#
+# So create the lightweight tag here, explicitly, in the one job that runs only
+# after every gate is green. A tag still cannot come into existence for an
+# untested commit, so making a customer-visible asset stays fully gated; what
+# changes is that the commit-binding proof becomes readable immediately.
+#
+# This must run before `gh release create`: GitHub ignores target_commitish
+# once the tag exists, which is what we want, since we just pinned it.
+TAG_SHA="$(gh api "repos/${PUB}/commits/${TAG}" --jq .sha 2>/dev/null || true)"
+if [ -n "$TAG_SHA" ] && [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
+  fail "release tag $TAG already points at $TAG_SHA, expected $GITHUB_SHA; a released version must map to exactly one tested commit -- bump ExtensionBundleVersion in panel/CSXS/manifest.xml"
+fi
+if [ -z "$TAG_SHA" ]; then
+  # Idempotent across reruns: a failure here just means the tag already exists
+  # (or a concurrent run won the race), so re-read rather than fail the build.
+  if ! gh api -X POST "repos/${PUB}/git/refs" \
+        -f ref="refs/tags/${TAG}" -f sha="$GITHUB_SHA" >/dev/null 2>&1; then
+    TAG_SHA="$(gh api "repos/${PUB}/commits/${TAG}" --jq .sha 2>/dev/null || true)"
+    [ -n "$TAG_SHA" ] || fail "could not create tag $TAG bound to $GITHUB_SHA"
+  fi
+  # The ref is written before it is readable through the commits API. Unlike
+  # the case above this wait really is transient, so a short retry is correct.
+  for _attempt in 1 2 3 4 5 6; do
+    TAG_SHA="$(gh api "repos/${PUB}/commits/${TAG}" --jq .sha 2>/dev/null || true)"
+    [ -n "$TAG_SHA" ] && break
+    sleep 2
+  done
+  test -n "$TAG_SHA" || fail "tag $TAG was created but did not resolve through the commits API"
+fi
+test "$TAG_SHA" = "$GITHUB_SHA" || fail "release tag $TAG points at $TAG_SHA, expected $GITHUB_SHA"
+
 # Create the draft once, but tolerate the GitHub API's short-lived
 # unavailability/ eventual-consistency window. Do not let a transient release
 # API failure abort an otherwise fully verified build.
@@ -69,44 +113,27 @@ for _attempt in 1 2 3 4 5 6 7 8 9 10; do
   fi
   sleep 2
 done
-test "$release_ready" = "1" || {
-  echo "could not create or find draft release $TAG after retries" >&2
-  exit 1
-}
-# GitHub's release/tag creation endpoints are eventually consistent: a newly
-# created release can be visible a moment before its tag resolves through the
-# commits API. Retry the read instead of turning that transient state into a
-# failed publish.
-TAG_SHA=""
-for _attempt in 1 2 3 4 5 6 7 8 9 10; do
-  TAG_SHA="$(gh api "repos/${PUB}/commits/${TAG}" --jq .sha 2>/dev/null || true)"
-  [ -n "$TAG_SHA" ] && break
-  sleep 2
-done
-test -n "$TAG_SHA" || {
-  echo "release tag $TAG did not become visible after creation" >&2
-  exit 1
-}
-test "$TAG_SHA" = "$GITHUB_SHA" || {
-  echo "release tag $TAG points at $TAG_SHA, expected $GITHUB_SHA" >&2
-  exit 1
-}
+test "$release_ready" = "1" || fail "could not create or find draft release $TAG after retries"
 
 DRAFT="$(gh release view "$TAG" --repo "$PUB" --json isDraft --jq '.isDraft')"
-test "$DRAFT" = "true" || { echo "release $TAG is already public; refusing to add assets" >&2; exit 1; }
+test "$DRAFT" = "true" || fail "release $TAG is not a draft (isDraft=$DRAFT)"
 
 assets="$(gh release view "$TAG" --repo "$PUB" --json assets --jq '.assets[].name')"
 if echo "$assets" | grep -Fxq "$BASE"; then
   echo "zip already exists; it will be verified rather than overwritten"
 else
-  gh release upload "$TAG" --repo "$PUB" "$ZIP"
+  if ! gh release upload "$TAG" --repo "$PUB" "$ZIP"; then
+    fail "could not upload $BASE to draft $TAG"
+  fi
 fi
 
 assets="$(gh release view "$TAG" --repo "$PUB" --json assets --jq '.assets[].name')"
 if echo "$assets" | grep -Fxq "$CASE_SUM_NAME"; then
   echo "checksum already exists; it will be verified rather than overwritten"
 else
-  gh release upload "$TAG" --repo "$PUB" "$CASE_SUM_PATH"
+  if ! gh release upload "$TAG" --repo "$PUB" "$CASE_SUM_PATH"; then
+    fail "could not upload $CASE_SUM_NAME to draft $TAG"
+  fi
 fi
 
 TMP="$(mktemp -d)"
