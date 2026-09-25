@@ -264,6 +264,15 @@ it is not a packaging or Windows-runtime false positive. The Windows UTF-8
 runtime fix and compatible conversion pins are tracked separately in the
 feature branch.
 
+The same preserved outputs were also scored diagnostically: mean WER was
+**42.70%** with the Amharic word-grid transform and **40.69%** with the
+vowel/orthographic approximation; only 10/40 runs passed 15% under each
+transform. Mean raw CER was **16.02%**. The diagnostic run had **zero engine
+failures**. The transforms reduce the aggregate error but cannot close the gap,
+and spot checks show genuine substitutions/deletions as well as boundary
+issues. No distinct historical model asset was present in the repository
+release inventory for a direct A/B run.
+
 Inspection attributes part of the score to two **evaluation confounds**, not
 acoustic errors: (1) orthographic/diacritic variants — model output `ታዕምር` for
 truth `ተዓምር` (same word, both spellings standard; the ተ/ታ and ዓ/ዕ series collapse
