@@ -115,7 +115,7 @@ if "%FAIL%"=="0" (
     rem %RT%/%MD% inside the -c literal would corrupt on ' or non-ASCII chars.
     set "AMH_RT=%RT%"
     set "AMH_MD=%MD%"
-    "%PY%" -E -c "import json, os, sys; rt=os.environ['AMH_RT']; md=os.environ['AMH_MD']; sys.path.insert(0, rt); import numpy as np, ctranslate2 as ct; m = ct.models.Wav2Vec2Bert(md, device='cpu', compute_type='int8'); from amh_mel import MelExtractor; MelExtractor(md); v = json.load(open(os.path.join(md, 'vocab.json'))); assert len(v) >= 100, 'small vocab'; print('model+mel+vocab OK, vocab size', len(v))" >nul 2>&1
+    "%PY%" -E -c "import json, os, sys; rt=os.environ['AMH_RT']; md=os.environ['AMH_MD']; sys.path.insert(0, rt); import numpy as np, ctranslate2 as ct; m = ct.models.Wav2Vec2Bert(md, device='cpu', compute_type='int8'); from amh_mel import MelExtractor; MelExtractor(md); v = json.load(open(os.path.join(md, 'vocab.json'), encoding='utf-8')); assert len(v) >= 100, 'small vocab'; print('model+mel+vocab OK, vocab size', len(v))" >nul 2>&1
     if errorlevel 1 (
       echo   [FAIL] %name%
       "%PY%" -E -c "import os, sys; sys.path.insert(0, os.environ['AMH_RT']); import ctranslate2 as ct; ct.models.Wav2Vec2Bert(os.environ['AMH_MD'], device='cpu', compute_type='int8')"
