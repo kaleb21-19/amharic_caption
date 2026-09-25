@@ -581,8 +581,8 @@ jobs:
           TAG="v${VER}"
           LATEST="$(gh release view --repo "${{ github.repository }}" --json tagName --jq .tagName 2>/dev/null || true)"
           if [ -n "$LATEST" ] && [ "$LATEST" != "$TAG" ]; then
-            LOWEST="$(printf '%s\n%s\n' "${LATEST#v}" "$VER" | sort -V | head -1)"
-            test "$LOWEST" = "$VER" || { echo "refusing to make $TAG latest over $LATEST" >&2; exit 1; }
+            HIGHEST="$(printf '%s\n%s\n' "${LATEST#v}" "$VER" | sort -V | tail -1)"
+            test "$HIGHEST" = "$VER" || { echo "refusing to make $TAG latest over $LATEST" >&2; exit 1; }
           fi
           gh release edit "$TAG" --repo "${{ github.repository }}" --draft=false --latest
 
