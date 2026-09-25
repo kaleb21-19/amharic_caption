@@ -273,6 +273,17 @@ and spot checks show genuine substitutions/deletions as well as boundary
 issues. No distinct historical model asset was present in the repository
 release inventory for a direct A/B run.
 
+**Candidate Hohe benchmark (2026-09-25):** `snapwre/hohe-asr-amharic`
+(CC-BY-4.0), revision `7ee83bdcf748694409f412e06f6c6747b44b3212`, was
+pinned and hash-verified (model SHA-256
+`9ec1ff28b669eb4a94d330e6879b1e0dbc6b1c451647f49805ed22856979fd77`; 5-gram
+SHA-256 `b6ee3b47e2b4840eb5ca44990c48b340f211e67fbce3eb731fb991a6a514215e`).
+It converted successfully and produced zero engine failures. On the same 40
+scored runs it achieved raw WER **36.35%**, grid WER **34.77%**, approximate
+WER **33.50%**, and raw CER **12.58%**; only 14/40 runs were at or below 15%.
+This is a meaningful improvement over the shipped model's 47.45%, but it is
+still **not release-ready** and is not adopted.
+
 Inspection attributes part of the score to two **evaluation confounds**, not
 acoustic errors: (1) orthographic/diacritic variants — model output `ታዕምር` for
 truth `ተዓምር` (same word, both spellings standard; the ተ/ታ and ዓ/ዕ series collapse
