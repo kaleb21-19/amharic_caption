@@ -306,6 +306,14 @@ default was built for a fair Hohe-vs-current comparison. The standard ZIP is
 Windows `Expand-Archive` succeeded and its extracted `verify_win.cmd` passed
 10/10 checks. It is not the production configuration and must not be published.
 
+**Hohe LM-fusion matrix (2026-09-25):** a small diagnostic run over four
+public fixtures (`interview`, `names`, `news`, and `numbers`) in both caption
+modes produced identical results at `AMH_LM_LAMBDA=0`, `0.05`, `0.1`, and
+`0.2`: mean raw WER **68.375%**, mean CER **23.925%**, and **0/8** runs at or
+below 15%, with zero engine failures. This subset is not comparable to the
+larger locked benchmark; the result only rejects enabling this word-LM fusion
+path as a default. No production decoder or model setting was changed.
+
 Inspection attributes part of the score to two **evaluation confounds**, not
 acoustic errors: (1) orthographic/diacritic variants — model output `ታዕምር` for
 truth `ተዓምር` (same word, both spellings standard; the ተ/ታ and ዓ/ዕ series collapse
