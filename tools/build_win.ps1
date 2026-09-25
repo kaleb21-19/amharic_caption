@@ -214,5 +214,14 @@ if (Get-Command 7z -ErrorAction SilentlyContinue) {
         }
     }
 }
-Remove-Item -Recurse -Force $BUILD
+# Create the checksum while the build process still owns the exact ZIP path.
+# Keeping this beside the archive write avoids a second CI step racing the
+# Windows filesystem/Compress-Archive handle.
+$sum = "$ZIP.sha256"
+$hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $ZIP).Hash.ToLowerInvariant()
+[System.IO.File]::WriteAllText(
+    $sum,
+    "$hash  $(Split-Path -Leaf $ZIP)`n",
+    [System.Text.Encoding]::ASCII)
 Write-Host "== wrote $ZIP =="
+Write-Host "== wrote $sum ($hash) =="
