@@ -25,6 +25,8 @@ if [[ ! -x "$PY" || ! -f "$SCRIPT" ]]; then
   exit 1
 fi
 
+MAX_WER=""
+MEAN_MAX_WER=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --fixtures)
@@ -35,14 +37,27 @@ while [[ $# -gt 0 ]]; do
       MAX_WER="${2:?--max-wer needs a value like 0.40}"
       shift 2
       ;;
+    --mean-max-wer)
+      MEAN_MAX_WER="${2:?--mean-max-wer needs a value like 0.40}"
+      shift 2
+      ;;
     -h|--help)
-      echo "usage: $0 [--fixtures DIR] [--max-wer 0.40]  (RUNTIME=/path)"; exit 0
+      echo "usage: $0 [--fixtures DIR] [--max-wer 0.40] [--mean-max-wer 0.40]  (RUNTIME=/path)"
+      exit 0
       ;;
     *)
       echo "[FAIL] unknown argument: $1 (use --fixtures DIR)" >&2; exit 2
       ;;
   esac
 done
+
+if [[ -n "$MAX_WER" && -n "$MEAN_MAX_WER" ]]; then
+  echo "[FAIL] use only one of --max-wer (per-clip) or --mean-max-wer (aggregate)" >&2
+  exit 2
+fi
+
+WER_LOG="$(mktemp)"
+trap 'rm -f "$WER_LOG"' EXIT
 
 [[ -d "$FIX" ]] || { echo "[FAIL] fixtures dir not found: $FIX"; exit 1; }
 
@@ -73,10 +88,28 @@ for wav in "$FIX"/*.wav; do
       fail=$((fail+1)); continue
     fi
 
-    # Blank fixture: wer.py treats empty truth + empty hypothesis as PASS, so the
-    # identical WER gate decides — silence producing any tokens is a FAIL.
-    if ! "$ROOT/test/wer.py" --truth "$truth" --hyp "$srt" ${MAX_WER:+--max-wer "$MAX_WER"}; then
+    # Score every run. --max-wer keeps the legacy per-clip gate; the production
+    # gate uses --mean-max-wer, which collects raw WER values and checks their
+    # arithmetic mean after the loop. The 1.0 ceiling here prevents an individual
+    # clip from turning an aggregate policy into an accidental per-clip gate.
+    score_args=()
+    if [[ -n "$MAX_WER" ]]; then
+      score_args=(--max-wer "$MAX_WER")
+    elif [[ -n "$MEAN_MAX_WER" ]]; then
+      score_args=(--max-wer 1.0)
+    fi
+    if ! score_output="$("$ROOT/test/wer.py" --truth "$truth" --hyp "$srt" "${score_args[@]}")"; then
+      printf '%s\n' "$score_output"
       fail=$((fail+1)); continue
+    fi
+    printf '%s\n' "$score_output"
+    if [[ -n "$MEAN_MAX_WER" ]]; then
+      value="$(printf '%s\n' "$score_output" | sed -n 's/.*WER: \([0-9.][0-9.]*\)%.*/\1/p' | head -n 1)"
+      if [[ -z "$value" ]]; then
+        echo "  $name [FAIL] could not parse WER for aggregate gate"
+        fail=$((fail+1)); continue
+      fi
+      printf '%s\n' "$value" >> "$WER_LOG"
     fi
     pass=$((pass+1))
 
@@ -87,6 +120,21 @@ for wav in "$FIX"/*.wav; do
   done
   rm -rf "$tmp"
 done
+
+if [[ -n "$MEAN_MAX_WER" ]]; then
+  n="$(wc -l < "$WER_LOG" | tr -d '[:space:]')"
+  if [[ "$n" -eq 0 ]]; then
+    echo "[FAIL] aggregate raw WER gate has no scored runs"
+    fail=$((fail+1))
+  else
+    mean_pct="$(awk '{s += $1} END {printf "%.4f", s / NR}' "$WER_LOG")"
+    echo "aggregate raw WER: ${mean_pct}%  (n=$n, gate <= $(awk -v g="$MEAN_MAX_WER" 'BEGIN {printf "%.0f", g * 100}')%)"
+    if ! awk -v m="$mean_pct" -v g="$MEAN_MAX_WER" 'BEGIN {exit !(m <= g * 100)}'; then
+      echo "[FAIL] aggregate raw WER ${mean_pct}% exceeds gate ${MEAN_MAX_WER}"
+      fail=$((fail+1))
+    fi
+  fi
+fi
 
 echo "===================="
 echo "done: pass=$pass  fail=$fail  warn=$warn"

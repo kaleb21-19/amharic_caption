@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Transcribe Amharic audio -> accurate text + SRT using badrex/Ethio-ASR-amharic.
+"""Transcribe Amharic audio -> accurate text + SRT using the pinned production
+snapwre/hohe-asr-amharic model (with the legacy badrex checkpoint still usable
+for offline regression runs via AMH_MODEL_DIR).
 
 Two engines, auto-selected by what the model directory contains:
 

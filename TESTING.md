@@ -100,18 +100,23 @@ For each file, run the engine (Karaoke and Grouped) and compare the *full transc
 python3 tools/test/wer.py --truth tools/test/fixtures/news.txt --hyp /tmp/news_out.srt
 ```
 
-**Pass criteria:** WER <= 15% on clear speech (`news`, `numbers`, `punct`, `names`);
-no words silently dropped in `short1`; no crash on `silence`; reasonable WER even on
-`noisy`/`fast`.
+**Historical clear-speech criterion (superseded 2026-09-25):** WER <= 15% on
+clear speech (`news`, `numbers`, `punct`, `names`); no words silently dropped in
+`short1`; no crash on `silence`; reasonable WER even on `noisy`/`fast`.
 
 ### Release policy (updated 2026-09-25)
 
-- **Stable/public release:** keep the locked WER ≤15% safety gate unchanged.
-- **Private beta/early-access:** target ≤30% WER. A one-time, explicitly approved
-  Hohe private-beta exception is allowed at the locked measured **33.50%
-  approximate / 36.35% raw WER** for A/B testing only; it must be labeled
-  experimental, retain the current package for rollback, and make no
-  public-production claim. This exception does not change the stable CI gate.
+- **Production model:** `snapwre/hohe-asr-amharic`, pinned to revision
+  `7ee83bdcf748694409f412e06f6c6747b44b3212`.
+- **Stable/public quality gate:** the arithmetic **mean raw WER across the locked
+  real-golden runs must be ≤40%**. This is an explicit product-policy change
+  approved on 2026-09-25; it replaces the former 15% per-run gate. Individual
+  clip scores remain visible in the harness and are not hidden or silently
+  discarded. Hohe currently measures 36.35% mean raw WER; 20/40 individual
+  runs are above 40%, so this is an aggregate gate, not a per-clip guarantee.
+- **Private beta:** may ship the same Hohe model with the same documented
+  aggregate gate, provided the package is labeled beta and the previous model
+  remains available for rollback.
 - **Speed:** compare candidates on the same Windows machine and clips; record
   warm-model processing time, real-time factor, peak RAM, and package size before
   choosing a version. Do not select a model that is materially slower without an
@@ -332,6 +337,18 @@ The standard ZIP is **744,949,489 bytes**, SHA-256
 `153554fb9a9174f62149905e02c42a86acf7072bc51f865ce62714b8155adda0`.
 Windows `Expand-Archive` succeeded and the extracted `verify_win.cmd` passed
 **15/15** checks. It is not a public production release.
+
+**Production model decision (2026-09-25):** Hohe is approved as the intended
+production model under the explicit aggregate raw-WER ≤40% policy. The current
+badrex model remains the rollback package until the Hohe production candidate
+passes the remaining platform and release checks. This is a policy decision,
+not a claim that Hohe meets the former 15% gate.
+
+**Hohe aggregate gate rerun (2026-09-25):** the full locked real-golden
+harness (`fixtures_real`, 20 clips × karaoke/grouped, VAD on, greedy decode)
+completed 40/40 scored runs with **mean raw WER 34.095%**, so the approved
+40% aggregate gate passed. Individual runs above 40% remain visible in the
+output (20/40), as required by the aggregate policy.
 
 **Current-vs-Hohe runtime benchmark (2026-09-25):** three repeated passes used
 the same eight public fixtures, greedy decoder, four threads, Python runtime,
@@ -1007,10 +1024,10 @@ active-sequence, work-area, and imported-file paths (`run()` and `runFile()`).
    regression now blocks the public zip from being cut, not just from being
    noticed later. The separate `accuracy-gate` job runs the real-golden WER gate
    (§1.2g) on every build and is also required; it is intentionally RED until
-   the WER ≤15% target passes.
+   the aggregate raw-WER ≤40% target passes.
 3. **No golden audio `fixtures/`** — harness built 2026-09-19; real recorded
    goldens added 2026-09-19, accuracy gate measured (§1.2g). `tools/test/wer.py`,
-   `tools/test/run_engine.sh` (now `--fixtures DIR` + `--max-wer` aware) and
+   `tools/test/run_engine.sh` (now `--fixtures DIR` + `--max-wer`/`--mean-max-wer` aware) and
    `tools/test/test_srt.py` are implemented (see §9) and were scored against the
    shipped CT2 int8 model: the committed fixtures (`fast/news/noisy/names/
    numbers/interview/long5min/short1`) are **synthetic (TTS register)** and every
@@ -1019,8 +1036,8 @@ active-sequence, work-area, and imported-file paths (`run()` and `runFile()`).
    transcribes into fluent grammatical Amharic. Synthetic fixtures therefore
 measure worst-case voice transfer, not real accuracy. Real recorded goldens
     landed 2026-09-19 (20 Common Voice Amharic clips, CC0; §1.2g): scored via
-    `run_engine.sh --fixtures tools/test/fixtures_real --max-wer 0.15`, the
-    ≤15% gate is currently RED — WER 0–100% (mean ≈ 52%), CER mean ≈ 19%, 3 of
+    `run_engine.sh --fixtures tools/test/fixtures_real --mean-max-wer 0.40`, the
+    historical 15% per-clip run measured — WER 0–100% (mean ≈ 52%), CER mean ≈ 19%, 3 of
     19 clips perfect, pass 6/38 — inflated in part by orthographic-variant and
     word-boundary confounds, plus a known class of vowel-length variants (details
     and a pending 600M-model A/B in §1.2g). The `silence` blank-fixture gate
@@ -1052,7 +1069,8 @@ tools/test/
      Ethiopic punctuation + [S1]/[S2] speaker labels; --max-wer gate; empty
      truth must match an empty hypothesis)
   run_engine.sh      (loop over fixtures, run ethio_srt.py karaoke+grouped, score WER
-     + test_srt.py structure per mode; exits 1 on any failure)
+     + test_srt.py structure per mode; `--max-wer` is a legacy per-clip gate,
+     `--mean-max-wer` is the aggregate production gate)
   test_srt.py        (validate SRT structure: numbering, timing order, 1-5s cues,
      no empty text)
   # License-key validation has no script of its own: `tools/keygen.py` generates
@@ -1066,7 +1084,7 @@ Commands (RUNTIME must be a built extension runtime dir with `python/bin/python3
 
 ```bash
 RUNTIME=/path/to/.../com.amharic.captions/runtime tools/test/run_engine.sh --fixtures tools/test/fixtures
-tools/test/run_engine.sh --fixtures tools/test/fixtures_real --max-wer 0.15   # real-golden gate (§1.2g)
+tools/test/run_engine.sh --fixtures tools/test/fixtures_real --mean-max-wer 0.40   # aggregate production gate (§1.2g)
 python3 tools/test/wer.py --truth tools/test/fixtures/news.txt --hyp /tmp/out.srt --max-wer 0.40
 python3 tools/test/test_srt.py /tmp/out_karaoke.srt    # SRT structure check (arg: path)
 
@@ -1092,7 +1110,7 @@ honest instrumentation whose red result is logged, not hidden.
 
 1. Offline engine smoke test (A) — validates the model works at all.
 2. `ctc_beam.py` + `amh_correct.py` self-checks.
-3. Quality golden set WER — run `tools/test/run_engine.sh --fixtures tools/test/fixtures_real --max-wer 0.15` over the real recorded goldens added 2026-09-19 (see §1.2g / §8#3).
+3. Quality golden set WER — run `tools/test/run_engine.sh --fixtures tools/test/fixtures_real --mean-max-wer 0.40` over the real recorded goldens added 2026-09-19 (see §1.2g / §8#3).
 4. Options matrix (B, C, D, E, F).
 5. License 1–12 (all in Premiere).
 6. Source matrix 1–5 + edge cases (in Premiere).

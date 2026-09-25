@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""03_finetune_waxal.py — fine-tune the Ethio-ASR Amharic CTC model.
+"""03_finetune_waxal.py — fine-tune the pinned Hohe Amharic CTC model.
 
-Loads the current best checkpoint (badrex/Ethio-ASR-amharic), fine-tunes the
+Loads the production source checkpoint (snapwre/hohe-asr-amharic), fine-tunes the
 CTC projection (and optionally the conformer trunk) on the WAXAL+real manifest
 produced by 02_prep_waxal.py, and saves a brand-new transformers checkpoint in
 the SAME layout make_model_ct2_int8.sh expects (config.json + model.safetensors

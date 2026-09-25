@@ -2,9 +2,9 @@
 #
 # fetch_model.sh
 #
-# Downloads the fp32 source model (badrex/Ethio-ASR-amharic) from Hugging Face
-# into ./ethio-asr so it can be bundled or converted to fp16. CI has no local
-# copy of the model, so this is the canonical way to obtain it.
+# Downloads the pinned production source model (snapwre/hohe-asr-amharic) from
+# Hugging Face into ./ethio-asr so it can be converted to CT2 int8. CI has no
+# local copy of the model, so this is the canonical way to obtain it.
 #
 #   PYTHON_BIN=python3 tools/fetch_model.sh
 #     (PYTHON_BIN must have transformers + huggingface_hub)
@@ -15,10 +15,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DST="${ROOT}/ethio-asr"
-REPO="${HF_MODEL:-badrex/Ethio-ASR-amharic}"
+REPO="${HF_MODEL:-snapwre/hohe-asr-amharic}"
 # Pin the source model revision. A moving `main` download makes a supposedly
 # immutable per-commit CT2 release non-reproducible.
-REVISION="${HF_REVISION:-edda1ab0af0d3cca4f4a6fd0b17ef3726bcce12a}"
+REVISION="${HF_REVISION:-7ee83bdcf748694409f412e06f6c6747b44b3212}"
 PY="${PYTHON_BIN:-python3}"
 
 REVISION_FILE="$DST/.hf_revision"

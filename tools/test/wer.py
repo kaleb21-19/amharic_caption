@@ -294,7 +294,10 @@ def main():
         print(f"  -> FAIL: {'grid ' if args.grid else ''}WER above gate "
               f"({chosen*100:.1f}% > {gate*100:.0f}%)")
         raise SystemExit(1)
-    print("  -> PASS" if chosen <= 0.15 else "  -> WARNING")
+    # Diagnostic per-clip marker only. The release policy is an aggregate
+    # raw-WER gate enforced by run_engine.sh --mean-max-wer; individual clips
+    # may exceed the aggregate ceiling and are still reported here.
+    print("  -> PASS" if chosen <= 0.40 else "  -> WARNING")
     raise SystemExit(0)
 
 

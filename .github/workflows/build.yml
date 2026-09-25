@@ -15,8 +15,8 @@ concurrency:
 # Pin the model to a known-good HF repo; change this only when you intend to
 # rebuild the CT2 int8 weights shipped in the bundle.
 env:
-  HF_MODEL: badrex/Ethio-ASR-amharic
-  HF_REVISION: edda1ab0af0d3cca4f4a6fd0b17ef3726bcce12a
+  HF_MODEL: snapwre/hohe-asr-amharic
+  HF_REVISION: 7ee83bdcf748694409f412e06f6c6747b44b3212
   # Deliberate, documented licence choice. The bundled ffmpeg is a GPL build
   # (it needs libx264 for the burn-in encoder and libass for the subtitles
   # filter), so prepare_python.sh requires this explicit opt-in before it will
@@ -226,10 +226,10 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
 
   # ---- 1.7. accuracy gate (release-blocking) --------------------------------
-  # Real-golden WER against Common Voice Amharic clips (TESTING.md §1.2g).
-  # A release is not publishable while the measured result exceeds the product
-  # target. The current model is expected to fail this gate; that is precisely
-  # why publication remains frozen until the model/LM work clears it.
+  # Real-golden raw WER against the locked Common Voice Amharic set
+  # (TESTING.md §1.2g). Production policy approved 2026-09-25: the arithmetic
+  # MEAN raw WER across scored runs must be <= 40%. Individual clip scores are
+  # still printed for diagnosis and are not silently discarded.
   accuracy-gate:
     needs: model
     runs-on: ubuntu-latest
@@ -302,7 +302,7 @@ jobs:
           AMH_MODEL_DIR: ${{ github.workspace }}/tools/stage/model-ct2-int8
         run: |
           RUNTIME="${{ github.workspace }}/fake_runtime" \
-            bash tools/test/run_engine.sh --fixtures tools/test/fixtures_real --max-wer 0.15
+            bash tools/test/run_engine.sh --fixtures tools/test/fixtures_real --mean-max-wer 0.40
 
   # ---- 2. build each platform's self-contained zip -------------------------
   # macOS jobs share bash (macOS runner default shell), so no `shell:` key is

@@ -40,8 +40,8 @@ LICENSE_FALLBACK = {
 # Non-pip components copied into the runtime by build.sh. Each is only listed
 # if the corresponding file is actually present in the built runtime.
 BUNDLED = [
-    ("model/", "Ethio-ASR-amharic (speech recognition weights, CTranslate2 int8)",
-     "https://huggingface.co/badrex/Ethio-ASR-amharic"),
+    ("model/", "hohe-asr-amharic (speech recognition weights, CTranslate2 int8)",
+     "https://huggingface.co/snapwre/hohe-asr-amharic"),
     ("speaker_embed.onnx",
      "NVIDIA NeMo TitaNet-Small (speaker embeddings) — NVIDIA NeMo is "
      "Apache-2.0; redistributed as the ONNX export published by sherpa-onnx",
