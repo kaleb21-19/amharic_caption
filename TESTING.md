@@ -317,6 +317,24 @@ default was built for a fair Hohe-vs-current comparison. The standard ZIP is
 Windows `Expand-Archive` succeeded and its extracted `verify_win.cmd` passed
 10/10 checks. It is not the production configuration and must not be published.
 
+**Private current-model beta package (2026-09-25):** a clean, non-degraded
+Windows archive using the pinned current model and normal greedy decoding was
+built for private testing only. The standard ZIP is **744,614,999 bytes**,
+SHA-256 `5d9d854a5e07a704cb1e3bb6914a506ca420bd698f4476624f44ab0ea31918bc`.
+Windows `Expand-Archive` succeeded and the extracted `verify_win.cmd` passed
+**15/15** checks. It is not a public production release.
+
+**Current-vs-Hohe runtime benchmark (2026-09-25):** three repeated passes used
+the same eight public fixtures, greedy decoder, four threads, Python runtime,
+and Windows PC. Median warm real-time factor was **0.3807x** for current and
+**0.3794x** for Hohe; median total warm time was 26.061 s and 25.974 s
+respectively. Startup medians were 3.526 s and 3.386 s. The CT2 `model.bin`
+payloads are 610,309,480 and 610,314,640 bytes, and the comparable standard
+ZIPs differ by only 333,975 bytes. Hohe is therefore substantially more
+accurate but effectively tied on speed and download size. Windows memory
+counters in this environment were not reliable enough for a RAM claim; both
+processes reported the same virtual footprint.
+
 **Hohe LM-fusion matrix (2026-09-25):** a small diagnostic run over four
 public fixtures (`interview`, `names`, `news`, and `numbers`) in both caption
 modes produced identical results at `AMH_LM_LAMBDA=0`, `0.05`, `0.1`, and
