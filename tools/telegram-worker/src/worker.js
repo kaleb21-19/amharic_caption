@@ -1816,6 +1816,42 @@ function isPrivateChat(chatId, uid) {
   return String(chatId) === String(uid);
 }
 
+// ── newest published release (update-available notice) ─────────────────────
+// One cached answer for every customer: 'latest:release' (1 h) is what callers
+// get; 'latest:last' (no expiry) is the last good answer, served when GitHub is
+// unreachable; 'latest:fail' (5 min) stops a GitHub outage turning into a
+// request per customer. Only a plain x.y.z version and our own install page are
+// ever returned, never text taken from the release body.
+const RELEASES_API = 'https://api.github.com/repos/kaleb21-19/amharic_caption/releases/latest';
+async function latestRelease() {
+  const cached = await kvGet('latest:release');
+  if (cached) { try { return JSON.parse(cached); } catch (e) {} }
+  let out = null;
+  if (!(await kvGet('latest:fail'))) {
+    try {
+      const res = await fetch(RELEASES_API, {
+        headers: { 'User-Agent': 'amharic-captions-worker', Accept: 'application/vnd.github+json' },
+      });
+      if (res.ok) {
+        const rel = await res.json();
+        const v = String((rel && rel.tag_name) || '').replace(/^v/, '');
+        if (/^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(v)) out = { version: v, url: SITE_URL + '/install/' };
+      }
+    } catch (e) {
+      log('warn', 'latest_release_fetch_failed', { err: String((e && e.message) || e) });
+    }
+  }
+  if (out) {
+    await kvPut('latest:release', JSON.stringify(out), 3600);
+    await kvPut('latest:last', JSON.stringify(out));
+    return out;
+  }
+  await kvPut('latest:fail', '1', 300);
+  const last = await kvGet('latest:last');
+  if (last) { try { return JSON.parse(last); } catch (e) {} }
+  return null;
+}
+
 // ── CORS allow-list ─────────────────────────────────────────────────────────
 // ALLOWED_ORIGIN (env AMH_ALLOWED_ORIGIN, comma-separated). DEFAULT IS
 // FAIL-CLOSED: unset => no Access-Control-Allow-Origin header, so browser
@@ -1955,6 +1991,14 @@ export default {
         await kvPut('beacon:' + mid, JSON.stringify({ v, mid, origin, ip: clientIp(), ts: new Date().toISOString() }), 30 * 86400);
       }
       return json({ ok: true });
+    }
+
+    // GET /api/latest → {version, url}: the newest published release, for the
+    // panel's and SRT maker's "update available" notice. Answered from KV, so
+    // GitHub is asked at most about once an hour for ALL customers together.
+    if (request.method === 'GET' && url.pathname === '/api/latest') {
+      const out = await latestRelease();
+      return out ? json(out) : json({ error: 'unavailable' }, 503);
     }
 
     // GET /api/trial?mid=XXXX → {used, max, remaining}

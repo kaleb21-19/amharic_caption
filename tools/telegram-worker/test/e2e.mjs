@@ -131,8 +131,14 @@ const OUTBOUND = []; // {method, body, id}
 let MSG = 0;
 let FAIL_NEXT = 0; // N outbound calls fail with {ok:false}
 const realFetch = globalThis.fetch;
+// fake api.github.com releases/latest (update-available notice)
+const GH = { calls: 0, status: 200, body: { tag_name: 'v1.8.0' } };
 globalThis.fetch = async (url, init = {}) => {
   url = String(url);
+  if (url.startsWith('https://api.github.com/')) {
+    GH.calls++;
+    return { ok: GH.status === 200, status: GH.status, json: async () => GH.body };
+  }
   if (!url.startsWith('https://api.telegram.org/bot')) return realFetch(url, init);
   const m = url.match(/\/bot[^/]+\/(\w+)$/);
   const method = m ? m[1] : '';
@@ -1065,6 +1071,37 @@ console.log('\n:: scenario 9 — extension API: trial, rate limits, API key togg
   r = await api(envK.env, '/api/ping', { method: 'POST', body: { v: '1.4.1' }, headers: { 'CF-Connecting-IP': '203.0.113.71' } });
   assert.equal(r.status, 401, 'ping without key => 401');
   ok('/api/ping telemetry wired, gated, and rate-limited');
+
+  // update-available notice: one cached GitHub lookup for every customer
+  {
+    const envU = fresh();
+    GH.calls = 0; GH.status = 200; GH.body = { tag_name: 'v1.8.0' };
+    let u = await api(envU.env, '/api/latest', { headers: { 'CF-Connecting-IP': '203.0.113.90' } });
+    assert.equal(u.status, 200, 'latest ok');
+    let uj = await u.json();
+    assert.deepEqual(uj, { version: '1.8.0', url: 'https://amharic-caption-pro.vercel.app/install/' });
+    for (let i = 0; i < 5; i++) {
+      u = await api(envU.env, '/api/latest', { headers: { 'CF-Connecting-IP': '203.0.113.9' + i } });
+      assert.equal(u.status, 200, 'many callers, same shared IP or not, never throttled');
+    }
+    assert.equal(GH.calls, 1, 'GitHub asked once; everyone else served from cache');
+    // an hour passes and GitHub is down: the last good answer is still served
+    await envU.kv.delete('latest:release');
+    GH.status = 500;
+    u = await api(envU.env, '/api/latest', { headers: { 'CF-Connecting-IP': '203.0.113.99' } });
+    uj = await u.json();
+    assert.equal(uj.version, '1.8.0', 'GitHub outage -> last known version');
+    const callsDuringOutage = GH.calls;
+    await api(envU.env, '/api/latest', { headers: { 'CF-Connecting-IP': '203.0.113.98' } });
+    assert.equal(GH.calls, callsDuringOutage, 'outage backoff: no request per customer');
+    // never seen a good answer + junk tag => 503, nothing invented
+    const envV = fresh();
+    GH.status = 200; GH.body = { tag_name: 'nightly-<script>' };
+    u = await api(envV.env, '/api/latest', { headers: { 'CF-Connecting-IP': '203.0.113.97' } });
+    assert.equal(u.status, 503, 'invalid tag is never served');
+    GH.body = { tag_name: 'v1.8.0' };
+  }
+  ok('/api/latest: cached once for everyone, survives GitHub outages, only clean versions');
 
   // CORS lock: whitelisted origins echoed, anything else gets no allow header
   const envL = fresh({ AMH_ALLOWED_ORIGIN: 'file://,null' });

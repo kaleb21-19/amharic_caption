@@ -199,6 +199,8 @@ Write-Host "  [ok] python trimmed"
 Copy-Item "$ROOT\panel\*" $BNAME -Recurse
 $PanelTests = Join-Path $BNAME "test"
 if (Test-Path $PanelTests) { Remove-Item -Recurse -Force $PanelTests }
+# Local design-review scratch (_preview*) must never ship.
+Get-ChildItem $BNAME -Filter "_preview*" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
 
 # one-click installer (shipped at zip root, next to the extension folder)
 $INST = Join-Path $ROOT "tools\installers"

@@ -572,7 +572,7 @@ set "REG_OK=0"
 
 for %%K in (11 12 13 14 15) do (
     for /f "tokens=1,2,3" %%A in ('reg query "HKCU\Software\Adobe\CSXS.%%K" /v PlayerDebugMode 2^>nul ^| find /i "PlayerDebugMode"') do (
-        if /I "%%B"=="REG_SZ" if "%%C"=="0x1" set /A REG_OK+=1
+        if /I "%%B"=="REG_SZ" if "%%C"=="1" set /A REG_OK+=1
     )
 )
 

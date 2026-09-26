@@ -193,7 +193,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.7.1');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.7.2');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -896,9 +896,58 @@ await t('11. a failed run says so on screen, not only in the log', async () => {
       'status pill reports the failure');
     has(p.els('progLabel').textContent, 'engine stopped',
       'the human message is shown next to the Generate button');
-    has(p.els('progLabel').textContent, 'Log',
-      'and points at the Log for detail');
+    has(p.els('progLabel').textContent, 'Details for support',
+      'and points at the support details for more');
   } finally { p.close(); }
+});
+
+await t('17. polish: Amharic errors/progress, compact idle UI, simple license states', async () => {
+  const storage = makeLocalStorage();
+  storage.setItem('amh.lang', 'am');
+  storage.setItem('amh.trial.used', '0');
+  const p = loadPanel({ storage });
+  try {
+    await flush(10);
+    // idle: no empty progress row
+    assert.strictEqual(p.els('progWrap').style.display, 'none', 'progress row hidden when idle');
+    // running: row shows, text in Amharic
+    p.evalVm("setBusy(true); setProgress(0.4, 'Transcribing 3/7 · about 2 min left')");
+    assert.strictEqual(p.els('progWrap').style.display, '', 'progress row visible while running');
+    assert.strictEqual(p.els('progLabel').textContent, 'ወደ ጽሑፍ በመቀየር ላይ 3/7 · ወደ 2 ደቂቃ ቀርቷል');
+    p.evalVm('setBusy(false)');
+    // failure: Amharic message, row stays visible because there is something to say
+    p.evalVm('failRun("ffmpeg failed with code 1")');
+    has(p.els('progLabel').textContent, 'የሚዲያ ፋይሉን ማንበብ አልተቻለም', 'failure in Amharic');
+    assert.strictEqual(p.els('progWrap').style.display, '', 'failure message visible');
+    // language switch re-renders the failure line
+    p.evalVm("i18nSetLang('en')");
+    has(p.els('progLabel').textContent, 'Could not read that media file', 'switch -> English');
+    p.evalVm("i18nSetLang('am')");
+
+    // Karaoke hides the words-per-caption field; Grouped shows it
+    p.els('capWords').fire('click');
+    assert.strictEqual(p.els('groupSizeField').style.display, 'none', 'karaoke: no words-per-caption');
+    p.els('capGroup').fire('click');
+    assert.strictEqual(p.els('groupSizeField').style.display, '', 'grouped: words-per-caption shown');
+
+    // trial used up: said once (banner), not twice
+    p.evalVm("localStorage.setItem('amh.trial.used','2'); updateLicenseUI()");
+    assert.strictEqual(p.els('trialBanner').style.display, 'block');
+    assert.strictEqual(p.els('licenseStatus').style.display, 'none', 'no duplicate status line');
+    // licensed: thank-you note, no price in the footer, no redundant status line
+    p.evalVm("LICENSED = true; LICENSE_NOTE = 'Licensed'; updateLicenseUI()");
+    assert.strictEqual(p.els('footPrice').style.display, 'none', 'no price shown to payers');
+    assert.strictEqual(p.els('licenseStatus').style.display, 'none');
+    p.evalVm("LICENSE_NOTE = 'Licensed (expires 20271231)'; updateLicenseUI()");
+    assert.strictEqual(p.els('licenseStatus').style.display, '', 'dated keys still show their date');
+  } finally { p.close(); }
+
+  // After Effects: the review button says composition, not timeline
+  const ae = loadPanel({ hostApp: 'AEFT' });
+  try {
+    await flush(10);
+    assert.strictEqual(ae.els('reviewPlace').textContent, '✓ Add to composition');
+  } finally { ae.close(); }
 });
 
 await t('12. the boot ping really is once per day', async () => {
@@ -1056,6 +1105,87 @@ await t('15. lite package: model missing -> download card, Generate blocked, fin
     if (prevHome === undefined) delete process.env.AMH_MODEL_HOME; else process.env.AMH_MODEL_HOME = prevHome;
     fs.rmSync(home, { recursive: true, force: true });
   }
+});
+
+await t('16. update notice: newer shows, same/older/offline hide, ✕ snoozes per version, once a day', async () => {
+  let calls = 0;
+  let answer = { version: '9.9.9', url: 'https://amharic-caption-pro.vercel.app/install/' };
+  let online = true;
+  const fetchLatest = async (url) => {
+    if (String(url).indexOf('/api/latest') < 0) return { ok: false, json: async () => null };
+    calls++;
+    if (!online) throw new Error('offline');
+    return { ok: true, json: async () => answer };
+  };
+  const storage = makeLocalStorage();
+  let p = loadPanel({ storage, fetch: fetchLatest });
+  try {
+    await flush(10);
+    assert.strictEqual(p.els('updateBanner').style.display, 'none', 'nothing known yet');
+    await p.evalVm('checkForUpdate()');
+    assert.strictEqual(calls, 1);
+    assert.strictEqual(p.els('updateBanner').style.display, 'flex', 'newer version -> banner');
+    assert.strictEqual(p.els('updateText').textContent, 'Version 9.9.9 is available.');
+    await p.evalVm('checkForUpdate()');
+    assert.strictEqual(calls, 1, 'at most one lookup a day');
+
+    // ✕ snoozes this version...
+    p.els('updateLater').fire('click');
+    assert.strictEqual(p.els('updateBanner').style.display, 'none', 'snoozed');
+  } finally { p.close(); }
+
+  // ...across restarts (no network needed to remember)...
+  online = false;
+  p = loadPanel({ storage, fetch: fetchLatest });
+  try {
+    await flush(10);
+    assert.strictEqual(p.els('updateBanner').style.display, 'none', 'still snoozed after restart');
+    // ...but a NEWER release shows again at once.
+    storage.setItem('amh.update.checked', '0');
+    online = true;
+    answer = { version: '10.0.0', url: 'https://amharic-caption-pro.vercel.app/install/' };
+    await p.evalVm('checkForUpdate()');
+    assert.strictEqual(p.els('updateBanner').style.display, 'flex', 'newer than the snoozed one');
+    has(p.els('updateText').textContent, '10.0.0');
+  } finally { p.close(); }
+
+  // Same or older version: no banner. Offline: nothing stored, retried next open.
+  for (const [v, why] of [['1.0.0', 'older'], [p.evalVm('APP_VERSION'), 'same']]) {
+    const s2 = makeLocalStorage();
+    answer = { version: v, url: 'https://amharic-caption-pro.vercel.app/install/' };
+    const q = loadPanel({ storage: s2, fetch: fetchLatest });
+    try { await q.evalVm('checkForUpdate()'); assert.strictEqual(q.els('updateBanner').style.display, 'none', why); }
+    finally { q.close(); }
+  }
+  const s3 = makeLocalStorage();
+  online = false;
+  const o = loadPanel({ storage: s3, fetch: fetchLatest });
+  try {
+    await o.evalVm('checkForUpdate()');
+    assert.strictEqual(o.els('updateBanner').style.display, 'none', 'offline: no banner, no error');
+    assert.strictEqual(s3.getItem('amh.update.checked'), null, 'offline: will retry next open');
+  } finally { o.close(); }
+
+  // A download link that is not our own site is never used.
+  const s4 = makeLocalStorage();
+  online = true;
+  answer = { version: '9.9.9', url: 'https://evil.example/malware.zip' };
+  const q4 = loadPanel({ storage: s4, fetch: fetchLatest });
+  try {
+    await q4.evalVm('checkForUpdate()');
+    assert.strictEqual(JSON.parse(s4.getItem('amh.update.latest')).url,
+      'https://amharic-caption-pro.vercel.app/install/', 'foreign URL replaced by our install page');
+  } finally { q4.close(); }
+
+  // Amharic wording
+  const s5 = makeLocalStorage();
+  s5.setItem('amh.lang', 'am');
+  answer = { version: '9.9.9', url: 'https://amharic-caption-pro.vercel.app/install/' };
+  const a5 = loadPanel({ storage: s5, fetch: fetchLatest });
+  try {
+    await a5.evalVm('checkForUpdate()');
+    assert.strictEqual(a5.els('updateText').textContent, 'አዲስ ስሪት 9.9.9 ወጥቷል።');
+  } finally { a5.close(); }
 });
 
 await t('13b. language: an unset preference defaults to Amharic; unknown text falls back to English', async () => {
