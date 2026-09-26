@@ -36,3 +36,15 @@ export const DL_MAC_ARM =
 // link always resolves.
 export const DL_MAC_X64 =
   "https://github.com/kaleb21-19/amharic_caption/releases/latest/download/amharic-captions-mac-x64.zip";
+
+// Lite builds (~175-200 MB): same installer; the Amharic model (~612 MB) is
+// downloaded once from inside the panel, resumably. These are the default
+// download buttons; the full packages above are for offline / USB installs.
+// Needs a release that carries the -lite assets (v1.7.1+): publish the release
+// before deploying these links.
+export const DL_WIN_LITE =
+  "https://github.com/kaleb21-19/amharic_caption/releases/latest/download/amharic-captions-win-x64-lite.zip";
+export const DL_MAC_ARM_LITE =
+  "https://github.com/kaleb21-19/amharic_caption/releases/latest/download/amharic-captions-mac-arm64-lite.zip";
+export const DL_MAC_X64_LITE =
+  "https://github.com/kaleb21-19/amharic_caption/releases/latest/download/amharic-captions-mac-x64-lite.zip";

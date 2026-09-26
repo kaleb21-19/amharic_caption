@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { DL_WIN, DL_MAC_ARM, DL_MAC_X64, RELEASES_URL } from "@/lib/site";
+import {
+  DL_WIN, DL_WIN_LITE, DL_MAC_ARM, DL_MAC_ARM_LITE, DL_MAC_X64, DL_MAC_X64_LITE, RELEASES_URL,
+} from "@/lib/site";
 
 // Install flow as a tabbed guide rather than two long parallel columns.
 // Showing Windows and macOS side by side means every reader scrolls past a set
@@ -27,17 +29,19 @@ const OS = {
         check: "Wait until it prints DONE before closing the window.",
       },
       {
-        t: "Fully quit Premiere, then reopen",
-        c: "File → Exit. Closing the window is not enough — Premiere keeps running and will not pick up a new extension.",
+        t: "Fully quit Premiere (or After Effects), then reopen",
+        c: "File → Exit. Closing the window is not enough — the app keeps running and will not pick up a new extension.",
         check: "Open a project first: the Extensions menu stays greyed out on the start screen.",
       },
       {
         t: "Open the panel and activate",
-        c: "Window → Extensions → Amharic Captions. Copy your Machine ID, send it to the Telegram bot with your payment, and paste the key you get back.",
+        c: "Window → Extensions → Amharic Captions. The first time, press “Download the Amharic model” once (about 610 MB, continues where it stopped if your internet drops). Then copy your Machine ID, send it to the Telegram bot with your payment, and paste the key you get back.",
         check: "Two free captions work before you pay anything.",
       },
     ],
     trouble: [
+      ["The model download stopped", "Your internet dropped. Press Resume download — it continues from where it stopped, it does not start over. If it keeps failing, use the full Windows package instead (link under the download buttons)."],
+      ["I don't have Premiere or After Effects", "The installer also puts a “Make Amharic Captions” shortcut on your desktop. Drag any video onto it and an .srt file appears next to the video — import it into CapCut, DaVinci Resolve or YouTube."],
       ['"Windows protected your PC" appears', 'Click More info → Run anyway. The installer is unsigned, which is normal for a tool this size — the extension itself is unchanged.'],
       ["There is no Install.cmd to click", "The zip was not extracted. Right-click it → Extract All, then open the extracted folder."],
       ["The panel does not appear in Extensions", "Premiere was not fully quit, or no project is open. Exit completely, reopen, open a project, then check the menu again."],
@@ -62,17 +66,19 @@ const OS = {
         check: "It also clears the macOS “can’t be verified” block automatically.",
       },
       {
-        t: "Fully quit Premiere, then reopen",
+        t: "Fully quit Premiere (or After Effects), then reopen",
         c: "Premiere Pro → Quit (⌘Q). Closing the window leaves it running and the new panel will not load.",
         check: "Open a project first — the Extensions menu is disabled until one is open.",
       },
       {
         t: "Open the panel and activate",
-        c: "Window → Extensions → Amharic Captions. Copy your Machine ID, send it to the Telegram bot with your payment, and paste the key you get back.",
+        c: "Window → Extensions → Amharic Captions. The first time, press “Download the Amharic model” once (about 610 MB, continues where it stopped if your internet drops). Then copy your Machine ID, send it to the Telegram bot with your payment, and paste the key you get back.",
         check: "Two free captions work before you pay anything.",
       },
     ],
     trouble: [
+      ["The model download stopped", "Your internet dropped. Press Resume download — it continues from where it stopped, it does not start over. If it keeps failing, use the full Mac package instead (link under the download buttons)."],
+      ["I don't have Premiere or After Effects", "Double-click “Make Amharic Captions” on your Desktop, then drag a video into the window that opens and press Return. An .srt file appears next to the video — import it into CapCut, DaVinci Resolve or YouTube."],
       ['"Apple cannot verify this app"', "Right-click Install.command → Open → Open. The installer clears the quarantine flag permanently once it runs."],
       ["Nothing happens on double-click", "macOS may have opened it in a text editor. Right-click → Open With → Terminal."],
       ["The panel does not appear in Extensions", "Premiere was not fully quit (⌘Q), or no project is open. Quit, reopen, open a project, check again."],
@@ -83,9 +89,12 @@ const OS = {
 };
 
 const downloads = [
-  { os: "win", kicker: "Windows", name: "Windows 10 / 11", note: "64-bit", href: DL_WIN },
-  { os: "mac", kicker: "macOS · Apple Silicon", name: "M1 / M2 / M3 / M4", note: "arm64", href: DL_MAC_ARM },
-  { os: "mac", kicker: "macOS · Intel", name: "Intel Mac", note: "x64", href: DL_MAC_X64 },
+  // One button per computer: the small Lite build. The Amharic model downloads
+  // once inside the app (resumes if the connection drops). Full packages are a
+  // single text link below the cards, for offline / USB installs.
+  { os: "win", kicker: "Windows", name: "Windows 10 / 11", note: "~175 MB", href: DL_WIN_LITE },
+  { os: "mac", kicker: "macOS · Apple Silicon", name: "M1 / M2 / M3 / M4", note: "~200 MB", href: DL_MAC_ARM_LITE },
+  { os: "mac", kicker: "macOS · Intel", name: "Intel Mac", note: "~200 MB", href: DL_MAC_X64_LITE },
 ];
 
 function detectOS() {
@@ -146,6 +155,12 @@ export default function InstallGuide() {
           </div>
 
           <p className="center dl-all">
+            The Amharic model (about 610 MB) downloads once, the first time you open the app.
+            <br />
+            Installing offline or from a USB stick? Full packages:{" "}
+            <a href={DL_WIN}>Windows</a> · <a href={DL_MAC_ARM}>Mac Apple Silicon</a> ·{" "}
+            <a href={DL_MAC_X64}>Mac Intel</a> (about 700 MB each).
+            <br />
             Looking for an older version?{" "}
             <a href={RELEASES_URL} target="_blank" rel="noopener">Browse all releases</a>.
           </p>
