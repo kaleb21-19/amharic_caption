@@ -1,0 +1,6 @@
+# SHA-256 of the approved production CTranslate2 model.bin (tools/stage/model-ct2-int8).
+# snapwre/hohe-asr-amharic @ 7ee83bdcf748694409f412e06f6c6747b44b3212, CT2 int8.
+# Real-golden benchmark: 34.1% mean WER (old ethio-asr checkpoint: 47.4%).
+# tools/build_win.ps1 and tools/build.sh refuse to package any other model.bin;
+# after deliberately converting and benchmarking a new model, update this line.
+4df80292bfb7843da7c1e64fa5fdf593b8a12be0d04383fb78ae6566f8214021

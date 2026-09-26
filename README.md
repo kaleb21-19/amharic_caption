@@ -10,9 +10,16 @@ Local Amharic speech-to-text captions for Adobe Premiere Pro. Transcription runs
 
 ## Requirements
 
-- **Adobe Premiere Pro 2024 or newer (v24.0+)** — the manifest only registers on
-  PPRO 24.0+. It does **not** load on Premiere 2021/2022/2023.
-- Windows 10/11 or macOS (Apple Silicon or Intel). No internet needed at runtime.
+- **Adobe Premiere Pro or After Effects 2024 or newer (v24.0+)** for the panel —
+  the manifest registers on PPRO 24.0+ and AEFT 24.0+. It does **not** load on
+  2021/2022/2023 versions. In After Effects the captions arrive as one text layer
+  (Source Text keyframes) in the active composition.
+- **No Adobe app?** The installer also adds a **Make Amharic Captions** desktop
+  shortcut: drag any video/audio onto it and an `.srt` appears next to the file,
+  for CapCut, DaVinci Resolve, older Premiere, YouTube, etc. Same license key and
+  the same 2 free transcriptions as the panel (trials need internet here).
+- Windows 10/11 or macOS (Apple Silicon or Intel). No internet needed at runtime
+  once licensed.
 
 ## Buy
 
@@ -129,6 +136,11 @@ cd tools
 ```
 
 Or let CI do it: push to `main` and the GitHub Actions workflow builds all 3 zips.
+
+**Lite zips (~175 MB instead of ~690 MB):** add `-Lite -ModelSource <url>` (Windows)
+or `LITE=1 MODEL_SOURCES="<url>"` (macOS). The model is then downloaded once on first
+use, resumably and SHA-256-verified, into a per-user folder that updates never delete.
+Host the model files first — see [`tools/MODEL_HOSTING.md`](tools/MODEL_HOSTING.md).
 
 ### Server settings (license/trial/telegram backend)
 

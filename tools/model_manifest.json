@@ -1,0 +1,58 @@
+{
+ "id": "4df80292bfb7",
+ "files": [
+  {
+   "name": "config.json",
+   "size": 4,
+   "sha256": "e3566b3a06430868d71e9287dfd6c6c520a3da027aabea01951d407ee131dc2f"
+  },
+  {
+   "name": "lm_head_b.npy",
+   "size": 1792,
+   "sha256": "3869952cff12f86b2feb2b367a4e492cd45913172471b03daea08f3d7d7b9c17"
+  },
+  {
+   "name": "lm_head_w.npy",
+   "size": 1704064,
+   "sha256": "92c0d91cec142f3699491b1c70fd7a0c7751341f6f1256cf93157773908f43aa"
+  },
+  {
+   "name": "mel_filters.npy",
+   "size": 82368,
+   "sha256": "007e31e65a1d20c7dba1733c7bb3c728ba496d584f51b8b9f69fe3023009d580"
+  },
+  {
+   "name": "model.bin",
+   "size": 610314640,
+   "sha256": "4df80292bfb7843da7c1e64fa5fdf593b8a12be0d04383fb78ae6566f8214021"
+  },
+  {
+   "name": "model_meta.json",
+   "size": 105,
+   "sha256": "e5ef964f98c97fd10a1bd696fe21c02438cf2d64586721135a87858a54f7682d"
+  },
+  {
+   "name": "preprocessor_config.json",
+   "size": 275,
+   "sha256": "8e6281aad64f97e40534135a59dcc5d33571efae376f2a25adf5551951897ab4"
+  },
+  {
+   "name": "vocab.json",
+   "size": 5601,
+   "sha256": "c1c8889303e956ca2e669385ae2e4f9fc15ced5d9adc2a7e0a6f27b0f49a66c5"
+  },
+  {
+   "name": "vocabulary.json",
+   "size": 5144,
+   "sha256": "ce54d9717d1f03e188b9a9036ddce6f17ef3ac3dd65b33d8e5e09f42575bf22a"
+  },
+  {
+   "name": "window.npy",
+   "size": 1728,
+   "sha256": "c4ca1fdda947404f255f6afe9d97ae5fc9f82739d05ae691bc79c4ef347584ad"
+  }
+ ],
+ "sources": [
+  "https://huggingface.co/kal11/amharic-captions-model/resolve/main/"
+ ]
+}

@@ -97,6 +97,16 @@ def _find_model():
     if env and os.path.isdir(env):
         return env
     base = os.path.dirname(os.path.abspath(__file__))
+    # Lite packages keep the model outside the extension (downloaded once into
+    # a per-user folder); amh_model knows where, and rejects a stale bundle.
+    try:
+        import amh_model
+        if amh_model.load_manifest(os.path.join(base, "model_manifest.json")):
+            found = amh_model.resolve(base)
+            if found:
+                return found
+    except Exception:
+        pass
     for cand in ("model", "ethio-asr"):
         p = os.path.join(base, cand)
         if os.path.isfile(os.path.join(p, "config.json")) or os.path.isfile(
