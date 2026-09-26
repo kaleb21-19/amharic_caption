@@ -1,6 +1,11 @@
 ﻿# build_win.ps1
 param(
-    [switch]$AllowDegraded
+    [switch]$AllowDegraded,
+    # -Lite: leave the model out of the zip (~540 MB smaller). The panel and the
+    # SRT maker download it once, resumably, from -ModelSource (see
+    # tools/MODEL_HOSTING.md). Without -Lite the model is bundled as before.
+    [switch]$Lite,
+    [string[]]$ModelSource = @()
 )
 #
 # Windows assemble + zip step (equivalent of tools/build.sh for win-x64).
@@ -68,13 +73,51 @@ if (Test-Path (Join-Path $ModelSrc "model_meta.json")) {
 } else {
     Write-Host "  [FAIL] production CTranslate2 int8 model is missing"; exit 1
 }
-Copy-Item $ModelSrc (Join-Path $BNAME "runtime\model") -Recurse
+# Model lock: never package an unapproved model by accident (a stale local
+# conversion once replaced the approved Hohe model: 47% vs 34% WER).
+$LockFile = Join-Path $ROOT "tools\model.lock"
+$ModelBin = Join-Path $ModelSrc "model.bin"
+if ((Test-Path $LockFile) -and (Test-Path $ModelBin)) {
+    $want = (Get-Content $LockFile | Where-Object { $_ -match '^[0-9a-f]{64}$' } | Select-Object -First 1)
+    $have = (Get-FileHash -Algorithm SHA256 $ModelBin).Hash.ToLower()
+    if ($want -and $have -ne $want) {
+        if (-not $AllowDegraded) {
+            Write-Host "  [FAIL] staged model.bin is not the approved model in tools\model.lock"
+            Write-Host "         have $have"
+            Write-Host "         want $want"
+            exit 1
+        }
+        Write-Host "  [warn] unapproved model.bin (degraded build only)"
+    } else {
+        Write-Host "  [ok] model.bin matches tools\model.lock"
+    }
+}
+if ($Lite -and $ModelSource.Count -eq 0) {
+    Write-Host "  [FAIL] -Lite needs at least one -ModelSource URL (where customers download the model)"; exit 1
+}
+if (-not $Lite) {
+    Copy-Item $ModelSrc (Join-Path $BNAME "runtime\model") -Recurse
+} else {
+    Write-Host "  [lite] model NOT bundled; downloaded on first use from: $($ModelSource -join ', ')"
+}
+# Model manifest (sizes + SHA-256 + download sources) in every build: lite
+# downloads from it, full uses it to spot a stale carried-forward model.
+if (Test-Path (Join-Path $ModelSrc "model.bin")) {   # degraded fp16/fp32 builds have none
+    $ManifestArgs = @("$ROOT\tools\make_model_manifest.py", $ModelSrc, "--out", (Join-Path $BNAME "runtime\model_manifest.json"))
+    foreach ($s in $ModelSource) { $ManifestArgs += @("--source", $s) }
+    & (Join-Path $PYDIR "python.exe") @ManifestArgs
+    if ($LASTEXITCODE -ne 0) { Write-Host "  [FAIL] could not write model_manifest.json"; exit 1 }
+}
 
 # scripts
 Copy-Item "$ROOT\ethio_srt.py" (Join-Path $BNAME "runtime\ethio_srt.py")
 Copy-Item "$ROOT\amh_mel.py" (Join-Path $BNAME "runtime\amh_mel.py")
 Copy-Item "$ROOT\ctc_beam.py" (Join-Path $BNAME "runtime\ctc_beam.py")
 Copy-Item "$ROOT\amh_correct.py" (Join-Path $BNAME "runtime\amh_correct.py")
+# Standalone SRT maker (no Premiere/After Effects needed) + shared licensing.
+Copy-Item "$ROOT\amh_license.py" (Join-Path $BNAME "runtime\amh_license.py")
+Copy-Item "$ROOT\amh_standalone.py" (Join-Path $BNAME "runtime\amh_standalone.py")
+Copy-Item "$ROOT\amh_model.py" (Join-Path $BNAME "runtime\amh_model.py")
 
 # 2-speaker diarization (interview labels). Omitted only if the model file
 # hasn't been fetched (bash tools/embed/fetch_model.sh) - verified by
@@ -116,8 +159,46 @@ Copy-Item $FF (Join-Path $BNAME "runtime\bin\ffmpeg.exe")
 # runtime\python\python\... so the panel's runtime check fails on Windows.
 Copy-Item (Join-Path $PYDIR "*") (Join-Path $BNAME "runtime\python") -Recurse
 
-# shared panel
+# ---- 3a. trim the bundled Python to runtime-only files ---------------------
+# Mirrors tools/build.sh step 1b, plus Windows/pip extras that are never
+# imported at runtime:
+#   include/ libs/ Scripts/   headers, import libs, console shims (Scripts\
+#                             also held duplicate onnxruntime/sherpa DLLs;
+#                             sherpa_onnx\lib\ carries the ones it loads)
+#   tcl/, tkinter, idlelib, turtle*, ensurepip, venv, lib2to3, pydoc_data, test
+#   _test*.pyd                CPython's own C test modules
+#   sympy, mpmath             onnxruntime install deps, unused for inference
+#   site-packages tests dirs  package self-tests (numpy.testing is kept)
+$PYOUT = Join-Path $BNAME "runtime\python"
+$LIBR  = Join-Path $PYOUT "Lib"
+$SITE  = Join-Path $LIBR "site-packages"
+$Trim = @(
+    (Join-Path $PYOUT "include"), (Join-Path $PYOUT "libs"), (Join-Path $PYOUT "Scripts"),
+    (Join-Path $PYOUT "tcl"),
+    (Join-Path $LIBR "ensurepip"), (Join-Path $LIBR "idlelib"), (Join-Path $LIBR "lib2to3"),
+    (Join-Path $LIBR "pydoc_data"), (Join-Path $LIBR "tkinter"), (Join-Path $LIBR "turtledemo"),
+    (Join-Path $LIBR "venv"), (Join-Path $LIBR "test"), (Join-Path $LIBR "turtle.py"),
+    (Join-Path $SITE "sympy"), (Join-Path $SITE "mpmath"), (Join-Path $SITE "isympy.py"),
+    (Join-Path $SITE "__pycache__\isympy.cpython-311.pyc"), (Join-Path $PYOUT "share")
+)
+foreach ($p in $Trim) { if (Test-Path $p) { Remove-Item -Recurse -Force $p } }
+Get-ChildItem (Join-Path $PYOUT "DLLs") -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match '^(_tkinter\.pyd|tcl.*\.dll|tk.*\.dll|_test.*\.pyd|_ctypes_test\.pyd)$' } |
+    Remove-Item -Force
+Get-ChildItem $SITE -Directory -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match '^(sympy|mpmath)-.*\.dist-info$' } |
+    Remove-Item -Recurse -Force
+Get-ChildItem $SITE -Directory -Recurse -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -in @('tests', 'testdata') } |
+    Sort-Object { $_.FullName.Length } -Descending |
+    ForEach-Object { if (Test-Path $_.FullName) { Remove-Item -Recurse -Force $_.FullName } }
+Get-ChildItem (Join-Path $SITE "sherpa_onnx\lib") -Filter *.lib -ErrorAction SilentlyContinue | Remove-Item -Force
+Write-Host "  [ok] python trimmed"
+
+# shared panel (developer tests are not shipped to customers)
 Copy-Item "$ROOT\panel\*" $BNAME -Recurse
+$PanelTests = Join-Path $BNAME "test"
+if (Test-Path $PanelTests) { Remove-Item -Recurse -Force $PanelTests }
 
 # one-click installer (shipped at zip root, next to the extension folder)
 $INST = Join-Path $ROOT "tools\installers"
@@ -130,6 +211,12 @@ function Assert-CrlOnly([string]$Path, [string]$What) {
             $i += 2; continue                                      # valid CRLF pair
         }
         if ($raw[$i] -eq 13) { $bareCr++ } elseif ($raw[$i] -eq 10) { $bareLf++ }
+        elseif ($raw[$i] -lt 32 -and $raw[$i] -ne 9) {
+            # A stray control byte (e.g. an escaped "\a" that became BEL) turns a
+            # path like runtime\amh_... into garbage that cmd passes on silently.
+            Write-Host "  [FAIL] $What contains control byte 0x$('{0:X2}' -f $raw[$i]) at offset $i."
+            exit 1
+        }
         $i++
     }
     if ($bareLf -gt 0 -or $bareCr -gt 0) {
@@ -141,6 +228,10 @@ function Assert-CrlOnly([string]$Path, [string]$What) {
 
 Assert-CrlOnly (Join-Path $INST "Install.cmd")    "Install.cmd"
 Copy-Item (Join-Path $INST "Install.cmd") (Join-Path $BUILD "Install.cmd")
+Assert-CrlOnly (Join-Path $INST "Make Amharic Captions.cmd") "Make Amharic Captions.cmd"
+# Inside the extension folder, so Install.cmd's copy carries it and the
+# desktop shortcut can point at the installed runtime.
+Copy-Item -LiteralPath (Join-Path $INST "Make Amharic Captions.cmd") (Join-Path $BNAME "Make Amharic Captions.cmd")
 Assert-CrlOnly (Join-Path $INST "verify_win.cmd") "verify_win.cmd"
 Copy-Item (Join-Path $INST "verify_win.cmd") (Join-Path $BUILD "verify_win.cmd")
 Copy-Item (Join-Path $INST "VERIFY.md")          (Join-Path $BUILD "VERIFY.md")
@@ -188,7 +279,7 @@ foreach ($f in @("EULA.txt", "PRIVACY.txt", "REFUND.txt")) {
 Write-Host "  [ok] EULA.txt + PRIVACY.txt + REFUND.txt at zip root"
 
 # ---- 4. zip ----------------------------------------------------------------
-$ZIP = Join-Path $ROOT "dist\amharic-captions-$TARGET.zip"
+$ZIP = Join-Path $ROOT ("dist\amharic-captions-$TARGET" + $(if ($Lite) { "-lite" } else { "" }) + ".zip")
 New-Item -ItemType Directory -Force -Path (Join-Path $ROOT "dist") | Out-Null
 if (Test-Path $ZIP) { Remove-Item -Force $ZIP }
 
@@ -198,6 +289,15 @@ if (Get-Command 7z -ErrorAction SilentlyContinue) {
     Push-Location $BUILD
     & 7z a -tzip -r $ZIP @ZipEntries -xr!.DS_Store
     Pop-Location
+} elseif (Test-Path "$env:SystemRoot\System32\tar.exe") {
+    # Built-in bsdtar (Win10 1803+). Unlike Windows PowerShell 5.1's
+    # Compress-Archive it writes spec-compliant forward-slash entry names,
+    # so the zip also extracts correctly on macOS/Linux tools.
+    Push-Location $BUILD
+    & "$env:SystemRoot\System32\tar.exe" -a -c -f $ZIP @ZipEntries
+    $tarExit = $LASTEXITCODE
+    Pop-Location
+    if ($tarExit -ne 0) { Write-Host "  [FAIL] tar.exe zip failed ($tarExit)"; exit 1 }
 } else {
     # Compress-Archive can briefly collide with the just-exited ffmpeg child
     # process that gen_notices.py used to read the version string. Retry a few

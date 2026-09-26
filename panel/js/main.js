@@ -6,9 +6,69 @@
  */
 'use strict';
 
-const APP_VERSION = '1.4.31';
+const APP_VERSION = '1.7.1';
+
+// Panel language (js/i18n.js). L() returns the Amharic for a known English UI
+// string when the panel is in Amharic, else the English; it degrades to a
+// no-op if i18n.js is not loaded.
+function L(s) { return (typeof T === 'function') ? T(s) : s; }
+
+// Language switch (header / onboarding toggle): re-render every piece of
+// dynamic text that was built in the old language. Static HTML is handled by
+// i18n.js itself; the engine Log intentionally stays English. Registered this
+// early (callbacks run later, on click) and each step is guarded, so a panel
+// that failed part-way through loading still switches what it did render.
+if (typeof i18nOnChange === 'function') {
+  i18nOnChange(() => {
+    const steps = [
+      () => { LICENSED_REFRESH = true; updateLicenseUI(); }, // re-render only; no scroll
+      () => renderFontPill(AMH_FONT),
+      () => renderHealthList(),
+      () => {
+        const txt = document.getElementById('statusText');
+        if (txt && STATUS_EN) txt.textContent = L(STATUS_EN);
+      },
+      () => {
+        const rv = document.getElementById('review');
+        if (rv && rv.classList.contains('show')) renderReview();
+      },
+    ];
+    steps.forEach((step) => { try { step(); } catch (e) {} });
+  });
+}
 
 const csi = new CSInterface();
+
+// Host application: 'PPRO' (Premiere Pro) or 'AEFT' (After Effects). The panel
+// is shared; only the ExtendScript layer differs (jsx/host_ae.jsx overrides
+// host.jsx's entry points inside After Effects, see loadHostLayer()).
+const HOST_APP = (() => {
+  try {
+    const env = JSON.parse(window.__adobe_cep__.getHostEnvironment());
+    if (env && env.appName === 'AEFT') return 'AEFT';
+  } catch (e) {}
+  return 'PPRO';
+})();
+const IS_AE = HOST_APP === 'AEFT';
+const HOST_NAME = IS_AE ? 'After Effects' : 'Premiere';
+
+// True in a lite package until the one-time model download has finished
+// (see resolveModelDir / initModelDownload). Generate stays disabled.
+let MODEL_MISSING = false;
+
+// After Effects words for the source picker (a comp has layers, not clips).
+// Re-keyed so the language toggle keeps the AE wording in both languages.
+if (IS_AE) {
+  [['srcClip', 'src.clip.ae', 'Selected Layer'],
+   ['srcWhole', 'src.whole.ae', 'Whole Comp']].forEach(([id, key, en]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.setAttribute('data-i18n', key);
+    el.__i18nEn = en;
+    el.textContent = en;
+  });
+  if (typeof i18nApplyStatic === 'function') i18nApplyStatic();
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // License system (runs FIRST, independently of CEP Node, so it also works in a
@@ -403,20 +463,20 @@ function renderFontPill(info) {
   if (!pill || !txt) return;
   if (!info.support) {
     pill.className = 'warn';
-    txt.textContent = 'font: unknown';
-    pill.title = 'Could not detect installed fonts on this system.';
+    txt.textContent = L('font: unknown');
+    pill.title = L('Could not detect installed fonts on this system.');
     return;
   }
   if (info.ok && info.font) {
     pill.className = 'ok';
     txt.textContent = info.font;
-    pill.title = 'Captions will render in ' + info.font + '.' +
-      ' For the clearest Amharic, install "Abyssinica SIL" for free.';
+    pill.title = L('Captions will render in ' + info.font + '.' +
+      ' For the clearest Amharic, install "Abyssinica SIL" for free.');
   } else {
     pill.className = 'warn';
-    txt.textContent = 'font: install';
-    pill.title = 'No Ethiopic-capable font detected. Install "Abyssinica SIL" ' +
-      '(free) so captions render correctly in Premiere.';
+    txt.textContent = L('font: install');
+    pill.title = L('No Ethiopic-capable font detected. Install "Abyssinica SIL" ' +
+      '(free) so captions render correctly in Premiere.');
   }
 }
 // Drop-in guard: renders 'font: …' placeholder until async detection resolves.
@@ -447,7 +507,7 @@ function healthChecks() {
     runtime = !!RUNTIME && fs.existsSync(PYTHON) && fs.existsSync(FFMPEG) && fs.existsSync(MODEL_DIR) && features;
     python = !!RUNTIME && fs.existsSync(PYTHON);
     ffmpeg = !!RUNTIME && fs.existsSync(FFMPEG);
-    model = !!RUNTIME && (
+    model = !!RUNTIME && !MODEL_MISSING && (
       fs.existsSync(path.join(MODEL_DIR, 'model_meta.json')) ||
       fs.existsSync(path.join(MODEL_DIR, 'config.json'))
     );
@@ -468,10 +528,10 @@ function renderHealthList() {
     const key = row.getAttribute('data-check');
     const state = row.querySelector('.state');
     const [label, good] = map[key] || [key, false];
-    row.querySelector('span:first-child').textContent = label;
+    row.querySelector('span:first-child').textContent = L(label);
     row.classList.toggle('ok', good);
     row.classList.toggle('bad', !good);
-    state.textContent = good ? 'OK' : 'Missing';
+    state.textContent = L(good ? 'OK' : 'Missing');
   });
 }
 
@@ -837,10 +897,10 @@ function updateLicenseUI() {
   if (LICENSED) {
     if (banner) banner.style.display = 'none';
     if (licStatus) {
-      licStatus.textContent = LICENSE_NOTE || 'Licensed';
+      licStatus.textContent = L(LICENSE_NOTE || 'Licensed');
       licStatus.style.color = 'var(--ok)';
     }
-    if (runBtn) runBtn.disabled = false;
+    if (runBtn) runBtn.disabled = MODEL_MISSING;
     if (licInput) licInput.style.display = 'none';
     if (licBtn) licBtn.style.display = 'none';
     // Licensed: lock the Machine ID so it can't be copied or changed anymore.
@@ -870,10 +930,10 @@ function updateLicenseUI() {
       // Free trial: allow running, but the Generate button is enabled.
       if (banner) banner.style.display = 'none';
       if (licStatus) {
-        licStatus.textContent = 'Trial: ' + rem + ' free transcription' + (rem === 1 ? '' : 's') + ' left';
+        licStatus.textContent = L('Trial: ' + rem + ' free transcription' + (rem === 1 ? '' : 's') + ' left');
         licStatus.style.color = 'var(--warn)';
       }
-      if (runBtn) runBtn.disabled = false;
+      if (runBtn) runBtn.disabled = MODEL_MISSING;
     } else {
       // Trial used up: make the path to purchase unmistakable.
       if (banner) banner.style.display = 'block';
@@ -881,7 +941,7 @@ function updateLicenseUI() {
         try { banner.scrollIntoView({ block: 'center' }); } catch (e) {}
       }
       if (licStatus) {
-        licStatus.textContent = 'Trial used. Enter your license key above to continue.';
+        licStatus.textContent = L('Trial used. Enter your license key above to continue.');
         licStatus.style.color = 'var(--warn)';
       }
       if (runBtn) runBtn.disabled = true;
@@ -897,18 +957,18 @@ async function activateLicense() {
 
   const key = licInput.value.trim();
   if (!key) {
-    if (licStatus) { licStatus.textContent = 'Paste a license key first'; licStatus.style.color = 'var(--err)'; }
+    if (licStatus) { licStatus.textContent = L('Paste a license key first'); licStatus.style.color = 'var(--err)'; }
     return;
   }
 
-  if (licStatus) { licStatus.textContent = 'Validating…'; licStatus.style.color = 'var(--text-secondary)'; }
+  if (licStatus) { licStatus.textContent = L('Validating…'); licStatus.style.color = 'var(--text-secondary)'; }
 
   try {
     // 1) Local structural check (fast shape check — not a keyed HMAC; see the
     //    comment near validateLicense()).
     const result = validateLicense(key, MACHINE_ID);
     if (!result.ok) {
-      if (licStatus) { licStatus.textContent = result.error || 'Invalid key'; licStatus.style.color = 'var(--err)'; }
+      if (licStatus) { licStatus.textContent = L(result.error || 'Invalid key'); licStatus.style.color = 'var(--err)'; }
       return;
     }
 
@@ -923,7 +983,7 @@ async function activateLicense() {
         : serverResult.reason === 'revoked'
         ? 'License revoked — contact @sumpak6 on Telegram'
         : 'Key not recognized — contact @sumpak6 on Telegram';
-      if (licStatus) { licStatus.textContent = reason; licStatus.style.color = 'var(--err)'; }
+      if (licStatus) { licStatus.textContent = L(reason); licStatus.style.color = 'var(--err)'; }
       return;
     }
     if (serverResult && serverResult.valid === true && serverResult.token) {
@@ -945,11 +1005,11 @@ async function activateLicense() {
         setLicense(Object.assign({}, store, { valid: false, token: null }));
         await assessLicense();
         updateLicenseUI();
-        if (licStatus) { licStatus.textContent = 'Could not save the signed lease to this installation. Check folder permissions and try again.'; licStatus.style.color = 'var(--err)'; }
+        if (licStatus) { licStatus.textContent = L('Could not save the signed lease to this installation. Check folder permissions and try again.'); licStatus.style.color = 'var(--err)'; }
         return;
       }
       if (!LICENSED) {
-        if (licStatus) licStatus.textContent = 'Server returned no valid lease token. Contact support.';
+        if (licStatus) licStatus.textContent = L('Server returned no valid lease token. Contact support.');
         return;
       }
       const logBox = document.getElementById('logBox');
@@ -957,7 +1017,7 @@ async function activateLicense() {
       return;
     }
     if (serverResult && serverResult.valid === true && !serverResult.token) {
-      if (licStatus) licStatus.textContent = 'License server is not signing leases. Contact support.';
+      if (licStatus) licStatus.textContent = L('License server is not signing leases. Contact support.');
       return;
     }
     // Server unreachable: only a previously verified signed lease may be reused.
@@ -977,11 +1037,11 @@ async function activateLicense() {
         setLicense(Object.assign({}, store, { valid: false, token: null }));
         await assessLicense();
         updateLicenseUI();
-        if (licStatus) { licStatus.textContent = 'Could not save the cached lease to this installation. Check folder permissions and try again.'; licStatus.style.color = 'var(--err)'; }
+        if (licStatus) { licStatus.textContent = L('Could not save the cached lease to this installation. Check folder permissions and try again.'); licStatus.style.color = 'var(--err)'; }
         return;
       }
       if (!LICENSED) {
-        if (licStatus) licStatus.textContent = 'Cached lease could not be verified.';
+        if (licStatus) licStatus.textContent = L('Cached lease could not be verified.');
         return;
       }
       const logBox = document.getElementById('logBox');
@@ -990,11 +1050,11 @@ async function activateLicense() {
     }
     // Not previously verified and server unreachable → refuse (fail-closed)
     if (licStatus) {
-      licStatus.textContent = 'Cannot verify license — no connection to the license server. Try again online.';
+      licStatus.textContent = L('Cannot verify license — no connection to the license server. Try again online.');
       licStatus.style.color = 'var(--err)';
     }
   } catch (e) {
-    if (licStatus) { licStatus.textContent = 'Validation error'; licStatus.style.color = 'var(--err)'; }
+    if (licStatus) { licStatus.textContent = L('Validation error'); licStatus.style.color = 'var(--err)'; }
   }
 }
 
@@ -1018,7 +1078,7 @@ async function activateLicense() {
           document.execCommand('copy');
           document.body.removeChild(ta);
           const old = copyBtn.textContent;
-          copyBtn.textContent = '✓ Copied';
+          copyBtn.textContent = L('✓ Copied');
           setTimeout(() => { copyBtn.textContent = old; }, 1600);
         }
       } catch (err) { /* ignore */ }
@@ -1182,6 +1242,16 @@ const EXT_DIR = (() => {
 
 const DEV_RUNTIME = path.join(os.homedir(), 'Documents', 'amharic-captions');
 
+// Inside After Effects, load the AE implementations of the host entry points
+// on top of host.jsx (the manifest's ScriptPath). evalScript calls run in
+// order in the host engine, so this completes before any panel call.
+function loadHostLayer() {
+  if (!IS_AE) return;
+  const f = path.join(EXT_DIR, 'jsx', 'host_ae.jsx').replace(/\\/g, '/');
+  try { csi.evalScript('$.evalFile(new File(' + JSON.stringify(f) + '))', () => {}); } catch (e) {}
+}
+loadHostLayer();
+
 function isDegradedRuntime(base) {
   try {
     return fs.existsSync(path.join(base, '..', 'DEGRADED_BUILD.txt')) ||
@@ -1197,7 +1267,8 @@ function runtimeComplete(base) {
   const degraded = isDegradedRuntime(base);
   const modelOk = fs.existsSync(path.join(base, 'model', 'model_meta.json'))
              || (degraded && fs.existsSync(path.join(base, 'model', 'config.json')))
-             || fs.existsSync(path.join(base, 'ethio-asr', 'config.json'));
+             || fs.existsSync(path.join(base, 'ethio-asr', 'config.json'))
+             || fs.existsSync(path.join(base, 'model_manifest.json'));   // lite: downloaded later
   let binOk = fs.existsSync(path.join(base, 'bin', IS_WIN ? 'ffmpeg.exe' : 'ffmpeg'))
            || fs.existsSync(path.join(base, 'bin', 'ffmpeg'));
   let pyOk = IS_WIN
@@ -1282,9 +1353,45 @@ function resolvePython() {
 const PYTHON = resolvePython();
 
 const SCRIPT = runtimePath('ethio_srt.py');
-const MODEL_DIR = (RUNTIME && RUNTIME !== DEV_RUNTIME)
-                    ? runtimePath('model')        // shipped layout
-                    : runtimePath('ethio-asr');   // dev layout
+// ── Where the model lives ─────────────────────────────────────────────────
+// Full packages bundle it in runtime/model. Lite packages ship only
+// runtime/model_manifest.json and download the model ONCE into a per-user
+// folder outside the extension, so installing an update never deletes it.
+// Mirrors amh_model.py resolve(): keep the two in sync.
+function modelSharedRoot() {
+  if (process.env.AMH_MODEL_HOME) return process.env.AMH_MODEL_HOME;
+  if (IS_WIN) return path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'AmharicCaptions', 'models');
+  if (IS_MAC) return path.join(os.homedir(), 'Library', 'Application Support', 'AmharicCaptions', 'models');
+  return path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'), 'AmharicCaptions', 'models');
+}
+function fileSize(p) { try { return fs.statSync(p).size; } catch (e) { return -1; } }
+const MODEL_MANIFEST = (() => {
+  if (!RUNTIME || RUNTIME === DEV_RUNTIME) return null;
+  try {
+    const m = JSON.parse(fs.readFileSync(runtimePath('model_manifest.json'), 'utf8'));
+    return (m && m.id && Array.isArray(m.files)) ? m : null;
+  } catch (e) { return null; }
+})();
+const MODEL_TOTAL_BYTES = MODEL_MANIFEST ? MODEL_MANIFEST.files.reduce((a, f) => a + f.size, 0) : 0;
+function sharedModelDir() { return path.join(modelSharedRoot(), MODEL_MANIFEST.id); }
+function resolveModelDir() {
+  if (!RUNTIME || RUNTIME === DEV_RUNTIME) return runtimePath('ethio-asr');   // dev layout
+  const bundled = runtimePath('model');
+  if (!MODEL_MANIFEST) return bundled;                                     // full, pre-manifest
+  const bin = MODEL_MANIFEST.files.find((f) => f.name === 'model.bin');
+  if (fs.existsSync(path.join(bundled, 'model_meta.json')) &&
+      (!bin || fileSize(path.join(bundled, 'model.bin')) === bin.size)) return bundled;
+  const d = sharedModelDir();
+  try {
+    const done = JSON.parse(fs.readFileSync(path.join(d, 'complete.json'), 'utf8'));
+    if (done.id === MODEL_MANIFEST.id &&
+        MODEL_MANIFEST.files.every((f) => fileSize(path.join(d, f.name)) === f.size)) return d;
+  } catch (e) {}
+  return null;
+}
+let MODEL_DIR = resolveModelDir();
+MODEL_MISSING = MODEL_DIR === null;
+if (MODEL_MISSING) MODEL_DIR = sharedModelDir();   // where it will be downloaded
 
 
 // Where the runtime folder actually is (for the status pill / diagnostics).
@@ -1320,13 +1427,15 @@ function log(msg) {
 }
 function clearLog() { logEl.textContent = ''; }
 
+let STATUS_EN = '';
 function setStatus(state, text) {
   const pill = $('statusPill');
   const txt = $('statusText');
   if (!pill || !txt) return;
   pill.classList.remove('ready', 'busy', 'err');
   if (state) pill.classList.add(state);
-  txt.textContent = text || '';
+  STATUS_EN = text || '';
+  txt.textContent = L(STATUS_EN);
 }
 function setSuccess(text) {
   // Green "ready" pill, but with a concrete outcome so the user sees success
@@ -1362,7 +1471,7 @@ function escJson(s) {
   return j === undefined ? 'null'
     : String(j).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 }
-function evalScript(jsx) {
+function evalScript(jsx, timeoutMs) {
   return new Promise((resolve, reject) => {
     let settled = false;
     const finish = (value) => {
@@ -1371,14 +1480,14 @@ function evalScript(jsx) {
       clearTimeout(timer);
       resolve(value);
     };
-    const timer = setTimeout(() => finish({ ok: false, error: 'Premiere script timed out' }), 20000);
+    const timer = setTimeout(() => finish({ ok: false, error: HOST_NAME + ' script timed out' }), timeoutMs || 20000);
     try {
       csi.evalScript(jsx, (result) => {
         if (typeof result === 'string' && result.length > 0) {
           try { finish(JSON.parse(result)); }
           catch (e) { finish({ ok: true, _raw: result }); }
         } else {
-          finish({ ok: false, error: result || 'No result from Premiere' });
+          finish({ ok: false, error: result || ('No result from ' + HOST_NAME) });
         }
       });
     } catch (e) {
@@ -1389,8 +1498,11 @@ function evalScript(jsx) {
 
 function findFootage()      { return evalScript('amharic_findFootage()'); }
 function importCaptions(srtPath, startSeconds, baseName) {
-  const args = escJson({ srtPath, startSeconds: startSeconds || 0, baseName: baseName || '' });
-  return evalScript('amh_importCaptions(' + escJson(args) + ')');
+  const font = (AMH_FONT && AMH_FONT.font) || '';
+  const args = escJson({ srtPath, startSeconds: startSeconds || 0, baseName: baseName || '', font });
+  // After Effects writes one Source Text keyframe per cue; a long karaoke
+  // run can take well over the default 20 s.
+  return evalScript('amh_importCaptions(' + escJson(args) + ')', IS_AE ? 180000 : 20000);
 }
 function getSelectedClip()  { return evalScript('amharic_getSelectedClip()'); }
 function getSequenceInfo(all) {
@@ -2090,7 +2202,7 @@ function transcribeBatchOneShot(items, outSrt, onProgress) {
 // --------------------------------------------------------------------------
 
 async function finishImport(outSrt, label, startSeconds) {
-  log('Placing captions on your timeline…');
+  log(IS_AE ? 'Adding the caption text layer to your composition…' : 'Placing captions on your timeline…');
   const imp = await importCaptions(outSrt, startSeconds || 0, label);
   if (imp && imp.ok && imp.placed === true) {
     log('✓ Captions added: ' + imp.captionItemName);
@@ -2102,16 +2214,21 @@ async function finishImport(outSrt, label, startSeconds) {
           '  (requested ' + imp.requestedStart.toFixed(2) + 's)');
     }
     if (imp.note) log('Placement method: ' + imp.note);
-    log('Can\'t see them? Expand the caption track (bottom of the timeline) and');
-    log('  turn on the CC toggle in the Program Monitor.');
-    log('To restyle, open Essential Graphics and set the caption font.');
+    if (IS_AE) {
+      log('Captions are one text layer at the top of the comp. Restyle it in the');
+      log('  Character panel; Ctrl+Z (Cmd+Z) removes it in one step.');
+    } else {
+      log('Can\'t see them? Expand the caption track (bottom of the timeline) and');
+      log('  turn on the CC toggle in the Program Monitor.');
+      log('To restyle, open Essential Graphics and set the caption font.');
+    }
     return true;
   }
 
   const reason = (imp && imp.error) ||
-    (imp && imp._raw ? ('Premiere returned an unexpected response: ' + imp._raw) : null) ||
+    (imp && imp._raw ? (HOST_NAME + ' returned an unexpected response: ' + imp._raw) : null) ||
     (imp && imp.note) ||
-    'Premiere did not confirm that the caption track was placed.';
+    (HOST_NAME + ' did not confirm that the captions were placed.');
   log('ERROR: ' + reason);
   log('Your existing captions were kept. Review the log and try again.');
   setStatus('err', 'placement failed');
@@ -2235,9 +2352,9 @@ function renderReview() {
     const timeBox = document.createElement('div');
     timeBox.className = 'time-box';
     const tIn = document.createElement('input');
-    tIn.className = 't'; tIn.value = ts(cue.start); tIn.title = 'Start (m:ss.cc)';
+    tIn.className = 't'; tIn.value = ts(cue.start); tIn.title = L('Start (m:ss.cc)');
     const tOut = document.createElement('input');
-    tOut.className = 't'; tOut.value = ts(cue.end); tOut.title = 'End (m:ss.cc)';
+    tOut.className = 't'; tOut.value = ts(cue.end); tOut.title = L('End (m:ss.cc)');
     timeBox.appendChild(tIn);
     timeBox.appendChild(tOut);
 
@@ -2245,7 +2362,7 @@ function renderReview() {
     tools.className = 'review-tools';
     const mk = (label, title, cls) => {
       const b = document.createElement('button');
-      b.type = 'button'; b.className = 'tool'; b.textContent = label; b.title = title;
+      b.type = 'button'; b.className = 'tool'; b.textContent = label; b.title = L(title);
       if (cls) b.classList.add(cls);
       tools.appendChild(b);
       return b;
@@ -2264,14 +2381,14 @@ function renderReview() {
     mergeBtn.addEventListener('click', () => mergeReview(i));
 
     const ta = document.createElement('textarea');
-    ta.value = cue.text || ''; ta.placeholder = 'caption text';
+    ta.value = cue.text || ''; ta.placeholder = L('caption text');
     // The captions are Amharic. Without this the whole review list is read as
     // English, and a screen reader pronounces Ge'ez with the wrong voice.
     ta.setAttribute('lang', 'am');
     ta.setAttribute('aria-label', 'Caption ' + (i + 1) + ' text');
 
     const del = document.createElement('button');
-    del.className = 'del'; del.textContent = '✕'; del.title = 'Delete this caption';
+    del.className = 'del'; del.textContent = '✕'; del.title = L('Delete this caption');
 
     // Time edits re-sort and re-render; text edits update the live cue only.
     tIn.addEventListener('change', () => {
@@ -2307,9 +2424,9 @@ function renderReview() {
   if (shown === 0) {
     const empty = document.createElement('div');
     empty.className = 'review-empty';
-    empty.textContent = REVIEW_FILTER
+    empty.textContent = L(REVIEW_FILTER
       ? 'No captions match "' + REVIEW_FILTER + '".'
-      : 'No captions yet — click "+ Add cue".';
+      : 'No captions yet — click "+ Add cue".');
     list.appendChild(empty);
   }
   updateReviewCount();
@@ -2358,7 +2475,7 @@ function mergeReview(i) {
 }
 
 function updateReviewCount() {
-  $('reviewCount').textContent = reviewCues.length + ' caption' + (reviewCues.length === 1 ? '' : 's');
+  $('reviewCount').textContent = L(reviewCues.length + ' caption' + (reviewCues.length === 1 ? '' : 's'));
 }
 
 function writeReviewSrt(outDir) {
@@ -2569,6 +2686,7 @@ async function run() {
     log('Reinstall the correct platform build and restart Premiere.');
     return;
   }
+  if (!modelReadyForRun()) return;
   runStartInProgress = true;
   try { await refreshTrialFromServer(); }
   finally { runStartInProgress = false; }
@@ -2873,6 +2991,7 @@ async function runFile(filePath, fileName) {
     log('Reinstall the correct platform build and restart Premiere.');
     return;
   }
+  if (!modelReadyForRun()) return;
   runStartInProgress = true;
   try { await refreshTrialFromServer(); }
   finally { runStartInProgress = false; }
@@ -2912,6 +3031,124 @@ async function runFile(filePath, fileName) {
 }
 
 // ------------------------------------------------------------------ wiring
+// ── One-time model download (lite packages) ────────────────────────────────
+// Runs runtime/amh_model.py download, which resumes a partial file, verifies
+// every file's SHA-256 and only then marks the model complete. Pause kills the
+// child; the partial file stays, so Resume continues from the same byte.
+let modelChild = null;
+function modelReadyForRun() {
+  if (!MODEL_MISSING) return true;
+  log('The Amharic model has not been downloaded yet.');
+  log('Use "Download the Amharic model" at the top of the panel first.');
+  setStatus('err', 'model needed');
+  const card = $('modelCard');
+  if (card && typeof card.scrollIntoView === 'function') { try { card.scrollIntoView({ block: 'center' }); } catch (e) {} }
+  return false;
+}
+function mb(n) { return Math.round(n / 1e6); }
+function setModelUi(state, done) {
+  const btn = $('modelBtn'), bar = $('modelBar'), label = $('modelLabel'), card = $('modelCard');
+  if (!card) return;
+  card.style.display = MODEL_MISSING || state === 'done' ? 'block' : 'none';
+  const total = MODEL_TOTAL_BYTES || 1;
+  if (bar && typeof done === 'number') bar.style.width = Math.min(100, (100 * done) / total).toFixed(1) + '%';
+  if (state === 'idle') {
+    btn.textContent = L('⬇ Download the Amharic model (' + mb(MODEL_TOTAL_BYTES) + ' MB)');
+    btn.disabled = false;
+    if (label) label.textContent = '';
+  } else if (state === 'running') {
+    btn.textContent = L('Pause');
+    btn.disabled = false;
+    if (label) label.textContent = L('Downloading… ' + mb(done || 0) + ' / ' + mb(MODEL_TOTAL_BYTES) + ' MB');
+  } else if (state === 'paused') {
+    btn.textContent = L('Resume download');
+    btn.disabled = false;
+    if (label) label.textContent = L('Paused at ' + mb(done || 0) + ' / ' + mb(MODEL_TOTAL_BYTES) + ' MB');
+  } else if (state === 'failed') {
+    btn.textContent = L('Resume download');
+    btn.disabled = false;
+    if (label) label.textContent = L('Download stopped. Check your internet and press Resume; it continues where it stopped.');
+  } else if (state === 'done') {
+    btn.textContent = L('✓ Model ready');
+    btn.disabled = true;
+    if (label) label.textContent = '';
+    setTimeout(() => { const c = $('modelCard'); if (c && !MODEL_MISSING) c.style.display = 'none'; }, 2500);
+  }
+  card.setAttribute('data-state', state);
+}
+let MODEL_UI = { state: 'idle', done: 0 };
+function modelUi(state, done) {
+  MODEL_UI = { state, done: typeof done === 'number' ? done : MODEL_UI.done };
+  setModelUi(MODEL_UI.state, MODEL_UI.done);
+}
+function modelDownloadFinished(dir) {
+  MODEL_DIR = dir;
+  MODEL_MISSING = false;
+  AMH_ENV.AMH_MODEL_DIR = dir;
+  modelUi('done', MODEL_TOTAL_BYTES);
+  log('✓ Amharic model downloaded and verified: ' + dir);
+  setStatus('ready', 'ready');
+  renderHealthList();
+  updateLicenseUI();
+}
+function startModelDownload() {
+  if (modelChild) return;
+  const script = runtimePath('amh_model.py');
+  if (!fs.existsSync(script)) { log('ERROR: amh_model.py is missing from the runtime. Reinstall.'); return; }
+  modelUi('running');
+  log('Downloading the Amharic model…');
+  let out = '';
+  let child;
+  try {
+    child = spawn(PYTHON, ['-E', '-s', script, 'download'], { env: AMH_ENV, windowsHide: true });
+  } catch (e) {
+    log('ERROR: could not start the model download: ' + (e.message || e));
+    modelUi('failed');
+    return;
+  }
+  modelChild = child;
+  child.stdout.on('data', (buf) => {
+    out += buf.toString('utf8');
+    let nl;
+    while ((nl = out.indexOf('\n')) >= 0) {
+      const line = out.slice(0, nl).trim();
+      out = out.slice(nl + 1);
+      const m = /^\[dl\] (\d+) (\d+)$/.exec(line);
+      if (m) { if (MODEL_UI.state === 'running') modelUi('running', Number(m[1])); continue; }
+      if (line.charAt(0) === '{') {
+        try {
+          const r = JSON.parse(line);
+          if (r.ok && r.dir) child.__result = r;
+          else if (r.error) log('Model download: ' + r.error);
+        } catch (e) {}
+      }
+    }
+  });
+  child.stderr.on('data', () => {});
+  child.on('close', () => {
+    modelChild = null;
+    if (child.__result) { modelDownloadFinished(child.__result.dir); return; }
+    if (child.__paused) { modelUi('paused'); return; }
+    modelUi('failed');
+  });
+  child.on('error', () => { modelChild = null; modelUi('failed'); });
+}
+function initModelDownload() {
+  const btn = $('modelBtn');
+  if (!btn) return;
+  if (!MODEL_MISSING) { const c = $('modelCard'); if (c) c.style.display = 'none'; return; }
+  btn.addEventListener('click', () => {
+    if (modelChild) {
+      modelChild.__paused = true;
+      try { modelChild.kill(); } catch (e) {}
+      return;
+    }
+    startModelDownload();
+  });
+  modelUi('idle', 0);
+  if (typeof i18nOnChange === 'function') i18nOnChange(() => setModelUi(MODEL_UI.state, MODEL_UI.done));
+}
+
 function setup() {
   applySettings();
 
@@ -3040,6 +3277,12 @@ function setup() {
     log('or if runtime/ is missing/nested inside another folder, re-extract the');
     log('zip so that js/, runtime/, jsx/ and CSXS/ sit directly inside the');
     log('com.amharic.captions folder. Then restart Premiere.');
+  } else if (MODEL_MISSING && fs.existsSync(PYTHON) && fs.existsSync(FFMPEG)) {
+    setStatus('err', 'model needed');
+    $('runBtn').disabled = true;
+    log('The Amharic model is not on this computer yet (' + Math.round(MODEL_TOTAL_BYTES / 1e6) + ' MB).');
+    log('Use "Download the Amharic model" at the top of the panel. It is a');
+    log('one-time download; if the connection drops it continues where it stopped.');
   } else if (!fs.existsSync(PYTHON) || !fs.existsSync(FFMPEG) || !fs.existsSync(MODEL_DIR)) {
     setStatus('err', 'runtime incomplete');
     $('runBtn').disabled = true;
@@ -3072,6 +3315,7 @@ function setup() {
   initLegal();
   initVersion();
   initReview();
+  initModelDownload();
 }
 
 setup();

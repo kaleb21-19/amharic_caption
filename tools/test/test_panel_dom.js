@@ -100,6 +100,9 @@ function loadPanel(opts) {
   opts = opts || {};
   const prevHome  = process.env.AMH_MACHINE_HOME;
   const storage   = opts.storage || makeLocalStorage();
+  // New installs default to Amharic; these tests assert the English strings,
+  // so pin English unless a test chose a language itself.
+  if (!storage.getItem('amh.lang')) storage.setItem('amh.lang', 'en');
   const document  = makeDocument();
   const madeHome  = opts.machineHome;
   const machineHome = madeHome || fs.mkdtempSync(path.join(os.tmpdir(),'amh_dom_mach_'));
@@ -114,11 +117,14 @@ function loadPanel(opts) {
     navigator:  { userAgent: 'dom-shim-test' },
     localStorage: storage,
     document,
-    CSInterface: class { evalScript(jsx,cb) { cb(JSON.stringify(opts.csiReply || defaultCsiReply)); } },
+    CSInterface: class { evalScript(jsx,cb) {
+      if (opts.evalLog) opts.evalLog.push(jsx);
+      cb(JSON.stringify(opts.csiReply || defaultCsiReply));
+    } },
     cep: { fs:{ showOpenDialog(){ return opts.folderDialog ? opts.folderDialog() : {err:1}; } },
             util:{ openURLInDefaultBrowser(){} } },
     __adobe_cep__:{
-      getHostEnvironment(){ return JSON.stringify({appSkinInfo:{appBackgroundColor:{red:30,green:30,blue:30}}}); },
+      getHostEnvironment(){ return JSON.stringify({appName: opts.hostApp || 'PPRO', appSkinInfo:{appBackgroundColor:{red:30,green:30,blue:30}}}); },
       addEventListener(){},
     },
     fetch: opts.fetch || defaultFetch,
@@ -131,6 +137,7 @@ function loadPanel(opts) {
 
   const ctx = vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(path.join(PANEL_JS,'core.js'),'utf8'),  ctx);
+  vm.runInContext(fs.readFileSync(path.join(PANEL_JS,'i18n.js'),'utf8'),  ctx);
   vm.runInContext(fs.readFileSync(path.join(PANEL_JS,'main.js'),'utf8'),  ctx);
 
   // Optional warm-worker fakes (so batch-transcribe tests never spawn python).
@@ -154,7 +161,10 @@ function loadPanel(opts) {
     // function declaration by name: evalVm('clipCacheKey')).
     evalVm: (code) => vm.runInContext(code, ctx),
     close() {
-      process.env.AMH_MACHINE_HOME = prevHome;
+      // Assigning undefined to process.env stores the string "undefined",
+      // which later panels treat as a relative home dir (./undefined/).
+      if (prevHome === undefined) delete process.env.AMH_MACHINE_HOME;
+      else process.env.AMH_MACHINE_HOME = prevHome;
       if (!madeHome) { try { fs.rmSync(machineHome,{recursive:true,force:true}); } catch(e){} }
     },
   };
@@ -183,7 +193,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.4.31');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.7.1');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -922,6 +932,143 @@ await t('12. the boot ping really is once per day', async () => {
   p = loadPanel({ storage: store, fetch: fetchCounting });
   try { p.evalVm('pingPanel()'); } finally { p.close(); }
   assert.strictEqual(calls, 3, 'a future timestamp does not disable pings forever');
+});
+
+await t('13. language: Amharic by default, live switch to English and back', async () => {
+  const storage = makeLocalStorage();
+  storage.setItem('amh.lang', 'am');      // what a fresh install resolves to
+  storage.setItem('amh.trial.used', '1');
+  const p = loadPanel({ storage });
+  try {
+    await flush(10);
+    assert.strictEqual(p.evalVm('i18nGetLang()'), 'am');
+    assert.strictEqual(p.els('statusText').textContent, 'ዝግጁ', 'status pill in Amharic');
+    has(p.els('licenseStatus').textContent, 'ሙከራ፦ 1', 'trial count in Amharic');
+
+    p.evalVm("i18nSetLang('en')");
+    assert.strictEqual(storage.getItem('amh.lang'), 'en', 'choice persisted');
+    assert.strictEqual(p.els('statusText').textContent, 'ready', 'status re-rendered in English');
+    assert.strictEqual(p.els('licenseStatus').textContent, 'Trial: 1 free transcription left');
+
+    p.evalVm("i18nSetLang('am')");
+    assert.strictEqual(p.els('statusText').textContent, 'ዝግጁ', 'and back to Amharic');
+  } finally { p.close(); }
+});
+
+await t('14. After Effects: loads host_ae.jsx, AE wording, font + long timeout on placement', async () => {
+  const evalLog = [];
+  const p = loadPanel({ hostApp: 'AEFT', evalLog });
+  try {
+    await flush(10);
+    assert.strictEqual(p.evalVm('HOST_APP'), 'AEFT');
+    const load = evalLog.find((j) => /\$\.evalFile/.test(j));
+    assert.ok(load, 'host_ae.jsx evaluated');
+    assert.match(load, /jsx\/host_ae\.jsx"\)\)$/, 'forward-slash path, properly quoted: ' + load);
+    assert.ok(evalLog.indexOf(load) === 0 || !evalLog.slice(0, evalLog.indexOf(load)).some((j) => /amh/.test(j)),
+      'loaded before any host call');
+    assert.strictEqual(p.els('srcClip').textContent, 'Selected Layer');
+    assert.strictEqual(p.els('srcWhole').textContent, 'Whole Comp');
+    p.evalVm("importCaptions('C:/x.srt', 3, 'clip')");
+    const imp = evalLog.find((j) => /^amh_importCaptions\(/.test(j));
+    const args = JSON.parse(JSON.parse(imp.slice('amh_importCaptions('.length, -1)));
+    assert.deepStrictEqual(Object.keys(args).sort(), ['baseName', 'font', 'srtPath', 'startSeconds']);
+  } finally { p.close(); }
+
+  // Premiere never loads the AE layer and keeps its own wording.
+  const pLog = [];
+  const pp = loadPanel({ evalLog: pLog });
+  try {
+    await flush(10);
+    assert.ok(!pLog.some((j) => /host_ae/.test(j)), 'Premiere does not load host_ae.jsx');
+    assert.strictEqual(pp.els('srcClip').textContent === 'Selected Layer', false);
+  } finally { pp.close(); }
+});
+
+await t('15. lite package: model missing -> download card, Generate blocked, finish unblocks', async () => {
+  // Reshape the placeholder runtime into a lite one for this test only.
+  const rt = path.join(REPO, 'runtime');
+  const bundled = path.join(rt, 'model');
+  const hidden = path.join(rt, 'model.hidden-by-test');
+  const manPath = path.join(rt, 'model_manifest.json');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_models_'));
+  const prevHome = process.env.AMH_MODEL_HOME;
+  const man = { id: 'abc123def456', sources: [],
+    files: [{ name: 'model.bin', size: 5, sha256: 'x' }, { name: 'model_meta.json', size: 2, sha256: 'y' }] };
+  assert.ok(fs.existsSync(rt), 'placeholder runtime present');
+  fs.renameSync(bundled, hidden);
+  fs.writeFileSync(manPath, JSON.stringify(man));
+  if (!fs.existsSync(path.join(rt, 'amh_model.py'))) fs.copyFileSync(path.join(REPO, 'amh_model.py'), path.join(rt, 'amh_model.py'));
+  process.env.AMH_MODEL_HOME = home;
+  try {
+    const storage = makeLocalStorage();
+    storage.setItem('amh.trial.used', '0');
+    let p = loadPanel({ storage });
+    try {
+      await flush(10);
+      assert.strictEqual(p.evalVm('MODEL_MISSING'), true);
+      assert.strictEqual(p.els('statusText').textContent, 'model needed');
+      assert.strictEqual(p.els('runBtn').disabled, true, 'Generate blocked even with trial credit');
+      assert.strictEqual(p.els('modelCard').style.display, 'block', 'download card shown');
+      has(p.els('modelBtn').textContent, 'Download the Amharic model (0 MB)');
+      assert.strictEqual(p.evalVm('MODEL_DIR'), path.join(home, man.id), 'download target is the shared folder');
+
+      // Pressing the button starts the downloader; with no sources (and a
+      // placeholder python) it ends in the resumable "failed" state.
+      p.els('modelBtn').fire('click');
+      for (let i = 0; i < 100 && p.els('modelCard').getAttribute('data-state') === 'running'; i++) await flush(50);
+      assert.strictEqual(p.els('modelCard').getAttribute('data-state'), 'failed');
+      has(p.els('modelBtn').textContent, 'Resume download');
+
+      // A finished download unblocks Generate without reopening the panel.
+      p.evalVm("modelDownloadFinished(" + JSON.stringify(path.join(home, man.id)) + ")");
+      assert.strictEqual(p.evalVm('MODEL_MISSING'), false);
+      assert.strictEqual(p.els('runBtn').disabled, false, 'Generate enabled after download');
+      assert.strictEqual(p.els('statusText').textContent, 'ready');
+      assert.strictEqual(p.evalVm('AMH_ENV.AMH_MODEL_DIR'), path.join(home, man.id));
+    } finally { p.close(); }
+
+    // A completed earlier download is found on the next start.
+    const d = path.join(home, man.id);
+    fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(path.join(d, 'model.bin'), '12345');
+    fs.writeFileSync(path.join(d, 'model_meta.json'), '{}');
+    fs.writeFileSync(path.join(d, 'complete.json'), JSON.stringify({ id: man.id }));
+    p = loadPanel({ storage });
+    try {
+      await flush(10);
+      assert.strictEqual(p.evalVm('MODEL_MISSING'), false);
+      assert.strictEqual(p.evalVm('MODEL_DIR'), d);
+      assert.strictEqual(p.els('modelCard').style.display, 'none');
+    } finally { p.close(); }
+
+    // A carried-forward bundled model that does not match the manifest is stale.
+    fs.rmSync(d, { recursive: true, force: true });
+    fs.renameSync(hidden, bundled);
+    p = loadPanel({ storage });
+    try {
+      await flush(10);
+      assert.strictEqual(p.evalVm('MODEL_MISSING'), true, 'size mismatch -> download needed');
+    } finally { p.close(); }
+    fs.renameSync(bundled, hidden);
+  } finally {
+    if (fs.existsSync(hidden)) fs.renameSync(hidden, bundled);
+    fs.rmSync(manPath, { force: true });
+    if (prevHome === undefined) delete process.env.AMH_MODEL_HOME; else process.env.AMH_MODEL_HOME = prevHome;
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+await t('13b. language: an unset preference defaults to Amharic; unknown text falls back to English', async () => {
+  const storage = makeLocalStorage();
+  storage.setItem('amh.lang', 'am');
+  const p = loadPanel({ storage });
+  try {
+    storage.removeItem('amh.lang');
+    assert.strictEqual(p.evalVm('i18nGetLang()'), 'am', 'no stored choice -> Amharic');
+    assert.strictEqual(p.evalVm("T('some brand-new English message')"), 'some brand-new English message');
+    assert.strictEqual(p.evalVm("T('License expired on 2027-01-01')"), 'ፈቃዱ 2027-01-01 ላይ አብቅቷል');
+    assert.strictEqual(p.evalVm("T('2 captions')"), '2 ካፕሽን');
+  } finally { p.close(); }
 });
 
 console.log('\n' + (fail===0 ? 'ALL PASS' : 'FAILURES: '+fail) + '  (' + pass + ' passed, ' + fail + ' failed)');

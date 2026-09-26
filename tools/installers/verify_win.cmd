@@ -25,10 +25,19 @@ echo.
 call :check "python.exe present"      exist "%PY%"
 call :check "python311.dll present"   exist "%RT%\python\python311.dll"
 call :check "ffmpeg.exe present"      exist "%FF%"
-call :check "model.bin present"       exist "%MD%\model.bin"
-call :check "model_meta.json present" exist "%MD%\model_meta.json"
-call :check "vocab.json present"       exist "%MD%\vocab.json"
-call :check "config.json present"     exist "%MD%\config.json"
+rem Lite package: the model is not in the zip. Use the downloaded copy if
+rem there is one; otherwise say so instead of failing.
+set "LITE_NOMODEL=0"
+if not exist "%MD%\model.bin" if exist "%RT%\model_manifest.json" call :resolve_model
+if "%LITE_NOMODEL%"=="1" (
+  echo   [INFO] Lite package: the Amharic model downloads on first use.
+  echo          Model checks are skipped until it has been downloaded.
+) else (
+  call :check "model.bin present"       exist "%MD%\model.bin"
+  call :check "model_meta.json present" exist "%MD%\model_meta.json"
+  call :check "vocab.json present"       exist "%MD%\vocab.json"
+  call :check "config.json present"     exist "%MD%\config.json"
+)
 if "%DEGRADED%"=="0" (
   call :check "speaker_embed.onnx present"    exist "%RT%\speaker_embed.onnx"
   call :check "silero_vad.onnx present"       exist "%RT%\silero_vad.onnx"
@@ -40,7 +49,7 @@ if "%DEGRADED%"=="0" (
 if "%FAIL%"=="0" call :check "ctranslate2, numpy, soundfile imports" pyimport
 if "%FAIL%"=="0" if "%DEGRADED%"=="0" call :check "onnxruntime VAD import" pyimportort
 if "%FAIL%"=="0" if "%DEGRADED%"=="0" call :check "sherpa_onnx diarization import" pyimportsherpa
-if "%FAIL%"=="0" call :check "CTranslate2 model loads + warm" pymodel
+if "%FAIL%"=="0" if "%LITE_NOMODEL%"=="0" call :check "CTranslate2 model loads + warm" pymodel
 if "%FAIL%"=="0" call :check "ffmpeg runs - version" ffmpeg
 
 if exist "%TMPW%" del "%TMPW%" >nul 2>&1
@@ -57,6 +66,13 @@ if "%FAIL%"=="0" (
   echo =================================================================
   exit /b 1
 )
+
+:resolve_model
+set "MD="
+for /f "usebackq delims=" %%P in (`""%PY%" -E "%RT%\amh_model.py" path"`) do set "MD=%%P"
+if not defined MD set "LITE_NOMODEL=1"
+if defined MD echo   [INFO] Using the downloaded model: %MD%
+exit /b 0
 
 :check
   set "name=%~1"

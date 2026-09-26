@@ -54,6 +54,9 @@ jobs:
           python -m pip install --quiet "torch==2.7.1" --index-url https://download.pytorch.org/whl/cpu &&
           python -m pip install --quiet "ctranslate2==4.8.1" "transformers==4.57.6" "huggingface_hub==0.36.2" "scipy==1.15.3" "sentencepiece==0.2.0"
 
+      - name: Lite model download tests (resume, integrity, mirrors)
+        run: python tools/test/test_model_download.py
+
       - name: Download fp32 model
         env:
           PYTHON_BIN: python
@@ -159,13 +162,16 @@ jobs:
           set -euo pipefail
           mkdir -p runtime/bin runtime/python/bin runtime/model
           cp ethio_srt.py ctc_beam.py amh_correct.py amh_vad.py amh_lm.py amh_lm.json.gz runtime/
-          cp amh_diarize.py runtime/
+          cp amh_diarize.py amh_model.py runtime/
           touch runtime/silero_vad.onnx runtime/speaker_embed.onnx runtime/model/model_meta.json
           ln -s "$(command -v python3)" runtime/python/bin/python3
           touch runtime/bin/ffmpeg && chmod +x runtime/bin/ffmpeg
 
       - name: Panel DOM tests (Node, no deps)
         run: node tools/test/test_panel_dom.js
+
+      - name: After Effects host layer tests (Node, simulated AE object model)
+        run: node tools/test/test_host_ae.js
 
       # Machine identity + license durability. This suite existed but had never
       # been wired into CI, so the regressions it covers (a Premiere upgrade
