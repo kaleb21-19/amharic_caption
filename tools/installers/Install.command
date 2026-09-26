@@ -136,9 +136,19 @@ if [[ -f "$HERE/DEGRADED_BUILD.txt" ]]; then
   log "WARNING: DEGRADED_BUILD.txt present; not for release"
 fi
 
+# A Lite package ships runtime/model_manifest.json instead of the model; the
+# panel / SRT maker download it once into a per-user folder.
+LITE=0
+if [[ ! -f "$SRC/runtime/model/model.bin" && -f "$SRC/runtime/model_manifest.json" ]]; then
+  LITE=1
+fi
+log "Lite package: $LITE"
+REQUIRED_MODEL="runtime/model/model.bin"
+if [[ "$LITE" -eq 1 ]]; then REQUIRED_MODEL="runtime/model_manifest.json"; fi
+
 if [[ "$DEGRADED" -eq 0 ]]; then
   for f in \
-    runtime/model/model.bin runtime/bin/ffmpeg runtime/python/bin/python3 \
+    "$REQUIRED_MODEL" runtime/bin/ffmpeg runtime/python/bin/python3 \
     runtime/amh_lm.py runtime/amh_lm.json.gz runtime/amh_vad.py \
     runtime/silero_vad.onnx runtime/amh_diarize.py runtime/speaker_embed.onnx; do
     if [[ ! -f "$SRC/$f" ]]; then
@@ -271,6 +281,18 @@ fi
 echo "  [OK] Staged copy verified."
 echo ""
 
+# Lite update over an install that already has the model: keep it, so the
+# customer does not download it again. The panel checks its size against the
+# new manifest and asks for a download only if the model changed.
+KEPT_MODEL=0
+if [[ "$LITE" -eq 1 && -f "$DEST/runtime/model/model.bin" ]]; then
+  echo "  Keeping your existing Amharic model..."
+  if cp -R "$DEST/runtime/model" "$STAGE/runtime/model" 2>>"$LOG"; then
+    KEPT_MODEL=1
+  fi
+fi
+log "Kept existing model: $KEPT_MODEL"
+
 # ---- clear quarantine on the staged copy ----
 
 xattr -dr com.apple.quarantine "$STAGE" 2>/dev/null || true
@@ -331,7 +353,7 @@ fi
 
 if [[ "$DEGRADED" -eq 0 ]]; then
   for f in \
-    runtime/model/model.bin runtime/bin/ffmpeg runtime/python/bin/python3 \
+    "$REQUIRED_MODEL" runtime/bin/ffmpeg runtime/python/bin/python3 \
     runtime/amh_lm.py runtime/amh_lm.json.gz runtime/amh_vad.py \
     runtime/silero_vad.onnx runtime/amh_diarize.py runtime/speaker_embed.onnx; do
     if [[ ! -f "$DEST/$f" ]]; then
@@ -405,6 +427,18 @@ fi
 
 echo ""
 
+# ---- standalone SRT maker: Desktop link (no Premiere / After Effects needed) ----
+
+SRT_CMD="$DEST/Make Amharic Captions.command"
+if [[ -z "${AMH_NO_SHORTCUT:-}" && -f "$SRT_CMD" && -d "$HOME/Desktop" ]]; then
+  chmod +x "$SRT_CMD" 2>/dev/null || true
+  if ln -sfn "$SRT_CMD" "$HOME/Desktop/Make Amharic Captions.command" 2>>"$LOG"; then
+    echo "  [OK] Desktop shortcut: Make Amharic Captions"
+    log "SRT shortcut created"
+  fi
+fi
+echo ""
+
 # ---- clean up incomplete staging (rollback backup is KEPT until the
 #       next successful install replaces it - true one-version rollback) ----
 
@@ -435,6 +469,17 @@ echo ""
 echo "       The Extensions menu is greyed out on the start screen."
 echo ""
 echo "    3. Menu:  Window > Extensions > Amharic Captions"
+echo ""
+echo "  After Effects 2024+: quit and reopen it the same way, then"
+echo "  Window > Extensions > Amharic Captions."
+echo ""
+if [[ "$LITE" -eq 1 && "$KEPT_MODEL" -eq 0 ]]; then
+  echo "  First time only: the panel shows  Download the Amharic model."
+  echo "  Press it once. If the internet drops, it continues later."
+  echo ""
+fi
+echo "  No Premiere?  Double-click  Make Amharic Captions  on your Desktop"
+echo "  and drag a video into the window. An .srt file appears next to it."
 echo ""
 echo "  The macOS 'Apple could not verify' warning has been disabled"
 echo "  permanently for this extension."

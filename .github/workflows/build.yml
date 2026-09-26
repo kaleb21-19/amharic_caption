@@ -12,11 +12,15 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
-# Pin the model to a known-good HF repo; change this only when you intend to
-# rebuild the CT2 int8 weights shipped in the bundle.
+# The shipped model is the approved CT2 int8 conversion of
+# snapwre/hohe-asr-amharic @ 7ee83bdcf748694409f412e06f6c6747b44b3212, hosted as
+# plain files at MODEL_SOURCE and pinned by tools/model_manifest.json (SHA-256 of
+# every file) + tools/model.lock. CI downloads exactly those bytes instead of
+# re-converting, so the Lite zips' manifests always match what customers fetch.
+# To change the model: convert + benchmark locally (tools/fetch_model.sh,
+# tools/make_model_ct2_int8.sh), upload, then update model_manifest.json + lock.
 env:
-  HF_MODEL: snapwre/hohe-asr-amharic
-  HF_REVISION: 7ee83bdcf748694409f412e06f6c6747b44b3212
+  MODEL_SOURCE: https://huggingface.co/kal11/amharic-captions-model/resolve/main/
   # Deliberate, documented licence choice. The bundled ffmpeg is a GPL build
   # (it needs libx264 for the burn-in encoder and libass for the subtitles
   # filter), so prepare_python.sh requires this explicit opt-in before it will
@@ -26,12 +30,10 @@ env:
   AMH_FFMPEG_ALLOW_GPL: "1"
 
 jobs:
-  # ---- 1. build the CTranslate2 INT8 model once, reuse via run artifact ------
-  # The CT2 int8 conversion is platform-independent and identical for all three
-  # target zips, so we do it a single time (on a cheap ubuntu runner with CPU
-  # torch + ctranslate2) and let the platform jobs fetch the converted model
-  # from a short-lived Actions artifact. The artifact is checksum-verified by
-  # every consumer and is never made public before all gates pass.
+  # ---- 1. fetch the approved CTranslate2 INT8 model once, reuse via artifact --
+  # Downloaded from MODEL_SOURCE with amh_model.py (resumable, every file
+  # SHA-256-checked against tools/model_manifest.json), then handed to the
+  # platform jobs as a short-lived, checksum-verified Actions artifact.
   model:
     runs-on: ubuntu-latest
     steps:
@@ -43,26 +45,25 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Cache HF model download
-        uses: actions/cache@6f8efc29b200d32929f49075959781ed54ec270c
-        with:
-          path: ethio-asr
-          key: ethio-asr-${{ env.HF_MODEL }}-${{ env.HF_REVISION }}
+      - name: Lite model download tests (resume, integrity, mirrors)
+        run: python tools/test/test_model_download.py
 
-      - name: Install conversion deps
-        run: >
-          python -m pip install --quiet "torch==2.7.1" --index-url https://download.pytorch.org/whl/cpu &&
-          python -m pip install --quiet "ctranslate2==4.8.1" "transformers==4.57.6" "huggingface_hub==0.36.2" "scipy==1.15.3" "sentencepiece==0.2.0"
-
-      - name: Download fp32 model
-        env:
-          PYTHON_BIN: python
-        run: bash tools/fetch_model.sh
-
-      - name: Convert to CT2 int8
-        env:
-          PYTHON_BIN: python
-        run: bash tools/make_model_ct2_int8.sh
+      - name: Fetch the approved CT2 int8 model (SHA-256 verified)
+        run: |
+          set -euo pipefail
+          AMH_MODEL_HOME="$RUNNER_TEMP/models" python - <<'PY'
+          import os, shutil, amh_model
+          m = amh_model.load_manifest("tools/model_manifest.json")
+          assert m, "tools/model_manifest.json missing or invalid"
+          src = amh_model.download(m, lambda d, t: None, sources=[os.environ["MODEL_SOURCE"]])
+          dst = "tools/stage/model-ct2-int8"
+          os.makedirs(os.path.dirname(dst), exist_ok=True)
+          shutil.copytree(src, dst, ignore=shutil.ignore_patterns("complete.json", ".partial"))
+          print("model", m["id"], "->", dst)
+          PY
+          want="$(grep -E '^[0-9a-f]{64}$' tools/model.lock | head -1)"
+          have="$(sha256sum tools/stage/model-ct2-int8/model.bin | cut -d' ' -f1)"
+          test "$have" = "$want" || { echo "model.bin $have != model.lock $want" >&2; exit 1; }
 
       - name: Package CT2 int8 model
         run: tar -czf model-ct2-int8.tar.gz -C tools/stage model-ct2-int8
@@ -159,13 +160,16 @@ jobs:
           set -euo pipefail
           mkdir -p runtime/bin runtime/python/bin runtime/model
           cp ethio_srt.py ctc_beam.py amh_correct.py amh_vad.py amh_lm.py amh_lm.json.gz runtime/
-          cp amh_diarize.py runtime/
+          cp amh_diarize.py amh_model.py runtime/
           touch runtime/silero_vad.onnx runtime/speaker_embed.onnx runtime/model/model_meta.json
           ln -s "$(command -v python3)" runtime/python/bin/python3
           touch runtime/bin/ffmpeg && chmod +x runtime/bin/ffmpeg
 
       - name: Panel DOM tests (Node, no deps)
         run: node tools/test/test_panel_dom.js
+
+      - name: After Effects host layer tests (Node, simulated AE object model)
+        run: node tools/test/test_host_ae.js
 
       # Machine identity + license durability. This suite existed but had never
       # been wired into CI, so the regressions it covers (a Premiere upgrade
@@ -348,14 +352,15 @@ jobs:
       - name: Assemble + zip
         run: bash tools/build.sh mac-arm64
 
-      - name: Create mac-arm64 package checksum
+      - name: Assemble + zip (Lite, model downloaded on first use)
+        run: LITE=1 MODEL_SOURCES="$MODEL_SOURCE" bash tools/build.sh mac-arm64
+
+      - name: Create mac-arm64 package checksums
         shell: bash
         run: |
-          if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum dist/amharic-captions-mac-arm64.zip > dist/amharic-captions-mac-arm64.zip.sha256
-          else
-            shasum -a 256 dist/amharic-captions-mac-arm64.zip > dist/amharic-captions-mac-arm64.zip.sha256
-          fi
+          for z in amharic-captions-mac-arm64 amharic-captions-mac-arm64-lite; do
+            shasum -a 256 "dist/$z.zip" > "dist/$z.zip.sha256"
+          done
 
       - name: Upload mac-arm64 package artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -364,6 +369,8 @@ jobs:
           path: |
             dist/amharic-captions-mac-arm64.zip
             dist/amharic-captions-mac-arm64.zip.sha256
+            dist/amharic-captions-mac-arm64-lite.zip
+            dist/amharic-captions-mac-arm64-lite.zip.sha256
           if-no-files-found: error
           retention-days: 1
 
@@ -409,14 +416,15 @@ jobs:
       - name: Assemble + zip
         run: bash tools/build.sh mac-x64
 
-      - name: Create mac-x64 package checksum
+      - name: Assemble + zip (Lite, model downloaded on first use)
+        run: LITE=1 MODEL_SOURCES="$MODEL_SOURCE" bash tools/build.sh mac-x64
+
+      - name: Create mac-x64 package checksums
         shell: bash
         run: |
-          if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum dist/amharic-captions-mac-x64.zip > dist/amharic-captions-mac-x64.zip.sha256
-          else
-            shasum -a 256 dist/amharic-captions-mac-x64.zip > dist/amharic-captions-mac-x64.zip.sha256
-          fi
+          for z in amharic-captions-mac-x64 amharic-captions-mac-x64-lite; do
+            shasum -a 256 "dist/$z.zip" > "dist/$z.zip.sha256"
+          done
 
       - name: Upload mac-x64 package artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -425,6 +433,8 @@ jobs:
           path: |
             dist/amharic-captions-mac-x64.zip
             dist/amharic-captions-mac-x64.zip.sha256
+            dist/amharic-captions-mac-x64-lite.zip
+            dist/amharic-captions-mac-x64-lite.zip.sha256
           if-no-files-found: error
           retention-days: 1
 
@@ -472,11 +482,17 @@ jobs:
         shell: pwsh
         run: powershell -ExecutionPolicy Bypass -File tools/build_win.ps1
 
+      - name: Assemble + zip (Lite, model downloaded on first use)
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File tools/build_win.ps1 -Lite -ModelSource "$env:MODEL_SOURCE"
+
       - name: Upload win-x64 package artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: package-win-x64
-          path: dist/amharic-captions-win-x64.zip
+          path: |
+            dist/amharic-captions-win-x64.zip
+            dist/amharic-captions-win-x64-lite.zip
           if-no-files-found: error
           retention-days: 1
 
@@ -505,8 +521,11 @@ jobs:
         run: |
           set -euo pipefail
           for z in amharic-captions-win-x64.zip \
+                   amharic-captions-win-x64-lite.zip \
                    amharic-captions-mac-arm64.zip \
-                   amharic-captions-mac-x64.zip; do
+                   amharic-captions-mac-arm64-lite.zip \
+                   amharic-captions-mac-x64.zip \
+                   amharic-captions-mac-x64-lite.zip; do
             test -f "release-assets/$z"
             (cd release-assets && sha256sum "$z" > "$z.sha256" && sha256sum -c "$z.sha256")
           done
@@ -522,8 +541,11 @@ jobs:
           export GITHUB_SHA="${GITHUB_SHA}"
           export RELEASE_TAG="$TAG"
           for z in amharic-captions-win-x64.zip \
+                   amharic-captions-win-x64-lite.zip \
                    amharic-captions-mac-arm64.zip \
-                   amharic-captions-mac-x64.zip; do
+                   amharic-captions-mac-arm64-lite.zip \
+                   amharic-captions-mac-x64.zip \
+                   amharic-captions-mac-x64-lite.zip; do
             bash tools/publish_public_zip.sh "release-assets/$z"
           done
 
@@ -542,16 +564,25 @@ jobs:
           EXPECTED="$(printf '%s\n' \
             amharic-captions-win-x64.zip \
             amharic-captions-win-x64.zip.sha256 \
+            amharic-captions-win-x64-lite.zip \
+            amharic-captions-win-x64-lite.zip.sha256 \
             amharic-captions-mac-arm64.zip \
             amharic-captions-mac-arm64.zip.sha256 \
+            amharic-captions-mac-arm64-lite.zip \
+            amharic-captions-mac-arm64-lite.zip.sha256 \
             amharic-captions-mac-x64.zip \
-            amharic-captions-mac-x64.zip.sha256 | sort)"
+            amharic-captions-mac-x64.zip.sha256 \
+            amharic-captions-mac-x64-lite.zip \
+            amharic-captions-mac-x64-lite.zip.sha256 | sort)"
           diff -u <(printf '%s\n' "$EXPECTED") <(printf '%s\n' "$ASSETS")
           SUMDIR="$(mktemp -d)"
           trap 'rm -rf "$SUMDIR"' EXIT
           for z in amharic-captions-win-x64.zip \
+                   amharic-captions-win-x64-lite.zip \
                    amharic-captions-mac-arm64.zip \
-                   amharic-captions-mac-x64.zip; do
+                   amharic-captions-mac-arm64-lite.zip \
+                   amharic-captions-mac-x64.zip \
+                   amharic-captions-mac-x64-lite.zip; do
             gh release download "$TAG" --repo "${{ github.repository }}" --pattern "$z.sha256" --dir "$SUMDIR" >/dev/null
             RECORDED="$(awk 'length($1) == 64 && $1 ~ /^[0-9a-f]+$/ { print $1; exit }' "$SUMDIR/$z.sha256")"
             test -n "$RECORDED"
@@ -581,8 +612,11 @@ jobs:
           set -euo pipefail
           failed=0
           for z in amharic-captions-win-x64.zip \
+                   amharic-captions-win-x64-lite.zip \
                    amharic-captions-mac-arm64.zip \
-                   amharic-captions-mac-x64.zip; do
+                   amharic-captions-mac-arm64-lite.zip \
+                   amharic-captions-mac-x64.zip \
+                   amharic-captions-mac-x64-lite.zip; do
             url="https://github.com/${{ github.repository }}/releases/latest/download/$z"
             code="$(curl -s -o /dev/null -I -L -w '%{http_code}' "$url" || true)"
             echo "  $code  $url"

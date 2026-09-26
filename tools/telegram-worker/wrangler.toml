@@ -43,6 +43,10 @@ AMH_PRICE_ETB = "2500"
 AMH_ACCT_NAME = "KALEB TEGEGEN"
 AMH_PAY_ACCOUNTS = "CBE 1000504159977 · Abyssinia 402393939 · Zemen 1031111343277015"
 AMH_REQUIRE_API_KEY = "0"
+# New-machine trials allowed per source IP per day. Ethiopian mobile carriers
+# put many customers behind one shared (CGNAT) IP, so the code default of 5
+# would silently deny free trials to real buyers.
+AMH_FRESH_MID_DAY = "30"
 # Narrow browser origins for the CEP panel; the CEF has no disable-web-security
 # flag, so an unset allow-list would block activation/trial fetches.
 AMH_ALLOWED_ORIGIN = "null,file://"
