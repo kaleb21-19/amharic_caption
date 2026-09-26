@@ -22,6 +22,10 @@ set -euo pipefail
 # diagnostic archive; a customer build must not silently lose diarization, LM,
 # VAD, or the production model.
 ALLOW_DEGRADED="${ALLOW_DEGRADED:-0}"
+# LITE=1 leaves the model out of the zip; it is downloaded once on first use
+# from MODEL_SOURCES (space-separated base URLs, see tools/MODEL_HOSTING.md).
+LITE="${LITE:-0}"
+MODEL_SOURCES="${MODEL_SOURCES:-}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STAGE="${ROOT}/tools/stage"
@@ -55,6 +59,10 @@ cp "$ROOT/amh_mel.py" "$RT/amh_mel.py"
 cp "$ROOT/ctc_beam.py" "$RT/ctc_beam.py"
 cp "$ROOT/amh_correct.py" "$RT/amh_correct.py"
 echo "  [ok] ethio_srt.py + amh_mel.py + ctc_beam.py + amh_correct.py"
+# Standalone SRT maker (no Premiere/After Effects needed) + shared licensing.
+cp "$ROOT/amh_license.py" "$RT/amh_license.py"
+cp "$ROOT/amh_standalone.py" "$RT/amh_standalone.py"
+echo "  [ok] amh_standalone.py + amh_license.py (standalone SRT maker)"
 
 # 2-speaker diarization (interview labels). Pure-python engine + a small ONNX
 # speaker-embedding model; runs on the bundled onnxruntime (no torch). Optional:
@@ -104,9 +112,37 @@ elif [[ "$ALLOW_DEGRADED" == "1" && -d "$ROOT/ethio-asr" && -f "$ROOT/ethio-asr/
 else
   echo "  [FAIL] production CTranslate2 int8 model is missing"; exit 1
 fi
-mkdir -p "$RT/model"
-cp -R "$MODEL_SRC/." "$RT/model/"
-echo "  [ok] model ($(du -sh "$RT/model" | cut -f1))"
+# Model lock: never package an unapproved model by accident.
+LOCK="$ROOT/tools/model.lock"
+if [[ -f "$LOCK" && -f "$MODEL_SRC/model.bin" ]]; then
+  want="$(grep -E '^[0-9a-f]{64}$' "$LOCK" | head -1)"
+  have="$( (sha256sum "$MODEL_SRC/model.bin" 2>/dev/null || shasum -a 256 "$MODEL_SRC/model.bin") | cut -d' ' -f1)"
+  if [[ -n "$want" && "$have" != "$want" ]]; then
+    if [[ "$ALLOW_DEGRADED" != "1" ]]; then
+      echo "  [FAIL] staged model.bin is not the approved model in tools/model.lock"
+      echo "         have $have"; echo "         want $want"; exit 1
+    fi
+    echo "  [warn] unapproved model.bin (degraded build only)"
+  else
+    echo "  [ok] model.bin matches tools/model.lock"
+  fi
+fi
+if [[ "$LITE" == "1" ]]; then
+  if [[ -z "$MODEL_SOURCES" ]]; then echo "  [FAIL] LITE=1 needs MODEL_SOURCES"; exit 1; fi
+  echo "  [lite] model NOT bundled; downloaded on first use from: $MODEL_SOURCES"
+else
+  mkdir -p "$RT/model"
+  cp -R "$MODEL_SRC/." "$RT/model/"
+  echo "  [ok] model ($(du -sh "$RT/model" | cut -f1))"
+fi
+# Model manifest (sizes + SHA-256 + sources) in every build.
+MANIFEST_ARGS=()
+for s in $MODEL_SOURCES; do MANIFEST_ARGS+=(--source "$s"); done
+if [[ -f "$MODEL_SRC/model.bin" ]]; then   # degraded fp16/fp32 builds have none
+  python3 "$ROOT/tools/make_model_manifest.py" "$MODEL_SRC" "${MANIFEST_ARGS[@]+"${MANIFEST_ARGS[@]}"}" \
+    --out "$RT/model_manifest.json"
+fi
+cp "$ROOT/amh_model.py" "$RT/amh_model.py"
 
 # ffmpeg
 FF="${STAGE}/${TARGET}/${FFSUFFIX}"
@@ -147,6 +183,15 @@ rm -rf "$PYP/tcl"
 rm -rf "$PYP"/lib/libtcl* "$PYP"/lib/libtk* "$PYP"/lib/tcl* "$PYP"/lib/tk* 2>/dev/null || true
 rm -f  "$PYP"/DLLs/_tkinter.pyd "$PYP"/DLLs/tcl*.dll "$PYP"/DLLs/tk*.dll 2>/dev/null || true
 rm -f  "$LIBROOT"/lib-dynload/_tkinter* 2>/dev/null || true
+# CPython's own test suite/C test modules, onnxruntime's unused sympy/mpmath
+# install deps, and package self-tests (numpy.testing is kept).
+rm -rf "$LIBROOT/test"
+rm -f  "$LIBROOT"/lib-dynload/_test* "$LIBROOT"/lib-dynload/_ctypes_test* 2>/dev/null || true
+rm -f  "$PYP"/DLLs/_test*.pyd "$PYP"/DLLs/_ctypes_test.pyd 2>/dev/null || true
+SITE="$LIBROOT/site-packages"
+rm -rf "$SITE"/sympy "$SITE"/sympy-*.dist-info "$SITE"/mpmath "$SITE"/mpmath-*.dist-info "$SITE"/isympy.py "$SITE"/__pycache__/isympy.* "$PYP/share/man"
+find "$SITE" -depth -type d \( -name tests -o -name testdata \) -exec rm -rf {} + 2>/dev/null || true
+rm -f  "$SITE"/sherpa_onnx/lib/*.lib 2>/dev/null || true
 echo "  [ok] python trimmed ($(du -sh "$RT/python" | cut -f1))"
 
 # ---- 2. include the shared panel files ------------------------------------
@@ -159,6 +204,7 @@ if [[ ! -d "$PANEL_SRC" ]]; then
   echo "  [FAIL] shared panel not found at $PANEL_SRC (run tools/sync_panel.sh)"; exit 1
 fi
 cp -R "$PANEL_SRC/." "${BUILD_DIR}/${NAME}/"
+rm -rf "${BUILD_DIR}/${NAME}/test"   # developer tests are not shipped
 echo "  [ok] panel files"
 
 echo "== runtime + panel staged (total $(du -sh "${BUILD_DIR}/${NAME}" | cut -f1)) =="
@@ -184,6 +230,7 @@ if stray:
     sys.exit(1)
 PYEOF
     cp "$INSTALLERS/Install.cmd" "${BUILD_DIR}/Install.cmd"
+    cp "$INSTALLERS/Make Amharic Captions.cmd" "${BUILD_DIR}/${NAME}/Make Amharic Captions.cmd"
     echo "  [ok] Install.cmd (windows one-click installer)"
     # Window-runtime verification harness (customer-facing). Same CRLF rule:
     # silently shipping an LF-only .cmd would make cmd.exe mis-parse it.
@@ -202,6 +249,8 @@ PYEOF
     ;;
   mac-*)
     cp "$INSTALLERS/Install.command" "${BUILD_DIR}/Install.command"
+    cp "$INSTALLERS/Make Amharic Captions.command" "${BUILD_DIR}/${NAME}/Make Amharic Captions.command"
+    chmod +x "${BUILD_DIR}/${NAME}/Make Amharic Captions.command"
     chmod +x "${BUILD_DIR}/Install.command"
     echo "  [ok] Install.command (macOS one-click installer)"
     ;;
@@ -240,7 +289,8 @@ done
 echo "  [ok] legal/ (EULA + privacy + refund)"
 
 # ---- 3. zip it ------------------------------------------------------------
-ZIP="${DIST}/amharic-captions-${TARGET}.zip"
+SUFFIX=""; [[ "$LITE" == "1" ]] && SUFFIX="-lite"
+ZIP="${DIST}/amharic-captions-${TARGET}${SUFFIX}.zip"
 rm -f "$ZIP"
 ZIP_ENTRIES=("$NAME" licenses 'Install.*' verify_win.cmd VERIFY.md EULA.txt PRIVACY.txt REFUND.txt)
 [[ -f "$BUILD_DIR/DEGRADED_BUILD.txt" ]] && ZIP_ENTRIES+=(DEGRADED_BUILD.txt)

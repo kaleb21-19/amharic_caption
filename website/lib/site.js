@@ -29,6 +29,11 @@ export const ACCOUNTS_LABEL = "CBE 1000504159977 · Abyssinia 402393939 · Zemen
 export const RELEASES_URL = "https://github.com/kaleb21-19/amharic_caption/releases/latest";
 export const DL_WIN =
   "https://github.com/kaleb21-19/amharic_caption/releases/latest/download/amharic-captions-win-x64.zip";
+// Lite Windows build (~175 MB): same installer, the Amharic model (~612 MB) is
+// downloaded once from inside the panel, resumably. Needs a release that has
+// this asset (v1.7.1+); publish the release before deploying this link.
+export const DL_WIN_LITE =
+  "https://github.com/kaleb21-19/amharic_caption/releases/latest/download/amharic-captions-win-x64-lite.zip";
 export const DL_MAC_ARM =
   "https://github.com/kaleb21-19/amharic_caption/releases/latest/download/amharic-captions-mac-arm64.zip";
 // Intel Macs: same latest-tag mechanism — the x64 build runs on the arm64

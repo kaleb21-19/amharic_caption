@@ -130,12 +130,15 @@ if "!SILENT!"=="0" (
     echo     AMHARIC CAPTIONS - INSTALLER
     echo ================================================
     echo.
-    echo Welcome. This installs Amharic Captions into
-    echo Premiere Pro for your Windows user. It takes a
-    echo moment and needs no administrator rights.
+    echo Welcome. This installs Amharic Captions for your
+    echo Windows user: the Premiere Pro and After Effects
+    echo panel, plus the
+    echo Make Amharic Captions tool that makes .srt files
+    echo for CapCut, DaVinci Resolve and other editors.
+    echo It takes a moment and needs no administrator rights.
     echo.
     echo Two hints first:
-    echo   - Fully quit Premiere Pro before installing.
+    echo   - Fully quit Premiere Pro and After Effects first.
     echo   - Make sure this folder was extracted from the
     echo     zip you downloaded, right-click and Extract All.
     echo.
@@ -174,6 +177,10 @@ echo [OK] Extension files found.
 >> "%LOG%" echo Source files verified
 
 set "DEGRADED=0"
+rem A lite package ships runtime\model_manifest.json instead of the model;
+rem the panel downloads the model once into a per-user folder.
+set "LITE=0"
+if not exist "%SRC%\runtime\model\model.bin" if exist "%SRC%\runtime\model_manifest.json" set "LITE=1"
 if exist "%~dp0DEGRADED_BUILD.txt" (
     set "DEGRADED=1"
     echo [WARNING] Explicit local/test degraded build - optional ML assets may be absent.
@@ -181,7 +188,7 @@ if exist "%~dp0DEGRADED_BUILD.txt" (
 )
 
 if "!DEGRADED!"=="0" (
-    if not exist "%SRC%\runtime\model\model.bin" (
+    if not exist "%SRC%\runtime\model\model.bin" if "!LITE!"=="0" (
         >> "%LOG%" echo ERROR 6: source package missing AI model
         call :FAIL 6 "This archive is incomplete because its AI model is missing. Do not install it; download the archive again."
         exit /b 6
@@ -218,13 +225,12 @@ rem quotes, cut everything up to the attribute name, then take the
 rem first token after it.
 rem ------------------------------------------------------------
 
+rem (The previous quote-stripping parser had an odd number of quotes, so cmd
+rem read the later > as a redirect, skipped the block and always showed
+rem "vunknown". An XML read is exact; the path travels in an env var.)
 set "VER=unknown"
-for /f "delims=" %%L in ('findstr /i /c:"ExtensionBundleVersion=" "%SRC%\CSXS\manifest.xml" 2^>nul') do (
-    set "VLINE=%%L"
-    set "VLINE=!VLINE:"=!"
-    set "VLINE=!VLINE:*ExtensionBundleVersion=!"
-    for /f "tokens=1 delims== >/" %%A in ("!VLINE!") do set "VER=%%A"
-)
+set "AMH_MANIFEST=%SRC%\CSXS\manifest.xml"
+for /f "delims=" %%V in ('powershell -NoProfile -ExecutionPolicy Bypass -Command "([xml](Get-Content -LiteralPath $env:AMH_MANIFEST -Raw)).ExtensionManifest.ExtensionBundleVersion" 2^>nul') do set "VER=%%V"
 if "!VER!"=="" set "VER=unknown"
 >> "%LOG%" echo Version: !VER!
 
@@ -266,6 +272,22 @@ if "!PP_RUNNING!"=="1" (
 
 >> "%LOG%" echo Premiere Pro running: !PP_RUNNING!
 
+rem After Effects loads the same panel and locks its files the same way.
+set "AE_RUNNING=0"
+tasklist /FI "IMAGENAME eq AfterFX.exe" /FO CSV /NH 2>nul | findstr /i /c:"AfterFX.exe" >nul && set "AE_RUNNING=1"
+
+if "!AE_RUNNING!"=="1" (
+    color 0E
+    echo [NOTE] Adobe After Effects is currently running.
+    echo.
+    echo For the cleanest result, fully quit After Effects now and
+    echo then run the installer again.
+    echo.
+    %PAUSE%
+)
+
+>> "%LOG%" echo After Effects running: !AE_RUNNING!
+
 rem ------------------------------------------------------------
 rem Create the Adobe CEP folder
 rem ------------------------------------------------------------
@@ -298,7 +320,8 @@ echo Copying the extension to a staging folder...
 echo This may take a moment.
 echo.
 
-robocopy "%SRC%" "%STAGE%" /E /COPY:DAT /R:2 /W:2 /XJ
+rem File-by-file output goes to the log; the window stays readable.
+robocopy "%SRC%" "%STAGE%" /E /COPY:DAT /R:2 /W:2 /XJ /NFL /NDL /NP >> "%LOG%" 2>&1
 
 set "RC=!errorlevel!"
 
@@ -360,6 +383,17 @@ if not "!SRC_N!"=="!STAGE_N!" (
 echo [OK] Staged copy verified.
 echo.
 
+rem Lite update over an install that already has the model: keep it, so the
+rem customer does not download it again. The panel checks its size against
+rem the new manifest and asks for a download only if the model changed.
+set "KEPT_MODEL=0"
+if "!LITE!"=="1" if exist "%DEST%\runtime\model\model.bin" (
+    echo Keeping your existing Amharic model...
+    robocopy "%DEST%\runtime\model" "%STAGE%\runtime\model" /E /COPY:DAT /R:2 /W:2 /XJ >> "%LOG%" 2>&1
+    if exist "%STAGE%\runtime\model\model.bin" set "KEPT_MODEL=1"
+)
+>> "%LOG%" echo Lite package: !LITE!  kept existing model: !KEPT_MODEL!
+
 rem ------------------------------------------------------------
 rem Swap: move the old version aside, move the new one in, verify
 rem each step, and restore the previous version if anything fails.
@@ -377,7 +411,7 @@ if exist "%DEST%" (
         rmdir /s /q "%STAGE%" 2>nul
         >> "%LOG%" echo ERROR 7: could not move old version aside
         if "!PP_RUNNING!"=="1" call :FAIL 7 "Premiere Pro still has the extension open, so the old copy could not be moved aside. Fully quit Premiere using File Exit, then run the installer again."
-        if not "!PP_RUNNING!"=="1" call :FAIL 7 "The previous copy could not be moved aside because a file is in use. Close Premiere Pro and any folder windows, then run the installer again."
+        if not "!PP_RUNNING!"=="1" call :FAIL 7 "The previous copy could not be moved aside because a file is in use. Close Premiere Pro, After Effects and any folder windows, then run the installer again."
         exit /b 7
     )
 
@@ -429,7 +463,7 @@ if not exist "%DEST%\index.html" (
 )
 
 if "!DEGRADED!"=="0" (
-    if not exist "%DEST%\runtime\model\model.bin" (
+    if not exist "%DEST%\runtime\model\model.bin" if "!LITE!"=="0" (
         color 0E
         echo [FAIL] AI model was not copied.
         >> "%LOG%" echo ERROR 8: AI model missing after install
@@ -445,6 +479,15 @@ if "!DEGRADED!"=="0" (
         call :RESTORE
         call :FAIL 8 "The installed degraded copy is missing its model. Re-download the archive and contact support if it repeats."
         exit /b 8
+    )
+)
+
+if "!LITE!"=="1" (
+    if "!KEPT_MODEL!"=="1" (
+        echo [OK] Amharic model kept from your previous install
+    ) else (
+        echo [INFO] Amharic model: a one-time download the first time you
+        echo        open the panel or the Make Amharic Captions tool.
     )
 )
 
@@ -545,6 +588,35 @@ if "!REG_OK!"=="0" (
 echo.
 
 rem ------------------------------------------------------------
+rem Standalone SRT maker shortcuts (Desktop + Start menu). Files
+rem dragged onto the shortcut get an .srt beside them, for editors
+rem without the panel (CapCut, DaVinci Resolve, older Premiere).
+rem Paths reach PowerShell through environment variables so quotes
+rem or brackets in a user folder name cannot break the command.
+rem A failure here is only a warning, the panel is already installed.
+rem ------------------------------------------------------------
+
+echo Creating the Make Amharic Captions shortcut...
+set "AMH_SRT_TARGET=%DEST%\Make Amharic Captions.cmd"
+set "AMH_SRT_DIR=%DEST%"
+set "SC_OK=0"
+rem AMH_NO_SHORTCUT=1 skips this step (sandboxed installer tests only).
+if not defined AMH_NO_SHORTCUT if exist "%AMH_SRT_TARGET%" (
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "$w = New-Object -ComObject WScript.Shell; foreach ($f in @('Desktop','Programs')) { $d = [Environment]::GetFolderPath($f); if ($d) { $s = $w.CreateShortcut((Join-Path $d 'Make Amharic Captions.lnk')); $s.TargetPath = $env:AMH_SRT_TARGET; $s.WorkingDirectory = $env:AMH_SRT_DIR; $s.Description = 'Drag a video here to make Amharic SRT captions'; $s.Save() } }" >> "%LOG%" 2>&1
+    if not errorlevel 1 set "SC_OK=1"
+)
+if "!SC_OK!"=="1" (
+    echo [OK] Desktop shortcut: Make Amharic Captions
+    >> "%LOG%" echo SRT shortcut created
+) else (
+    echo [WARNING] Could not create the desktop shortcut. You can still
+    echo drag videos onto Make Amharic Captions.cmd in the install folder.
+    >> "%LOG%" echo WARNING: SRT shortcut not created
+)
+
+echo.
+
+rem ------------------------------------------------------------
 rem Finish: keep only the newest rollback copy (when this run made
 rem one) and clear stale staging folders. The last two lines also
 rem remove leftovers that older installer versions put inside the
@@ -583,7 +655,8 @@ echo ================================================================
 echo     INSTALLATION SUCCESSFUL  v!VER!
 echo ================================================================
 echo.
-echo   Amharic Captions is now installed for Premiere Pro.
+echo   Amharic Captions is now installed for Premiere Pro
+echo   and After Effects (2024 or newer).
 echo.
 echo   Take these 4 steps:
 echo.
@@ -594,6 +667,10 @@ echo     2. Reopen Premiere Pro and open a project.
 echo        The Extensions menu is greyed out on the start screen.
 echo     3. Open  Window,  then  Extensions.
 echo     4. Choose  Amharic Captions.
+echo.
+echo   After Effects: quit and reopen it the same way, then open
+echo   Window, Extensions, Amharic Captions. Captions arrive as
+echo   one text layer in the active composition.
 echo.
 echo   Installed to:
 echo     %DEST%
@@ -607,6 +684,15 @@ if "!SILENT!"=="0" (
     echo   Log file:
     echo     !LOG!
 )
+echo.
+if "!LITE!"=="1" if "!KEPT_MODEL!"=="0" (
+    echo   First time only: the panel shows  Download the Amharic model.
+    echo   Press it once. If the internet drops, it continues later.
+    echo.
+)
+echo   No Premiere?  Drag any video onto the  Make Amharic Captions
+echo   shortcut on your desktop. An .srt file appears next to the
+echo   video, ready for CapCut, DaVinci Resolve or YouTube.
 echo.
 echo   You can close this window now, or press any key once more.
 echo.

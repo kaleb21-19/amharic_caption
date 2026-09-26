@@ -75,7 +75,8 @@
     display: flex; flex-direction: column;
     background: var(--bg-panel);
     color: var(--text-primary);
-    font-family: "Adobe Clean", "Segoe UI", -apple-system, "Helvetica Neue", Arial, sans-serif;
+    font-family: "Adobe Clean", "Segoe UI", -apple-system, "Helvetica Neue", Arial,
+      "Ebrima", "Nyala", "Kefa", "Abyssinica SIL", "Noto Sans Ethiopic", sans-serif;
     font-size: var(--font-m);
     overflow: hidden;
   }
@@ -275,6 +276,14 @@
   #fontPill.err { color: var(--err); border-color: rgba(229,72,77,.4); background: var(--err-soft); }
   #fontPill.err .dot { background: var(--err); }
 
+  /* ---------- Language toggle (አማ / EN) ---------- */
+  .lang-toggle {
+    flex: 0 0 auto; font: inherit; font-size: 9.5px; font-weight: 700; cursor: pointer;
+    color: var(--text-secondary); background: var(--bg-field); border: 1px solid var(--border);
+    border-radius: 20px; padding: 3px 8px; line-height: 1.2; white-space: nowrap;
+  }
+  .lang-toggle:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+
   /* ---------- Onboarding overlay ---------- */
   #onboard {
     position: fixed; inset: 0; z-index: 100;
@@ -377,13 +386,14 @@
     <div class="brand">
       <div class="brand-mark">አ</div>
       <div>
-        <div class="title">Amharic Captions</div>
-        <div class="sub">Local Ethio-ASR · 100% offline</div>
+        <div class="title" data-i18n="app.title">Amharic Captions</div>
+        <div class="sub" data-i18n="app.sub">Local Ethio-ASR · 100% offline</div>
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:6px;">
-      <span id="fontPill"><span class="dot"></span><span id="fontText">checking font…</span></span>
-      <span id="statusPill"><span class="dot"></span><span id="statusText">idle</span></span>
+      <span id="fontPill"><span class="dot"></span><span id="fontText" data-i18n="font.checking">checking font…</span></span>
+      <span id="statusPill"><span class="dot"></span><span id="statusText" data-i18n="status.idle">idle</span></span>
+      <button type="button" id="langToggle" class="lang-toggle" data-lang-toggle title="Switch to English">EN</button>
     </div>
   </div>
 
@@ -391,23 +401,24 @@
   <div id="onboard">
     <div class="ob-brand">
       <div class="brand-mark">አ</div>
-      <div class="title" style="font-weight:700;">Amharic Captions</div>
+      <div class="title" style="font-weight:700;" data-i18n="app.title">Amharic Captions</div>
+      <button type="button" class="lang-toggle" data-lang-toggle style="margin-left:auto;" title="Switch to English">EN</button>
     </div>
     <div class="ob-steps">
       <div class="ob-step">
         <div class="ob-step-num">1</div>
-        <div><b>Pick a clip</b><span>Select any clip on the timeline, or use the Work Area / Whole Edit sources.</span></div>
+        <div data-i18n-html="ob.pick"><b>Pick a clip</b><span>Select any clip on the timeline, or use the Work Area / Whole Edit sources.</span></div>
       </div>
       <div class="ob-step">
         <div class="ob-step-num">2</div>
-        <div><b>Choose your style</b><span>Karaoke (1 word at a time) or Grouped (3 words per caption).</span></div>
+        <div data-i18n-html="ob.style"><b>Choose your style</b><span>Karaoke (1 word at a time) or Grouped (3 words per caption).</span></div>
       </div>
       <div class="ob-step">
         <div class="ob-step-num">3</div>
-        <div><b>Generate, in Premiere</b><span>Captions land on a caption track — fully offline, on your machine.</span></div>
+        <div data-i18n-html="ob.generate"><b>Generate</b><span>Captions land on your timeline (Premiere) or as a text layer (After Effects) — fully offline, on your machine.</span></div>
       </div>
     </div>
-    <div class="ob-health-title">System check</div>
+    <div class="ob-health-title" data-i18n="ob.health">System check</div>
     <div class="ob-health" id="healthList">
       <div class="row-check" data-check="runtime"><span>Transcription engine</span><span class="state">…</span></div>
       <div class="row-check" data-check="model"><span>Amharic model</span><span class="state">…</span></div>
@@ -415,22 +426,39 @@
       <div class="row-check" data-check="python"><span>Python runtime</span><span class="state">…</span></div>
       <div class="row-check" data-check="font"><span>Amharic font</span><span class="state">…</span></div>
     </div>
-    <button id="onboardStart" class="btn btn-primary">Start captioning</button>
+    <button id="onboardStart" class="btn btn-primary" data-i18n="ob.start">Start captioning</button>
   </div>
 
   <div class="panel-body">
+
+    <!-- Lite packages: one-time model download (hidden when the model exists) -->
+    <div class="card" id="modelCard" style="display:none;border-color:var(--warn);">
+      <div class="card-head">
+        <span class="card-title" data-i18n="model.title">Amharic model</span>
+        <span class="card-hint" data-i18n="model.hint">one-time download</span>
+      </div>
+      <div class="hint" style="margin-bottom:8px;" data-i18n-html="model.body">
+        The Amharic speech model is downloaded <b>once</b> and kept on this computer,
+        so later updates stay small. If the connection drops, it continues where it stopped.
+      </div>
+      <button id="modelBtn" class="btn btn-primary">⬇ Download the Amharic model</button>
+      <div class="progress-wrap">
+        <div class="progress" role="progressbar" aria-labelledby="modelLabel"><div id="modelBar"></div></div>
+        <span id="modelLabel" aria-live="polite"></span>
+      </div>
+    </div>
 
     <!-- STEP 1: Source -->
     <div class="card">
       <div class="card-head">
         <div class="step-num">1</div>
-        <span class="card-title">Source</span>
-        <span class="card-hint">what to caption</span>
+        <span class="card-title" data-i18n="src.title">Source</span>
+        <span class="card-hint" data-i18n="src.hint">what to caption</span>
       </div>
       <div class="seg" id="srcSeg" role="radiogroup" aria-label="What to caption">
-        <button data-src="clip" class="active">Selected Clip</button>
-        <button data-src="work">Work Area</button>
-        <button data-src="whole">Whole Edit</button>
+        <button id="srcClip" data-src="clip" class="active" data-i18n="src.clip">Selected Clip</button>
+        <button id="srcWork" data-src="work" data-i18n="src.work">Work Area</button>
+        <button id="srcWhole" data-src="whole" data-i18n="src.whole">Whole Edit</button>
       </div>
       <div style="height:4px;"></div>
       <input type="file" id="fileInput" accept="audio/*,video/*,.mp3,.wav,.m4a,.aac,.mp4,.mov,.mkv,.wmv" style="display:none;">
@@ -440,27 +468,27 @@
     <div class="card">
       <div class="card-head">
         <div class="step-num">2</div>
-        <span class="card-title">Options</span>
-        <span class="card-hint">caption style</span>
+        <span class="card-title" data-i18n="opt.title">Options</span>
+        <span class="card-hint" data-i18n="opt.hint">caption style</span>
       </div>
       <div class="field">
-        <label class="field-label" for="capSeg">Caption style</label>
+        <label class="field-label" for="capSeg" data-i18n="opt.style">Caption style</label>
         <div class="seg" id="capSeg" role="radiogroup" aria-label="Caption style">
-          <button data-cap="words" class="active">Karaoke</button>
-          <button data-cap="grouped">Grouped</button>
+          <button data-cap="words" class="active" data-i18n="opt.karaoke">Karaoke</button>
+          <button data-cap="grouped" data-i18n="opt.grouped">Grouped</button>
         </div>
       </div>
       <div class="field">
-        <label class="field-label" for="groupSize">Words / caption</label>
+        <label class="field-label" for="groupSize" data-i18n="opt.words">Words / caption</label>
         <input type="number" id="groupSize" min="1" max="12" value="3">
       </div>
       <div class="field">
         <label class="field-label" for="speakersToggle" style="display:flex;align-items:center;gap:6px;cursor:pointer;">
           <input type="checkbox" id="speakersToggle" style="width:auto;margin:0;">
-          Label speakers (2) — for interviews
+          <span data-i18n="opt.speakers">Label speakers (2) — for interviews</span>
         </label>
       </div>
-      <div class="hint">
+      <div class="hint" data-i18n-html="opt.stylehint">
         <b>Karaoke</b> shows one word at a time. <b>Grouped</b> shows several
         words per caption.
       </div>
@@ -470,12 +498,12 @@
            change it, but two number inputs side by side made the options card
            the most complicated thing in the panel. Hidden, not removed: it
            still works for anyone who wants it. -->
-      <button class="disclosure" id="advDisc" aria-expanded="false"><span class="chevron">▶</span> Advanced</button>
+      <button class="disclosure" id="advDisc" aria-expanded="false"><span class="chevron">▶</span> <span data-i18n="opt.advanced">Advanced</span></button>
       <div class="disclosure-content" id="advWrap">
         <div class="field" style="margin-top:6px;">
-          <label class="field-label" for="maxChars">Max characters per caption</label>
+          <label class="field-label" for="maxChars" data-i18n="opt.maxchars">Max characters per caption</label>
           <input type="number" id="maxChars" min="10" max="200" value="42">
-          <div class="hint" style="margin-top:4px;">
+          <div class="hint" style="margin-top:4px;" data-i18n-html="opt.maxcharshint">
             Caps how long any single caption can get. 42 is the usual subtitle
             line length — leave it unless you have a reason.
           </div>
@@ -487,73 +515,71 @@
     <div class="card">
       <div class="card-head">
         <div class="step-num">3</div>
-        <span class="card-title">Generate</span>
-        <span class="card-hint">transcribe &amp; review</span>
+        <span class="card-title" data-i18n="run.title">Generate</span>
+        <span class="card-hint" data-i18n="run.hint">transcribe &amp; review</span>
       </div>
-      <button id="runBtn" class="btn btn-primary" disabled>▶ Generate Captions</button>
+      <button id="runBtn" class="btn btn-primary" disabled data-i18n="run.button">▶ Generate Captions</button>
       <div class="progress-wrap">
         <div class="progress" id="progTrack" role="progressbar"
              aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
              aria-labelledby="progLabel"><div id="progBar"></div></div>
         <span id="progLabel" aria-live="polite"></span>
-        <button id="cancelBtn" title="Stop this transcription">Cancel</button>
+        <button id="cancelBtn" title="Stop this transcription" data-i18n="run.cancel" data-i18n-title="run.cancelTitle">Cancel</button>
       </div>
     </div>
 
     <!-- License -->
     <div class="section-license">
       <div id="machineIdSection" class="license-box">
-        <label class="field-label" style="color:var(--warn);font-weight:700;">👇 Copy · send with payment</label>
+        <label class="field-label" style="color:var(--warn);font-weight:700;" data-i18n="lic.copyLabel">👇 Copy · send with payment</label>
         <div class="row" style="align-items:stretch;">
-          <div class="machine-id" id="machineIdDisplay" title="Click to select all">loading…</div>
-          <button type="button" id="machineIdCopy" class="btn btn-neutral" style="flex:0 0 auto;min-width:70px;" title="Copy Machine ID">📋 Copy</button>
+          <div class="machine-id" id="machineIdDisplay" title="Click to select all" data-i18n-title="lic.midTitle">loading…</div>
+          <button type="button" id="machineIdCopy" class="btn btn-neutral" style="flex:0 0 auto;min-width:70px;" title="Copy Machine ID" data-i18n="lic.copy" data-i18n-title="lic.copyTitle">📋 Copy</button>
         </div>
         <!-- One button instead of "copy this, open that, paste it there". It
              opens the bot with the Machine ID already in the message, so the
              most error-prone step of the purchase — hand-copying a 16-character id
              into a chat — disappears. Copy stays for anyone who prefers to
              paste it themselves or has no Telegram on this machine. -->
-        <button type="button" id="buyBtn" class="btn btn-primary" style="margin-top:8px;width:100%;">
-          Buy a license — ETB 2,500
-        </button>
+        <button type="button" id="buyBtn" class="btn btn-primary" style="margin-top:8px;width:100%;" data-i18n="lic.buy">Buy a license — ETB 2,500</button>
         <div class="hint" style="margin-top:6px;line-height:1.5;">
-          Opens the Telegram bot with your Machine ID filled in. Pay
+          <span data-i18n-html="lic.buyHint">Opens the Telegram bot with your Machine ID filled in. Pay
           <b>ETB 2,500</b> by bank transfer to <b>KALEB TEGEGEN</b>, send the
-          screenshot in the bot, and your key arrives in that chat.
-          <a href="#" id="bankDetails">Bank accounts</a>
+          screenshot in the bot, and your key arrives in that chat.</span>
+          <a href="#" id="bankDetails" data-i18n="lic.bankLink">Bank accounts</a>
         </div>
         <div class="hint" id="bankBox" style="display:none;margin-top:6px;line-height:1.6;">
           <b>CBE</b> 1000504159977<br>
           <b>Abyssinia</b> 402393939<br>
           <b>Zemen</b> 1031111343277015<br>
-          Account name: <b>KALEB TEGEGEN</b> — pay no one else.
+          <span data-i18n-html="lic.bankName">Account name: <b>KALEB TEGEGEN</b> — pay no one else.</span>
         </div>
       </div>
 
       <div id="machineMismatch" class="permit-box"
-           style="display:none;margin:8px 0;padding:9px 12px;border:1px solid var(--warn);border-radius:var(--radius);background:var(--warn-soft);font-size:11px;line-height:1.45;">
+           style="display:none;margin:8px 0;padding:9px 12px;border:1px solid var(--warn);border-radius:var(--radius);background:var(--warn-soft);font-size:11px;line-height:1.45;" data-i18n-html="lic.mismatch">
         ⚠️ <b>This machine record was created on another computer.</b> If you
         bought a key and reinstalled, contact support to move the license here —
         do not buy a second one.
       </div>
 
-      <div id="licensedNote" class="licensed-note">
+      <div id="licensedNote" class="licensed-note" data-i18n-html="lic.licensed">
         🔒 <b>Licensed &amp; file-bound.</b> This copy is activated for this installation.
         The Machine ID is hidden because your license is bound to the durable installation record.
       </div>
 
       <div class="field" style="margin-bottom:6px;">
-        <label class="field-label" for="licenseInput">License Key</label>
+        <label class="field-label" for="licenseInput" data-i18n="lic.keyLabel">License Key</label>
         <div class="row">
           <input type="text" id="licenseInput" placeholder="AMH-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" style="flex:1;">
-          <button id="licenseActivate" class="btn btn-neutral" style="flex:0 0 auto;">Activate</button>
+          <button id="licenseActivate" class="btn btn-neutral" style="flex:0 0 auto;" data-i18n="lic.activate">Activate</button>
         </div>
       </div>
-      <div id="licenseStatus" style="font-size:10.5px;margin-top:2px;color:var(--text-secondary);">Checking license…</div>
+      <div id="licenseStatus" style="font-size:10.5px;margin-top:2px;color:var(--text-secondary);" data-i18n="lic.checking">Checking license…</div>
     </div>
 
     <div id="trialBanner"
-         style="display:none;margin-top:8px;padding:9px 12px;border:1px solid var(--warn);border-radius:var(--radius);background:var(--warn-soft);font-size:11px;line-height:1.45;">
+         style="display:none;margin-top:8px;padding:9px 12px;border:1px solid var(--warn);border-radius:var(--radius);background:var(--warn-soft);font-size:11px;line-height:1.45;" data-i18n-html="lic.trialBanner">
       <b>Free trials used up.</b> Copy your Machine ID above, pay <b>ETB 2,500</b> by
       bank transfer per the instructions there, and activate with your key.
     </div>
@@ -564,49 +590,50 @@
          that opens on its own once a transcription finishes. -->
     <div class="card" style="margin-top:2px;">
       <div class="card-head">
-        <span class="card-title">Log</span>
-        <span class="card-hint">what the engine is doing</span>
+        <span class="card-title" data-i18n="log.title">Log</span>
+        <span class="card-hint" data-i18n="log.hint">what the engine is doing</span>
       </div>
 
       <div style="height:4px;"></div>
 
-      <button class="disclosure" id="logDisc"><span class="chevron">▶</span> Log</button>
+      <button class="disclosure" id="logDisc"><span class="chevron">▶</span> <span data-i18n="log.toggle">Log</span></button>
       <div class="disclosure-content">
-        <div id="logBox" class="mono">Pick a source, set options, then Generate.</div>
+        <div id="logBox" class="mono" data-i18n="log.initial">Pick a source, set options, then Generate.</div>
       </div>
     </div>
 
   </div>
 
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.4.31</span> · License ETB 2,500 one-time</span>
+    <span>v<span id="panelVersion">1.7.1</span> · <span data-i18n="foot.license">License ETB 2,500 one-time</span></span>
     <span style="display:flex;gap:10px;align-items:center;">
-      <a href="#" id="supportLink" title="Get help in Telegram">💬 Help</a>
-      <a href="#" id="diag">Diagnostics</a>
-      <a href="#" id="credits" title="Model credits">Credits</a>
-      <a href="#" id="legalLink" title="License, privacy &amp; refund terms">Terms</a>
+      <a href="#" id="supportLink" title="Get help in Telegram" data-i18n="foot.help" data-i18n-title="foot.helpTitle">💬 Help</a>
+      <a href="#" id="diag" data-i18n="foot.diag">Diagnostics</a>
+      <a href="#" id="credits" title="Model credits" data-i18n="foot.credits" data-i18n-title="foot.creditsTitle">Credits</a>
+      <a href="#" id="legalLink" title="License, privacy &amp; refund terms" data-i18n="foot.terms" data-i18n-title="foot.termsTitle">Terms</a>
     </span>
   </div>
 
   <!-- Review & edit overlay: shown between transcription and placement -->
   <div id="review">
     <div class="review-head">
-      <span class="title">Review captions</span>
-      <span class="sub">edit text &amp; times, then place on the timeline</span>
-      <input type="text" id="reviewSearch" placeholder="filter captions…" title="Type to filter the caption list">
+      <span class="title" data-i18n="rev.title">Review captions</span>
+      <span class="sub" data-i18n="rev.sub">edit text &amp; times, then place on the timeline</span>
+      <input type="text" id="reviewSearch" placeholder="filter captions…" title="Type to filter the caption list" data-i18n-placeholder="rev.search" data-i18n-title="rev.searchTitle">
       <span class="review-count" id="reviewCount"></span>
     </div>
     <div id="reviewList"></div>
     <div class="review-foot">
-      <button id="reviewAdd" class="btn btn-neutral">+ Add cue</button>
-      <button id="reviewExport" class="btn btn-neutral" title="Save SRT, VTT and TXT to a folder you choose">Export SRT/VTT/TXT</button>
-      <button id="reviewDiscard" class="btn btn-neutral">Discard</button>
-      <button id="reviewPlace" class="btn btn-primary">✓ Place on timeline</button>
+      <button id="reviewAdd" class="btn btn-neutral" data-i18n="rev.add">+ Add cue</button>
+      <button id="reviewExport" class="btn btn-neutral" title="Save SRT, VTT and TXT to a folder you choose" data-i18n="rev.export" data-i18n-title="rev.exportTitle">Export SRT/VTT/TXT</button>
+      <button id="reviewDiscard" class="btn btn-neutral" data-i18n="rev.discard">Discard</button>
+      <button id="reviewPlace" class="btn btn-primary" data-i18n="rev.place">✓ Place on timeline</button>
     </div>
   </div>
 
   <script src="./js/CSInterface.js"></script>
   <script src="./js/core.js"></script>
+  <script src="./js/i18n.js"></script>
   <script src="./js/main.js"></script>
 </body>
 </html>

@@ -165,6 +165,8 @@ const KNOWN = [
   // style
   'capSeg', 'capWords', 'capGroup', 'groupSize', 'maxChars', 'speakersToggle',
   'runBtn', 'cancelBtn', 'progBar', 'progLabel',
+  // lite: one-time model download card
+  'modelCard', 'modelBtn', 'modelBar', 'modelLabel',
   // license
   'machineIdSection', 'machineIdDisplay', 'machineIdCopy', 'machineMismatch',
   'licensedNote', 'licenseInput', 'licenseActivate', 'licenseStatus', 'trialBanner',
@@ -197,6 +199,7 @@ function makeDocument(tagFor) {
     fileInput: ['input', null], burnFileInput: ['input', null],
     licenseInput: ['input', null], reviewSearch: ['input', null],
     runBtn: ['button', null], cancelBtn: ['button', null], choose: ['button', null],
+    modelBtn: ['button', null],
     diag: ['a', null], credits: ['a', null], onboardStart: ['button', null],
     licenseActivate: ['button', null], machineIdCopy: ['button', null],
     reviewAdd: ['button', null], reviewExport: ['button', null],

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { DL_WIN, DL_MAC_ARM, DL_MAC_X64, RELEASES_URL } from "@/lib/site";
+import { DL_WIN, DL_WIN_LITE, DL_MAC_ARM, DL_MAC_X64, RELEASES_URL } from "@/lib/site";
 
 // Install flow as a tabbed guide rather than two long parallel columns.
 // Showing Windows and macOS side by side means every reader scrolls past a set
@@ -27,17 +27,19 @@ const OS = {
         check: "Wait until it prints DONE before closing the window.",
       },
       {
-        t: "Fully quit Premiere, then reopen",
-        c: "File → Exit. Closing the window is not enough — Premiere keeps running and will not pick up a new extension.",
+        t: "Fully quit Premiere (or After Effects), then reopen",
+        c: "File → Exit. Closing the window is not enough — the app keeps running and will not pick up a new extension.",
         check: "Open a project first: the Extensions menu stays greyed out on the start screen.",
       },
       {
         t: "Open the panel and activate",
-        c: "Window → Extensions → Amharic Captions. Copy your Machine ID, send it to the Telegram bot with your payment, and paste the key you get back.",
+        c: "Window → Extensions → Amharic Captions. With the small download, press “Download the Amharic model” once first (about 610 MB, continues where it stopped if your internet drops). Then copy your Machine ID, send it to the Telegram bot with your payment, and paste the key you get back.",
         check: "Two free captions work before you pay anything.",
       },
     ],
     trouble: [
+      ["The model download stopped", "Your internet dropped. Press Resume download — it continues from where it stopped, it does not start over. If it keeps failing, use the full Windows package instead."],
+      ["I don't have Premiere or After Effects", "The installer also puts a “Make Amharic Captions” shortcut on your desktop. Drag any video onto it and an .srt file appears next to the video — import it into CapCut, DaVinci Resolve or YouTube."],
       ['"Windows protected your PC" appears', 'Click More info → Run anyway. The installer is unsigned, which is normal for a tool this size — the extension itself is unchanged.'],
       ["There is no Install.cmd to click", "The zip was not extracted. Right-click it → Extract All, then open the extracted folder."],
       ["The panel does not appear in Extensions", "Premiere was not fully quit, or no project is open. Exit completely, reopen, open a project, then check the menu again."],
@@ -83,7 +85,8 @@ const OS = {
 };
 
 const downloads = [
-  { os: "win", kicker: "Windows", name: "Windows 10 / 11", note: "64-bit", href: DL_WIN },
+  { os: "win", kicker: "Windows · recommended", name: "Windows 10 / 11", note: "~175 MB · model downloads once", href: DL_WIN_LITE },
+  { os: "win", kicker: "Windows · offline / USB", name: "Windows full package", note: "~690 MB · everything included", href: DL_WIN },
   { os: "mac", kicker: "macOS · Apple Silicon", name: "M1 / M2 / M3 / M4", note: "arm64", href: DL_MAC_ARM },
   { os: "mac", kicker: "macOS · Intel", name: "Intel Mac", note: "x64", href: DL_MAC_X64 },
 ];
@@ -127,8 +130,9 @@ export default function InstallGuide() {
           </div>
 
           <div className="dl-grid">
-            {downloads.map((d) => {
-              const mine = detected === d.os;
+            {downloads.map((d, i) => {
+              // Badge only the first (recommended) card for the visitor's OS.
+              const mine = detected === d.os && downloads.findIndex((x) => x.os === d.os) === i;
               return (
                 <a
                   key={d.name}
