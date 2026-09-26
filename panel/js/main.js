@@ -32,6 +32,10 @@ if (typeof i18nOnChange === 'function') {
         const rv = document.getElementById('review');
         if (rv && rv.classList.contains('show')) renderReview();
       },
+      () => {
+        const pl = document.getElementById('progLabel');
+        if (pl && PROGRESS_EN) pl.textContent = L(PROGRESS_EN);
+      },
     ];
     steps.forEach((step) => { try { step(); } catch (e) {} });
   });
@@ -60,7 +64,9 @@ let MODEL_MISSING = false;
 // Re-keyed so the language toggle keeps the AE wording in both languages.
 if (IS_AE) {
   [['srcClip', 'src.clip.ae', 'Selected Layer'],
-   ['srcWhole', 'src.whole.ae', 'Whole Comp']].forEach(([id, key, en]) => {
+   ['srcWhole', 'src.whole.ae', 'Whole Comp'],
+   ['reviewPlace', 'rev.place.ae', '✓ Add to composition'],
+   ['reviewSub', 'rev.sub.ae', 'edit text & times, then add them to the composition']].forEach(([id, key, en]) => {
     const el = document.getElementById(id);
     if (!el) return;
     el.setAttribute('data-i18n', key);
@@ -461,6 +467,9 @@ function renderFontPill(info) {
   const pill = document.getElementById('fontPill');
   const txt = document.getElementById('fontText');
   if (!pill || !txt) return;
+  // Nothing to say when the Amharic font is fine: the pill only appears when
+  // the customer has something to fix (keeps the header uncluttered).
+  pill.style.display = (info.support && info.ok && info.font) ? 'none' : '';
   if (!info.support) {
     pill.className = 'warn';
     txt.textContent = L('font: unknown');
@@ -532,7 +541,14 @@ function renderHealthList() {
     row.classList.toggle('ok', good);
     row.classList.toggle('bad', !good);
     state.textContent = L(good ? 'OK' : 'Missing');
+    row.style.display = good ? 'none' : '';
   });
+  // All fine: say nothing. Something missing: show only those rows.
+  const allGood = Object.keys(map).every((k) => map[k][1]);
+  const list = document.getElementById('healthList');
+  const title = document.getElementById('healthTitle');
+  if (list) list.style.display = allGood ? 'none' : '';
+  if (title) title.style.display = allGood ? 'none' : '';
 }
 
 function initOnboarding() {
@@ -899,10 +915,14 @@ function updateLicenseUI() {
     if (licStatus) {
       licStatus.textContent = L(LICENSE_NOTE || 'Licensed');
       licStatus.style.color = 'var(--ok)';
+      // The thank-you note already says it; only a dated key needs this line.
+      licStatus.style.display = /expires/.test(LICENSE_NOTE || '') ? '' : 'none';
     }
     if (runBtn) runBtn.disabled = MODEL_MISSING;
     if (licInput) licInput.style.display = 'none';
     if (licBtn) licBtn.style.display = 'none';
+    const keyField = document.getElementById('licenseKeyField');
+    if (keyField) keyField.style.display = 'none';
     // Licensed: lock the Machine ID so it can't be copied or changed anymore.
     const midSection = document.getElementById('machineIdSection');
     if (midSection) {
@@ -918,6 +938,8 @@ function updateLicenseUI() {
     // including right after the trial runs out.
     if (licInput) licInput.style.display = '';
     if (licBtn) licBtn.style.display = '';
+    const keyFieldU = document.getElementById('licenseKeyField');
+    if (keyFieldU) keyFieldU.style.display = '';
     // Unlicensed: show the Machine ID again and hide the licensed note.
     const midSectionU = document.getElementById('machineIdSection');
     if (midSectionU) midSectionU.style.display = '';
@@ -932,6 +954,7 @@ function updateLicenseUI() {
       if (licStatus) {
         licStatus.textContent = L('Trial: ' + rem + ' free transcription' + (rem === 1 ? '' : 's') + ' left');
         licStatus.style.color = 'var(--warn)';
+        licStatus.style.display = '';
       }
       if (runBtn) runBtn.disabled = MODEL_MISSING;
     } else {
@@ -943,10 +966,13 @@ function updateLicenseUI() {
       if (licStatus) {
         licStatus.textContent = L('Trial used. Enter your license key above to continue.');
         licStatus.style.color = 'var(--warn)';
+        licStatus.style.display = 'none';   // the trial banner says it once
       }
       if (runBtn) runBtn.disabled = true;
     }
   }
+  const footPrice = document.getElementById('footPrice');
+  if (footPrice) footPrice.style.display = LICENSED ? 'none' : '';
   LICENSED_REFRESH = false;
 }
 
@@ -1456,6 +1482,8 @@ function setBusy(busy) {
   $('runBtn').disabled = busy;
   const cancel = $('cancelBtn');
   if (cancel) cancel.style.display = busy ? 'inline-block' : 'none';
+  UI_BUSY = !!busy;
+  syncProgressRow();
 }
 
 // ------------------------------------------------------------ evalScript
@@ -1533,7 +1561,7 @@ function saveSettings(over) {
 }
 
 let SOURCE = 'clip';
-let CAP = 'grouped';
+let CAP = 'words';   // same default as the HTML and applySettings()
 let GROUP_SIZE = 3;
 let MAX_CHARS = 42;
 let SPEAKERS = false;
@@ -2367,10 +2395,10 @@ function renderReview() {
       tools.appendChild(b);
       return b;
     };
-    const nudgeBack = mk('\u25c1', 'Shift this caption −0.1s');
-    const nudgeFwd = mk('\u25b7', 'Shift this caption +0.1s');
+    const nudgeBack = mk('−0.1s', 'Shift this caption −0.1s');
+    const nudgeFwd = mk('+0.1s', 'Shift this caption +0.1s');
     const splitBtn = mk('\u2702', 'Split this caption into two');
-    const mergeBtn = mk('\u21d3', 'Merge this caption into the next');
+    const mergeBtn = mk('\u2295', 'Merge this caption into the next');
     const nextCue = reviewCues[i + 1];
     mergeBtn.disabled = !nextCue ||
       (cue.speaker && nextCue.speaker && cue.speaker !== nextCue.speaker);
@@ -2623,12 +2651,28 @@ function initReview() {
 }
 
 // ---------------------------------------------------------------- runners
+let PROGRESS_EN = '';
+let UI_BUSY = false;
+// The progress row (bar, label, Cancel) takes space only while a run is going
+// or there is something to say (a failure message); idle, it is hidden.
+function syncProgressRow() {
+  const wrap = $('progWrap');
+  if (!wrap) return;
+  const bar = $('progBar');
+  const moving = bar && parseFloat(bar.style.width) > 0;
+  wrap.style.display = (UI_BUSY || moving || PROGRESS_EN) ? '' : 'none';
+  // A message on its own (e.g. after a failure) shows without an empty bar.
+  const track = $('progTrack');
+  if (track) track.style.display = (UI_BUSY || moving) ? '' : 'none';
+}
 function setProgress(pct, text) {
   const value = Math.round(pct * 100);
   const bar = $('progBar');
   if (bar) bar.style.width = value + '%';
   const label = $('progLabel');
-  if (label) label.textContent = text || '';
+  PROGRESS_EN = text || '';
+  if (label) label.textContent = L(PROGRESS_EN);
+  syncProgressRow();
   // Keep the exposed value in step with the painted width, otherwise a screen
   // reader announces a bar that never moves while the sighted one fills.
   const track = $('progTrack');
@@ -2756,7 +2800,7 @@ function failRun(raw) {
   const msg = humanError(raw);
   setStatus('err', 'failed');
   // progLabel is an aria-live region, so this is announced as well as shown.
-  setProgress(0, msg + ' See the Log for details.');
+  setProgress(0, msg + ' See “Details for support” below.');
 }
 
 async function runSelectedClip() {
@@ -3155,6 +3199,8 @@ function setup() {
   // Words-per-caption only applies in Grouped mode (karaoke = 1 word/caption).
   const syncStyleControls = () => {
     $('groupSize').disabled = (CAP !== 'grouped');
+    const field = $('groupSizeField');
+    if (field) field.style.display = (CAP === 'grouped') ? '' : 'none';
   };
   syncStyleControls();
 
@@ -3231,19 +3277,20 @@ function setup() {
     });
   }
 
-  // Model credits — required attribution for the CC-BY-4.0 licensed acoustic
-  // model this product bundles and redistributes (badrex/Ethio-ASR-amharic,
-  // Hugging Face). See README.md "Credits" for the full text.
+  // About: version + the attribution required by the CC-BY-4.0 licensed
+  // acoustic model this product redistributes (snapwre/hohe-asr-amharic, a
+  // fine-tune of badrex/Ethio-ASR-multilingual-600M).
   $('credits').addEventListener('click', (e) => {
     e.preventDefault();
     $('logDisc').classList.add('open');
     clearLog();
-    log('Amharic Captions credits');
+    log('Amharic Captions v' + APP_VERSION);
     log('---');
-    log('Acoustic model: "Ethio-ASR-amharic" by badrex (Hugging Face).');
+    log('Acoustic model: "hohe-asr-amharic" by snapwre (Hugging Face), fine-tuned');
+    log('from "Ethio-ASR-multilingual-600M" by badrex.');
     log('License: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/).');
-    log('Model page: https://huggingface.co/badrex/Ethio-ASR-amharic');
-    log('Unmodified weights, converted to CTranslate2 int8 for offline CPU inference.');
+    log('Model page: https://huggingface.co/snapwre/hohe-asr-amharic');
+    log('Converted to CTranslate2 int8 for offline CPU inference; no other changes.');
     log('');
     log('Speaker-embedding model: TitaNet-Small by NVIDIA (NeMo), distributed via');
     log('the sherpa-onnx project. License: CC BY 4.0.');
@@ -3316,6 +3363,7 @@ function setup() {
   initVersion();
   initReview();
   initModelDownload();
+  syncProgressRow();   // idle: no empty progress row
 }
 
 setup();

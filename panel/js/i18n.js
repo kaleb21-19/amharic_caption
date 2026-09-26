@@ -29,14 +29,14 @@ let AMH_LANG = i18nGetLang();
 // ── static HTML (keys referenced from index.html) ───────────────────────────
 const AM_STATIC = {
   'app.title':        'አማርኛ ካፕሽን',
-  'app.sub':          'በኮምፒውተርዎ ላይ · 100% ያለ ኢንተርኔት',
+  'app.sub':          '100% ያለ ኢንተርኔት',
   'font.checking':    'ፊደል በመፈተሽ ላይ…',
   'status.idle':      'በመጠባበቅ ላይ',
 
   'ob.pick':          '<b>ክሊፕ ይምረጡ</b><span>በታይምላይኑ ላይ ማንኛውንም ክሊፕ ይምረጡ፣ ወይም Work Area / ሙሉ ኤዲት ይጠቀሙ።</span>',
   'ob.style':         '<b>የካፕሽን አይነት ይምረጡ</b><span>ካራኦኬ (አንድ ቃል በአንድ ጊዜ) ወይም በቡድን (በአንድ ካፕሽን 3 ቃላት)።</span>',
   'ob.generate':      '<b>ካፕሽን ይፍጠሩ</b><span>ካፕሽኖቹ በታይምላይኑ ላይ (Premiere) ወይም እንደ ቴክስት ሌየር (After Effects) ይቀመጣሉ — ሙሉ በሙሉ ያለ ኢንተርኔት፣ በኮምፒውተርዎ ላይ።</span>',
-  'ob.health':        'የሲስተም ፍተሻ',
+  'ob.health':        'መስተካከል ያለበት ነገር አለ',
   'ob.start':         'ካፕሽን መስራት ይጀምሩ',
 
   'model.title':      'የአማርኛ ሞዴል',
@@ -78,7 +78,7 @@ const AM_STATIC = {
   'lic.bankLink':     'የባንክ አካውንቶች',
   'lic.bankName':     'የአካውንት ስም፦ <b>KALEB TEGEGEN</b> — ለሌላ ሰው አይክፈሉ።',
   'lic.mismatch':     '⚠️ <b>ይህ የማሽን መዝገብ የተፈጠረው በሌላ ኮምፒውተር ላይ ነው።</b> ቁልፍ ገዝተው እንደገና ከጫኑ፣ ፈቃዱን ወደዚህ ለማዛወር ድጋፍ ያግኙ — ሁለተኛ አይግዙ።',
-  'lic.licensed':     '🔒 <b>ፈቃድ ያለው።</b> ይህ ቅጂ ለዚህ ጭነት ገቢር ሆኗል። ፈቃድዎ ከዚህ ጭነት ጋር ስለተሳሰረ የማሽን መለያው ተደብቋል።',
+  'lic.licensed':     '✓ <b>ፈቃድ አለዎት።</b> ስለገዙ እናመሰግናለን።',
   'lic.keyLabel':     'የፈቃድ ቁልፍ',
   'lic.activate':     'አግብር',
   'lic.checking':     'ፈቃድ በመፈተሽ ላይ…',
@@ -86,15 +86,15 @@ const AM_STATIC = {
 
   'log.title':        'መዝገብ',
   'log.hint':         'ሞተሩ እየሰራ ያለው (በእንግሊዝኛ)',
-  'log.toggle':       'መዝገብ',
+  'log.toggle':       'ለድጋፍ ዝርዝር መረጃ',
   'log.initial':      'ምንጭ ይምረጡ፣ አማራጮችን ያስተካክሉ፣ ከዚያ «ካፕሽን ፍጠር» ይጫኑ።',
 
   'foot.license':     'ፈቃድ 2,500 ብር · አንድ ጊዜ ብቻ',
   'foot.help':        '💬 እገዛ',
   'foot.helpTitle':   'በቴሌግራም እገዛ ያግኙ',
-  'foot.diag':        'ምርመራ',
-  'foot.credits':     'ምስጋና',
-  'foot.creditsTitle':'የሞዴሉ ምስጋና',
+  'foot.diag':        'ምርመራ አድርግ',
+  'foot.credits':     'ስለ ምርቱ',
+  'foot.creditsTitle':'ስሪትና ምስጋና',
   'foot.terms':       'ውሎች',
   'foot.termsTitle':  'የፈቃድ፣ የግላዊነት እና የተመላሽ ውሎች',
 
@@ -103,9 +103,11 @@ const AM_STATIC = {
   'rev.search':       'ካፕሽን ፈልግ…',
   'rev.searchTitle':  'ዝርዝሩን ለማጣራት ይጻፉ',
   'rev.add':          '+ ካፕሽን ጨምር',
-  'rev.export':       'SRT/VTT/TXT አስቀምጥ',
+  'rev.export':       'የሰብታይትል ፋይሎችን አስቀምጥ',
   'rev.exportTitle':  'SRT፣ VTT እና TXT በመረጡት ፎልደር ያስቀምጡ',
-  'rev.discard':      'ሰርዝ',
+  'rev.discard':      'ተወው',
+  'rev.place.ae':     '✓ ወደ ኮምፖዚሽኑ ጨምር',
+  'rev.sub.ae':       'ጽሑፍና ሰዓቱን ያስተካክሉ፣ ከዚያ ወደ ኮምፖዚሽኑ ይጨምሩ',
   'rev.place':        '✓ በታይምላይን ላይ አስቀምጥ',
 };
 
@@ -122,6 +124,26 @@ const AM_TEXT = {
   'failed': 'አልተሳካም',
   'runtime missing': 'ሞተሩ አልተገኘም',
   'runtime incomplete': 'ሞተሩ ያልተሟላ ነው',
+
+  // failure messages shown under Generate (main.js humanError)
+  'That clip is too short to transcribe.': 'ክሊፑ ወደ ጽሑፍ ለመቀየር በጣም አጭር ነው።',
+  'No speech found in that audio.': 'በድምፁ ውስጥ ንግግር አልተገኘም።',
+  'No transcribable clips in that range.': 'በዚህ ክፍል ውስጥ ወደ ጽሑፍ የሚቀየር ክሊፕ የለም።',
+  'Select a clip on the timeline (or put the playhead on it), then try again.':
+    'በታይምላይኑ ላይ ክሊፕ ይምረጡ (ወይም ጠቋሚውን በላዩ ላይ ያድርጉ)፣ ከዚያ እንደገና ይሞክሩ።',
+  'That item has no media file — try a regular video or audio clip.':
+    'ይህ የሚዲያ ፋይል የለውም — መደበኛ ቪዲዮ ወይም የድምፅ ክሊፕ ይሞክሩ።',
+  'Could not read that media file.': 'የሚዲያ ፋይሉን ማንበብ አልተቻለም።',
+  'Your disk is full.': 'የኮምፒውተርዎ ዲስክ ሞልቷል።',
+  'The transcription engine stopped unexpectedly.': 'የትራንስክሪፕሽን ሞተሩ ሳይታሰብ ቆሟል። እንደገና ይሞክሩ።',
+  'The transcription runtime is missing or incomplete.': 'የትራንስክሪፕሽን ሞተሩ የለም ወይም ያልተሟላ ነው። እንደገና ይጫኑ።',
+  'Cancelled.': 'ተቋርጧል።',
+  'Transcription failed.': 'ወደ ጽሑፍ መቀየር አልተሳካም።',
+
+  // progress under Generate
+  'Transcribing…': 'ወደ ጽሑፍ በመቀየር ላይ…',
+  'Transcription complete': 'ተጠናቋል',
+  'Reading cached captions': 'የተቀመጡ ካፕሽኖችን በማንበብ ላይ',
   'model needed': 'ሞዴሉ መውረድ አለበት',
 
   // one-time model download card
@@ -189,6 +211,16 @@ const AM_PATTERNS = [
   [/^Licensed \(expires (\d+)\)$/, 'ፈቃድ አለው (እስከ $1)'],
   [/^License expired on (.+)$/, 'ፈቃዱ $1 ላይ አብቅቷል'],
   [/^(\d+) captions?$/, '$1 ካፕሽን'],
+  [/^Extracting audio (\d+)\/(\d+)$/, 'ድምፅ በማውጣት ላይ $1/$2'],
+  [/^Transcribing (\d+)\/(\d+)(.*)$/, function (m, a, b, rest) {
+    rest = rest
+      .replace(/ · about (\d+) min left/, ' · ወደ $1 ደቂቃ ቀርቷል')
+      .replace(/ · (?:about |~)(\d+)s left/, ' · ወደ $1 ሰከንድ ቀርቷል');
+    return 'ወደ ጽሑፍ በመቀየር ላይ ' + a + '/' + b + rest;
+  }],
+  [/^(.+) See “Details for support” below\.$/, function (m, inner) {
+    return T(inner) + ' ዝርዝሩ ከታች «ለድጋፍ ዝርዝር መረጃ» ውስጥ አለ።';
+  }],
   [/^⬇ Download the Amharic model \((\d+) MB\)$/, '⬇ የአማርኛ ሞዴሉን አውርድ ($1 MB)'],
   [/^Downloading… (\d+) \/ (\d+) MB$/, 'በማውረድ ላይ… $1 / $2 MB'],
   [/^Paused at (\d+) \/ (\d+) MB$/, 'ቆሟል፦ $1 / $2 MB'],
