@@ -167,6 +167,8 @@ const KNOWN = [
   'runBtn', 'cancelBtn', 'progBar', 'progLabel',
   // lite: one-time model download card
   'modelCard', 'modelBtn', 'modelBar', 'modelLabel',
+  // update-available banner
+  'updateBanner', 'updateText', 'updateGo', 'updateLater',
   // license
   'machineIdSection', 'machineIdDisplay', 'machineIdCopy', 'machineMismatch',
   'licensedNote', 'licenseInput', 'licenseActivate', 'licenseStatus', 'trialBanner',
@@ -200,6 +202,7 @@ function makeDocument(tagFor) {
     licenseInput: ['input', null], reviewSearch: ['input', null],
     runBtn: ['button', null], cancelBtn: ['button', null], choose: ['button', null],
     modelBtn: ['button', null],
+    updateGo: ['button', null], updateLater: ['button', null],
     diag: ['a', null], credits: ['a', null], onboardStart: ['button', null],
     licenseActivate: ['button', null], machineIdCopy: ['button', null],
     reviewAdd: ['button', null], reviewExport: ['button', null],

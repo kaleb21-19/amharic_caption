@@ -344,6 +344,89 @@ function pingPanel() {
 }
 setTimeout(pingPanel, 800);
 
+// ── Update-available notice ──────────────────────────────────────────────────
+// Asks our Worker (GET /api/latest, one cached GitHub lookup for everyone) at
+// most once a day and remembers the answer, so the banner survives restarts
+// and offline days. ✕ snoozes it for 3 days for that version only; a newer
+// release shows again at once. The button only ever opens our own website.
+const UPDATE_LATEST_KEY = 'amh.update.latest';     // {version, url}
+const UPDATE_CHECKED_KEY = 'amh.update.checked';   // epoch ms of last lookup
+const UPDATE_SNOOZE_KEY = 'amh.update.snooze';     // {version, until}
+const UPDATE_EVERY_MS = 24 * 60 * 60 * 1000;
+const UPDATE_SNOOZE_MS = 3 * 24 * 60 * 60 * 1000;
+const UPDATE_SITE = 'https://amharic-caption-pro.vercel.app/';
+
+function versionNewer(a, b) {           // true when version a > version b
+  const pa = String(a).split('.').map(Number);
+  const pb = String(b).split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const x = pa[i] || 0, y = pb[i] || 0;
+    if (x !== y) return x > y;
+  }
+  return false;
+}
+function readJson(key) { try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { return null; } }
+
+function renderUpdateBanner() {
+  const banner = document.getElementById('updateBanner');
+  if (!banner) return;
+  const latest = readJson(UPDATE_LATEST_KEY);
+  const snooze = readJson(UPDATE_SNOOZE_KEY);
+  const show = !!(latest && /^\d+\.\d+\.\d+$/.test(latest.version) &&
+    versionNewer(latest.version, APP_VERSION) &&
+    !(snooze && snooze.version === latest.version && Date.now() < snooze.until));
+  banner.style.display = show ? 'flex' : 'none';
+  if (show) {
+    const txt = document.getElementById('updateText');
+    if (txt) txt.textContent = L('Version ' + latest.version + ' is available.');
+  }
+}
+
+async function checkForUpdate() {
+  let last = 0;
+  try { last = Number(localStorage.getItem(UPDATE_CHECKED_KEY)) || 0; } catch (e) {}
+  const now = Date.now();
+  if (!(last && now - last < UPDATE_EVERY_MS && now >= last)) {
+    const data = await apiGet('/api/latest', 5000);
+    if (data && /^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(String(data.version || ''))) {
+      const url = (typeof data.url === 'string' && data.url.indexOf(UPDATE_SITE) === 0)
+        ? data.url : UPDATE_SITE + 'install/';
+      try {
+        localStorage.setItem(UPDATE_LATEST_KEY, JSON.stringify({ version: data.version, url }));
+        localStorage.setItem(UPDATE_CHECKED_KEY, String(now));
+      } catch (e) {}
+    }
+    // Offline / server error: nothing stored, so the next panel open retries.
+  }
+  renderUpdateBanner();
+}
+
+function initUpdateBanner() {
+  const go = document.getElementById('updateGo');
+  const later = document.getElementById('updateLater');
+  if (go) go.addEventListener('click', (e) => {
+    e.preventDefault();
+    const latest = readJson(UPDATE_LATEST_KEY);
+    const url = (latest && typeof latest.url === 'string' && latest.url.indexOf(UPDATE_SITE) === 0)
+      ? latest.url : UPDATE_SITE + 'install/';
+    try { window.__adobe_cep__ && window.cep.util.openURLInDefaultBrowser(url); }
+    catch (err) { window.open(url, '_blank'); }
+  });
+  if (later) later.addEventListener('click', () => {
+    const latest = readJson(UPDATE_LATEST_KEY);
+    if (latest) {
+      try {
+        localStorage.setItem(UPDATE_SNOOZE_KEY,
+          JSON.stringify({ version: latest.version, until: Date.now() + UPDATE_SNOOZE_MS }));
+      } catch (e) {}
+    }
+    renderUpdateBanner();
+  });
+  if (typeof i18nOnChange === 'function') i18nOnChange(renderUpdateBanner);
+  renderUpdateBanner();                 // last known answer, even offline
+  setTimeout(checkForUpdate, 1500);
+}
+
 // ── Host theme detection (Premiere dark/light) ──────────────────────────────
 function hostTheme() {
   try {
@@ -3316,6 +3399,7 @@ function setup() {
   initVersion();
   initReview();
   initModelDownload();
+  initUpdateBanner();
 }
 
 setup();
