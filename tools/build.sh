@@ -205,6 +205,7 @@ if [[ ! -d "$PANEL_SRC" ]]; then
 fi
 cp -R "$PANEL_SRC/." "${BUILD_DIR}/${NAME}/"
 rm -rf "${BUILD_DIR}/${NAME}/test"   # developer tests are not shipped
+find "${BUILD_DIR}/${NAME}" -name '_preview*' -exec rm -rf {} + 2>/dev/null || true   # local review scratch
 echo "  [ok] panel files"
 
 echo "== runtime + panel staged (total $(du -sh "${BUILD_DIR}/${NAME}" | cut -f1)) =="
