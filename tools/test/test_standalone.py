@@ -74,6 +74,8 @@ class Mock(BaseHTTPRequestHandler):
         if self.path.startswith("/api/trial?mid="):
             self._send({"used": STATE["used"], "max": STATE["max"],
                         "remaining": max(0, STATE["max"] - STATE["used"])})
+        elif self.path == "/api/latest":
+            self._send({"version": "9.9.9", "url": "https://amharic-caption-pro.vercel.app/install/"})
         else:
             self._send({"error": "nf"}, 404)
 
@@ -212,6 +214,24 @@ def t7():
     assert rc == 1 and "Not a supported" in out, out
 
 
+def t6b():
+    orig = lic.installed_version
+    try:
+        lic.installed_version = lambda rt: "1.0.0"
+        rc, out = run([clip("g.wav")])
+        assert rc == 0 and "New version 9.9.9 is available" in out, out[-400:]
+        lic.installed_version = lambda rt: "99.0.0"
+        rc, out = run([clip("h.wav")])
+        assert rc == 0 and "New version" not in out, "up to date: no notice"
+        STATE["online"] = False
+        lic.installed_version = lambda rt: "1.0.0"
+        rc, out = run([clip("i.wav")])
+        assert rc == 0 and "New version" not in out, "offline: silent, run still succeeds"
+    finally:
+        STATE["online"] = True
+        lic.installed_version = orig
+
+
 def t8():
     # a tampered stored lease is refused
     p = os.path.join(HOME, ".amharic_captions_license.json")
@@ -228,6 +248,7 @@ t("3. trial used up: no srt, shows Machine ID + how to pay", t3)
 t("4. offline + unlicensed: refuses, says internet is needed", t4)
 t("5. activation: bad key rejected; good key stores the panel-format lease", t5)
 t("6. licensed: works offline, never charged, never overwrites", t6)
+t("6b. update notice after the run: newer shows, up to date / offline silent", t6b)
 t("7. unsupported file type is refused", t7)
 t("8. a tampered lease is not accepted", t8)
 srv.shutdown()

@@ -241,13 +241,13 @@ def canonical_key(value):
     return "".join(c for c in s if c not in " \t-").lower()
 
 
-def _api(method, path, body=None):
+def _api(method, path, body=None, timeout=API_TIMEOUT):
     data = None if body is None else json.dumps(body).encode()
     req = urllib.request.Request(API_URL + path, data=data, method=method,
                                  headers={"Content-Type": "application/json",
                                           "User-Agent": "AmharicCaptions-SRT"})
     try:
-        with urllib.request.urlopen(req, timeout=API_TIMEOUT) as res:
+        with urllib.request.urlopen(req, timeout=timeout) as res:
             return json.loads(res.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         try:
@@ -255,6 +255,38 @@ def _api(method, path, body=None):
         except Exception:
             return None
     except Exception:
+        return None
+
+
+# ── update-available notice ─────────────────────────────────────────────────
+SITE_INSTALL_URL = "https://amharic-caption-pro.vercel.app/install/"
+
+
+def _ver_tuple(v):
+    return tuple(int(x) for x in str(v).split("."))
+
+
+def installed_version(runtime_dir):
+    """ExtensionBundleVersion from the extension's CSXS/manifest.xml."""
+    import re
+    try:
+        with open(os.path.join(runtime_dir, "..", "CSXS", "manifest.xml"), "r", encoding="utf-8") as f:
+            m = re.search(r'ExtensionBundleVersion="(\d+\.\d+\.\d+)"', f.read())
+        return m.group(1) if m else None
+    except OSError:
+        return None
+
+
+def newer_release(current):
+    """The newer published version (str) if there is one, else None. Quick
+    (5 s) and silent when offline; the answer comes from our Worker's cache."""
+    if not current:
+        return None
+    res = _api("GET", "/api/latest", timeout=5)
+    v = str((res or {}).get("version") or "")
+    try:
+        return v if _ver_tuple(v) > _ver_tuple(current) else None
+    except ValueError:
         return None
 
 

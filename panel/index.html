@@ -276,6 +276,21 @@
   #fontPill.err { color: var(--err); border-color: rgba(229,72,77,.4); background: var(--err-soft); }
   #fontPill.err .dot { background: var(--err); }
 
+  /* ---------- Update-available banner ---------- */
+  .update-banner {
+    display: none; align-items: center; gap: 8px; margin-bottom: 8px;
+    padding: 7px 8px 7px 10px; border: 1px solid rgba(52,192,125,.45);
+    border-radius: var(--radius); background: var(--ok-soft); font-size: 11px; line-height: 1.35;
+  }
+  .update-banner #updateText { flex: 1 1 auto; min-width: 0; color: var(--text-primary); font-weight: 600; }
+  /* .btn-primary is full-width everywhere else in the panel; not here. */
+  .update-banner .btn { flex: 0 0 auto; width: auto; height: auto; padding: 4px 10px; font-size: 11px; }
+  .update-later {
+    flex: 0 0 auto; background: none; border: 0; cursor: pointer; font-size: 12px;
+    color: var(--text-secondary); padding: 2px 4px; line-height: 1;
+  }
+  .update-later:hover { color: var(--text-primary); }
+
   /* ---------- Language toggle (አማ / EN) ---------- */
   .lang-toggle {
     flex: 0 0 auto; font: inherit; font-size: 9.5px; font-weight: 700; cursor: pointer;
@@ -430,6 +445,13 @@
   </div>
 
   <div class="panel-body">
+
+    <!-- Update available (filled by initUpdateBanner; hidden when up to date) -->
+    <div id="updateBanner" class="update-banner" role="status" aria-live="polite">
+      <span id="updateText"></span>
+      <button type="button" id="updateGo" class="btn btn-primary" data-i18n="update.download">Download</button>
+      <button type="button" id="updateLater" class="update-later" title="Remind me later" data-i18n-title="update.later">✕</button>
+    </div>
 
     <!-- Lite packages: one-time model download (hidden when the model exists) -->
     <div class="card" id="modelCard" style="display:none;border-color:var(--warn);">

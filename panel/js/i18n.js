@@ -39,6 +39,9 @@ const AM_STATIC = {
   'ob.health':        'የሲስተም ፍተሻ',
   'ob.start':         'ካፕሽን መስራት ይጀምሩ',
 
+  'update.download':  'አውርድ',
+  'update.later':     'በኋላ አስታውሰኝ',
+
   'model.title':      'የአማርኛ ሞዴል',
   'model.hint':       'አንድ ጊዜ ብቻ የሚወርድ',
   'model.body':       'የአማርኛ ድምፅ ሞዴሉ <b>አንድ ጊዜ ብቻ</b> ወርዶ በዚህ ኮምፒውተር ይቀመጣል፣ ስለዚህ ቀጣይ ማሻሻያዎች ትንሽ ይሆናሉ። ኢንተርኔት ቢቋረጥ ካቆመበት ይቀጥላል።',
@@ -189,6 +192,7 @@ const AM_PATTERNS = [
   [/^Licensed \(expires (\d+)\)$/, 'ፈቃድ አለው (እስከ $1)'],
   [/^License expired on (.+)$/, 'ፈቃዱ $1 ላይ አብቅቷል'],
   [/^(\d+) captions?$/, '$1 ካፕሽን'],
+  [/^Version (\d+\.\d+\.\d+) is available\.$/, 'አዲስ ስሪት $1 ወጥቷል።'],
   [/^⬇ Download the Amharic model \((\d+) MB\)$/, '⬇ የአማርኛ ሞዴሉን አውርድ ($1 MB)'],
   [/^Downloading… (\d+) \/ (\d+) MB$/, 'በማውረድ ላይ… $1 / $2 MB'],
   [/^Paused at (\d+) \/ (\d+) MB$/, 'ቆሟል፦ $1 / $2 MB'],

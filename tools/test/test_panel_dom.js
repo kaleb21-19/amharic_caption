@@ -1058,6 +1058,87 @@ await t('15. lite package: model missing -> download card, Generate blocked, fin
   }
 });
 
+await t('16. update notice: newer shows, same/older/offline hide, ✕ snoozes per version, once a day', async () => {
+  let calls = 0;
+  let answer = { version: '9.9.9', url: 'https://amharic-caption-pro.vercel.app/install/' };
+  let online = true;
+  const fetchLatest = async (url) => {
+    if (String(url).indexOf('/api/latest') < 0) return { ok: false, json: async () => null };
+    calls++;
+    if (!online) throw new Error('offline');
+    return { ok: true, json: async () => answer };
+  };
+  const storage = makeLocalStorage();
+  let p = loadPanel({ storage, fetch: fetchLatest });
+  try {
+    await flush(10);
+    assert.strictEqual(p.els('updateBanner').style.display, 'none', 'nothing known yet');
+    await p.evalVm('checkForUpdate()');
+    assert.strictEqual(calls, 1);
+    assert.strictEqual(p.els('updateBanner').style.display, 'flex', 'newer version -> banner');
+    assert.strictEqual(p.els('updateText').textContent, 'Version 9.9.9 is available.');
+    await p.evalVm('checkForUpdate()');
+    assert.strictEqual(calls, 1, 'at most one lookup a day');
+
+    // ✕ snoozes this version...
+    p.els('updateLater').fire('click');
+    assert.strictEqual(p.els('updateBanner').style.display, 'none', 'snoozed');
+  } finally { p.close(); }
+
+  // ...across restarts (no network needed to remember)...
+  online = false;
+  p = loadPanel({ storage, fetch: fetchLatest });
+  try {
+    await flush(10);
+    assert.strictEqual(p.els('updateBanner').style.display, 'none', 'still snoozed after restart');
+    // ...but a NEWER release shows again at once.
+    storage.setItem('amh.update.checked', '0');
+    online = true;
+    answer = { version: '10.0.0', url: 'https://amharic-caption-pro.vercel.app/install/' };
+    await p.evalVm('checkForUpdate()');
+    assert.strictEqual(p.els('updateBanner').style.display, 'flex', 'newer than the snoozed one');
+    has(p.els('updateText').textContent, '10.0.0');
+  } finally { p.close(); }
+
+  // Same or older version: no banner. Offline: nothing stored, retried next open.
+  for (const [v, why] of [['1.0.0', 'older'], [p.evalVm('APP_VERSION'), 'same']]) {
+    const s2 = makeLocalStorage();
+    answer = { version: v, url: 'https://amharic-caption-pro.vercel.app/install/' };
+    const q = loadPanel({ storage: s2, fetch: fetchLatest });
+    try { await q.evalVm('checkForUpdate()'); assert.strictEqual(q.els('updateBanner').style.display, 'none', why); }
+    finally { q.close(); }
+  }
+  const s3 = makeLocalStorage();
+  online = false;
+  const o = loadPanel({ storage: s3, fetch: fetchLatest });
+  try {
+    await o.evalVm('checkForUpdate()');
+    assert.strictEqual(o.els('updateBanner').style.display, 'none', 'offline: no banner, no error');
+    assert.strictEqual(s3.getItem('amh.update.checked'), null, 'offline: will retry next open');
+  } finally { o.close(); }
+
+  // A download link that is not our own site is never used.
+  const s4 = makeLocalStorage();
+  online = true;
+  answer = { version: '9.9.9', url: 'https://evil.example/malware.zip' };
+  const q4 = loadPanel({ storage: s4, fetch: fetchLatest });
+  try {
+    await q4.evalVm('checkForUpdate()');
+    assert.strictEqual(JSON.parse(s4.getItem('amh.update.latest')).url,
+      'https://amharic-caption-pro.vercel.app/install/', 'foreign URL replaced by our install page');
+  } finally { q4.close(); }
+
+  // Amharic wording
+  const s5 = makeLocalStorage();
+  s5.setItem('amh.lang', 'am');
+  answer = { version: '9.9.9', url: 'https://amharic-caption-pro.vercel.app/install/' };
+  const a5 = loadPanel({ storage: s5, fetch: fetchLatest });
+  try {
+    await a5.evalVm('checkForUpdate()');
+    assert.strictEqual(a5.els('updateText').textContent, 'አዲስ ስሪት 9.9.9 ወጥቷል።');
+  } finally { a5.close(); }
+});
+
 await t('13b. language: an unset preference defaults to Amharic; unknown text falls back to English', async () => {
   const storage = makeLocalStorage();
   storage.setItem('amh.lang', 'am');

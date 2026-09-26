@@ -265,7 +265,18 @@ def main(argv):
     say("ተጠናቋል፦ %d/%d ፋይሎች።" % (done, len(good)), "Finished: %d of %d file(s)." % (done, len(good)))
     say("የ.srt ፋይሉን በCapCut፣ DaVinci Resolve ወይም በሌላ ኤዲተር ያስገቡ።",
         "Import the .srt into CapCut, DaVinci Resolve or any editor.")
+    show_update_notice()
     return 0 if done == len(good) else 1
+
+
+def show_update_notice():
+    """One line after the work is done if a newer version exists (silent
+    offline; never delays the transcription itself)."""
+    newer = lic.newer_release(lic.installed_version(HERE))
+    if newer:
+        rule()
+        say("🔔 አዲስ ስሪት %s ወጥቷል፦ %s" % (newer, lic.SITE_INSTALL_URL),
+            "New version %s is available: %s" % (newer, lic.SITE_INSTALL_URL))
 
 
 if __name__ == "__main__":
