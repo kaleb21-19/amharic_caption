@@ -164,7 +164,9 @@ const KNOWN = [
   'choose', 'fileInput', 'picked',
   // style
   'capSeg', 'capWords', 'capGroup', 'groupSize', 'maxChars', 'speakersToggle',
-  'runBtn', 'cancelBtn', 'progBar', 'progLabel',
+  'runBtn', 'cancelBtn', 'progBar', 'progLabel', 'progWrap', 'progTrack',
+  // panel polish: collapsible option field, footer price, review labels
+  'groupSizeField', 'footPrice', 'reviewSub', 'healthTitle',
   // lite: one-time model download card
   'modelCard', 'modelBtn', 'modelBar', 'modelLabel',
   // update-available banner

@@ -896,9 +896,58 @@ await t('11. a failed run says so on screen, not only in the log', async () => {
       'status pill reports the failure');
     has(p.els('progLabel').textContent, 'engine stopped',
       'the human message is shown next to the Generate button');
-    has(p.els('progLabel').textContent, 'Log',
-      'and points at the Log for detail');
+    has(p.els('progLabel').textContent, 'Details for support',
+      'and points at the support details for more');
   } finally { p.close(); }
+});
+
+await t('17. polish: Amharic errors/progress, compact idle UI, simple license states', async () => {
+  const storage = makeLocalStorage();
+  storage.setItem('amh.lang', 'am');
+  storage.setItem('amh.trial.used', '0');
+  const p = loadPanel({ storage });
+  try {
+    await flush(10);
+    // idle: no empty progress row
+    assert.strictEqual(p.els('progWrap').style.display, 'none', 'progress row hidden when idle');
+    // running: row shows, text in Amharic
+    p.evalVm("setBusy(true); setProgress(0.4, 'Transcribing 3/7 · about 2 min left')");
+    assert.strictEqual(p.els('progWrap').style.display, '', 'progress row visible while running');
+    assert.strictEqual(p.els('progLabel').textContent, 'ወደ ጽሑፍ በመቀየር ላይ 3/7 · ወደ 2 ደቂቃ ቀርቷል');
+    p.evalVm('setBusy(false)');
+    // failure: Amharic message, row stays visible because there is something to say
+    p.evalVm('failRun("ffmpeg failed with code 1")');
+    has(p.els('progLabel').textContent, 'የሚዲያ ፋይሉን ማንበብ አልተቻለም', 'failure in Amharic');
+    assert.strictEqual(p.els('progWrap').style.display, '', 'failure message visible');
+    // language switch re-renders the failure line
+    p.evalVm("i18nSetLang('en')");
+    has(p.els('progLabel').textContent, 'Could not read that media file', 'switch -> English');
+    p.evalVm("i18nSetLang('am')");
+
+    // Karaoke hides the words-per-caption field; Grouped shows it
+    p.els('capWords').fire('click');
+    assert.strictEqual(p.els('groupSizeField').style.display, 'none', 'karaoke: no words-per-caption');
+    p.els('capGroup').fire('click');
+    assert.strictEqual(p.els('groupSizeField').style.display, '', 'grouped: words-per-caption shown');
+
+    // trial used up: said once (banner), not twice
+    p.evalVm("localStorage.setItem('amh.trial.used','2'); updateLicenseUI()");
+    assert.strictEqual(p.els('trialBanner').style.display, 'block');
+    assert.strictEqual(p.els('licenseStatus').style.display, 'none', 'no duplicate status line');
+    // licensed: thank-you note, no price in the footer, no redundant status line
+    p.evalVm("LICENSED = true; LICENSE_NOTE = 'Licensed'; updateLicenseUI()");
+    assert.strictEqual(p.els('footPrice').style.display, 'none', 'no price shown to payers');
+    assert.strictEqual(p.els('licenseStatus').style.display, 'none');
+    p.evalVm("LICENSE_NOTE = 'Licensed (expires 20271231)'; updateLicenseUI()");
+    assert.strictEqual(p.els('licenseStatus').style.display, '', 'dated keys still show their date');
+  } finally { p.close(); }
+
+  // After Effects: the review button says composition, not timeline
+  const ae = loadPanel({ hostApp: 'AEFT' });
+  try {
+    await flush(10);
+    assert.strictEqual(ae.els('reviewPlace').textContent, '✓ Add to composition');
+  } finally { ae.close(); }
 });
 
 await t('12. the boot ping really is once per day', async () => {
