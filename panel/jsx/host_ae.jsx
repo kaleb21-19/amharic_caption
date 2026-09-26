@@ -24,6 +24,8 @@
  */
 
 var AMH_AE_TAG = "amh-captions:";
+// Placement counter for this session: part of each caption layer's unique tag.
+var AMH_AE_SEQ = 0;
 
 function amhAeComp() {
     var item = app.project ? app.project.activeItem : null;
@@ -316,7 +318,12 @@ function amh_importCaptions(argsJSON) {
                            requestedStart: offset, landedStart: null, landedEnd: null, captionItemName: "" });
         }
 
-        var stamp = String(new Date().getTime());
+        // Unique per placement even within one millisecond (a millisecond
+        // stamp alone let a fast re-run tag the new layer like the old one, so
+        // the old caption layer was never replaced).
+        AMH_AE_SEQ += 1;
+        var stamp = String(new Date().getTime()) + "-" + AMH_AE_SEQ + "-" +
+                    String(Math.floor(Math.random() * 1e9));
         var tagPrefix = AMH_AE_TAG + baseName + "|";
         var layer = null, fontUsed = "";
         app.beginUndoGroup("Amharic Captions");
