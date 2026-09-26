@@ -77,9 +77,13 @@ class TextLayer extends AVLayer {
   moveToBeginning() {}
 }
 
-function makeCtx(comp, installedFonts) {
+function makeCtx(comp, installedFonts, opts) {
+  opts = opts || {};
   const undo = [];
   const ctx = {
+    // opts.frozenClock: every new Date() reports the same millisecond, the way
+    // a fast CI machine can run two placements (the flaky-tag regression).
+    ...(opts.frozenClock ? { Date: class extends Date { getTime() { return 1700000000000; } } } : {}),
     app: {
       version: '24.3', project: { activeItem: comp, numItems: 0, item: () => null, file: null },
       beginUndoGroup: (n) => undo.push('begin:' + n), endUndoGroup: () => undo.push('end'),
@@ -219,6 +223,20 @@ t('import: re-run replaces the older layer for the same clip, keeps others', () 
   const names = comp._layers.map((l) => l.name).sort();
   assert.deepStrictEqual(names, ['Amharic Captions - b-roll', 'Amharic Captions - interview']);
   assert.match(r.note, /replaced 1 older/);
+});
+
+t('import: re-run within the same millisecond still replaces the older layer', () => {
+  const comp = new CompItem();
+  const ctx = makeCtx(comp, null, { frozenClock: true });
+  const run = () => call(ctx, 'amh_importCaptions(' + JSON.stringify(JSON.stringify(
+    { srtPath: srtFile(SRT), startSeconds: 0, baseName: 'interview' })) + ')');
+  run();
+  const r = run();
+  assert.strictEqual(comp.numLayers, 1, 'no duplicate caption layer');
+  assert.match(r.note, /replaced 1 older/);
+  const tags = new Set();
+  for (let i = 0; i < 20; i++) { run(); tags.add(String(comp.layer(1).comment)); }
+  assert.strictEqual(tags.size, 20, 'every placement gets its own tag');
 });
 
 t('import: cues past the comp end are dropped; none inside -> placed:false', () => {
