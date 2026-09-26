@@ -25,7 +25,11 @@ const steps = [
 const faqs = [
   {
     q: "Do I need internet to use it?",
-    a: "No. Transcription runs entirely on your machine. You need internet once to install and once to receive your license key — after that you can work completely offline.",
+    a: "No. Transcription runs entirely on your machine. You need internet once to install (the small download fetches the Amharic model once, and continues if your connection drops) and once to receive your license key — after that you can work completely offline.",
+  },
+  {
+    q: "I don't use Premiere. Can I still use it?",
+    a: "Yes. The installer adds a “Make Amharic Captions” shortcut to your desktop: drag any video onto it and an .srt subtitle file appears next to it, ready for CapCut, DaVinci Resolve, older Premiere versions or YouTube. Same key, same 2 free captions. (Windows build; Mac update coming.)",
   },
   {
     q: "Is my footage uploaded anywhere?",
@@ -36,8 +40,8 @@ const faqs = [
     a: "Yes. Every new machine gets 2 free captions so you can test it on your own footage in your own Premiere before you pay anything.",
   },
   {
-    q: "Which Premiere versions work?",
-    a: "Premiere Pro 2024 (v24) and newer, on Windows 10/11 and macOS (Intel or Apple Silicon). It does not load on Premiere 2021–2023.",
+    q: "Which Adobe versions work?",
+    a: "Premiere Pro 2024 (v24) and newer, on Windows 10/11 and macOS (Intel or Apple Silicon). After Effects 2024 and newer is supported in the Windows build — captions arrive as one text layer in your composition (Mac update coming). The panel does not load on 2021–2023 versions; use the drag-and-drop .srt tool there instead.",
   },
   {
     q: "How accurate is it?",
@@ -79,7 +83,7 @@ export default function HomePage() {
         <div className="container">
           <div className="hero-grid">
             <div className="hero-copy">
-              <p className="eyebrow">For Adobe Premiere Pro</p>
+              <p className="eyebrow">For Premiere Pro, After Effects &amp; any editor</p>
 
               <h1>
                 Amharic subtitles in minutes,
@@ -251,6 +255,8 @@ export default function HomePage() {
                 <li>2 free captions before you pay anything</li>
                 <li>Editable caption tracks, native to Premiere</li>
                 <li>Premiere Pro 2024+ · Windows 10/11 &amp; macOS</li>
+                <li>After Effects 2024+ and a drag-and-drop .srt maker for CapCut &amp; DaVinci (Windows)</li>
+                <li>Panel in Amharic or English</li>
                 <li>Works fully offline after activation</li>
                 <li>Support on Telegram from the people who built it</li>
               </ul>
