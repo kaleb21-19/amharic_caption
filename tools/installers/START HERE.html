@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="am">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Amharic Captions · አማርኛ ካፕሽን — Start here</title>
+<style>
+  :root {
+    --bg: #0f1412; --card: #161d1a; --line: #25302b; --text: #e8efe9; --muted: #9fb0a6;
+    --accent: #34c07d; --warn: #e8a83d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.6 "Nyala", "Ebrima", "Kefa", "Abyssinica SIL", "Noto Sans Ethiopic", "Segoe UI", -apple-system, Arial, sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 20px 48px; }
+  header { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+  .mark { width: 48px; height: 48px; border-radius: 12px; background: var(--accent); color: #07140d;
+          display: grid; place-items: center; font-size: 28px; font-weight: 700; }
+  h1 { margin: 0; font-size: 26px; line-height: 1.2; }
+  .sub { color: var(--muted); margin: 2px 0 0; font-size: 14px; }
+  h2 { font-size: 18px; margin: 28px 0 10px; }
+  ol.steps { list-style: none; padding: 0; margin: 0; counter-reset: s; }
+  ol.steps > li { counter-increment: s; background: var(--card); border: 1px solid var(--line);
+                  border-radius: 12px; padding: 14px 16px 14px 60px; margin-bottom: 10px; position: relative; }
+  ol.steps > li::before { content: counter(s); position: absolute; left: 16px; top: 14px; width: 30px; height: 30px;
+                          border-radius: 50%; background: rgba(52,192,125,.15); color: var(--accent);
+                          display: grid; place-items: center; font-weight: 700; }
+  .am { font-weight: 600; }
+  .en { color: var(--muted); font-size: 14px; }
+  code, kbd { background: #0b100e; border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px;
+              font-family: Consolas, Menlo, monospace; font-size: 13px; color: var(--text); }
+  .note { border: 1px solid rgba(232,168,61,.5); background: rgba(232,168,61,.08); border-radius: 12px;
+          padding: 12px 16px; margin: 16px 0; }
+  .note b { color: var(--warn); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .box { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  a { color: var(--accent); }
+  footer { margin-top: 32px; color: var(--muted); font-size: 13px; }
+  @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="mark">አ</div>
+    <div>
+      <h1>አማርኛ ካፕሽን · Amharic Captions</h1>
+      <p class="sub">መጀመሪያ ያንብቡ · Start here</p>
+    </div>
+  </header>
+
+  <div class="note">
+    <b>⚠</b> <span class="am">ይህን ገጽ ዚፑን ሳይከፍቱ (Extract ሳያደርጉ) እያዩት ከሆነ፦</span>
+    ዚፕ ፋይሉ ላይ Right-click → <b>Extract All</b> → Extract፣ ከዚያ በወጣው ፎልደር ውስጥ ይቀጥሉ።<br>
+    <span class="en">Seeing this inside the zip? Right-click the zip → <b>Extract All</b> → Extract, then continue in the extracted folder.</span>
+  </div>
+
+  <h2>ለመጫን · To install</h2>
+  <ol class="steps">
+    <li>
+      <div class="am">Premiere Pro እና After Effects ን ሙሉ በሙሉ ይዝጉ (File → Exit)።</div>
+      <div class="en">Fully quit Premiere Pro and After Effects (File → Exit).</div>
+    </li>
+    <li>
+      <div class="am">በዚህ ፎልደር ውስጥ <code>Install.cmd</code> (Windows) ወይም <code>Install.command</code> (Mac) ሁለቴ ይጫኑ፣ ማንኛውንም ቁልፍ ይጫኑ፣ <b>INSTALLATION SUCCESSFUL</b> እስኪል ይጠብቁ።</div>
+      <div class="en">Double-click <code>Install.cmd</code> (Windows) or <code>Install.command</code> (Mac) in this folder, press any key, and wait for <b>INSTALLATION SUCCESSFUL</b>.</div>
+    </li>
+    <li>
+      <div class="am">Premiere ን ይክፈቱ፣ ፕሮጀክት ይክፈቱ፣ ከዚያ <b>Window → Extensions → Amharic Captions</b>።</div>
+      <div class="en">Open Premiere, open a project, then <b>Window → Extensions → Amharic Captions</b>. (After Effects: the same menu.)</div>
+    </li>
+    <li>
+      <div class="am">የመጀመሪያ ጊዜ ብቻ፦ በፓነሉ ላይ <b>«የአማርኛ ሞዴሉን አውርድ»</b> ን አንድ ጊዜ ይጫኑ (610 MB ገደማ)። ኢንተርኔት ቢቋረጥ ካቆመበት ይቀጥላል።</div>
+      <div class="en">First time only: press <b>“Download the Amharic model”</b> in the panel once (about 610 MB). If the internet drops, it continues where it stopped.</div>
+    </li>
+  </ol>
+
+  <h2>ከዚያ · Then</h2>
+  <div class="grid">
+    <div class="box">
+      <div class="am">🎁 2 ካፕሽን በነጻ ይሞክሩ</div>
+      <div class="en">Try 2 captions free. Then buy a license (ETB 2,500, one time) with the <b>Buy</b> button in the panel, or at
+        <a href="https://t.me/AmharicCaptionsBot">t.me/AmharicCaptionsBot</a>.</div>
+    </div>
+    <div class="box">
+      <div class="am">🎬 Premiere የለዎትም?</div>
+      <div class="en">No Premiere? Use <b>Make Amharic Captions</b> on your desktop: drag a video onto it (Mac: double-click it, then drag the video into the window). An .srt file appears next to the video.</div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>⚠</b> <span class="am">ክፍያ ለ <b>KALEB TEGEGEN</b> ብቻ ይፈጸማል — ሌላ ስም ወይም አካውንት ቢጠየቁ እኛ አይደለንም።</span><br>
+    <span class="en">Pay only <b>KALEB TEGEGEN</b>. Anyone asking for a different name or account is not us.</span>
+  </div>
+
+  <h2>እገዛ · Help</h2>
+  <p>
+    <span class="am">ችግር ካጋጠመዎት በቴሌግራም ያግኙን፦</span>
+    <a href="https://t.me/sumpak6">t.me/sumpak6</a> ·
+    <a href="https://amharic-caption-pro.vercel.app/install/">amharic-caption-pro.vercel.app/install</a><br>
+    <span class="en">Stuck? Message us on Telegram — we usually reply fast.</span>
+  </p>
+
+  <footer>
+    100% ያለ ኢንተርኔት ይሰራል — ቪዲዮዎ ከኮምፒውተርዎ አይወጣም። · Runs 100% on your computer — your video never leaves it.<br>
+    License terms, privacy, refunds and open-source licenses: <code>com.amharic.captions/legal</code> ·
+    <a href="https://amharic-caption-pro.vercel.app/legal/">amharic-caption-pro.vercel.app/legal</a>
+  </footer>
+</main>
+</body>
+</html>

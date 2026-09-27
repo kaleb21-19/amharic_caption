@@ -234,17 +234,19 @@ Assert-CrlOnly (Join-Path $INST "Make Amharic Captions.cmd") "Make Amharic Capti
 # Inside the extension folder, so Install.cmd's copy carries it and the
 # desktop shortcut can point at the installed runtime.
 Copy-Item -LiteralPath (Join-Path $INST "Make Amharic Captions.cmd") (Join-Path $BNAME "Make Amharic Captions.cmd")
-Assert-CrlOnly (Join-Path $INST "verify_win.cmd") "verify_win.cmd"
-Copy-Item (Join-Path $INST "verify_win.cmd") (Join-Path $BUILD "verify_win.cmd")
-Copy-Item (Join-Path $INST "VERIFY.md")          (Join-Path $BUILD "VERIFY.md")
-Write-Host "  [ok] verify_win.cmd + VERIFY.md (windows runtime verification harness)"
+# One friendly page at the zip root: what to do, in Amharic and English.
+# (verify_win.cmd / VERIFY.md stay in tools/installers for support use only;
+# they are not shipped to customers.)
+Copy-Item -LiteralPath (Join-Path $INST "START HERE.html") (Join-Path $BUILD "START HERE.html")
+Write-Host "  [ok] START HERE.html"
 
 # ---- 3b. licences + third-party notices ------------------------------------
 # Mirrors tools/build.sh step 2c. The bundled ffmpeg.exe is a GPL build, so the
 # licence text and the written offer for corresponding source MUST accompany
-# it. Shipped at the zip ROOT, beside Install.cmd.
+# it. Shipped inside the extension folder (com.amharic.captions\legal), so it
+# travels with the installed ffmpeg without cluttering the zip root.
 $LICSRC = Join-Path $ROOT "tools\licenses"
-$LICDST = Join-Path $BUILD "licenses"
+$LICDST = Join-Path $BNAME "legal"
 New-Item -ItemType Directory -Force -Path $LICDST | Out-Null
 foreach ($f in @("COPYING.GPLv2.txt", "COPYING.GPLv3.txt", "COPYING.LGPLv2.1.txt", "WRITTEN-OFFER.txt")) {
     Copy-Item (Join-Path $LICSRC $f) (Join-Path $LICDST $f)
@@ -268,24 +270,25 @@ if (-not (Test-Path $pyPath)) {
     --target  $TARGET `
     --out     (Join-Path $LICDST "THIRD-PARTY-NOTICES.md")
 if ($LASTEXITCODE -ne 0) { Write-Host "  [FAIL] gen_notices.py failed"; exit 1 }
-Write-Host "  [ok] licenses/ (GPL text + written offer + third-party notices)"
+Write-Host "  [ok] legal\ (GPL text + written offer + third-party notices)"
 
-# User-facing legal documents must travel with every platform archive, not
-# only inside the extension folder. Keep them at the ZIP root beside Install.cmd.
+# EULA / privacy / refund travel in the same legal folder (also on the website
+# and behind the panel's Terms link).
 $LEGAL = Join-Path $ROOT "tools\legal"
 foreach ($f in @("EULA.txt", "PRIVACY.txt", "REFUND.txt")) {
     $src = Join-Path $LEGAL $f
     if (-not (Test-Path $src)) { Write-Host "  [FAIL] missing legal document: $src"; exit 1 }
-    Copy-Item $src (Join-Path $BUILD $f)
+    Copy-Item $src (Join-Path $LICDST $f)
 }
-Write-Host "  [ok] EULA.txt + PRIVACY.txt + REFUND.txt at zip root"
+Write-Host "  [ok] EULA.txt + PRIVACY.txt + REFUND.txt in legal\"
 
 # ---- 4. zip ----------------------------------------------------------------
 $ZIP = Join-Path $ROOT ("dist\amharic-captions-$TARGET" + $(if ($Lite) { "-lite" } else { "" }) + ".zip")
 New-Item -ItemType Directory -Force -Path (Join-Path $ROOT "dist") | Out-Null
 if (Test-Path $ZIP) { Remove-Item -Force $ZIP }
 
-$ZipEntries = @("com.amharic.captions", "licenses", "Install.cmd", "verify_win.cmd", "VERIFY.md", "EULA.txt", "PRIVACY.txt", "REFUND.txt")
+# The customer sees three things: the guide, the installer, the extension.
+$ZipEntries = @("START HERE.html", "Install.cmd", "com.amharic.captions")
 if (Test-Path (Join-Path $BUILD "DEGRADED_BUILD.txt")) { $ZipEntries += "DEGRADED_BUILD.txt" }
 # Never 7z: GitHub's hosted runner may expose a 7z command that exits without
 # producing the requested archive (the job then reported a ZIP that was not on

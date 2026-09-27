@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.7.2';
+const APP_VERSION = '1.7.3';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3384,13 +3384,13 @@ function setup() {
     log('Audio/video processing: FFmpeg (https://ffmpeg.org), bundled unmodified as a');
     log('separate executable and run as a child process. FFmpeg is licensed to you');
     log('under the GNU GPL. The full license text and a written offer for the');
-    log('corresponding source code ship in the "licenses" folder of your download.');
+    log('corresponding source code ship in the "legal" folder of the installed extension.');
     log('');
     log('Runtime: CPython (PSF-2.0) with CTranslate2 (MIT), NumPy (BSD-3-Clause),');
     log('onnxruntime (MIT), sherpa-onnx (Apache-2.0) and soundfile (BSD-3-Clause).');
     log('Panel: Adobe CSInterface.js (BSD-3-Clause), json2 (Public Domain).');
     log('');
-    log('Full per-component attribution: licenses/THIRD-PARTY-NOTICES.md');
+    log('Full per-component attribution: legal/THIRD-PARTY-NOTICES.md');
   });
 
   // Runtime availability.
