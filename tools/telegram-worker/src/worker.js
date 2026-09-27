@@ -541,43 +541,61 @@ async function codeIsLive(code) {
 // link wins: an earlier link keeps the person only while it is still active and
 // younger than ATTRIBUTION_DAYS — a paused or forgotten link cannot hold them
 // forever. The referrer's own link, admins and existing buyers do nothing.
+// Returns 'ok' (link applied) or why not: 'buyer', 'inactive', 'self',
+// 'kept' (still held by another live link), 'admin', 'error'.
 async function attachReferral(uid, code) {
   try {
     code = String(code).toUpperCase();
-    if (isAdmin(uid)) return false;
+    if (isAdmin(uid)) return 'admin';
     let owner = null;
     const buyerCode = await DB.prepare('SELECT uid FROM referral_codes WHERE code = ?').bind(code).first();
     if (buyerCode) {
-      if (!refTerms(await getSettings()).on) return false;   // buyer links follow the programme switch
+      if (!refTerms(await getSettings()).on) return 'inactive';   // buyer links follow the programme switch
       owner = buyerCode.uid;
     } else {
       const partner = await partnerByCode(code);                // partner links have their own switch
-      if (!partner || !partner.active) return false;
-      if (partner.uid && partner.uid === String(uid)) return false;
+      if (!partner || !partner.active) return 'inactive';
+      if (partner.uid && partner.uid === String(uid)) return 'self';
       owner = partnerKey(partner.code);
     }
-    if (owner === String(uid)) return false;
-    if (await isBuyer(uid)) return false;
+    if (owner === String(uid)) return 'self';
+    if (await isBuyer(uid)) return 'buyer';
     const cur = await DB.prepare(
       "SELECT referrer_uid, code, (created_at >= datetime('now', ?)) AS fresh FROM referrals WHERE friend_uid = ?"
     ).bind(`-${ATTRIBUTION_DAYS} days`, String(uid)).first();
     if (!cur) {
       await DB.prepare('INSERT OR IGNORE INTO referrals (friend_uid, referrer_uid, code) VALUES (?, ?, ?)')
         .bind(String(uid), owner, code).run();
-      return true;
+      return 'ok';
     }
-    if (cur.code === code) return true;
-    if (cur.fresh && (await codeIsLive(cur.code))) return false;
+    if (cur.code === code) return 'ok';
+    if (cur.fresh && (await codeIsLive(cur.code))) return 'kept';
     await DB.prepare(
       `UPDATE referrals SET referrer_uid = ?, code = ?, created_at = datetime('now'),
          quoted_discount = NULL, quoted_reward = NULL, quoted_at = NULL
        WHERE friend_uid = ?`
     ).bind(owner, code, String(uid)).run();
-    return true;
+    return 'ok';
   } catch (e) {
     log('error', 'referral_attach_failed', { err: String((e && e.message) || e) });
-    return false;
+    return 'error';
   }
+}
+
+// One line under the welcome when a link opened but gives no discount, so the
+// person knows why instead of thinking the link is broken.
+function linkNote(reason) {
+  if (reason === 'buyer') {
+    return '\n\nℹ️ ቀደም ብለው ፈቃድ ስላለዎት ይህ ቅናሽ ለእርስዎ አይሰራም — ለአዲስ ደንበኞች ብቻ ነው።\n' +
+      '<i>You already have a license, so this discount is for new customers only.</i>';
+  }
+  if (reason === 'inactive') {
+    return '\n\nℹ️ ይህ የቅናሽ ሊንክ አሁን አይሰራም።\n<i>This discount link is not active right now.</i>';
+  }
+  if (reason === 'self') {
+    return '\n\nℹ️ የራስዎን ሊንክ ነው የከፈቱት — ለሌሎች ያጋሩት።\n<i>This is your own link — share it with others.</i>';
+  }
+  return '';
 }
 
 // Current terms of a referral row, or null when its link gives nothing now.
@@ -1330,8 +1348,9 @@ async function handleMessage(msg, env) {
           return;
         }
         const inv = startArg && /^r_([A-Za-z0-9]{3,20})$/.exec(startArg[1]);
-        if (inv) await attachReferral(uid, inv[1]);
-        await sendText(chatId, heroText(first, await referralOffer(uid)), await menuKeyboardFor(uid));
+        const reason = inv ? await attachReferral(uid, inv[1]) : null;
+        const offer = await referralOffer(uid);
+        await sendText(chatId, heroText(first, offer) + (offer ? '' : linkNote(reason)), await menuKeyboardFor(uid));
       }
     } else await sendText(chatId, groupWelcome(), MENU_KEYBOARD);
     return;
@@ -1646,8 +1665,9 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
   if (/^[A-Za-z0-9]{3,20}$/.test(text) && !MACHINE_ID_RE.test(text)) {
     const typed = await partnerByCode(text);
     if (typed && typed.active) {
-      await attachReferral(uid, typed.code);
-      await sendText(chatId, heroText((msg.from && msg.from.first_name) || '', await referralOffer(uid)),
+      const reason = await attachReferral(uid, typed.code);
+      const offer = await referralOffer(uid);
+      await sendText(chatId, heroText((msg.from && msg.from.first_name) || '', offer) + (offer ? '' : linkNote(reason)),
         await menuKeyboardFor(uid));
       return;
     }

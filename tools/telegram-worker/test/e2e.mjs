@@ -1914,6 +1914,25 @@ console.log('\n:: scenario 19 — partner links v2 (launch-day safety, new phone
   await tap(ADMIN_ID, 'admin:ref-paid:partner:GROUPA');
   assert.ok(allTo(OWNER2).includes('ተልኮልዎታል') && !allTo(OWNER1).includes('ተልኮልዎታል'), 'paid message goes to the current account only');
   ok('partners v2: this month + conversion shown; payouts reach the partner’s current account');
+
+  // When a link opens but gives no discount, the person is told why (the real
+  // test used an account that already owned licenses and saw no explanation).
+  env.DB.prepare("INSERT INTO customers (machine_id, name, expiry, key, status, uid) VALUES ('ee55ee55ee55ee55', '@old', '00000000', 'k', 'sold', '830000099')").run();
+  OUTBOUND.length = 0;
+  await say('830000099', '/start r_GROUPA');
+  assert.ok(lastTo('830000099').body.text.includes('new customers only'), 'existing customer told the discount is for new customers');
+  await say('830000099', 'groupa');
+  assert.ok(lastTo('830000099').body.text.includes('new customers only'), 'same note for a typed code');
+  await tap(ADMIN_ID, 'admin:partner-toggle:GROUPB');   // pause B
+  await say('830000098', '/start r_GROUPB');
+  assert.ok(lastTo('830000098').body.text.includes('not active right now'), 'paused link explained');
+  await say('830000097', '/start r_NOSUCHCODE');
+  assert.ok(lastTo('830000097').body.text.includes('not active right now'), 'unknown link explained');
+  await say(OWNER2, '/start r_GROUPA');
+  assert.ok(lastTo(OWNER2).body.text.includes('your own link'), 'partner opening own link explained');
+  await say('830000096', '/start');
+  assert.ok(!lastTo('830000096').body.text.includes('ℹ️'), 'a plain /start has no note');
+  ok('links explain themselves: existing customer / paused or unknown link / own link');
 }
 
 console.log('\n' + PASS.length + ' checks — all green ✅');
