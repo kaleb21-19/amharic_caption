@@ -1179,8 +1179,15 @@ async function audienceCount(kind) {
 
 async function cancelBroadcastCompose(uid) {
   await kvDel('bcast:await:' + uid);
-  await DB.prepare("UPDATE broadcasts SET status='cancelled' WHERE admin_chat=? AND status='draft'")
-    .bind(String(uid)).run();
+  // Runs before EVERY admin command. It must never be able to break them: a
+  // missing table (a deploy whose migration was not applied yet) once made
+  // /start, /admin and /find all fail silently for the owner.
+  try {
+    await DB.prepare("UPDATE broadcasts SET status='cancelled' WHERE admin_chat=? AND status='draft'")
+      .bind(String(uid)).run();
+  } catch (e) {
+    log('error', 'broadcast_cancel_failed', { err: String((e && e.message) || e) });
+  }
 }
 
 async function draftBroadcast(chatId, text) {
