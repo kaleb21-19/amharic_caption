@@ -573,6 +573,13 @@ def make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=42):
         words = correct_words(raw_words)
     except Exception:
         words = raw_words
+    # One-letter spelling fix against the word list (በታም -> በጣም). Before the
+    # number pass, so a misheard number word (ነጠኝ -> ዘጠኝ) still becomes a digit.
+    try:
+        from amh_correct import spell_fix_words
+        words = spell_fix_words(words)
+    except Exception:
+        pass
     # Numeric normalization: the CTC space token can split one number into
     # separate digit tokens ("2 0 2 4", "፲ ፪"). Re-glue consecutive
     # ALL-DIGIT tokens into a single number so captions read 2024/፲፪, not
