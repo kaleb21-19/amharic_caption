@@ -156,7 +156,7 @@ it lives only in Worker secrets, so keys can't be forged from the public source.
 Customer-facing terms are published at
 [`https://amharic-caption-pro.vercel.app/legal/`](https://amharic-caption-pro.vercel.app/legal/)
 (website source: `website/app/legal/page.jsx`) and shipped as plain-text files
-`EULA.txt` / `PRIVACY.txt` / `REFUND.txt` at the root of every release zip
+`EULA.txt` / `PRIVACY.txt` / `REFUND.txt` in `com.amharic.captions/legal/` of every release zip
 (source: `tools/legal/`, wired into `tools/build.sh`).
 
 Key points, stated plainly in the privacy policy: transcription is fully

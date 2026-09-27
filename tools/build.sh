@@ -233,20 +233,7 @@ PYEOF
     cp "$INSTALLERS/Install.cmd" "${BUILD_DIR}/Install.cmd"
     cp "$INSTALLERS/Make Amharic Captions.cmd" "${BUILD_DIR}/${NAME}/Make Amharic Captions.cmd"
     echo "  [ok] Install.cmd (windows one-click installer)"
-    # Window-runtime verification harness (customer-facing). Same CRLF rule:
-    # silently shipping an LF-only .cmd would make cmd.exe mis-parse it.
-    python3 - "$INSTALLERS/verify_win.cmd" <<'PYEOF' || exit 1
-import re, sys
-b = open(sys.argv[1], "rb").read()
-stray = len(re.findall(rb"\r(?!\n)", b)) + len(re.findall(rb"(?<!\r)\n", b))
-if stray:
-    print(f"[fail] verify_win.cmd has {stray} non-CRLF line ending(s); "
-          f"cmd.exe will mis-parse it (git attr: tools/installers/verify_win.cmd text eol=crlf).")
-    sys.exit(1)
-PYEOF
-    cp "$INSTALLERS/verify_win.cmd" "${BUILD_DIR}/verify_win.cmd"
-    cp "$INSTALLERS/VERIFY.md" "${BUILD_DIR}/VERIFY.md"
-    echo "  [ok] verify_win.cmd + VERIFY.md (windows runtime verification harness)"
+    # verify_win.cmd / VERIFY.md stay in tools/installers for support use only.
     ;;
   mac-*)
     cp "$INSTALLERS/Install.command" "${BUILD_DIR}/Install.command"
@@ -257,13 +244,18 @@ PYEOF
     ;;
 esac
 
+# One friendly page at the zip root: what to do, in Amharic and English.
+cp "$INSTALLERS/START HERE.html" "${BUILD_DIR}/START HERE.html"
+echo "  [ok] START HERE.html"
+
 # ---- 2c. licences + third-party notices ------------------------------------
 # Mandatory, not cosmetic: the bundled ffmpeg is a GPL build, and the GPL
 # requires the licence text and a written offer for corresponding source to
-# accompany the binary. Shipped at the zip ROOT so a customer (or an auditor)
-# sees it without opening the extension folder.
+# accompany the binary. Shipped inside the extension folder
+# (com.amharic.captions/legal) so it travels with the installed ffmpeg without
+# cluttering the zip root.
 LICSRC="${ROOT}/tools/licenses"
-LICDST="${BUILD_DIR}/licenses"
+LICDST="${BUILD_DIR}/${NAME}/legal"
 mkdir -p "$LICDST"
 cp "$LICSRC/COPYING.GPLv2.txt" "$LICSRC/COPYING.GPLv3.txt" \
    "$LICSRC/COPYING.LGPLv2.1.txt" "$LICSRC/WRITTEN-OFFER.txt" "$LICDST/"
@@ -275,17 +267,17 @@ python3 "$LICSRC/gen_notices.py" \
   --runtime "$RT" \
   --target "$TARGET" \
   --out "$LICDST/THIRD-PARTY-NOTICES.md" || exit 1
-echo "  [ok] licenses/ (GPL text + written offer + third-party notices)"
+echo "  [ok] legal/ (GPL text + written offer + third-party notices)"
 
 # ---- 2d. EULA + privacy + refund (consumer-facing) -----------------------
-# Plain-text version of the legal page (website/app/legal). Shipped at the zip
-# ROOT next to licenses/ so every customer sees them when they unzip.
+# Plain-text version of the legal page (website/app/legal), in the same legal
+# folder (also on the website and behind the panel's Terms link).
 LEGALSRC="${ROOT}/tools/legal"
 for f in EULA.txt PRIVACY.txt REFUND.txt; do
   if [[ ! -f "$LEGALSRC/$f" ]]; then
     echo "  [FAIL] missing legal document: $LEGALSRC/$f"; exit 1
   fi
-  cp "$LEGALSRC/$f" "${BUILD_DIR}/$f"
+  cp "$LEGALSRC/$f" "$LICDST/$f"
 done
 echo "  [ok] legal/ (EULA + privacy + refund)"
 
@@ -293,7 +285,8 @@ echo "  [ok] legal/ (EULA + privacy + refund)"
 SUFFIX=""; [[ "$LITE" == "1" ]] && SUFFIX="-lite"
 ZIP="${DIST}/amharic-captions-${TARGET}${SUFFIX}.zip"
 rm -f "$ZIP"
-ZIP_ENTRIES=("$NAME" licenses 'Install.*' verify_win.cmd VERIFY.md EULA.txt PRIVACY.txt REFUND.txt)
+# The customer sees three things: the guide, the installer, the extension.
+ZIP_ENTRIES=("START HERE.html" 'Install.*' "$NAME")
 [[ -f "$BUILD_DIR/DEGRADED_BUILD.txt" ]] && ZIP_ENTRIES+=(DEGRADED_BUILD.txt)
 (
   cd "$BUILD_DIR"

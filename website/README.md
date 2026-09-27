@@ -7,7 +7,7 @@ extension. Runs on Vercel — no GitHub account name in the URL.
 - `/install/` — platform downloads + step-by-step install (Windows, macOS)
 - `/pricing/`, `/faq/` — sales + help pages
 - `/legal/` — EULA, privacy policy, refund policy (also shipped as plain-text
-  `EULA.txt` / `PRIVACY.txt` / `REFUND.txt` at the root of every release zip;
+  `EULA.txt` / `PRIVACY.txt` / `REFUND.txt` in `com.amharic.captions/legal/` of every release zip;
   sources: `website/app/legal/page.jsx` + `tools/legal/`)
 - `sitemap.xml`, `robots.txt`, JSON-LD `SoftwareApplication` schema — generated
   at build time for SEO

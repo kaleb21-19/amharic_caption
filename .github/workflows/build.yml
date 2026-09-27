@@ -26,7 +26,7 @@ env:
   # filter), so prepare_python.sh requires this explicit opt-in before it will
   # stage one. It NEVER permits --enable-nonfree builds, which FFmpeg forbids
   # redistributing outright. Because we ship GPL ffmpeg, tools/build.sh must
-  # place licenses/ (GPL text + written source offer) at the zip root.
+  # ship legal/ (GPL text + written source offer) inside the extension folder.
   AMH_FFMPEG_ALLOW_GPL: "1"
 
 jobs:

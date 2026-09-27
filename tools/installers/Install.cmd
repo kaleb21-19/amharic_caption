@@ -121,39 +121,9 @@ set "SYS_DEST=%PF86%\Common Files\Adobe\CEP\extensions\%NAME%"
 >> "%LOG%" echo Destination: "%DEST%"
 
 rem ------------------------------------------------------------
-rem Welcome
-rem ------------------------------------------------------------
-
-if "!SILENT!"=="0" (
-    echo.
-    echo ================================================
-    echo     AMHARIC CAPTIONS - INSTALLER
-    echo ================================================
-    echo.
-    echo Welcome. This installs Amharic Captions for your
-    echo Windows user: the Premiere Pro and After Effects
-    echo panel, plus the
-    echo Make Amharic Captions tool that makes .srt files
-    echo for CapCut, DaVinci Resolve and other editors.
-    echo It takes a moment and needs no administrator rights.
-    echo.
-    echo Two hints first:
-    echo   - Fully quit Premiere Pro and After Effects first.
-    echo   - Make sure this folder was extracted from the
-    echo     zip you downloaded, right-click and Extract All.
-    echo.
-    echo Press any key to begin when you are ready.
-    echo.
-    %PAUSE%
-)
-
-rem ------------------------------------------------------------
 rem Check the source folder (the extension next to this file)
 rem ------------------------------------------------------------
 
-echo.
-echo Checking extension files...
-echo.
 
 if not exist "%SRC%" (
     >> "%LOG%" echo ERROR 1: extension folder missing at "%SRC%"
@@ -173,7 +143,7 @@ if not exist "%SRC%\index.html" (
     exit /b 3
 )
 
-echo [OK] Extension files found.
+>> "%LOG%" echo [OK] Extension files found.
 >> "%LOG%" echo Source files verified
 
 set "DEGRADED=0"
@@ -235,6 +205,27 @@ if "!VER!"=="" set "VER=unknown"
 >> "%LOG%" echo Version: !VER!
 
 rem ------------------------------------------------------------
+rem Welcome (after the package checks, so a not-extracted zip fails
+rem straight away instead of after the welcome screen)
+rem ------------------------------------------------------------
+
+if "!SILENT!"=="0" (
+    echo.
+    echo ================================================
+    echo     AMHARIC CAPTIONS  -  INSTALLER   v!VER!
+    echo ================================================
+    echo.
+    echo This installs Amharic Captions for Premiere Pro and
+    echo After Effects 2024 or newer, plus the Make Amharic
+    echo Captions tool for other editors. It takes about a
+    echo minute and needs no administrator rights.
+    echo.
+    echo Press any key to start.
+    echo.
+    %PAUSE%
+)
+
+rem ------------------------------------------------------------
 rem Warn if an old system-wide copy would override this one
 rem ------------------------------------------------------------
 
@@ -256,36 +247,29 @@ rem Filter on the exact process name, and match the whole name
 rem with /c so a space does not turn into an OR search.
 rem ------------------------------------------------------------
 
+set "WAIT_TRIES=0"
+:APPCHECK
 set "PP_RUNNING=0"
 tasklist /FI "IMAGENAME eq Adobe Premiere Pro.exe" /FO CSV /NH 2>nul | findstr /i /c:"Adobe Premiere Pro.exe" >nul && set "PP_RUNNING=1"
-
-if "!PP_RUNNING!"=="1" (
-    color 0E
-    echo [NOTE] Adobe Premiere Pro is currently running.
-    echo.
-    echo For the cleanest result, fully quit Premiere now and then
-    echo run the installer again. Continuing now can fail when the
-    echo previous version is replaced.
-    echo.
-    %PAUSE%
-)
-
->> "%LOG%" echo Premiere Pro running: !PP_RUNNING!
-
 rem After Effects loads the same panel and locks its files the same way.
 set "AE_RUNNING=0"
 tasklist /FI "IMAGENAME eq AfterFX.exe" /FO CSV /NH 2>nul | findstr /i /c:"AfterFX.exe" >nul && set "AE_RUNNING=1"
-
-if "!AE_RUNNING!"=="1" (
+set "APP_OPEN=0"
+if "!PP_RUNNING!"=="1" set "APP_OPEN=1"
+if "!AE_RUNNING!"=="1" set "APP_OPEN=1"
+if "!APP_OPEN!"=="1" if "!SILENT!"=="0" if !WAIT_TRIES! LSS 3 (
+    set /A WAIT_TRIES+=1
     color 0E
-    echo [NOTE] Adobe After Effects is currently running.
     echo.
-    echo For the cleanest result, fully quit After Effects now and
-    echo then run the installer again.
+    echo [PLEASE CLOSE] Premiere Pro or After Effects is still open.
+    echo Close it completely with File, Exit - then press any key here.
     echo.
-    %PAUSE%
+    pause
+    color 07
+    goto APPCHECK
 )
 
+>> "%LOG%" echo Premiere Pro running: !PP_RUNNING!
 >> "%LOG%" echo After Effects running: !AE_RUNNING!
 
 rem ------------------------------------------------------------
@@ -293,11 +277,11 @@ rem Create the Adobe CEP folder
 rem ------------------------------------------------------------
 
 echo.
-echo Checking the Adobe CEP folder...
+echo [1/3] Copying files - this takes about a minute...
 
 if not exist "%BASE%" (
-    echo Creating:
-    echo    "%BASE%"
+    >> "%LOG%" echo Creating:
+    >> "%LOG%" echo    "%BASE%"
     echo.
     mkdir "%BASE%" 2>> "%LOG%"
     if errorlevel 1 (
@@ -307,7 +291,7 @@ if not exist "%BASE%" (
     )
 )
 
-echo [OK] Adobe CEP folder ready.
+>> "%LOG%" echo [OK] Adobe CEP folder ready.
 >> "%LOG%" echo CEP folder ready
 
 rem ------------------------------------------------------------
@@ -316,8 +300,8 @@ rem the live folder until this copy is complete and verified.
 rem ------------------------------------------------------------
 
 echo.
-echo Copying the extension to a staging folder...
-echo This may take a moment.
+>> "%LOG%" echo Copying the extension to a staging folder...
+>> "%LOG%" echo This may take a moment.
 echo.
 
 rem File-by-file output goes to the log; the window stays readable.
@@ -334,13 +318,13 @@ if !RC! GTR 7 (
     exit /b 5
 )
 
-echo [OK] Extension copied to staging.
+>> "%LOG%" echo [OK] Extension copied to staging.
 
 rem ------------------------------------------------------------
 rem Verify the staged copy before touching the live folder
 rem ------------------------------------------------------------
 
-echo Verifying the staged copy...
+echo [2/3] Checking the files...
 
 if not exist "%STAGE%\CSXS\manifest.xml" (
     rmdir /s /q "%STAGE%" 2>nul
@@ -363,8 +347,6 @@ for /f %%N in ('dir /s /b /a-d "%SRC%" 2^>nul ^| find /c /v ""') do set "SRC_N=%
 for /f %%N in ('dir /s /b /a-d "%STAGE%" 2^>nul ^| find /c /v ""') do set "STAGE_N=%%N"
 
 echo.
-echo Source files: !SRC_N!
-echo Staged files: !STAGE_N!
 echo.
 
 >> "%LOG%" echo Source files: !SRC_N!
@@ -372,7 +354,7 @@ echo.
 
 if not "!SRC_N!"=="!STAGE_N!" (
     color 0E
-    echo [FAIL] File count does not match, the numbers are shown above.
+    echo [FAIL] Some files were not copied.
     echo The extension is incomplete. Re-unzip the download and try again.
     >> "%LOG%" echo ERROR 6: file count mismatch !SRC_N! vs !STAGE_N!
     rmdir /s /q "%STAGE%" 2>nul
@@ -380,7 +362,7 @@ if not "!SRC_N!"=="!STAGE_N!" (
     exit /b 6
 )
 
-echo [OK] Staged copy verified.
+>> "%LOG%" echo [OK] Staged copy verified.
 echo.
 
 rem Lite update over an install that already has the model: keep it, so the
@@ -388,7 +370,7 @@ rem customer does not download it again. The panel checks its size against
 rem the new manifest and asks for a download only if the model changed.
 set "KEPT_MODEL=0"
 if "!LITE!"=="1" if exist "%DEST%\runtime\model\model.bin" (
-    echo Keeping your existing Amharic model...
+    echo       Keeping your Amharic model - no new download needed.
     robocopy "%DEST%\runtime\model" "%STAGE%\runtime\model" /E /COPY:DAT /R:2 /W:2 /XJ >> "%LOG%" 2>&1
     if exist "%STAGE%\runtime\model\model.bin" set "KEPT_MODEL=1"
 )
@@ -399,7 +381,7 @@ rem Swap: move the old version aside, move the new one in, verify
 rem each step, and restore the previous version if anything fails.
 rem ------------------------------------------------------------
 
-echo Installing...
+>> "%LOG%" echo Installing...
 set "HAD_OLD=0"
 set "RESTORED=0"
 
@@ -415,7 +397,7 @@ if exist "%DEST%" (
         exit /b 7
     )
 
-    echo [OK] Previous version moved safely to the backup folder.
+    >> "%LOG%" echo [OK] Previous version moved safely to the backup folder.
     >> "%LOG%" echo Backup created: "!BACKUP!"
 )
 
@@ -448,7 +430,7 @@ if not exist "%DEST%\CSXS\manifest.xml" (
     exit /b 8
 )
 
-echo [OK] New version installed.
+>> "%LOG%" echo [OK] New version installed.
 echo.
 
 rem ------------------------------------------------------------
@@ -484,16 +466,16 @@ if "!DEGRADED!"=="0" (
 
 if "!LITE!"=="1" (
     if "!KEPT_MODEL!"=="1" (
-        echo [OK] Amharic model kept from your previous install
+        >> "%LOG%" echo [OK] Amharic model kept from your previous install
     ) else (
-        echo [INFO] Amharic model: a one-time download the first time you
-        echo        open the panel or the Make Amharic Captions tool.
+        >> "%LOG%" echo [INFO] Amharic model: a one-time download the first time you
+        >> "%LOG%" echo        open the panel or the Make Amharic Captions tool.
     )
 )
 
 if exist "%SRC%\runtime\python\python.exe" (
     if exist "%DEST%\runtime\python\python.exe" (
-        echo [OK] Python engine
+        >> "%LOG%" echo [OK] Python engine
     ) else (
         color 0E
         echo [FAIL] Python engine was not copied.
@@ -507,7 +489,7 @@ if exist "%SRC%\runtime\python\python.exe" (
 rem The packaged runtime stores ffmpeg under runtime\bin, not runtime\ffmpeg.
 if exist "%SRC%\runtime\bin\ffmpeg.exe" (
     if exist "%DEST%\runtime\bin\ffmpeg.exe" (
-        echo [OK] FFmpeg engine
+        >> "%LOG%" echo [OK] FFmpeg engine
     ) else (
         color 0E
         echo [FAIL] FFmpeg engine was not copied.
@@ -552,7 +534,6 @@ set "DST_N=0"
 for /f %%N in ('dir /s /b /a-d "%DEST%" 2^>nul ^| find /c /v ""') do set "DST_N=%%N"
 
 echo.
-echo Installed files: !DST_N!
 echo.
 
 >> "%LOG%" echo Installed files: !DST_N!
@@ -562,7 +543,7 @@ rem Enable CEP PlayerDebugMode (REG_SZ is Adobe's documented type
 rem for debugging unsigned extensions)
 rem ------------------------------------------------------------
 
-echo Enabling Adobe CEP extension support...
+echo [3/3] Setting up Premiere Pro and After Effects...
 
 for %%K in (7 8 9 10 11 12 13 14 15) do (
     reg add "HKCU\Software\Adobe\CSXS.%%K" /v PlayerDebugMode /t REG_SZ /d 1 /f >> "%LOG%" 2>&1
@@ -582,7 +563,7 @@ if "!REG_OK!"=="0" (
     echo may not appear in Premiere. See the log for details.
     >> "%LOG%" echo WARNING: PlayerDebugMode not confirmed
 ) else (
-    echo [OK] CEP Developer Mode enabled.
+    >> "%LOG%" echo [OK] CEP Developer Mode enabled.
 )
 
 echo.
@@ -596,7 +577,7 @@ rem or brackets in a user folder name cannot break the command.
 rem A failure here is only a warning, the panel is already installed.
 rem ------------------------------------------------------------
 
-echo Creating the Make Amharic Captions shortcut...
+>> "%LOG%" echo Creating the Make Amharic Captions shortcut...
 set "AMH_SRT_TARGET=%DEST%\Make Amharic Captions.cmd"
 set "AMH_SRT_DIR=%DEST%"
 set "SC_OK=0"
@@ -606,7 +587,7 @@ if not defined AMH_NO_SHORTCUT if exist "%AMH_SRT_TARGET%" (
     if not errorlevel 1 set "SC_OK=1"
 )
 if "!SC_OK!"=="1" (
-    echo [OK] Desktop shortcut: Make Amharic Captions
+    >> "%LOG%" echo [OK] Desktop shortcut: Make Amharic Captions
     >> "%LOG%" echo SRT shortcut created
 ) else (
     echo [WARNING] Could not create the desktop shortcut. You can still
@@ -655,46 +636,26 @@ echo ================================================================
 echo     INSTALLATION SUCCESSFUL  v!VER!
 echo ================================================================
 echo.
-echo   Amharic Captions is now installed for Premiere Pro
-echo   and After Effects (2024 or newer).
+echo   What to do now:
 echo.
-echo   Take these 4 steps:
-echo.
-echo     1. Fully quit Premiere Pro:  File, Exit
-echo        Closing the window is not enough, the panel list
-echo        is only read when Premiere starts.
+echo     1. Fully quit Premiere Pro with  File, Exit.
+echo        Closing the window is not enough.
 echo     2. Reopen Premiere Pro and open a project.
-echo        The Extensions menu is greyed out on the start screen.
-echo     3. Open  Window,  then  Extensions.
-echo     4. Choose  Amharic Captions.
-echo.
-echo   After Effects: quit and reopen it the same way, then open
-echo   Window, Extensions, Amharic Captions. Captions arrive as
-echo   one text layer in the active composition.
-echo.
-echo   Installed to:
-echo     %DEST%
-if "!HAD_OLD!"=="1" (
-    echo.
-    echo   A backup of your previous version is kept at:
-    echo     !BACKUP!
-)
-if "!SILENT!"=="0" (
-    echo.
-    echo   Log file:
-    echo     !LOG!
-)
+echo     3. Choose  Window, Extensions, Amharic Captions.
+echo        After Effects 2024 or newer: the same menu.
 echo.
 if "!LITE!"=="1" if "!KEPT_MODEL!"=="0" (
-    echo   First time only: the panel shows  Download the Amharic model.
-    echo   Press it once. If the internet drops, it continues later.
+    echo   First time only: press  Download the Amharic model  in the
+    echo   panel. About 610 MB, once. If the internet drops, it continues.
     echo.
 )
-echo   No Premiere?  Drag any video onto the  Make Amharic Captions
-echo   shortcut on your desktop. An .srt file appears next to the
-echo   video, ready for CapCut, DaVinci Resolve or YouTube.
+echo   No Premiere?  Drag any video onto  Make Amharic Captions  on
+echo   your desktop. An .srt subtitle file appears next to the video.
 echo.
-echo   You can close this window now, or press any key once more.
+echo   Help on Telegram: t.me/sumpak6
+echo   Guide: START HERE.html in the folder you unzipped.
+echo.
+echo   Press any key to close this window.
 echo.
 exit /b 0
 
