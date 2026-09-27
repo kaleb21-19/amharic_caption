@@ -87,6 +87,7 @@ class D1 {
     this.db.exec(readFileSync(new URL('../migrations/0014_sales_broadcasts.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0015_referrals.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0016_partners.sql', import.meta.url), 'utf8'));
+    this.db.exec(readFileSync(new URL('../migrations/0017_referral_quotes.sql', import.meta.url), 'utf8'));
     this.db.exec("ALTER TABLE customers ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0"); // migration 0008
   }
   prepare(sql) {
@@ -1704,7 +1705,7 @@ console.log('\n:: scenario 18 — partner links (a group / channel, own terms an
     return row(env, 'SELECT * FROM orders WHERE uid=? ORDER BY id DESC LIMIT 1', uid);
   };
 
-  // 1. The owner creates the partner: two links, not live until connected.
+  // 1. The owner creates the partner: two links; the public one works at once.
   OUTBOUND.length = 0;
   await say(ADMIN_ID, '/partner editgroup Editors Ethiopia');
   const created = lastTo(ADMIN_ID).body.text;
@@ -1713,8 +1714,9 @@ console.log('\n:: scenario 18 — partner links (a group / channel, own terms an
   await say(ADMIN_ID, '/partner EDITGROUP Again');
   assert.ok(lastTo(ADMIN_ID).body.text.includes('already in use'), 'a code cannot be reused');
   await say(M1, '/start r_EDITGROUP');
-  assert.equal(row(env, 'SELECT COUNT(*) AS n FROM referrals').n, 0, 'not live before the partner connects');
-  ok('partners: owner creates one with /partner; private + public links; not live until connected');
+  assert.equal(row(env, 'SELECT referrer_uid FROM referrals WHERE friend_uid=?', M1).referrer_uid, 'partner:EDITGROUP',
+    'live before the partner connects (credited to the partner code)');
+  ok('partners: owner creates one with /partner; private + public links; the public link works at once');
 
   // 2. The partner connects with the private link; nobody else can take it.
   OUTBOUND.length = 0;
@@ -1729,12 +1731,12 @@ console.log('\n:: scenario 18 — partner links (a group / channel, own terms an
   // 3. Buyer referrals are OFF (default) — partner links still work: own switch.
   OUTBOUND.length = 0;
   await say(M1, '/start r_EDITGROUP');
-  assert.equal(row(env, 'SELECT referrer_uid FROM referrals WHERE friend_uid=?', M1).referrer_uid, PARTNER);
+  assert.equal(row(env, 'SELECT referrer_uid FROM referrals WHERE friend_uid=?', M1).referrer_uid, 'partner:EDITGROUP');
   assert.ok(lastTo(M1).body.text.includes('ETB 2,300'), 'group member sees 2,300 even with buyer referrals OFF');
   await say(PARTNER, '/start r_EDITGROUP');
   assert.equal(row(env, 'SELECT COUNT(*) AS n FROM referrals WHERE friend_uid=?', PARTNER).n, 0, 'partner cannot refer themself');
   const o1 = await buy(M1, '3f9a1c7e5b2d4086', 'P-G1');
-  assert.deepEqual([o1.amount_etb, o1.discount_etb, o1.reward_etb, o1.referrer_uid], [2300, 200, 300, PARTNER]);
+  assert.deepEqual([o1.amount_etb, o1.discount_etb, o1.reward_etb, o1.referrer_uid], [2300, 200, 300, 'partner:EDITGROUP']);
   const card = OUTBOUND.find((x) => x.method === 'sendPhoto' && String(x.body.chat_id) === String(ADMIN_ID));
   assert.ok(card.body.caption.includes('via partner EDITGROUP'), 'admin card names the partner');
   ok('partners: works while buyer referrals are OFF; member pays 2,300; order card names the partner');
@@ -1763,7 +1765,7 @@ console.log('\n:: scenario 18 — partner links (a group / channel, own terms an
   await tap(ADMIN_ID, 'admin:ref-pay');
   const pay = lastTo(ADMIN_ID).body.text;
   assert.ok(pay.includes('🤝 Editors Ethiopia') && pay.includes('700 ብር') && pay.includes('CBE 1000999888777'), 'pay list: partner name, 700, account');
-  await tap(ADMIN_ID, `admin:ref-paid:${PARTNER}`);
+  await tap(ADMIN_ID, 'admin:ref-paid:partner:EDITGROUP');
   assert.equal(row(env, "SELECT COUNT(*) AS n FROM referral_rewards WHERE status='paid'").n, 2);
   ok('partners: paid through the monthly Pay rewards list under their name');
 
@@ -1780,6 +1782,138 @@ console.log('\n:: scenario 18 — partner links (a group / channel, own terms an
   await tap(ADMIN_ID, 'admin:partner-toggle:EDITGROUP');
   assert.equal(row(env, "SELECT active FROM partners WHERE code='EDITGROUP'").active, 1, 'resumed');
   ok('partners: Pause / Resume per partner from the Partners list');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: scenario 19 — partner links v2 (launch-day safety, new phone, fair price, TikTok codes)');
+
+{
+  const { env } = fresh();
+  const OWNER1 = '830000001';
+  const OWNER2 = '830000002';
+  const say = (uid, text, username) => post(env, msg(Number(uid), { id: Number(uid), username: username || 'u' + uid }, { text }));
+  const tap = (uid, data) => cb(env, { id: Number(uid) }, data, { chatId: Number(uid) });
+  const toUid = (uid) => OUTBOUND.filter((x) => ['sendMessage', 'editMessageText'].includes(x.method)
+    && String(x.body.chat_id) === String(uid));
+  const lastTo = (uid) => toUid(uid).at(-1);
+  const allTo = (uid) => toUid(uid).map((x) => x.body.text || '').join('\n');
+  const tokenOf = (code) => row(env, 'SELECT claim_token FROM partners WHERE code=?', code).claim_token;
+  const finish = async (uid, mid, file) => {
+    await tap(uid, 'pay:proof');
+    await say(uid, mid);
+    await post(env, msg(Number(uid), { id: Number(uid) }, { photo: [{ file_id: file }] }));
+    await tap(uid, 'proof:confirm');
+    return row(env, 'SELECT * FROM orders WHERE uid=? ORDER BY id DESC LIMIT 1', uid);
+  };
+
+  // 7. New partners start at 300/200 whatever the buyer-referral amounts are;
+  //    a Machine-ID-looking code is refused.
+  await say(ADMIN_ID, '/refreward 100');
+  await say(ADMIN_ID, '/partner GROUPA Group A');
+  assert.deepEqual(Object.values(row(env, "SELECT reward_etb, discount_etb FROM partners WHERE code='GROUPA'")), [300, 200]);
+  await say(ADMIN_ID, '/partner CAFEBABE Hex');
+  assert.ok(lastTo(ADMIN_ID).body.text.includes('looks like a Machine ID'), 'hex-like code refused');
+  await say(ADMIN_ID, '/partnername GROUPA Editors Ethiopia');
+  assert.equal(row(env, "SELECT label FROM partners WHERE code='GROUPA'").label, 'Editors Ethiopia');
+  ok('partners v2: new partners start at 300/200; Machine-ID-like codes refused; /partnername renames');
+
+  // 1. Launch day before the owner connects: the link works, the sale counts,
+  //    the reward waits, and the owner of the shop is told.
+  const A1 = '830000011';
+  OUTBOUND.length = 0;
+  await say(A1, '/start r_GROUPA');
+  assert.ok(lastTo(A1).body.text.includes('ETB 2,300'), 'discount works before the partner connects');
+  await tap(A1, 'menu:pay');
+  const oA1 = await finish(A1, '3f9a1c7e5b2d4086', 'P-A1');
+  assert.equal(oA1.referrer_uid, 'partner:GROUPA');
+  OUTBOUND.length = 0;
+  await tap(ADMIN_ID, `approve:${oA1.id}`);
+  assert.ok(allTo(ADMIN_ID).includes('not connected yet'), 'owner told the reward is held for the partner');
+  await say(OWNER1, '/start p_' + tokenOf('GROUPA'), 'owner_one');
+  assert.ok(lastTo(OWNER1).body.text.includes('<b>1</b>') && lastTo(OWNER1).body.text.includes('300 ብር'),
+    'after connecting, the partner sees the sale made before they connected');
+  ok('partners v2: link works before the partner connects; the sale and reward wait for them');
+
+  // 2. New phone: /partnerreset moves the page to a new account, history kept.
+  OUTBOUND.length = 0;
+  const oldToken = tokenOf('GROUPA');
+  await say(ADMIN_ID, '/partnerreset GROUPA');
+  assert.ok(allTo(OWNER1).includes('እየተዛወረ'), 'old account told the page is moving');
+  assert.notEqual(tokenOf('GROUPA'), oldToken, 'a new private link');
+  await say(OWNER2, '/start p_' + oldToken);
+  assert.ok(lastTo(OWNER2).body.text.includes('not valid'), 'the old private link no longer works');
+  await say(OWNER2, '/start p_' + tokenOf('GROUPA'), 'owner_new');
+  assert.equal(row(env, "SELECT uid FROM partners WHERE code='GROUPA'").uid, OWNER2);
+  assert.ok(lastTo(OWNER2).body.text.includes('<b>1</b>') && lastTo(OWNER2).body.text.includes('300 ብር'), 'history kept on the new account');
+  await say(OWNER1, '/invite');
+  assert.ok(!lastTo(OWNER1).body.text.includes('Partner link'), 'the old account is no longer the partner');
+  ok('partners v2: /partnerreset moves a partner to a new phone/account and keeps every sale');
+
+  // 3. The price the buyer saw is honoured even if the owner pauses/changes terms.
+  const A2 = '830000012';
+  await say(A2, '/start r_GROUPA');
+  await tap(A2, 'menu:pay');                       // sees 2,300 → transfers it
+  await tap(ADMIN_ID, 'admin:partner-toggle:GROUPA');   // owner pauses meanwhile
+  await say(ADMIN_ID, '/partnerterms GROUPA 300 50');   // and changes the discount
+  const oA2 = await finish(A2, '7e2b9f4a1c6d3e58', 'P-A2');
+  assert.equal(oA2.amount_etb, 2300, 'the quoted 2,300 is honoured');
+  assert.equal(oA2.referrer_uid, 'partner:GROUPA');
+  const A3 = '830000013';
+  await tap(ADMIN_ID, 'admin:partner-toggle:GROUPA');   // resume, discount now 50
+  await say(ADMIN_ID, '/partnerterms GROUPA 300 200');
+  await say(A3, '/start r_GROUPA');
+  await tap(A3, 'menu:pay');
+  env.DB.prepare("UPDATE referrals SET quoted_at=datetime('now','-3 days') WHERE friend_uid=?").bind(A3).run();
+  await tap(ADMIN_ID, 'admin:partner-toggle:GROUPA');   // paused again
+  const oA3 = await finish(A3, '9c4d2e7f1a3b5c60', 'P-A3');
+  assert.equal(oA3.amount_etb, 2500, 'an expired quote on a paused link: normal price');
+  await tap(ADMIN_ID, 'admin:partner-toggle:GROUPA');   // resume for the rest
+  ok('partners v2: the price shown on the pay screen is honoured for 48 h, then expires');
+
+  // 4. A paused or old link cannot hold a person forever; a live fresh one can.
+  await say(ADMIN_ID, '/partner GROUPB Group B');
+  const B1 = '830000021';
+  const B2 = '830000022';
+  const B3 = '830000023';
+  await say(B1, '/start r_GROUPA');                // live and fresh on A
+  await say(B1, '/start r_GROUPB');
+  assert.equal(row(env, 'SELECT code FROM referrals WHERE friend_uid=?', B1).code, 'GROUPA', 'a live fresh link keeps the person');
+  await say(B2, '/start r_GROUPA');
+  env.DB.prepare("UPDATE referrals SET created_at=datetime('now','-61 days') WHERE friend_uid=?").bind(B2).run();
+  await say(B2, '/start r_GROUPB');
+  assert.equal(row(env, 'SELECT code FROM referrals WHERE friend_uid=?', B2).code, 'GROUPB', 'after 60 days a new link takes over');
+  await say(B3, '/start r_GROUPA');
+  await tap(ADMIN_ID, 'admin:partner-toggle:GROUPA');   // A paused
+  await say(B3, '/start r_GROUPB');
+  assert.equal(row(env, 'SELECT code FROM referrals WHERE friend_uid=?', B3).code, 'GROUPB', 'a paused link does not hold anyone');
+  await tap(ADMIN_ID, 'admin:partner-toggle:GROUPA');
+  ok('partners v2: first LIVE link wins — paused or 60-day-old links cannot hold people');
+
+  // 5. TikTok/YouTube: typing the code works like the link.
+  const T1 = '830000031';
+  OUTBOUND.length = 0;
+  await say(T1, 'groupb');
+  assert.equal(row(env, 'SELECT code FROM referrals WHERE friend_uid=?', T1).code, 'GROUPB');
+  assert.ok(lastTo(T1).body.text.includes('ETB 2,300'), 'typed code shows the discount');
+  ok('partners v2: typing the partner code in the bot works like opening the link');
+
+  // 6. This month + conversion on the partner page and in the owner's list.
+  await tap(OWNER2, 'ref:invite');
+  assert.ok(lastTo(OWNER2).body.text.includes('ይህ ወር') && lastTo(OWNER2).body.text.includes('%'), 'partner page: this month + conversion');
+  await tap(ADMIN_ID, 'admin:partners');
+  assert.ok(lastTo(ADMIN_ID).body.text.includes('this month') && lastTo(ADMIN_ID).body.text.includes('/partnerreset'), 'owner list: this month + reset hint');
+
+  // Payout via the partner code reaches the NEW account.
+  env.DB.prepare("UPDATE referral_rewards SET earned_at=datetime('now','-15 days')").run();
+  await tap(OWNER2, 'ref:payout');
+  await say(OWNER2, 'Awash 0132456789012 New Owner');
+  OUTBOUND.length = 0;
+  await tap(ADMIN_ID, 'admin:ref-pay');
+  assert.ok(lastTo(ADMIN_ID).body.text.includes('🤝 Editors Ethiopia') && lastTo(ADMIN_ID).body.text.includes('Awash 0132456789012'), 'pay list: partner name + new account');
+  OUTBOUND.length = 0;
+  await tap(ADMIN_ID, 'admin:ref-paid:partner:GROUPA');
+  assert.ok(allTo(OWNER2).includes('ተልኮልዎታል') && !allTo(OWNER1).includes('ተልኮልዎታል'), 'paid message goes to the current account only');
+  ok('partners v2: this month + conversion shown; payouts reach the partner’s current account');
 }
 
 console.log('\n' + PASS.length + ' checks — all green ✅');
