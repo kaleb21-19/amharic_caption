@@ -51,7 +51,9 @@ AMH_FRESH_MID_DAY = "30"
 # flag, so an unset allow-list would block activation/trial fetches.
 AMH_ALLOWED_ORIGIN = "null,file://"
 
-# Daily prune: every 6h the worker deletes orders/funnel older than 30 days
-# (keeps history window consistent without depending on admin activity).
+# Every 6h: prune orders/funnel older than 30 days (keeps the history window
+# consistent without depending on admin activity).
+# Every minute: send the next batch of a running broadcast (one cheap query
+# when none is running) — see processBroadcast() in src/worker.js.
 [triggers]
-crons = ["0 */6 * * *"]
+crons = ["0 */6 * * *", "* * * * *"]

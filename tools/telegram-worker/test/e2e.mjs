@@ -83,6 +83,8 @@ class D1 {
         claimed_at TEXT, completed_at TEXT, result_json TEXT)`,
     ];
     for (const ddl of ddls) this.db.exec(ddl);
+    // migration 0014: permanent sales ledger + batched broadcasts (real file)
+    this.db.exec(readFileSync(new URL('../migrations/0014_sales_broadcasts.sql', import.meta.url), 'utf8'));
     this.db.exec("ALTER TABLE customers ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0"); // migration 0008
   }
   prepare(sql) {
@@ -1205,19 +1207,74 @@ console.log('\n:: scenario 12 — broadcast, /setexpiry, reply-keyboard hint');
 
   OUTBOUND.length = 0; MSG = 0;
 
-  // broadcast: admin taps, sends the text, buyers receive it
+  // broadcast: admin taps, sends the text → PREVIEW only, nothing reaches buyers
+  const toBuyers = (needle) => OUTBOUND.filter((x) => x.method === 'sendMessage'
+    && [BUYER, '900000002'].includes(String(x.body.chat_id)) && (x.body.text || '').includes(needle));
   r = await cb(env, { id: Number(ADMIN_ID) }, 'admin:broadcast');
   assert.equal(r.status, 200);
   r = await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: 'Hello buyers! New promo coming.' }));
   assert.equal(r.status, 200);
-  const toBuyer = OUTBOUND.filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === BUYER && (x.body.text || '').includes('Hello buyers!'));
-  assert.equal(toBuyer.length, 1, 'broadcast reaches buyer DM');
-  const toOther = OUTBOUND.filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === '900000002' && (x.body.text || '').includes('Hello buyers!'));
-  assert.equal(toOther.length, 1, 'broadcast reaches order-only buyer');
+  assert.equal(toBuyers('Hello buyers!').length, 0, 'typing the message sends nothing to buyers');
+  const ask = OUTBOUND.filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === String(ADMIN_ID)).at(-1);
+  assert.ok(ask.body.text.includes('Send it to <b>2</b>'), 'admin is asked to confirm, with the count: ' + ask.body.text);
+  const sendData = ask.body.reply_markup.inline_keyboard[0][0].callback_data;
+  assert.ok(sendData.startsWith('admin:bcast-send:'), 'Send button present');
+
+  // confirm → buyers receive it once; a double tap sends nothing more
+  r = await cb(env, { id: Number(ADMIN_ID) }, sendData);
+  assert.equal(r.status, 200);
+  await cb(env, { id: Number(ADMIN_ID) }, sendData);
+  const got = toBuyers('Hello buyers!');
+  assert.equal(got.filter((x) => String(x.body.chat_id) === BUYER).length, 1, 'broadcast reaches buyer DM exactly once');
+  assert.equal(got.filter((x) => String(x.body.chat_id) === '900000002').length, 1, 'broadcast reaches order-only buyer');
   const confirm = OUTBOUND.find((x) => x.method === 'sendMessage' && String(x.body.chat_id) === String(ADMIN_ID) && (x.body.text || '').includes('Broadcast delivered'));
   assert.ok(confirm, 'admin sees broadcast confirmation');
   assert.equal(await kv.get('bcast:await:' + ADMIN_ID), null, 'broadcast draft cleared');
-  ok('broadcast fans out to all buyers and skips admins');
+  ok('broadcast: preview first, Send delivers once to every buyer, admins skipped');
+
+  // /start really cancels: a later "ok" is NOT treated as a broadcast
+  OUTBOUND.length = 0;
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:broadcast');
+  await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: '/start' }));
+  await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: 'ok' }));
+  assert.equal(toBuyers('ok').length, 0, 'nothing sent to buyers');
+  assert.ok(!OUTBOUND.some((x) => JSON.stringify(x.body.reply_markup || {}).includes('bcast-send')),
+    'no preview offered after /start cancelled the compose');
+  // Cancel on a preview sends nothing
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:broadcast');
+  await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: 'Second draft' }));
+  const ask2 = OUTBOUND.filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === String(ADMIN_ID)).at(-1);
+  await cb(env, { id: Number(ADMIN_ID) }, ask2.body.reply_markup.inline_keyboard[0][1].callback_data);
+  await cb(env, { id: Number(ADMIN_ID) }, ask2.body.reply_markup.inline_keyboard[0][0].callback_data);
+  assert.equal(toBuyers('Second draft').length, 0, 'a cancelled draft can never be sent');
+  ok('broadcast: /start cancels composing; Cancel kills the draft for good');
+
+  // Large list: first batch in the tap, the rest by the every-minute cron,
+  // one report at the end, nobody messaged twice.
+  {
+    const big = fresh();
+    for (let i = 0; i < 95; i++) {
+      big.env.DB.prepare("INSERT INTO customers (machine_id, name, expiry, key, status, uid) VALUES (?, '@x', '00000000', 'k', 'sold', ?)")
+        .bind('c' + String(i).padStart(7, '0'), String(800000000 + i)).run();
+    }
+    await cb(big.env, { id: Number(ADMIN_ID) }, 'admin:broadcast');
+    await post(big.env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: 'Big news' }));
+    const a3 = OUTBOUND.filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === String(ADMIN_ID)).at(-1);
+    OUTBOUND.length = 0;
+    await cb(big.env, { id: Number(ADMIN_ID) }, a3.body.reply_markup.inline_keyboard[0][0].callback_data);
+    const firstBatch = OUTBOUND.filter((x) => (x.body.text || '') === 'Big news').length;
+    assert.ok(firstBatch > 0 && firstBatch <= 20, 'the tap sends only a first batch: ' + firstBatch);
+    const tapCalls = OUTBOUND.length;
+    assert.ok(tapCalls <= 45, 'the tap stays under the free-plan subrequest limit: ' + tapCalls);
+    for (let i = 0; i < 5; i++) await worker.scheduled({ cron: '* * * * *' }, big.env);
+    const all = OUTBOUND.filter((x) => (x.body.text || '') === 'Big news');
+    assert.equal(all.length, 95, 'every customer got it: ' + all.length);
+    assert.equal(new Set(all.map((x) => String(x.body.chat_id))).size, 95, 'nobody got it twice');
+    const reports = OUTBOUND.filter((x) => (x.body.text || '').includes('Broadcast delivered to <b>95</b> of <b>95</b>'));
+    assert.equal(reports.length, 1, 'exactly one final report');
+    await worker.scheduled({ cron: '0 */6 * * *' }, big.env); // housekeeping still runs on the 6h cron
+  }
+  ok('broadcast: 95 buyers go out in batches (tap + cron), once each, one report');
 
   // The Machine ID prompt must use an INLINE keyboard, never a reply keyboard.
   // A reply keyboard pins itself to the bottom of the chat until something
@@ -1368,6 +1425,54 @@ const { env, kv } = fresh();
   j = await (await api(env, '/api/validate', { method: 'POST', body: { mid, key }, headers: { 'CF-Connecting-IP': '198.51.100.41' } })).json();
   assert.equal(j.valid, true, 'MID restore works without an order row');
   ok('MID-based revoke/restore works after order pruning');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: scenario 16 — permanent sales ledger survives the 30-day order prune');
+
+{
+  const { env } = fresh();
+  const mid = 'feedf00d12345678';
+  env.DB.prepare("INSERT INTO orders (uid, username, machine_id, ref, photo_key, chat_id, status, amount_etb) VALUES (?, 'buyer', ?, '', '', ?, 'pending', 2500)")
+    .bind(BUYER, mid, BUYER).run();
+  const oid = row(env, 'SELECT id FROM orders WHERE machine_id=?', mid).id;
+  await cb(env, { id: Number(ADMIN_ID) }, `approve:${oid}`);
+  await cb(env, { id: Number(ADMIN_ID) }, `approve:${oid}`); // retried tap
+  assert.equal(row(env, 'SELECT COUNT(*) AS n FROM sales').n, 1, 'one sale per order, however many taps');
+  const sale = row(env, 'SELECT * FROM sales WHERE order_id=?', oid);
+  assert.equal(sale.amount_etb, 2500);
+  assert.equal(sale.status, 'sold');
+
+  // 40 days later the order row is pruned for privacy — the sale is not.
+  env.DB.prepare("UPDATE orders SET created_at=datetime('now','-40 days') WHERE id=?").bind(oid).run();
+  env.DB.prepare("UPDATE sales SET sold_at=datetime('now','-40 days') WHERE order_id=?").bind(oid).run();
+  await worker.scheduled({ cron: '0 */6 * * *' }, env);
+  assert.equal(row(env, 'SELECT COUNT(*) AS n FROM orders').n, 0, 'order pruned after 30 days');
+  assert.equal(row(env, 'SELECT COUNT(*) AS n FROM sales').n, 1, 'sale kept');
+
+  OUTBOUND.length = 0;
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:sales');
+  let salesMsg = OUTBOUND.filter((x) => (x.body.text || '').includes('Sales & Funnel')).at(-1);
+  assert.ok(salesMsg.body.text.includes('All time:</b> 1 sale(s) = <b>ETB 2,500'), 'all-time revenue includes old sales: ' + salesMsg.body.text);
+
+  // A revoked (refunded / fraud) sale stops counting as revenue.
+  await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: `/revoke-mid ${mid}` }));
+  OUTBOUND.length = 0;
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:sales');
+  salesMsg = OUTBOUND.filter((x) => (x.body.text || '').includes('Sales & Funnel')).at(-1);
+  assert.ok(salesMsg.body.text.includes('All time:</b> 0 sale(s)') && salesMsg.body.text.includes('Revoked / refunded: 1'),
+    'revoked sale excluded and counted separately');
+
+  OUTBOUND.length = 0;
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:sales-export');
+  const list = OUTBOUND.find((x) => (x.body.text || '').includes('Sales (1)'));
+  assert.ok(list && list.body.text.includes(mid) && list.body.text.includes('revoked'), 'sales list has every sale');
+
+  // Buyers cannot reach any of it.
+  OUTBOUND.length = 0;
+  await cb(env, { id: Number(BUYER) }, 'admin:sales-export', { chatId: Number(BUYER) });
+  assert.ok(!OUTBOUND.some((x) => (x.body.text || '').includes('Sales (')), 'sales list is admin-only');
+  ok('sales ledger: one row per order, survives pruning, revoke excluded, admin-only list');
 }
 
 console.log('\n' + PASS.length + ' checks — all green ✅');
