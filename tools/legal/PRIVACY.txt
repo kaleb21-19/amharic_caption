@@ -1,5 +1,5 @@
 PRIVACY POLICY — Amharic Captions Pro
-Version 1.2 · Effective 2026-09-27
+Version 1.3 · Effective 2026-09-28
 
 WHAT TRANSCRIPTION NEVER DOES
 All speech recognition, correction, speaker labeling and caption placement
@@ -28,7 +28,10 @@ used, amount), and source IPs for fraud detection. Order history, webhook idempo
 pruned separately; license and trial-abuse records may be retained while
 needed to support or protect an active license. A minimal sales record (order
 number, date, amount and Machine ID; no screenshot, name or Telegram account)
-is kept for accounting. Data is not sold. Service providers
+is kept for accounting. If you take part in the referral programme, who
+invited whom (Telegram account ids), the rewards, and the payout account you
+enter (bank, account number and name) are stored so rewards can be paid.
+Data is not sold. Service providers
 include Cloudflare, Vercel (website hosting), and Telegram (ordering/support).
 
 LOCAL IDENTITY STORAGE

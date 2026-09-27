@@ -85,6 +85,7 @@ class D1 {
     for (const ddl of ddls) this.db.exec(ddl);
     // migration 0014: permanent sales ledger + batched broadcasts (real file)
     this.db.exec(readFileSync(new URL('../migrations/0014_sales_broadcasts.sql', import.meta.url), 'utf8'));
+    this.db.exec(readFileSync(new URL('../migrations/0015_referrals.sql', import.meta.url), 'utf8'));
     this.db.exec("ALTER TABLE customers ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0"); // migration 0008
   }
   prepare(sql) {
@@ -1507,6 +1508,175 @@ console.log('\n:: scenario 16 — permanent sales ledger survives the 30-day ord
   await cb(env, { id: Number(BUYER) }, 'admin:sales-export', { chatId: Number(BUYER) });
   assert.ok(!OUTBOUND.some((x) => (x.body.text || '').includes('Sales (')), 'sales list is admin-only');
   ok('sales ledger: one row per order, survives pruning, revoke excluded, admin-only list');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: scenario 17 — referral programme (owner-controlled, OFF by default)');
+
+{
+  const { env } = fresh();
+  const REFERRER = '810000001';
+  const FRIEND = '810000002';
+  const FRIEND2 = '810000003';
+  const say = (uid, text) => post(env, msg(Number(uid), { id: Number(uid), username: 'u' + uid }, { text }));
+  const tap = (uid, data) => cb(env, { id: Number(uid) }, data, { chatId: Number(uid) });
+  const toUid = (uid) => OUTBOUND.filter((x) => ['sendMessage', 'editMessageText'].includes(x.method)
+    && String(x.body.chat_id) === String(uid));
+  const lastTo = (uid) => toUid(uid).at(-1);
+  const allTo = (uid) => toUid(uid).map((x) => x.body.text || '').join('\n');
+  const kbOf = (m) => JSON.stringify((m && m.body.reply_markup) || {});
+  // The referrer is an existing buyer.
+  env.DB.prepare("INSERT INTO customers (machine_id, name, expiry, key, status, uid) VALUES ('aa11aa11aa11aa11', '@referrer', '00000000', 'k', 'sold', ?)")
+    .bind(REFERRER).run();
+
+  // 1. OFF by default: nothing changes for anyone.
+  OUTBOUND.length = 0;
+  await say(REFERRER, '/start');
+  assert.ok(!kbOf(lastTo(REFERRER)).includes('ref:invite'), 'OFF: no invite button');
+  await say(REFERRER, '/invite');
+  assert.ok(lastTo(REFERRER).body.text.includes('paused'), 'OFF: /invite says paused');
+  await say(ADMIN_ID, '/start');
+  assert.ok(kbOf(lastTo(ADMIN_ID)).includes('Referrals · ⚪ OFF'), 'dashboard shows OFF');
+  ok('referrals: OFF by default — no button, /invite paused, dashboard shows OFF');
+
+  // 2. The owner switches it ON; buyers get a personal link; others do not.
+  await tap(ADMIN_ID, 'admin:ref-toggle');
+  assert.equal(row(env, "SELECT value FROM settings WHERE key='referral_enabled'").value, '1');
+  assert.ok(lastTo(ADMIN_ID).body.text.includes('🟢 ON'), 'admin sees ON');
+  OUTBOUND.length = 0;
+  await say(REFERRER, '/start');
+  assert.ok(kbOf(lastTo(REFERRER)).includes('ref:invite'), 'ON: buyer sees the invite button');
+  await tap(REFERRER, 'ref:invite');
+  const inviteText = lastTo(REFERRER).body.text;
+  const code = /start=r_([A-Z2-9]{7})/.exec(inviteText)[1];
+  assert.ok(inviteText.includes('200 ብር ቅናሽ') && inviteText.includes('300 ብር'), 'invite screen shows the terms');
+  await tap(REFERRER, 'ref:invite');
+  assert.equal(/start=r_([A-Z2-9]{7})/.exec(lastTo(REFERRER).body.text)[1], code, 'the same code every time');
+  await say(FRIEND, '/invite');
+  assert.ok(lastTo(FRIEND).body.text.includes('ለገዙ ደንበኞች'), 'non-buyer gets no link');
+  await say(REFERRER, '/start r_' + code);
+  assert.equal(row(env, 'SELECT COUNT(*) AS n FROM referrals').n, 0, 'own link ignored');
+  ok('referrals: owner turns ON; buyers get one stable link; non-buyers and own links get nothing');
+
+  // 3. A friend opens the link: 2,300 everywhere; terms locked on the order.
+  OUTBOUND.length = 0;
+  await say(FRIEND, '/start r_' + code);
+  assert.equal(row(env, 'SELECT referrer_uid FROM referrals WHERE friend_uid=?', FRIEND).referrer_uid, REFERRER);
+  assert.ok(lastTo(FRIEND).body.text.includes('ETB 2,300'), 'welcome shows the friend price');
+  await say(FRIEND, '/start r_ZZZZZZZ');
+  assert.equal(row(env, 'SELECT referrer_uid FROM referrals WHERE friend_uid=?', FRIEND).referrer_uid, REFERRER, 'first link wins');
+  await tap(FRIEND, 'menu:pay');
+  const payScreen = lastTo(FRIEND).body.text;
+  assert.ok(payScreen.includes('ETB 2,300') && payScreen.includes('<s>ETB 2,500</s>'), 'pay screen: 2,300 instead of 2,500');
+  await tap(FRIEND, 'pay:proof');
+  await say(FRIEND, '3f9a1c7e5b2d4086');
+  await post(env, msg(Number(FRIEND), { id: Number(FRIEND) }, { photo: [{ file_id: 'P-REF' }] }));
+  assert.ok(allTo(FRIEND).includes('ETB 2,300</b> (የጓደኛ ቅናሽ'), 'review shows the friend price');
+  await tap(FRIEND, 'proof:confirm');
+  const o = row(env, 'SELECT * FROM orders WHERE uid=?', FRIEND);
+  assert.deepEqual([o.amount_etb, o.discount_etb, o.reward_etb, o.referrer_uid], [2300, 200, 300, REFERRER], 'terms locked on the order');
+  assert.ok(allTo(FRIEND).includes('ETB 2,300'), 'order-received message shows 2,300');
+  const card = OUTBOUND.find((x) => x.method === 'sendPhoto' && String(x.body.chat_id) === String(ADMIN_ID));
+  assert.ok(card && card.body.caption.includes('Referred') && card.body.caption.includes('ETB 2,300'), 'admin card: expect 2,300');
+  ok('referrals: invited friend sees and pays 2,300; first link wins; admin card says "expect ETB 2,300"');
+
+  // 4. Changing the amounts never changes an order already placed.
+  await say(ADMIN_ID, '/refreward 500');
+  assert.equal(row(env, "SELECT value FROM settings WHERE key='referral_reward_etb'").value, '500');
+  await say(ADMIN_ID, '/refdiscount 99999');
+  assert.ok(lastTo(ADMIN_ID).body.text.includes('must be between'), 'an impossible discount is refused');
+
+  // 5. Approve: 2,300 sale, one 300 reward (locked), referrer told, new buyer invited.
+  OUTBOUND.length = 0;
+  await tap(ADMIN_ID, `approve:${o.id}`);
+  assert.equal(row(env, 'SELECT amount_etb FROM sales WHERE order_id=?', o.id).amount_etb, 2300);
+  const rw = row(env, 'SELECT * FROM referral_rewards WHERE order_id=?', o.id);
+  assert.deepEqual([rw.amount_etb, rw.status, rw.referrer_uid], [300, 'earned', REFERRER], 'reward = locked 300, not the new 500');
+  assert.ok(allTo(REFERRER).includes('300 ብር</b> አግኝተዋል'), 'referrer told what they earned');
+  assert.ok(kbOf(lastTo(FRIEND)).includes('ref:invite'), 'the new buyer is offered their own link');
+  await tap(ADMIN_ID, `approve:${o.id}`);
+  assert.equal(row(env, 'SELECT COUNT(*) AS n FROM referral_rewards').n, 1, 'one reward however many taps');
+  await say(ADMIN_ID, '/refreward 300');
+  ok('referrals: approval records the 2,300 sale and exactly one locked 300 ብር reward; both people told');
+
+  // 6. Payout account: one message; a pasted Machine ID is not an account.
+  await tap(REFERRER, 'ref:payout');
+  await say(REFERRER, 'bb22bb22bb22bb22');
+  assert.equal(row(env, 'SELECT COUNT(*) AS n FROM payout_accounts').n, 0, 'Machine ID refused');
+  await say(REFERRER, 'CBE 1000123456789 Abebe Kebede');
+  assert.equal(row(env, 'SELECT details FROM payout_accounts WHERE uid=?', REFERRER).details, 'CBE 1000123456789 Abebe Kebede');
+  ok('referrals: payout account saved from one message; a pasted Machine ID is refused');
+
+  // 7. Refund window, monthly reminder, paying.
+  OUTBOUND.length = 0;
+  await tap(ADMIN_ID, 'admin:ref-pay');
+  assert.ok(lastTo(ADMIN_ID).body.text.includes('Nothing to pay'), 'inside the refund window: nothing payable');
+  env.DB.prepare("UPDATE referral_rewards SET earned_at=datetime('now','-15 days')").run();
+  OUTBOUND.length = 0;
+  await worker.scheduled({ cron: '0 */6 * * *' }, env);
+  await worker.scheduled({ cron: '0 */6 * * *' }, env);
+  assert.equal(OUTBOUND.filter((x) => (x.body.text || '').includes('Referral rewards ready to pay')).length, 1, 'one reminder per month');
+  await tap(ADMIN_ID, 'admin:ref-pay');
+  const payList = lastTo(ADMIN_ID).body.text;
+  assert.ok(payList.includes('300 ብር') && payList.includes('CBE 1000123456789'), 'pay list shows amount + account');
+  OUTBOUND.length = 0;
+  await tap(ADMIN_ID, `admin:ref-paid:${REFERRER}`);
+  assert.equal(row(env, 'SELECT status FROM referral_rewards WHERE order_id=?', o.id).status, 'paid');
+  assert.ok(allTo(REFERRER).includes('300 ብር ተልኮልዎታል'), 'referrer told it was sent');
+  OUTBOUND.length = 0;
+  await tap(ADMIN_ID, `admin:ref-paid:${REFERRER}`);
+  assert.ok(!allTo(REFERRER).includes('ተልኮልዎታል'), 'a second tap pays nothing and tells nobody');
+  ok('referrals: payable only after 14 days; one monthly reminder; ✅ Paid marks it once and tells the referrer');
+
+  // 8. Revoking the friend cancels an unpaid reward; restoring brings it back.
+  env.DB.prepare('INSERT INTO referrals (friend_uid, referrer_uid, code) VALUES (?, ?, ?)').bind(FRIEND2, REFERRER, code).run();
+  env.DB.prepare("INSERT INTO orders (uid, username, machine_id, ref, photo_key, chat_id, status, amount_etb, referrer_uid, discount_etb, reward_etb) VALUES (?, 'f2', 'cc33cc33cc33cc33', '', '', ?, 'pending', 2300, ?, 200, 300)")
+    .bind(FRIEND2, FRIEND2, REFERRER).run();
+  const o2 = row(env, 'SELECT id FROM orders WHERE uid=?', FRIEND2).id;
+  await tap(ADMIN_ID, `approve:${o2}`);
+  await say(ADMIN_ID, '/revoke-mid cc33cc33cc33cc33');
+  assert.equal(row(env, 'SELECT status FROM referral_rewards WHERE order_id=?', o2).status, 'cancelled');
+  await say(ADMIN_ID, '/unrevoke-mid cc33cc33cc33cc33');
+  assert.equal(row(env, 'SELECT status FROM referral_rewards WHERE order_id=?', o2).status, 'earned');
+  ok('referrals: revoking the friend cancels an unpaid reward; restoring brings it back');
+
+  // 9. OFF again: no new links or discounts; earned rewards stay owed.
+  await tap(ADMIN_ID, 'admin:ref-toggle');
+  const F3 = '810000004';
+  const F4 = '810000005';
+  OUTBOUND.length = 0;
+  await say(F3, '/start r_' + code);
+  assert.equal(row(env, 'SELECT COUNT(*) AS n FROM referrals WHERE friend_uid=?', F3).n, 0, 'OFF: link ignored');
+  assert.ok(!lastTo(F3).body.text.includes('2,300'), 'OFF: normal welcome');
+  env.DB.prepare('INSERT INTO referrals (friend_uid, referrer_uid, code) VALUES (?, ?, ?)').bind(F4, REFERRER, code).run();
+  await tap(F4, 'menu:pay');
+  assert.ok(lastTo(F4).body.text.includes('ETB 2,500') && !lastTo(F4).body.text.includes('2,300'), 'OFF: invited friend pays full price');
+  await say(REFERRER, '/invite');
+  assert.ok(lastTo(REFERRER).body.text.includes('will still be paid'), 'OFF: earned rewards are still promised');
+  OUTBOUND.length = 0;
+  await say(REFERRER, '/start');
+  assert.ok(!kbOf(lastTo(REFERRER)).includes('ref:invite'), 'OFF: button hidden again');
+  await tap(ADMIN_ID, 'admin:ref');
+  assert.ok(lastTo(ADMIN_ID).body.text.includes('⚪ OFF'), 'admin sees OFF with the rewards still owed');
+  ok('referrals: OFF stops links and discounts immediately; rewards already earned stay owed');
+}
+
+// Safety: without the referral tables (migration not applied) selling is untouched.
+{
+  const { env } = fresh();
+  env.DB.db.exec('DROP TABLE settings; DROP TABLE referrals; DROP TABLE referral_codes; DROP TABLE referral_rewards; DROP TABLE payout_accounts;');
+  await startBuyFlow(env);
+  await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { text: '7e2b9f4a1c6d3e58' }));
+  await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { photo: [{ file_id: 'P-SAFE' }] }));
+  await cb(env, { id: Number(BUYER) }, 'proof:confirm', { chatId: Number(BUYER) });
+  const o = row(env, 'SELECT * FROM orders WHERE uid=?', BUYER);
+  assert.equal(o.amount_etb, 2500, 'normal price');
+  await cb(env, { id: Number(ADMIN_ID) }, `approve:${o.id}`);
+  assert.equal(row(env, 'SELECT status FROM orders WHERE id=?', o.id).status, 'approved', 'approval works');
+  OUTBOUND.length = 0;
+  await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: '/start' }));
+  assert.ok(OUTBOUND.some((x) => (x.body.text || '').includes('Dashboard')), 'admin dashboard still opens');
+  ok('referrals: with the tables missing the bot still sells and approves normally (treated as OFF)');
 }
 
 console.log('\n' + PASS.length + ' checks — all green ✅');

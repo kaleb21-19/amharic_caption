@@ -36,12 +36,14 @@ export default function LegalPage() {
               <li>ካፕሽኖቹ ረቂቅ ናቸው፤ ከማተምዎ በፊት መገምገምና ማስተካከል የእርስዎ ኃላፊነት ነው።</li>
               <li>ፕሮግራሙ በኮምፒውተርዎ ላይ ካልሰራና ልናስተካክለው ካልቻልን፣ በገዙ በ14 ቀን ውስጥ ከጠየቁ ሙሉ ገንዘብዎ ይመለሳል።</li>
               <li>መረጃዎ እንዲሰረዝ በቴሌግራም <a href={CONTACT_URL} target="_blank" rel="noopener">@sumpak6</a> ላይ መጠየቅ ይችላሉ።</li>
+              <li>የግብዣ ፕሮግራም ሲኖር፦ ጓደኛዎ በሊንክዎ ሲገዛ ሽልማቱ ከተጠባባቂው ጊዜ (አሁን 14 ቀን) በኋላ በባንክ ይላካል። ፕሮግራሙ በማንኛውም ጊዜ ሊቀየር ወይም ሊቆም ይችላል፤ ቀደም ብሎ የተገኘ ሽልማት ግን ይከፈላል።</li>
             </ul>
           </div>
           <div className="legal-toc">
             <a href="#eula">End User License Agreement</a>
             <a href="#privacy">Privacy policy</a>
             <a href="#refund">Refund policy</a>
+            <a href="#referral">Referral programme</a>
           </div>
 
           <h2 id="eula">End User License Agreement (EULA)</h2>
@@ -189,7 +191,10 @@ export default function LegalPage() {
             trial-abuse records may be retained while needed to support or
             protect an active license. A minimal sales record (order number,
             date, amount and Machine ID — no screenshot, name or Telegram
-            account) is kept for accounting. We do not sell your data. Service
+            account) is kept for accounting. If you take part in the referral
+            programme, we also store who invited whom (Telegram account ids),
+            the rewards, and the payout account you enter (bank, account number
+            and name) so rewards can be paid. We do not sell your data. Service
             providers include Cloudflare, Vercel (website hosting), and Telegram
             (ordering and support).
           </p>
@@ -248,6 +253,38 @@ export default function LegalPage() {
             or read the{" "}
             <Link href="/#faq">FAQ</Link>.
           </p>
+
+          <h2 id="referral">Referral programme</h2>
+          <p><em>Effective: {LEGAL_EFFECTIVE} · Version {LEGAL_VERSION}</em></p>
+          <ul>
+            <li>
+              The programme runs only while it is switched on. The current
+              friend discount and reward are shown in the bot (<code>/invite</code>).
+              We may change the amounts or end the programme at any time; a
+              change never affects an order that was already placed.
+            </li>
+            <li>
+              Only customers with an active license receive a personal link.
+              The first link a new customer opens decides who referred them.
+              Existing customers, your own link and your own computer do not
+              qualify.
+            </li>
+            <li>
+              A reward is earned when the referred customer&rsquo;s payment is
+              approved. It becomes payable after the waiting period (currently
+              14 days, the refund window) and is sent by bank transfer, usually
+              once a month, to the payout account you register in the bot.
+            </li>
+            <li>
+              If the referred license is refunded or revoked before the reward
+              is paid, the reward is cancelled. Rewards earned before the
+              programme ends are still paid.
+            </li>
+            <li>
+              Rewards obtained through fake accounts, self-referral or other
+              abuse are cancelled, and the license may be revoked (EULA §5).
+            </li>
+          </ul>
         </div>
       </section>
     </>
