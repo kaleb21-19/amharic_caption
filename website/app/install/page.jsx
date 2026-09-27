@@ -1,11 +1,12 @@
 import Link from "next/link";
 import InstallGuide from "@/components/InstallGuide";
-import { BOT_URL, GROUP_URL, PRICE } from "@/lib/site";
+import Tx from "@/components/Tx";
+import { GROUP_URL, SUPPORT_URL } from "@/lib/site";
 
 export const metadata = {
-  title: "Install — Amharic Captions for Premiere Pro",
+  title: "መጫኛ · Install — Amharic Captions Pro for Premiere Pro",
   description:
-    "Install the Amharic Captions panel for Adobe Premiere Pro on Windows 10/11 or macOS (Apple Silicon and Intel). Download, double-click the installer, restart Premiere.",
+    "የአማርኛ ካፕሽን ፓነልን በWindows ወይም Mac ይጫኑ። Install the Amharic Captions panel for Adobe Premiere Pro on Windows 10/11 or macOS (Apple Silicon and Intel). Download, double-click the installer, restart Premiere.",
   alternates: { canonical: "/install/" },
 };
 
@@ -32,17 +33,24 @@ export default function InstallPage() {
 
       <section className="page-hero">
         <div className="container">
-          <p className="eyebrow">Installation</p>
-          <h1>Running in about five minutes.</h1>
+          <p className="eyebrow"><Tx am="መጫኛ" en="Installation" /></p>
+          <h1><Tx am="በአምስት ደቂቃ ገደማ ዝግጁ።" en="Running in about five minutes." /></h1>
           <p className="hero-sub">
-            Download, double-click the installer, restart Premiere. No Terminal, no registry
-            editing, no administrator rights.
+            <Tx
+              am="ያውርዱ፣ ጫኚውን ሁለቴ ይጫኑ፣ Premiere ን እንደገና ይክፈቱ። የTerminal ትዕዛዝ ወይም የregistry ማስተካከያ አያስፈልግም።"
+              en="Download, double-click the installer, restart Premiere. No Terminal commands, no registry editing."
+            />
           </p>
 
           <div className="req-row">
-            <span className="req"><b>Premiere Pro</b> or <b>After Effects</b> 2024+ — or no Adobe app at all</span>
-            <span className="req"><b>Windows 10/11</b> or <b>macOS</b></span>
-            <span className="req"><b>~2 GB</b> free disk space</span>
+            <span className="req">
+              <Tx
+                am={<><b>Premiere Pro</b> ወይም <b>After Effects</b> 2024+ — ወይም ምንም የAdobe ፕሮግራም ሳይኖር</>}
+                en={<><b>Premiere Pro</b> or <b>After Effects</b> 2024+ — or no Adobe app at all</>}
+              />
+            </span>
+            <span className="req"><Tx am={<><b>Windows 10/11</b> ወይም <b>macOS</b></>} en={<><b>Windows 10/11</b> or <b>macOS</b></>} /></span>
+            <span className="req"><Tx am={<><b>~2 GB</b> ነጻ ቦታ</>} en={<><b>~2 GB</b> free disk space</>} /></span>
           </div>
         </div>
       </section>
@@ -52,21 +60,26 @@ export default function InstallPage() {
       <section className="section" style={{ background: "var(--bg-soft)" }}>
         <div className="container">
           <div className="final-cta">
-            <h2>Stuck on a step?</h2>
+            <h2><Tx am="አንድ ደረጃ ላይ ተቸገሩ?" en="Stuck on a step?" /></h2>
             <p className="section-sub" style={{ marginInline: "auto" }}>
-              Send us a message — the support group has illustrated Windows and macOS
-              walkthroughs, and people usually reply fast.
+              <Tx
+                am="በቴሌግራም መልዕክት ይላኩልን — ብዙውን ጊዜ በፍጥነት እንመልሳለን።"
+                en="Send us a message on Telegram — we usually reply fast."
+              />
             </p>
             <div className="cta-row">
-              <a className="btn btn-primary btn-lg" href={GROUP_URL} target="_blank" rel="noopener">
-                Join the support group
+              <a className="btn btn-primary btn-lg" href={SUPPORT_URL} target="_blank" rel="noopener">
+                <Tx am="ድጋፍ ያግኙ" en="Message support" />
               </a>
-              <a className="btn btn-ghost btn-lg" href={BOT_URL} target="_blank" rel="noopener">
-                Buy or activate ({PRICE})
+              <a className="btn btn-ghost btn-lg" href={GROUP_URL} target="_blank" rel="noopener">
+                <Tx am="የድጋፍ ግሩፑን ይቀላቀሉ" en="Join the support group" />
               </a>
             </div>
             <p className="tiny" style={{ marginTop: "var(--s-5)" }}>
-              Not bought yet? Every new machine gets <Link href="/#pricing">2 free captions</Link> first.
+              <Tx
+                am={<>ገና አልገዙም? እያንዳንዱ አዲስ ኮምፒውተር መጀመሪያ <Link href="/#pricing">2 ነጻ ካፕሽን</Link> ያገኛል።</>}
+                en={<>Not bought yet? Every new computer gets <Link href="/#pricing">2 free captions</Link> first.</>}
+              />
             </p>
           </div>
         </div>

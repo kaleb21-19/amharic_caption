@@ -1,10 +1,13 @@
 import Link from "next/link";
-import { BOT_URL, CONTACT_URL, ACCT_NAME, ACCOUNTS_LABEL, PRICE } from "@/lib/site";
+import Tx from "@/components/Tx";
+import {
+  BOT_URL, CONTACT_URL, ACCT_NAME, ACCOUNTS_LABEL, PRICE, PRICE_AM, LEGAL_EFFECTIVE, LEGAL_VERSION,
+} from "@/lib/site";
 
 export const metadata = {
-  title: "License, Privacy & Refund — Amharic Captions for Premiere Pro",
+  title: "ህጋዊ ውሎች · License, Privacy & Refund — Amharic Captions Pro",
   description:
-    "End User License Agreement, privacy policy and refund policy for Amharic Captions Pro. One-time ETB 2,500 license, local transcription, file-bound license terms.",
+    "End User License Agreement, privacy policy and refund policy for Amharic Captions Pro. One-time ETB 2,500 license, local transcription, 14-day refund if it does not work.",
 };
 
 export default function LegalPage() {
@@ -12,18 +15,31 @@ export default function LegalPage() {
     <>
       <section className="page-hero">
         <div className="container">
-          <p className="eyebrow">Legal</p>
-          <h1>License, privacy & refunds.</h1>
+          <p className="eyebrow"><Tx am="ህጋዊ ውሎች" en="Legal" /></p>
+          <h1><Tx am="ፈቃድ፣ ግላዊነት እና ተመላሽ ገንዘብ።" en="License, privacy & refunds." /></h1>
           <p className="hero-sub">
-            The short version: local transcription, one license per licensed
-            installation, and a clear money-back path if it does not work on
-            your setup. The full terms are below.
+            <Tx
+              am="በአጭሩ፦ ቪዲዮዎ በኮምፒውተርዎ ላይ ብቻ ይሰራል፣ አንድ ፈቃድ ለአንድ ኮምፒውተር ነው፣ በኮምፒውተርዎ ላይ ካልሰራም ገንዘብዎ ይመለሳል። ሙሉ ውሎቹ ከታች አሉ።"
+              en="The short version: local transcription, one license per computer, and a clear money-back path if it does not work on your setup. The full terms are below."
+            />
           </p>
         </div>
       </section>
 
       <section className="section">
         <div className="container legal">
+          <div className="legal-summary l-am" lang="am">
+            <strong>ማሳሰቢያ፦ ከታች ያሉት ሙሉ ውሎች በእንግሊዝኛ ናቸው፤ የሚጸናውም የእንግሊዝኛው ቅጂ ነው። ዋና ዋና ነጥቦቹ በአጭሩ፦</strong>
+            <ul>
+              <li>አንድ ጊዜ {PRICE_AM} ይከፍላሉ። ፈቃዱ ለአንድ ኮምፒውተር ነው፤ ወርሃዊ ክፍያ ወይም እድሳት የለውም።</li>
+              <li>እያንዳንዱ አዲስ ኮምፒውተር ከመግዛቱ በፊት 2 ነጻ ካፕሽን ያገኛል።</li>
+              <li>ቪዲዮዎ፣ ድምፅዎና ካፕሽኖችዎ ከኮምፒውተርዎ አይወጡም። ወደ ሰርቨራችን የሚላከው ለፈቃድና ለነጻ ሙከራው የሚያስፈልግ ትንሽ መረጃ (የማሽን መለያ፣ ቁልፍ፣ የፕሮግራሙ ስሪት) ብቻ ነው።</li>
+              <li>ቁልፉን ማጋራት፣ እንደገና መሸጥ ወይም በብዙ ኮምፒውተሮች ላይ መጠቀም አይፈቀድም።</li>
+              <li>ካፕሽኖቹ ረቂቅ ናቸው፤ ከማተምዎ በፊት መገምገምና ማስተካከል የእርስዎ ኃላፊነት ነው።</li>
+              <li>ፕሮግራሙ በኮምፒውተርዎ ላይ ካልሰራና ልናስተካክለው ካልቻልን፣ በገዙ በ14 ቀን ውስጥ ከጠየቁ ሙሉ ገንዘብዎ ይመለሳል።</li>
+              <li>መረጃዎ እንዲሰረዝ በቴሌግራም <a href={CONTACT_URL} target="_blank" rel="noopener">@sumpak6</a> ላይ መጠየቅ ይችላሉ።</li>
+            </ul>
+          </div>
           <div className="legal-toc">
             <a href="#eula">End User License Agreement</a>
             <a href="#privacy">Privacy policy</a>
@@ -31,7 +47,7 @@ export default function LegalPage() {
           </div>
 
           <h2 id="eula">End User License Agreement (EULA)</h2>
-          <p><em>Effective: {new Date().toISOString().slice(0, 10)} · Version 1.0</em></p>
+          <p><em>Effective: {LEGAL_EFFECTIVE} · Version {LEGAL_VERSION}</em></p>
           <p>
             By installing, running, or otherwise using Amharic Captions Pro
             ("the Software"), you agree to this End User License Agreement with
@@ -68,7 +84,7 @@ export default function LegalPage() {
           <ul>
             <li>redistribute, resell, sub-license, rent or lend the Software, its installer, or a recycled license key;</li>
             <li>copy, modify, reverse engineer, decompile or disassemble the Software (except as allowed by law);</li>
-            <li>use unauthorized, forged, or shared spread of a single key across machines (see §5).</li>
+            <li>use unauthorized or forged keys, or share one key across several computers (see §5).</li>
           </ul>
 
           <h3>5. Deactivation</h3>
@@ -86,10 +102,10 @@ export default function LegalPage() {
           <p>
             Transcription is produced on your machine by speech-recognition
             models. Accuracy depends on audio quality, speaker, accent,
-            background noise, music and reverberation. Captions may require substantial
-            correction; the current model has not yet met the project's ≤15%
-            real-audio WER target. You are responsible for reviewing and
-            correcting every caption before publishing.
+            background noise, music and reverberation, and captions may
+            require substantial correction. Transcripts are drafts: you are
+            responsible for reviewing and correcting every caption before
+            publishing.
           </p>
 
           <h3>7. No warranty</h3>
@@ -128,7 +144,7 @@ export default function LegalPage() {
           </p>
 
           <h2 id="privacy">Privacy policy</h2>
-          <p><em>Effective: {new Date().toISOString().slice(0, 10)} · Version 1.0</em></p>
+          <p><em>Effective: {LEGAL_EFFECTIVE} · Version {LEGAL_VERSION}</em></p>
 
           <h3>What transcription never does</h3>
           <p>
@@ -197,7 +213,7 @@ export default function LegalPage() {
           </p>
 
           <h2 id="refund">Refund policy</h2>
-          <p><em>Effective: {new Date().toISOString().slice(0, 10)} · Version 1.0</em></p>
+          <p><em>Effective: {LEGAL_EFFECTIVE} · Version {LEGAL_VERSION}</em></p>
           <h3>Digital goods — replacement first</h3>
           <p>
             The product is a digital license key delivered by bot after

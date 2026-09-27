@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BOT_URL, PRICE } from "@/lib/site";
+import Tx from "@/components/Tx";
+import { BOT_URL, PRICE, PRICE_AM } from "@/lib/site";
 
 // Sticky buy bar, phones only.
 //
@@ -33,8 +34,8 @@ export default function MobileBuyBar() {
     <div className={show ? "buybar is-up" : "buybar"} aria-hidden={!show}>
       <div className="buybar-inner">
         <div className="buybar-text">
-          <strong>{PRICE}</strong>
-          <span>one-time · 2 free first</span>
+          <strong><Tx am={PRICE_AM} en={PRICE} /></strong>
+          <span><Tx am="አንድ ጊዜ ብቻ · መጀመሪያ 2 በነጻ" en="one-time · 2 free first" /></span>
         </div>
         <a
           className="btn btn-primary"
@@ -43,7 +44,7 @@ export default function MobileBuyBar() {
           rel="noopener"
           tabIndex={show ? 0 : -1}
         >
-          Get your key
+          <Tx am="ቁልፍ ያግኙ" en="Get your key" />
         </a>
       </div>
     </div>

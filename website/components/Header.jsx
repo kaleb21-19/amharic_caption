@@ -3,16 +3,18 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { BOT_URL, PRICE } from "@/lib/site";
+import Tx from "@/components/Tx";
+import LangToggle from "@/components/LangToggle";
+import { BOT_URL, PRICE, PRICE_AM } from "@/lib/site";
 
 // Pricing and FAQ are sections of the homepage now, not separate pages — the
 // site is deliberately three pages (home, install, legal) so nothing competes
 // with the one decision a visitor has to make.
 const links = [
-  { href: "/#how", label: "How it works" },
-  { href: "/#pricing", label: "Pricing" },
-  { href: "/install/", label: "Install" },
-  { href: "/#faq", label: "FAQ" },
+  { href: "/#how", am: "እንዴት ይሰራል", en: "How it works" },
+  { href: "/#pricing", am: "ዋጋ", en: "Pricing" },
+  { href: "/install/", am: "መጫኛ", en: "Install" },
+  { href: "/#faq", am: "ጥያቄዎች", en: "FAQ" },
 ];
 
 export default function Header() {
@@ -31,55 +33,64 @@ export default function Header() {
     <header className="site-header">
       <div className="trust-bar">
         <div className="container trust-inner">
-          <span>Runs on your computer — no internet, no uploads, no data charges</span>
-          <span>Perpetual by default · {PRICE} one-time</span>
+          <span>
+            <Tx
+              am="በኮምፒውተርዎ ላይ ይሰራል — ኢንተርኔት፣ upload ወይም የዳታ ወጪ የለም"
+              en="Runs on your computer — no internet, no uploads, no data charges"
+            />
+          </span>
+          <span><Tx am={`አንድ ጊዜ ብቻ · ${PRICE_AM}`} en={`One-time · ${PRICE}`} /></span>
         </div>
       </div>
 
       <div className="container header-inner">
-        <Link href="/" className="brand" aria-label="Amharic Captions Pro — home">
+        <Link href="/" className="brand" aria-label="Amharic Captions Pro">
           <span className="brand-mark" aria-hidden="true">AC</span>
           <span className="brand-name">Amharic Captions <em>Pro</em></span>
         </Link>
 
-        <nav className="nav" aria-label="Primary">
-          {links.map((l) => {
-            const active = l.href.startsWith("/install") && path.startsWith("/install");
-            return (
-              <Link
-                key={l.href}
-                href={l.href}
-                className={active ? "active" : ""}
-                aria-current={active ? "page" : undefined}
-              >
-                {l.label}
-              </Link>
-            );
-          })}
-          <a className="btn btn-primary btn-sm" href={BOT_URL} target="_blank" rel="noopener">
-            Get your key
-          </a>
-        </nav>
+        <div className="header-right">
+          <nav className="nav" aria-label="Primary">
+            {links.map((l) => {
+              const active = l.href.startsWith("/install") && path.startsWith("/install");
+              return (
+                <Link
+                  key={l.href}
+                  href={l.href}
+                  className={active ? "active" : ""}
+                  aria-current={active ? "page" : undefined}
+                >
+                  <Tx am={l.am} en={l.en} />
+                </Link>
+              );
+            })}
+            <a className="btn btn-primary btn-sm" href={BOT_URL} target="_blank" rel="noopener">
+              <Tx am="ቁልፍ ያግኙ" en="Get your key" />
+            </a>
+          </nav>
 
-        <button
-          className={open ? "nav-toggle open" : "nav-toggle"}
-          aria-label={open ? "Close menu" : "Open menu"}
-          aria-expanded={open}
-          onClick={() => setOpen((v) => !v)}
-        >
-          <span /><span /><span />
-        </button>
+          <LangToggle />
+
+          <button
+            className={open ? "nav-toggle open" : "nav-toggle"}
+            aria-label={open ? "Close menu" : "Open menu"}
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+          >
+            <span /><span /><span />
+          </button>
+        </div>
       </div>
 
       {open && (
         <nav className="mobile-menu" aria-label="Mobile">
           {links.map((l) => (
             <Link key={l.href} href={l.href} onClick={() => setOpen(false)}>
-              {l.label}
+              <Tx am={l.am} en={l.en} />
             </Link>
           ))}
           <a className="btn btn-primary" href={BOT_URL} target="_blank" rel="noopener">
-            Get your key
+            <Tx am="ቁልፍ ያግኙ" en="Get your key" />
           </a>
         </nav>
       )}

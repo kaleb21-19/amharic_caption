@@ -2,54 +2,125 @@ import Link from "next/link";
 import Reveal from "@/components/Reveal";
 import BuySafely from "@/components/BuySafely";
 import PanelMock from "@/components/PanelMock";
-import { BOT_URL, PRICE, PRICE_NUM, PRICE_OLD_NUM } from "@/lib/site";
+import Tx from "@/components/Tx";
+import {
+  BOT_URL, ACCT_NAME, PRICE, PRICE_AM, PRICE_NUM, PRICE_OLD_NUM,
+} from "@/lib/site";
 
 const steps = [
   {
     n: "1",
-    title: "Install once",
-    text: "Run the installer and restart Premiere. No Terminal, no registry editing, no admin rights.",
+    title: { am: "አንድ ጊዜ ይጫኑ", en: "Install once" },
+    text: {
+      am: "ጫኚውን ሁለቴ ይጫኑ፣ Premiere ን እንደገና ይክፈቱ። ምንም የቴክኒክ ትዕዛዝ ወይም የአድሚን ፈቃድ አያስፈልግም።",
+      en: "Double-click the installer and restart Premiere. No Terminal, no registry editing, no admin rights.",
+    },
   },
   {
     n: "2",
-    title: "Pick your clip",
-    text: "Select a clip, a work area, or the whole sequence — then choose grouped or karaoke captions.",
+    title: { am: "ክሊፕ ይምረጡ", en: "Pick your clip" },
+    text: {
+      am: "አንድ ክሊፕ፣ Work Area ወይም ሙሉ ኤዲቱን ይምረጡ — ከዚያ በቡድን ወይም ካራኦኬ ካፕሽን ይምረጡ።",
+      en: "Select a clip, a work area, or the whole sequence — then choose grouped or karaoke captions.",
+    },
   },
   {
     n: "3",
-    title: "Generate",
-    text: "Captions land on your timeline as an editable caption track, timed to your edit.",
+    title: { am: "ፍጠር፣ ገምግም፣ አስቀምጥ", en: "Generate, review, place" },
+    text: {
+      am: "ካፕሽኖቹን በፓነሉ ውስጥ ገምግመው ያስተካክሉ፣ ከዚያ ሊስተካከል በሚችል የካፕሽን ትራክ ላይ ታይምላይኑ ላይ ያስቀምጧቸው።",
+      en: "Review and fix the captions in the panel, then place them on your timeline as an editable caption track.",
+    },
+  },
+];
+
+const buySteps = [
+  {
+    t: { am: "ይጫኑና 2 ካፕሽን በነጻ ይሞክሩ", en: "Install and try 2 captions free" },
+    c: {
+      am: "ከመክፈልዎ በፊት በራስዎ ቪዲዮ እንደሚሰራ ያረጋግጡ።",
+      en: "Make sure it works on your own footage before you pay anything.",
+    },
+  },
+  {
+    t: { am: "በፓነሉ ላይ «ፈቃድ ይግዙ» ይጫኑ", en: "Press “Buy a license” in the panel" },
+    c: {
+      am: "የቴሌግራም ቦቱ ከማሽን መለያዎ (Machine ID) ጋር ይከፈታል።",
+      en: "The Telegram bot opens with your Machine ID already filled in.",
+    },
+  },
+  {
+    t: { am: `${PRICE_AM} በባንክ ያስተላልፉ`, en: `Transfer ${PRICE} by bank` },
+    c: {
+      am: `ለ ${ACCT_NAME} (CBE፣ አቢሲኒያ ወይም ዘመን ባንክ) ያስተላልፉ፣ የደረሰኙን ስክሪንሾት ለቦቱ ይላኩ።`,
+      en: `Pay ${ACCT_NAME} (CBE, Abyssinia or Zemen) and send the receipt screenshot to the bot.`,
+    },
+  },
+  {
+    t: { am: "ቁልፍዎ በቻቱ ይደርሳል", en: "Your key arrives in the chat" },
+    c: {
+      am: "ክፍያው ሲረጋገጥ ቁልፉ በዚያው ቻት ይላካል። በፓነሉ ላይ ለጥፈው «አግብር» ይጫኑ።",
+      en: "When the payment is confirmed, the key is sent in the same chat. Paste it into the panel and press Activate.",
+    },
   },
 ];
 
 const faqs = [
   {
-    q: "Do I need internet to use it?",
-    a: "No. Transcription runs entirely on your machine. You need internet once to install (the small download fetches the Amharic model once, and continues if your connection drops) and once to receive your license key — after that you can work completely offline.",
+    q: { am: "ኢንተርኔት ያስፈልገኛል?", en: "Do I need internet to use it?" },
+    a: {
+      am: "አይ። ወደ ጽሑፍ መቀየሩ ሙሉ በሙሉ በኮምፒውተርዎ ላይ ይሰራል። ኢንተርኔት የሚያስፈልገው ለመጫን (የአማርኛ ሞዴሉ አንድ ጊዜ ይወርዳል፤ ቢቋረጥ ካቆመበት ይቀጥላል) እና የፈቃድ ቁልፍዎን ለመቀበል ብቻ ነው — ከዚያ በኋላ ያለ ኢንተርኔት መስራት ይችላሉ።",
+      en: "No. Transcription runs entirely on your computer. You need internet once to install (the Amharic model downloads once, and continues if your connection drops) and once to receive your license key — after that you can work completely offline.",
+    },
   },
   {
-    q: "I don't use Premiere. Can I still use it?",
-    a: "Yes. The installer adds a “Make Amharic Captions” shortcut to your desktop. On Windows, drag any video onto it; on a Mac, double-click it and drag the video into the window. An .srt subtitle file appears next to the video, ready for CapCut, DaVinci Resolve, older Premiere versions or YouTube. Same key, same 2 free captions.",
+    q: { am: "Premiere አልጠቀምም። ልጠቀምበት እችላለሁ?", en: "I don't use Premiere. Can I still use it?" },
+    a: {
+      am: "አዎ። ጫኚው «Make Amharic Captions» የሚል አቋራጭ ዴስክቶፕዎ ላይ ያስቀምጣል። በWindows ማንኛውንም ቪዲዮ በላዩ ላይ ይጎትቱ፤ በMac ሁለቴ ጠቅ አድርገው ቪዲዮውን ወደ መስኮቱ ይጎትቱ። ለCapCut፣ DaVinci Resolve፣ ለቆዩ የPremiere ስሪቶች ወይም ለYouTube የሚሆን .srt ፋይል ከቪዲዮው አጠገብ ይፈጠራል። ያው ቁልፍ፣ ያው 2 ነጻ ካፕሽኖች።",
+      en: "Yes. The installer adds a “Make Amharic Captions” shortcut to your desktop. On Windows, drag any video onto it; on a Mac, double-click it and drag the video into the window. An .srt subtitle file appears next to the video, ready for CapCut, DaVinci Resolve, older Premiere versions or YouTube. Same key, same 2 free captions.",
+    },
   },
   {
-    q: "Is my footage uploaded anywhere?",
-    a: "Never. Your video and audio never leave your computer. There is no server to send it to, which is why it works with no connection at all.",
+    q: { am: "ቪዲዮዬ የሆነ ቦታ ይላካል?", en: "Is my footage uploaded anywhere?" },
+    a: {
+      am: "በፍጹም። ቪዲዮዎና ድምፅዎ ከኮምፒውተርዎ አይወጡም። የሚላኩበት ሰርቨር የለም — ለዚህም ነው ያለ ኢንተርኔት የሚሰራው።",
+      en: "Never. Your video and audio never leave your computer. There is no server to send it to, which is why it works with no connection at all.",
+    },
   },
   {
-    q: "Can I try it before paying?",
-    a: "Yes. Every new machine gets 2 free captions so you can test it on your own footage in your own Premiere before you pay anything.",
+    q: { am: "ከመክፈሌ በፊት መሞከር እችላለሁ?", en: "Can I try it before paying?" },
+    a: {
+      am: "አዎ። እያንዳንዱ አዲስ ኮምፒውተር 2 ነጻ ካፕሽን ያገኛል፤ ከመክፈልዎ በፊት በራስዎ ቪዲዮ፣ በራስዎ Premiere ይሞክሩት።",
+      en: "Yes. Every new computer gets 2 free captions so you can test it on your own footage in your own Premiere before you pay anything.",
+    },
   },
   {
-    q: "Which Adobe versions work?",
-    a: "Premiere Pro 2024 (v24) and newer, on Windows 10/11 and macOS (Intel or Apple Silicon). After Effects 2024 and newer is supported too — captions arrive as one text layer in your composition. The panel does not load on 2021–2023 versions; use the drag-and-drop .srt tool there instead.",
+    q: { am: "የትኞቹ የAdobe ስሪቶች ይሰራሉ?", en: "Which Adobe versions work?" },
+    a: {
+      am: "Premiere Pro 2024 (v24) እና ከዚያ በኋላ ያሉት፣ በWindows 10/11 እና macOS (Intel ወይም Apple Silicon)። After Effects 2024 እና ከዚያ በኋላ ያሉትም ይሰራሉ — ካፕሽኖቹ በኮምፖዚሽንዎ ውስጥ እንደ አንድ ቴክስት ሌየር ይገባሉ። ፓነሉ በ2021–2023 ስሪቶች ላይ አይከፈትም፤ እዚያ የ.srt መስሪያውን ይጠቀሙ።",
+      en: "Premiere Pro 2024 (v24) and newer, on Windows 10/11 and macOS (Intel or Apple Silicon). After Effects 2024 and newer is supported too — captions arrive as one text layer in your composition. The panel does not load on 2021–2023 versions; use the drag-and-drop .srt tool there instead.",
+    },
   },
   {
-    q: "How accurate is it?",
-    a: "Accuracy varies substantially with the speaker, accent, recording, noise, and echo. The current model is not yet validated against the project's ≤15% real-audio WER target, so treat every transcription as a draft that needs review and correction before publishing.",
+    q: { am: "ምን ያህል ትክክል ነው?", en: "How accurate is it?" },
+    a: {
+      am: "ግልጽ ንግግርና ጥሩ ማይክራፎን ሲኖር አብዛኞቹ ቃላት በትክክል ይወጣሉ፤ በአብዛኛው የሚያስተካክሉት ስሞችን፣ ቁጥሮችንና አልፎ አልፎ ቃላትን ነው። የስልክ ድምፅ፣ ጫጫታ፣ ማሚቶና ሙዚቃ ተጨማሪ ማስተካከያ ይፈልጋሉ። እንደማንኛውም የድምፅ-ወደ-ጽሑፍ ፕሮግራም ውጤቱን እንደ ረቂቅ ይቁጠሩት፣ ከማተምዎ በፊት በፓነሉ ውስጥ ይገምግሙት። መጀመሪያ በራስዎ ቪዲዮ በነጻ ይሞክሩት።",
+      en: "On clear speech with a good microphone most words come out right, and you mainly fix names, numbers and the occasional word. Phone audio, noise, echo and music need more correction. Like every speech-to-text tool, treat the result as a draft and review it in the panel before you publish. Try it free on your own footage first.",
+    },
   },
   {
-    q: "How does the license work?",
-    a: "One key per licensed installation, file-bound to the panel identity. Pay once; keys are perpetual by default unless the seller explicitly issues a dated key. Do not share the identity/license files.",
+    q: { am: "ፈቃዱ እንዴት ይሰራል?", en: "How does the license work?" },
+    a: {
+      am: "አንድ ቁልፍ ለአንድ ኮምፒውተር። አንድ ጊዜ ይከፍላሉ — ወርሃዊ ክፍያ ወይም እድሳት የለም። ኮምፒውተር ከቀየሩ ወይም Windows እንደገና ከጫኑ ድጋፍን ያግኙ፤ ፈቃድዎን እናዛውርልዎታለን። ሁለተኛ አይግዙ።",
+      en: "One key per computer. Pay once — no subscription, no renewal. Changed computer or reinstalled Windows? Message support and we'll move your license. Don't buy a second one.",
+    },
+  },
+  {
+    q: { am: "በኮምፒውተሬ ላይ ካልሰራስ?", en: "What if it doesn't work on my computer?" },
+    a: {
+      am: "በመጀመሪያ እናስተካክለዋለን። ፕሮግራሙ በኮምፒውተርዎ ላይ ካልሰራና በተገቢው ጊዜ ልናስተካክለው ካልቻልን፣ በገዙ በ14 ቀን ውስጥ ከጠየቁ ሙሉ ገንዘብዎ ይመለሳል። ዝርዝሩ በህጋዊ ውሎች ገጽ ላይ ነው።",
+      en: "We fix it first. If the software does not work on your computer and we cannot resolve it within a reasonable time, you get a full refund when you ask within 14 days of purchase. Details are on the legal page.",
+    },
   },
 ];
 
@@ -61,13 +132,14 @@ export default function HomePage() {
   const priceLbl = Number(PRICE_NUM).toLocaleString("en-US");
   const oldLbl = Number(PRICE_OLD_NUM).toLocaleString("en-US");
 
+  // Search engines get the English FAQ; the Amharic copy is on the page itself.
   const faqLd = {
     "@context": "https://schema.org",
     "@type": "FAQPage",
     mainEntity: faqs.map((f) => ({
       "@type": "Question",
-      name: f.q,
-      acceptedAnswer: { "@type": "Answer", text: f.a },
+      name: f.q.en,
+      acceptedAnswer: { "@type": "Answer", text: f.a.en },
     })),
   };
 
@@ -83,33 +155,38 @@ export default function HomePage() {
         <div className="container">
           <div className="hero-grid">
             <div className="hero-copy">
-              <p className="eyebrow">For Premiere Pro, After Effects &amp; any editor</p>
+              <p className="eyebrow">
+                <Tx am="ለPremiere Pro፣ After Effects እና ለሌሎች ኤዲተሮች" en="For Premiere Pro, After Effects & any editor" />
+              </p>
 
               <h1>
-                Amharic subtitles in minutes,
-                <br className="hide-sm" /> not hours.
+                <Tx
+                  am="የአማርኛ ካፕሽን በደቂቃዎች — በሰዓታት አይደለም።"
+                  en={<>Amharic subtitles in minutes,<br className="hide-sm" /> not hours.</>}
+                />
               </h1>
 
               <p className="hero-sub">
-                Generate editable Amharic captions straight onto your Premiere timeline —
-                instead of typing every line by hand.
-              </p>
-
-              <p className="hero-amh amh" lang="am">
-                የአማርኛ ጽሑፍ በደቂቃዎች ውስጥ — በፕሪሚየር ፕሮ ውስጥ በቀጥታ።
+                <Tx
+                  am="እያንዳንዱን መስመር በእጅ ከመጻፍ ይልቅ፣ ሊስተካከሉ የሚችሉ የአማርኛ ካፕሽኖችን በቀጥታ በPremiere ታይምላይንዎ ላይ ይፍጠሩ።"
+                  en="Generate editable Amharic captions straight onto your Premiere timeline — instead of typing every line by hand."
+                />
               </p>
 
               <div className="hero-cta cta-row">
                 <a className="btn btn-primary btn-lg" href={BOT_URL} target="_blank" rel="noopener">
-                  Get your key — {PRICE}
+                  <Tx am={`ቁልፍ ያግኙ — ${PRICE_AM}`} en={`Get your key — ${PRICE}`} />
                 </a>
                 <Link className="btn btn-ghost btn-lg" href="/install/">
-                  Install guide
+                  <Tx am="የመጫኛ መመሪያ" en="Install guide" />
                 </Link>
               </div>
 
               <p className="hero-note">
-                Try 2 captions free first · One-time payment · No subscription
+                <Tx
+                  am="መጀመሪያ 2 ካፕሽን በነጻ ይሞክሩ · አንድ ጊዜ ብቻ ይከፍላሉ · ወርሃዊ ክፍያ የለም"
+                  en="Try 2 captions free first · One-time payment · No subscription"
+                />
               </p>
             </div>
 
@@ -124,22 +201,21 @@ export default function HomePage() {
       </section>
 
       {/* A thin band, not a section: the practical reasons this matters to an
-          editor in Ethiopia, said plainly. Replaces the old "Why offline"
-          section, which explained a technical concept instead of a benefit. */}
+          editor in Ethiopia, said plainly. */}
       <section className="strip">
         <div className="container">
           <ul className="strip-list">
             <li>
-              <strong>No internet needed</strong>
-              <span>Works when the connection doesn&apos;t</span>
+              <strong><Tx am="ኢንተርኔት አያስፈልግም" en="No internet needed" /></strong>
+              <span><Tx am="ኔትወርክ ቢጠፋም ይሰራል" en="Works when the connection doesn't" /></span>
             </li>
             <li>
-              <strong>No data charges</strong>
-              <span>Nothing is uploaded, ever</span>
+              <strong><Tx am="የዳታ ወጪ የለም" en="No data charges" /></strong>
+              <span><Tx am="ቪዲዮዎ ወደ ኢንተርኔት አይላክም" en="Nothing is uploaded, ever" /></span>
             </li>
             <li>
-              <strong>No monthly fee</strong>
-              <span>Pay once; perpetual by default</span>
+              <strong><Tx am="ወርሃዊ ክፍያ የለም" en="No monthly fee" /></strong>
+              <span><Tx am="አንድ ጊዜ ይክፈሉ፣ የእርስዎ ነው" en="Pay once, yours to keep" /></span>
             </li>
           </ul>
         </div>
@@ -150,8 +226,8 @@ export default function HomePage() {
         <div className="container">
           <Reveal>
             <div className="section-head center">
-              <p className="eyebrow">How it works</p>
-              <h2>Three steps, then you&apos;re editing.</h2>
+              <p className="eyebrow"><Tx am="እንዴት ይሰራል" en="How it works" /></p>
+              <h2><Tx am="በሶስት ደረጃ ኤዲት ማድረግ ይጀምራሉ።" en="Three steps, then you're editing." /></h2>
             </div>
           </Reveal>
           <div className="steps">
@@ -159,12 +235,22 @@ export default function HomePage() {
               <Reveal key={s.n} delay={i * 110}>
                 <div className="step">
                   <span className="step-n">{s.n}</span>
-                  <h3>{s.title}</h3>
-                  <p>{s.text}</p>
+                  <h3><Tx am={s.title.am} en={s.title.en} /></h3>
+                  <p><Tx am={s.text.am} en={s.text.en} /></p>
                 </div>
               </Reveal>
             ))}
           </div>
+          <Reveal delay={240}>
+            <div className="note-box">
+              <p>
+                <Tx
+                  am={<><strong>Premiere የለዎትም?</strong> ቪዲዮዎን ዴስክቶፕ ላይ ባለው «Make Amharic Captions» ላይ ይጎትቱት — ለCapCut፣ DaVinci Resolve ወይም YouTube የሚሆን .srt ፋይል ከቪዲዮው አጠገብ ይፈጠራል።</>}
+                  en={<><strong>No Premiere?</strong> Drag a video onto “Make Amharic Captions” on your desktop — an .srt file for CapCut, DaVinci Resolve or YouTube appears next to the video.</>}
+                />
+              </p>
+            </div>
+          </Reveal>
         </div>
       </section>
 
@@ -173,11 +259,13 @@ export default function HomePage() {
         <div className="container">
           <Reveal>
             <div className="section-head center">
-              <p className="eyebrow">Be realistic</p>
-              <h2>What kind of audio works best.</h2>
+              <p className="eyebrow"><Tx am="እውነቱን እንንገርዎ" en="Be realistic" /></p>
+              <h2><Tx am="የትኛው ድምፅ በደንብ ይሰራል።" en="What kind of audio works best." /></h2>
               <p className="section-sub">
-                No speech-to-text is perfect, and we&apos;d rather you know where it shines
-                before you buy than be disappointed after.
+                <Tx
+                  am="ምንም የድምፅ-ወደ-ጽሑፍ ፕሮግራም ፍጹም አይደለም። ከገዙ በኋላ ቅር ከሚሰኙ፣ ከመግዛትዎ በፊት ቢያውቁ እንመርጣለን።"
+                  en="No speech-to-text is perfect, and we'd rather you know where it shines before you buy than be disappointed after."
+                />
               </p>
             </div>
           </Reveal>
@@ -185,32 +273,32 @@ export default function HomePage() {
           <div className="quality">
             <Reveal>
               <div className="q-card q-good">
-                <h3>✓ Works great</h3>
+                <h3><Tx am="✓ በጣም ጥሩ ይሰራል" en="✓ Works great" /></h3>
                 <ul>
-                  <li><strong>Clear speech</strong> — studio, news-style delivery</li>
-                  <li><strong>Close microphone</strong> — lapel or desk mic</li>
-                  <li><strong>Quiet background</strong> — little noise behind the voice</li>
-                  <li><strong>Normal rooms</strong> — offices, small studios</li>
+                  <li><Tx am={<><strong>ግልጽ ንግግር</strong> — ስቱዲዮ፣ የዜና አይነት አቀራረብ</>} en={<><strong>Clear speech</strong> — studio, news-style delivery</>} /></li>
+                  <li><Tx am={<><strong>ቅርብ ማይክራፎን</strong> — የኮሌታ (lapel) ወይም የጠረጴዛ ማይክ</>} en={<><strong>Close microphone</strong> — lapel or desk mic</>} /></li>
+                  <li><Tx am={<><strong>ጸጥ ያለ አካባቢ</strong> — ከድምፁ ጀርባ ትንሽ ጫጫታ</>} en={<><strong>Quiet background</strong> — little noise behind the voice</>} /></li>
+                  <li><Tx am={<><strong>መደበኛ ክፍሎች</strong> — ቢሮዎች፣ ትናንሽ ስቱዲዮዎች</>} en={<><strong>Normal rooms</strong> — offices, small studios</>} /></li>
                 </ul>
               </div>
             </Reveal>
             <Reveal delay={90}>
               <div className="q-card q-warn">
-                <h3>⚠ Needs more editing</h3>
+                <h3><Tx am="⚠ ተጨማሪ ማስተካከያ ይፈልጋል" en="⚠ Needs more editing" /></h3>
                 <ul>
-                  <li><strong>Phone recordings</strong> — narrow, compressed audio</li>
-                  <li><strong>Outdoor footage</strong> — wind, traffic, crowds</li>
-                  <li><strong>Overlapping speakers</strong> — people talking across each other</li>
+                  <li><Tx am={<><strong>የስልክ ቀረጻ</strong> — ጠባብና የተጨመቀ ድምፅ</>} en={<><strong>Phone recordings</strong> — narrow, compressed audio</>} /></li>
+                  <li><Tx am={<><strong>የውጪ ቀረጻ</strong> — ንፋስ፣ የመኪና ጫጫታ፣ ብዙ ሰው</>} en={<><strong>Outdoor footage</strong> — wind, traffic, crowds</>} /></li>
+                  <li><Tx am={<><strong>የሚደራረቡ ተናጋሪዎች</strong> — ሰዎች በአንድ ጊዜ ሲናገሩ</>} en={<><strong>Overlapping speakers</strong> — people talking across each other</>} /></li>
                 </ul>
               </div>
             </Reveal>
             <Reveal delay={180}>
               <div className="q-card q-avoid">
-                <h3>✗ Struggles</h3>
+                <h3><Tx am="✗ ይቸገራል" en="✗ Struggles" /></h3>
                 <ul>
-                  <li><strong>Big halls and churches</strong> — strong echo is the hardest case</li>
-                  <li><strong>Loud music under speech</strong> — mute the music track first</li>
-                  <li><strong>Very low-quality mics</strong> — use your best available audio</li>
+                  <li><Tx am={<><strong>ትላልቅ አዳራሾችና ቤተ ክርስቲያኖች</strong> — ከፍተኛ ማሚቶ (echo) በጣም ከባዱ ነው</>} en={<><strong>Big halls and churches</strong> — strong echo is the hardest case</>} /></li>
+                  <li><Tx am={<><strong>ከንግግሩ ስር ከፍ ያለ ሙዚቃ</strong> — መጀመሪያ የሙዚቃውን ትራክ mute ያድርጉ</>} en={<><strong>Loud music under speech</strong> — mute the music track first</>} /></li>
+                  <li><Tx am={<><strong>በጣም ደካማ ማይክራፎን</strong> — ያለዎትን ምርጥ ድምፅ ይጠቀሙ</>} en={<><strong>Very low-quality mics</strong> — use your best available audio</>} /></li>
                 </ul>
               </div>
             </Reveal>
@@ -219,9 +307,10 @@ export default function HomePage() {
           <Reveal delay={240}>
             <div className="note-box">
               <p>
-                <strong>Pro tip:</strong> if your footage has a music bed, mute the music track in
-                Premiere before generating, then unmute it afterwards. Captions are timed to the
-                original timeline, so your music stays untouched in the final cut.
+                <Tx
+                  am={<><strong>ጠቃሚ ምክር፦</strong> ቪዲዮዎ የጀርባ ሙዚቃ ካለው፣ ካፕሽን ከመፍጠርዎ በፊት በPremiere የሙዚቃውን ትራክ mute ያድርጉ፣ ከዚያ መልሰው ያብሩት። ካፕሽኖቹ ከታይምላይኑ ጋር ስለሚሰሩ ሙዚቃዎ አይነካም።</>}
+                  en={<><strong>Pro tip:</strong> if your footage has a music bed, mute the music track in Premiere before generating, then unmute it afterwards. Captions are timed to the original timeline, so your music stays untouched in the final cut.</>}
+                />
               </p>
             </div>
           </Reveal>
@@ -233,41 +322,63 @@ export default function HomePage() {
         <div className="container">
           <Reveal>
             <div className="section-head center">
-              <p className="eyebrow">Pricing</p>
-              <h2>One-time license, perpetual by default.</h2>
+              <p className="eyebrow"><Tx am="ዋጋ" en="Pricing" /></p>
+              <h2><Tx am="አንድ ጊዜ ይክፈሉ፣ የእርስዎ ነው።" en="Pay once. Yours to keep." /></h2>
             </div>
           </Reveal>
 
           <Reveal delay={80}>
             <div className="price-card">
-              <span className="price-badge">One-time · Perpetual by default</span>
+              <span className="price-badge"><Tx am="አንድ ጊዜ ብቻ · እድሳት የለም" en="One-time · No renewal" /></span>
               <div className="price">
-                <span className="price-old">ETB {oldLbl}</span>
-                <span className="price-cur">ETB</span>
+                <span className="price-old"><Tx am={`${oldLbl} ብር`} en={`ETB ${oldLbl}`} /></span>
+                <span className="price-cur"><Tx am="ብር" en="ETB" /></span>
                 <span className="price-now">{priceLbl}</span>
               </div>
               <p className="price-sub">
-                One payment. No subscription, no per-minute fees, no renewal.
+                <Tx
+                  am="አንድ ክፍያ። ወርሃዊ ክፍያ፣ የደቂቃ ክፍያ ወይም እድሳት የለም።"
+                  en="One payment. No subscription, no per-minute fees, no renewal."
+                />
               </p>
 
               <ul className="price-features">
-                <li>Unlimited captions — caption as much as you like</li>
-                <li>2 free captions before you pay anything</li>
-                <li>Editable caption tracks, native to Premiere</li>
-                <li>Premiere Pro 2024+ · Windows 10/11 &amp; macOS</li>
-                <li>After Effects 2024+ and a drag-and-drop .srt maker for CapCut &amp; DaVinci</li>
-                <li>Panel in Amharic or English</li>
-                <li>Works fully offline after activation</li>
-                <li>Support on Telegram from the people who built it</li>
+                <li><Tx am="ያልተገደበ ካፕሽን — የፈለጉትን ያህል" en="Unlimited captions — caption as much as you like" /></li>
+                <li><Tx am="ከመክፈልዎ በፊት 2 ካፕሽን በነጻ" en="2 free captions before you pay anything" /></li>
+                <li><Tx am="በPremiere ውስጥ የሚስተካከሉ የካፕሽን ትራኮች" en="Editable caption tracks, native to Premiere" /></li>
+                <li><Tx am="Premiere Pro 2024+ · Windows 10/11 እና macOS" en="Premiere Pro 2024+ · Windows 10/11 & macOS" /></li>
+                <li><Tx am="After Effects 2024+ እና ለCapCut እና DaVinci የ.srt መስሪያ" en="After Effects 2024+ and a drag-and-drop .srt maker for CapCut & DaVinci" /></li>
+                <li><Tx am="ፓነሉ በአማርኛ ወይም በእንግሊዝኛ" en="Panel in Amharic or English" /></li>
+                <li><Tx am="ከአክቲቬሽን በኋላ ሙሉ በሙሉ ያለ ኢንተርኔት ይሰራል" en="Works fully offline after activation" /></li>
+                <li><Tx am="በቴሌግራም ድጋፍ — ከሰሩት ሰዎች በቀጥታ" en="Support on Telegram from the people who built it" /></li>
               </ul>
 
               <a className="btn btn-primary btn-lg btn-block" href={BOT_URL} target="_blank" rel="noopener">
-                Get your key on Telegram
+                <Tx am="ቁልፍዎን በቴሌግራም ያግኙ" en="Get your key on Telegram" />
               </a>
               <p className="tiny">
-                Pay by bank transfer. The bot confirms your payment and sends the key straight
-                into the chat, file-bound to that installation. <a href="#safety">Verify the official accounts</a>.
+                <Tx
+                  am={<>በባንክ ማስተላለፍ ይከፍላሉ። <a href="#safety">ይፋዊ አካውንቶቹን ያረጋግጡ</a>።</>}
+                  en={<>Pay by bank transfer. <a href="#safety">Verify the official accounts</a>.</>}
+                />
               </p>
+            </div>
+          </Reveal>
+
+          <Reveal delay={120}>
+            <div className="buy-steps" id="buy">
+              <h3><Tx am="እንዴት እንደሚገዙ — 4 ደረጃዎች" en="How to buy — 4 steps" /></h3>
+              <ol className="istep-list">
+                {buySteps.map((s, i) => (
+                  <li className="istep" key={s.t.en}>
+                    <span className="istep-n">{i + 1}</span>
+                    <div className="istep-body">
+                      <h3><Tx am={s.t.am} en={s.t.en} /></h3>
+                      <p><Tx am={s.c.am} en={s.c.en} /></p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
             </div>
           </Reveal>
         </div>
@@ -280,17 +391,17 @@ export default function HomePage() {
         <div className="container">
           <Reveal>
             <div className="section-head center">
-              <p className="eyebrow">Questions</p>
-              <h2>Before you buy.</h2>
+              <p className="eyebrow"><Tx am="ጥያቄዎች" en="Questions" /></p>
+              <h2><Tx am="ከመግዛትዎ በፊት።" en="Before you buy." /></h2>
             </div>
           </Reveal>
 
           <div className="faq-list">
             {faqs.map((f, i) => (
-              <Reveal key={f.q} delay={i * 50}>
+              <Reveal key={f.q.en} delay={i * 50}>
                 <details>
-                  <summary>{f.q}</summary>
-                  <p>{f.a}</p>
+                  <summary><Tx am={f.q.am} en={f.q.en} /></summary>
+                  <p><Tx am={f.a.am} en={f.a.en} /></p>
                 </details>
               </Reveal>
             ))}
@@ -303,16 +414,19 @@ export default function HomePage() {
         <div className="container">
           <Reveal>
             <div className="final-cta">
-              <h2>Stop typing Amharic captions by hand.</h2>
+              <h2><Tx am="የአማርኛ ካፕሽንን በእጅ መጻፍ ያቁሙ።" en="Stop typing Amharic captions by hand." /></h2>
               <p className="section-sub" style={{ marginInline: "auto" }}>
-                Try it free on your own footage — two captions, no payment, no account.
+                <Tx
+                  am="በራስዎ ቪዲዮ በነጻ ይሞክሩ — ሁለት ካፕሽን፣ ያለ ክፍያ፣ ያለ አካውንት።"
+                  en="Try it free on your own footage — two captions, no payment, no account."
+                />
               </p>
               <div className="cta-row">
                 <a className="btn btn-primary btn-lg" href={BOT_URL} target="_blank" rel="noopener">
-                  Get your license key
+                  <Tx am="የፈቃድ ቁልፍ ያግኙ" en="Get your license key" />
                 </a>
                 <Link className="btn btn-ghost btn-lg" href="/install/">
-                  Read the install guide
+                  <Tx am="የመጫኛ መመሪያውን ያንብቡ" en="Read the install guide" />
                 </Link>
               </div>
             </div>
