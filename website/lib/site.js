@@ -54,8 +54,8 @@ export const DL_MAC_X64_LITE =
 // Legal documents carry a FIXED effective date and version. (It used to be
 // new Date() at build time, so the "effective" date silently moved on every
 // deploy.) Bump both whenever the EULA / privacy / refund text changes.
-export const LEGAL_EFFECTIVE = "2026-09-27";
-export const LEGAL_VERSION = "1.2";
+export const LEGAL_EFFECTIVE = "2026-09-28";
+export const LEGAL_VERSION = "1.3";
 
 // localStorage key for the visitor's site language (components/LangToggle.jsx).
 export const LANG_KEY = "amh-site-lang";

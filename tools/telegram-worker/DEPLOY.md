@@ -432,4 +432,35 @@ start - ዋና ገጽ · Menu
 buy - ክፍያ · Pay
 mykey - ቁልፌ · My key
 help - እገዛ · Help
+invite - ጓደኛ ይጋብዙ · Invite friends
 ```
+
+## Referral programme (owner guide)
+
+Needs migration 0015 (`npm run migrate` before `npm run deploy`). It starts
+**OFF**; nothing changes for buyers until you switch it on.
+
+- **Switch:** `/admin` → **🎁 Referrals** → **🟢 Turn ON / ⚪ Turn OFF**.
+- **Amounts** (new orders only; orders already placed keep their terms):
+  `/refdiscount 200` (friend's discount, ብር) · `/refreward 300` (your
+  payout per referred sale) · `/refhold 14` (days before a reward is payable
+  — keep it at the 14-day refund window).
+- **Announce:** **📣 Announce to buyers** drafts a ready-made Amharic message
+  and opens the normal broadcast preview (Buyers only / Everyone / Cancel).
+- **What buyers see:** buyers (only) get **🎁 ጓደኛ ይጋብዙ** in the menu and
+  `/invite`: a personal link, a Share button, their earnings and a
+  **🏦 Payout account** button. A new buyer is offered their link right after
+  their key arrives.
+- **What friends see:** opening a link shows the discounted price on the
+  welcome, pay and review screens. Your approval card says
+  `👥 Referred — expect ETB 2,300`.
+- **Paying rewards (about 10 minutes a month):** the bot reminds you once a
+  month when rewards are payable. **🎁 Referrals → 💰 Pay rewards** lists each
+  person, the amount and their bank account. Transfer, tap **✅ Paid** — the
+  referrer is told automatically. No account yet? Tap **📩 Ask**.
+- **Rules enforced by the bot:** first link wins; no self-referral (same
+  Telegram account or same computer); only new customers get the discount;
+  a revoked/refunded friend cancels an unpaid reward; switching OFF stops new
+  links and discounts at once, but rewards already earned stay owed.
+- **Terms** are on the website legal page (`/legal/#referral`); the bot's
+  📜 Terms button links there.

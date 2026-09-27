@@ -217,6 +217,7 @@ function initEnv(env) {
   SPREAD_THRESHOLD = parseInt(env.AMH_SPREAD_THRESHOLD, 10) || 3;
   FRESH_MID_LIMIT = parseInt(env.AMH_FRESH_MID_DAY, 10) || 5;
   CACHE = env.AMH_KV || null;
+  SETTINGS_CACHE = null;   // owner settings are re-read on every request
   globalThis.DB = env.DB;
 }
 
@@ -284,8 +285,12 @@ function isAdmin(uid) {
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 // ── menu text (port from bot.py) ────────────────────────────────────────────
-function heroText(first = '') {
+function heroText(first = '', offer = null) {
   const name = first ? `${esc(first)}, ` : '';
+  const invited = offer && offer.discount > 0
+    ? `\n\n🎁 <b>በጓደኛዎ ግብዣ</b> ፈቃዱን በ <b>ETB ${money(offer.price)}</b> ያገኛሉ (<s>${PRICE}</s>)።\n` +
+      `<i>Invited by a friend: your license is ETB ${money(offer.price)} instead of ${PRICE}.</i>`
+    : '';
   return (
     `${name}ወደ <b>አማርኛ ካፕሽን ፕሮ</b> እንኳን በደህና መጡ 👋\n` +
     '<i>Welcome to Amharic Captions Pro</i>\n\n' +
@@ -294,14 +299,16 @@ function heroText(first = '') {
     '🎁 <b>2 ካፕሽን በነጻ</b> ይሞክሩ — ከወደዱት በኋላ ብቻ ይክፈሉ።\n' +
     '<i>Try 2 captions free — pay only if you like it.</i>\n\n' +
     `💰 <s>ETB 3,500</s> → <b>${PRICE}</b> — አንድ ጊዜ ብቻ ይከፍላሉ።\n` +
-    '<i>One payment. No subscription.</i>'
+    '<i>One payment. No subscription.</i>' + invited
   );
 }
 // One button per row on purpose: Amharic labels are longer than their English
 // equivalents, and two per row truncates them with an ellipsis on a phone.
-const heroKeyboard = () => [
+// `invite` adds the referral button (programme ON and the user is a buyer).
+const heroKeyboard = (invite = false) => [
   [{ text: '💳 ክፍያ · Pay', callback_data: 'menu:pay' }],
   [{ text: '🔑 ቁልፌ · My Key', callback_data: 'menu:mykey' }],
+  ...(invite ? [[{ text: '🎁 ጓደኛ ይጋብዙ · Invite friends', callback_data: 'ref:invite' }]] : []),
   [{ text: '📲 አጫጫን · Install guide', url: `${SITE_URL}/install` }],
   [{ text: '💬 ድጋፍ · Support', url: 'https://t.me/+L-bMfmIRyEo3MDg0' }],
 ];
@@ -312,16 +319,20 @@ const heroKeyboard = () => [
 // Amharic first, English under it. This is the screen where someone parts with
 // ETB 2,500, and it was English-only — the panel and the website both speak
 // Amharic, but the one moment that involves their money did not.
-function payText() {
+function payText(offer = null) {
   // Deliberately short. This screen exists so the buyer can do ONE thing: send
   // money to one of three accounts. The previous version ran 18 lines and 587
   // characters on a phone — price, accounts, a two-line key promise in both
   // languages, a three-line scam warning and a "tap below" instruction the
   // button already gives. Everything that is not the amount, the accounts or
   // the one risk that costs them money has been cut.
+  const priceLines = offer && offer.discount > 0
+    ? `💰 <b>ETB ${money(offer.price)}</b> · የጓደኛ ቅናሽ / friend discount\n` +
+      `<s>${PRICE}</s> — መደበኛ ዋጋ / regular price\n\n`
+    : `💰 <b>${PRICE}</b> · አንድ ጊዜ ብቻ / one-time\n` +
+      `<s>ETB 3,500</s> — መግቢያ ዋጋ / launch price\n\n`;
   return (
-    `💰 <b>${PRICE}</b> · አንድ ጊዜ ብቻ / one-time\n` +
-    `<s>ETB 3,500</s> — መግቢያ ዋጋ / launch price\n\n` +
+    priceLines +
     `🏦 <b>${ACCT_NAME}</b> — ባንክ ዝውውር / bank transfer\n` +
     'ቁጥሩን ለመቅዳት ይንኩት / tap a number to copy:\n' +
     accountLines() + '\n\n' +
@@ -426,6 +437,396 @@ async function addFunnel(uid, event) {
   await DB.prepare('INSERT INTO funnel (uid, event) VALUES (?, ?)').bind(uid, event).run();
 }
 
+// ── referral programme ("invite a friend") ─────────────────────────────────
+// The owner controls it from the admin panel (🎁 Referrals): ON/OFF, friend
+// discount, reward per sale and the waiting period (migration 0015). It is OFF
+// until switched on.
+//
+// Safety rule for everything below: every read is defensive. If the tables are
+// missing (deploy without `npm run migrate`) or a query fails, the bot behaves
+// as if the programme were OFF — a referral problem can never block or change
+// a normal sale.
+const REF_DEFAULTS = {
+  referral_enabled: '0',
+  referral_discount_etb: '200',
+  referral_reward_etb: '300',
+  referral_hold_days: '14',
+};
+// No 0/O, 1/I/L: codes are read aloud and typed from screenshots.
+const REF_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const BOT_LINK = 'https://t.me/AmharicCaptionsBot';
+let SETTINGS_CACHE = null;
+
+async function getSettings() {
+  if (SETTINGS_CACHE) return SETTINGS_CACHE;
+  const s = { ...REF_DEFAULTS };
+  try {
+    const { results } = await DB.prepare('SELECT key, value FROM settings').all();
+    for (const r of results || []) s[r.key] = String(r.value);
+  } catch (e) {
+    log('warn', 'settings_unavailable', { err: String((e && e.message) || e) });
+  }
+  SETTINGS_CACHE = s;
+  return s;
+}
+
+async function setSetting(key, value) {
+  await DB.prepare(
+    `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`
+  ).bind(key, String(value)).run();
+  SETTINGS_CACHE = null;
+}
+
+function refTerms(s) {
+  const int = (v, d) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : d; };
+  return {
+    on: s.referral_enabled === '1',
+    discount: Math.min(Math.max(int(s.referral_discount_etb, 200), 0), PRICE_ETB - 1),
+    reward: Math.max(int(s.referral_reward_etb, 300), 0),
+    hold: Math.min(Math.max(int(s.referral_hold_days, 14), 0), 365),
+  };
+}
+const refCutoff = (t) => `-${t.hold} days`;
+
+async function isBuyer(uid) {
+  const r = await DB.prepare('SELECT 1 AS x FROM customers WHERE uid = ? AND revoked = 0 LIMIT 1')
+    .bind(String(uid)).first();
+  return !!r;
+}
+
+async function refCodeFor(uid) {
+  const have = await DB.prepare('SELECT code FROM referral_codes WHERE uid = ?').bind(String(uid)).first();
+  if (have) return have.code;
+  for (let i = 0; i < 6; i++) {
+    const bytes = crypto.getRandomValues(new Uint8Array(7));
+    const code = Array.from(bytes, (b) => REF_ALPHABET[b % REF_ALPHABET.length]).join('');
+    const r = await DB.prepare('INSERT OR IGNORE INTO referral_codes (uid, code) VALUES (?, ?)')
+      .bind(String(uid), code).run();
+    if (r && r.meta && r.meta.changes) return code;
+    const again = await DB.prepare('SELECT code FROM referral_codes WHERE uid = ?').bind(String(uid)).first();
+    if (again) return again.code; // a parallel request created it first
+  }
+  throw new Error('could not allocate a referral code');
+}
+const refLink = (code) => `${BOT_LINK}?start=r_${code}`;
+
+// A friend opened a buyer's link (/start r_CODE). The FIRST link a person opens
+// decides the referrer. The referrer's own link, admins, existing buyers and
+// the programme being OFF all do nothing.
+async function attachReferral(uid, code) {
+  try {
+    const t = refTerms(await getSettings());
+    if (!t.on) return false;
+    const owner = await DB.prepare('SELECT uid FROM referral_codes WHERE code = ?').bind(code).first();
+    if (!owner || owner.uid === String(uid) || isAdmin(uid)) return false;
+    if (await isBuyer(uid)) return false;
+    await DB.prepare('INSERT OR IGNORE INTO referrals (friend_uid, referrer_uid, code) VALUES (?, ?, ?)')
+      .bind(String(uid), owner.uid, code).run();
+    return true;
+  } catch (e) {
+    log('error', 'referral_attach_failed', { err: String((e && e.message) || e) });
+    return false;
+  }
+}
+
+// The invited friend's offer, or null: programme OFF, not invited, already a
+// buyer, or — once the Machine ID is known — the referrer's own computer.
+async function referralOffer(uid, mid = null) {
+  try {
+    const t = refTerms(await getSettings());
+    if (!t.on) return null;
+    const r = await DB.prepare('SELECT referrer_uid FROM referrals WHERE friend_uid = ?').bind(String(uid)).first();
+    if (!r || r.referrer_uid === String(uid)) return null;
+    if (await isBuyer(uid)) return null;
+    if (mid) {
+      const own = await DB.prepare('SELECT 1 AS x FROM customers WHERE uid = ? AND machine_id = ?')
+        .bind(r.referrer_uid, String(mid).toLowerCase()).first();
+      if (own) return null;
+    }
+    return { referrer: r.referrer_uid, discount: t.discount, reward: t.reward, price: PRICE_ETB - t.discount };
+  } catch (e) {
+    log('error', 'referral_offer_failed', { err: String((e && e.message) || e) });
+    return null;
+  }
+}
+
+// Main menu for a user: the 🎁 button only for buyers while the programme is ON.
+async function menuKeyboardFor(uid) {
+  try {
+    if (refTerms(await getSettings()).on && (await isBuyer(uid))) return heroKeyboard(true);
+  } catch (e) { /* plain menu */ }
+  return heroKeyboard(false);
+}
+
+async function rewardStats(uid) {
+  const row = await DB.prepare(
+    `SELECT
+       COALESCE(SUM(CASE WHEN status IN ('earned','paid') THEN 1 ELSE 0 END), 0) AS bought,
+       COALESCE(SUM(CASE WHEN status IN ('earned','paid') THEN amount_etb ELSE 0 END), 0) AS earned,
+       COALESCE(SUM(CASE WHEN status = 'paid' THEN amount_etb ELSE 0 END), 0) AS paid,
+       COALESCE(SUM(CASE WHEN status = 'earned' THEN amount_etb ELSE 0 END), 0) AS owed
+     FROM referral_rewards WHERE referrer_uid = ?`
+  ).bind(String(uid)).first();
+  return row || { bought: 0, earned: 0, paid: 0, owed: 0 };
+}
+
+function shareUrl(link, t) {
+  const text = 'አማርኛ ካፕሽን ፕሮ — የአማርኛ ካፕሽን በደቂቃዎች፣ በPremiere Pro ውስጥ።' +
+    (t.discount > 0 ? ` በዚህ ሊንክ ሲገዙ ${money(t.discount)} ብር ቅናሽ ያገኛሉ 👇` : ' 👇');
+  return `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`;
+}
+
+// Buyer's "🎁 Invite friends" screen (/invite, the menu button, and the
+// message that follows a new buyer's key).
+async function showInvite(uid, chatId, messageId) {
+  const back = [{ text: '⬅ ወደ ዋና ገጽ · Menu', callback_data: 'menu:home' }];
+  const show = async (text, kb) => {
+    const r = messageId ? await editText(chatId, messageId, text, kb) : null;
+    if (!r || !r.ok) await sendText(chatId, text, kb);
+  };
+  let t;
+  let st;
+  let acct;
+  try {
+    t = refTerms(await getSettings());
+    st = await rewardStats(uid);
+    acct = await DB.prepare('SELECT details FROM payout_accounts WHERE uid = ?').bind(String(uid)).first();
+  } catch (e) {
+    await show('🎁 የግብዣ ፕሮግራሙ አሁን አይገኝም።\n<i>The invite programme is not available right now.</i>', [back]);
+    return;
+  }
+  const acctLine = acct
+    ? `🏦 የክፍያ አካውንት / Payout account: <code>${esc(acct.details)}</code>`
+    : '🏦 የክፍያ አካውንት አልተመዘገበም — ከታች ያስገቡ።\n<i>No payout account yet — add it below.</i>';
+  const stats = st.bought
+    ? `📊 በሊንክዎ የገዙ፦ <b>${st.bought}</b> · ያገኙት፦ <b>${money(st.earned)} ብር</b> · የተከፈለ፦ <b>${money(st.paid)} ብር</b>\n` +
+      `<i>Friends who bought: ${st.bought} · earned ${money(st.earned)} ብር · paid ${money(st.paid)} ብር</i>`
+    : '';
+
+  if (!t.on) {
+    const owed = st.owed > 0;
+    const text = '🎁 <b>ጓደኛ ይጋብዙ · Invite friends</b>\n\n' +
+      'የግብዣ ፕሮግራሙ አሁን ዝግ ነው።' + (owed ? ' ቀደም ብለው ያገኙት ሽልማት ግን ይከፈልዎታል።' : '') + '\n' +
+      '<i>The invite programme is paused.' + (owed ? ' Rewards you already earned will still be paid.' : '') + '</i>' +
+      (stats ? '\n\n' + stats : '') + (owed ? '\n\n' + acctLine : '');
+    await show(text, owed ? [[{ text: '🏦 የክፍያ አካውንት · Payout account', callback_data: 'ref:payout' }], back] : [back]);
+    return;
+  }
+  if (!(await isBuyer(uid))) {
+    await show(
+      '🎁 <b>ጓደኛ ይጋብዙ · Invite friends</b>\n\n' +
+      'የግብዣ ሊንክ የሚሰጠው ፈቃድ ለገዙ ደንበኞች ነው።\n' +
+      '<i>Invite links are for customers who bought a license.</i>',
+      [[{ text: '💳 ክፍያ · Pay', callback_data: 'menu:pay' }], back]);
+    return;
+  }
+
+  const link = refLink(await refCodeFor(uid));
+  const offer = t.discount > 0
+    ? `👥 ጓደኛዎ በሊንክዎ ሲገዛ <b>${money(t.discount)} ብር ቅናሽ</b> ያገኛል፤ እርስዎ ደግሞ <b>${money(t.reward)} ብር</b> ያገኛሉ።\n` +
+      `<i>Your friend gets ${money(t.discount)} ብር off, and you earn ${money(t.reward)} ብር for each friend who buys.</i>`
+    : `👥 ጓደኛዎ በሊንክዎ ሲገዛ እርስዎ <b>${money(t.reward)} ብር</b> ያገኛሉ።\n` +
+      `<i>You earn ${money(t.reward)} ብር for each friend who buys with your link.</i>`;
+  const text =
+    '🎁 <b>ጓደኛ ይጋብዙ · Invite friends</b>\n\n' +
+    'ይህን ሊንክ ለጓደኞችዎ ያጋሩ፦\n' +
+    `<code>${link}</code>\n\n` +
+    offer + '\n\n' +
+    (stats ? stats + '\n\n' : '') +
+    `💸 ሽልማቱ ጓደኛዎ ከገዛ ከ${t.hold} ቀን በኋላ፣ በወር አንድ ጊዜ በባንክ ይላክልዎታል።\n` +
+    `<i>Rewards are sent by bank transfer once a month, ${t.hold} days after your friend's purchase.</i>\n\n` +
+    acctLine;
+  await show(text, [
+    [{ text: '📤 ሊንኩን ያጋሩ · Share link', url: shareUrl(link, t) }],
+    [{ text: '🏦 የክፍያ አካውንት · Payout account', callback_data: 'ref:payout' }],
+    [{ text: '📜 ውሎች · Terms', url: `${SITE_URL}/legal/#referral` }],
+    back,
+  ]);
+}
+
+const PAYOUT_PROMPT =
+  '🏦 <b>የክፍያ አካውንት · Payout account</b>\n\n' +
+  'ሽልማትዎ የሚላክበትን ባንክ፣ የአካውንት ቁጥር እና የአካውንት ስም በአንድ መልዕክት ይላኩ፦\n' +
+  'ለምሳሌ፦ <code>CBE 1000123456789 Abebe Kebede</code>\n' +
+  '<i>Send your bank, account number and account name in one message.</i>';
+
+async function savePayoutAccount(uid, chatId, text) {
+  const details = String(text || '').replace(/\s+/g, ' ').trim();
+  const digits = (details.match(/\d/g) || []).length;
+  // A lone Machine ID / key pasted by mistake is not a bank account.
+  const looksLikeId = /^[0-9a-f]{8}([0-9a-f]{8})?$/i.test(details) || /^AMH-/i.test(details);
+  if (details.length < 8 || details.length > 200 || digits < 6 || looksLikeId || !/[^\d\s]/.test(details)) {
+    await sendText(chatId,
+      '⚠️ ባንክ፣ የአካውንት ቁጥር እና ስም በአንድ መልዕክት ይላኩ (ለምሳሌ፦ <code>CBE 1000123456789 Abebe Kebede</code>)።\n' +
+      '<i>Please send the bank, account number and name in one message.</i>',
+      [[{ text: '⬅ ተመለስ · Back', callback_data: 'ref:invite' }]]);
+    return;
+  }
+  await DB.prepare(
+    `INSERT INTO payout_accounts (uid, details, updated_at) VALUES (?, ?, datetime('now'))
+     ON CONFLICT(uid) DO UPDATE SET details=excluded.details, updated_at=excluded.updated_at`
+  ).bind(String(uid), details).run();
+  await setFsm(uid, null);
+  await sendText(chatId,
+    `✅ ተመዝግቧል፦ <code>${esc(details)}</code>\n<i>Saved — rewards will be sent to this account.</i>`,
+    [[{ text: '🎁 ጓደኛ ይጋብዙ · Invite friends', callback_data: 'ref:invite' }]]);
+}
+
+// Buyer-side buttons: ref:invite, ref:payout
+async function handleRefCallback(data, cbId, fromUid, chatId, messageId) {
+  await answerCb(cbId, '');
+  const action = data.split(':')[1];
+  if (action === 'invite') {
+    const s = await getFsm(fromUid);
+    if (s && s.step === 'payout') await setFsm(fromUid, null);   // leaving the payout prompt
+    await showInvite(fromUid, chatId, messageId);
+  } else if (action === 'payout') {
+    await setFsm(fromUid, { step: 'payout' });
+    await sendText(chatId, PAYOUT_PROMPT, [[{ text: '⬅ ተመለስ · Back', callback_data: 'ref:invite' }]]);
+  }
+}
+
+// ── referral programme: owner side ─────────────────────────────────────────
+async function adminReferrals(chatId, messageId) {
+  const t = refTerms(await getSettings());
+  let body;
+  let ready = { n: 0, etb: 0, people: 0 };
+  try {
+    const cut = refCutoff(t);
+    ready = await DB.prepare(
+      "SELECT COUNT(*) AS n, COALESCE(SUM(amount_etb),0) AS etb, COUNT(DISTINCT referrer_uid) AS people " +
+      "FROM referral_rewards WHERE status='earned' AND earned_at <= datetime('now', ?)").bind(cut).first();
+    const waiting = await DB.prepare(
+      "SELECT COALESCE(SUM(amount_etb),0) AS etb FROM referral_rewards WHERE status='earned' AND earned_at > datetime('now', ?)")
+      .bind(cut).first();
+    const paid = await DB.prepare("SELECT COALESCE(SUM(amount_etb),0) AS etb FROM referral_rewards WHERE status='paid'").first();
+    const sold = await DB.prepare("SELECT COUNT(*) AS n FROM referral_rewards WHERE status IN ('earned','paid')").first();
+    const links = await DB.prepare('SELECT COUNT(*) AS n FROM referral_codes').first();
+    const invited = await DB.prepare('SELECT COUNT(*) AS n FROM referrals').first();
+    body =
+      `🔗 Links shared: ${links.n} · 👥 friends invited: ${invited.n} · 🛒 bought: ${sold.n}\n` +
+      `💰 Ready to pay: <b>${money(ready.etb)} ብር</b> (${ready.people} people)\n` +
+      `⏳ Waiting (inside the ${t.hold}-day refund window): ${money(waiting.etb)} ብር\n` +
+      `✅ Paid so far: ${money(paid.etb)} ብር`;
+  } catch (e) {
+    body = '⚠️ Referral tables are missing — run <code>npm run migrate</code>, then deploy.';
+  }
+  const text =
+    `🎁 <b>Referrals · ${t.on ? '🟢 ON' : '⚪ OFF'}</b>\n\n` +
+    `Friend discount: <b>${money(t.discount)} ብር</b> (friend pays ETB ${money(PRICE_ETB - t.discount)})\n` +
+    `Reward: <b>${money(t.reward)} ብር</b> per sale · paid <b>${t.hold} days</b> after the sale\n\n` +
+    body + '\n\n' +
+    '⚙ Change: <code>/refdiscount 200</code> · <code>/refreward 300</code> · <code>/refhold 14</code>\n' +
+    (t.on
+      ? '<i>Turning it OFF stops new links and discounts at once. Rewards already earned stay owed and listed here.</i>'
+      : '<i>While OFF nobody gets a link or a discount. Rewards already earned stay owed and listed here.</i>');
+  const kb = [[{ text: t.on ? '⚪ Turn OFF' : '🟢 Turn ON', callback_data: 'admin:ref-toggle' }]];
+  if (ready.n) kb.push([{ text: `💰 Pay rewards (${ready.people} · ${money(ready.etb)} ብር)`, callback_data: 'admin:ref-pay' }]);
+  if (t.on) kb.push([{ text: '📣 Announce to buyers', callback_data: 'admin:ref-announce' }]);
+  kb.push([{ text: '🛠 Admin', callback_data: 'admin:panel' }]);
+  const r = messageId ? await editText(chatId, messageId, text, kb) : null;
+  if (!r || !r.ok) await sendText(chatId, text, kb);
+}
+
+async function adminRefPayList(chatId, messageId) {
+  const t = refTerms(await getSettings());
+  let list = [];
+  try {
+    const { results } = await DB.prepare(
+      `SELECT r.referrer_uid AS uid, SUM(r.amount_etb) AS total, COUNT(*) AS n,
+              GROUP_CONCAT(r.order_id) AS orders,
+              (SELECT details FROM payout_accounts p WHERE p.uid = r.referrer_uid) AS acct,
+              (SELECT name FROM customers c WHERE c.uid = r.referrer_uid LIMIT 1) AS name
+       FROM referral_rewards r
+       WHERE r.status = 'earned' AND r.earned_at <= datetime('now', ?)
+       GROUP BY r.referrer_uid ORDER BY total DESC LIMIT 20`
+    ).bind(refCutoff(t)).all();
+    list = results || [];
+  } catch (e) { /* tables missing: shown as nothing to pay */ }
+  const show = async (text, kb) => {
+    const r = messageId ? await editText(chatId, messageId, text, kb) : null;
+    if (!r || !r.ok) await sendText(chatId, text, kb);
+  };
+  if (!list.length) {
+    await show(`💰 <b>Nothing to pay right now.</b>\n\nA reward becomes payable ${t.hold} days after the friend's purchase.`,
+      [[{ text: '🎁 Referrals', callback_data: 'admin:ref' }]]);
+    return;
+  }
+  const lines = list.map((p, i) =>
+    `${i + 1}. <b>${esc(p.name || 'buyer')}</b> (id ${esc(p.uid)}) — <b>${money(p.total)} ብር</b> · order #${esc(String(p.orders).split(',').join(', #'))}\n` +
+    (p.acct ? `   🏦 <code>${esc(p.acct)}</code>` : '   ⚠️ no payout account yet'));
+  const kb = list.map((p) => [p.acct
+    ? { text: `✅ Paid ${p.name || p.uid} · ${money(p.total)} ብር`, callback_data: `admin:ref-paid:${p.uid}` }
+    : { text: `📩 Ask ${p.name || p.uid} for an account`, callback_data: `admin:ref-ask:${p.uid}` }]);
+  kb.push([{ text: '🎁 Referrals', callback_data: 'admin:ref' }]);
+  await show(`💰 <b>Rewards ready to pay</b> (older than ${t.hold} days)\n\n` + lines.join('\n\n') +
+    '\n\n<i>Transfer each amount from your bank, then tap ✅ Paid. The referrer is told automatically.</i>', kb);
+}
+
+async function adminRefMarkPaid(chatId, messageId, cbId, uid) {
+  const t = refTerms(await getSettings());
+  // Only what is payable right now, so a reward still inside the refund window
+  // is never marked paid by accident.
+  const { results } = await DB.prepare(
+    `UPDATE referral_rewards SET status='paid', paid_at=datetime('now')
+     WHERE referrer_uid = ? AND status = 'earned' AND earned_at <= datetime('now', ?)
+     RETURNING amount_etb`
+  ).bind(String(uid), refCutoff(t)).all();
+  const total = (results || []).reduce((a, r) => a + (r.amount_etb || 0), 0);
+  if (!total) {
+    await answerCb(cbId, 'Already marked paid');
+    await adminRefPayList(chatId, messageId);
+    return;
+  }
+  const acct = await DB.prepare('SELECT details FROM payout_accounts WHERE uid = ?').bind(String(uid)).first();
+  await sendText(uid,
+    `💸 <b>${money(total)} ብር ተልኮልዎታል!</b>` + (acct ? ` ወደ፦ <code>${esc(acct.details)}</code>` : '') + '\n' +
+    `<i>Your referral reward of ${money(total)} ብር has been sent. Thank you for recommending us!</i>`);
+  log('info', 'referral_paid', { uid, total });
+  await answerCb(cbId, `✅ Marked paid · ${money(total)} ብር`);
+  await adminRefPayList(chatId, messageId);
+}
+
+// Ready-made announcement the owner can send (it goes through the normal
+// broadcast preview: Buyers only / Everyone / Cancel).
+function referralAnnouncement(t) {
+  return (
+    '🎁 <b>አዲስ፦ ጓደኛ ይጋብዙ፣ ሽልማት ያግኙ!</b>\n\n' +
+    'ጓደኛዎ በእርስዎ ሊንክ አማርኛ ካፕሽን ፕሮን ሲገዛ፦\n' +
+    (t.discount > 0 ? `• ጓደኛዎ <b>${money(t.discount)} ብር ቅናሽ</b> ያገኛል\n` : '') +
+    `• እርስዎ <b>${money(t.reward)} ብር</b> ያገኛሉ\n\n` +
+    'የእርስዎን ሊንክ ለማግኘት /invite ይጫኑ።\n\n' +
+    '<i>New: invite friends. ' +
+    (t.discount > 0 ? `Your friend gets ${money(t.discount)} ብር off and ` : '') +
+    `you earn ${money(t.reward)} ብር for each friend who buys. Tap /invite for your link.</i>`
+  );
+}
+
+// Once a month (checked by the 6-hour cron): tell the owner when rewards are
+// payable, so payouts happen in one short session instead of one by one.
+async function remindReferralPayouts() {
+  try {
+    const s = await getSettings();
+    const month = new Date().toISOString().slice(0, 7);
+    if (s.referral_last_reminder === month) return;
+    const t = refTerms(s);
+    const ready = await DB.prepare(
+      "SELECT COUNT(DISTINCT referrer_uid) AS people, COALESCE(SUM(amount_etb),0) AS etb " +
+      "FROM referral_rewards WHERE status='earned' AND earned_at <= datetime('now', ?)").bind(refCutoff(t)).first();
+    if (!ready || !ready.etb) return;
+    await setSetting('referral_last_reminder', month);
+    for (const adm of adminUids()) {
+      await sendText(adm,
+        `💰 <b>Referral rewards ready to pay:</b> ${money(ready.etb)} ብር to ${ready.people} people.`,
+        [[{ text: '💰 Pay rewards', callback_data: 'admin:ref-pay' }]]);
+      await sleep(90);
+    }
+  } catch (e) {
+    log('warn', 'referral_reminder_skipped', { err: String((e && e.message) || e) });
+  }
+}
+
 // ── message senders (never throw: an outbound failure must not abort the
 // ─────────────────── handler or bubble up into a Telegram 500 retry loop) ──
 function safeSend(promise) { return promise.catch(() => ({ ok: false })); }
@@ -451,11 +852,12 @@ function editText(chatId, messageId, text, kb) {
 // nobody was told — which is what "Back to menu doesn't work" looked like.
 // Fall back to sending the menu so the tap always produces something visible.
 async function showMenu(chatId, messageId) {
+  const kb = await menuKeyboardFor(chatId);
   if (messageId) {
-    const r = await editText(chatId, messageId, MENU, MENU_KEYBOARD);
+    const r = await editText(chatId, messageId, MENU, kb);
     if (r && r.ok) return r;
   }
-  return sendText(chatId, MENU, MENU_KEYBOARD);
+  return sendText(chatId, MENU, kb);
 }
 
 function editKeyboard(chatId, messageId, kb) {
@@ -539,14 +941,22 @@ async function handleMessage(msg, env) {
   // Any command cancels a broadcast that is being composed, so a later "ok" or
   // note can never go out to every customer by accident.
   if (privateChat && isAdmin(user.id) && lower.startsWith('/')) await cancelBroadcastCompose(uid);
-  if (['/start', '/start@amhariccaptionsbot', '/menu', 'menu'].includes(lower)) {
+  // "/start r_CODE" = a friend opened a buyer's invite link.
+  const startArg = text.match(/^\/start(?:@\w+)?\s+(\S+)$/i);
+  if (startArg || ['/start', '/start@amhariccaptionsbot', '/menu', 'menu'].includes(lower)) {
     if (privateChat) {
       if (isAdmin(user.id)) {
         await adminPanel(chatId, null);
       } else {
-        await sendText(chatId, heroText(first), heroKeyboard());
+        const inv = startArg && /^r_([A-Z2-9]{7})$/.exec(startArg[1]);
+        if (inv) await attachReferral(uid, inv[1]);
+        await sendText(chatId, heroText(first, await referralOffer(uid)), await menuKeyboardFor(uid));
       }
     } else await sendText(chatId, groupWelcome(), MENU_KEYBOARD);
+    return;
+  }
+  if (lower === '/invite' || lower === '/invite@amhariccaptionsbot') {
+    if (privateChat) await showInvite(uid, chatId, null);
     return;
   }
   if (lower === '/mykey' || lower === '/mykey@amhariccaptionsbot') {
@@ -557,6 +967,35 @@ async function handleMessage(msg, env) {
     if (privateChat && isAdmin(user.id)) await adminPanel(chatId, null);
     else await sendText(chatId, '🔒 ይህ ለአስተዳዳሪ ብቻ ነው። <i>Admin only.</i>');
     return;
+  }
+
+  // admin: referral programme amounts → /refdiscount 200, /refreward 300, /refhold 14
+  if (privateChat && isAdmin(user.id)) {
+    if (lower === '/referrals' || lower === '/referral') { await adminReferrals(chatId, null); return; }
+    const rc = text.match(/^\/(refdiscount|refreward|refhold)\s+(\d{1,6})$/i);
+    if (rc) {
+      const which = rc[1].toLowerCase();
+      const n = parseInt(rc[2], 10);
+      const spec = {
+        refdiscount: ['referral_discount_etb', 0, PRICE_ETB - 1, 'Friend discount', ' ብር'],
+        refreward: ['referral_reward_etb', 0, PRICE_ETB, 'Reward per sale', ' ብር'],
+        refhold: ['referral_hold_days', 0, 90, 'Waiting period', ' days'],
+      }[which];
+      if (n < spec[1] || n > spec[2]) {
+        await sendText(chatId, `⚠️ /${which} must be between ${spec[1]} and ${spec[2]}.`);
+        return;
+      }
+      try {
+        await setSetting(spec[0], n);
+        await sendText(chatId, `✅ ${spec[3]} set to <b>${money(n)}${spec[4]}</b>. ` +
+          'New orders use it; orders already placed keep their terms.');
+      } catch (e) {
+        await sendText(chatId, '⚠️ Could not save — run <code>npm run migrate</code>, then deploy.');
+        return;
+      }
+      await adminReferrals(chatId, null);
+      return;
+    }
   }
 
   // admin: custom expiry for a pending/rejected order → /setexpiry ORDERID YYYYMMDD
@@ -672,7 +1111,7 @@ async function handleMessage(msg, env) {
 
   // generic buy-flow commands
   if (['/buy', '/buy@amhariccaptionsbot'].includes(lower)) {
-    await sendText(chatId, payText(), payKeyboard());
+    await sendText(chatId, payText(await referralOffer(uid)), payKeyboard());
     return;
   }
 
@@ -737,6 +1176,12 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
   }
   const s = await getFsm(uid);
   const step = s ? s.step : null;
+
+  // referral payout account (bank + number + name, one message)
+  if (step === 'payout') {
+    await savePayoutAccount(uid, chatId, text);
+    return;
+  }
 
   // reply-keyboard hint tapped → show where to find the Machine ID
   if (text === MACHINE_ID_HINT_KEY) {
@@ -807,7 +1252,7 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
     const buyerName = (msg.from && msg.from.first_name) || '';
     if (privateChat) await sendText(chatId,
       `😊 ${buyerName}, አልገባኝም። ከታች ይምረጡ።\n<i>Sorry, I did not understand that — choose below.</i>`,
-      MENU_KEYBOARD);
+      await menuKeyboardFor(uid));
     else await sendText(chatId, MENU, MENU_KEYBOARD);
     return;
   }
@@ -887,10 +1332,14 @@ async function storeProof(fileId) {
 async function reviewConfirm(uid, chatId, lead = '') {
   const s = await getFsm(uid);
   if (!s) return;
+  const offer = await referralOffer(uid, s.mid);
+  const amount = offer && offer.discount > 0
+    ? `<b>ETB ${money(offer.price)}</b> (የጓደኛ ቅናሽ / friend discount)`
+    : `<b>${PRICE}</b>`;
   const text = lead +
     '🧾 <b>ትዕዛዝዎን ያረጋግጡ / Review your order</b>\n\n' +
     `🤖 Machine ID: <code>${s.mid}</code>\n` +
-    `💵 ዋጋ / Amount: <b>${PRICE}</b>\n` +
+    `💵 ዋጋ / Amount: ${amount}\n` +
     `🏦 የተከፈለው ለ / Paid to: <b>${ACCT_NAME}</b>\n\n` +
     '🔑 ከተረጋገጠ በኋላ ቁልፍዎ በዚሁ ቻት ይደርስዎታል።\n' +
     '<i>Once approved, your key arrives right here.</i>\n\n' +
@@ -942,18 +1391,35 @@ async function completeProof(uid, chatId, uname, privateChat) {
     return;
   }
 
+  // Referral terms are locked onto the order now (price, discount, reward), so
+  // changing the amounts or switching the programme off later never changes an
+  // order in flight. A separate UPDATE keeps the plain INSERT above unchanged
+  // for every normal sale.
+  const offer = await referralOffer(uid, s.mid);
+  let amountEtb = PRICE_ETB;
+  if (offer) {
+    try {
+      await DB.prepare(
+        'UPDATE orders SET referrer_uid=?, discount_etb=?, reward_etb=?, amount_etb=? WHERE id=?'
+      ).bind(offer.referrer, offer.discount, offer.reward, offer.price, orderId).run();
+      amountEtb = offer.price;
+    } catch (e) {
+      log('error', 'referral_order_tag_failed', { orderId, err: String((e && e.message) || e) });
+    }
+  }
+
   // Claim succeeded — side-effects are safe (runs once).
   await setFsm(uid, null);
   await kvDel('pending:count');
   await addFunnel(uid, 'order_confirmed');
-  log('info', 'order_created', { orderId, mid: s.mid, uid, amount_etb: PRICE_ETB, source: privateChat ? 'DM' : 'Group' });
+  log('info', 'order_created', { orderId, mid: s.mid, uid, amount_etb: amountEtb, referred: !!offer, source: privateChat ? 'DM' : 'Group' });
 
   // status + ETA to buyer
   const pos = await pendingCount();
   const statusText =
     '📦 <b>ትዕዛዝዎ ደርሶናል / Order received</b>\n\n' +
     `🤖 Machine ID: <code>${s.mid}</code>\n` +
-    `💵 ዋጋ / Amount: <b>${PRICE}</b>\n\n` +
+    `💵 ዋጋ / Amount: <b>ETB ${money(amountEtb)}</b>\n\n` +
     `⏳ <b>በመጠባበቅ ላይ / Pending</b> — በተራ <b>#${pos}</b> ላይ ነዎት።\n` +
     'ቁልፍዎ አብዛኛውን ጊዜ በጥቂት ሰዓታት ውስጥ (በኢትዮጵያ የስራ ሰዓት) በዚሁ ቻት ይላክልዎታል። 🙏\n' +
     '<i>Keys are usually issued within a few hours, Ethiopian working hours. ' +
@@ -969,7 +1435,8 @@ async function completeProof(uid, chatId, uname, privateChat) {
   for (const adm of admins) {
     const caption =
       '🧾 <b>New order — payment proof</b>\n\n' +
-      `Machine ID: <code>${esc(s.mid)}</code>\nUser: @${esc(uname)} (id ${esc(uid)})\nSource: ${privateChat ? 'DM' : 'Group'}\n\n` +
+      `Machine ID: <code>${esc(s.mid)}</code>\nUser: @${esc(uname)} (id ${esc(uid)})\nSource: ${privateChat ? 'DM' : 'Group'}\n` +
+      (offer ? `👥 <b>Referred</b> — expect <b>ETB ${money(amountEtb)}</b> (friend discount ${money(offer.discount)})\n` : '') + '\n' +
       'Check the screenshot, then Approve or Reject:';
     if (s.photo_key) await sendPhoto(adm, s.photo_key, caption, adminKeyboardPend(orderId));
     else await sendText(adm, caption, adminKeyboardPend(orderId));
@@ -1047,7 +1514,8 @@ async function showMyKey(msg, chatId, messageId) {
 const money = (n) => n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 const shortTs = (s) => (s ? String(s).slice(5, 16).replace(' ', ' ') : '—');
 const orderSummary = (o) =>
-  `<b>#${o.id}</b> · ${o.username ? '@' + esc(o.username) : 'anon'} · <code>${esc(o.machine_id)}</code> · ${shortTs(o.created_at)}`;
+  `<b>#${o.id}</b> · ${o.username ? '@' + esc(o.username) : 'anon'} · <code>${esc(o.machine_id)}</code> · ${shortTs(o.created_at)}` +
+  (o.referrer_uid ? ` · 👥 ETB ${money(o.amount_etb || 0)}` : '');
 
 function adminKeyboardPend(orderId) {
   return [[
@@ -1071,6 +1539,7 @@ async function adminPanel(chatId, messageId) {
   ).first();
   const soldCount = sold30 ? sold30.n : 0;
   const revenue = sold30 ? sold30.revenue : 0;
+  const refOn = refTerms(await getSettings()).on;
 
   const text =
     `🛠 <b>Admin · Dashboard</b>\n\n` +
@@ -1085,6 +1554,7 @@ async function adminPanel(chatId, messageId) {
     [{ text: '🧾 History (30 days)', callback_data: 'admin:history' }],
     [{ text: '📈 Sales & funnel', callback_data: 'admin:sales' }],
     [{ text: '📣 Broadcast', callback_data: 'admin:broadcast' }, { text: '📤 Export customers', callback_data: 'admin:export' }],
+    [{ text: `🎁 Referrals · ${refOn ? '🟢 ON' : '⚪ OFF'}`, callback_data: 'admin:ref' }],
   ];
   if (messageId) await editText(chatId, messageId, text, kb);
   else await sendText(chatId, text, kb);
@@ -1323,6 +1793,12 @@ async function setCustomerRevoked(machineId, revoke) {
   await DB.prepare('UPDATE customers SET revoked=? WHERE machine_id=?').bind(revoke ? 1 : 0, mid).run();
   // A revoked sale (fraud, refund) no longer counts as revenue; restoring it does.
   await DB.prepare('UPDATE sales SET status=? WHERE machine_id=?').bind(revoke ? 'revoked' : 'sold', mid).run();
+  // A refunded / revoked friend's sale cancels the referrer's unpaid reward.
+  try {
+    await DB.prepare(revoke
+      ? "UPDATE referral_rewards SET status='cancelled' WHERE friend_mid=? AND status='earned'"
+      : "UPDATE referral_rewards SET status='earned' WHERE friend_mid=? AND status='cancelled'").bind(mid).run();
+  } catch (e) { /* referral tables not migrated yet */ }
   // Keep order/admin views consistent with the authoritative customer flag.
   // Pending/rejected orders are never silently turned into sales by a MID-wide
   // revoke; only an already-issued approval changes state.
@@ -1452,7 +1928,8 @@ async function adminDetail(chatId, messageId, cbId, orderId) {
     `${orderSummary(o)}\n` +
     `UID: <code>${o.uid}</code>\n` +
     `Machine ID: <code>${esc(o.machine_id)}</code>\n` +
-    `Amount: ${o.amount_etb ? `ETB ${money(o.amount_etb)}` : esc(PRICE)}\n` +
+    `Amount: ${o.amount_etb ? `ETB ${money(o.amount_etb)}` : esc(PRICE)}` +
+    (o.referrer_uid ? ` (👥 referred · discount ${money(o.discount_etb || 0)} · reward ${money(o.reward_etb || 0)})` : '') + '\n' +
     `Expiry: ${o.expiry === '00000000' ? 'perpetual' : esc(o.expiry)}\n` +
     `Received: ${shortTs(o.created_at)}`;
   // A decided order used to offer NO actions at all — so an order approved to
@@ -1576,13 +2053,21 @@ async function adminSales(chatId, messageId) {
   }
   const pct = (a, b) => (a ? Math.round(100 * b / a) + '%' : '–');
   const started = counts.proof_start;
+  let refLine = '';
+  try {
+    const rr = await DB.prepare(
+      "SELECT COALESCE(SUM(CASE WHEN status='paid' THEN amount_etb ELSE 0 END),0) AS paid, " +
+      "COALESCE(SUM(CASE WHEN status='earned' THEN amount_etb ELSE 0 END),0) AS owed, " +
+      "COALESCE(SUM(CASE WHEN status IN ('earned','paid') THEN 1 ELSE 0 END),0) AS n FROM referral_rewards").first();
+    if (rr && rr.n) refLine = `\n🎁 Referral sales: ${rr.n} · rewards paid ETB ${money(rr.paid)} · owed ETB ${money(rr.owed)}`;
+  } catch (e) { /* referral tables not migrated yet */ }
   const monthLines = months.length
     ? months.map((r) => `   ${r.m}: ${r.n} · ETB ${money(r.etb || 0)}`).join('\n')
     : '   (no sales yet)';
   const text =
     '📈 <b>Sales & Funnel</b>\n\n' +
     `💵 <b>All time:</b> ${all ? all.n : 0} sale(s) = <b>ETB ${money(all ? all.etb : 0)}</b>` +
-    `${revoked && revoked.n ? `\n🚫 Revoked / refunded: ${revoked.n}` : ''}\n\n` +
+    `${revoked && revoked.n ? `\n🚫 Revoked / refunded: ${revoked.n}` : ''}${refLine}\n\n` +
     '<b>By month:</b>\n' + monthLines + '\n\n' +
     '<b>Funnel — last 30 days:</b>\n' +
     `🟦 Started: ${started}\n` +
@@ -1696,6 +2181,19 @@ async function approve(chatId, messageId, orderId, cbId) {
     "INSERT OR IGNORE INTO sales (order_id, machine_id, amount_etb, status) VALUES (?, ?, ?, 'sold')"
   ).bind(o.id, o.machine_id, o.amount_etb > 0 ? o.amount_etb : PRICE_ETB).run();
 
+  // Referred order: one reward for the referrer (terms locked on the order).
+  let rewardNew = false;
+  if (o.referrer_uid && o.reward_etb > 0) {
+    try {
+      const rw = await DB.prepare(
+        'INSERT OR IGNORE INTO referral_rewards (order_id, referrer_uid, friend_uid, friend_mid, amount_etb) VALUES (?, ?, ?, ?, ?)'
+      ).bind(o.id, o.referrer_uid, o.uid, o.machine_id, o.reward_etb).run();
+      rewardNew = !!(rw && rw.meta && rw.meta.changes);
+    } catch (e) {
+      log('error', 'referral_reward_failed', { orderId, err: String((e && e.message) || e) });
+    }
+  }
+
   // Claim the delivery itself, not just the order status. A second admin tap
   // or Telegram retry cannot send the bearer key concurrently. A crashed send
   // becomes retryable after the five-minute lease.
@@ -1745,6 +2243,27 @@ async function approve(chatId, messageId, orderId, cbId) {
        `Machine ID: <code>${o.machine_id}</code>\n` +
        `Retry approval to send it again.`));
   await answerCb(cbId, delivered ? '✅ Approved & key sent' : '⚠️ Approved; delivery failed — retry');
+
+  if (rewardNew) {
+    const t = refTerms(await getSettings());
+    const acct = await DB.prepare('SELECT 1 AS x FROM payout_accounts WHERE uid = ?').bind(o.referrer_uid).first();
+    await sendText(o.referrer_uid,
+      `🎉 <b>ጓደኛዎ በሊንክዎ ገዝቷል!</b> <b>${money(o.reward_etb)} ብር</b> አግኝተዋል።\n` +
+      `<i>A friend bought with your link — you earned ${money(o.reward_etb)} ብር.</i>\n\n` +
+      `💸 ሽልማቱ ከ${t.hold} ቀን በኋላ በወሩ ክፍያ ይላካል።\n<i>It is sent in the monthly payout after ${t.hold} days.</i>` +
+      (acct ? '' : '\n\n🏦 ሽልማትዎ እንዲደርስ የባንክ አካውንትዎን ያስመዝግቡ።\n<i>Add your bank account so we can send it.</i>'),
+      [[{ text: acct ? '🎁 ጓደኛ ይጋብዙ · Invite friends' : '🏦 የክፍያ አካውንት · Payout account', callback_data: acct ? 'ref:invite' : 'ref:payout' }]]);
+  }
+  // First delivery to a new buyer while the programme is ON: offer their own link.
+  if (delivered && o.delivery_status !== 'delivered') {
+    const t = refTerms(await getSettings());
+    if (t.on && t.reward > 0) {
+      await sendText(o.uid,
+        `🎁 ጓደኛ ይጋብዙ፦ ጓደኛዎ በሊንክዎ ሲገዛ <b>${money(t.reward)} ብር</b> ያገኛሉ።\n` +
+        `<i>Invite friends: earn ${money(t.reward)} ብር for each friend who buys with your link.</i>`,
+        [[{ text: '🎁 ሊንኬን አሳየኝ · My invite link', callback_data: 'ref:invite' }]]);
+    }
+  }
   log('info', delivered ? 'order_approved' : 'order_delivery_failed', {
     orderId, mid: o.machine_id, uid: o.uid, amount_etb: o.amount_etb,
     delivery_attempt: true,
@@ -1857,16 +2376,27 @@ async function handleCallback(cb) {
     return;
   }
 
+  // referral (buyer side): private chat only
+  if (data.startsWith('ref:')) {
+    if (!isPrivateChat(chatId, fromUid)) {
+      await answerCb(cbId, '🔒 በግል ቻት ይቀጥሉ · Continue in a private chat');
+      return;
+    }
+    await handleRefCallback(data, cbId, fromUid, chatId, messageId);
+    return;
+  }
+
   // menu navigation
   if (data.startsWith('menu:')) {
     await answerCb(cbId, '');
     const kind = data.split(':')[1];
     if (kind === 'home') await showMenu(chatId, messageId);
     else if (kind === 'pay') {
-      const r = await editText(chatId, messageId, payText(), payKeyboard());
+      const pt = payText(await referralOffer(fromUid));
+      const r = await editText(chatId, messageId, pt, payKeyboard());
       // Same fallback as showMenu: an edit that fails must not leave the buyer
       // staring at an unchanged screen after tapping Pay.
-      if (!r || !r.ok) await sendText(chatId, payText(), payKeyboard());
+      if (!r || !r.ok) await sendText(chatId, pt, payKeyboard());
     } else if (kind === 'mykey') await showMyKey(cb, chatId, messageId);
     return;
   }
@@ -1994,6 +2524,33 @@ async function handleCallback(cb) {
     else if (action === 'bcast-send') await startBroadcast(chatId, messageId, cbId, parseInt(parts[2] || '0', 10), parts[3] || 'all');
     else if (action === 'bcast-cancel') await cancelBroadcast(chatId, messageId, cbId, parseInt(parts[2] || '0', 10));
     else if (action === 'sales-export') await adminSalesExport(chatId, cbId);
+    else if (action === 'ref') await adminReferrals(chatId, messageId);
+    else if (action === 'ref-toggle') {
+      const on = refTerms(await getSettings()).on;
+      try {
+        await setSetting('referral_enabled', on ? '0' : '1');
+        await answerCb(cbId, on ? '⚪ Referrals OFF' : '🟢 Referrals ON');
+      } catch (e) {
+        await answerCb(cbId, '⚠️ Run npm run migrate first');
+      }
+      await adminReferrals(chatId, messageId);
+    }
+    else if (action === 'ref-pay') await adminRefPayList(chatId, messageId);
+    else if (action === 'ref-paid') await adminRefMarkPaid(chatId, messageId, cbId, parts[2]);
+    else if (action === 'ref-ask') {
+      await sendText(parts[2],
+        '🎁 <b>ሽልማት አለዎት!</b> እንድንልክልዎ የባንክ አካውንትዎን ያስመዝግቡ።\n' +
+        '<i>You have a referral reward waiting — add your bank account so we can send it.</i>',
+        [[{ text: '🏦 የክፍያ አካውንት · Payout account', callback_data: 'ref:payout' }]]);
+      await answerCb(cbId, '📩 Asked for their account');
+    }
+    else if (action === 'ref-announce') {
+      await answerCb(cbId, 'Preview below');
+      await draftBroadcast(chatId, referralAnnouncement(refTerms(await getSettings())));
+    }
+    // Stop the loading spinner for screens that did not answer themselves (a
+    // second answer is rejected by Telegram and ignored by safeSend).
+    await answerCb(cbId, '');
     return;
   }
 
@@ -2567,5 +3124,6 @@ export default {
       return;
     }
     await pruneOld();
+    await remindReferralPayouts();
   },
 };
