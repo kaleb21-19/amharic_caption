@@ -187,7 +187,9 @@ export default function LegalPage() {
             IPs for fraud detection. Order history, webhook idempotency records,
             and short-lived telemetry are pruned separately; license and
             trial-abuse records may be retained while needed to support or
-            protect an active license. We do not sell your data. Service
+            protect an active license. A minimal sales record (order number,
+            date, amount and Machine ID — no screenshot, name or Telegram
+            account) is kept for accounting. We do not sell your data. Service
             providers include Cloudflare, Vercel (website hosting), and Telegram
             (ordering and support).
           </p>

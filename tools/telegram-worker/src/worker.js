@@ -386,6 +386,12 @@ async function pruneOld() {
   const fs = await DB.prepare("DELETE FROM fsm WHERE updated_at < datetime('now', '-2 days')").run();
   const tu = await DB.prepare("DELETE FROM trial_uses WHERE used_at < datetime('now', '-30 days')").run();
   const wu = await DB.prepare("DELETE FROM webhook_updates WHERE received_at < datetime('now', '-30 days')").run();
+  // Finished broadcasts: the per-recipient queue is only needed while sending.
+  await DB.prepare(
+    "DELETE FROM broadcast_queue WHERE broadcast_id IN (SELECT id FROM broadcasts " +
+    "WHERE status IN ('done','cancelled','draft') AND created_at < datetime('now', '-30 days'))").run();
+  await DB.prepare(
+    "DELETE FROM broadcasts WHERE status IN ('done','cancelled','draft') AND created_at < datetime('now', '-30 days')").run();
   log('info', 'prune_run', {
     orders: o && o.meta ? o.meta.changes : 0,
     funnel: f && f.meta ? f.meta.changes : 0,
@@ -543,6 +549,9 @@ async function handleMessage(msg, env) {
 
   // /start etc.
   const lower = text.toLowerCase();
+  // Any command cancels a broadcast that is being composed, so a later "ok" or
+  // note can never go out to every customer by accident.
+  if (privateChat && isAdmin(user.id) && lower.startsWith('/')) await cancelBroadcastCompose(uid);
   if (['/start', '/start@amhariccaptionsbot', '/menu', 'menu'].includes(lower)) {
     if (privateChat) {
       if (isAdmin(user.id)) {
@@ -652,12 +661,14 @@ async function handleMessage(msg, env) {
     }
   }
 
-  // admin: broadcast draft pending → next free-text message goes to all buyers
-  if (isAdmin(user.id)) {
+  // admin: composing a broadcast → the next free-text message becomes a DRAFT
+  // that is shown back as a preview with Send / Cancel. Nothing goes out
+  // without that second tap.
+  if (privateChat && isAdmin(user.id)) {
     const bd = await kvGet('bcast:await:' + uid);
     if (bd && !lower.startsWith('/')) {
       await kvDel('bcast:await:' + uid);
-      await broadcastText(chatId, text);
+      await draftBroadcast(chatId, text);
       return;
     }
   }
@@ -1068,9 +1079,9 @@ async function adminPanel(chatId, messageId) {
     "COALESCE(SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END),0) AS pd " +
     "FROM orders WHERE date(created_at)=date('now')").first();
   const sold30 = await DB.prepare(
-    "SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN amount_etb > 0 THEN amount_etb ELSE ? END), 0) AS revenue " +
-    "FROM orders WHERE status='approved' AND created_at >= datetime('now','-30 days')"
-  ).bind(PRICE_ETB).first();
+    "SELECT COUNT(*) AS n, COALESCE(SUM(amount_etb), 0) AS revenue " +
+    "FROM sales WHERE status='sold' AND sold_at >= datetime('now','-30 days')"
+  ).first();
   const soldCount = sold30 ? sold30.n : 0;
   const revenue = sold30 ? sold30.revenue : 0;
 
@@ -1080,7 +1091,7 @@ async function adminPanel(chatId, messageId) {
     `   ├ ✅ Approved today: ${todayRow.ap}\n` +
     `   ├ ❌ Declined today: ${todayRow.rj}\n` +
     `   └ ⏳ Pending today:  ${todayRow.pd}\n\n` +
-    `💵 <b>Revenue (30d):</b> ${soldCount} order(s) = <b>ETB ${money(revenue)}</b>\n\n` +
+    `💵 <b>Revenue (30d):</b> ${soldCount} sale(s) = <b>ETB ${money(revenue)}</b>\n\n` +
     `⬇️ Review the request queue, or check recent activity.`;
   const kb = [
     [{ text: `📥 Requests (${pend})`, callback_data: 'admin:queue' }],
@@ -1157,22 +1168,135 @@ async function adminExport(chatId, messageId, cbId) {
   await answerCb(cbId, sent === results.length ? `${sent} customers exported` : `exported ${sent}/${results.length}`);
 }
 
-async function broadcastText(chatId, text) {
-  const seen = new Set();
-  const a = await DB.prepare("SELECT uid FROM customers WHERE uid <> ''").all();
-  const b = await DB.prepare("SELECT uid FROM orders WHERE uid <> ''").all();
+// ── broadcast: preview → confirm → batched sending ──────────────────────────
+// Recipients: every buyer who ever ordered or holds a key, minus the admins.
+function broadcastAudienceSql() {
   const admins = adminUids();
-  let sent = 0;
-  for (const r of [...(a.results || []), ...(b.results || [])]) {
-    if (!r.uid || seen.has(r.uid) || admins.includes(String(r.uid))) continue;
-    seen.add(r.uid);
-    const result = await sendText(r.uid, text);
-    if (result && result.ok) sent++;
-    await sleep(90);
+  const not = admins.length ? ` AND uid NOT IN (${admins.map(() => '?').join(',')})` : '';
+  return {
+    sql: `SELECT uid FROM (SELECT uid FROM customers WHERE uid <> '' UNION SELECT uid FROM orders WHERE uid <> '') WHERE 1=1${not}`,
+    args: admins,
+  };
+}
+
+async function cancelBroadcastCompose(uid) {
+  await kvDel('bcast:await:' + uid);
+  await DB.prepare("UPDATE broadcasts SET status='cancelled' WHERE admin_chat=? AND status='draft'")
+    .bind(String(uid)).run();
+}
+
+async function draftBroadcast(chatId, text) {
+  const aud = broadcastAudienceSql();
+  const cnt = await DB.prepare(`SELECT COUNT(*) AS n FROM (${aud.sql})`).bind(...aud.args).first();
+  const n = cnt ? cnt.n : 0;
+  if (!n) {
+    await sendText(chatId, '📣 No customers to send to yet — nothing was sent.');
+    return;
   }
-  log('info', 'broadcast_sent', { recipients: seen.size, delivered: sent });
+  const ins = await DB.prepare("INSERT INTO broadcasts (admin_chat, text, status) VALUES (?, ?, 'draft')")
+    .bind(String(chatId), text).run();
+  const id = ins.meta.last_row_id;
+  // The preview IS the message, exactly as customers will receive it.
+  const shown = await sendText(chatId, text);
+  if (!shown || !shown.ok) {
+    await DB.prepare("UPDATE broadcasts SET status='cancelled' WHERE id=?").bind(id).run();
+    await sendText(chatId,
+      '⚠️ Telegram could not display that message, so it was not sent to anyone.\n' +
+      'Check for stray &lt; &gt; &amp; characters, then tap 📣 Broadcast again.');
+    return;
+  }
   await sendText(chatId,
-    `📣 Broadcast delivered to <b>${sent}</b> of <b>${seen.size}</b> chat(s).${seen.size ? '' : ' (no buyers yet)'}`);
+    `📣 <b>Preview above.</b> Send it to <b>${n}</b> customer(s)?\n\n<i>Nothing has been sent yet.</i>`,
+    [[{ text: `✅ Send to ${n}`, callback_data: `admin:bcast-send:${id}` },
+      { text: '✖ Cancel', callback_data: `admin:bcast-cancel:${id}` }]]);
+}
+
+async function startBroadcast(chatId, messageId, cbId, id) {
+  // Claim the draft: a double tap or a Telegram retry cannot send it twice,
+  // and a draft older than 30 minutes is no longer trusted.
+  const claim = await DB.prepare(
+    "UPDATE broadcasts SET status='sending' WHERE id=? AND status='draft' AND created_at >= datetime('now','-30 minutes')"
+  ).bind(id).run();
+  if (!claim || !claim.meta || claim.meta.changes < 1) {
+    await answerCb(cbId, 'Already sent, cancelled or expired');
+    return;
+  }
+  const aud = broadcastAudienceSql();
+  const q = await DB.prepare(
+    `INSERT OR IGNORE INTO broadcast_queue (broadcast_id, uid) SELECT ?, uid FROM (${aud.sql})`
+  ).bind(id, ...aud.args).run();
+  const total = q && q.meta ? q.meta.changes : 0;
+  await DB.prepare('UPDATE broadcasts SET total=? WHERE id=?').bind(total, id).run();
+  await answerCb(cbId, 'Sending…');
+  await editText(chatId, messageId,
+    `📣 <b>Sending to ${total} customer(s)…</b>\n<i>Large lists go out in batches, about 40 a minute. You will get a report when it is done.</i>`);
+  log('info', 'broadcast_started', { id, total });
+  await processBroadcast(BCAST_BATCH_TAP);
+}
+
+async function cancelBroadcast(chatId, messageId, cbId, id) {
+  const r = await DB.prepare("UPDATE broadcasts SET status='cancelled' WHERE id=? AND status='draft'").bind(id).run();
+  await answerCb(cbId, r && r.meta && r.meta.changes ? 'Cancelled' : 'Already sent or cancelled');
+  if (r && r.meta && r.meta.changes) {
+    await editText(chatId, messageId, '✖ <b>Broadcast cancelled</b> — nothing was sent.');
+  }
+}
+
+// Sends one batch of the oldest running broadcast. Kept to a fixed, small
+// number of D1 queries plus one Telegram call per recipient, so it fits the
+// free plan's 50 subrequests / 50 D1 queries per invocation.
+const BCAST_BATCH_TAP = 20;   // inside the admin's confirm tap
+const BCAST_BATCH_CRON = 40;  // each every-minute cron run
+async function processBroadcast(limit) {
+  const b = await DB.prepare("SELECT * FROM broadcasts WHERE status='sending' ORDER BY id LIMIT 1").first();
+  if (!b) return 0;
+  // A run that crashed mid-batch leaves rows in 'sending': retry them later.
+  await DB.prepare(
+    "UPDATE broadcast_queue SET status='queued', claimed_at=NULL " +
+    "WHERE broadcast_id=? AND status='sending' AND claimed_at < datetime('now','-10 minutes')"
+  ).bind(b.id).run();
+  const { results } = await DB.prepare(
+    `UPDATE broadcast_queue SET status='sending', claimed_at=datetime('now')
+     WHERE broadcast_id=? AND uid IN (
+       SELECT uid FROM broadcast_queue WHERE broadcast_id=? AND status='queued' ORDER BY uid LIMIT ?)
+     RETURNING uid`
+  ).bind(b.id, b.id, limit).all();
+  const ok = [];
+  const bad = [];
+  for (const r of results || []) {
+    const res = await sendText(r.uid, b.text);
+    (res && res.ok ? ok : bad).push(r.uid);
+    await sleep(40); // ~25 msg/s, under Telegram's 30/s bulk limit
+  }
+  const mark = async (list, st) => {
+    if (!list.length) return;
+    await DB.prepare(
+      `UPDATE broadcast_queue SET status='${st}' WHERE broadcast_id=? AND uid IN (${list.map(() => '?').join(',')})`
+    ).bind(b.id, ...list).run();
+  };
+  await mark(ok, 'sent');
+  await mark(bad, 'failed');
+  if (ok.length || bad.length) {
+    await DB.prepare('UPDATE broadcasts SET sent=sent+?, failed=failed+? WHERE id=?')
+      .bind(ok.length, bad.length, b.id).run();
+  }
+  const left = await DB.prepare(
+    "SELECT COUNT(*) AS n FROM broadcast_queue WHERE broadcast_id=? AND status IN ('queued','sending')"
+  ).bind(b.id).first();
+  if (!left || left.n === 0) {
+    const fin = await DB.prepare(
+      "UPDATE broadcasts SET status='done', finished_at=datetime('now') WHERE id=? AND status='sending' " +
+      'RETURNING sent, failed, total, admin_chat'
+    ).bind(b.id).all();
+    const f = fin && fin.results && fin.results[0];
+    if (f) {
+      await sendText(f.admin_chat,
+        `📣 Broadcast delivered to <b>${f.sent}</b> of <b>${f.total}</b> customer(s).` +
+        (f.failed ? `\n<i>${f.failed} could not be reached (they blocked the bot or never opened it).</i>` : ''));
+      log('info', 'broadcast_sent', { id: b.id, recipients: f.total, delivered: f.sent, failed: f.failed });
+    }
+  }
+  return ok.length + bad.length;
 }
 
 // ── revoke / unrevoke a sold license ────────────────────────────────────────
@@ -1182,6 +1306,8 @@ async function setCustomerRevoked(machineId, revoke) {
   const cust = await DB.prepare('SELECT key FROM customers WHERE machine_id=?').bind(mid).first();
   if (!cust) return { ok: false, error: 'customer not found' };
   await DB.prepare('UPDATE customers SET revoked=? WHERE machine_id=?').bind(revoke ? 1 : 0, mid).run();
+  // A revoked sale (fraud, refund) no longer counts as revenue; restoring it does.
+  await DB.prepare('UPDATE sales SET status=? WHERE machine_id=?').bind(revoke ? 'revoked' : 'sold', mid).run();
   // Keep order/admin views consistent with the authoritative customer flag.
   // Pending/rejected orders are never silently turned into sales by a MID-wide
   // revoke; only an already-issued approval changes state.
@@ -1420,12 +1546,13 @@ async function adminHistory(chatId, messageId, cbId, offset = 0) {
 
 
 async function adminSales(chatId, messageId) {
-  const sold = await DB.prepare(
-    "SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN amount_etb > 0 THEN amount_etb ELSE ? END), 0) AS revenue " +
-    "FROM orders WHERE status='approved'"
-  ).bind(PRICE_ETB).first();
-  const nSold = sold ? sold.n : 0;
-  const rev = sold ? sold.revenue : 0;
+  // Money comes from the permanent sales ledger, so it is really all-time.
+  const all = await DB.prepare(
+    "SELECT COUNT(*) AS n, COALESCE(SUM(amount_etb), 0) AS etb FROM sales WHERE status='sold'").first();
+  const revoked = await DB.prepare("SELECT COUNT(*) AS n FROM sales WHERE status='revoked'").first();
+  const months = (await DB.prepare(
+    "SELECT strftime('%Y-%m', sold_at) AS m, COUNT(*) AS n, SUM(amount_etb) AS etb " +
+    "FROM sales WHERE status='sold' GROUP BY m ORDER BY m DESC LIMIT 6").all()).results || [];
   const counts = {};
   const events = ['proof_start', 'mid_sent', 'screenshot_sent', 'order_confirmed', 'approved', 'rejected'];
   for (const ev of events) {
@@ -1434,19 +1561,52 @@ async function adminSales(chatId, messageId) {
   }
   const pct = (a, b) => (a ? Math.round(100 * b / a) + '%' : '–');
   const started = counts.proof_start;
+  const monthLines = months.length
+    ? months.map((r) => `   ${r.m}: ${r.n} · ETB ${money(r.etb || 0)}`).join('\n')
+    : '   (no sales yet)';
   const text =
     '📈 <b>Sales & Funnel</b>\n\n' +
-    `💵 <b>Revenue</b>: ${nSold} approved order(s) = <b>ETB ${Number(rev || 0).toLocaleString()}</b>\n\n` +
-    '<b>Funnel — all-time:</b>\n' +
+    `💵 <b>All time:</b> ${all ? all.n : 0} sale(s) = <b>ETB ${money(all ? all.etb : 0)}</b>` +
+    `${revoked && revoked.n ? `\n🚫 Revoked / refunded: ${revoked.n}` : ''}\n\n` +
+    '<b>By month:</b>\n' + monthLines + '\n\n' +
+    '<b>Funnel — last 30 days:</b>\n' +
     `🟦 Started: ${started}\n` +
     `🟩 Machine ID: ${counts.mid_sent} (${pct(started, counts.mid_sent)} of started)\n` +
     `🟨 Screenshot: ${counts.screenshot_sent} (${pct(counts.mid_sent, counts.screenshot_sent)} of mid)\n` +
     `🟧 Confirmed: ${counts.order_confirmed} (${pct(counts.screenshot_sent, counts.order_confirmed)} of screenshot)\n` +
     `🟥 Approved: ${counts.approved} (${pct(counts.order_confirmed, counts.approved)} of confirmed)\n\n` +
     '<i>The biggest drop-off step = your sales opportunity.</i>';
-  const kb = [[{ text: '🛠 Admin', callback_data: 'admin:panel' }]];
+  const kb = [
+    [{ text: '📄 Sales list', callback_data: 'admin:sales-export' }],
+    [{ text: '🛠 Admin', callback_data: 'admin:panel' }],
+  ];
   if (messageId) await editText(chatId, messageId, text, kb);
   else await sendText(chatId, text, kb);
+}
+
+// Every sale ever recorded, for bookkeeping: order | date | Machine ID | ETB | status.
+async function adminSalesExport(chatId, cbId) {
+  const { results } = await DB.prepare(
+    'SELECT order_id, sold_at, machine_id, amount_etb, status FROM sales ORDER BY order_id').all();
+  if (!results.length) { await answerCb(cbId, 'No sales yet'); return; }
+  const lines = results.map((r) =>
+    esc(`${r.order_id}\t${String(r.sold_at).slice(0, 10)}\t${r.machine_id}\t${r.amount_etb}\t${r.status}`));
+  let chunk = `📄 <b>Sales (${results.length})</b>\n\n<pre>order\tdate\tmachine\tETB\tstatus\n`;
+  let count = 0;
+  let sent = 0;
+  for (const line of lines) {
+    if (count && chunk.length + line.length + 1 > 3500) {
+      const r = await sendText(chatId, chunk + '</pre>');
+      if (r && r.ok) sent += count;
+      chunk = '<pre>';
+      count = 0;
+    }
+    chunk += line + '\n';
+    count += 1;
+  }
+  const r = await sendText(chatId, chunk + '</pre>');
+  if (r && r.ok) sent += count;
+  await answerCb(cbId, sent === results.length ? `${sent} sales` : `sent ${sent}/${results.length}`);
 }
 
 // ── approve / reject (admin callbacks) ─────────────────────────────────────
@@ -1515,6 +1675,11 @@ async function approve(chatId, messageId, orderId, cbId) {
     ).bind(orderId).run();
     if (issuedNow && !o.key_issued_at) await addFunnel(o.uid, 'approved');
   }
+  // Permanent sales record (orders are pruned after 30 days). INSERT OR IGNORE
+  // keeps it one row per order however many times approve is retried.
+  await DB.prepare(
+    "INSERT OR IGNORE INTO sales (order_id, machine_id, amount_etb, status) VALUES (?, ?, ?, 'sold')"
+  ).bind(o.id, o.machine_id, o.amount_etb > 0 ? o.amount_etb : PRICE_ETB).run();
 
   // Claim the delivery itself, not just the order status. A second admin tap
   // or Telegram retry cannot send the bearer key concurrently. A crashed send
@@ -1807,8 +1972,13 @@ async function handleCallback(cb) {
       await kvPut('bcast:await:' + fromUid, '1', 900);
       await answerCb(cbId, 'Compose broadcast');
       await sendText(chatId,
-        '📣 <b>Broadcast</b>\n\nSend me the <b>exact message</b> you want copied to every customer (their DM with this bot).\n\n<i>Only buyers receive it — admins are skipped. Cancel with /start.</i>');
+        '📣 <b>Broadcast</b>\n\nSend me the <b>exact message</b> for every customer (their DM with this bot).\n' +
+        'You will see a <b>preview</b> with Send / Cancel before anything goes out.\n\n' +
+        '<i>Only buyers receive it — admins are skipped. Changed your mind? Send /start.</i>');
     }
+    else if (action === 'bcast-send') await startBroadcast(chatId, messageId, cbId, parseInt(parts[2] || '0', 10));
+    else if (action === 'bcast-cancel') await cancelBroadcast(chatId, messageId, cbId, parseInt(parts[2] || '0', 10));
+    else if (action === 'sales-export') await adminSalesExport(chatId, cbId);
     return;
   }
 
@@ -2373,8 +2543,14 @@ export default {
 
   // Cron trigger: prune the 30-day window on a schedule so unmetered admin
   // activity is never depended on (see wrangler.toml [triggers] crons).
-  async scheduled(_event, env) {
+  async scheduled(event, env) {
     initEnv(env);
+    // Every minute: send the next batch of a running broadcast (one cheap
+    // query when there is none). Every 6 hours: housekeeping.
+    if (event && event.cron === '* * * * *') {
+      await processBroadcast(BCAST_BATCH_CRON);
+      return;
+    }
     await pruneOld();
   },
 };

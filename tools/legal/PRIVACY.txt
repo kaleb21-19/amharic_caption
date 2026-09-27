@@ -1,5 +1,5 @@
 PRIVACY POLICY — Amharic Captions Pro
-Version 1.1 · Effective 2026-09-27
+Version 1.2 · Effective 2026-09-27
 
 WHAT TRANSCRIPTION NEVER DOES
 All speech recognition, correction, speaker labeling and caption placement
@@ -26,7 +26,9 @@ License data lives on Cloudflare's platform (Workers + D1): Machine ID,
 license key, Telegram account identifiers, order record (nickname, account
 used, amount), and source IPs for fraud detection. Order history, webhook idempotency records, and short-lived telemetry are
 pruned separately; license and trial-abuse records may be retained while
-needed to support or protect an active license. Data is not sold. Service providers
+needed to support or protect an active license. A minimal sales record (order
+number, date, amount and Machine ID; no screenshot, name or Telegram account)
+is kept for accounting. Data is not sold. Service providers
 include Cloudflare, Vercel (website hosting), and Telegram (ordering/support).
 
 LOCAL IDENTITY STORAGE
