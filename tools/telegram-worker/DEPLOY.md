@@ -475,7 +475,9 @@ Needs migration 0016. Independent of the buyer-referral ON/OFF switch.
      Opening it once connects their Telegram account (you get a message
      saying who connected);
    - the **public link** (`…?start=r_EDITGROUP`) for their group post. It
-     works once the partner has connected.
+     works **immediately**; sales made before the partner connects are kept
+     and their rewards wait for them. On TikTok/YouTube (no clickable links)
+     people can simply **type `EDITGROUP`** in the bot.
 2. **Terms:** `/partnerterms EDITGROUP 300 200 20 400` = 300 ብር per sale,
    200 ብር off for the buyer, and 400 ብር per sale after 20 sales (the last
    two numbers are optional). New orders use new terms; placed orders keep
@@ -486,3 +488,16 @@ Needs migration 0016. Independent of the buyer-referral ON/OFF switch.
    button, clicks, sales, earnings, tier progress and their payout account.
 5. **Paying:** partner rewards appear in the same monthly **💰 Pay rewards**
    list, under the partner's name.
+
+**Partner links v2 (migration 0017):**
+- Sales are credited to the partner **code**, so a partner who gets a new
+  phone/account keeps everything: `/partnerreset EDITGROUP` sends you a new
+  private link for them (the old one stops working).
+- `/partnername EDITGROUP New name` renames. New partners always start at
+  300 ብር per sale / 200 ብር off (independent of `/refreward`).
+- The price a buyer **saw** on the pay screen is honoured for 48 hours, even
+  if you pause the partner or change the terms meanwhile.
+- First **live** link wins: a paused link, or one older than 60 days without
+  a purchase, no longer holds a person — a new link can take over.
+- Partner page and `/partners` show **this month** and conversion
+  (opened → bought).
