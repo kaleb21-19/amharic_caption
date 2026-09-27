@@ -1208,6 +1208,12 @@ console.log('\n:: scenario 12 — broadcast, /setexpiry, reply-keyboard hint');
   OUTBOUND.length = 0; MSG = 0;
 
   // broadcast: admin taps, sends the text → PREVIEW only, nothing reaches buyers
+  const btn = (m, prefix) => {
+    for (const row of m.body.reply_markup.inline_keyboard) {
+      for (const b of row) if (b.callback_data.startsWith(prefix)) return b.callback_data;
+    }
+    return null;
+  };
   const toBuyers = (needle) => OUTBOUND.filter((x) => x.method === 'sendMessage'
     && [BUYER, '900000002'].includes(String(x.body.chat_id)) && (x.body.text || '').includes(needle));
   r = await cb(env, { id: Number(ADMIN_ID) }, 'admin:broadcast');
@@ -1216,9 +1222,9 @@ console.log('\n:: scenario 12 — broadcast, /setexpiry, reply-keyboard hint');
   assert.equal(r.status, 200);
   assert.equal(toBuyers('Hello buyers!').length, 0, 'typing the message sends nothing to buyers');
   const ask = OUTBOUND.filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === String(ADMIN_ID)).at(-1);
-  assert.ok(ask.body.text.includes('Send it to <b>2</b>'), 'admin is asked to confirm, with the count: ' + ask.body.text);
-  const sendData = ask.body.reply_markup.inline_keyboard[0][0].callback_data;
-  assert.ok(sendData.startsWith('admin:bcast-send:'), 'Send button present');
+  assert.ok(ask.body.text.includes('<b>2</b> buyer(s)'), 'admin sees who would get it: ' + ask.body.text);
+  const sendData = btn(ask, 'admin:bcast-send:');
+  assert.ok(sendData, 'Send button present');
 
   // confirm → buyers receive it once; a double tap sends nothing more
   r = await cb(env, { id: Number(ADMIN_ID) }, sendData);
@@ -1244,8 +1250,8 @@ console.log('\n:: scenario 12 — broadcast, /setexpiry, reply-keyboard hint');
   await cb(env, { id: Number(ADMIN_ID) }, 'admin:broadcast');
   await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: 'Second draft' }));
   const ask2 = OUTBOUND.filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === String(ADMIN_ID)).at(-1);
-  await cb(env, { id: Number(ADMIN_ID) }, ask2.body.reply_markup.inline_keyboard[0][1].callback_data);
-  await cb(env, { id: Number(ADMIN_ID) }, ask2.body.reply_markup.inline_keyboard[0][0].callback_data);
+  await cb(env, { id: Number(ADMIN_ID) }, btn(ask2, 'admin:bcast-cancel:'));
+  await cb(env, { id: Number(ADMIN_ID) }, btn(ask2, 'admin:bcast-send:'));
   assert.equal(toBuyers('Second draft').length, 0, 'a cancelled draft can never be sent');
   ok('broadcast: /start cancels composing; Cancel kills the draft for good');
 
@@ -1261,7 +1267,7 @@ console.log('\n:: scenario 12 — broadcast, /setexpiry, reply-keyboard hint');
     await post(big.env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: 'Big news' }));
     const a3 = OUTBOUND.filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === String(ADMIN_ID)).at(-1);
     OUTBOUND.length = 0;
-    await cb(big.env, { id: Number(ADMIN_ID) }, a3.body.reply_markup.inline_keyboard[0][0].callback_data);
+    await cb(big.env, { id: Number(ADMIN_ID) }, btn(a3, 'admin:bcast-send:'));
     const firstBatch = OUTBOUND.filter((x) => (x.body.text || '') === 'Big news').length;
     assert.ok(firstBatch > 0 && firstBatch <= 20, 'the tap sends only a first batch: ' + firstBatch);
     const tapCalls = OUTBOUND.length;
@@ -1275,6 +1281,34 @@ console.log('\n:: scenario 12 — broadcast, /setexpiry, reply-keyboard hint');
     await worker.scheduled({ cron: '0 */6 * * *' }, big.env); // housekeeping still runs on the 6h cron
   }
   ok('broadcast: 95 buyers go out in batches (tap + cron), once each, one report');
+
+  // Buyers only vs everyone: a lead who never bought is skipped by "Buyers only".
+  {
+    const aud = fresh();
+    aud.env.DB.prepare("INSERT INTO customers (machine_id, name, expiry, key, status, uid) VALUES ('d0d0d0d0', '@buyer', '00000000', 'k', 'sold', '700000001')").run();
+    aud.env.DB.prepare("INSERT INTO customers (machine_id, name, expiry, key, status, uid, revoked) VALUES ('e0e0e0e0', '@refunded', '00000000', 'k', 'sold', '700000003', 1)").run();
+    aud.env.DB.prepare("INSERT INTO orders (uid, username, machine_id, ref, photo_key, chat_id, status) VALUES ('700000002', '@lead', 'f0f0f0f0', '', '', '700000002', 'rejected')").run();
+    await cb(aud.env, { id: Number(ADMIN_ID) }, 'admin:broadcast');
+    await post(aud.env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: 'Update news' }));
+    const a4 = OUTBOUND.filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === String(ADMIN_ID)).at(-1);
+    assert.ok(a4.body.text.includes('<b>1</b> buyer(s)') && a4.body.text.includes('<b>2</b> other(s)'),
+      'preview splits buyers from others: ' + a4.body.text);
+    OUTBOUND.length = 0;
+    await cb(aud.env, { id: Number(ADMIN_ID) }, btn(a4, 'admin:bcast-send:') && a4.body.reply_markup.inline_keyboard
+      .flat().find((b) => b.callback_data.endsWith(':buyers')).callback_data);
+    const got4 = OUTBOUND.filter((x) => (x.body.text || '') === 'Update news').map((x) => String(x.body.chat_id));
+    assert.deepEqual(got4, ['700000001'], 'only the active buyer got it (not the lead, not the revoked key): ' + got4);
+  }
+  ok('broadcast: "Buyers only" skips leads and revoked keys');
+
+  // /start for the admin opens the full dashboard (Broadcast, Export, /find tip).
+  OUTBOUND.length = 0;
+  await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: '/start' }));
+  const home = OUTBOUND.filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === String(ADMIN_ID)).at(-1);
+  const homeKb = JSON.stringify(home.body.reply_markup);
+  assert.ok(home.body.text.includes('Dashboard') && home.body.text.includes('/find'), 'admin /start = dashboard');
+  assert.ok(homeKb.includes('admin:broadcast') && homeKb.includes('admin:export'), 'with every admin button');
+  ok('admin /start opens the one admin dashboard');
 
   // The Machine ID prompt must use an INLINE keyboard, never a reply keyboard.
   // A reply keyboard pins itself to the bottom of the chat until something
