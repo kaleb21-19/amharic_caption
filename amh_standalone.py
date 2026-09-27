@@ -18,6 +18,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -41,6 +42,55 @@ def say(am, en=None):
 
 def rule():
     print("-" * 60)
+
+
+def open_folder(path):
+    """Show the finished .srt in Explorer / Finder, selected. Customers asked
+    "where is the file?" — this answers it. AMH_NO_OPEN=1 disables (tests)."""
+    if os.environ.get("AMH_NO_OPEN") == "1":
+        return
+    try:
+        if sys.platform == "win32":
+            subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", path])
+    except Exception:
+        pass
+
+
+def copy_to_clipboard(text):
+    """Best effort; returns True when the text is on the clipboard."""
+    if os.environ.get("AMH_NO_OPEN") == "1":
+        return False
+    try:
+        if sys.platform == "win32":
+            flags = subprocess.CREATE_NO_WINDOW
+            r = subprocess.run(["clip"], input=text.encode("ascii"), creationflags=flags)
+        elif sys.platform == "darwin":
+            r = subprocess.run(["pbcopy"], input=text.encode("ascii"))
+        else:
+            return False
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def fmt_secs(s):
+    s = int(round(s))
+    return "%d:%02d" % (s // 60, s % 60)
+
+
+def progress_bar(done, total):
+    """Replaces ethio_srt's machine-readable "[progress] 3/15" lines (meant for
+    the panel) with a bar a person can read, redrawn on one line."""
+    if total <= 1:
+        return
+    width = 24
+    fill = int(width * done / total)
+    sys.stdout.write("\r   [%s%s] %3d%%" % ("#" * fill, "." * (width - fill), 100 * done // total))
+    if done >= total:
+        sys.stdout.write("\n")
+    sys.stdout.flush()
 
 
 def ffmpeg_path():
@@ -103,7 +153,6 @@ def ensure_license(mid, n_files):
 
     status = lic.trial_status(mid)
     if status is None:
-        rule()
         say("ኢንተርኔት ያስፈልጋል፦ ያለ ፈቃድ ለነጻ ሙከራ ከሰርቨሩ ጋር መገናኘት አለብን።",
             "Internet needed: free trials are checked with the server when there is no license.")
         return offer_activation(mid)
@@ -115,7 +164,6 @@ def ensure_license(mid, n_files):
             say("ማሳሰቢያ፦ %d ፋይሎች ሰጥተዋል፣ ግን %d ነጻ ሙከራ ብቻ ቀርቷል።" % (n_files, remaining),
                 "Note: you gave %d files but only %d free transcription(s) remain." % (n_files, remaining))
         return "trial"
-    rule()
     say("ነጻ ሙከራዎቹ አልቀዋል።", "Your free trials are used up.")
     return offer_activation(mid)
 
@@ -123,8 +171,10 @@ def ensure_license(mid, n_files):
 def offer_activation(mid):
     rule()
     say("የማሽን መለያዎ (Machine ID)፦  " + mid)
-    say("ፈቃድ ለመግዛት፦ 2,500 ብር ለ KALEB TEGEGEN በባንክ ያስተላልፉ፣ ከዚያ የማሽን መለያውን እና ስክሪንሾቱን ለቦቱ ይላኩ፦",
-        "To buy: pay ETB 2,500 by bank transfer to KALEB TEGEGEN, then send the Machine ID")
+    if copy_to_clipboard(mid):
+        say("   (ተቀድቷል — በቦቱ ላይ ይለጥፉት)", "(copied — paste it in the bot)")
+    say("ፈቃድ ለመግዛት፦ 2,500 ብር ለ KALEB TEGEGEN ብቻ በባንክ ያስተላልፉ፣ ከዚያ Machine ID ውን እና ስክሪንሾቱን ለቦቱ ይላኩ፦",
+        "To buy: pay ETB 2,500 by bank transfer to KALEB TEGEGEN only, then send the Machine ID")
     say("   " + BUY_URL, "and the payment screenshot to the bot above.")
     rule()
     say("ቁልፍ ካለዎት እዚህ ይለጥፉ እና Enter ይጫኑ (ለመውጣት ባዶ ይተዉ)፦",
@@ -172,14 +222,15 @@ def ensure_model():
 
 def transcribe(engine, src, out_srt, mode, speakers):
     import ethio_srt as es
+    es._emit_progress = progress_bar
     with tempfile.TemporaryDirectory(prefix="amh_srt_") as tmp:
         wav = os.path.join(tmp, "audio.wav")
-        say("   ድምፁን በማውጣት ላይ…", "Extracting audio…")
+        say("   ድምፁን በማውጣት ላይ…", "Reading the audio…")
         extract_audio(src, wav)
         audio = es.read_wav(wav)
-        mins = len(audio) / 16000 / 60
-        say("   ወደ ጽሑፍ በመቀየር ላይ (%.1f ደቂቃ)… እባክዎ ይጠብቁ።" % mins,
-            "Transcribing (%.1f min of audio)… please wait." % mins)
+        secs = len(audio) / 16000
+        say("   ወደ ጽሑፍ በመቀየር ላይ (%s ደቂቃ ድምፅ)… እባክዎ ይጠብቁ።" % fmt_secs(secs),
+            "Transcribing %s of audio… please wait." % fmt_secs(secs))
         group = 3 if mode == "words" else 0
         _text, cues = es._run_file(engine, audio, mode, group, 42, 0.0, out_srt, speakers=speakers)
         return es.write_srt(out_srt, cues, 0.0)
@@ -198,8 +249,9 @@ def main(argv):
             files.append(a)
 
     print()
-    say("አማርኛ ካፕሽን — SRT ሰሪ", "Amharic Captions — SRT maker")
-    rule()
+    print("=" * 60)
+    say("  አማርኛ ካፕሽን ፕሮ — SRT ሰሪ", "Amharic Captions Pro — SRT maker")
+    print("=" * 60)
     if not files:
         files = ask_files()
     files = [os.path.abspath(f) for f in files]
@@ -222,6 +274,7 @@ def main(argv):
     engine = es.load_pipeline()
 
     done = 0
+    last_saved = None
     for i, src in enumerate(good, 1):
         rule()
         say("[%d/%d] %s" % (i, len(good), os.path.basename(src)))
@@ -229,6 +282,7 @@ def main(argv):
         # Trial output goes to a temp file first: nothing is delivered until
         # the server has actually charged the free transcription.
         work = final if state == "licensed" else final + ".pending"
+        t0 = time.monotonic()
         try:
             n = transcribe(engine, src, work, mode, speakers)
         except Exception as e:
@@ -253,7 +307,10 @@ def main(argv):
             except OSError:
                 pass
         done += 1
-        say("✓ %d ካፕሽኖች ተቀምጠዋል፦ %s" % (n, final), "Saved %d captions." % n)
+        last_saved = final
+        took = fmt_secs(time.monotonic() - t0)
+        say("✓ ተቀምጧል፦ %s  (%d ካፕሽኖች፣ %s ደቂቃ ወስዷል)" % (os.path.basename(final), n, took),
+            "Saved %s (%d captions, took %s) next to the video." % (os.path.basename(final), n, took))
         if state == "trial" and remaining is not None:
             say("   ሙከራ፦ %s ነጻ ሙከራ ቀርቷል።" % remaining, "Trial: %s left." % remaining)
             if remaining == 0 and i < len(good):
@@ -261,10 +318,13 @@ def main(argv):
                     "Free trials used up — a license is needed for the remaining files.")
                 break
 
-    rule()
+    print("=" * 60)
     say("ተጠናቋል፦ %d/%d ፋይሎች።" % (done, len(good)), "Finished: %d of %d file(s)." % (done, len(good)))
-    say("የ.srt ፋይሉን በCapCut፣ DaVinci Resolve ወይም በሌላ ኤዲተር ያስገቡ።",
-        "Import the .srt into CapCut, DaVinci Resolve or any editor.")
+    if last_saved:
+        say("📁 " + os.path.dirname(last_saved))
+        say("የ.srt ፋይሉን በCapCut፣ DaVinci Resolve ወይም በሌላ ኤዲተር ያስገቡ። ፎልደሩ አሁን ይከፈታል።",
+            "Import the .srt into CapCut, DaVinci Resolve or any editor. The folder opens now.")
+        open_folder(last_saved)
     show_update_notice()
     return 0 if done == len(good) else 1
 

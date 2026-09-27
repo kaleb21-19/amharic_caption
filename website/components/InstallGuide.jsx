@@ -19,8 +19,8 @@ import {
 const openPanel = {
   t: { am: "ፓነሉን ይክፈቱ", en: "Open the panel" },
   c: {
-    am: "Window → Extensions → Amharic Captions። የመጀመሪያ ጊዜ «የአማርኛ ሞዴሉን አውርድ» ን አንድ ጊዜ ይጫኑ (610 MB ገደማ፤ ኢንተርኔት ቢቋረጥ ካቆመበት ይቀጥላል)።",
-    en: "Window → Extensions → Amharic Captions. The first time, press “Download the Amharic model” once (about 610 MB; it continues where it stopped if your internet drops).",
+    am: "Window → Extensions → Amharic Captions Pro። የመጀመሪያ ጊዜ «የአማርኛ ሞዴሉን አውርድ» ን አንድ ጊዜ ይጫኑ (610 MB ገደማ፤ ኢንተርኔት ቢቋረጥ ካቆመበት ይቀጥላል)።",
+    en: "Window → Extensions → Amharic Captions Pro. The first time, press “Download the Amharic model” once (about 610 MB; it continues where it stopped if your internet drops).",
   },
   check: {
     am: "ከመክፈልዎ በፊት 2 ነጻ ካፕሽን ይሰራሉ። ለመግዛት በፓነሉ ላይ «ፈቃድ ይግዙ» ይጫኑ።",

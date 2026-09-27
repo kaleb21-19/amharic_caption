@@ -21,6 +21,10 @@ import subprocess
 import sys
 import tempfile
 import threading
+
+# The SRT maker opens Explorer/Finder on the result and copies the Machine ID
+# to the clipboard; a test run must do neither.
+os.environ["AMH_NO_OPEN"] = "1"
 from contextlib import redirect_stdout
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 

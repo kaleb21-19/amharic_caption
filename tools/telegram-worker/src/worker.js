@@ -501,7 +501,7 @@ function midHelpText() {
     '📍 <b>Machine ID የት ነው? / Where is my Machine ID?</b>\n\n' +
     '<b>ቀላሉ መንገድ፦</b> በፓነሉ ላይ <b>«ፈቃድ ይግዙ»</b> ይጫኑ — ቦቱ ከMachine ID ዎ ጋር ይከፈታል፣ መጻፍ አያስፈልግዎትም።\n' +
     '<i>Easiest: press “Buy a license” in the panel — this bot opens with your Machine ID already filled in.</i>\n\n' +
-    '<b>ወይም፦</b> Window → Extensions → Amharic Captions ይክፈቱ። ከፓነሉ ግርጌ «👇 ይቅዱ · ከክፍያው ጋር ይላኩ» ስር ያለውን <b>16 ፊደል</b> ኮድ <b>📋 ቅዳ</b> ብለው እዚህ ይለጥፉ።\n' +
+    '<b>ወይም፦</b> Window → Extensions → Amharic Captions Pro ይክፈቱ። ከፓነሉ ግርጌ «👇 ይቅዱ · ከክፍያው ጋር ይላኩ» ስር ያለውን <b>16 ፊደል</b> ኮድ <b>📋 ቅዳ</b> ብለው እዚህ ይለጥፉ።\n' +
     '<i>Or open the panel and, at the bottom, copy the 16-character code under “Copy · send with payment” (📋 Copy), then paste it here.</i>\n\n' +
     '<b>Premiere የለዎትም?</b> «Make Amharic Captions» ቁልፍ ሲጠይቅ Machine ID ዎን ያሳያል።\n' +
     '<i>No Premiere? Make Amharic Captions shows your Machine ID when it asks for a key.</i>'

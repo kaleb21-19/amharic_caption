@@ -28,7 +28,7 @@ let AMH_LANG = i18nGetLang();
 
 // ── static HTML (keys referenced from index.html) ───────────────────────────
 const AM_STATIC = {
-  'app.title':        'አማርኛ ካፕሽን',
+  'app.title':        'አማርኛ ካፕሽን ፕሮ',
   'app.sub':          '100% ያለ ኢንተርኔት',
   'font.checking':    'ፊደል በመፈተሽ ላይ…',
   'status.idle':      'በመጠባበቅ ላይ',

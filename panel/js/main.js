@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.7.3';
+const APP_VERSION = '1.7.4';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -655,7 +655,7 @@ function initSupport() {
   if (a) {
     a.addEventListener('click', (e) => {
       e.preventDefault();
-      const msg = encodeURIComponent('Hello! I need help with Amharic Captions.\nMachine ID: ' + MACHINE_ID);
+      const msg = encodeURIComponent('ሰላም! በአማርኛ ካፕሽን ፕሮ ላይ እገዛ እፈልጋለሁ።\nMachine ID: ' + MACHINE_ID);
       const url = 'https://t.me/sumpak6?text=' + msg;
       try { window.__adobe_cep__ && window.cep.util.openURLInDefaultBrowser(url); }
       catch (err) { window.open(url, '_blank'); }
@@ -673,7 +673,7 @@ function initBuy() {
     b.addEventListener('click', (e) => {
       e.preventDefault();
       const msg = encodeURIComponent(
-        'Hello! I want to buy Amharic Captions.\nMachine ID: ' + MACHINE_ID);
+        'ሰላም! አማርኛ ካፕሽን ፕሮ መግዛት እፈልጋለሁ።\nMachine ID: ' + MACHINE_ID);
       const url = 'https://t.me/AmharicCaptionsBot?text=' + msg;
       try { window.__adobe_cep__ && window.cep.util.openURLInDefaultBrowser(url); }
       catch (err) { window.open(url, '_blank'); }

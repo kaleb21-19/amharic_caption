@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-#  Amharic Captions - Premiere Pro
+#  Amharic Captions Pro - Premiere Pro & After Effects
 #  One-click installer for macOS.
 #
 #  Usage:
@@ -69,7 +69,7 @@ VER="$(sed -n 's/.*ExtensionBundleVersion="\([^"]*\)".*/\1/p' "$SRC/CSXS/manifes
 VER="${VER:-unknown}"
 
 > "$LOG" echo "=============================="
-log  "Amharic Captions Installer (macOS)"
+log  "Amharic Captions Pro Installer (macOS)"
 log  "Version: $VER"
 log  "Date: $(date)"
 log  "User: $(whoami)"
@@ -77,22 +77,8 @@ log  "Silent mode: $SILENT"
 log  "Source: $SRC"
 log  "Destination: $DEST"
 
-echo ""
-echo "  ============================================="
-echo "   Amharic Captions - Installer  v$VER"
-echo "  ============================================="
-echo ""
-echo "  Source:"
-echo "    $SRC"
-echo ""
-echo "  Destination:"
-echo "    $DEST"
-echo ""
-
 # ---- check we are running next to the extension folder ----
-
-echo "  Checking extension files..."
-echo ""
+# (before the welcome screen, so a not-unzipped download fails straight away)
 
 if [[ ! -d "$SRC" ]]; then
   echo "  [ERROR] Could not find the extension folder."
@@ -125,9 +111,18 @@ if [[ ! -f "$SRC/index.html" ]]; then
   exit 3
 fi
 
-echo "  [OK] Extension files found."
-echo ""
 log "Source files verified"
+
+echo ""
+echo "  ============================================="
+echo "   AMHARIC CAPTIONS PRO  -  INSTALLER   v$VER"
+echo "  ============================================="
+echo ""
+echo "  This installs Amharic Captions Pro for Premiere Pro and"
+echo "  After Effects 2024 or newer, plus the Make Amharic Captions"
+echo "  tool for other editors. It takes about a minute."
+echo ""
+press_enter
 
 DEGRADED=0
 if [[ -f "$HERE/DEGRADED_BUILD.txt" ]]; then
@@ -194,15 +189,18 @@ log "Quarantine cleared from source"
 
 # ---- warn if Premiere is running (helps explain file locks) ----
 
-if pgrep -fi "adobe premiere pro" >/dev/null 2>&1; then
-  echo "  [NOTE] Adobe Premiere Pro is currently running."
-  echo ""
-  echo "  For the cleanest result, fully quit Premiere now and re-run this"
-  echo "  installer afterwards. Continuing with it open can fail when the"
-  echo "  previous version is replaced."
+app_open() {
+  pgrep -fi "adobe premiere pro" >/dev/null 2>&1 || pgrep -fi "adobe after effects" >/dev/null 2>&1
+}
+WAIT_TRIES=0
+while [[ "$SILENT" -eq 0 && "$WAIT_TRIES" -lt 3 ]] && app_open; do
+  WAIT_TRIES=$((WAIT_TRIES + 1))
+  echo "  [PLEASE CLOSE] Premiere Pro or After Effects is still open."
+  echo "  Quit it completely (Cmd + Q), then press Enter here."
   echo ""
   press_enter
-fi
+done
+if app_open; then log "Premiere/After Effects still running"; fi
 
 # ---- make sure the CEP extensions folder exists ----
 
@@ -218,8 +216,7 @@ log "CEP folder ready"
 
 # ---- build a staged copy first (atomic install) ----
 
-echo "  Copying files - this can take a minute ..."
-echo ""
+echo "  [1/3] Copying files - this takes about a minute..."
 
 rm -rf "$STAGE" 2>/dev/null || true
 
@@ -244,8 +241,7 @@ fi
 
 # ---- verify the staged copy ----
 
-echo "  Verifying staged copy..."
-echo ""
+echo "  [2/3] Checking the files..."
 
 if [[ ! -f "$STAGE/CSXS/manifest.xml" || ! -f "$STAGE/index.html" ]]; then
   echo "  [ERROR] Staged copy is incomplete."
@@ -260,15 +256,11 @@ fi
 SRC_COUNT=$(find "$SRC" -type f 2>/dev/null | wc -l | tr -d ' ')
 STAGE_COUNT=$(find "$STAGE" -type f 2>/dev/null | wc -l | tr -d ' ')
 
-echo "  Source files:     $SRC_COUNT"
-echo "  Staged files:     $STAGE_COUNT"
-echo ""
-
 log "Source files: $SRC_COUNT"
 log "Staged files: $STAGE_COUNT"
 
 if [[ "$SRC_COUNT" != "$STAGE_COUNT" ]]; then
-  echo "  [ERROR] File count does not match; staged copy is incomplete."
+  echo "  [ERROR] Some files were not copied."
   echo ""
   echo "  Re-unzip the original download and try again."
   echo ""
@@ -278,15 +270,14 @@ if [[ "$SRC_COUNT" != "$STAGE_COUNT" ]]; then
   exit 6
 fi
 
-echo "  [OK] Staged copy verified."
-echo ""
+log "Staged copy verified"
 
 # Lite update over an install that already has the model: keep it, so the
 # customer does not download it again. The panel checks its size against the
 # new manifest and asks for a download only if the model changed.
 KEPT_MODEL=0
 if [[ "$LITE" -eq 1 && -f "$DEST/runtime/model/model.bin" ]]; then
-  echo "  Keeping your existing Amharic model..."
+  echo "        Keeping your Amharic model - no new download needed."
   if cp -R "$DEST/runtime/model" "$STAGE/runtime/model" 2>>"$LOG"; then
     KEPT_MODEL=1
   fi
@@ -300,8 +291,6 @@ log "Quarantine cleared from staged copy"
 
 # ---- swap: back up the old, put the new in, rollback if it fails ----
 
-echo "  Installing..."
-echo ""
 
 if [[ -d "$DEST" ]]; then
   rm -rf "$BACKUP" 2>/dev/null || true
@@ -316,8 +305,7 @@ if [[ -d "$DEST" ]]; then
     exit 7
   fi
 
-  echo "  [OK] Previous version backed up."
-  echo ""
+  log "Previous version backed up"
 fi
 
 if ! mv "$STAGE" "$DEST"; then
@@ -332,8 +320,7 @@ if ! mv "$STAGE" "$DEST"; then
   exit 7
 fi
 
-echo "  [OK] New version installed."
-echo ""
+log "New version installed"
 
 # ---- final verification ----
 
@@ -398,13 +385,11 @@ else
   done
 fi
 
-echo "  [OK] Required runtime files verified."
-
-echo ""
+log "Required runtime files verified"
 
 # ---- enable the extension debug keys ----
 
-echo "  Enabling Adobe extension support ..."
+echo "  [3/3] Setting up Premiere Pro and After Effects..."
 
 FOUND=0
 for K in 11 12 13 14 15; do
@@ -422,10 +407,8 @@ if [[ "$FOUND" -eq 0 ]]; then
   echo "  The extension may not show up in Premiere."
   log "WARNING: PlayerDebugMode defaults not verified"
 else
-  echo "  [OK] CEP Developer Mode enabled."
+  log "CEP Developer Mode enabled"
 fi
-
-echo ""
 
 # ---- standalone SRT maker: Desktop link (no Premiere / After Effects needed) ----
 
@@ -433,11 +416,9 @@ SRT_CMD="$DEST/Make Amharic Captions.command"
 if [[ -z "${AMH_NO_SHORTCUT:-}" && -f "$SRT_CMD" && -d "$HOME/Desktop" ]]; then
   chmod +x "$SRT_CMD" 2>/dev/null || true
   if ln -sfn "$SRT_CMD" "$HOME/Desktop/Make Amharic Captions.command" 2>>"$LOG"; then
-    echo "  [OK] Desktop shortcut: Make Amharic Captions"
     log "SRT shortcut created"
   fi
 fi
-echo ""
 
 # ---- clean up incomplete staging (rollback backup is KEPT until the
 #       next successful install replaces it - true one-version rollback) ----
@@ -450,43 +431,28 @@ DEST_COUNT=$(find "$DEST" -type f 2>/dev/null | wc -l | tr -d ' ')
 log "Installed files: $DEST_COUNT"
 
 echo ""
-echo "  ============================================="
-echo "   DONE - installation successful!  v$VER"
-echo "  ============================================="
+echo "  ================================================================"
+echo "   INSTALLATION SUCCESSFUL  v$VER"
+echo "  ================================================================"
 echo ""
-echo "  Installed to:"
-echo "    $DEST"
+echo "  What to do now:"
 echo ""
-echo "  Next steps:"
-echo ""
-echo "    1. Fully quit Premiere Pro   (Cmd + Q)"
-echo ""
-echo "       Closing the window is NOT enough - the panel list is"
-echo "       only read when Premiere starts up."
-echo ""
-echo "    2. Reopen Premiere Pro and OPEN a project."
-echo ""
-echo "       The Extensions menu is greyed out on the start screen."
-echo ""
-echo "    3. Menu:  Window > Extensions > Amharic Captions"
-echo ""
-echo "  After Effects 2024+: quit and reopen it the same way, then"
-echo "  Window > Extensions > Amharic Captions."
+echo "    1. Fully quit Premiere Pro with  Cmd + Q."
+echo "       Closing the window is not enough."
+echo "    2. Reopen Premiere Pro and open a project."
+echo "    3. Choose  Window > Extensions > Amharic Captions Pro."
+echo "       After Effects 2024 or newer: the same menu."
 echo ""
 if [[ "$LITE" -eq 1 && "$KEPT_MODEL" -eq 0 ]]; then
-  echo "  First time only: the panel shows  Download the Amharic model."
-  echo "  Press it once. If the internet drops, it continues later."
+  echo "  First time only: press  Download the Amharic model  in the"
+  echo "  panel. About 610 MB, once. If the internet drops, it continues."
   echo ""
 fi
 echo "  No Premiere?  Double-click  Make Amharic Captions  on your Desktop"
 echo "  and drag a video into the window. An .srt file appears next to it."
 echo ""
-echo "  The macOS 'Apple could not verify' warning has been disabled"
-echo "  permanently for this extension."
+echo "  Help on Telegram: t.me/sumpak6"
+echo "  Guide: START HERE.html in the folder you unzipped."
 echo ""
-if [[ "$SILENT" -eq 0 ]]; then
-  echo "  Log file: $LOG"
-  echo ""
-fi
 press_enter
 exit 0

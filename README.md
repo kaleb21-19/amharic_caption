@@ -26,7 +26,7 @@ Local Amharic speech-to-text captions for Adobe Premiere Pro. Transcription runs
 Pay **ETB 2,500** by bank transfer to **KALEB TEGEGEN** — CBE 1000504159977 · Abyssinia 402393939 · Zemen 1031111343277015.
 
 1. Install the extension (see below for your platform)
-2. Restart Premiere Pro → Extensions → Amharic Captions
+2. Restart Premiere Pro → Extensions → Amharic Captions Pro
 3. Copy the **Machine ID** shown in the License section
 4. Send payment by bank transfer to **KALEB TEGEGEN** (CBE 1000504159977 · Abyssinia 402393939 · Zemen 1031111343277015), then send your **Machine ID** + payment screenshot to get your license key
 5. Paste the key into the panel → **Activate** → done. One key per licensed installation; do not share the identity or license files.
