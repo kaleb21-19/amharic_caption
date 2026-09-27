@@ -260,10 +260,32 @@ def _render_run(cores):
     return [(str(v), k) for v, k in _cardinals(cores)]
 
 
+def _is_ethiopic(ch):
+    return "ሀ" <= ch <= "፿"
+
+
+def _ends_with_number_word(core):
+    """ብሁለት, ተሁለትም … : a token that CONTAINS a unit/teen/tens word but was
+    not recognised as a number — typically a misheard multiplier. A false
+    positive only means a number stays spelled out, the safe side."""
+    return any(w in core and core != w
+               for w in list(_NUM_UNITS) + list(_NUM_TEEN) + list(_NUM_TENS))
+
+
+def _next_is_scale(words, j):
+    if j >= len(words):
+        return False
+    return _num_kind(_split_trail(words[j][0])[0]) in ("scale", "hundred")
+
+
 def numbers_to_digits(words):
     """Rewrite spelled-out numbers in an aligned [(word, start, end, ...)]
     stream as digits. A merged number spans its first word's start to its
-    last word's end; extra fields ride along from the first word."""
+    last word's end; extra fields ride along from the first word.
+
+    A wrong number is worse than a spelled-out one (an editor may not notice
+    "1026" where 2026 was said), so a number that may be missing its leading
+    multiplier is left as words — see the stray-letter rule below."""
     if not words or os.environ.get("AMH_DIGITS", "1") == "0":
         return words
     out = []
@@ -278,6 +300,15 @@ def numbers_to_digits(words):
                                            or _split_num_glue(rest)):
                     prefix, core = p, rest
                     break
+        # One stray letter glued to a number word, directly before ሺህ / መቶ
+        # (ብሁለት ሺህ ሀያ ስድስት): the model misheard the multiplier. Drop the
+        # stray letter so the year reads 2026 instead of 1026. No real
+        # Amharic word is one letter + an exact number word + a scale word.
+        if (_num_kind(core) is None and not trail and len(core) >= 3
+                and _is_ethiopic(core[0])
+                and _num_kind(core[1:]) in ("unit", "teen", "tens")
+                and _next_is_scale(words, i + 1)):
+            core = core[1:]
         if _num_kind(core) is None:
             glued = _split_num_glue(core)
             if glued:
@@ -303,6 +334,14 @@ def numbers_to_digits(words):
         if len(cores) == 1 and cores[0] == "አንድ":
             out.append(words[i])
             i += 1
+            continue
+        # A run that starts at ሺህ / መቶ right after a token that ends in a
+        # number word we could not read (e.g. "ተሁለት ሺህ ሀያ ስድስት") is
+        # probably missing its multiplier: keep the words, never a wrong number.
+        if (_num_kind(cores[0]) in ("scale", "hundred") and not prefix and i > 0
+                and _ends_with_number_word(_split_trail(words[i - 1][0])[0])):
+            out.extend(words[i:j])
+            i = j
             continue
         k = i
         for text, used in _render_run(cores):
@@ -330,6 +369,119 @@ def _join_decimals(words):
             continue
         out.append(w)
         i += 1
+    return out
+
+
+# ---------------------------------------------------------------------------
+# ONE-LETTER SPELLING FIX against the bundled word list (amh_lm.json.gz,
+# 111k words with corpus counts). The model often gets one letter of a common
+# word wrong: በታም -> በጣም, ኢዮጵያ -> ኢትዮጵያ, የባትል -> የባህል, ትምትርት -> ትምህርት.
+#
+# Conservative by measurement (2026-09-27, 28 clips with ground truth):
+#   * only a word the list has NEVER seen is touched, and only when exactly one
+#     common word (>=50 uses, 3x the runner-up) is one letter away;
+#   * the FIRST and LAST letter must stay — changing them rewrote correct
+#     inflected words the list lacks (እልህና -> እልህ, ልረዳ -> ወረዳ); a word
+#     ending is never added or removed;
+#   * exception: a number word may differ anywhere (ነጠኝ -> ዘጠኝ, not ነኝ),
+#     so the number pass after it can write the digit.
+# Result: real-speech WER unchanged (33.5%), all clips 46.4% -> 44.7%, names
+# untouched. AMH_SPELL=0 disables.
+# ---------------------------------------------------------------------------
+_SPELL_MIN_COUNT = 50
+_SPELL_RATIO = 3.0
+_ETH_LETTERS = [chr(c) for c in range(0x1200, 0x135B)]
+_NUM_WORDS = set(_NUM_UNITS) | set(_NUM_TENS)
+_spell_lm = None
+
+
+def _spell_edits(w):
+    out = set()
+    for i in range(len(w)):
+        out.add(w[:i] + w[i + 1:])
+        for c in _ETH_LETTERS:
+            out.add(w[:i] + c + w[i + 1:])
+    for i in range(len(w) + 1):
+        for c in _ETH_LETTERS:
+            out.add(w[:i] + c + w[i:])
+    out.discard(w)
+    return out
+
+
+def _spell_candidate_ok(src, cand):
+    if cand in _NUM_WORDS:
+        # ነጠኝ -> ዘጠኝ yes; ሰባቱ ("the seven") -> ሰባት no: the ending decides.
+        return len(cand) == len(src) and cand[-1] == src[-1]
+    if len(cand) != len(src) and (cand == src[:-1] or src == cand[:-1]):
+        return False
+    return cand[0] == src[0] and cand[-1] == src[-1]
+
+
+def _spell_cands(core, lm):
+    if len(core) < 3 or not all(_is_ethiopic(ch) for ch in core) or lm._count(core):
+        return []
+    return sorted(((lm._count(c) or 0, c) for c in _spell_edits(core)
+                   if lm._is_known(c) and _spell_candidate_ok(core, c)), reverse=True)
+
+
+def spell_fix_word(tok, lm, allow_num=True):
+    core, trail = _split_trail(tok)
+    cands = _spell_cands(core, lm)
+    nums = [c for c in cands if c[1] in _NUM_WORDS]
+    if nums and allow_num:
+        return nums[0][1] + trail
+    cands = [c for c in cands if c[1] not in _NUM_WORDS]
+    if not cands or cands[0][0] < _SPELL_MIN_COUNT:
+        return tok
+    if len(cands) > 1 and cands[0][0] < _SPELL_RATIO * cands[1][0]:
+        return tok
+    return cands[0][1] + trail
+
+
+def spell_fix_words(words):
+    """One-letter spelling fix over an aligned [(word, start, end, ...)]
+    stream; timing and extra fields are untouched."""
+    global _spell_lm
+    if not words or os.environ.get("AMH_SPELL", "1") == "0":
+        return words
+    try:
+        if _spell_lm is None:
+            from amh_lm import get_default_lm
+            _spell_lm = get_default_lm()
+        if not _spell_lm.available():
+            return words
+    except Exception:
+        return words
+    lm = _spell_lm
+    n = len(words)
+    cores = [_split_trail(w[0])[0] for w in words]
+    # A misheard word becomes a NUMBER only inside a number context: a
+    # neighbour is a number word / digit, or itself an accepted number fix
+    # ("ነጠኝ አልድ አንድ" -> ዘጠኝ አንድ አንድ). Alone ("ምን ታለት እንበትን") it
+    # never does — inventing a number nobody said is the worst mistake.
+    num_fix = [None] * n
+    for i, c in enumerate(cores):
+        nums = [x for x in _spell_cands(c, lm) if x[1] in _NUM_WORDS]
+        if nums:
+            num_fix[i] = nums[0][1]
+    is_num = [(_num_kind(c) is not None) or c.isdigit() for c in cores]
+    accepted = [False] * n
+    changed = True
+    while changed:
+        changed = False
+        for i in range(n):
+            if num_fix[i] and not accepted[i]:
+                for k in (i - 1, i + 1):
+                    if 0 <= k < n and (is_num[k] or accepted[k]):
+                        accepted[i] = changed = True
+                        break
+    out = []
+    for i, w in enumerate(words):
+        if accepted[i]:
+            text = num_fix[i] + _split_trail(w[0])[1]
+        else:
+            text = spell_fix_word(w[0], lm, allow_num=False)
+        out.append((text,) + tuple(w[1:]))
     return out
 
 
@@ -432,7 +584,42 @@ if __name__ == "__main__":
         ("ሁለተኛ", "ሁለተኛ"),          # second
         ("አስረኛ", "አስረኛ"),          # tenth
         ("መቶኛ", "መቶኛ"),            # hundredth
+        # Misheard multiplier: never a wrong number.
+        ("ዓመቱ ብሁለት ሺህ ሀያ ስድስት ነው", "ዓመቱ 2026 ነው"),     # stray letter recovered
+        ("ዓመቱ ተሁለትም ሺህ ሀያ ስድስት", "ዓመቱ ተሁለትም ሺህ ሀያ ስድስት"),  # unreadable: words kept
+        ("ዓመቱ ሰሁለት ሺህ ሀያ ስድስት", "ዓመቱ 2026"),          # stray letter recovered
+        ("አባቴ ሺህ ብር ሰጠኝ", "አባቴ 1000 ብር ሰጠኝ"),          # bare ሺህ still converts
+        ("ሰባት ሺህ ብር", "7000 ብር"),                        # ሰ+ባት is not a stray letter
     ]
+    # One-letter spelling fix (needs the bundled word list).
+    spell_cases = [
+        ("በታም", "በጣም"), ("ኢዮጵያ", "ኢትዮጵያ"), ("የባትል", "የባህል"),
+        ("ነጠኝ", "ዘጠኝ"),          # misheard number word -> number, not ነኝ
+        ("ሰባቱ", "ሰባቱ"),          # "the seven": ending kept, not a number
+        ("እልህና", "እልህና"),        # correct inflected word: never cut the ending
+        ("ልረዳ", "ልረዳ"),          # first letter never changes
+        ("ኢትዮጵያ", "ኢትዮጵያ"),      # known word untouched
+        ("አብዱልፈታህ", "አብዱልፈታህ"),  # name untouched
+    ]
+    from amh_lm import get_default_lm
+    if get_default_lm().available():
+        for src, want in spell_cases:
+            got = spell_fix_word(src, get_default_lm())
+            good = got == want
+            ok = ok and good
+            print(f"  [{'OK' if good else 'FAIL'}] spell {src!r} -> {got!r} (want {want!r})")
+        # Number fixes need a number context.
+        for src, want in [
+            ("አንድ ብለት ሦስት", "አንድ ሁለት ሦስት"),
+            ("8 ነጠኝ 10", "8 ዘጠኝ 10"),
+            ("ነጠኝ አልድ አንድ", "ዘጠኝ አንድ አንድ"),       # a chain of fixes
+            ("ምን ታለት እንበትን", "ምን ታለት እንበትን"),     # no number context: untouched
+        ]:
+            got = " ".join(w for w, _, _ in spell_fix_words(
+                [(t, i, i + 1) for i, t in enumerate(src.split())]))
+            good = got == want
+            ok = ok and good
+            print(f"  [{'OK' if good else 'FAIL'}] spell-context {src!r} -> {got!r} (want {want!r})")
     for src, want in num_cases:
         got = " ".join(w for w, _, _ in numbers_to_digits(
             [(t, i, i + 1) for i, t in enumerate(src.split())]))
