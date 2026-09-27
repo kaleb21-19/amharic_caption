@@ -400,3 +400,36 @@ signed leases, and trial-abuse controls remain enabled.
 **After deploying**, copy the `*.workers.dev` URL into
 `panel/js/main.js` `API_URL` (replace `ACCOUNT`) so the panel can reach these
 endpoints, then rebuild/re-release the extension.
+
+## BotFather profile (paste once; not part of the Worker)
+
+The bot's name, the text people see **before** pressing Start, and the `/`
+command menu live in Telegram, not in this code. Open @BotFather and send:
+
+**`/setname`** → `Amharic Captions Pro`
+
+**`/setdescription`** (shown on the empty chat before Start, max 512 chars):
+
+```
+🎬 አማርኛ ካፕሽን ፕሮ — የቪዲዮዎን የአማርኛ ንግግር በራሱ ወደ ካፕሽን ይቀይራል (Premiere Pro፣ After Effects፣ CapCut)።
+💯 ሙሉ በሙሉ በኮምፒውተርዎ ላይ፣ ያለ ኢንተርኔት።
+🎁 2 ካፕሽን በነጻ ይሞክሩ · 💰 2,500 ብር፣ አንድ ጊዜ ብቻ።
+⚠️ ክፍያ ለ KALEB TEGEGEN ብቻ።
+
+Offline Amharic captions for Premiere Pro, After Effects and any editor. Try 2 free, then buy and get your key right here.
+```
+
+**`/setabouttext`** (profile page, max 120 chars):
+
+```
+አማርኛ ካፕሽን ፕሮ · ይግዙ፣ ቁልፍዎን ያግኙ፣ እገዛ · amharic-caption-pro.vercel.app
+```
+
+**`/setcommands`**:
+
+```
+start - ዋና ገጽ · Menu
+buy - ክፍያ · Pay
+mykey - ቁልፌ · My key
+help - እገዛ · Help
+```

@@ -287,14 +287,14 @@ const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 function heroText(first = '') {
   const name = first ? `${esc(first)}, ` : '';
   return (
-    `${name}ወደ <b>አማርኛ ካፕሽን</b> እንኳን በደህና መጡ 👋\n` +
-    '<i>Welcome to Amharic Captions</i>\n\n' +
-    '💯 ሙሉ በሙሉ <b>በኮምፒውተርዎ ላይ</b> ይሰራል — ኢንተርኔት አያስፈልግም።\n' +
-    '<i>Transcription is 100% offline — no footage or transcript is uploaded.</i>\n\n' +
+    `${name}ወደ <b>አማርኛ ካፕሽን ፕሮ</b> እንኳን በደህና መጡ 👋\n` +
+    '<i>Welcome to Amharic Captions Pro</i>\n\n' +
+    '💯 ሙሉ በሙሉ <b>በኮምፒውተርዎ ላይ</b> ይሰራል — ቪዲዮዎ ወደ ኢንተርኔት አይላክም።\n' +
+    '<i>Runs 100% on your computer — your video is never uploaded.</i>\n\n' +
     '🎁 <b>2 ካፕሽን በነጻ</b> ይሞክሩ — ከወደዱት በኋላ ብቻ ይክፈሉ።\n' +
     '<i>Try 2 captions free — pay only if you like it.</i>\n\n' +
-    `💰 <s>ETB 3,500</s> → <b>${PRICE}</b> — አንድ ጊዜ ብቻ፣ ለዘላለም።\n` +
-    '<i>One-time payment, perpetual by default unless a dated key is explicitly issued.</i>'
+    `💰 <s>ETB 3,500</s> → <b>${PRICE}</b> — አንድ ጊዜ ብቻ ይከፍላሉ።\n` +
+    '<i>One payment. No subscription.</i>'
   );
 }
 // One button per row on purpose: Amharic labels are longer than their English
@@ -487,6 +487,22 @@ function answerCb(id, text) {
 // one stuck in their chat from a previous version.
 const MACHINE_ID_HINT_KEY = '📍 Show me where to find my Machine ID';
 
+// Where the Machine ID really is (panel/index.html, section-license). Keep in
+// step with the panel's wording: "ፈቃድ ይግዙ" (lic.buy), "👇 ይቅዱ · ከክፍያው ጋር
+// ይላኩ" (lic.copyLabel), "📋 ቅዳ" (lic.copy).
+function midHelpText() {
+  return (
+    '📍 <b>Machine ID የት ነው? / Where is my Machine ID?</b>\n\n' +
+    '<b>ቀላሉ መንገድ፦</b> በፓነሉ ላይ <b>«ፈቃድ ይግዙ»</b> ይጫኑ — ቦቱ ከMachine ID ዎ ጋር ይከፈታል፣ መጻፍ አያስፈልግዎትም።\n' +
+    '<i>Easiest: press “Buy a license” in the panel — this bot opens with your Machine ID already filled in.</i>\n\n' +
+    '<b>ወይም፦</b> Window → Extensions → Amharic Captions ይክፈቱ። ከፓነሉ ግርጌ «👇 ይቅዱ · ከክፍያው ጋር ይላኩ» ስር ያለውን <b>16 ፊደል</b> ኮድ <b>📋 ቅዳ</b> ብለው እዚህ ይለጥፉ።\n' +
+    '<i>Or open the panel and, at the bottom, copy the 16-character code under “Copy · send with payment” (📋 Copy), then paste it here.</i>\n\n' +
+    '<b>Premiere የለዎትም?</b> «Make Amharic Captions» ቁልፍ ሲጠይቅ Machine ID ዎን ያሳያል።\n' +
+    '<i>No Premiere? Make Amharic Captions shows your Machine ID when it asks for a key.</i>'
+  );
+}
+const MID_HELP_BTN = { text: '📍 Machine ID የት ነው? · Where is it?', callback_data: 'help:mid' };
+
 // The Machine ID prompt used to carry a REPLY keyboard (the bar pinned to the
 // bottom of the chat). Telegram leaves those on screen until something removes
 // them, and Cancel never did — so "Send your Machine ID (16 characters)" stayed
@@ -494,21 +510,11 @@ const MACHINE_ID_HINT_KEY = '📍 Show me where to find my Machine ID';
 // "Where is it?" button that was already on the same message. Inline only now,
 // so nothing can get stuck.
 const MID_HELP_KB = [
-  [{ text: '📍 Machine ID የት ነው? · Where is it?', url: `${SITE_URL}/install` }],
+  [MID_HELP_BTN],
   [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }],
 ];
 function sendHintKb(chatId, text) {
   return sendText(chatId, text, MID_HELP_KB);
-}
-
-// Clears a reply keyboard left over from an older version of the bot. Telegram
-// has no way to remove one except by sending a message, so this rides along
-// with something the buyer wanted anyway.
-function sendClearingKb(chatId, text) {
-  return safeSend(tg(TOKEN, 'sendMessage', {
-    chat_id: chatId, text, parse_mode: 'HTML',
-    reply_markup: { remove_keyboard: true },
-  }));
 }
 
 // Generic thin reply via raw Bot API for any method.
@@ -553,7 +559,7 @@ async function handleMessage(msg, env) {
   }
   if (lower === '/admin' || lower === '/admin@amhariccaptionsbot') {
     if (privateChat && isAdmin(user.id)) await adminPanel(chatId, null);
-    else await sendText(chatId, '🔒 Admin only.');
+    else await sendText(chatId, '🔒 ይህ ለአስተዳዳሪ ብቻ ነው። <i>Admin only.</i>');
     return;
   }
 
@@ -659,7 +665,7 @@ async function handleMessage(msg, env) {
   // photos / documents (payment screenshot)
   if (msg.photo || msg.document) {
     if (!privateChat) {
-      await sendText(chatId, '🔒 Please send payment screenshots and Machine IDs in a private chat.\n<i>For your privacy, start a DM with this bot first.</i>');
+      await sendText(chatId, '🔒 የክፍያ ፎቶና Machine ID በግል ቻት ብቻ ይላኩ።\n<i>For your privacy, send payment screenshots and Machine IDs in a private chat with this bot.</i>');
       return;
     }
     await handlePhoto(msg, uid, chatId, privateChat, text);
@@ -682,12 +688,13 @@ async function handleMessage(msg, env) {
       `ከታች <b>ክፍያ</b> ይንኩ → ${PRICE} በባንክ ይላኩ → የክፍያ ፎቶ ይላኩ → ቁልፍዎ በዚሁ ቻት ይደርሳል።\n` +
       '<i>Tap Pay, transfer the amount, send the screenshot, get your key here.</i>\n\n' +
       '<b>2. Machine ID የት ነው? / Where is my Machine ID?</b>\n' +
-      'በ Premiere Pro ውስጥ ፓናሉን ይክፈቱ → <b>License</b> → 16 ፊደል ኮድ።\n' +
-      '<i>Open the panel in Premiere Pro → License → the 16-character installation code.</i>\n\n' +
+      'በፓነሉ ላይ «ፈቃድ ይግዙ» ሲጫኑ በራሱ ይላካል፤ ወይም ከፓነሉ ግርጌ ያለውን 16 ፊደል ኮድ ይቅዱ።\n' +
+      '<i>Press “Buy a license” in the panel and it is sent for you — or copy the 16-character code at the bottom of the panel.</i>\n\n' +
       '<b>3. ቁልፌ አይሰራም / My key does not work</b>\n' +
-      'ቁልፉ ለአንድ ተቀምጠ መጫን ነው። ሌላ ኮምፒዩተር ከሆነ ይጻፉልን።\n' +
-      '<i>The key is file-bound to one installation. Message us if you changed machines.</i>',
+      'አንድ ቁልፍ ለአንድ ኮምፒውተር ነው። ኮምፒውተር ከቀየሩ ወይም Windows እንደገና ከጫኑ ይጻፉልን — ፈቃድዎን እናዛውርልዎታለን።\n' +
+      '<i>One key works on one computer. Changed computer or reinstalled Windows? Message us and we will move your license.</i>',
       [[{ text: '💳 ክፍያ · Pay', callback_data: 'menu:pay' }],
+       [MID_HELP_BTN],
        [{ text: '🔑 ቁልፌ · My Key', callback_data: 'menu:mykey' }],
        [{ text: '💬 ድጋፍ · Contact support', url: SUPPORT_URL }]]);
     return;
@@ -699,16 +706,14 @@ async function handleMessage(msg, env) {
 
 function groupWelcome() {
   return (
-    'ሰላም! ወደ <b>አማርኛ ካፕሽን</b> እንኳን በደህና መጡ 👋\n\n' +
-    '🎁 <b>2 ነጻ (free) ካፕሽን በመጀመሪያ ይሞክሩ</b> — እወደው ከሆነ ብቻ ነው ' +
-    'የሚከፍሉት።\n\n' +
-    'ይህ ሶፍትዌር፣ Premiere Pro ላይ ቪዲዮዎን በራስ-ሰር በ<b>አማርኛ ንዑስ ርዕስ</b> ' +
-    '(subtitle) ያስቀምጥልዎታል። ሙሉ በሙሉ በኮምፒውተርዎ ላይ ነው የሚሰራው (offline)።\n\n' +
-    `💰 ዋጋ: <s>ETB 3,500</s> → <b>${PRICE}</b> (አንድ ጊዜ)\n` +
-    `🏦 የሚከፈለው: ባንክ ዝውውር (bank transfer) ወደ <b>${ACCT_NAME}</b>\n` +
+    'ሰላም! ወደ <b>አማርኛ ካፕሽን ፕሮ</b> እንኳን በደህና መጡ 👋\n\n' +
+    '🎁 <b>መጀመሪያ 2 ካፕሽን በነጻ ይሞክሩ</b> — ከወደዱት ብቻ ይከፍላሉ።\n\n' +
+    'በPremiere Pro እና After Effects ውስጥ የቪዲዮዎን ንግግር በራሱ ወደ <b>አማርኛ ካፕሽን</b> ይቀይራል። ' +
+    'ሙሉ በሙሉ በኮምፒውተርዎ ላይ ይሰራል — ኢንተርኔት አያስፈልግም።\n\n' +
+    `💰 ዋጋ፦ <s>ETB 3,500</s> → <b>${PRICE}</b> (አንድ ጊዜ ብቻ)\n` +
+    `🏦 ክፍያ፦ በባንክ ዝውውር ለ <b>${ACCT_NAME}</b> ብቻ\n` +
     accountLines() + '\n' +
-    '🖥 Windows & Mac\n' +
-    '⏰ <b>መግቢያ ዋጋ</b> — አሁኑኑ ይጠቀሙ!'
+    '🖥 Windows እና Mac'
   );
 }
 
@@ -729,7 +734,7 @@ function suspiciousMid(mid) {
 
 async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
   if (!privateChat) {
-    await sendText(chatId, '🔒 Please continue in a private chat so your Machine ID and payment details stay private.\n<i>Start a DM with this bot, then tap Pay.</i>');
+    await sendText(chatId, '🔒 ለግላዊነትዎ በግል ቻት ይቀጥሉ።\n<i>Please continue in a private chat with this bot so your Machine ID and payment stay private.</i>');
     return;
   }
   const s = await getFsm(uid);
@@ -737,9 +742,7 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
 
   // reply-keyboard hint tapped → show where to find the Machine ID
   if (text === MACHINE_ID_HINT_KEY) {
-    await sendText(chatId,
-      '📲 <b>Where is my Machine ID?</b>\n\nOpen the <b>Amharic Captions panel</b> in Premiere Pro → <b>License</b> tab → your ID is the <b>16-character installation code</b> under <i>“Your Machine ID”</i> (e.g. <code>a1b2c3d4e5f60718</code>).\n\nThen send it here.',
-      [[{ text: '📲 አጫጫን · Install guide', url: `${SITE_URL}/install` }]]);
+    await sendText(chatId, midHelpText());
     return;
   }
 
@@ -758,8 +761,8 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
     const m = text.match(MACHINE_ID_RE);
     if (!m) {
       await sendHintKb(chatId,
-        '⚠️ የእርስዎ <b>Machine ID</b> ያስፈልገኛል — በፓናሉ <b>License</b> ክፍል ውስጥ ያለው <b>16 ፊደል</b> ኮድ ነው።\n' +
-        `<i>I need your Machine ID — the 16-character installation code in the panel's License section (e.g. <code>a1b2c3d4e5f60718</code>).</i>`);
+        '⚠️ የእርስዎ <b>Machine ID</b> ያስፈልገኛል — ከፓነሉ ግርጌ ያለው <b>16 ፊደል</b> ኮድ ነው።\n' +
+        '<i>I need your Machine ID — the 16-character code at the bottom of the panel (e.g. <code>a1b2c3d4e5f60718</code>).</i>');
       return;
     }
     const mid = m[0].toLowerCase();
@@ -777,9 +780,9 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
     if (suspiciousMid(mid)) {
       await sendText(chatId,
         `⚠️ <code>${mid}</code> ትክክለኛ <b>Machine ID</b> አይመስልም።\n\n` +
-        'በፓናሉ <b>License</b> ክፍል ውስጥ "Your Machine ID" ስር ያለውን <b>16 ፊደል</b> ኮድ ይላኩ (ለምሳሌ <code>a1b2c3d4e5f60718</code>)።\n' +
-        '<i>That does not look like a Machine ID — send the 16-character installation code from the panel.</i>',
-        [[{ text: '📍 Machine ID የት ነው? · Where is it?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
+        'ከፓነሉ ግርጌ ያለውን <b>16 ፊደል</b> ኮድ ይላኩ (ለምሳሌ <code>a1b2c3d4e5f60718</code>)።\n' +
+        '<i>That does not look like a Machine ID — send the 16-character code from the bottom of the panel.</i>',
+        [[MID_HELP_BTN], [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
       return;
     }
     // valid new machine -> ask for screenshot
@@ -854,22 +857,19 @@ async function handlePhoto(msg, uid, chatId, privateChat, text) {
     const objectKey = await storeProof(fileId);
     await setFsm(uid, { ...s, photo_key: objectKey, step: 'confirm' });
     await addFunnel(uid, 'screenshot_sent');
-    await sendText(chatId, '✅ ፎቶው ደርሶናል!\n\n📤 ትዕዛዝዎን በአጭሩ እናረጋግጥ:\n<i>Screenshot received — a quick check of your order:</i>');
-    await reviewConfirm(uid, chatId);
+    await reviewConfirm(uid, chatId, '✅ ፎቶው ደርሶናል! <i>Screenshot received.</i>\n\n');
     return;
   }
   if (step === 'confirm') {
-    await sendText(chatId,
-      '✅ ፎቶዎ ደርሶናል። ትዕዛዝዎ ይኸውና:\n<i>We already have your screenshot — here is your order:</i>');
-    await reviewConfirm(uid, chatId);
+    await reviewConfirm(uid, chatId, '✅ ፎቶዎ ቀድሞውኑ ደርሶናል። <i>We already have your screenshot.</i>\n\n');
     return;
   }
   if (step === 'mid') {
     const objectKey = await storeProof(fileId);
     await setFsm(uid, { ...s, photo_key: objectKey });
-    await sendText(chatId, '📸 ፎቶው ተቀምጧል! አሁን የእርስዎን <b>Machine ID</b> ይላኩ (በፓናሉ License ክፍል ውስጥ ያለው 16 ፊደል ኮድ)።\n' +
+    await sendText(chatId, '📸 ፎቶው ተቀምጧል! አሁን የእርስዎን <b>Machine ID</b> ይላኩ (ከፓነሉ ግርጌ ያለው 16 ፊደል ኮድ)።\n' +
       '<i>Screenshot saved — now send your Machine ID.</i>',
-      [[{ text: '📍 Machine ID የት ነው? · Where is it?', url: 'https://amharic-caption-pro.vercel.app/install' }], [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
+      [[MID_HELP_BTN], [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
     return;
   }
   await sendText(chatId,
@@ -886,10 +886,10 @@ async function storeProof(fileId) {
 }
 
 // ── review + confirm ────────────────────────────────────────────────────────
-async function reviewConfirm(uid, chatId) {
+async function reviewConfirm(uid, chatId, lead = '') {
   const s = await getFsm(uid);
   if (!s) return;
-  const text =
+  const text = lead +
     '🧾 <b>ትዕዛዝዎን ያረጋግጡ / Review your order</b>\n\n' +
     `🤖 Machine ID: <code>${s.mid}</code>\n` +
     `💵 ዋጋ / Amount: <b>${PRICE}</b>\n` +
@@ -937,8 +937,10 @@ async function completeProof(uid, chatId, uname, privateChat) {
     const isDupe = /UNIQUE/i.test(String(err));
     await setFsm(uid, null);
     await sendText(chatId, isDupe
-      ? '⚠️ A pending order for this Machine ID already exists — please wait for admin approval.'
-      : '⚠️ Something went wrong saving your order. Please try again, or contact the seller.');
+      ? '⏳ ለዚህ Machine ID ትዕዛዝ ቀድሞውኑ በመጠባበቅ ላይ ነው — ቁልፍዎ በዚሁ ቻት ይደርሳል።\n' +
+        '<i>An order for this Machine ID is already waiting for approval — your key will arrive here.</i>'
+      : '⚠️ ትዕዛዝዎን ማስቀመጥ አልተቻለም። እባክዎ እንደገና ይሞክሩ፣ ወይም @sumpak6 ን ያግኙ።\n' +
+        '<i>We could not save your order. Please try again, or message @sumpak6.</i>');
     return;
   }
 
@@ -957,7 +959,9 @@ async function completeProof(uid, chatId, uname, privateChat) {
     `⏳ <b>በመጠባበቅ ላይ / Pending</b> — በተራ <b>#${pos}</b> ላይ ነዎት።\n` +
     'ቁልፍዎ አብዛኛውን ጊዜ በጥቂት ሰዓታት ውስጥ (በኢትዮጵያ የስራ ሰዓት) በዚሁ ቻት ይላክልዎታል። 🙏\n' +
     '<i>Keys are usually issued within a few hours, Ethiopian working hours. ' +
-    "We'll send it right here.</i>";
+    "We'll send it right here.</i>\n\n" +
+    'እስከ ቀኑ መጨረሻ ቁልፍዎ ካልደረሰ @sumpak6 ን ያግኙ።\n' +
+    '<i>No key by the end of the day? Message @sumpak6.</i>';
   const r = await sendText(chatId, statusText);
   const statusMsgId = r && r.ok ? r.result.message_id : null;
   if (statusMsgId) await DB.prepare('UPDATE orders SET status_msg_id=? WHERE id=?').bind(statusMsgId, orderId).run();
@@ -984,27 +988,30 @@ async function adminList() {
 function keyDeliveryMessage(key, expiry, chatType) {
   expiry = String(expiry || '00000000');
   if (chatType !== 'private') {
-    return '🔒 <b>Your key is private</b>\n\n' +
-      'For your security, the license key is only sent in a private Telegram chat.\n' +
-      '<i>Open a DM with this bot and tap My Key.</i>';
+    return '🔒 ቁልፍዎ የሚላከው በግል ቻት ብቻ ነው።\n' +
+      '<i>For your security, the key is only sent in a private chat — open a DM with this bot and tap My Key.</i>';
   }
   const lines = [
     '✅ <b>ክፍያዎ ተረጋግጧል — ቁልፍዎ ደርሷል!</b>',
     '<i>Payment confirmed — your license key is ready.</i>',
     '', `<code>${esc(key)}</code>`, '',
-    '<b>①</b> ቁልፉን ይቅዱ (ይንኩት) — <i>tap the key to copy</i>',
-    '<b>②</b> Premiere Pro → ፓናሉን ይክፈቱ → <b>License</b>',
-    '<b>③</b> ይለጥፉ → <b>Activate</b> ይንኩ — <i>paste, then Activate</i>',
+    '<b>①</b> ቁልፉን ይንኩት — ይቀዳል · <i>tap the key to copy it</i>',
+    '<b>②</b> ፓነሉን ይክፈቱ (Premiere ወይም After Effects)፣ ከግርጌ <b>«የፈቃድ ቁልፍ»</b> ላይ ይለጥፉ · <i>open the panel and paste it into “License key” at the bottom</i>',
+    '<b>③</b> <b>«አግብር»</b> ይጫኑ · <i>press Activate</i>',
+    '',
+    '🎬 <b>Make Amharic Captions</b>፦ ቁልፍ ሲጠይቅ ይለጥፉና Enter ይጫኑ።',
+    '<i>Make Amharic Captions: paste it when asked for a key and press Enter.</i>',
   ];
   if (expiry !== '00000000') lines.push('', `⏰ የሚያበቃበት / Expires: ${esc(expiry)}`);
   lines.push('', 'እናመሰግናለን! 🙏 ችግር ካጋጠመዎት ይጻፉልን።\n<i>Thank you — message us if anything goes wrong.</i>');
   return lines.join('\n');
 }
 
+const MY_KEY_KB = [[{ text: '⬅ ወደ ዋና ገጽ · Menu', callback_data: 'menu:home' }]];
 async function showMyKey(msg, chatId, messageId) {
   const chat = (msg && msg.chat) || (msg && msg.message && msg.message.chat);
   if (!chat || chat.type !== 'private') {
-    await sendText(chatId, '🔒 Your license key is only available in a private chat.\n<i>Open a DM with this bot and tap My Key.</i>');
+    await sendText(chatId, '🔒 ቁልፍዎ የሚታየው በግል ቻት ብቻ ነው።\n<i>Your key is only shown in a private chat — open a DM with this bot and tap My Key.</i>');
     return;
   }
   const user = msg.from || {};
@@ -1019,14 +1026,23 @@ async function showMyKey(msg, chatId, messageId) {
   ).bind(uid).all();
   const list = rows.results || [];
   if (!list.length) {
-    const text = '🔑 <b>My Key</b>\n\nI couldn\'t find a key linked to <b>this Telegram account</b> yet.\n\nIt will appear here automatically after your purchase is approved. If you paid and don\'t see it, DM the seller with your Machine ID.';
-    if (messageId) await editText(chatId, messageId, text, undefined);
-    else await sendText(chatId, text, undefined);
+    const text =
+      '🔑 <b>ቁልፌ / My Key</b>\n\n' +
+      'በዚህ የቴሌግራም አካውንት የተመዘገበ ቁልፍ እስካሁን የለም።\n' +
+      '<i>No key is linked to this Telegram account yet.</i>\n\n' +
+      'ክፍያዎ ሲረጋገጥ እዚህ ይታያል። ከፍለው ካላገኙት Machine ID ዎን ይዘው @sumpak6 ን ያግኙ።\n' +
+      '<i>It appears here once your payment is approved. Paid but no key? Message @sumpak6 with your Machine ID.</i>';
+    const r = messageId ? await editText(chatId, messageId, text, MY_KEY_KB) : null;
+    if (!r || !r.ok) await sendText(chatId, text, MY_KEY_KB);
     return;
   }
-  const text = list.map((r) => `🤖 <code>${esc(r.machine_id)}</code>\n🔑 <code>${esc(r.key)}</code>\n`).join('\n');
-  if (messageId) await editText(chatId, messageId, '🔑 <b>Your key(s)</b>\n\n' + text, undefined);
-  else await sendText(chatId, '🔑 <b>Your key(s)</b>\n\n' + text, undefined);
+  const text =
+    '🔑 <b>ቁልፍዎ / Your key</b>\n\n' +
+    list.map((r) => `🤖 <code>${esc(r.machine_id)}</code>\n🔑 <code>${esc(r.key)}</code>\n`).join('\n') +
+    '\nቁልፉን ይንኩት — ይቀዳል። በፓነሉ <b>«የፈቃድ ቁልፍ»</b> ላይ ይለጥፉና <b>«አግብር»</b> ይጫኑ።\n' +
+    '<i>Tap to copy, paste into “License key” in the panel, then press Activate.</i>';
+  const r = messageId ? await editText(chatId, messageId, text, MY_KEY_KB) : null;
+  if (!r || !r.ok) await sendText(chatId, text, MY_KEY_KB);
 }
 
 // ── admin panel (modern dashboard + queue + audit) ─────────────────────────
@@ -1212,8 +1228,8 @@ async function revokeOrder(chatId, orderId, revoke) {
   await DB.prepare('UPDATE orders SET status=? WHERE id=?').bind(targetStatus, orderId).run();
   if (o.chat_id) {
     const msg = revoke
-      ? '⚠️ Your license was revoked.\nContact @sumpak6 on Telegram for help.'
-      : '✅ Your license has been restored.';
+      ? '⚠️ <b>ፈቃድዎ ተሰርዟል።</b> ለእገዛ @sumpak6 ን በቴሌግራም ያግኙ።\n<i>Your license was revoked. Contact @sumpak6 on Telegram for help.</i>'
+      : '✅ <b>ፈቃድዎ ተመልሷል።</b>\n<i>Your license has been restored.</i>';
     if (o.status_msg_id) {
       try { await editText(o.chat_id, o.status_msg_id, msg); } catch (e) {}
     } else {
@@ -1532,10 +1548,12 @@ async function approve(chatId, messageId, orderId, cbId) {
   const buyerStatusMsg = o.status_msg_id;
   if (buyerStatusMsg) {
     await editText(o.chat_id || o.uid, buyerStatusMsg, delivered
-      ? ('✅ <b>Order approved — key delivered.</b>\n\n' +
-         `🤖 Machine ID: <code>${o.machine_id}</code>\n🟢 <b>Status: Approved</b> ✓`)
-      : ('⚠️ <b>Order approved, but Telegram delivery failed.</b>\n\n' +
-         `🤖 Machine ID: <code>${o.machine_id}</code>\nThe seller will retry delivery.`));
+      ? ('✅ <b>ትዕዛዝዎ ተረጋግጧል — ቁልፍዎ ከታች ባለው መልዕክት ነው።</b>\n' +
+         '<i>Order approved — your key is in the message below.</i>\n\n' +
+         `🤖 Machine ID: <code>${o.machine_id}</code>`)
+      : ('⚠️ <b>ትዕዛዝዎ ተረጋግጧል፣ ግን ቁልፉን መላክ አልተሳካም።</b> በቅርቡ እንደገና እንልካለን።\n' +
+         '<i>Order approved, but sending the key failed. We will send it again shortly.</i>\n\n' +
+         `🤖 Machine ID: <code>${o.machine_id}</code>`));
   }
 
   const left = await pendingCount();
@@ -1653,6 +1671,12 @@ async function handleCallback(cb) {
     }
   }
 
+  if (data === 'help:mid') {
+    await answerCb(cbId, '');
+    await sendText(chatId, midHelpText());
+    return;
+  }
+
   // menu navigation
   if (data.startsWith('menu:')) {
     await answerCb(cbId, '');
@@ -1670,8 +1694,8 @@ async function handleCallback(cb) {
   // Payment-flow callbacks are private-chat only. A stale group button must
   // never advance an FSM or attach a screenshot/order to a public chat.
   if (data.startsWith('pay:') && !isPrivateChat(chatId, fromUid)) {
-    await answerCb(cbId, '🔒 Please continue in a private chat.');
-    await sendText(chatId, '🔒 Please continue in a private chat so your payment details stay private.');
+    await answerCb(cbId, '🔒 በግል ቻት ይቀጥሉ · Continue in a private chat');
+    await sendText(chatId, '🔒 ለግላዊነትዎ በግል ቻት ይቀጥሉ።\n<i>Please continue in a private chat so your payment details stay private.</i>');
     return;
   }
 
@@ -1710,10 +1734,10 @@ async function handleCallback(cb) {
         '📤 <b>ማረጋገጫ ይላኩ / Send proof</b>\n\n' +
         '<b>ደረጃ 1 ከ 2</b> — የእርስዎን <b>Machine ID</b> ይላኩ (16 ፊደል)።\n' +
         '<i>Step 1 of 2 — send your Machine ID (16 characters).</i>\n\n' +
-        'በ Premiere Pro ውስጥ ፓናሉን ይክፈቱ → <b>License</b>።\n' +
-        '<i>Open the panel in Premiere Pro → License.</i>';
+        'ከፓነሉ ግርጌ ይቅዱት፣ ወይም በፓነሉ ላይ <b>«ፈቃድ ይግዙ»</b> ይጫኑ — በራሱ ይላካል።\n' +
+        '<i>Copy it from the bottom of the panel, or press “Buy a license” in the panel and it is sent for you.</i>';
       const kb = [
-        [{ text: '📍 Machine ID የት ነው? · Where is it?', url: `${SITE_URL}/install` }],
+        [MID_HELP_BTN],
         [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }],
       ];
       const r = await editText(chatId, messageId, t, kb);
@@ -1731,17 +1755,14 @@ async function handleCallback(cb) {
       // button sat "loading" for ~30s even when it had worked.
       await answerCb(cbId, '⬅');
       await setFsm(fromUid, null);
-      // Sweep away a reply keyboard from an older build, which would otherwise
-      // sit at the bottom of the chat forever asking for a Machine ID.
-      await sendClearingKb(chatId, '⬅ ወደ ዋና ገጽ ተመልሰዋል። / Back to the menu.');
       await showMenu(chatId, messageId);
       return;
     }
     if (action === 'mykey') { await answerCb(cbId, ''); await showMyKey(cb, chatId, messageId); return; }
     if (action === 'confirm') {
       if (!isPrivateChat(chatId, fromUid)) {
-        await answerCb(cbId, '🔒 Please continue in a private chat.');
-        await sendText(chatId, '🔒 Please confirm the order in a private chat.');
+        await answerCb(cbId, '🔒 በግል ቻት ይቀጥሉ · Continue in a private chat');
+        await sendText(chatId, '🔒 ትዕዛዙን በግል ቻት ያረጋግጡ።\n<i>Please confirm the order in a private chat.</i>');
         return;
       }
       await answerCb(cbId, '');
