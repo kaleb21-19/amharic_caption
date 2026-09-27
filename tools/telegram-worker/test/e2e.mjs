@@ -86,6 +86,7 @@ class D1 {
     // migration 0014: permanent sales ledger + batched broadcasts (real file)
     this.db.exec(readFileSync(new URL('../migrations/0014_sales_broadcasts.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0015_referrals.sql', import.meta.url), 'utf8'));
+    this.db.exec(readFileSync(new URL('../migrations/0016_partners.sql', import.meta.url), 'utf8'));
     this.db.exec("ALTER TABLE customers ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0"); // migration 0008
   }
   prepare(sql) {
@@ -1664,7 +1665,7 @@ console.log('\n:: scenario 17 — referral programme (owner-controlled, OFF by d
 // Safety: without the referral tables (migration not applied) selling is untouched.
 {
   const { env } = fresh();
-  env.DB.db.exec('DROP TABLE settings; DROP TABLE referrals; DROP TABLE referral_codes; DROP TABLE referral_rewards; DROP TABLE payout_accounts;');
+  env.DB.db.exec('DROP TABLE settings; DROP TABLE referrals; DROP TABLE referral_codes; DROP TABLE referral_rewards; DROP TABLE payout_accounts; DROP TABLE partners;');
   await startBuyFlow(env);
   await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { text: '7e2b9f4a1c6d3e58' }));
   await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { photo: [{ file_id: 'P-SAFE' }] }));
@@ -1677,6 +1678,108 @@ console.log('\n:: scenario 17 — referral programme (owner-controlled, OFF by d
   await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: '/start' }));
   assert.ok(OUTBOUND.some((x) => (x.body.text || '').includes('Dashboard')), 'admin dashboard still opens');
   ok('referrals: with the tables missing the bot still sells and approves normally (treated as OFF)');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: scenario 18 — partner links (a group / channel, own terms and switch)');
+
+{
+  const { env } = fresh();
+  const PARTNER = '820000001';
+  const M1 = '820000011';
+  const M2 = '820000012';
+  const M3 = '820000013';
+  const say = (uid, text, username) => post(env, msg(Number(uid), { id: Number(uid), username: username || 'u' + uid }, { text }));
+  const tap = (uid, data) => cb(env, { id: Number(uid) }, data, { chatId: Number(uid) });
+  const toUid = (uid) => OUTBOUND.filter((x) => ['sendMessage', 'editMessageText'].includes(x.method)
+    && String(x.body.chat_id) === String(uid));
+  const lastTo = (uid) => toUid(uid).at(-1);
+  const allTo = (uid) => toUid(uid).map((x) => x.body.text || '').join('\n');
+  const buy = async (uid, mid, file) => {
+    await tap(uid, 'menu:pay');
+    await tap(uid, 'pay:proof');
+    await say(uid, mid);
+    await post(env, msg(Number(uid), { id: Number(uid) }, { photo: [{ file_id: file }] }));
+    await tap(uid, 'proof:confirm');
+    return row(env, 'SELECT * FROM orders WHERE uid=? ORDER BY id DESC LIMIT 1', uid);
+  };
+
+  // 1. The owner creates the partner: two links, not live until connected.
+  OUTBOUND.length = 0;
+  await say(ADMIN_ID, '/partner editgroup Editors Ethiopia');
+  const created = lastTo(ADMIN_ID).body.text;
+  const token = /start=p_([A-Z2-9]{16})/.exec(created)[1];
+  assert.ok(created.includes('start=r_EDITGROUP') && created.includes('Editors Ethiopia'), 'owner gets both links');
+  await say(ADMIN_ID, '/partner EDITGROUP Again');
+  assert.ok(lastTo(ADMIN_ID).body.text.includes('already in use'), 'a code cannot be reused');
+  await say(M1, '/start r_EDITGROUP');
+  assert.equal(row(env, 'SELECT COUNT(*) AS n FROM referrals').n, 0, 'not live before the partner connects');
+  ok('partners: owner creates one with /partner; private + public links; not live until connected');
+
+  // 2. The partner connects with the private link; nobody else can take it.
+  OUTBOUND.length = 0;
+  await say(PARTNER, '/start p_' + token, 'group_owner');
+  assert.equal(row(env, "SELECT uid FROM partners WHERE code='EDITGROUP'").uid, PARTNER);
+  assert.ok(lastTo(PARTNER).body.text.includes('Partner link') && lastTo(PARTNER).body.text.includes('start=r_EDITGROUP'), 'partner sees their page');
+  assert.ok(allTo(ADMIN_ID).includes('connected') && allTo(ADMIN_ID).includes('@group_owner'), 'owner told who connected');
+  await say(M3, '/start p_' + token);
+  assert.ok(lastTo(M3).body.text.includes('another Telegram account'), 'a second account cannot take the link');
+  ok('partners: the private link connects the partner once; the owner is told who');
+
+  // 3. Buyer referrals are OFF (default) — partner links still work: own switch.
+  OUTBOUND.length = 0;
+  await say(M1, '/start r_EDITGROUP');
+  assert.equal(row(env, 'SELECT referrer_uid FROM referrals WHERE friend_uid=?', M1).referrer_uid, PARTNER);
+  assert.ok(lastTo(M1).body.text.includes('ETB 2,300'), 'group member sees 2,300 even with buyer referrals OFF');
+  await say(PARTNER, '/start r_EDITGROUP');
+  assert.equal(row(env, 'SELECT COUNT(*) AS n FROM referrals WHERE friend_uid=?', PARTNER).n, 0, 'partner cannot refer themself');
+  const o1 = await buy(M1, '3f9a1c7e5b2d4086', 'P-G1');
+  assert.deepEqual([o1.amount_etb, o1.discount_etb, o1.reward_etb, o1.referrer_uid], [2300, 200, 300, PARTNER]);
+  const card = OUTBOUND.find((x) => x.method === 'sendPhoto' && String(x.body.chat_id) === String(ADMIN_ID));
+  assert.ok(card.body.caption.includes('via partner EDITGROUP'), 'admin card names the partner');
+  ok('partners: works while buyer referrals are OFF; member pays 2,300; order card names the partner');
+
+  // 4. Tier: 400 after the first sale (set with /partnerterms).
+  await say(ADMIN_ID, '/partnerterms EDITGROUP 300 200 1 400');
+  assert.deepEqual(Object.values(row(env, "SELECT reward_etb, discount_etb, tier_after, tier_reward FROM partners WHERE code='EDITGROUP'")), [300, 200, 1, 400]);
+  assert.ok(allTo(PARTNER).includes('ተሻሽለዋል'), 'partner told the terms changed');
+  await tap(ADMIN_ID, `approve:${o1.id}`);
+  assert.equal(row(env, 'SELECT amount_etb FROM referral_rewards WHERE order_id=?', o1.id).amount_etb, 300, 'first sale: 300 (locked)');
+  await say(M2, '/start r_EDITGROUP');
+  const o2 = await buy(M2, '7e2b9f4a1c6d3e58', 'P-G2');
+  assert.equal(o2.reward_etb, 400, 'after 1 sale the next one earns 400');
+  await tap(ADMIN_ID, `approve:${o2.id}`);
+  OUTBOUND.length = 0;
+  await tap(PARTNER, 'ref:invite');
+  const page = lastTo(PARTNER).body.text;
+  assert.ok(page.includes('<b>2</b>') && page.includes('700 ብር') && page.includes('Top tier'), 'partner page: 2 sales, 700 earned, top tier');
+  ok('partners: /partnerterms sets a tier (300 → 400 after N sales); the partner sees sales and earnings');
+
+  // 5. Paid through the same monthly list, under the partner's name.
+  await tap(PARTNER, 'ref:payout');
+  await say(PARTNER, 'CBE 1000999888777 Group Owner');
+  env.DB.prepare("UPDATE referral_rewards SET earned_at=datetime('now','-15 days')").run();
+  OUTBOUND.length = 0;
+  await tap(ADMIN_ID, 'admin:ref-pay');
+  const pay = lastTo(ADMIN_ID).body.text;
+  assert.ok(pay.includes('🤝 Editors Ethiopia') && pay.includes('700 ብር') && pay.includes('CBE 1000999888777'), 'pay list: partner name, 700, account');
+  await tap(ADMIN_ID, `admin:ref-paid:${PARTNER}`);
+  assert.equal(row(env, "SELECT COUNT(*) AS n FROM referral_rewards WHERE status='paid'").n, 2);
+  ok('partners: paid through the monthly Pay rewards list under their name');
+
+  // 6. Pause: new members get no discount; the partner sees it paused.
+  OUTBOUND.length = 0;
+  await tap(ADMIN_ID, 'admin:partners');
+  assert.ok(lastTo(ADMIN_ID).body.text.includes('EDITGROUP') && lastTo(ADMIN_ID).body.text.includes('sold 2'), 'partner list with stats');
+  await tap(ADMIN_ID, 'admin:partner-toggle:EDITGROUP');
+  assert.equal(row(env, "SELECT active FROM partners WHERE code='EDITGROUP'").active, 0);
+  await say(M3, '/start r_EDITGROUP');
+  assert.equal(row(env, 'SELECT COUNT(*) AS n FROM referrals WHERE friend_uid=?', M3).n, 0, 'paused: link ignored');
+  await tap(PARTNER, 'ref:invite');
+  assert.ok(lastTo(PARTNER).body.text.includes('paused'), 'partner sees paused');
+  await tap(ADMIN_ID, 'admin:partner-toggle:EDITGROUP');
+  assert.equal(row(env, "SELECT active FROM partners WHERE code='EDITGROUP'").active, 1, 'resumed');
+  ok('partners: Pause / Resume per partner from the Partners list');
 }
 
 console.log('\n' + PASS.length + ' checks — all green ✅');

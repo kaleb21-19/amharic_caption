@@ -284,6 +284,11 @@ export default function LegalPage() {
               Rewards obtained through fake accounts, self-referral or other
               abuse are cancelled, and the license may be revoked (EULA §5).
             </li>
+            <li>
+              Partner links (for groups, channels and creators) follow these
+              same rules but may carry their own discount and reward, agreed
+              with the partner and shown on the partner&rsquo;s page in the bot.
+            </li>
           </ul>
         </div>
       </section>
