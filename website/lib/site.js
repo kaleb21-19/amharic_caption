@@ -6,8 +6,10 @@ export const SUPPORT_URL = "https://t.me/sumpak6";
 export const SITE_NAME = "Amharic Captions Pro";
 export const SITE_URL = "https://amharic-caption-pro.vercel.app";
 export const PRICE = "ETB 2,500";
+export const PRICE_AM = "2,500 ብር";
 export const PRICE_NUM = "2500";
 export const PRICE_OLD = "ETB 3,500";
+export const PRICE_OLD_AM = "3,500 ብር";
 export const PRICE_OLD_NUM = "3500";
 
 // Official payment details. We publish these so buyers can always verify they
@@ -48,3 +50,12 @@ export const DL_MAC_ARM_LITE =
   "https://github.com/kaleb21-19/amharic_caption/releases/latest/download/amharic-captions-mac-arm64-lite.zip";
 export const DL_MAC_X64_LITE =
   "https://github.com/kaleb21-19/amharic_caption/releases/latest/download/amharic-captions-mac-x64-lite.zip";
+
+// Legal documents carry a FIXED effective date and version. (It used to be
+// new Date() at build time, so the "effective" date silently moved on every
+// deploy.) Bump both whenever the EULA / privacy / refund text changes.
+export const LEGAL_EFFECTIVE = "2026-09-27";
+export const LEGAL_VERSION = "1.1";
+
+// localStorage key for the visitor's site language (components/LangToggle.jsx).
+export const LANG_KEY = "amh-site-lang";
