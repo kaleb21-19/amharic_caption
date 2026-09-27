@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import Tx from "@/components/Tx";
 import LangToggle from "@/components/LangToggle";
-import { BOT_URL, PRICE, PRICE_AM } from "@/lib/site";
+import { BOT_URL } from "@/lib/site";
 
 // Pricing and FAQ are sections of the homepage now, not separate pages — the
 // site is deliberately three pages (home, install, legal) so nothing competes
@@ -31,18 +31,6 @@ export default function Header() {
 
   return (
     <header className="site-header">
-      <div className="trust-bar">
-        <div className="container trust-inner">
-          <span>
-            <Tx
-              am="በኮምፒውተርዎ ላይ ይሰራል — ኢንተርኔት፣ upload ወይም የዳታ ወጪ የለም"
-              en="Runs on your computer — no internet, no uploads, no data charges"
-            />
-          </span>
-          <span><Tx am={`አንድ ጊዜ ብቻ · ${PRICE_AM}`} en={`One-time · ${PRICE}`} /></span>
-        </div>
-      </div>
-
       <div className="container header-inner">
         <Link href="/" className="brand" aria-label="Amharic Captions Pro">
           <span className="brand-mark" aria-hidden="true">AC</span>

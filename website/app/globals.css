@@ -275,27 +275,6 @@ code {
   border-bottom: 1px solid var(--line-soft);
 }
 
-.trust-bar {
-  background: linear-gradient(90deg, rgba(61,220,138,0.10), rgba(61,220,138,0.03));
-  border-bottom: 1px solid var(--line-soft);
-  font-size: var(--t-xs);
-  color: var(--ink-dim);
-}
-.trust-inner {
-  display: flex;
-  justify-content: center;
-  gap: var(--s-4);
-  padding-block: 7px;
-  text-align: center;
-}
-/* The second trust line is redundant on a phone — the price is repeated in
-   the hero note directly below. Hide it rather than wrap to two lines. */
-.trust-inner span + span { display: none; }
-@media (min-width: 760px) {
-  .trust-inner { justify-content: space-between; }
-  .trust-inner span + span { display: inline; }
-}
-
 .header-inner {
   display: flex;
   align-items: center;
@@ -701,7 +680,7 @@ code {
   justify-content: center;
   flex-wrap: wrap;
   gap: var(--s-2);
-  margin-bottom: var(--s-2);
+  margin-bottom: var(--s-5);
 }
 .price-now {
   font-family: var(--font-serif), Georgia, serif;
@@ -718,7 +697,6 @@ code {
   color: var(--muted-2);
   text-decoration: line-through;
 }
-.price-sub { font-size: var(--t-sm); color: var(--muted); margin-bottom: var(--s-5); }
 .price-features {
   display: grid;
   gap: 10px;
@@ -780,15 +758,6 @@ code {
 }
 .safe-bank { font-size: var(--t-xs); font-weight: 700; color: var(--brand); }
 .safe-accounts code { color: var(--ink); letter-spacing: 0.03em; word-break: break-all; }
-.safe-note {
-  margin-top: var(--s-5);
-  padding: var(--s-4) var(--s-5);
-  border: 1px solid rgba(240,180,41,0.28);
-  border-radius: var(--radius);
-  background: rgba(240,180,41,0.06);
-  color: var(--ink-dim);
-  font-size: var(--t-sm);
-}
 
 /* --------------------------------------------------------------------- faq */
 .faq-list { display: grid; gap: var(--s-2); max-width: var(--max-narrow); margin-inline: auto; }

@@ -12,8 +12,8 @@ const steps = [
     n: "1",
     title: { am: "አንድ ጊዜ ይጫኑ", en: "Install once" },
     text: {
-      am: "ጫኚውን ሁለቴ ይጫኑ፣ Premiere ን እንደገና ይክፈቱ። ምንም የቴክኒክ ትዕዛዝ ወይም የአድሚን ፈቃድ አያስፈልግም።",
-      en: "Double-click the installer and restart Premiere. No Terminal, no registry editing, no admin rights.",
+      am: "ጫኚውን ሁለቴ ይጫኑ፣ Premiere ን እንደገና ይክፈቱ። አንድ ደቂቃ ገደማ ይወስዳል፤ የቴክኒክ እውቀት አያስፈልግም።",
+      en: "Double-click the installer and restart Premiere. About a minute, no technical skills needed.",
     },
   },
   {
@@ -74,24 +74,10 @@ const faqs = [
     },
   },
   {
-    q: { am: "Premiere አልጠቀምም። ልጠቀምበት እችላለሁ?", en: "I don't use Premiere. Can I still use it?" },
-    a: {
-      am: "አዎ። ጫኚው «Make Amharic Captions» የሚል አቋራጭ ዴስክቶፕዎ ላይ ያስቀምጣል። በWindows ማንኛውንም ቪዲዮ በላዩ ላይ ይጎትቱ፤ በMac ሁለቴ ጠቅ አድርገው ቪዲዮውን ወደ መስኮቱ ይጎትቱ። ለCapCut፣ DaVinci Resolve፣ ለቆዩ የPremiere ስሪቶች ወይም ለYouTube የሚሆን .srt ፋይል ከቪዲዮው አጠገብ ይፈጠራል። ያው ቁልፍ፣ ያው 2 ነጻ ካፕሽኖች።",
-      en: "Yes. The installer adds a “Make Amharic Captions” shortcut to your desktop. On Windows, drag any video onto it; on a Mac, double-click it and drag the video into the window. An .srt subtitle file appears next to the video, ready for CapCut, DaVinci Resolve, older Premiere versions or YouTube. Same key, same 2 free captions.",
-    },
-  },
-  {
     q: { am: "ቪዲዮዬ የሆነ ቦታ ይላካል?", en: "Is my footage uploaded anywhere?" },
     a: {
       am: "በፍጹም። ቪዲዮዎና ድምፅዎ ከኮምፒውተርዎ አይወጡም። የሚላኩበት ሰርቨር የለም — ለዚህም ነው ያለ ኢንተርኔት የሚሰራው።",
       en: "Never. Your video and audio never leave your computer. There is no server to send it to, which is why it works with no connection at all.",
-    },
-  },
-  {
-    q: { am: "ከመክፈሌ በፊት መሞከር እችላለሁ?", en: "Can I try it before paying?" },
-    a: {
-      am: "አዎ። እያንዳንዱ አዲስ ኮምፒውተር 2 ነጻ ካፕሽን ያገኛል፤ ከመክፈልዎ በፊት በራስዎ ቪዲዮ፣ በራስዎ Premiere ይሞክሩት።",
-      en: "Yes. Every new computer gets 2 free captions so you can test it on your own footage in your own Premiere before you pay anything.",
     },
   },
   {
@@ -104,15 +90,15 @@ const faqs = [
   {
     q: { am: "ምን ያህል ትክክል ነው?", en: "How accurate is it?" },
     a: {
-      am: "ግልጽ ንግግርና ጥሩ ማይክራፎን ሲኖር አብዛኞቹ ቃላት በትክክል ይወጣሉ፤ በአብዛኛው የሚያስተካክሉት ስሞችን፣ ቁጥሮችንና አልፎ አልፎ ቃላትን ነው። የስልክ ድምፅ፣ ጫጫታ፣ ማሚቶና ሙዚቃ ተጨማሪ ማስተካከያ ይፈልጋሉ። እንደማንኛውም የድምፅ-ወደ-ጽሑፍ ፕሮግራም ውጤቱን እንደ ረቂቅ ይቁጠሩት፣ ከማተምዎ በፊት በፓነሉ ውስጥ ይገምግሙት። መጀመሪያ በራስዎ ቪዲዮ በነጻ ይሞክሩት።",
-      en: "On clear speech with a good microphone most words come out right, and you mainly fix names, numbers and the occasional word. Phone audio, noise, echo and music need more correction. Like every speech-to-text tool, treat the result as a draft and review it in the panel before you publish. Try it free on your own footage first.",
+      am: "ግልጽ ንግግርና ጥሩ ማይክራፎን ሲኖር አብዛኞቹ ቃላት በትክክል ይወጣሉ፤ የሚያስተካክሉት በአብዛኛው ስሞችንና ቁጥሮችን ነው። ውጤቱን እንደ ረቂቅ ይቁጠሩት፣ ከማተምዎ በፊት በፓነሉ ውስጥ ይገምግሙት።",
+      en: "On clear speech with a good microphone most words come out right; you mainly fix names and numbers. Treat the result as a draft and review it in the panel before you publish.",
     },
   },
   {
     q: { am: "ፈቃዱ እንዴት ይሰራል?", en: "How does the license work?" },
     a: {
-      am: "አንድ ቁልፍ ለአንድ ኮምፒውተር። አንድ ጊዜ ይከፍላሉ — ወርሃዊ ክፍያ ወይም እድሳት የለም። ኮምፒውተር ከቀየሩ ወይም Windows እንደገና ከጫኑ ድጋፍን ያግኙ፤ ፈቃድዎን እናዛውርልዎታለን። ሁለተኛ አይግዙ።",
-      en: "One key per computer. Pay once — no subscription, no renewal. Changed computer or reinstalled Windows? Message support and we'll move your license. Don't buy a second one.",
+      am: "አንድ ቁልፍ ለአንድ ኮምፒውተር። ኮምፒውተር ከቀየሩ ወይም Windows እንደገና ከጫኑ ድጋፍን ያግኙ፤ ፈቃድዎን እናዛውርልዎታለን። ሁለተኛ አይግዙ።",
+      en: "One key per computer. Changed computer or reinstalled Windows? Message support and we'll move your license. Don't buy a second one.",
     },
   },
   {
@@ -215,7 +201,7 @@ export default function HomePage() {
             </li>
             <li>
               <strong><Tx am="ወርሃዊ ክፍያ የለም" en="No monthly fee" /></strong>
-              <span><Tx am="አንድ ጊዜ ይክፈሉ፣ የእርስዎ ነው" en="Pay once, yours to keep" /></span>
+              <span><Tx am="አንድ ክፍያ ብቻ" en="One payment, that’s it" /></span>
             </li>
           </ul>
         </div>
@@ -304,16 +290,6 @@ export default function HomePage() {
             </Reveal>
           </div>
 
-          <Reveal delay={240}>
-            <div className="note-box">
-              <p>
-                <Tx
-                  am={<><strong>ጠቃሚ ምክር፦</strong> ቪዲዮዎ የጀርባ ሙዚቃ ካለው፣ ካፕሽን ከመፍጠርዎ በፊት በPremiere የሙዚቃውን ትራክ mute ያድርጉ፣ ከዚያ መልሰው ያብሩት። ካፕሽኖቹ ከታይምላይኑ ጋር ስለሚሰሩ ሙዚቃዎ አይነካም።</>}
-                  en={<><strong>Pro tip:</strong> if your footage has a music bed, mute the music track in Premiere before generating, then unmute it afterwards. Captions are timed to the original timeline, so your music stays untouched in the final cut.</>}
-                />
-              </p>
-            </div>
-          </Reveal>
         </div>
       </section>
 
@@ -329,39 +305,25 @@ export default function HomePage() {
 
           <Reveal delay={80}>
             <div className="price-card">
-              <span className="price-badge"><Tx am="አንድ ጊዜ ብቻ · እድሳት የለም" en="One-time · No renewal" /></span>
+              <span className="price-badge"><Tx am="ዘላቂ ፈቃድ · ለአንድ ኮምፒውተር" en="Lifetime license · 1 computer" /></span>
               <div className="price">
                 <span className="price-old"><Tx am={`${oldLbl} ብር`} en={`ETB ${oldLbl}`} /></span>
                 <span className="price-cur"><Tx am="ብር" en="ETB" /></span>
                 <span className="price-now">{priceLbl}</span>
               </div>
-              <p className="price-sub">
-                <Tx
-                  am="አንድ ክፍያ። ወርሃዊ ክፍያ፣ የደቂቃ ክፍያ ወይም እድሳት የለም።"
-                  en="One payment. No subscription, no per-minute fees, no renewal."
-                />
-              </p>
 
               <ul className="price-features">
                 <li><Tx am="ያልተገደበ ካፕሽን — የፈለጉትን ያህል" en="Unlimited captions — caption as much as you like" /></li>
-                <li><Tx am="ከመክፈልዎ በፊት 2 ካፕሽን በነጻ" en="2 free captions before you pay anything" /></li>
                 <li><Tx am="በPremiere ውስጥ የሚስተካከሉ የካፕሽን ትራኮች" en="Editable caption tracks, native to Premiere" /></li>
                 <li><Tx am="Premiere Pro 2024+ · Windows 10/11 እና macOS" en="Premiere Pro 2024+ · Windows 10/11 & macOS" /></li>
                 <li><Tx am="After Effects 2024+ እና ለCapCut እና DaVinci የ.srt መስሪያ" en="After Effects 2024+ and a drag-and-drop .srt maker for CapCut & DaVinci" /></li>
                 <li><Tx am="ፓነሉ በአማርኛ ወይም በእንግሊዝኛ" en="Panel in Amharic or English" /></li>
-                <li><Tx am="ከአክቲቬሽን በኋላ ሙሉ በሙሉ ያለ ኢንተርኔት ይሰራል" en="Works fully offline after activation" /></li>
                 <li><Tx am="በቴሌግራም ድጋፍ — ከሰሩት ሰዎች በቀጥታ" en="Support on Telegram from the people who built it" /></li>
               </ul>
 
               <a className="btn btn-primary btn-lg btn-block" href={BOT_URL} target="_blank" rel="noopener">
                 <Tx am="ቁልፍዎን በቴሌግራም ያግኙ" en="Get your key on Telegram" />
               </a>
-              <p className="tiny">
-                <Tx
-                  am={<>በባንክ ማስተላለፍ ይከፍላሉ። <a href="#safety">ይፋዊ አካውንቶቹን ያረጋግጡ</a>።</>}
-                  en={<>Pay by bank transfer. <a href="#safety">Verify the official accounts</a>.</>}
-                />
-              </p>
             </div>
           </Reveal>
 

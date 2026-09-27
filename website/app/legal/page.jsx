@@ -17,11 +17,9 @@ export default function LegalPage() {
         <div className="container">
           <p className="eyebrow"><Tx am="ህጋዊ ውሎች" en="Legal" /></p>
           <h1><Tx am="ፈቃድ፣ ግላዊነት እና ተመላሽ ገንዘብ።" en="License, privacy & refunds." /></h1>
-          <p className="hero-sub">
-            <Tx
-              am="በአጭሩ፦ ቪዲዮዎ በኮምፒውተርዎ ላይ ብቻ ይሰራል፣ አንድ ፈቃድ ለአንድ ኮምፒውተር ነው፣ በኮምፒውተርዎ ላይ ካልሰራም ገንዘብዎ ይመለሳል። ሙሉ ውሎቹ ከታች አሉ።"
-              en="The short version: local transcription, one license per computer, and a clear money-back path if it does not work on your setup. The full terms are below."
-            />
+          <p className="hero-sub l-en" lang="en">
+            The short version: local transcription, one license per computer, and a clear
+            money-back path if it does not work on your setup. The full terms are below.
           </p>
         </div>
       </section>

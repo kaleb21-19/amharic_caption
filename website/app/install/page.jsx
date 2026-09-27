@@ -1,4 +1,3 @@
-import Link from "next/link";
 import InstallGuide from "@/components/InstallGuide";
 import Tx from "@/components/Tx";
 import { GROUP_URL, SUPPORT_URL } from "@/lib/site";
@@ -37,8 +36,8 @@ export default function InstallPage() {
           <h1><Tx am="በአምስት ደቂቃ ገደማ ዝግጁ።" en="Running in about five minutes." /></h1>
           <p className="hero-sub">
             <Tx
-              am="ያውርዱ፣ ጫኚውን ሁለቴ ይጫኑ፣ Premiere ን እንደገና ይክፈቱ። የTerminal ትዕዛዝ ወይም የregistry ማስተካከያ አያስፈልግም።"
-              en="Download, double-click the installer, restart Premiere. No Terminal commands, no registry editing."
+              am="ያውርዱ፣ ጫኚውን ሁለቴ ይጫኑ፣ Premiere ን እንደገና ይክፈቱ። የቴክኒክ እውቀት አያስፈልግም።"
+              en="Download, double-click the installer, restart Premiere. No technical skills needed."
             />
           </p>
 
@@ -75,12 +74,6 @@ export default function InstallPage() {
                 <Tx am="የድጋፍ ግሩፑን ይቀላቀሉ" en="Join the support group" />
               </a>
             </div>
-            <p className="tiny" style={{ marginTop: "var(--s-5)" }}>
-              <Tx
-                am={<>ገና አልገዙም? እያንዳንዱ አዲስ ኮምፒውተር መጀመሪያ <Link href="/#pricing">2 ነጻ ካፕሽን</Link> ያገኛል።</>}
-                en={<>Not bought yet? Every new computer gets <Link href="/#pricing">2 free captions</Link> first.</>}
-              />
-            </p>
           </div>
         </div>
       </section>

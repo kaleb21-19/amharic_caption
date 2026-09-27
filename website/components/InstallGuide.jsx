@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Tx from "@/components/Tx";
 import {
-  DL_WIN, DL_WIN_LITE, DL_MAC_ARM, DL_MAC_ARM_LITE, DL_MAC_X64, DL_MAC_X64_LITE, RELEASES_URL,
+  DL_WIN, DL_WIN_LITE, DL_MAC_ARM, DL_MAC_ARM_LITE, DL_MAC_X64, DL_MAC_X64_LITE,
 } from "@/lib/site";
 
 // Install flow as a tabbed guide rather than two long parallel columns.
@@ -283,11 +283,6 @@ export default function InstallGuide() {
             <a href={DL_WIN}>Windows</a> · <a href={DL_MAC_ARM}>Mac Apple Silicon</a> ·{" "}
             <a href={DL_MAC_X64}>Mac Intel</a>{" "}
             <Tx am="(እያንዳንዳቸው 700 MB ገደማ)።" en="(about 700 MB each)." />
-            <br />
-            <Tx am="የቆየ ስሪት ይፈልጋሉ?" en="Looking for an older version?" />{" "}
-            <a href={RELEASES_URL} target="_blank" rel="noopener">
-              <Tx am="ሁሉንም ስሪቶች ይመልከቱ" en="Browse all releases" />
-            </a>.
           </p>
         </div>
       </section>
@@ -300,8 +295,8 @@ export default function InstallGuide() {
             <h2><Tx am="ይጫኑት።" en="Install it." /></h2>
             <p className="section-sub" style={{ marginInline: "auto" }}>
               <Tx
-                am={<><code>{active.file}</code> ን ሁለቴ ይጫኑ፣ የቀረውን እሱ ይሰራዋል። የTerminal ትዕዛዝ ወይም የregistry ማስተካከያ አያስፈልግም።</>}
-                en={<>Double-click <code>{active.file}</code> and it does the rest. No Terminal commands, no registry editing.</>}
+                am={<><code>{active.file}</code> ን ሁለቴ ይጫኑ፣ የቀረውን እሱ ይሰራዋል።</>}
+                en={<>Double-click <code>{active.file}</code> and it does the rest.</>}
               />
             </p>
           </div>

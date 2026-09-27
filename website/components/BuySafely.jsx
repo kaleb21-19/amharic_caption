@@ -75,14 +75,6 @@ export default function BuySafely() {
           </Reveal>
         </div>
 
-        <Reveal delay={120}>
-          <p className="safe-note">
-            <Tx
-              am={<>⚠️ ማንም ሰው ለሌላ ስም፣ ስልክ ወይም አካውንት እንዲከፍሉ ቢጠይቅዎ፣ ወይም መጀመሪያ ገንዘብ እንዲልኩ ቢያጣድፍዎ — <strong>ያቁሙ</strong>፣ ከመክፈልዎ በፊት በቴሌግራም ያግኙን።</>}
-              en={<>⚠️ If someone asks you to pay to a different name, phone, or account, or pressures you to send money first — <strong>stop</strong> and message us on Telegram before paying.</>}
-            />
-          </p>
-        </Reveal>
       </div>
     </section>
   );
