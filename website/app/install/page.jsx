@@ -19,7 +19,7 @@ export default function InstallPage() {
       { "@type": "HowToStep", name: "Download and unzip", text: "Download the build for your platform and extract the zip." },
       { "@type": "HowToStep", name: "Run the installer", text: "Double-click Install.cmd on Windows or Install.command on macOS." },
       { "@type": "HowToStep", name: "Restart Premiere Pro", text: "Fully quit Premiere Pro and reopen it, then open a project." },
-      { "@type": "HowToStep", name: "Open the panel", text: "Window → Extensions → Amharic Captions, then activate with your license key." },
+      { "@type": "HowToStep", name: "Open the panel", text: "Window → Extensions → Amharic Captions Pro, then activate with your license key." },
     ],
   };
 

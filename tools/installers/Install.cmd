@@ -22,7 +22,7 @@ rem user argument (for example /silent) passed along as argument 2.
 
 :main
 
-title Amharic Captions - Installer
+title Amharic Captions Pro - Installer
 color 07
 
 rem ============================================================
@@ -74,7 +74,7 @@ rem  form or quote it, because a path can contain a closing
 rem  parenthesis and that ends the block early.
 rem ============================================================
 
-echo Starting Amharic Captions installer...
+echo Starting Amharic Captions Pro installer...
 
 set "NAME=com.amharic.captions"
 set "LOG=%TEMP%\amharic-captions-install.log"
@@ -212,10 +212,10 @@ rem ------------------------------------------------------------
 if "!SILENT!"=="0" (
     echo.
     echo ================================================
-    echo     AMHARIC CAPTIONS  -  INSTALLER   v!VER!
+    echo     AMHARIC CAPTIONS PRO  -  INSTALLER   v!VER!
     echo ================================================
     echo.
-    echo This installs Amharic Captions for Premiere Pro and
+    echo This installs Amharic Captions Pro for Premiere Pro and
     echo After Effects 2024 or newer, plus the Make Amharic
     echo Captions tool for other editors. It takes about a
     echo minute and needs no administrator rights.
@@ -630,7 +630,7 @@ rem ============================================================
 
 :OK
 color 0A
-title Amharic Captions - Installed OK
+title Amharic Captions Pro - Installed OK
 echo.
 echo ================================================================
 echo     INSTALLATION SUCCESSFUL  v!VER!
@@ -641,7 +641,7 @@ echo.
 echo     1. Fully quit Premiere Pro with  File, Exit.
 echo        Closing the window is not enough.
 echo     2. Reopen Premiere Pro and open a project.
-echo     3. Choose  Window, Extensions, Amharic Captions.
+echo     3. Choose  Window, Extensions, Amharic Captions Pro.
 echo        After Effects 2024 or newer: the same menu.
 echo.
 if "!LITE!"=="1" if "!KEPT_MODEL!"=="0" (
@@ -677,11 +677,11 @@ exit /b 0
 set "EC=%~1"
 set "EMSG=%~2"
 >> "%LOG%" echo FAILED(%EC%): %EMSG%
-title ERROR %EC% - Amharic Captions Installer
+title ERROR %EC% - Amharic Captions Pro Installer
 color 4F
 
 if "!SILENT!"=="0" (
-    msg * /TIME:0 "Amharic Captions: the install did not finish. %EMSG% The log is at %LOG%." 2>nul
+    msg * /TIME:0 "Amharic Captions Pro: the install did not finish. %EMSG% The log is at %LOG%." 2>nul
 )
 
 echo.

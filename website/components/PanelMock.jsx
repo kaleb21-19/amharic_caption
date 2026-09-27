@@ -9,7 +9,7 @@ export default function PanelMock() {
     <div className="mock" role="img" aria-label="The Amharic Captions panel inside Premiere Pro: choose a source, pick a caption style, generate, and Amharic captions appear on the timeline.">
       <div className="mock-chrome">
         <span className="mock-dots" aria-hidden="true"><i /><i /><i /></span>
-        <span className="mock-title"><Tx am="አማርኛ ካፕሽን" en="Amharic Captions" /></span>
+        <span className="mock-title"><Tx am="አማርኛ ካፕሽን ፕሮ" en="Amharic Captions Pro" /></span>
         <span className="mock-status"><Tx am="ዝግጁ · ያለ ኢንተርኔት" en="ready · offline" /></span>
       </div>
 

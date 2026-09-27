@@ -44,13 +44,18 @@ os.environ.setdefault("TQDM_DISABLE", "1")
 #     threads faster in both reps.
 #   * Run-to-run drift on an identical config was ~28% (132s vs 169s), i.e.
 #     larger than the effect. The box was thermally saturated.
-# So the default is left at the advertised count until someone measures this
-# on a cool machine, with enough reps to beat that drift, on the platform that
-# matters (low-end Windows x64 — no benchmark exists there at all).
-# Use tools/test/bench_threads.py, which enforces cool-down and reports spread.
+# So macOS keeps the advertised count.
 #
-# AMH_THREADS overrides the cap — for that benchmarking, and for users who want
-# to leave CPU headroom for Premiere while a batch runs.
+# Windows x64 (measured 2026-09-27, 8-core / 16-thread CPU, a real 5-minute
+# recording, configs interleaved, 2 reps each after a warm-up):
+#     16 threads  avg 122 s      8 threads  avg 100 s      4 threads  avg 135 s
+# os.cpu_count() counts hyper-threads, and the int8 matmuls run best on the
+# PHYSICAL cores (~18% faster), which also leaves half the CPU to Premiere.
+# The stdlib cannot see physical cores, so on Windows with 8+ logical CPUs we
+# assume 2-way SMT and halve. Smaller machines keep every thread.
+#
+# AMH_THREADS overrides the cap — for benchmarking (tools/test/bench_threads.py)
+# and for users who want to leave CPU headroom for Premiere while a batch runs.
 def _thread_cap():
     import os as _os
     try:
@@ -64,6 +69,8 @@ def _thread_cap():
         if hasattr(_os, "sched_getaffinity"):
             # cgroup/taskset limits are a hard ceiling — never exceed them.
             n = min(n, len(_os.sched_getaffinity(0)))
+        if sys.platform == "win32" and n >= 8:
+            n //= 2
         return max(1, n)
     except Exception:
         return 4
