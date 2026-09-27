@@ -306,21 +306,8 @@ const heroKeyboard = () => [
   [{ text: '💬 ድጋፍ · Support', url: 'https://t.me/+L-bMfmIRyEo3MDg0' }],
 ];
 
-// Admin-only keyboard (no buyer buttons). Tapped on /start by the shop owner.
-const adminKeyboard = () => [
-  [{ text: '📥 Requests', callback_data: 'admin:queue' }],
-  [{ text: '🧾 History (30 days)', callback_data: 'admin:history' }],
-  [{ text: '📈 Sales & funnel', callback_data: 'admin:sales' }],
-];
-function adminGreeting() {
-  return (
-    '🛠 <b>Admin</b>\n\n' +
-    'Welcome back, boss 👋\n' +
-    '🔍 <code>/find a1b2c3d4e5f60718</code> — look up any buyer by Machine ID\n' +
-    '📥 Open <b>Requests</b> to review the queue (newest first) — approve, decline, or view details on each.\n' +
-    '🧾 <b>History</b> shows the last 30 days of activity.'
-  );
-}
+// The shop owner's /start opens the same dashboard as /admin (adminPanel):
+// one admin home, with every button, instead of a shorter greeting screen.
 
 // Amharic first, English under it. This is the screen where someone parts with
 // ETB 2,500, and it was English-only — the panel and the website both speak
@@ -555,7 +542,7 @@ async function handleMessage(msg, env) {
   if (['/start', '/start@amhariccaptionsbot', '/menu', 'menu'].includes(lower)) {
     if (privateChat) {
       if (isAdmin(user.id)) {
-        await sendText(chatId, adminGreeting(), adminKeyboard());
+        await adminPanel(chatId, null);
       } else {
         await sendText(chatId, heroText(first), heroKeyboard());
       }
@@ -1092,7 +1079,7 @@ async function adminPanel(chatId, messageId) {
     `   ├ ❌ Declined today: ${todayRow.rj}\n` +
     `   └ ⏳ Pending today:  ${todayRow.pd}\n\n` +
     `💵 <b>Revenue (30d):</b> ${soldCount} sale(s) = <b>ETB ${money(revenue)}</b>\n\n` +
-    `⬇️ Review the request queue, or check recent activity.`;
+    `🔍 Support: send <code>/find</code> + a Machine ID to look up any buyer.`;
   const kb = [
     [{ text: `📥 Requests (${pend})`, callback_data: 'admin:queue' }],
     [{ text: '🧾 History (30 days)', callback_data: 'admin:history' }],
@@ -1169,14 +1156,25 @@ async function adminExport(chatId, messageId, cbId) {
 }
 
 // ── broadcast: preview → confirm → batched sending ──────────────────────────
-// Recipients: every buyer who ever ordered or holds a key, minus the admins.
-function broadcastAudienceSql() {
+// Two audiences, minus the admins:
+//   'all'    — everyone who ever started an order or holds a key (promotions)
+//   'buyers' — only people holding an active (not revoked) key (update news)
+function broadcastAudienceSql(kind = 'all') {
   const admins = adminUids();
   const not = admins.length ? ` AND uid NOT IN (${admins.map(() => '?').join(',')})` : '';
+  const src = kind === 'buyers'
+    ? "SELECT uid FROM customers WHERE uid <> '' AND revoked = 0"
+    : "SELECT uid FROM customers WHERE uid <> '' UNION SELECT uid FROM orders WHERE uid <> ''";
   return {
-    sql: `SELECT uid FROM (SELECT uid FROM customers WHERE uid <> '' UNION SELECT uid FROM orders WHERE uid <> '') WHERE 1=1${not}`,
+    sql: `SELECT DISTINCT uid FROM (${src}) WHERE 1=1${not}`,
     args: admins,
   };
+}
+
+async function audienceCount(kind) {
+  const aud = broadcastAudienceSql(kind);
+  const r = await DB.prepare(`SELECT COUNT(*) AS n FROM (${aud.sql})`).bind(...aud.args).first();
+  return r ? r.n : 0;
 }
 
 async function cancelBroadcastCompose(uid) {
@@ -1186,9 +1184,8 @@ async function cancelBroadcastCompose(uid) {
 }
 
 async function draftBroadcast(chatId, text) {
-  const aud = broadcastAudienceSql();
-  const cnt = await DB.prepare(`SELECT COUNT(*) AS n FROM (${aud.sql})`).bind(...aud.args).first();
-  const n = cnt ? cnt.n : 0;
+  const n = await audienceCount('all');
+  const buyers = await audienceCount('buyers');
   if (!n) {
     await sendText(chatId, '📣 No customers to send to yet — nothing was sent.');
     return;
@@ -1205,13 +1202,24 @@ async function draftBroadcast(chatId, text) {
       'Check for stray &lt; &gt; &amp; characters, then tap 📣 Broadcast again.');
     return;
   }
+  const others = n - buyers;
+  const choices = [];
+  if (buyers > 0 && others > 0) {
+    choices.push([{ text: `✅ Buyers only (${buyers})`, callback_data: `admin:bcast-send:${id}:buyers` }]);
+    choices.push([{ text: `✅ Everyone (${n})`, callback_data: `admin:bcast-send:${id}:all` }]);
+  } else {
+    choices.push([{ text: `✅ Send to ${n}`, callback_data: `admin:bcast-send:${id}:all` }]);
+  }
+  choices.push([{ text: '✖ Cancel', callback_data: `admin:bcast-cancel:${id}` }]);
   await sendText(chatId,
-    `📣 <b>Preview above.</b> Send it to <b>${n}</b> customer(s)?\n\n<i>Nothing has been sent yet.</i>`,
-    [[{ text: `✅ Send to ${n}`, callback_data: `admin:bcast-send:${id}` },
-      { text: '✖ Cancel', callback_data: `admin:bcast-cancel:${id}` }]]);
+    '📣 <b>Preview above.</b> Who should get it?\n\n' +
+    `👤 <b>${buyers}</b> buyer(s) with an active key\n` +
+    `👥 <b>${others}</b> other(s) who started an order but have no key\n\n` +
+    '<i>Nothing has been sent yet.</i>',
+    choices);
 }
 
-async function startBroadcast(chatId, messageId, cbId, id) {
+async function startBroadcast(chatId, messageId, cbId, id, kind = 'all') {
   // Claim the draft: a double tap or a Telegram retry cannot send it twice,
   // and a draft older than 30 minutes is no longer trusted.
   const claim = await DB.prepare(
@@ -1221,7 +1229,7 @@ async function startBroadcast(chatId, messageId, cbId, id) {
     await answerCb(cbId, 'Already sent, cancelled or expired');
     return;
   }
-  const aud = broadcastAudienceSql();
+  const aud = broadcastAudienceSql(kind === 'buyers' ? 'buyers' : 'all');
   const q = await DB.prepare(
     `INSERT OR IGNORE INTO broadcast_queue (broadcast_id, uid) SELECT ?, uid FROM (${aud.sql})`
   ).bind(id, ...aud.args).run();
@@ -1229,7 +1237,7 @@ async function startBroadcast(chatId, messageId, cbId, id) {
   await DB.prepare('UPDATE broadcasts SET total=? WHERE id=?').bind(total, id).run();
   await answerCb(cbId, 'Sending…');
   await editText(chatId, messageId,
-    `📣 <b>Sending to ${total} customer(s)…</b>\n<i>Large lists go out in batches, about 40 a minute. You will get a report when it is done.</i>`);
+    `📣 <b>Sending to ${total} ${kind === 'buyers' ? 'buyer(s)' : 'people'}…</b>\n<i>Large lists go out in batches, about 40 a minute. You will get a report when it is done.</i>`);
   log('info', 'broadcast_started', { id, total });
   await processBroadcast(BCAST_BATCH_TAP);
 }
@@ -1976,7 +1984,7 @@ async function handleCallback(cb) {
         'You will see a <b>preview</b> with Send / Cancel before anything goes out.\n\n' +
         '<i>Only buyers receive it — admins are skipped. Changed your mind? Send /start.</i>');
     }
-    else if (action === 'bcast-send') await startBroadcast(chatId, messageId, cbId, parseInt(parts[2] || '0', 10));
+    else if (action === 'bcast-send') await startBroadcast(chatId, messageId, cbId, parseInt(parts[2] || '0', 10), parts[3] || 'all');
     else if (action === 'bcast-cancel') await cancelBroadcast(chatId, messageId, cbId, parseInt(parts[2] || '0', 10));
     else if (action === 'sales-export') await adminSalesExport(chatId, cbId);
     return;
