@@ -316,8 +316,13 @@ console.log('\n:: scenario 1 — happy path, full sale, DM only');
   assert.ok(dm, 'key DM sent to buyer');
   assert.ok(dm.body.text.includes(c.key), 'DM contains the stored key');
   // buyer status message edited to approved
-  const edited = OUTBOUND.filter((x) => x.method === 'editMessageText' && String(x.body.chat_id) === BUYER).find((x) => (x.body.text || '').includes('Approved'));
+  const edited = OUTBOUND.filter((x) => x.method === 'editMessageText' && String(x.body.chat_id) === BUYER).find((x) => (x.body.text || '').includes('Order approved'));
   assert.ok(edited, 'buyer status edited to Approved');
+  assert.ok(edited.body.text.includes('ትዕዛዝዎ ተረጋግጧል'), 'approved status is in Amharic too');
+  // The panel is Amharic by default: its button reads «አግብር», not "Activate".
+  assert.ok(dm.body.text.includes('«አግብር»') && dm.body.text.includes('«የፈቃድ ቁልፍ»'),
+    "key message uses the panel's own Amharic labels");
+  assert.ok(dm.body.text.includes('Make Amharic Captions'), 'key message covers the SRT maker too');
   ok('key DM + buyer status edit fired');
 
   // admin seen approval confirmation
@@ -1230,13 +1235,24 @@ console.log('\n:: scenario 12 — broadcast, /setexpiry, reply-keyboard hint');
   assert.ok(JSON.stringify(rm.inline_keyboard).includes('proof:cancel'),
     'the prompt offers a way back out of the flow');
 
-  // and Back clears any reply keyboard left over from an older build
+  // Back shows the menu ONCE: no extra "Back to the menu" message on top.
   OUTBOUND.length = 0;
   await cb(envH.env, { id: Number(BUYER) }, 'proof:cancel', { chatId: Number(BUYER) });
-  const cleared = OUTBOUND.filter((o) => o.method === 'sendMessage'
-    && o.body.reply_markup && o.body.reply_markup.remove_keyboard === true);
-  assert.ok(cleared.length, 'Back removes a stuck reply keyboard');
-  ok('Machine ID prompt is inline-only; Back clears any stuck keyboard');
+  const shown = OUTBOUND.filter((o) => (o.method === 'sendMessage' || o.method === 'editMessageText'));
+  assert.equal(shown.length, 1, 'Back produces exactly one visible message: ' + shown.length);
+  assert.ok(JSON.stringify(shown[0].body.reply_markup || {}).includes('menu:pay'), 'and it is the menu');
+
+  // "Where is my Machine ID?" is answered in the chat, matching the real panel
+  // (there is no License tab; the Buy button sends the id for you).
+  const hintJson = JSON.stringify(hintMsg.body.reply_markup);
+  assert.ok(hintJson.includes('help:mid') && !hintJson.includes('/install'), 'help button answers in chat');
+  OUTBOUND.length = 0;
+  await cb(envH.env, { id: Number(BUYER) }, 'help:mid', { chatId: Number(BUYER) });
+  const help = OUTBOUND.filter((o) => o.method === 'sendMessage').at(-1);
+  assert.ok(help && help.body.text.includes('«ፈቃድ ይግዙ»') && help.body.text.includes('👇 ይቅዱ'),
+    "help names the panel's real Buy button and copy label");
+  assert.ok(!/License tab|License<\/b>/.test(help.body.text), 'no reference to a non-existent License tab');
+  ok('Machine ID prompt is inline-only; Back shows one menu; Machine ID help matches the panel');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
