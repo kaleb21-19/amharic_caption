@@ -501,6 +501,7 @@ async function refCodeFor(uid) {
   for (let i = 0; i < 6; i++) {
     const bytes = crypto.getRandomValues(new Uint8Array(7));
     const code = Array.from(bytes, (b) => REF_ALPHABET[b % REF_ALPHABET.length]).join('');
+    if (await partnerByCode(code)) continue;
     const r = await DB.prepare('INSERT OR IGNORE INTO referral_codes (uid, code) VALUES (?, ?)')
       .bind(String(uid), code).run();
     if (r && r.meta && r.meta.changes) return code;
@@ -516,13 +517,22 @@ const refLink = (code) => `${BOT_LINK}?start=r_${code}`;
 // the programme being OFF all do nothing.
 async function attachReferral(uid, code) {
   try {
-    const t = refTerms(await getSettings());
-    if (!t.on) return false;
-    const owner = await DB.prepare('SELECT uid FROM referral_codes WHERE code = ?').bind(code).first();
-    if (!owner || owner.uid === String(uid) || isAdmin(uid)) return false;
+    code = String(code).toUpperCase();
+    if (isAdmin(uid)) return false;
+    let owner = null;
+    const buyerCode = await DB.prepare('SELECT uid FROM referral_codes WHERE code = ?').bind(code).first();
+    if (buyerCode) {
+      if (!refTerms(await getSettings()).on) return false;   // buyer links follow the programme switch
+      owner = buyerCode.uid;
+    } else {
+      const partner = await partnerByCode(code);                // partner links have their own switch
+      if (!partner || !partner.active || !partner.uid) return false;
+      owner = partner.uid;
+    }
+    if (owner === String(uid)) return false;
     if (await isBuyer(uid)) return false;
     await DB.prepare('INSERT OR IGNORE INTO referrals (friend_uid, referrer_uid, code) VALUES (?, ?, ?)')
-      .bind(String(uid), owner.uid, code).run();
+      .bind(String(uid), owner, code).run();
     return true;
   } catch (e) {
     log('error', 'referral_attach_failed', { err: String((e && e.message) || e) });
@@ -534,17 +544,26 @@ async function attachReferral(uid, code) {
 // buyer, or — once the Machine ID is known — the referrer's own computer.
 async function referralOffer(uid, mid = null) {
   try {
-    const t = refTerms(await getSettings());
-    if (!t.on) return null;
-    const r = await DB.prepare('SELECT referrer_uid FROM referrals WHERE friend_uid = ?').bind(String(uid)).first();
+    const r = await DB.prepare('SELECT referrer_uid, code FROM referrals WHERE friend_uid = ?').bind(String(uid)).first();
     if (!r || r.referrer_uid === String(uid)) return null;
+    let t;
+    const partner = await partnerByCode(r.code);
+    if (partner) {
+      if (!partner.active || partner.uid !== r.referrer_uid) return null;
+      const pt = await partnerTerms(partner);
+      t = { discount: pt.discount, reward: pt.reward, partner: partner.code };
+    } else {
+      const g = refTerms(await getSettings());
+      if (!g.on) return null;
+      t = { discount: g.discount, reward: g.reward, partner: null };
+    }
     if (await isBuyer(uid)) return null;
     if (mid) {
       const own = await DB.prepare('SELECT 1 AS x FROM customers WHERE uid = ? AND machine_id = ?')
         .bind(r.referrer_uid, String(mid).toLowerCase()).first();
       if (own) return null;
     }
-    return { referrer: r.referrer_uid, discount: t.discount, reward: t.reward, price: PRICE_ETB - t.discount };
+    return { referrer: r.referrer_uid, discount: t.discount, reward: t.reward, price: PRICE_ETB - t.discount, partner: t.partner };
   } catch (e) {
     log('error', 'referral_offer_failed', { err: String((e && e.message) || e) });
     return null;
@@ -554,6 +573,8 @@ async function referralOffer(uid, mid = null) {
 // Main menu for a user: the 🎁 button only for buyers while the programme is ON.
 async function menuKeyboardFor(uid) {
   try {
+    const partner = await partnerByUid(uid);
+    if (partner && partner.active) return heroKeyboard(true);
     if (refTerms(await getSettings()).on && (await isBuyer(uid))) return heroKeyboard(true);
   } catch (e) { /* plain menu */ }
   return heroKeyboard(false);
@@ -580,6 +601,8 @@ function shareUrl(link, t) {
 // Buyer's "🎁 Invite friends" screen (/invite, the menu button, and the
 // message that follows a new buyer's key).
 async function showInvite(uid, chatId, messageId) {
+  const asPartner = await partnerByUid(uid);
+  if (asPartner) { await showPartner(asPartner, uid, chatId, messageId); return; }
   const back = [{ text: '⬅ ወደ ዋና ገጽ · Menu', callback_data: 'menu:home' }];
   const show = async (text, kb) => {
     const r = messageId ? await editText(chatId, messageId, text, kb) : null;
@@ -643,6 +666,227 @@ async function showInvite(uid, chatId, messageId) {
     [{ text: '📜 ውሎች · Terms', url: `${SITE_URL}/legal/#referral` }],
     back,
   ]);
+}
+
+// ── partner links (a group, channel or influencer) ─────────────────────────
+// Created by the owner with their own terms and their own on/off switch,
+// independent of the buyer-referral switch (migration 0016). The partner
+// opens a private claim link once, which connects their Telegram account:
+// that is where their stats are shown and where their rewards are paid.
+// Every read is defensive: without the table, partner links simply do nothing.
+const PARTNER_CODE_RE = /^[A-Z0-9]{3,20}$/;
+
+async function partnerByCode(code) {
+  try {
+    return await DB.prepare('SELECT * FROM partners WHERE code = ?').bind(String(code).toUpperCase()).first();
+  } catch (e) { return null; }
+}
+async function partnerByUid(uid) {
+  try {
+    return await DB.prepare('SELECT * FROM partners WHERE uid = ?').bind(String(uid)).first();
+  } catch (e) { return null; }
+}
+async function partnerSold(p) {
+  if (!p || !p.uid) return 0;
+  const r = await DB.prepare(
+    "SELECT COUNT(*) AS n FROM referral_rewards WHERE referrer_uid = ? AND status IN ('earned','paid')")
+    .bind(p.uid).first();
+  return r ? r.n : 0;
+}
+// Terms for the partner's NEXT sale (the reward steps up after tier_after sales).
+async function partnerTerms(p) {
+  const sold = await partnerSold(p);
+  const tier = p.tier_after > 0 && p.tier_reward > 0 && sold >= p.tier_after;
+  return {
+    discount: Math.min(Math.max(p.discount_etb || 0, 0), PRICE_ETB - 1),
+    reward: Math.max(tier ? p.tier_reward : (p.reward_etb || 0), 0),
+    sold,
+    tier,
+  };
+}
+
+function partnerTermsText(p) {
+  return `friend −${money(p.discount_etb)} ብር · ${money(p.reward_etb)} ብር/sale` +
+    (p.tier_after > 0 && p.tier_reward > 0 ? ` (${money(p.tier_reward)} after ${p.tier_after} sales)` : '');
+}
+
+// The partner's own screen (/invite, the menu button, the claim link).
+async function showPartner(p, uid, chatId, messageId) {
+  const back = [{ text: '⬅ ወደ ዋና ገጽ · Menu', callback_data: 'menu:home' }];
+  const show = async (text, kb) => {
+    const r = messageId ? await editText(chatId, messageId, text, kb) : null;
+    if (!r || !r.ok) await sendText(chatId, text, kb);
+  };
+  const pt = await partnerTerms(p);
+  const st = await rewardStats(uid);
+  const opened = await DB.prepare('SELECT COUNT(*) AS n FROM referrals WHERE code = ?').bind(p.code).first();
+  const acct = await DB.prepare('SELECT details FROM payout_accounts WHERE uid = ?').bind(String(uid)).first();
+  const hold = refTerms(await getSettings()).hold;
+  const link = refLink(p.code);
+  const offer = pt.discount > 0
+    ? `👥 በሊንክዎ የሚገዙ <b>${money(pt.discount)} ብር ቅናሽ</b> ያገኛሉ፤ እርስዎ በእያንዳንዱ ሽያጭ <b>${money(pt.reward)} ብር</b> ያገኛሉ።\n` +
+      `<i>People who buy through your link get ${money(pt.discount)} ብር off; you earn ${money(pt.reward)} ብር per sale.</i>`
+    : `👥 በሊንክዎ በሚደረግ በእያንዳንዱ ሽያጭ <b>${money(pt.reward)} ብር</b> ያገኛሉ።\n` +
+      `<i>You earn ${money(pt.reward)} ብር for every sale through your link.</i>`;
+  let tierLine = '';
+  if (p.tier_after > 0 && p.tier_reward > 0) {
+    tierLine = pt.tier
+      ? `\n🏆 ከ${p.tier_after} ሽያጭ በላይ ደርሰዋል — በእያንዳንዱ ሽያጭ <b>${money(p.tier_reward)} ብር</b>!\n` +
+        `<i>Top tier reached: ${money(p.tier_reward)} ብር per sale.</i>`
+      : `\n🏆 ${p.tier_after} ሽያጭ ሲደርሱ በእያንዳንዱ ሽያጭ <b>${money(p.tier_reward)} ብር</b> ያገኛሉ (አሁን ${pt.sold}/${p.tier_after})።\n` +
+        `<i>After ${p.tier_after} sales you earn ${money(p.tier_reward)} ብር per sale (now ${pt.sold}/${p.tier_after}).</i>`;
+  }
+  const acctLine = acct
+    ? `🏦 የክፍያ አካውንት / Payout account: <code>${esc(acct.details)}</code>`
+    : '🏦 የክፍያ አካውንት አልተመዘገበም — ከታች ያስገቡ።\n<i>No payout account yet — add it below.</i>';
+  const text =
+    `🤝 <b>የአጋር ሊንክ · Partner link</b> — ${esc(p.label)}\n\n` +
+    (p.active ? '' : '⏸ ይህ ሊንክ ለጊዜው ቆሟል።\n<i>This link is paused for now.</i>\n\n') +
+    'ሊንክዎ / Your link:\n' +
+    `<code>${link}</code>\n\n` +
+    offer + tierLine + '\n\n' +
+    `📊 ሊንኩን የከፈቱ፦ <b>${opened ? opened.n : 0}</b> · የገዙ፦ <b>${st.bought}</b>\n` +
+    `💰 ያገኙት፦ <b>${money(st.earned)} ብር</b> · የተከፈለ፦ <b>${money(st.paid)} ብር</b> · የሚከፈልዎ፦ <b>${money(st.owed)} ብር</b>\n` +
+    `<i>Opened: ${opened ? opened.n : 0} · bought: ${st.bought} · earned ${money(st.earned)} · paid ${money(st.paid)} · owed ${money(st.owed)} ብር</i>\n\n` +
+    `💸 ክፍያ በወር አንድ ጊዜ፣ ከእያንዳንዱ ሽያጭ ${hold} ቀን በኋላ በባንክ ይላካል።\n` +
+    `<i>Paid monthly by bank transfer, ${hold} days after each sale.</i>\n\n` +
+    acctLine;
+  const kb = [];
+  if (p.active) kb.push([{ text: '📤 ሊንኩን ያጋሩ · Share link', url: shareUrl(link, pt) }]);
+  kb.push([{ text: '🏦 የክፍያ አካውንት · Payout account', callback_data: 'ref:payout' }]);
+  kb.push([{ text: '📜 ውሎች · Terms', url: `${SITE_URL}/legal/#referral` }]);
+  kb.push(back);
+  await show(text, kb);
+}
+
+// The partner opened their private claim link (/start p_TOKEN).
+async function claimPartner(uid, chatId, token, who) {
+  let p;
+  try {
+    p = await DB.prepare('SELECT * FROM partners WHERE claim_token = ?').bind(token).first();
+  } catch (e) { p = null; }
+  if (!p) {
+    await sendText(chatId, '⚠️ ይህ የአጋር ሊንክ አይሰራም።\n<i>This partner link is not valid.</i>', MENU_KEYBOARD);
+    return;
+  }
+  if (p.uid && p.uid !== String(uid)) {
+    await sendText(chatId,
+      '⚠️ ይህ የአጋር ሊንክ ቀድሞ በሌላ የቴሌግራም አካውንት ተመዝግቧል። እባክዎ ሻጩን ያግኙ።\n' +
+      '<i>This partner link was already connected to another Telegram account. Please contact the seller.</i>');
+    return;
+  }
+  if (!p.uid) {
+    const other = await partnerByUid(uid);
+    if (other && other.code !== p.code) {
+      await sendText(chatId,
+        `⚠️ የእርስዎ አካውንት ቀድሞ ለሌላ የአጋር ሊንክ (${esc(other.code)}) ተመዝግቧል።\n` +
+        `<i>Your Telegram account is already the partner for ${esc(other.code)}. Please contact the seller.</i>`);
+      return;
+    }
+    const r = await DB.prepare('UPDATE partners SET uid = ? WHERE code = ? AND uid IS NULL').bind(String(uid), p.code).run();
+    if (r && r.meta && r.meta.changes) {
+      log('info', 'partner_claimed', { code: p.code, uid });
+      for (const adm of adminUids()) {
+        await sendText(adm, `🤝 Partner <b>${esc(p.code)}</b> (${esc(p.label)}) connected: ${esc(who)} (id <code>${esc(uid)}</code>). Their public link is live.`);
+      }
+    }
+    p = await partnerByCode(p.code);
+  }
+  await showPartner(p, uid, chatId, null);
+}
+
+// ── partner links: owner side ───────────────────────────────────────────────
+function claimLink(p) { return `${BOT_LINK}?start=p_${p.claim_token}`; }
+
+async function adminPartners(chatId, messageId) {
+  let list = [];
+  try {
+    const { results } = await DB.prepare('SELECT * FROM partners ORDER BY created_at').all();
+    list = results || [];
+  } catch (e) {
+    await sendText(chatId, '⚠️ Partner table missing — run <code>npm run migrate</code>, then deploy.');
+    return;
+  }
+  const lines = [];
+  const kb = [];
+  for (const p of list) {
+    const opened = await DB.prepare('SELECT COUNT(*) AS n FROM referrals WHERE code = ?').bind(p.code).first();
+    const st = p.uid ? await rewardStats(p.uid) : { bought: 0, earned: 0, owed: 0 };
+    lines.push(
+      `${p.active ? '🟢' : '⏸'} <b>${esc(p.code)}</b> — ${esc(p.label)} · ${p.uid ? '✅ connected' : '⏳ not connected yet'}\n` +
+      `   ${partnerTermsText(p)}\n` +
+      `   opened ${opened ? opened.n : 0} · sold ${st.bought} · earned ${money(st.earned)} · owed ${money(st.owed)} ብር`);
+    const row = [{ text: `${p.active ? '⏸ Pause' : '▶ Resume'} ${p.code}`, callback_data: `admin:partner-toggle:${p.code}` }];
+    if (!p.uid) row.push({ text: `📨 Links ${p.code}`, callback_data: `admin:partner-links:${p.code}` });
+    kb.push(row);
+  }
+  kb.push([{ text: '🎁 Referrals', callback_data: 'admin:ref' }, { text: '🛠 Admin', callback_data: 'admin:panel' }]);
+  const text =
+    `🤝 <b>Partners</b> (${list.length})\n\n` +
+    (lines.length ? lines.join('\n\n') : 'No partners yet.') + '\n\n' +
+    '➕ Create: <code>/partner EDITGROUP Editors Ethiopia</code>\n' +
+    '⚙ Terms: <code>/partnerterms EDITGROUP 300 200 20 400</code>\n' +
+    '<i>(reward per sale · buyer discount · optional: after N sales · reward then)</i>\n' +
+    '<i>Partner links have their own switch — the buyer-referral ON/OFF does not affect them.</i>';
+  const r = messageId ? await editText(chatId, messageId, text, kb) : null;
+  if (!r || !r.ok) await sendText(chatId, text, kb);
+}
+
+async function sendPartnerLinks(chatId, p, created) {
+  await sendText(chatId,
+    `🤝 Partner <b>${esc(p.code)}</b> ${created ? 'created' : ''} — ${esc(p.label)}\n` +
+    `Terms: ${partnerTermsText(p)}\n\n` +
+    '1️⃣ <b>Private link — send it only to the partner</b> (opening it once connects their Telegram account, where they see their stats and receive rewards):\n' +
+    `<code>${claimLink(p)}</code>\n\n` +
+    '2️⃣ <b>Public link for their group post</b> (works once step 1 is done):\n' +
+    `<code>${refLink(p.code)}</code>\n\n` +
+    `<i>Change terms: /partnerterms ${esc(p.code)} 300 200 20 400</i>`,
+    [[{ text: '🤝 Partners', callback_data: 'admin:partners' }]]);
+}
+
+async function adminCreatePartner(chatId, code, label) {
+  code = code.toUpperCase();
+  if (!PARTNER_CODE_RE.test(code)) {
+    await sendText(chatId, '⚠️ The code must be 3–20 letters or digits, e.g. <code>EDITGROUP</code>.');
+    return;
+  }
+  label = String(label || '').trim().slice(0, 60) || code;
+  try {
+    const clash = await DB.prepare('SELECT 1 AS x FROM referral_codes WHERE code = ?').bind(code).first();
+    if (clash || (await partnerByCode(code))) {
+      await sendText(chatId, `⚠️ <b>${esc(code)}</b> is already in use — pick another code.`);
+      return;
+    }
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    const token = Array.from(bytes, (b) => REF_ALPHABET[b % REF_ALPHABET.length]).join('');
+    const t = refTerms(await getSettings());
+    await DB.prepare(
+      'INSERT INTO partners (code, label, claim_token, reward_etb, discount_etb) VALUES (?, ?, ?, ?, ?)'
+    ).bind(code, label, token, t.reward, t.discount).run();
+  } catch (e) {
+    await sendText(chatId, '⚠️ Could not create the partner — run <code>npm run migrate</code>, then deploy.');
+    return;
+  }
+  await sendPartnerLinks(chatId, await partnerByCode(code), true);
+}
+
+async function adminPartnerTerms(chatId, code, reward, discount, after, tierReward) {
+  const p = await partnerByCode(code);
+  if (!p) { await sendText(chatId, `⚠️ No partner <b>${esc(code)}</b>. See /partners.`); return; }
+  if (reward > PRICE_ETB || discount >= PRICE_ETB || (after && !tierReward) || tierReward > PRICE_ETB) {
+    await sendText(chatId, `⚠️ Check the numbers: reward ≤ ${PRICE_ETB}, discount < ${PRICE_ETB}, and a tier needs both "after" and its reward.`);
+    return;
+  }
+  await DB.prepare(
+    'UPDATE partners SET reward_etb = ?, discount_etb = ?, tier_after = ?, tier_reward = ? WHERE code = ?'
+  ).bind(reward, discount, after || 0, tierReward || 0, p.code).run();
+  const np = await partnerByCode(p.code);
+  await sendText(chatId, `✅ <b>${esc(np.code)}</b>: ${partnerTermsText(np)}. New orders use these terms; orders already placed keep theirs.`);
+  if (np.uid) {
+    await sendText(np.uid,
+      '🤝 የአጋር ሊንክዎ ውሎች ተሻሽለዋል።\n<i>Your partner terms were updated.</i>',
+      [[{ text: '🤝 የአጋር ገጽ · Partner page', callback_data: 'ref:invite' }]]);
+  }
 }
 
 const PAYOUT_PROMPT =
@@ -724,6 +968,7 @@ async function adminReferrals(chatId, messageId) {
   const kb = [[{ text: t.on ? '⚪ Turn OFF' : '🟢 Turn ON', callback_data: 'admin:ref-toggle' }]];
   if (ready.n) kb.push([{ text: `💰 Pay rewards (${ready.people} · ${money(ready.etb)} ብር)`, callback_data: 'admin:ref-pay' }]);
   if (t.on) kb.push([{ text: '📣 Announce to buyers', callback_data: 'admin:ref-announce' }]);
+  kb.push([{ text: '🤝 Partners (groups & channels)', callback_data: 'admin:partners' }]);
   kb.push([{ text: '🛠 Admin', callback_data: 'admin:panel' }]);
   const r = messageId ? await editText(chatId, messageId, text, kb) : null;
   if (!r || !r.ok) await sendText(chatId, text, kb);
@@ -737,7 +982,8 @@ async function adminRefPayList(chatId, messageId) {
       `SELECT r.referrer_uid AS uid, SUM(r.amount_etb) AS total, COUNT(*) AS n,
               GROUP_CONCAT(r.order_id) AS orders,
               (SELECT details FROM payout_accounts p WHERE p.uid = r.referrer_uid) AS acct,
-              (SELECT name FROM customers c WHERE c.uid = r.referrer_uid LIMIT 1) AS name
+              COALESCE((SELECT '🤝 ' || label FROM partners p2 WHERE p2.uid = r.referrer_uid),
+                       (SELECT name FROM customers c WHERE c.uid = r.referrer_uid LIMIT 1)) AS name
        FROM referral_rewards r
        WHERE r.status = 'earned' AND r.earned_at <= datetime('now', ?)
        GROUP BY r.referrer_uid ORDER BY total DESC LIMIT 20`
@@ -948,7 +1194,12 @@ async function handleMessage(msg, env) {
       if (isAdmin(user.id)) {
         await adminPanel(chatId, null);
       } else {
-        const inv = startArg && /^r_([A-Z2-9]{7})$/.exec(startArg[1]);
+        const claim = startArg && /^p_([A-Za-z0-9]{10,40})$/.exec(startArg[1]);
+        if (claim) {
+          await claimPartner(uid, chatId, claim[1], user.username ? '@' + user.username : (first || uid));
+          return;
+        }
+        const inv = startArg && /^r_([A-Za-z0-9]{3,20})$/.exec(startArg[1]);
         if (inv) await attachReferral(uid, inv[1]);
         await sendText(chatId, heroText(first, await referralOffer(uid)), await menuKeyboardFor(uid));
       }
@@ -972,6 +1223,15 @@ async function handleMessage(msg, env) {
   // admin: referral programme amounts → /refdiscount 200, /refreward 300, /refhold 14
   if (privateChat && isAdmin(user.id)) {
     if (lower === '/referrals' || lower === '/referral') { await adminReferrals(chatId, null); return; }
+    if (lower === '/partners') { await adminPartners(chatId, null); return; }
+    const pc = text.match(/^\/partner\s+([A-Za-z0-9]+)(?:\s+(.+))?$/i);
+    if (pc) { await adminCreatePartner(chatId, pc[1], pc[2]); return; }
+    const pt = text.match(/^\/partnerterms\s+([A-Za-z0-9]+)\s+(\d{1,5})\s+(\d{1,5})(?:\s+(\d{1,5})\s+(\d{1,5}))?$/i);
+    if (pt) {
+      await adminPartnerTerms(chatId, pt[1], parseInt(pt[2], 10), parseInt(pt[3], 10),
+        pt[4] ? parseInt(pt[4], 10) : 0, pt[5] ? parseInt(pt[5], 10) : 0);
+      return;
+    }
     const rc = text.match(/^\/(refdiscount|refreward|refhold)\s+(\d{1,6})$/i);
     if (rc) {
       const which = rc[1].toLowerCase();
@@ -1436,7 +1696,7 @@ async function completeProof(uid, chatId, uname, privateChat) {
     const caption =
       '🧾 <b>New order — payment proof</b>\n\n' +
       `Machine ID: <code>${esc(s.mid)}</code>\nUser: @${esc(uname)} (id ${esc(uid)})\nSource: ${privateChat ? 'DM' : 'Group'}\n` +
-      (offer ? `👥 <b>Referred</b> — expect <b>ETB ${money(amountEtb)}</b> (friend discount ${money(offer.discount)})\n` : '') + '\n' +
+      (offer ? `👥 <b>Referred${offer.partner ? ` via partner ${esc(offer.partner)}` : ''}</b> — expect <b>ETB ${money(amountEtb)}</b> (discount ${money(offer.discount)})\n` : '') + '\n' +
       'Check the screenshot, then Approve or Reject:';
     if (s.photo_key) await sendPhoto(adm, s.photo_key, caption, adminKeyboardPend(orderId));
     else await sendText(adm, caption, adminKeyboardPend(orderId));
@@ -2248,8 +2508,8 @@ async function approve(chatId, messageId, orderId, cbId) {
     const t = refTerms(await getSettings());
     const acct = await DB.prepare('SELECT 1 AS x FROM payout_accounts WHERE uid = ?').bind(o.referrer_uid).first();
     await sendText(o.referrer_uid,
-      `🎉 <b>ጓደኛዎ በሊንክዎ ገዝቷል!</b> <b>${money(o.reward_etb)} ብር</b> አግኝተዋል።\n` +
-      `<i>A friend bought with your link — you earned ${money(o.reward_etb)} ብር.</i>\n\n` +
+      `🎉 <b>በሊንክዎ ሽያጭ ተፈጽሟል!</b> <b>${money(o.reward_etb)} ብር</b> አግኝተዋል።\n` +
+      `<i>Someone bought with your link — you earned ${money(o.reward_etb)} ብር.</i>\n\n` +
       `💸 ሽልማቱ ከ${t.hold} ቀን በኋላ በወሩ ክፍያ ይላካል።\n<i>It is sent in the monthly payout after ${t.hold} days.</i>` +
       (acct ? '' : '\n\n🏦 ሽልማትዎ እንዲደርስ የባንክ አካውንትዎን ያስመዝግቡ።\n<i>Add your bank account so we can send it.</i>'),
       [[{ text: acct ? '🎁 ጓደኛ ይጋብዙ · Invite friends' : '🏦 የክፍያ አካውንት · Payout account', callback_data: acct ? 'ref:invite' : 'ref:payout' }]]);
@@ -2543,6 +2803,19 @@ async function handleCallback(cb) {
         '<i>You have a referral reward waiting — add your bank account so we can send it.</i>',
         [[{ text: '🏦 የክፍያ አካውንት · Payout account', callback_data: 'ref:payout' }]]);
       await answerCb(cbId, '📩 Asked for their account');
+    }
+    else if (action === 'partners') await adminPartners(chatId, messageId);
+    else if (action === 'partner-toggle') {
+      const pp = await partnerByCode(parts[2]);
+      if (pp) {
+        await DB.prepare('UPDATE partners SET active = ? WHERE code = ?').bind(pp.active ? 0 : 1, pp.code).run();
+        await answerCb(cbId, pp.active ? `⏸ ${pp.code} paused` : `▶ ${pp.code} resumed`);
+      }
+      await adminPartners(chatId, messageId);
+    }
+    else if (action === 'partner-links') {
+      const pp = await partnerByCode(parts[2]);
+      if (pp) await sendPartnerLinks(chatId, pp, false);
     }
     else if (action === 'ref-announce') {
       await answerCb(cbId, 'Preview below');

@@ -464,3 +464,25 @@ Needs migration 0015 (`npm run migrate` before `npm run deploy`). It starts
   links and discounts at once, but rewards already earned stay owed.
 - **Terms** are on the website legal page (`/legal/#referral`); the bot's
   📜 Terms button links there.
+
+## Partner links (groups, channels, creators)
+
+Needs migration 0016. Independent of the buyer-referral ON/OFF switch.
+
+1. **Create:** `/partner EDITGROUP Editors Ethiopia` → the bot replies with
+   two links:
+   - a **private link** (`…?start=p_…`) — send it only to the group owner.
+     Opening it once connects their Telegram account (you get a message
+     saying who connected);
+   - the **public link** (`…?start=r_EDITGROUP`) for their group post. It
+     works once the partner has connected.
+2. **Terms:** `/partnerterms EDITGROUP 300 200 20 400` = 300 ብር per sale,
+   200 ብር off for the buyer, and 400 ብር per sale after 20 sales (the last
+   two numbers are optional). New orders use new terms; placed orders keep
+   theirs. The partner is told when terms change.
+3. **Manage:** `/partners` (or 🎁 Referrals → 🤝 Partners) lists each partner
+   with opened / sold / earned / owed and **⏸ Pause / ▶ Resume**.
+4. **Partner's view:** `/invite` or 🎁 in the menu shows their link, a Share
+   button, clicks, sales, earnings, tier progress and their payout account.
+5. **Paying:** partner rewards appear in the same monthly **💰 Pay rewards**
+   list, under the partner's name.
