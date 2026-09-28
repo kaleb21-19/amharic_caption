@@ -5,3 +5,7 @@
 tools/installers/Install.cmd text eol=crlf
 tools/installers/verify_win.cmd text eol=crlf
 *.cmd text eol=crlf
+# macOS / shell scripts must stay LF even in a Windows checkout (a CRLF
+# Install.command copied from a Windows PC fails on the Mac).
+*.command text eol=lf
+*.sh text eol=lf
