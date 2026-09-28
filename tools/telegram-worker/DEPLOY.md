@@ -540,3 +540,27 @@ history. Buttons:
 - On the **1st of every month** each connected partner automatically gets
   last month's statement (sales, earned, paid, owed) — 10 per cron run, so
   with many partners they arrive over the first day.
+
+## Simple buying — no Machine ID for customers (migration 0019, panel 1.7.7)
+
+Deploy order: `npm run migrate && npm run deploy`, then publish panel 1.7.7.
+
+**Customers never copy a Machine ID any more.** Two ways in, one step each:
+
+| Where they start | What they do | What happens |
+|---|---|---|
+| **Panel → Buy a license** | Pay, send the screenshot in the bot | The bot already knows the computer. After you approve, **the panel activates itself** (nothing to paste). The key is also sent as a fallback. |
+| **Phone** (group post, TikTok, partner link) | Pay, send the screenshot in the bot | After you approve, they get a short **activation code** (e.g. `K7QD-3MXP`). They type it into the panel's key box once — it is then bound to that computer. |
+
+- Any photo or image-file after tapping **Pay** is the order — no Confirm step.
+  A photo sent out of the blue first asks "Is this your payment screenshot?".
+- A second screenshot while an order waits **replaces** it (you get a
+  "🔄 New screenshot for #N" card).
+- Phone orders show as **📱 phone order** in Requests / History. Approving
+  sends the code. **My Key** in the bot shows unused codes.
+- One code = one computer. The same computer can redeem it again (reinstall).
+  `/revoke ORDER` works before and after the code is used.
+- Paid from the phone and later pressed **Buy** in the panel? The bot links
+  that computer to the waiting order automatically.
+- Old panels (1.7.6 and earlier) still work: typing a Machine ID in the bot
+  is still understood.

@@ -555,28 +555,29 @@
     <div class="section-license">
       <div id="licenseStatus" class="license-status" data-i18n="lic.checking">Checking license…</div>
       <div id="machineIdSection" class="license-box">
-        <label class="field-label" style="color:var(--warn);font-weight:700;" data-i18n="lic.copyLabel">👇 Copy · send with payment</label>
-        <div class="row" style="align-items:stretch;">
-          <div class="machine-id" id="machineIdDisplay" title="Click to select all" data-i18n-title="lic.midTitle">loading…</div>
-          <button type="button" id="machineIdCopy" class="btn btn-neutral" style="flex:0 0 auto;min-width:70px;" title="Copy Machine ID" data-i18n="lic.copy" data-i18n-title="lic.copyTitle">📋 Copy</button>
-        </div>
-        <!-- One button instead of "copy this, open that, paste it there". It
-             opens the bot with the Machine ID already in the message, so the
-             most error-prone step of the purchase — hand-copying a 16-character id
-             into a chat — disappears. Copy stays for anyone who prefers to
-             paste it themselves or has no Telegram on this machine. -->
-        <button type="button" id="buyBtn" class="btn btn-primary" style="margin-top:8px;width:100%;" data-i18n="lic.buy">Buy a license — ETB 2,500</button>
+        <!-- One button, nothing to copy: it opens the bot already linked to this
+             computer (Telegram keeps a /start link through the START tap). Pay,
+             send the screenshot there, and this panel activates ITSELF once the
+             payment is confirmed (it asks /api/license with a secret only this
+             panel and that order know). -->
+        <button type="button" id="buyBtn" class="btn btn-primary" style="width:100%;" data-i18n="lic.buy">Buy a license — ETB 2,500</button>
         <div class="hint" style="margin-top:6px;line-height:1.5;">
-          <span data-i18n-html="lic.buyHint">Opens the Telegram bot with your Machine ID filled in. Pay
-          <b>ETB 2,500</b> by bank transfer to <b>KALEB TEGEGEN</b>, send the
-          screenshot in the bot, and your key arrives in that chat.</span>
+          <span data-i18n-html="lic.buyHint">Opens Telegram. Pay <b>ETB 2,500</b> to <b>KALEB TEGEGEN</b>
+          and send the screenshot there — <b>this panel then activates itself</b>. Nothing to copy.</span>
           <a href="#" id="bankDetails" data-i18n="lic.bankLink">Bank accounts</a>
         </div>
+        <div class="hint" id="buyPending" style="display:none;margin-top:6px;font-weight:600;line-height:1.45;"></div>
         <div class="hint" id="bankBox" style="display:none;margin-top:6px;line-height:1.6;">
           <b>CBE</b> 1000504159977<br>
           <b>Abyssinia</b> 402393939<br>
           <b>Zemen</b> 1031111343277015<br>
           <span data-i18n-html="lic.bankName">Account name: <b>KALEB TEGEGEN</b> — pay no one else.</span>
+        </div>
+        <!-- Only support needs this now; kept small and out of the way. -->
+        <label class="field-label" style="margin-top:10px;" data-i18n="lic.copyLabel">Machine ID — only if support asks</label>
+        <div class="row" style="align-items:stretch;">
+          <div class="machine-id" id="machineIdDisplay" title="Click to select all" data-i18n-title="lic.midTitle">loading…</div>
+          <button type="button" id="machineIdCopy" class="btn btn-neutral" style="flex:0 0 auto;min-width:70px;" title="Copy Machine ID" data-i18n="lic.copy" data-i18n-title="lic.copyTitle">📋 Copy</button>
         </div>
       </div>
 
@@ -592,9 +593,9 @@
       </div>
 
       <div class="field" id="licenseKeyField" style="margin-bottom:6px;">
-        <label class="field-label" for="licenseInput" data-i18n="lic.keyLabel">License Key</label>
+        <label class="field-label" for="licenseInput" data-i18n="lic.keyLabel">Activation code or license key</label>
         <div class="row">
-          <input type="text" id="licenseInput" placeholder="AMH-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" style="flex:1;">
+          <input type="text" id="licenseInput" placeholder="K7QD-3MXP  ·  AMH-…" data-i18n-placeholder="lic.keyPlaceholder" style="flex:1;">
           <button id="licenseActivate" class="btn btn-neutral" style="flex:0 0 auto;" data-i18n="lic.activate">Activate</button>
         </div>
       </div>
@@ -602,8 +603,9 @@
 
     <div id="trialBanner"
          style="display:none;margin-top:8px;padding:9px 12px;border:1px solid var(--warn);border-radius:var(--radius);background:var(--warn-soft);font-size:11px;line-height:1.45;" data-i18n-html="lic.trialBanner">
-      <b>Free trials used up.</b> Copy your Machine ID above, pay <b>ETB 2,500</b> by
-      bank transfer per the instructions there, and activate with your key.
+      <b>Free trials used up.</b> Press <b>Buy a license</b> above, pay <b>ETB 2,500</b>
+      and send the screenshot in Telegram — the panel activates itself. Paid from
+      your phone? Type your activation code below.
     </div>
 
     <!-- Engine log. Deliberately NOT numbered: it used to be presented as
@@ -621,7 +623,7 @@
   </div>
 
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.7.6</span><span id="footPrice"> · <span data-i18n="foot.license">License ETB 2,500 one-time</span></span></span>
+    <span>v<span id="panelVersion">1.7.7</span><span id="footPrice"> · <span data-i18n="foot.license">License ETB 2,500 one-time</span></span></span>
     <span style="display:flex;gap:10px;align-items:center;">
       <a href="#" id="supportLink" title="Get help in Telegram" data-i18n="foot.help" data-i18n-title="foot.helpTitle">💬 Help</a>
       <a href="#" id="credits" title="Version and credits" data-i18n="foot.credits" data-i18n-title="foot.creditsTitle">About</a>

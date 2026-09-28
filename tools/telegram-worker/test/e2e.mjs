@@ -89,6 +89,7 @@ class D1 {
     this.db.exec(readFileSync(new URL('../migrations/0016_partners.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0017_referral_quotes.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0018_partner_profile.sql', import.meta.url), 'utf8'));
+    this.db.exec(readFileSync(new URL('../migrations/0019_activation_codes.sql', import.meta.url), 'utf8'));
     this.db.exec("ALTER TABLE customers ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0"); // migration 0008
   }
   prepare(sql) {
@@ -329,22 +330,19 @@ console.log('\n:: scenario 1 — happy path, full sale, DM only');
   // we are waiting for a photo" is the actual contract.
   assert.equal(row(env, 'SELECT step FROM fsm WHERE uid=?', BUYER).step, 'photo',
     'a valid Machine ID advances the flow to awaiting the screenshot');
-  assert.ok(JSON.stringify(OUTBOUND).includes('2/2'), 'buyer is told this is step 2 of 2');
+  assert.ok(JSON.stringify(OUTBOUND).includes('Now just send the payment screenshot'), 'buyer is told only the screenshot is left');
 
   const m = msg(Number(BUYER), { id: Number(BUYER) }, { photo: [{ file_id: 'FA', width: 1, height: 1 }, { file_id: 'FB', width: 2, height: 2 }] });
   res = await post(env, m);
   assert.equal(res.status, 200);
 
-  // review message sent -> fsm.status_msg_id persisted (migration 0004)
-  const fsm = row(env, 'SELECT * FROM fsm WHERE uid=?', BUYER);
-  assert.equal(fsm.step, 'confirm');
-  assert.equal(fsm.photo_key, 'FB');
-  const review = OUTBOUND.filter((o) => o.method === 'sendMessage' && (o.body.text || '').includes('Review your order')).at(-1);
-  assert.ok(review && review.id, 'review message sent');
-  assert.equal(fsm.status_msg_id, review.id, 'fsm.status_msg_id persisted');
-  ok('fsm.status_msg_id column persisted');
+  // The screenshot IS the order: no review screen, no Confirm button.
+  assert.ok(!JSON.stringify(OUTBOUND).includes('Review your order'), 'no review step');
+  const received = OUTBOUND.filter((o) => o.method === 'sendMessage' && (o.body.text || '').includes('Received')).at(-1);
+  assert.ok(received && received.id, '"Received" status message sent');
+  ok('the screenshot books the order at once (no review / Confirm step)');
 
-  // confirm order
+  // An old-style Confirm tap (a buyer mid-flow during the deploy) is harmless.
   res = await cb(env, { id: Number(BUYER) }, 'proof:confirm', { chatId: Number(BUYER) });
   assert.equal(res.status, 200);
   let orders = rows(env, 'SELECT * FROM orders');
@@ -354,8 +352,8 @@ console.log('\n:: scenario 1 — happy path, full sale, DM only');
   assert.equal(o.machine_id, 'a1b2c3d4');
   assert.equal(o.uid, BUYER);
   assert.equal(o.photo_key, 'FB');
-  assert.ok(o.status_msg_id >= 1, 'buyer status message id stored on order');
-  assert.equal(rows(env, 'SELECT * FROM fsm').length, 0, 'fsm cleared on confirm');
+  assert.equal(o.status_msg_id, received.id, 'buyer status message id stored on order');
+  assert.equal(rows(env, 'SELECT * FROM fsm').length, 0, 'fsm cleared once the order is booked');
   ok('order booked with proof + status_msg_id');
 
   const adminNotified = OUTBOUND.filter((o) => o.method === 'sendPhoto').filter((o) => o.body.caption && o.body.caption.includes('New order'));
@@ -575,13 +573,13 @@ console.log('\n:: scenario 1c — arriving from the panel skips the Machine ID s
   assert.equal(row(env, 'SELECT step FROM fsm WHERE uid=?', BUYER).step, 'photo',
     'skips the Machine ID step — goes straight to awaiting the screenshot');
   const said = JSON.stringify(OUTBOUND);
-  assert.ok(said.includes('a1b2c3d4'), 'the remembered id is shown back for confirmation');
+  assert.ok(said.includes('computer is connected') && !said.includes('Machine ID'), 'told the computer is connected — no Machine ID talk');
 
-  // and the flow still completes from there
+  // and the screenshot books the order for that computer
   await post(env, msg(Number(BUYER), { id: Number(BUYER) },
     { photo: [{ file_id: 'P1', width: 9, height: 9 }] }));
-  assert.equal(row(env, 'SELECT step FROM fsm WHERE uid=?', BUYER).step, 'confirm',
-    'screenshot advances to the confirm step with no Machine ID prompt in between');
+  assert.equal(row(env, "SELECT machine_id FROM orders WHERE uid=? AND status='pending'", BUYER).machine_id, 'a1b2c3d4',
+    'screenshot books the order for the remembered computer');
 
   ok('panel hand-off: Machine ID carried through, one step removed');
 }
@@ -825,15 +823,13 @@ console.log('\n:: scenario 2 — screenshot as document (pdf rejected, image acc
   // being reworded, but "a PDF is refused and we stay on the photo step" is
   // the contract. (The English half is checked loosely so a rewrite of the
   // Amharic does not break the suite.)
-  assert.ok(JSON.stringify(OUTBOUND).toLowerCase().includes('not a photo'), 'pdf rejected');
+  assert.ok(JSON.stringify(OUTBOUND).toLowerCase().includes('cannot read that file'), 'pdf rejected');
   assert.equal(row(env, 'SELECT step FROM fsm WHERE uid=?', BUYER).step, 'photo', 'still awaiting photo');
+  assert.equal(row(env, 'SELECT COUNT(*) AS n FROM orders').n, 0, 'no order from a pdf');
 
-  // image mimetype sent as a document -> accepted as proof
+  // image mimetype sent as a document -> accepted as proof, order booked
   res = await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { document: { file_id: 'IMG1', mime_type: 'image/png' } }));
   assert.equal(res.status, 200);
-  assert.equal(row(env, 'SELECT step FROM fsm WHERE uid=?', BUYER).step, 'confirm', 'image doc accepted');
-
-  await cb(env, { id: Number(BUYER) }, 'proof:confirm', { chatId: Number(BUYER) });
   const o = row(env, 'SELECT * FROM orders');
   assert.ok(o, 'order books from an image document');
   assert.equal(o.photo_key, 'IMG1');
@@ -893,16 +889,12 @@ console.log('\n:: scenario 5 — Telegram retries + network blips');
   const { env } = fresh();
   await startBuyFlow(env);
   await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { text: 'c0ffee12' }));
-  await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { photo: [{ file_id: 'Z1' }, { file_id: 'Z2' }] }));
 
-  // blip: the status message fails to send
-  FAIL_NEXT = 0;
-  const cbBody = { callback_query: { id: 'blip', from: { id: Number(BUYER), first_name: 'B' }, message: { message_id: 700, date: 1, chat: { id: Number(BUYER), type: 'private' } }, data: 'proof:confirm' } };
-  // Simulate the status message failing to send. Confirm now answers the
-  // callback query first (so the button stops spinning), so the status text is
-  // the SECOND outbound call, not the first.
-  FAIL_NEXT = 2;
-  let res = await post(env, cbBody);
+  // blip: the buyer's status message fails to send (the first outbound call
+  // after the screenshot books the order).
+  const photoUpdate = msg(Number(BUYER), { id: Number(BUYER) }, { photo: [{ file_id: 'Z1' }, { file_id: 'Z2' }] });
+  FAIL_NEXT = 1;
+  let res = await post(env, photoUpdate);
   assert.equal(res.status, 200, 'worker still answers 200 despite blip');
   let orders = rows(env, 'SELECT * FROM orders');
   assert.equal(orders.length, 1, 'order booked despite blip');
@@ -910,10 +902,13 @@ console.log('\n:: scenario 5 — Telegram retries + network blips');
 
   // Telegram re-delivers the exact same update (it got a 200, but a mirror/op
   // retry or double-delivery) -> must stay at one order
-  res = await post(env, cbBody);
+  res = await post(env, photoUpdate);
   assert.equal(res.status, 200);
+  // …and a second screenshot only replaces the proof of the waiting order.
+  await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { photo: [{ file_id: 'Z3' }] }));
   orders = rows(env, 'SELECT * FROM orders');
-  assert.equal(orders.length, 1, 'same confirm update replayed -> one order');
+  assert.equal(orders.length, 1, 'same update replayed / second screenshot -> one order');
+  assert.equal(orders[0].photo_key, 'Z3', 'the newer screenshot replaced the proof');
   ok('replayed update + blip -> still exactly one order, 200s');
 
   // zero coverage: a truly concurrent double-confirm — hit the DB directly to
@@ -1399,10 +1394,12 @@ console.log('\n:: scenario 12 — broadcast, /setexpiry, reply-keyboard hint');
   assert.equal(shown.length, 1, 'Back produces exactly one visible message: ' + shown.length);
   assert.ok(JSON.stringify(shown[0].body.reply_markup || {}).includes('menu:pay'), 'and it is the menu');
 
-  // "Where is my Machine ID?" is answered in the chat, matching the real panel
-  // (there is no License tab; the Buy button sends the id for you).
+  // The waiting prompt asks for the SCREENSHOT only — never for a Machine ID —
+  // and offers the bank accounts again.
   const hintJson = JSON.stringify(hintMsg.body.reply_markup);
-  assert.ok(hintJson.includes('help:mid') && !hintJson.includes('/install'), 'help button answers in chat');
+  assert.ok(!hintJson.includes('help:mid') && hintJson.includes('menu:pay'), 'no Machine ID help; bank accounts offered');
+  assert.ok(hintMsg.body.text.includes('screenshot') && !hintMsg.body.text.includes('Machine ID'), 'asks for the screenshot, not a Machine ID');
+  // An old "Where is my Machine ID?" button still answers in the chat.
   OUTBOUND.length = 0;
   await cb(envH.env, { id: Number(BUYER) }, 'help:mid', { chatId: Number(BUYER) });
   const help = OUTBOUND.filter((o) => o.method === 'sendMessage').at(-1);
@@ -1636,8 +1633,7 @@ console.log('\n:: scenario 17 — referral programme (owner-controlled, OFF by d
   await tap(FRIEND, 'pay:proof');
   await say(FRIEND, '3f9a1c7e5b2d4086');
   await post(env, msg(Number(FRIEND), { id: Number(FRIEND) }, { photo: [{ file_id: 'P-REF' }] }));
-  assert.ok(allTo(FRIEND).includes('ETB 2,300</b> (የጓደኛ ቅናሽ'), 'review shows the friend price');
-  await tap(FRIEND, 'proof:confirm');
+  assert.ok(allTo(FRIEND).includes('Received') && allTo(FRIEND).includes('ETB 2,300'), 'received message shows the friend price');
   const o = row(env, 'SELECT * FROM orders WHERE uid=?', FRIEND);
   assert.deepEqual([o.amount_etb, o.discount_etb, o.reward_etb, o.referrer_uid], [2300, 200, 300, REFERRER], 'terms locked on the order');
   assert.ok(allTo(FRIEND).includes('ETB 2,300'), 'order-received message shows 2,300');
@@ -2267,9 +2263,8 @@ console.log('\n:: scenario 22 — the whole admin page, tapped on the REAL cards
     await cb(env, { id: Number(uid) }, 'menu:pay');
     await cb(env, { id: Number(uid) }, 'pay:proof');
     await say(uid, mid);
-    await post(env, msg(Number(uid), { id: Number(uid), username: 'u' + uid }, proof));
     const from = OUTBOUND.length;
-    await cb(env, { id: Number(uid) }, 'proof:confirm');
+    await post(env, msg(Number(uid), { id: Number(uid), username: 'u' + uid }, proof));
     const card = OUTBOUND.slice(from).find((x) => x.id && ['sendPhoto', 'sendDocument', 'sendMessage'].includes(x.method)
       && String(x.body.chat_id) === String(A));
     return { o: row(env, 'SELECT * FROM orders WHERE uid=? ORDER BY id DESC LIMIT 1', uid), card };
@@ -2364,6 +2359,148 @@ console.log('\n:: scenario 22 — the whole admin page, tapped on the REAL cards
   const refused = REFUSED.slice(refusedBefore).filter((r) => !RECOVERED(r));
   assert.deepEqual(refused.map((r) => `${r.method}: ${r.description} — ${String(r.body.text || r.body.caption || "").slice(0, 160)}`), [], 'no refused Telegram calls');
   ok('admin page: zero calls refused by Telegram in the whole walkthrough');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: scenario 23 — simple buying: no Machine ID for the customer');
+
+{
+  const { env } = fresh();
+  const A = Number(ADMIN_ID);
+  const say = (uid, text) => post(env, msg(Number(uid), { id: Number(uid), username: 'u' + uid, first_name: 'Abel' }, { text }));
+  const tap = (uid, data, messageId) => cb(env, { id: Number(uid), username: 'u' + uid }, data, { chatId: Number(uid), ...(messageId ? { messageId } : {}) });
+  const photo = (uid, id) => post(env, msg(Number(uid), { id: Number(uid), username: 'u' + uid }, { photo: [{ file_id: id }] }));
+  const toUid = (uid) => OUTBOUND.filter((x) => x.id && ['sendMessage', 'editMessageText', 'editMessageCaption'].includes(x.method) && String(x.body.chat_id) === String(uid));
+  const allTo = (uid) => toUid(uid).map((x) => x.body.text || x.body.caption || '').join('\n');
+  const lastTo = (uid) => toUid(uid).at(-1);
+  const kbOf = (m) => JSON.stringify((m && m.body.reply_markup) || {});
+  const apiJ = async (path, body, ip = '198.51.100.7') => {
+    const r = await api(env, path, { method: 'POST', body, headers: { 'CF-Connecting-IP': ip } });
+    return { http: r.status, ...(await r.json()) };
+  };
+  const approveLatest = async (uid) => {
+    const o = row(env, 'SELECT * FROM orders WHERE uid=? ORDER BY id DESC LIMIT 1', uid);
+    await cb(env, { id: A }, `approve:${o.id}`);
+    return row(env, 'SELECT * FROM orders WHERE id=?', o.id);
+  };
+
+  // A. From the panel's Buy button: nothing to type, the panel activates itself.
+  const P = '890000001';
+  const PMID = '3f9a1c7e5b2d4086';
+  const NONCE = 'Q7wErTy12345abcd';
+  OUTBOUND.length = 0;
+  await say(P, `/start m_${PMID}_${NONCE}`);
+  let t = lastTo(P);
+  assert.ok(t.body.text.includes('computer is connected') && t.body.text.includes('ETB 2,500') && t.body.text.includes('send the payment screenshot'), 'connected + price + send-the-screenshot');
+  assert.ok(!t.body.text.includes('Machine ID') && !kbOf(t).includes('Try 2 free'), 'no Machine ID talk; no trial button for someone who has the panel');
+  assert.equal((await apiJ('/api/license', { mid: PMID, nonce: NONCE })).status, 'none', 'nothing before paying');
+  await photo(P, 'AgAC-panel');
+  let o = row(env, 'SELECT * FROM orders WHERE uid=?', P);
+  assert.ok(o && o.machine_id === PMID && o.nonce === NONCE && o.status === 'pending', 'order: that computer + the panel secret');
+  assert.ok(allTo(P).includes('activates by itself'), 'buyer told the panel turns on by itself');
+  const pendingLic = await apiJ('/api/license', { mid: PMID, nonce: NONCE }, '198.51.100.8');
+  assert.ok(pendingLic.status === 'pending' && !pendingLic.key, 'pending: no key yet');
+  const wrongLic = await apiJ('/api/license', { mid: PMID, nonce: 'WRONGnonce12345' }, '198.51.100.8');
+  assert.ok(wrongLic.status === 'none' && !wrongLic.key, 'wrong secret: nothing');
+  o = await approveLatest(P);
+  assert.equal(o.status, 'approved');
+  assert.ok(allTo(P).includes('activates by itself') && allTo(P).includes('AMH-'), 'key message: activates by itself (key only as fallback)');
+  const lic = await apiJ('/api/license', { mid: PMID, nonce: NONCE }, '198.51.100.9');
+  assert.equal(lic.status, 'approved');
+  assert.equal(lic.key, keyFor(PMID), 'the panel receives its key');
+  const noKey = await apiJ('/api/license', { mid: PMID, nonce: 'WRONGnonce12345' }, '198.51.100.9');
+  assert.ok(!noKey.key, 'knowing the Machine ID alone never gets the key');
+  const v = await apiJ('/api/validate', { mid: PMID, key: lic.key }, '198.51.100.9');
+  assert.ok(v.valid === true && v.token, 'that key activates normally (signed lease)');
+  ok('simple buying: panel Buy → pay → screenshot → approve → the panel activates ITSELF (secret-protected)');
+
+  // B. From the phone: no Machine ID at all → activation code → redeemed once.
+  const F = '890000002';
+  OUTBOUND.length = 0;
+  await say(F, '/start');
+  await tap(F, 'menu:pay');
+  assert.ok(lastTo(F).body.text.includes('send the payment screenshot right here'), 'pay screen says: send the screenshot here');
+  await photo(F, 'AgAC-phone');
+  o = row(env, 'SELECT * FROM orders WHERE uid=?', F);
+  assert.ok(o && /^code-[a-z2-9]{8}$/.test(o.machine_id), 'phone order books WITHOUT a Machine ID: ' + (o && o.machine_id));
+  assert.ok(allTo(F).includes('activation code') && kbOf(lastTo(F)).includes('/install'), 'told: you get a short code; install meanwhile (button)');
+  const card = OUTBOUND.find((x) => x.method === 'sendPhoto' && String(x.body.chat_id) === String(A) && String(x.body.caption).includes('Paid from the phone'));
+  assert.ok(card, 'admin card says: paid from the phone, approving sends a code');
+  o = await approveLatest(F);
+  const codeMsg = toUid(F).map((x) => x.body.text || '').find((s) => s.includes('activation code:'));
+  const CODE = (/<code>([A-Z2-9]{4}-[A-Z2-9]{4})<\/code>/.exec(codeMsg || '') || [])[1];
+  assert.ok(CODE, 'buyer receives a short activation code: ' + CODE);
+  assert.ok(!row(env, 'SELECT 1 AS x FROM customers WHERE uid=?', F), 'no license exists until the code is used');
+  await tap(F, 'menu:mykey');
+  assert.ok(lastTo(F).body.text.includes(CODE) && lastTo(F).body.text.includes('not used yet'), 'My Key shows the unused code');
+  const FMID = 'a0b1c2d3e4f50617';
+  assert.equal((await apiJ('/api/redeem', { mid: FMID, code: 'ABCD-EFGH' }, '203.0.113.50')).reason, 'not_found', 'a wrong code is refused');
+  const red = await apiJ('/api/redeem', { mid: FMID, code: CODE.toLowerCase().replace('-', ' ') }, '203.0.113.50');
+  assert.ok(red.ok && red.key === keyFor(FMID), 'code (any case / spacing) redeems for THIS computer');
+  assert.ok((await apiJ('/api/validate', { mid: FMID, key: red.key }, '203.0.113.50')).valid, 'and activates normally');
+  assert.equal(row(env, 'SELECT machine_id FROM orders WHERE id=?', o.id).machine_id, FMID, 'order now carries the real computer');
+  assert.equal(row(env, 'SELECT machine_id FROM sales WHERE order_id=?', o.id).machine_id, FMID, 'sales ledger too');
+  assert.ok(allTo(F).includes('now activated on your computer'), 'buyer told it was activated (security signal)');
+  assert.equal((await apiJ('/api/redeem', { mid: 'ffff0000ffff0000', code: CODE }, '203.0.113.51')).reason, 'used', 'one code = one computer');
+  assert.ok((await apiJ('/api/redeem', { mid: FMID, code: CODE }, '203.0.113.51')).ok, 'the same computer can redeem again (reinstall)');
+  await tap(F, 'menu:mykey');
+  assert.ok(lastTo(F).body.text.includes(FMID) && !lastTo(F).body.text.includes('not used yet'), 'My Key now shows the license');
+  ok('simple buying: phone buyer pays with NO Machine ID → short code → typed once in the panel → licensed');
+
+  // C. A picture out of the blue asks one question first.
+  const R = '890000003';
+  OUTBOUND.length = 0;
+  await photo(R, 'AgAC-random');
+  assert.equal(row(env, 'SELECT COUNT(*) AS n FROM orders WHERE uid=?', R).n, 0, 'no order yet');
+  assert.ok(lastTo(R).body.text.includes('Is this your payment screenshot') && kbOf(lastTo(R)).includes('proof:yes'), 'asked: is this your payment?');
+  await tap(R, 'proof:yes');
+  assert.equal(row(env, 'SELECT COUNT(*) AS n FROM orders WHERE uid=?', R).n, 1, '"Yes" books the order');
+  const R2 = '890000004';
+  await photo(R2, 'AgAC-meme');
+  await tap(R2, 'proof:cancel');
+  assert.equal(row(env, 'SELECT COUNT(*) AS n FROM orders WHERE uid=?', R2).n, 0, '"No" books nothing');
+  ok('simple buying: an unexpected photo asks "is this your payment?" — Yes books, No does nothing');
+
+  // D. Paid from the phone first, pressed Buy in the panel later: linked.
+  const L = '890000005';
+  const LMID = '1122334455667788';
+  const LN = 'LinkNonce0000001';
+  await say(L, '/start');
+  await tap(L, 'menu:pay');
+  await photo(L, 'AgAC-later');
+  assert.ok(row(env, 'SELECT machine_id FROM orders WHERE uid=?', L).machine_id.startsWith('code-'), 'booked as a phone order');
+  OUTBOUND.length = 0;
+  await say(L, `/start m_${LMID}_${LN}`);
+  assert.ok(lastTo(L).body.text.includes('linked') && lastTo(L).body.text.includes('activates itself'), 'told: this computer is linked');
+  o = row(env, 'SELECT * FROM orders WHERE uid=?', L);
+  assert.ok(o.machine_id === LMID && o.nonce === LN, 'the waiting order now points at the computer');
+  await approveLatest(L);
+  const lic2 = await apiJ('/api/license', { mid: LMID, nonce: LN }, '198.51.100.20');
+  assert.equal(lic2.key, keyFor(LMID), 'approved → that panel activates itself, no code needed');
+  ok('simple buying: paid from the phone, then pressed Buy in the panel → linked → self-activates');
+
+  // E. Revoking a phone order before the code is used; restoring it.
+  const V = '890000006';
+  await say(V, '/start');
+  await tap(V, 'menu:pay');
+  await photo(V, 'AgAC-revoke');
+  o = await approveLatest(V);
+  const VCODE = o.machine_id.slice(5, 9).toUpperCase() + '-' + o.machine_id.slice(9).toUpperCase();
+  await say(ADMIN_ID, `/revoke ${o.id}`);
+  assert.equal((await apiJ('/api/redeem', { mid: 'abcdefabcdef0123', code: VCODE }, '203.0.113.60')).reason, 'revoked', 'revoked code cannot be used');
+  assert.equal(row(env, 'SELECT status FROM sales WHERE order_id=?', o.id).status, 'revoked', 'not counted as revenue');
+  await say(ADMIN_ID, `/unrevoke ${o.id}`);
+  assert.ok((await apiJ('/api/redeem', { mid: 'abcdefabcdef0123', code: VCODE }, '203.0.113.60')).ok, 'restored code works');
+  ok('simple buying: a phone order can be revoked before its code is used, and restored');
+
+  // F. Guessing codes is throttled.
+  let throttled = false;
+  for (let i = 0; i < 12; i++) {
+    const r = await apiJ('/api/redeem', { mid: 'abcdefabcdef9999', code: 'ZZZZ-ZZZ' + 'ABCDEFGHJKLM'[i] }, '203.0.113.99');
+    if (r.reason === 'throttled') throttled = true;
+  }
+  assert.ok(throttled, 'more than 10 tries in 10 minutes from one address are refused');
+  ok('simple buying: activation-code guessing is throttled per address');
 }
 
 // Across EVERY scenario: nothing may be silently refused by Telegram (a refused

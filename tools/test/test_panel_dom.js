@@ -193,7 +193,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.7.6');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.7.7');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -259,7 +259,7 @@ await t('3. license: initial trial, bad keys, activation', async () => {
     // empty key
     p.els('licenseInput').value = '   ';
     p.els('licenseActivate').fire('click');
-    assert.strictEqual(p.els('licenseStatus').textContent, 'Paste a license key first');
+    assert.strictEqual(p.els('licenseStatus').textContent, 'Paste your activation code or license key first');
 
     // garbage
     p.els('licenseInput').value = 'hello';
@@ -368,6 +368,67 @@ await t('3.6 license: legacy state is not silently upgraded or trusted', async (
     assert.strictEqual(p.els('runBtn').disabled, true, 'legacy state must not enable Generate');
     assert.strictEqual(p.els('licensedNote').style.display, 'none', 'no licensed note');
   } finally { p.close(); }
+});
+
+await t('3.7 simple buying: Buy link carries a secret, the panel activates itself, activation codes redeem', async () => {
+  let licState = 'pending';
+  let KEY = null;
+  let KEY2 = null;
+  const calls = [];
+  const f = async (url, init) => {
+    const u = String(url);
+    const body = init && init.body ? JSON.parse(init.body) : null;
+    calls.push({ u, body });
+    if (u.includes('/api/license')) return { ok: true, json: async () => (licState === 'approved' ? { status: 'approved', key: KEY } : { status: licState }) };
+    if (u.includes('/api/redeem')) return { ok: true, json: async () => (body.code === 'K7QD-3MXP' ? { ok: true, key: KEY2 } : { ok: false, reason: 'not_found' }) };
+    if (u.includes('/api/validate')) return { ok: true, json: async () => ({ valid: true, token: 'v1.x.' + '0'.repeat(128) }) };
+    if (u.includes('/api/trial')) return { ok: true, json: async () => ({ used: 0 }) };
+    return { ok: true, json: async () => ({ ok: true }) };
+  };
+
+  // Buy → Telegram /start link with this computer + a secret → waits → activates itself.
+  const p = loadPanel({ fetch: f });
+  try {
+    p.evalVm('verifyLicenseToken = async () => ({ ok: true, expiry: "00000000" });');
+    p.evalVm('var __opened = null; cep.util.openURLInDefaultBrowser = (u) => { __opened = u; };');
+    KEY = mkKey(p.mid, '00000000', '0123456789abcdef');
+    await flush(5);
+    p.els('buyBtn').fire('click', { preventDefault() {} });
+    await flush(20);
+    const opened = p.evalVm('__opened');
+    assert.match(opened, new RegExp('^https://t\\.me/AmharicCaptionsBot\\?start=m_' + p.mid + '_[A-Za-z0-9]{16}$'), 'deep link: ' + opened);
+    assert.ok(opened.length - 'https://t.me/AmharicCaptionsBot?start='.length <= 64, 'fits Telegram’s 64-char /start limit');
+    const nonce = opened.split('_').pop();
+    assert.strictEqual(JSON.parse(p.storage.getItem('amh.pendingBuy')).nonce, nonce, 'secret kept by the panel');
+    has(p.els('buyPending').textContent, 'activates itself', 'waiting note');
+    assert.deepStrictEqual(calls.filter((c) => c.u.includes('/api/license')).at(-1).body, { mid: p.mid, nonce }, 'asks with its own secret');
+    p.els('buyBtn').fire('click', { preventDefault() {} });
+    await flush(5);
+    assert.strictEqual(p.evalVm('__opened'), opened, 'a second tap reuses the same secret (no orphaned order)');
+    licState = 'approved';
+    await p.evalVm('checkPendingBuy()');
+    await flush(40);
+    assert.strictEqual(p.els('licenseStatus').textContent, 'Licensed', 'activated with nothing pasted');
+    assert.strictEqual(p.els('licensedNote').style.display, 'block');
+    assert.strictEqual(p.storage.getItem('amh.pendingBuy'), null, 'pending purchase cleared');
+  } finally { p.close(); }
+
+  // Paid from the phone: a short activation code typed into the key box.
+  const q = loadPanel({ fetch: f });
+  try {
+    q.evalVm('verifyLicenseToken = async () => ({ ok: true, expiry: "00000000" });');
+    KEY2 = mkKey(q.mid, '00000000', 'fedcba9876543210');
+    await flush(5);
+    q.els('licenseInput').value = 'ABCD-EFGH';
+    q.els('licenseActivate').fire('click');
+    await flush(20);
+    assert.strictEqual(q.els('licenseStatus').textContent, 'Activation code not found — check the letters in the bot message.');
+    q.els('licenseInput').value = ' k7qd 3mxp ';
+    q.els('licenseActivate').fire('click');
+    await flush(40);
+    assert.deepStrictEqual(calls.filter((c) => c.u.includes('/api/redeem')).at(-1).body, { mid: q.mid, code: 'K7QD-3MXP' }, 'code normalised, sent with this computer');
+    assert.strictEqual(q.els('licenseStatus').textContent, 'Licensed', 'code → key → activated');
+  } finally { q.close(); }
 });
 
 await t('4. license: exhausted trial blocks Generate', async () => {

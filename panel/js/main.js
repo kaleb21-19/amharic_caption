@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.7.6';
+const APP_VERSION = '1.7.7';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -663,21 +663,98 @@ function initSupport() {
   }
 }
 
-// Buy: open the sales bot with the Machine ID already in the message. The
-// three-step "copy / open / paste" instruction it replaces put the single
-// most error-prone action in the purchase — transcribing a 16-character id
-// into a chat by hand — on the customer.
+// ── simple buying: Buy → pay in Telegram → this panel activates itself ──────
+// The Buy button opens the bot with a /start link carrying this Machine ID and
+// a random secret (nonce) kept here. Telegram keeps a /start link through the
+// START tap — the old pre-typed message was dropped for first-time users, who
+// then had to copy a 16-character id by hand. After the payment is approved
+// the panel asks /api/license with that secret and activates by itself.
+const PENDING_BUY_KEY = 'amh.pendingBuy';
+const PENDING_BUY_DAYS = 14;
+const BUY_POLL_MS = 30000;
+let BUY_POLL = null;
+
+function getPendingBuy() {
+  try {
+    const p = JSON.parse(localStorage.getItem(PENDING_BUY_KEY) || 'null');
+    if (p && /^[A-Za-z0-9]{12,32}$/.test(String(p.nonce)) && p.mid === MACHINE_ID &&
+        Date.now() - Number(p.at || 0) < PENDING_BUY_DAYS * 86400000) return p;
+  } catch (e) { /* unreadable: treat as none */ }
+  return null;
+}
+function setPendingBuy(p) {
+  try {
+    if (p) localStorage.setItem(PENDING_BUY_KEY, JSON.stringify(p));
+    else localStorage.removeItem(PENDING_BUY_KEY);
+  } catch (e) { /* storage blocked: the key still arrives in Telegram */ }
+}
+function newBuyNonce() {
+  const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (x) => abc[x % abc.length]).join('');
+}
+function showBuyPending(text, color) {
+  const el = document.getElementById('buyPending');
+  if (!el) return;
+  el.style.display = text ? '' : 'none';
+  el.textContent = text ? L(text) : '';
+  el.style.color = color || '';
+}
+function stopBuyPoll() {
+  if (BUY_POLL) { clearInterval(BUY_POLL); BUY_POLL = null; }
+}
+async function checkPendingBuy() {
+  const p = getPendingBuy();
+  if (LICENSED) { setPendingBuy(null); stopBuyPoll(); showBuyPending(''); return; }
+  if (!p) { stopBuyPoll(); showBuyPending(''); return; }
+  const r = await apiPost('/api/license', { mid: MACHINE_ID, nonce: p.nonce });
+  if (!r) return;   // offline or busy: the next tick tries again
+  if (r.status === 'approved' && r.key) {
+    stopBuyPoll();
+    showBuyPending('✓ Payment confirmed — activating…', 'var(--ok)');
+    const input = document.getElementById('licenseInput');
+    if (input) input.value = r.key;
+    await activateLicense();
+    if (LICENSED) { setPendingBuy(null); showBuyPending(''); }
+    return;
+  }
+  if (r.status === 'pending') {
+    showBuyPending('⏳ Payment received — waiting for confirmation. This panel activates itself.', 'var(--text-secondary)');
+  } else if (r.status === 'rejected') {
+    showBuyPending('⚠️ The payment could not be confirmed — see the bot’s message in Telegram.', 'var(--err)');
+  } else if (r.status === 'revoked') {
+    showBuyPending('License revoked — contact @sumpak6 on Telegram', 'var(--err)');
+  } else {
+    showBuyPending('After paying, send the screenshot to the bot in Telegram — this panel then activates itself.', 'var(--text-secondary)');
+  }
+}
+function startBuyPoll() {
+  if (!BUY_POLL) BUY_POLL = setInterval(checkPendingBuy, BUY_POLL_MS);
+  checkPendingBuy();
+}
+
 function initBuy() {
   const b = document.getElementById('buyBtn');
   if (b) {
     b.addEventListener('click', (e) => {
       e.preventDefault();
-      const msg = encodeURIComponent(
-        'ሰላም! አማርኛ ካፕሽን ፕሮ መግዛት እፈልጋለሁ።\nMachine ID: ' + MACHINE_ID);
-      const url = 'https://t.me/AmharicCaptionsBot?text=' + msg;
+      // Reuse the secret of an unfinished purchase so a second tap never
+      // orphans the order that is already waiting.
+      let p = getPendingBuy();
+      if (!p) p = { nonce: newBuyNonce(), mid: MACHINE_ID };
+      p.at = Date.now();
+      setPendingBuy(p);
+      const url = 'https://t.me/AmharicCaptionsBot?start=m_' + MACHINE_ID + '_' + p.nonce;
       try { window.__adobe_cep__ && window.cep.util.openURLInDefaultBrowser(url); }
       catch (err) { window.open(url, '_blank'); }
+      startBuyPoll();
     });
+  }
+  // A purchase started earlier (the panel was closed meanwhile): keep checking.
+  if (getPendingBuy()) startBuyPoll();
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('focus', () => { if (getPendingBuy() && !LICENSED) checkPendingBuy(); });
   }
   // Bank details stay one tap away rather than occupying the panel by
   // default — they matter at payment time, not while reading.
@@ -1059,15 +1136,42 @@ function updateLicenseUI() {
   LICENSED_REFRESH = false;
 }
 
+// "k7qd 3mxp" / "K7QD3MXP" / "K7QD-3MXP" → "K7QD-3MXP"; null for anything else
+// (a full AMH-… license key is 40+ characters and never matches).
+function normActivationCode(s) {
+  const c = String(s || '').toUpperCase().replace(/[\s-]+/g, '');
+  return /^[A-HJ-NP-Z2-9]{8}$/.test(c) ? c.slice(0, 4) + '-' + c.slice(4) : null;
+}
+
 async function activateLicense() {
   const licInput = document.getElementById('licenseInput');
   const licStatus = document.getElementById('licenseStatus');
   if (!licInput) return;
 
-  const key = licInput.value.trim();
+  let key = licInput.value.trim();
   if (!key) {
-    if (licStatus) { licStatus.textContent = L('Paste a license key first'); licStatus.style.color = 'var(--err)'; }
+    if (licStatus) { licStatus.textContent = L('Paste your activation code or license key first'); licStatus.style.color = 'var(--err)'; }
     return;
+  }
+
+  // A short activation code (paid from the phone): redeem it once for THIS
+  // computer, then activate with the key it returns exactly like a pasted key.
+  const code = normActivationCode(key);
+  if (code) {
+    if (licStatus) { licStatus.textContent = L('Checking your activation code…'); licStatus.style.color = 'var(--text-secondary)'; licStatus.style.display = ''; }
+    const red = await apiPost('/api/redeem', { mid: MACHINE_ID, code: code });
+    const fail = (m) => { if (licStatus) { licStatus.textContent = L(m); licStatus.style.color = 'var(--err)'; licStatus.style.display = ''; } };
+    if (!red) { fail('Cannot reach the license server (or too many tries) — check the internet and try again in a few minutes.'); return; }
+    if (!red.ok || !red.key) {
+      fail({
+        used: 'This activation code was already used on another computer. Contact @sumpak6 on Telegram.',
+        revoked: 'License revoked — contact @sumpak6 on Telegram',
+        already_licensed: 'This computer already has a license — use your key from “My Key” in the bot.',
+      }[red.reason] || 'Activation code not found — check the letters in the bot message.');
+      return;
+    }
+    key = red.key;
+    licInput.value = key;
   }
 
   if (licStatus) { licStatus.textContent = L('Validating…'); licStatus.style.color = 'var(--text-secondary)'; }

@@ -174,6 +174,7 @@ const KNOWN = [
   // license
   'machineIdSection', 'machineIdDisplay', 'machineIdCopy', 'machineMismatch',
   'licensedNote', 'licenseInput', 'licenseActivate', 'licenseStatus', 'trialBanner',
+  'buyBtn', 'buyPending', 'bankDetails', 'bankBox',
   // logs
   'logDisc', 'logWrap', 'logBox',
   // footer
@@ -207,6 +208,7 @@ function makeDocument(tagFor) {
     updateGo: ['button', null], updateLater: ['button', null],
     diag: ['a', null], credits: ['a', null], onboardStart: ['button', null],
     licenseActivate: ['button', null], machineIdCopy: ['button', null],
+    buyBtn: ['button', null], bankDetails: ['a', null],
     reviewAdd: ['button', null], reviewExport: ['button', null],
     reviewDiscard: ['button', null], reviewBurn: ['button', null],
     reviewPlace: ['button', null], reviewList: ['div', null],
