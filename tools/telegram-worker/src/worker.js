@@ -284,6 +284,37 @@ function isAdmin(uid) {
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+// A Telegram message's own formatting (bold, italic, links… as "entities") →
+// Bot API HTML, with every other character escaped. Offsets are UTF-16 code
+// units, the same as JavaScript string indexes.
+const ENTITY_TAGS = {
+  bold: ['<b>', '</b>'], italic: ['<i>', '</i>'], underline: ['<u>', '</u>'],
+  strikethrough: ['<s>', '</s>'], spoiler: ['<tg-spoiler>', '</tg-spoiler>'],
+  code: ['<code>', '</code>'], pre: ['<pre>', '</pre>'], blockquote: ['<blockquote>', '</blockquote>'],
+};
+function entitiesToHtml(text, entities) {
+  text = String(text || '');
+  const opens = {};
+  const closes = {};
+  for (const e of entities || []) {
+    let tags = ENTITY_TAGS[e.type];
+    if (e.type === 'text_link' && /^https?:\/\//i.test(String(e.url || ''))) {
+      tags = [`<a href="${esc(e.url).replace(/"/g, '&quot;')}">`, '</a>'];
+    }
+    if (!tags || !(e.length > 0)) continue;
+    (opens[e.offset] = opens[e.offset] || []).push({ tag: tags[0], len: e.length });
+    (closes[e.offset + e.length] = closes[e.offset + e.length] || []).unshift({ tag: tags[1], len: e.length });
+  }
+  let out = '';
+  for (let i = 0; i <= text.length; i++) {
+    // Inner (shorter) entities close first; outer (longer) ones open first.
+    if (closes[i]) out += closes[i].sort((a, b) => a.len - b.len).map((x) => x.tag).join('');
+    if (opens[i]) out += opens[i].sort((a, b) => b.len - a.len).map((x) => x.tag).join('');
+    if (i < text.length) out += esc(text[i]);
+  }
+  return out;
+}
+
 // ── menu text (port from bot.py) ────────────────────────────────────────────
 function heroText(first = '', offer = null) {
   const name = first ? `${esc(first)}, ` : '';
@@ -1674,15 +1705,48 @@ async function payReferrer(key) {
 // ── message senders (never throw: an outbound failure must not abort the
 // ─────────────────── handler or bubble up into a Telegram 500 retry loop) ──
 function safeSend(promise) { return promise.catch(() => ({ ok: false })); }
-function sendText(chatId, text, kb) {
+// Safety net: a formatting mistake (a bare "&" or "<") makes Telegram refuse
+// the WHOLE message, and the screen silently never appears. Retry the same
+// words as plain text so a screen can never go missing over formatting.
+const refusedFormatting = (r) => !!(r && !r.ok && /parse entities/i.test(String(r.description || '')));
+function plainText(html) {
+  return String(html).replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+}
+async function sendText(chatId, text, kb) {
   const params = { chat_id: chatId, text, parse_mode: 'HTML' };
   if (kb) params.reply_markup = { inline_keyboard: kb };
-  return safeSend(tg(TOKEN, 'sendMessage', params));
+  const r = await safeSend(tg(TOKEN, 'sendMessage', params));
+  if (!refusedFormatting(r)) return r;
+  log('error', 'html_refused', { method: 'sendMessage', err: r.description });
+  delete params.parse_mode;
+  return safeSend(tg(TOKEN, 'sendMessage', { ...params, text: plainText(text) }));
 }
-function editText(chatId, messageId, text, kb) {
+// Edit a message in place. Order cards with the payment screenshot are photo /
+// document messages: they have a CAPTION, not text, and editMessageText is
+// refused on them — Approve / Decline then changed nothing on screen. So a
+// refused text edit is retried as a caption edit, and failing that the result
+// is sent as a new message, so every tap visibly does something.
+async function editText(chatId, messageId, text, kb) {
   const params = { chat_id: chatId, message_id: messageId, text, parse_mode: 'HTML' };
   if (kb) params.reply_markup = { inline_keyboard: kb };
-  return safeSend(tg(TOKEN, 'editMessageText', params));
+  let r = await safeSend(tg(TOKEN, 'editMessageText', params));
+  if (refusedFormatting(r)) {
+    log('error', 'html_refused', { method: 'editMessageText', err: r.description });
+    const { parse_mode, ...plain } = params;
+    r = await safeSend(tg(TOKEN, 'editMessageText', { ...plain, text: plainText(text) }));
+  }
+  if (r && !r.ok && /no text in the message/i.test(String(r.description || ''))) {
+    const { text: _t, ...base } = params;
+    const fits = String(text).length <= 1024;
+    const capParams = fits
+      ? { ...base, caption: text }
+      : (({ parse_mode, ...p }) => ({ ...p, caption: plainText(text).slice(0, 1020) + '…' }))(base);
+    const c = await safeSend(tg(TOKEN, 'editMessageCaption', capParams));
+    if (c && c.ok) return c;
+    return sendText(chatId, text, kb);
+  }
+  return r;
 }
 // Swap only the buttons on an existing message. The order card can be a PHOTO
 // (the payment screenshot) as well as text, and editMessageText fails on a
@@ -1711,10 +1775,27 @@ function editKeyboard(chatId, messageId, kb) {
   }));
 }
 
-function sendPhoto(chatId, photo, caption, kb) {
-  const params = { chat_id: chatId, photo, caption, parse_mode: 'HTML' };
-  if (kb) params.reply_markup = { inline_keyboard: kb };
-  return safeSend(tg(TOKEN, 'sendPhoto', params));
+// Payment-proof card for the admin. A screenshot sent "as a file" has a
+// Document file_id (BQAC…), and Telegram refuses it in sendPhoto — the admin
+// used to get nothing: no card, no buttons, an empty detail view. So: photo →
+// document → plain text with Telegram's reason. The buttons always arrive.
+async function sendPhoto(chatId, photo, caption, kb) {
+  const markup = kb ? { reply_markup: { inline_keyboard: kb } } : {};
+  const r = await safeSend(tg(TOKEN, 'sendPhoto', { chat_id: chatId, photo, caption, parse_mode: 'HTML', ...markup }));
+  if (r && r.ok) return r;
+  const d = await safeSend(tg(TOKEN, 'sendDocument', { chat_id: chatId, document: photo, caption, parse_mode: 'HTML', ...markup }));
+  if (d && d.ok) return d;
+  const why = String((r && r.description) || (d && d.description) || 'unknown');
+  log('error', 'proof_send_failed', { photo: r && r.description, document: d && d.description });
+  const t = await sendText(chatId,
+    caption + `\n\n⚠️ <i>Screenshot could not be shown (${esc(why)}).</i>`, kb);
+  if (t && t.ok) return t;
+  // Last resort: the caption itself was refused (bad HTML) — send it as plain text.
+  return safeSend(tg(TOKEN, 'sendMessage', {
+    chat_id: chatId,
+    text: String(caption).replace(/<[^>]+>/g, '') + `\n\n⚠️ Screenshot could not be shown (${why}).`,
+    ...markup,
+  }));
 }
 function answerCb(id, text) {
   return safeSend(tg(TOKEN, 'answerCallbackQuery', { callback_query_id: id, text: text || '' }));
@@ -1965,7 +2046,9 @@ async function handleMessage(msg, env) {
     const bd = await kvGet('bcast:await:' + uid);
     if (bd && !lower.startsWith('/')) {
       await kvDel('bcast:await:' + uid);
-      await draftBroadcast(chatId, text);
+      // The owner's words exactly as typed ("Premiere & After Effects" used to
+      // be refused by Telegram), keeping the bold / italic / links they set.
+      await draftBroadcast(chatId, entitiesToHtml(msg.text || '', msg.entities).trim());
       return;
     }
     const pm = await kvGet('pmsg:await:' + uid);
@@ -2964,7 +3047,7 @@ async function adminSales(chatId, messageId) {
     ? months.map((r) => `   ${r.m}: ${r.n} · ETB ${money(r.etb || 0)}`).join('\n')
     : '   (no sales yet)';
   const text =
-    '📈 <b>Sales & Funnel</b>\n\n' +
+    '📈 <b>Sales &amp; Funnel</b>\n\n' +
     `💵 <b>All time:</b> ${all ? all.n : 0} sale(s) = <b>ETB ${money(all ? all.etb : 0)}</b>` +
     `${revoked && revoked.n ? `\n🚫 Revoked / refunded: ${revoked.n}` : ''}${refLine}\n\n` +
     '<b>By month:</b>\n' + monthLines + '\n\n' +
@@ -3135,7 +3218,7 @@ async function approve(chatId, messageId, orderId, cbId) {
 
   const left = await pendingCount();
   await editText(chatId, messageId, delivered
-    ? (`✅ <b>Approved #${orderId}</b> — key delivered & logged.\n` +
+    ? (`✅ <b>Approved #${orderId}</b> — key delivered and logged.\n` +
        `Machine ID: <code>${esc(o.machine_id)}</code> · @${esc(o.username)} · DM: ✅\n` +
        `${left ? `📥 ${left} request(s) left in queue.` : '🎉 Queue is clear.'}`)
     : (`⚠️ <b>Approved #${orderId}</b> — key stored, delivery failed.\n` +

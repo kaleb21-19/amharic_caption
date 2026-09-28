@@ -136,6 +136,58 @@ function makeKV() {
 const OUTBOUND = []; // {method, body, id}
 let MSG = 0;
 let FAIL_NEXT = 0; // N outbound calls fail with {ok:false}
+const MEDIA = new Set();   // message ids that are photos/documents (no text to edit)
+const REFUSED = [];        // every call the strict fake refused, for the admin audit
+const HTML_TAGS = new Set(['b', 'strong', 'i', 'em', 'u', 'ins', 's', 'strike', 'del', 'code', 'pre', 'a', 'tg-spoiler', 'span', 'blockquote']);
+// The Bot API's HTML rules: known tags only, balanced, and every & < > escaped.
+function htmlError(s) {
+  s = String(s);
+  const stack = [];
+  const re = /<(\/?)([a-zA-Z-]+)([^>]*)>|<|&(#\d+|#x[0-9a-fA-F]+|[a-zA-Z]+);|&/g;
+  let m;
+  while ((m = re.exec(s))) {
+    if (m[0] === '<') return "Bad Request: can't parse entities: unexpected '<'";
+    if (m[0] === '&') return "Bad Request: can't parse entities: unescaped '&'";
+    if (m[0].startsWith('&')) {
+      if (!/^(#|lt$|gt$|amp$|quot$)/.test(m[4] || m[0].slice(1, -1))) return `Bad Request: can't parse entities: unsupported entity ${m[0]}`;
+      continue;
+    }
+    const tag = m[2].toLowerCase();
+    if (!HTML_TAGS.has(tag)) return `Bad Request: can't parse entities: unsupported start tag "${tag}"`;
+    if (m[1]) {
+      if (stack.pop() !== tag) return `Bad Request: can't parse entities: can't find end tag corresponding to start tag`;
+    } else stack.push(tag);
+  }
+  return stack.length ? "Bad Request: can't parse entities: can't find end tag" : null;
+}
+function tgRefusal(method, body) {
+  const kb = body.reply_markup && (typeof body.reply_markup === 'string' ? JSON.parse(body.reply_markup) : body.reply_markup);
+  for (const r of (kb && kb.inline_keyboard) || []) {
+    for (const b of r) {
+      if (!b.text) return 'Bad Request: text buttons are unallowed in the inline keyboard';
+      if (b.callback_data != null && Buffer.byteLength(String(b.callback_data)) > 64) return 'Bad Request: BUTTON_DATA_INVALID';
+    }
+  }
+  const html = body.parse_mode === 'HTML';
+  if (method === 'sendMessage' || method === 'editMessageText') {
+    if (!String(body.text || '').trim()) return 'Bad Request: message text is empty';
+    if (String(body.text).length > 4096) return 'Bad Request: message is too long';
+    if (html) { const e = htmlError(body.text); if (e) return e; }
+  }
+  if (method === 'editMessageText' && MEDIA.has(`${body.chat_id}:${body.message_id}`)) return 'Bad Request: there is no text in the message to edit';
+  if (method === 'sendPhoto' || method === 'sendDocument' || method === 'editMessageCaption') {
+    if (String(body.caption || '').length > 1024) return 'Bad Request: message caption is too long';
+    if (html && body.caption) { const e = htmlError(body.caption); if (e) return e; }
+  }
+  if (method === 'sendPhoto' && String(body.photo).startsWith('BQAC')) return "Bad Request: can't use file of type Document as Photo";
+  if (method === 'sendDocument' && String(body.document).startsWith('AgAC')) return "Bad Request: can't use file of type Photo as Document";
+  return null;
+}
+// Refusals the bot is BUILT to recover from (asserted where they happen): a
+// file sent as a photo → re-sent as a document; a text edit on a photo card →
+// redone as a caption edit.
+const RECOVERED = (r) => (r.method === 'sendPhoto' && String(r.body.photo).startsWith('BQAC'))
+  || (r.method === 'editMessageText' && /no text in the message/.test(r.description));
 const realFetch = globalThis.fetch;
 // fake api.github.com releases/latest (update-available notice)
 const GH = { calls: 0, status: 200, body: { tag_name: 'v1.8.0' } };
@@ -157,8 +209,18 @@ globalThis.fetch = async (url, init = {}) => {
   const entry = { method, body, id: null };
   OUTBOUND.push(entry);
   if (FAIL_NEXT > 0) { FAIL_NEXT--; return { ok: false, json: async () => ({ ok: false }) }; }
+  // Strict like the real Bot API: these refusals used to pass unnoticed here
+  // while production silently showed the admin nothing.
+  const refuse = (description) => {
+    entry.refused = description;
+    REFUSED.push({ method, description, body });
+    return { ok: false, json: async () => ({ ok: false, error_code: 400, description }) };
+  };
+  const bad = tgRefusal(method, body);
+  if (bad) return refuse(bad);
   MSG++;
   entry.id = MSG;
+  if (method === 'sendPhoto' || method === 'sendDocument') MEDIA.add(`${body.chat_id}:${MSG}`);
   if (method === 'editMessageText' || method === 'editMessageCaption') {
     return { ok: true, json: async () => ({ ok: true, result: { message_id: body.message_id, chat: { id: body.chat_id } } }) };
   }
@@ -1490,14 +1552,14 @@ console.log('\n:: scenario 16 — permanent sales ledger survives the 30-day ord
 
   OUTBOUND.length = 0;
   await cb(env, { id: Number(ADMIN_ID) }, 'admin:sales');
-  let salesMsg = OUTBOUND.filter((x) => (x.body.text || '').includes('Sales & Funnel')).at(-1);
+  let salesMsg = OUTBOUND.filter((x) => (x.body.text || '').includes('Sales &amp; Funnel')).at(-1);
   assert.ok(salesMsg.body.text.includes('All time:</b> 1 sale(s) = <b>ETB 2,500'), 'all-time revenue includes old sales: ' + salesMsg.body.text);
 
   // A revoked (refunded / fraud) sale stops counting as revenue.
   await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: `/revoke-mid ${mid}` }));
   OUTBOUND.length = 0;
   await cb(env, { id: Number(ADMIN_ID) }, 'admin:sales');
-  salesMsg = OUTBOUND.filter((x) => (x.body.text || '').includes('Sales & Funnel')).at(-1);
+  salesMsg = OUTBOUND.filter((x) => (x.body.text || '').includes('Sales &amp; Funnel')).at(-1);
   assert.ok(salesMsg.body.text.includes('All time:</b> 0 sale(s)') && salesMsg.body.text.includes('Revoked / refunded: 1'),
     'revoked sale excluded and counted separately');
 
@@ -2178,5 +2240,148 @@ console.log('\n:: scenario 21 — partner management polish (bank safety, pause,
   ok('partner polish: 23 partners — list pages of 10 with totals; monthly reports 10 per run, once each');
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: scenario 22 — the whole admin page, tapped on the REAL cards (strict Telegram)');
+
+{
+  const { env } = fresh();
+  const refusedBefore = REFUSED.length;
+  const A = Number(ADMIN_ID);
+  const say = (uid, text) => post(env, msg(Number(uid), { id: Number(uid), username: 'u' + uid }, { text }));
+  const VISIBLE = ['sendMessage', 'editMessageText', 'editMessageCaption', 'editMessageReplyMarkup', 'sendPhoto', 'sendDocument'];
+  // Tap a button as the admin (optionally ON a given message) → what the admin now SEES.
+  const tapA = async (data, messageId) => {
+    const from = OUTBOUND.length;
+    await cb(env, { id: A }, data, { chatId: A, ...(messageId ? { messageId } : {}) });
+    return OUTBOUND.slice(from).filter((x) => x.id && VISIBLE.includes(x.method) && String(x.body.chat_id) === String(A));
+  };
+  const sayA = async (text) => {
+    const from = OUTBOUND.length;
+    await say(A, text);
+    return OUTBOUND.slice(from).filter((x) => x.id && VISIBLE.includes(x.method) && String(x.body.chat_id) === String(A));
+  };
+  const textOf = (xs) => xs.map((x) => x.body.text || x.body.caption || '').join('\n');
+  const kbOf = (xs) => xs.map((x) => String(typeof x.body.reply_markup === 'string' ? x.body.reply_markup : JSON.stringify(x.body.reply_markup || ''))).join('\n');
+  const buy = async (uid, mid, proof) => {
+    await say(uid, '/start');
+    await cb(env, { id: Number(uid) }, 'menu:pay');
+    await cb(env, { id: Number(uid) }, 'pay:proof');
+    await say(uid, mid);
+    await post(env, msg(Number(uid), { id: Number(uid), username: 'u' + uid }, proof));
+    const from = OUTBOUND.length;
+    await cb(env, { id: Number(uid) }, 'proof:confirm');
+    const card = OUTBOUND.slice(from).find((x) => x.id && ['sendPhoto', 'sendDocument', 'sendMessage'].includes(x.method)
+      && String(x.body.chat_id) === String(A));
+    return { o: row(env, 'SELECT * FROM orders WHERE uid=? ORDER BY id DESC LIMIT 1', uid), card };
+  };
+
+  // 1. Screenshot sent AS A FILE (Telegram id BQAC…) — the real @panda21k case.
+  const FILE_BUYER = '870000001';
+  const f = await buy(FILE_BUYER, '4cba71e3', { document: { file_id: 'BQACAgQAAxkBAAIFile', mime_type: 'image/png', file_name: 'Screenshot.png' } });
+  assert.ok(f.o && f.o.status === 'pending' && f.o.photo_key.startsWith('BQAC'), 'order saved with the file id');
+  assert.ok(f.card && f.card.method === 'sendDocument', 'admin gets the card as a document (photo refused): ' + (f.card && f.card.method));
+  assert.ok(kbOf([f.card]).includes(`approve:${f.o.id}`) && kbOf([f.card]).includes(`reject:${f.o.id}`) && kbOf([f.card]).includes(`admin:detail:${f.o.id}`), 'with Approve / Decline / Details');
+  ok('admin page: a screenshot sent as a FILE still reaches the admin with Approve / Decline / Details');
+
+  // 2. A normal photo.
+  const PHOTO_BUYER = '870000002';
+  const p = await buy(PHOTO_BUYER, '5d6e7f8091a2b3c4', { photo: [{ file_id: 'AgACAgQAAxkBAAIPhoto' }] });
+  assert.ok(p.card && p.card.method === 'sendPhoto', 'normal photo card');
+  ok('admin page: a normal photo arrives as a photo card');
+
+  // 3. Dashboard, Requests, History, Details — every screen shows something.
+  let s = await sayA('/start');
+  assert.ok(textOf(s).includes('Admin · Dashboard') && kbOf(s).includes('Requests (2)'), 'dashboard: Requests (2)');
+  s = await tapA('admin:queue');
+  assert.equal(s.filter((x) => kbOf([x]).includes('approve:')).length, 2, 'Requests: both cards, with buttons');
+  assert.ok(s.some((x) => x.method === 'sendDocument') && s.some((x) => x.method === 'sendPhoto'), 'file card + photo card');
+  s = await tapA('admin:history');
+  assert.ok(textOf(s).includes('History') && kbOf(s).includes(`admin:detail:${f.o.id}`), 'history lists the orders');
+  s = await tapA(`admin:detail:${f.o.id}`);
+  assert.ok(s.length && kbOf(s).includes(`approve:${f.o.id}`), 'history → order detail shows the card with Approve / Decline');
+  s = await tapA('admin:panel');
+  assert.ok(textOf(s).includes('Dashboard'), 'back to the dashboard');
+  ok('admin page: dashboard → Requests → History → order detail all show, with buttons');
+
+  // 4. Approve ON the file card: key to the buyer, and the card itself changes.
+  s = await tapA(`approve:${f.o.id}`, f.card.id);
+  assert.equal(row(env, 'SELECT status FROM orders WHERE id=?', f.o.id).status, 'approved');
+  assert.ok(row(env, 'SELECT key FROM customers WHERE machine_id=?', '4cba71e3'), 'license issued');
+  assert.ok(OUTBOUND.some((x) => x.id && String(x.body.chat_id) === FILE_BUYER && String(x.body.text || '').includes('AMH-')), 'buyer got the key');
+  assert.ok(s.some((x) => x.method === 'editMessageCaption' && String(x.body.caption).includes('Approved')), 'the admin card now says Approved');
+  ok('admin page: ✅ Approve on the real card issues the key AND visibly updates the card');
+
+  // 5. Decline ON the photo card: reason picker, then the card changes; buyer told.
+  s = await tapA(`reject:${p.o.id}`, p.card.id);
+  assert.ok(s.some((x) => x.method === 'editMessageReplyMarkup' && kbOf([x]).includes(`rej:photo:${p.o.id}`)), 'reason buttons appear on the card');
+  s = await tapA(`rej:photo:${p.o.id}`, p.card.id);
+  assert.equal(row(env, 'SELECT status FROM orders WHERE id=?', p.o.id).status, 'rejected');
+  assert.ok(s.some((x) => x.method === 'editMessageCaption' && String(x.body.caption).includes('Declined')), 'the card now says Declined');
+  assert.ok(OUTBOUND.some((x) => x.id && String(x.body.chat_id) === PHOTO_BUYER && String(x.body.text || '').includes('Reason')), 'buyer told why');
+  s = await tapA(`admin:detail:${p.o.id}`);
+  assert.ok(kbOf(s).includes(`approve:${p.o.id}`), 'declined order offers Approve anyway');
+  const detailCard = s.find((x) => x.method === 'sendPhoto');
+  s = await tapA(`approve:${p.o.id}`, detailCard.id);
+  assert.equal(row(env, 'SELECT status FROM orders WHERE id=?', p.o.id).status, 'approved');
+  assert.ok(s.some((x) => textOf([x]).includes('Approved')), 'approve-anyway visible');
+  ok('admin page: ❌ Decline (reason → buyer told) and ✅ Approve anyway, all on the real cards');
+
+  // 6. Revoke / restore from buttons and commands; /find.
+  s = await tapA(`admin:revoke:${f.o.id}`);
+  assert.equal(row(env, 'SELECT revoked FROM customers WHERE machine_id=?', '4cba71e3').revoked, 1);
+  assert.ok(s.length, 'revoke visible');
+  s = await tapA(`admin:unrevoke:${f.o.id}`);
+  assert.equal(row(env, 'SELECT revoked FROM customers WHERE machine_id=?', '4cba71e3').revoked, 0);
+  s = await sayA('/find 4cba71e3');
+  assert.ok(textOf(s).includes('Licensed'), '/find shows the buyer');
+  s = await sayA(`/revoke ${f.o.id}`);
+  assert.ok(s.length, '/revoke answers');
+  s = await sayA(`/unrevoke ${f.o.id}`);
+  assert.ok(s.length, '/unrevoke answers');
+  ok('admin page: revoke / restore (buttons and commands) and /find');
+
+  // 7. Every other admin screen answers visibly.
+  for (const data of ['admin:sales', 'admin:sales-export', 'admin:export', 'admin:ref', 'admin:ref-pay',
+    'admin:partners', 'admin:history', 'admin:histp:0', 'admin:queue', 'admin:panel']) {
+    s = await tapA(data);
+    assert.ok(s.length, `${data} shows something`);
+  }
+  await tapA('admin:broadcast');
+  // Typed with & and <, and a word made bold in Telegram (an entity).
+  {
+    const from = OUTBOUND.length;
+    await post(env, msg(A, { id: A }, { text: 'New: Premiere & After Effects <3 — update now', entities: [{ type: 'bold', offset: 5, length: 8 }] }));
+    s = OUTBOUND.slice(from).filter((x) => x.id && String(x.body.chat_id) === String(A));
+  }
+  assert.ok(textOf(s).includes('New: <b>Premiere</b> &amp; After Effects &lt;3 — update now'), 'preview keeps the words and the bold: ' + textOf(s));
+  assert.ok(kbOf(s).includes('bcast-send'), 'broadcast preview has Send');
+  const bid = (kbOf(s).match(/bcast-cancel:(\d+)/) || [])[1];
+  s = await tapA(`admin:bcast-cancel:${bid}`);
+  assert.ok(s.length, 'broadcast cancel visible');
+  ok('admin page: Sales, exports, Referrals, Pay rewards, Partners, paging, Broadcast — every screen answers');
+
+  // 8. Nothing refused except the expected photo→file fallback the bot recovered from.
+  const refused = REFUSED.slice(refusedBefore).filter((r) => !RECOVERED(r));
+  assert.deepEqual(refused.map((r) => `${r.method}: ${r.description} — ${String(r.body.text || r.body.caption || "").slice(0, 160)}`), [], 'no refused Telegram calls');
+  ok('admin page: zero calls refused by Telegram in the whole walkthrough');
+}
+
+// Across EVERY scenario: nothing may be silently refused by Telegram (a refused
+// call is a screen the user never sees). Only the recovered photo→file case.
+{
+  const bad = REFUSED.filter((r) => !RECOVERED(r));
+  assert.deepEqual(bad.map((r) => `${r.method}: ${r.description} — ${String(r.body.text || r.body.caption || '').slice(0, 80)}`), [],
+    'Telegram refused calls somewhere in the suite');
+  ok('whole suite: no message or screen anywhere is refused by Telegram');
+}
+
+if (process.env.TG_AUDIT) {
+  const g = {};
+  for (const r of REFUSED) {
+    const k = `${r.method} | ${r.description}`;
+    (g[k] = g[k] || []).push(String(r.body.text || r.body.caption || r.body.photo || '').slice(0, 300));
+  }
+  for (const [k, v] of Object.entries(g)) console.log(`AUDIT ${v.length}x ${k}\n      e.g. ${JSON.stringify(v[0])}`);
+}
 console.log('\n' + PASS.length + ' checks — all green ✅');
 console.log('PASSED: ' + PASS.join(' · '));
