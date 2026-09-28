@@ -501,3 +501,28 @@ Needs migration 0016. Independent of the buyer-referral ON/OFF switch.
   a purchase, no longer holds a person — a new link can take over.
 - Partner page and `/partners` show **this month** and conversion
   (opened → bought).
+
+## Partner management centre (migration 0018)
+
+`/partners` → tap a partner (or `/partnerinfo EDITGROUP`) for the **partner
+card**: Telegram @username + id + connect date, terms and tier progress,
+**bank account**, private note, performance (opened / bought / conversion /
+this month / revenue they brought), rewards (earned / paid / owed → payable
+now + next date), the latest sales with each reward's state, and the payout
+history. Buttons:
+
+| Button | Does |
+|---|---|
+| ⏸ Pause / ▶ Resume | stop / restart their link |
+| 💰 Pay N ብር | marks what is payable now as paid and tells them (transfer first) |
+| ✉️ Message | your next text goes to them from the bot (`/pmsg CODE text` too) |
+| 📊 Send report | this month's statement to the partner |
+| 📄 All sales | every sale: order, date, price, reward, status |
+| 📨 Links | the private + public links again |
+| 📝 Note / terms help | `/partnernote CODE text` (`-` clears), terms, rename |
+| ♻ New phone | asks to confirm, then a new private link; history kept |
+
+- When a partner writes to the bot, the message is **forwarded to you** with
+  a ✉️ Reply button.
+- On the **1st of every month** each connected partner automatically gets
+  last month's statement (sales, earned, paid, owed).

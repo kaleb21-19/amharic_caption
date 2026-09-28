@@ -88,6 +88,7 @@ class D1 {
     this.db.exec(readFileSync(new URL('../migrations/0015_referrals.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0016_partners.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0017_referral_quotes.sql', import.meta.url), 'utf8'));
+    this.db.exec(readFileSync(new URL('../migrations/0018_partner_profile.sql', import.meta.url), 'utf8'));
     this.db.exec("ALTER TABLE customers ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0"); // migration 0008
   }
   prepare(sql) {
@@ -1933,6 +1934,118 @@ console.log('\n:: scenario 19 — partner links v2 (launch-day safety, new phone
   await say('830000096', '/start');
   assert.ok(!lastTo('830000096').body.text.includes('ℹ️'), 'a plain /start has no note');
   ok('links explain themselves: existing customer / paused or unknown link / own link');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: scenario 20 — partner management centre (card, messages, statements, notes)');
+
+{
+  const { env, kv } = fresh();
+  const OWNER = '840000001';
+  const say = (uid, text, username) => post(env, msg(Number(uid), { id: Number(uid), username: username || 'u' + uid }, { text }));
+  const tap = (uid, data) => cb(env, { id: Number(uid) }, data, { chatId: Number(uid) });
+  const toUid = (uid) => OUTBOUND.filter((x) => ['sendMessage', 'editMessageText'].includes(x.method)
+    && String(x.body.chat_id) === String(uid));
+  const lastTo = (uid) => toUid(uid).at(-1);
+  const allTo = (uid) => toUid(uid).map((x) => x.body.text || '').join('\n');
+  const kbOf = (m) => JSON.stringify((m && m.body.reply_markup) || {});
+  const sell = async (uid, mid, file) => {
+    await say(uid, '/start r_EDITGROUP');
+    await tap(uid, 'menu:pay');
+    await tap(uid, 'pay:proof');
+    await say(uid, mid);
+    await post(env, msg(Number(uid), { id: Number(uid) }, { photo: [{ file_id: file }] }));
+    await tap(uid, 'proof:confirm');
+    const o = row(env, 'SELECT * FROM orders WHERE uid=? ORDER BY id DESC LIMIT 1', uid);
+    await tap(ADMIN_ID, `approve:${o.id}`);
+    return o;
+  };
+
+  await say(ADMIN_ID, '/partner EDITGROUP Editors Ethiopia');
+  const token = row(env, "SELECT claim_token FROM partners WHERE code='EDITGROUP'").claim_token;
+  await say(OWNER, '/start p_' + token, 'group_owner');
+  const pr = row(env, "SELECT tg_username, connected_at FROM partners WHERE code='EDITGROUP'");
+  assert.ok(pr.tg_username === '@group_owner' && pr.connected_at, 'who and when are recorded at connect');
+  await tap(OWNER, 'ref:payout');
+  await say(OWNER, 'CBE 1000123456789 Abebe Kebede');
+  const o1 = await sell('840000011', '3f9a1c7e5b2d4086', 'P-C1');
+  const o2 = await sell('840000012', '7e2b9f4a1c6d3e58', 'P-C2');
+  env.DB.prepare("UPDATE referral_rewards SET earned_at=datetime('now','-15 days') WHERE order_id=?").bind(o1.id).run();
+
+  // The list leads to the card; the card has identity, terms, bank, performance,
+  // each sale with its reward state, payouts and every action.
+  OUTBOUND.length = 0;
+  await tap(ADMIN_ID, 'admin:partners');
+  assert.ok(kbOf(lastTo(ADMIN_ID)).includes('admin:partner:EDITGROUP'), 'list → card button');
+  await tap(ADMIN_ID, 'admin:partner:EDITGROUP');
+  let card = lastTo(ADMIN_ID).body.text;
+  for (const want of ['@group_owner', 'CBE 1000123456789', '300 ብር</b>/sale', 'bought 2', 'ETB 4,600',
+    '💰 payable now', '⏳ payable', '#' + o1.id, '#' + o2.id, 'payable now <b>300 ብር</b>']) {
+    assert.ok(card.includes(want), 'card shows ' + want + '\n' + card);
+  }
+  for (const btn of ['partner-toggle:EDITGROUP:card', 'partner-pay:EDITGROUP', 'partner-msg:EDITGROUP',
+    'partner-report:EDITGROUP', 'partner-sales:EDITGROUP', 'partner-reset:EDITGROUP']) {
+    assert.ok(kbOf(lastTo(ADMIN_ID)).includes(btn), 'card button ' + btn);
+  }
+  ok('partner centre: the card shows who, terms, bank, performance, revenue, each sale and every action');
+
+  // Pay from the card: only what is payable; the partner is told; history shows it.
+  OUTBOUND.length = 0;
+  await tap(ADMIN_ID, 'admin:partner-pay:EDITGROUP');
+  assert.equal(row(env, 'SELECT status FROM referral_rewards WHERE order_id=?', o1.id).status, 'paid');
+  assert.equal(row(env, 'SELECT status FROM referral_rewards WHERE order_id=?', o2.id).status, 'earned', 'inside the window: not paid');
+  assert.ok(allTo(OWNER).includes('300 ብር ተልኮልዎታል'), 'partner told');
+  card = lastTo(ADMIN_ID).body.text;
+  assert.ok(card.includes('✅ paid') && card.includes('💸 Payouts') && card.includes('<b>300 ብር</b> (1 sale)'), 'payout history on the card');
+  ok('partner centre: 💰 Pay from the card pays only what is due, tells the partner, logs the payout');
+
+  // Messages both ways.
+  OUTBOUND.length = 0;
+  await tap(ADMIN_ID, 'admin:partner-msg:EDITGROUP');
+  await say(ADMIN_ID, 'New promo this week: please pin the post <3');
+  assert.ok(allTo(OWNER).includes('From Amharic Captions Pro') && allTo(OWNER).includes('please pin the post &lt;3'), 'partner receives it (escaped)');
+  assert.ok(lastTo(ADMIN_ID).body.text.includes('Sent to'), 'owner sees it was sent');
+  await say(ADMIN_ID, '/pmsg EDITGROUP Thanks for the 2 sales!');
+  assert.ok(allTo(OWNER).includes('Thanks for the 2 sales!'), '/pmsg shortcut');
+  await tap(ADMIN_ID, 'admin:partner-msg:EDITGROUP');
+  await say(ADMIN_ID, '/start');
+  await say(ADMIN_ID, 'this should not be sent');
+  assert.ok(!allTo(OWNER).includes('should not be sent'), '/start cancels a message being written');
+  OUTBOUND.length = 0;
+  await say(OWNER, 'Hi, can I get a new banner for the group?', 'group_owner');
+  assert.ok(allTo(ADMIN_ID).includes('From partner EDITGROUP') && allTo(ADMIN_ID).includes('new banner'), 'partner → owner forwarded');
+  assert.ok(lastTo(OWNER).body.text.includes('ለቡድኑ ደርሷል'), 'partner told it arrived');
+  ok('partner centre: owner ↔ partner messages through the bot (✉️ button, /pmsg, forwarding)');
+
+  // Statement on demand + automatic on the 1st (not on the first run after deploy).
+  OUTBOUND.length = 0;
+  await tap(ADMIN_ID, 'admin:partner-report:EDITGROUP');
+  assert.ok(allTo(OWNER).includes('Monthly report') && allTo(OWNER).includes('owed 300'), 'statement sent on demand');
+  OUTBOUND.length = 0;
+  await worker.scheduled({ cron: '0 */6 * * *' }, env);
+  assert.ok(!allTo(OWNER).includes('Monthly report'), 'first cron run after deploy only records the month');
+  env.DB.prepare("UPDATE settings SET value='2000-01' WHERE key='partner_report_month'").run();
+  await worker.scheduled({ cron: '0 */6 * * *' }, env);
+  await worker.scheduled({ cron: '0 */6 * * *' }, env);
+  assert.equal(toUid(OWNER).filter((x) => (x.body.text || '').includes('Monthly report')).length, 1, 'one automatic statement per month');
+  ok('partner centre: statements on demand and automatically once a month');
+
+  // Note, all-sales list, reset needs a confirmation.
+  await say(ADMIN_ID, '/partnernote EDITGROUP agreed 400 after 20; prefers CBE');
+  assert.ok(lastTo(ADMIN_ID).body.text.includes('agreed 400 after 20'), 'note on the card');
+  await say(ADMIN_ID, '/partnernote EDITGROUP -');
+  assert.equal(row(env, "SELECT note FROM partners WHERE code='EDITGROUP'").note, null, '"-" clears the note');
+  OUTBOUND.length = 0;
+  await tap(ADMIN_ID, 'admin:partner-sales:EDITGROUP');
+  assert.ok(allTo(ADMIN_ID).includes('all sales (2)'), 'all-sales list');
+  await tap(ADMIN_ID, 'admin:partner-reset:EDITGROUP');
+  assert.equal(row(env, "SELECT uid FROM partners WHERE code='EDITGROUP'").uid, OWNER, 'reset asks first — nothing changed yet');
+  await tap(ADMIN_ID, 'admin:partner-reset-yes:EDITGROUP');
+  const after = row(env, "SELECT uid, tg_username FROM partners WHERE code='EDITGROUP'");
+  assert.ok(after.uid === null && after.tg_username === null, 'confirmed reset clears the connection');
+  await say(ADMIN_ID, '/partnerinfo EDITGROUP');
+  assert.ok(lastTo(ADMIN_ID).body.text.includes('Not connected yet') && lastTo(ADMIN_ID).body.text.includes('bought 2'), 'history kept after reset');
+  ok('partner centre: private notes, all-sales list, confirmed reset, /partnerinfo');
 }
 
 console.log('\n' + PASS.length + ' checks — all green ✅');

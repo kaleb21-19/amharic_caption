@@ -891,7 +891,14 @@ async function claimPartner(uid, chatId, token, who) {
         `<i>Your Telegram account is already the partner for ${esc(other.code)}. Please contact the seller.</i>`);
       return;
     }
-    const r = await DB.prepare('UPDATE partners SET uid = ? WHERE code = ? AND uid IS NULL').bind(String(uid), p.code).run();
+    let r;
+    try {
+      r = await DB.prepare(
+        "UPDATE partners SET uid = ?, tg_username = ?, connected_at = datetime('now') WHERE code = ? AND uid IS NULL"
+      ).bind(String(uid), who, p.code).run();
+    } catch (e) {
+      r = await DB.prepare('UPDATE partners SET uid = ? WHERE code = ? AND uid IS NULL').bind(String(uid), p.code).run();
+    }
     if (r && r.meta && r.meta.changes) {
       log('info', 'partner_claimed', { code: p.code, uid });
       for (const adm of adminUids()) {
@@ -926,14 +933,13 @@ async function adminPartners(chatId, messageId) {
       `   ${partnerTermsText(p)}\n` +
       `   opened ${openedN} · sold ${st.bought} (${openedN ? Math.round((100 * st.bought) / openedN) : 0}%) · ` +
       `this month ${st.month_n} · earned ${money(st.earned)} · owed ${money(st.owed)} ብር`);
-    const row = [{ text: `${p.active ? '⏸ Pause' : '▶ Resume'} ${p.code}`, callback_data: `admin:partner-toggle:${p.code}` }];
-    if (!p.uid) row.push({ text: `📨 Links ${p.code}`, callback_data: `admin:partner-links:${p.code}` });
-    kb.push(row);
+    kb.push([{ text: `📋 ${p.code} — ${p.label}`.slice(0, 60), callback_data: `admin:partner:${p.code}` }]);
   }
   kb.push([{ text: '🎁 Referrals', callback_data: 'admin:ref' }, { text: '🛠 Admin', callback_data: 'admin:panel' }]);
   const text =
     `🤝 <b>Partners</b> (${list.length})\n\n` +
     (lines.length ? lines.join('\n\n') : 'No partners yet.') + '\n\n' +
+    '📋 Tap a partner for the full card: bank, sales, payouts, messages, actions.\n\n' +
     '➕ Create: <code>/partner EDITGROUP Editors Ethiopia</code>\n' +
     '⚙ Terms: <code>/partnerterms EDITGROUP 300 200 20 400</code>\n' +
     '<i>(reward per sale · buyer discount · optional: after N sales · reward then)</i>\n' +
@@ -1015,6 +1021,9 @@ async function adminPartnerReset(chatId, code) {
   const p = await partnerByCode(code);
   if (!p) { await sendText(chatId, `⚠️ No partner <b>${esc(code)}</b>. See /partners.`); return; }
   await DB.prepare('UPDATE partners SET uid = NULL, claim_token = ? WHERE code = ?').bind(newClaimToken(), p.code).run();
+  try {
+    await DB.prepare('UPDATE partners SET tg_username = NULL, connected_at = NULL WHERE code = ?').bind(p.code).run();
+  } catch (e) { /* 0018 not applied */ }
   if (p.uid) {
     await sendText(p.uid,
       '🤝 የአጋር ገጽዎ ወደ አዲስ የቴሌግራም አካውንት እየተዛወረ ነው። ሽያጮችዎና የሚከፈልዎ ገንዘብ አይጠፉም።\n' +
@@ -1156,29 +1165,10 @@ async function adminRefPayList(chatId, messageId) {
 }
 
 async function adminRefMarkPaid(chatId, messageId, cbId, uid) {
-  const t = refTerms(await getSettings());
-  // Only what is payable right now, so a reward still inside the refund window
-  // is never marked paid by accident.
-  const { results } = await DB.prepare(
-    `UPDATE referral_rewards SET status='paid', paid_at=datetime('now')
-     WHERE referrer_uid = ? AND status = 'earned' AND earned_at <= datetime('now', ?)
-     RETURNING amount_etb`
-  ).bind(String(uid), refCutoff(t)).all();
-  const total = (results || []).reduce((a, r) => a + (r.amount_etb || 0), 0);
-  if (!total) {
-    await answerCb(cbId, 'Already marked paid');
-    await adminRefPayList(chatId, messageId);
-    return;
-  }
-  const to = await recipientOf(uid);
-  if (to) {
-    const acct = await DB.prepare('SELECT details FROM payout_accounts WHERE uid = ?').bind(to).first();
-    await sendText(to,
-      `💸 <b>${money(total)} ብር ተልኮልዎታል!</b>` + (acct ? ` ወደ፦ <code>${esc(acct.details)}</code>` : '') + '\n' +
-      `<i>Your referral reward of ${money(total)} ብር has been sent. Thank you for recommending us!</i>`);
-  }
-  log('info', 'referral_paid', { uid, total });
-  await answerCb(cbId, `✅ Marked paid · ${money(total)} ብር`);
+  // Only what is payable right now (payReferrer), so a reward still inside the
+  // refund window is never marked paid by accident.
+  const total = await payReferrer(uid);
+  await answerCb(cbId, total ? `✅ Marked paid · ${money(total)} ብር` : 'Already marked paid');
   await adminRefPayList(chatId, messageId);
 }
 
@@ -1219,6 +1209,236 @@ async function remindReferralPayouts() {
   } catch (e) {
     log('warn', 'referral_reminder_skipped', { err: String((e && e.message) || e) });
   }
+}
+
+// ── partner management centre (owner) ───────────────────────────────────────
+// One card per partner with everything the owner needs — identity, terms, bank
+// account, performance, each sale with its reward status, payout history — and
+// every action as a button. Two-way messages, monthly statements, private notes.
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function fmtDate(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s || ''));
+  return m ? `${parseInt(m[3], 10)} ${MONTHS[parseInt(m[2], 10) - 1]} ${m[1]}` : '—';
+}
+function fmtMonth(ym) {
+  const m = /^(\d{4})-(\d{2})$/.exec(String(ym || ''));
+  return m ? `${MONTHS[parseInt(m[2], 10) - 1]} ${m[1]}` : ym;
+}
+
+// Everything the card and the monthly statement need, in one place.
+async function partnerFacts(p) {
+  const key = partnerKey(p.code);
+  const t = refTerms(await getSettings());
+  const cut = refCutoff(t);
+  const opened = await DB.prepare('SELECT COUNT(*) AS n FROM referrals WHERE code = ?').bind(p.code).first();
+  const st = await rewardStats(key);
+  const money2 = await DB.prepare(
+    `SELECT
+       COALESCE(SUM(CASE WHEN r.status='earned' AND r.earned_at <= datetime('now', ?) THEN r.amount_etb ELSE 0 END), 0) AS payable,
+       MIN(CASE WHEN r.status='earned' AND r.earned_at > datetime('now', ?) THEN date(r.earned_at, ?) END) AS next_date,
+       COALESCE(SUM(CASE WHEN r.status='earned' AND r.earned_at > datetime('now', ?) THEN r.amount_etb ELSE 0 END), 0) AS waiting,
+       MAX(CASE WHEN r.status IN ('earned','paid') THEN r.earned_at END) AS last_sale,
+       COALESCE(SUM(CASE WHEN r.status IN ('earned','paid') THEN s.amount_etb ELSE 0 END), 0) AS revenue
+     FROM referral_rewards r LEFT JOIN sales s ON s.order_id = r.order_id
+     WHERE r.referrer_uid = ?`
+  ).bind(cut, cut, `+${t.hold} days`, cut, key).first();
+  const acct = p.uid ? await DB.prepare('SELECT details, updated_at FROM payout_accounts WHERE uid = ?').bind(p.uid).first() : null;
+  const pt = await partnerTerms(p);
+  return { t, st, pt, acct, openedN: opened ? opened.n : 0, ...(money2 || {}) };
+}
+
+async function adminPartnerCard(chatId, messageId, code) {
+  const p = await partnerByCode(code);
+  if (!p) { await sendText(chatId, `⚠️ No partner <b>${esc(code)}</b>. See /partners.`); return; }
+  const f = await partnerFacts(p);
+  const key = partnerKey(p.code);
+  const sales = (await DB.prepare(
+    `SELECT r.order_id, r.earned_at, r.amount_etb AS reward, r.status, r.paid_at, s.amount_etb AS price,
+            date(r.earned_at, ?) AS payable_on, (r.earned_at <= datetime('now', ?)) AS payable_now
+     FROM referral_rewards r LEFT JOIN sales s ON s.order_id = r.order_id
+     WHERE r.referrer_uid = ? ORDER BY r.order_id DESC LIMIT 8`
+  ).bind(`+${f.t.hold} days`, refCutoff(f.t), key).all()).results || [];
+  const payouts = (await DB.prepare(
+    `SELECT paid_at, SUM(amount_etb) AS etb, COUNT(*) AS n FROM referral_rewards
+     WHERE referrer_uid = ? AND status = 'paid' GROUP BY paid_at ORDER BY paid_at DESC LIMIT 6`
+  ).bind(key).all()).results || [];
+  const conv = f.openedN ? Math.round((100 * f.st.bought) / f.openedN) : 0;
+  const who = p.uid
+    ? `👤 Telegram: ${p.tg_username ? esc(p.tg_username) + ' · ' : ''}id <code>${esc(p.uid)}</code> · connected ${fmtDate(p.connected_at)}`
+    : '👤 ⏳ <b>Not connected yet</b> — send them the private link (📨 Links). Sales still count and wait for them.';
+  const tierLine = p.tier_after > 0 && p.tier_reward > 0
+    ? ` · ${money(p.tier_reward)} after ${p.tier_after} sales (${f.pt.tier ? '🏆 reached' : `now ${f.pt.sold}/${p.tier_after}`})`
+    : '';
+  const saleLines = sales.length
+    ? sales.map((r) => {
+      const state = r.status === 'paid' ? `✅ paid ${fmtDate(r.paid_at)}`
+        : r.status === 'cancelled' ? '🚫 cancelled (refund/revoke)'
+          : r.payable_now ? '💰 payable now' : `⏳ payable ${fmtDate(r.payable_on)}`;
+      return `   #${r.order_id} · ${fmtDate(r.earned_at)} · ETB ${money(r.price || 0)} → ${money(r.reward)} ብር · ${state}`;
+    }).join('\n')
+    : '   (no sales yet)';
+  const payoutLines = payouts.length
+    ? payouts.map((x) => `   ${fmtDate(x.paid_at)} — <b>${money(x.etb)} ብር</b> (${x.n} sale${x.n === 1 ? '' : 's'})`).join('\n')
+    : '   (none yet)';
+  const text =
+    `🤝 <b>${esc(p.code)}</b> — ${esc(p.label)} · ${p.active ? '🟢 Active' : '⏸ Paused'}\n` +
+    `${who}\n` +
+    `📅 Partner since ${fmtDate(p.created_at)}` + (f.last_sale ? ` · last sale ${fmtDate(f.last_sale)}` : '') + '\n' +
+    `📋 Terms: <b>${money(p.reward_etb)} ብር</b>/sale · buyer −${money(p.discount_etb)} ብር (pays ETB ${money(PRICE_ETB - p.discount_etb)})${tierLine}\n` +
+    (f.acct
+      ? `🏦 Bank: <code>${esc(f.acct.details)}</code> (updated ${fmtDate(f.acct.updated_at)})\n`
+      : '🏦 Bank: ⚠️ no payout account yet\n') +
+    (p.note ? `📝 Note: <i>${esc(p.note)}</i>\n` : '') +
+    '\n<b>📊 Performance</b>\n' +
+    `   Opened ${f.openedN} · bought ${f.st.bought} (${conv}%) · this month ${f.st.month_n} (${money(f.st.month_etb)} ብር)\n` +
+    `   Revenue they brought: <b>ETB ${money(f.revenue || 0)}</b>\n` +
+    '\n<b>💰 Rewards</b>\n' +
+    `   Earned ${money(f.st.earned)} · paid ${money(f.st.paid)} · owed <b>${money(f.st.owed)} ብር</b>\n` +
+    `   → payable now <b>${money(f.payable || 0)} ብር</b>` +
+    (f.waiting ? ` · ${money(f.waiting)} ብር on ${fmtDate(f.next_date)}` : '') + '\n' +
+    '\n<b>🛒 Latest sales</b>\n' + saleLines + '\n' +
+    '\n<b>💸 Payouts</b>\n' + payoutLines;
+  const c = p.code;
+  const kb = [
+    [{ text: p.active ? '⏸ Pause' : '▶ Resume', callback_data: `admin:partner-toggle:${c}:card` },
+      ...(f.payable && f.acct ? [{ text: `💰 Pay ${money(f.payable)} ብር`, callback_data: `admin:partner-pay:${c}` }] : [])],
+    [{ text: '✉️ Message', callback_data: `admin:partner-msg:${c}` },
+      { text: '📊 Send report', callback_data: `admin:partner-report:${c}` }],
+    [{ text: '📄 All sales', callback_data: `admin:partner-sales:${c}` },
+      { text: '📨 Links', callback_data: `admin:partner-links:${c}` }],
+    [{ text: '📝 Note / terms help', callback_data: `admin:partner-help:${c}` },
+      { text: '♻ New phone', callback_data: `admin:partner-reset:${c}` }],
+    [{ text: '🤝 Partners', callback_data: 'admin:partners' }, { text: '🛠 Admin', callback_data: 'admin:panel' }],
+  ];
+  const r = messageId ? await editText(chatId, messageId, text, kb) : null;
+  if (!r || !r.ok) await sendText(chatId, text, kb);
+}
+
+// Every sale of one partner (bookkeeping / dispute answers).
+async function adminPartnerSales(chatId, code) {
+  const p = await partnerByCode(code);
+  if (!p) return;
+  const rows = (await DB.prepare(
+    `SELECT r.order_id, r.earned_at, r.amount_etb AS reward, r.status, r.paid_at, s.amount_etb AS price
+     FROM referral_rewards r LEFT JOIN sales s ON s.order_id = r.order_id
+     WHERE r.referrer_uid = ? ORDER BY r.order_id`
+  ).bind(partnerKey(p.code)).all()).results || [];
+  if (!rows.length) { await sendText(chatId, `📄 <b>${esc(p.code)}</b>: no sales yet.`); return; }
+  let chunk = `📄 <b>${esc(p.code)} — all sales (${rows.length})</b>\n\n<pre>order\tdate\tprice\treward\tstatus\n`;
+  for (const r of rows) {
+    const line = esc(`${r.order_id}\t${String(r.earned_at).slice(0, 10)}\t${r.price || 0}\t${r.reward}\t${r.status}${r.paid_at ? ' ' + String(r.paid_at).slice(0, 10) : ''}`);
+    if (chunk.length + line.length > 3500) { await sendText(chatId, chunk + '</pre>'); chunk = '<pre>'; }
+    chunk += line + '\n';
+  }
+  await sendText(chatId, chunk + '</pre>', [[{ text: `📋 ${p.code}`, callback_data: `admin:partner:${p.code}` }]]);
+}
+
+// Statement for the partner: one month's sales plus all-time money.
+async function partnerStatement(p, ym) {
+  const f = await partnerFacts(p);
+  const m = await DB.prepare(
+    `SELECT COUNT(*) AS n, COALESCE(SUM(amount_etb), 0) AS etb FROM referral_rewards
+     WHERE referrer_uid = ? AND status IN ('earned','paid') AND strftime('%Y-%m', earned_at) = ?`
+  ).bind(partnerKey(p.code), ym).first();
+  return (
+    `📊 <b>የወር ሪፖርት · Monthly report</b> — ${esc(p.label)}\n<b>${fmtMonth(ym)}</b>\n\n` +
+    `🛒 ሽያጭ፦ <b>${m.n}</b> · ያገኙት፦ <b>${money(m.etb)} ብር</b>\n<i>Sales: ${m.n} · earned ${money(m.etb)} ብር</i>\n\n` +
+    `💰 በአጠቃላይ፦ ያገኙት ${money(f.st.earned)} · የተከፈለ ${money(f.st.paid)} · የሚከፈልዎ <b>${money(f.st.owed)} ብር</b>\n` +
+    `<i>All time: earned ${money(f.st.earned)} · paid ${money(f.st.paid)} · owed ${money(f.st.owed)} ብር</i>\n` +
+    (f.st.owed
+      ? `💸 የሚከፈልዎ በወሩ ክፍያ ከ${f.t.hold} ቀን በኋላ ይላካል።\n<i>Money owed is sent in the monthly payout, ${f.t.hold} days after each sale.</i>\n`
+      : '') +
+    `\n🔗 <code>${refLink(p.code)}</code>\nስላጋሩን እናመሰግናለን! 🙏 <i>Thank you for sharing us!</i>`
+  );
+}
+
+async function sendPartnerStatement(p, ym) {
+  if (!p.uid) return false;
+  const r = await sendText(p.uid, await partnerStatement(p, ym),
+    [[{ text: '🤝 የአጋር ገጽ · Partner page', callback_data: 'ref:invite' }]]);
+  return !!(r && r.ok);
+}
+
+// 1st of the month (6-hour cron): last month's statement to every connected
+// partner. The first run after deploy only records the month (no old report).
+async function sendMonthlyPartnerReports() {
+  try {
+    const s = await getSettings();
+    const month = new Date().toISOString().slice(0, 7);
+    if (s.partner_report_month === month) return;
+    await setSetting('partner_report_month', month);
+    if (!s.partner_report_month) return;
+    const d = new Date();
+    d.setUTCDate(1);
+    d.setUTCMonth(d.getUTCMonth() - 1);
+    const last = d.toISOString().slice(0, 7);
+    const { results } = await DB.prepare('SELECT * FROM partners WHERE uid IS NOT NULL').all();
+    for (const p of results || []) {
+      await sendPartnerStatement(p, last);
+      await sleep(90);
+    }
+  } catch (e) {
+    log('warn', 'partner_reports_skipped', { err: String((e && e.message) || e) });
+  }
+}
+
+// Owner → partner message (✉️ button, or /pmsg CODE text).
+async function messagePartner(chatId, code, text) {
+  const p = await partnerByCode(code);
+  if (!p) { await sendText(chatId, `⚠️ No partner <b>${esc(code)}</b>.`); return; }
+  if (!p.uid) { await sendText(chatId, `⚠️ <b>${esc(p.code)}</b> has not connected yet — send them the private link first.`); return; }
+  const r = await sendText(p.uid,
+    `📩 <b>ከአማርኛ ካፕሽን ፕሮ · From Amharic Captions Pro</b>\n\n${esc(text)}`,
+    [[{ text: '🤝 የአጋር ገጽ · Partner page', callback_data: 'ref:invite' }]]);
+  await sendText(chatId, r && r.ok
+    ? `✅ Sent to <b>${esc(p.code)}</b>${p.tg_username ? ' (' + esc(p.tg_username) + ')' : ''}.`
+    : '⚠️ Telegram could not deliver it (they may have blocked the bot).',
+  [[{ text: `📋 ${p.code}`, callback_data: `admin:partner:${p.code}` }]]);
+}
+
+// Partner → owner: a connected partner's free text goes to the owner.
+async function forwardFromPartner(p, chatId, text, username) {
+  for (const adm of adminUids()) {
+    await sendText(adm,
+      `📨 <b>From partner ${esc(p.code)}</b> (${esc(p.label)}${username ? ' · @' + esc(username) : ''}):\n\n${esc(text)}`,
+      [[{ text: `✉️ Reply`, callback_data: `admin:partner-msg:${p.code}` }, { text: `📋 ${p.code}`, callback_data: `admin:partner:${p.code}` }]]);
+  }
+  await sendText(chatId, '✅ መልዕክትዎ ለቡድኑ ደርሷል።\n<i>Your message was sent to the team.</i>',
+    [[{ text: '🤝 የአጋር ገጽ · Partner page', callback_data: 'ref:invite' }]]);
+}
+
+async function adminPartnerNote(chatId, code, note) {
+  const p = await partnerByCode(code);
+  if (!p) { await sendText(chatId, `⚠️ No partner <b>${esc(code)}</b>.`); return; }
+  const v = String(note || '').trim().slice(0, 300);
+  try {
+    await DB.prepare('UPDATE partners SET note = ? WHERE code = ?').bind(v === '-' ? null : v, p.code).run();
+  } catch (e) {
+    await sendText(chatId, '⚠️ Run <code>npm run migrate</code>, then deploy.');
+    return;
+  }
+  await adminPartnerCard(chatId, null, p.code);
+}
+
+// Pay everything payable for one referrer key; tells the recipient. → total
+async function payReferrer(key) {
+  const t = refTerms(await getSettings());
+  const { results } = await DB.prepare(
+    `UPDATE referral_rewards SET status='paid', paid_at=datetime('now')
+     WHERE referrer_uid = ? AND status = 'earned' AND earned_at <= datetime('now', ?)
+     RETURNING amount_etb`
+  ).bind(String(key), refCutoff(t)).all();
+  const total = (results || []).reduce((a, r) => a + (r.amount_etb || 0), 0);
+  if (!total) return 0;
+  const to = await recipientOf(key);
+  if (to) {
+    const acct = await DB.prepare('SELECT details FROM payout_accounts WHERE uid = ?').bind(to).first();
+    await sendText(to,
+      `💸 <b>${money(total)} ብር ተልኮልዎታል!</b>` + (acct ? ` ወደ፦ <code>${esc(acct.details)}</code>` : '') + '\n' +
+      `<i>Your referral reward of ${money(total)} ብር has been sent. Thank you for recommending us!</i>`);
+  }
+  log('info', 'referral_paid', { uid: key, total });
+  return total;
 }
 
 // ── message senders (never throw: an outbound failure must not abort the
@@ -1373,6 +1593,12 @@ async function handleMessage(msg, env) {
   if (privateChat && isAdmin(user.id)) {
     if (lower === '/referrals' || lower === '/referral') { await adminReferrals(chatId, null); return; }
     if (lower === '/partners') { await adminPartners(chatId, null); return; }
+    const pinfo = text.match(/^\/partnerinfo\s+([A-Za-z0-9]+)$/i);
+    if (pinfo) { await adminPartnerCard(chatId, null, pinfo[1].toUpperCase()); return; }
+    const pmsg = text.match(/^\/pmsg\s+([A-Za-z0-9]+)\s+([\s\S]+)$/i);
+    if (pmsg) { await messagePartner(chatId, pmsg[1].toUpperCase(), pmsg[2].trim()); return; }
+    const pnote = text.match(/^\/partnernote\s+([A-Za-z0-9]+)\s+([\s\S]+)$/i);
+    if (pnote) { await adminPartnerNote(chatId, pnote[1].toUpperCase(), pnote[2]); return; }
     const prs = text.match(/^\/partnerreset\s+([A-Za-z0-9]+)$/i);
     if (prs) { await adminPartnerReset(chatId, prs[1]); return; }
     const pnm = text.match(/^\/partnername\s+([A-Za-z0-9]+)\s+(.+)$/i);
@@ -1508,6 +1734,12 @@ async function handleMessage(msg, env) {
     if (bd && !lower.startsWith('/')) {
       await kvDel('bcast:await:' + uid);
       await draftBroadcast(chatId, text);
+      return;
+    }
+    const pm = await kvGet('pmsg:await:' + uid);
+    if (pm && !lower.startsWith('/')) {
+      await kvDel('pmsg:await:' + uid);
+      await messagePartner(chatId, pm, text);
       return;
     }
   }
@@ -1676,6 +1908,12 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
   // Not in FSM: a bare Machine ID
   const m = text.match(MACHINE_ID_RE);
   if (!m) {
+    // A connected partner writing to the bot: forward it to the owner.
+    const asPartner = privateChat ? await partnerByUid(uid) : null;
+    if (asPartner && text) {
+      await forwardFromPartner(asPartner, chatId, text, msg.from && msg.from.username);
+      return;
+    }
     // unknown input
     const buyerName = (msg.from && msg.from.first_name) || '';
     if (privateChat) await sendText(chatId,
@@ -2077,6 +2315,7 @@ async function audienceCount(kind) {
 
 async function cancelBroadcastCompose(uid) {
   await kvDel('bcast:await:' + uid);
+  await kvDel('pmsg:await:' + uid);
   // Runs before EVERY admin command. It must never be able to break them: a
   // missing table (a deploy whose migration was not applied yet) once made
   // /start, /admin and /find all fail silently for the owner.
@@ -2994,8 +3233,54 @@ async function handleCallback(cb) {
         await DB.prepare('UPDATE partners SET active = ? WHERE code = ?').bind(pp.active ? 0 : 1, pp.code).run();
         await answerCb(cbId, pp.active ? `⏸ ${pp.code} paused` : `▶ ${pp.code} resumed`);
       }
-      await adminPartners(chatId, messageId);
+      if (parts[3] === 'card' && pp) await adminPartnerCard(chatId, messageId, pp.code);
+      else await adminPartners(chatId, messageId);
     }
+    else if (action === 'partner') await adminPartnerCard(chatId, messageId, parts[2]);
+    else if (action === 'partner-pay') {
+      const total = await payReferrer(partnerKey(parts[2]));
+      await answerCb(cbId, total ? `✅ Marked paid · ${money(total)} ብር` : 'Nothing payable right now');
+      await adminPartnerCard(chatId, messageId, parts[2]);
+    }
+    else if (action === 'partner-msg') {
+      const pp = await partnerByCode(parts[2]);
+      if (pp && !pp.uid) {
+        await answerCb(cbId, 'Not connected yet — send the private link first');
+      } else if (pp) {
+        await kvPut('pmsg:await:' + fromUid, pp.code, 900);
+        await answerCb(cbId, 'Write the message');
+        await sendText(chatId,
+          `✉️ <b>Message to ${esc(pp.code)}</b>${pp.tg_username ? ' (' + esc(pp.tg_username) + ')' : ''}\n\n` +
+          'Send me the text now — it goes to them from the bot. <i>Changed your mind? Send /start.</i>\n' +
+          `<i>Shortcut: /pmsg ${esc(pp.code)} your text</i>`);
+      }
+    }
+    else if (action === 'partner-report') {
+      const pp = await partnerByCode(parts[2]);
+      const sent = pp ? await sendPartnerStatement(pp, new Date().toISOString().slice(0, 7)) : false;
+      await answerCb(cbId, sent ? '📊 Report sent to the partner' : 'Not connected yet — nothing sent');
+    }
+    else if (action === 'partner-sales') await adminPartnerSales(chatId, parts[2]);
+    else if (action === 'partner-help') {
+      const c = esc(parts[2]);
+      await sendText(chatId,
+        `⚙ <b>${c}</b> — commands\n\n` +
+        `📝 Private note: <code>/partnernote ${c} your note</code> (<code>-</code> clears it)\n` +
+        `📋 Terms: <code>/partnerterms ${c} 300 200 20 400</code>\n` +
+        `✏️ Rename: <code>/partnername ${c} New name</code>\n` +
+        `✉️ Message: <code>/pmsg ${c} your text</code>\n` +
+        `📋 This card: <code>/partnerinfo ${c}</code>`,
+        [[{ text: `📋 ${parts[2]}`, callback_data: `admin:partner:${parts[2]}` }]]);
+    }
+    else if (action === 'partner-reset') {
+      await sendText(chatId,
+        `♻ <b>Move ${esc(parts[2])} to a new phone/account?</b>\n\n` +
+        'Their current Telegram account is disconnected and you get a NEW private link to send them. ' +
+        'Sales and money owed are kept.',
+        [[{ text: '✅ Yes, new private link', callback_data: `admin:partner-reset-yes:${parts[2]}` },
+          { text: '✖ Cancel', callback_data: `admin:partner:${parts[2]}` }]]);
+    }
+    else if (action === 'partner-reset-yes') await adminPartnerReset(chatId, parts[2]);
     else if (action === 'partner-links') {
       const pp = await partnerByCode(parts[2]);
       if (pp) await sendPartnerLinks(chatId, pp, false);
@@ -3581,5 +3866,6 @@ export default {
     }
     await pruneOld();
     await remindReferralPayouts();
+    await sendMonthlyPartnerReports();
   },
 };
