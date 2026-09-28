@@ -751,6 +751,15 @@ function initBuy() {
       startBuyPoll();
     });
   }
+  // The Machine ID lives behind "🛠 Support info": only support asks for it.
+  const si = document.getElementById('supportInfoLink');
+  const siBox = document.getElementById('supportInfoBox');
+  if (si && siBox) {
+    si.addEventListener('click', (e) => {
+      if (e && e.preventDefault) e.preventDefault();
+      siBox.style.display = siBox.style.display === 'block' ? 'none' : 'block';
+    });
+  }
   // A purchase started earlier (the panel was closed meanwhile): keep checking.
   if (getPendingBuy()) startBuyPoll();
   if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
