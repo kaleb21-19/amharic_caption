@@ -513,16 +513,30 @@ history. Buttons:
 
 | Button | Does |
 |---|---|
-| ⏸ Pause / ▶ Resume | stop / restart their link |
-| 💰 Pay N ብር | marks what is payable now as paid and tells them (transfer first) |
+| ⏸ Pause / ▶ Resume | Pause asks first: **Pause & tell them** or **Pause quietly**; Resume tells them |
+| 💰 Pay N ብር | shows the amount, the orders and the bank account to copy; after you transfer, tap **✅ I sent N ብር** — then it is marked paid and they are told |
 | ✉️ Message | your next text goes to them from the bot (`/pmsg CODE text` too) |
 | 📊 Send report | this month's statement to the partner |
 | 📄 All sales | every sale: order, date, price, reward, status |
 | 📨 Links | the private + public links again |
 | 📝 Note / terms help | `/partnernote CODE text` (`-` clears), terms, rename |
-| ♻ New phone | asks to confirm, then a new private link; history kept |
+| ♻ New phone | asks to confirm, then a new private link; history and bank account kept |
+| 🗑 Delete | only for a partner with **no sales** (a typo / test); asks first |
 
+- The **Partners list** shows totals (active, connected, sales, owed, due now)
+  and 10 partners per page, best first.
+- `/partnerbank CODE CBE 1000123456789 Name` records their bank account for
+  them (e.g. given by phone, or before they connect). Their own saved account
+  is used first once they add one. `-` clears it.
+- 🏦 **Bank-change alert:** when a partner adds or **changes** their bank
+  account you get a message with old and new. An unexpected change? Call the
+  partner before paying.
+- Changing terms tells the partner the **new numbers**, shows you before/now,
+  and warns if reward + discount is over half the price.
+- Partners have **📄 My sales** on their page (date, reward, pay date — no
+  buyer names or Machine IDs).
 - When a partner writes to the bot, the message is **forwarded to you** with
-  a ✉️ Reply button.
+  a ✉️ Reply button. Their page tells them they can write there.
 - On the **1st of every month** each connected partner automatically gets
-  last month's statement (sales, earned, paid, owed).
+  last month's statement (sales, earned, paid, owed) — 10 per cron run, so
+  with many partners they arrive over the first day.

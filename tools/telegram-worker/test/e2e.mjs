@@ -1983,7 +1983,8 @@ console.log('\n:: scenario 20 — partner management centre (card, messages, sta
     '💰 payable now', '⏳ payable', '#' + o1.id, '#' + o2.id, 'payable now <b>300 ብር</b>']) {
     assert.ok(card.includes(want), 'card shows ' + want + '\n' + card);
   }
-  for (const btn of ['partner-toggle:EDITGROUP:card', 'partner-pay:EDITGROUP', 'partner-msg:EDITGROUP',
+  assert.ok(!kbOf(lastTo(ADMIN_ID)).includes('partner-del:'), 'no Delete button once a partner has sales');
+  for (const btn of ['partner-pause:EDITGROUP', 'partner-pay:EDITGROUP', 'partner-msg:EDITGROUP',
     'partner-report:EDITGROUP', 'partner-sales:EDITGROUP', 'partner-reset:EDITGROUP']) {
     assert.ok(kbOf(lastTo(ADMIN_ID)).includes(btn), 'card button ' + btn);
   }
@@ -1992,12 +1993,20 @@ console.log('\n:: scenario 20 — partner management centre (card, messages, sta
   // Pay from the card: only what is payable; the partner is told; history shows it.
   OUTBOUND.length = 0;
   await tap(ADMIN_ID, 'admin:partner-pay:EDITGROUP');
+  assert.equal(row(env, 'SELECT status FROM referral_rewards WHERE order_id=?', o1.id).status, 'earned', 'first tap only asks');
+  const ask = lastTo(ADMIN_ID).body.text;
+  assert.ok(ask.includes('300 ብር') && ask.includes('CBE 1000123456789') && ask.includes('#' + o1.id), 'confirm shows amount, bank, orders');
+  assert.ok(!allTo(OWNER).includes('ተልኮልዎታል'), 'partner not told before the owner confirms');
+  await tap(ADMIN_ID, 'admin:partner-paid:EDITGROUP:999');
+  assert.equal(row(env, 'SELECT status FROM referral_rewards WHERE order_id=?', o1.id).status, 'earned', 'a stale amount is not paid');
+  assert.ok(lastTo(ADMIN_ID).body.text.includes('amount changed'), 'owner told to check again');
+  await tap(ADMIN_ID, 'admin:partner-paid:EDITGROUP:300');
   assert.equal(row(env, 'SELECT status FROM referral_rewards WHERE order_id=?', o1.id).status, 'paid');
   assert.equal(row(env, 'SELECT status FROM referral_rewards WHERE order_id=?', o2.id).status, 'earned', 'inside the window: not paid');
   assert.ok(allTo(OWNER).includes('300 ብር ተልኮልዎታል'), 'partner told');
   card = lastTo(ADMIN_ID).body.text;
   assert.ok(card.includes('✅ paid') && card.includes('💸 Payouts') && card.includes('<b>300 ብር</b> (1 sale)'), 'payout history on the card');
-  ok('partner centre: 💰 Pay from the card pays only what is due, tells the partner, logs the payout');
+  ok('partner centre: 💰 Pay asks first (amount + bank), pays only what is due, tells the partner, logs the payout');
 
   // Messages both ways.
   OUTBOUND.length = 0;
@@ -2046,6 +2055,127 @@ console.log('\n:: scenario 20 — partner management centre (card, messages, sta
   await say(ADMIN_ID, '/partnerinfo EDITGROUP');
   assert.ok(lastTo(ADMIN_ID).body.text.includes('Not connected yet') && lastTo(ADMIN_ID).body.text.includes('bought 2'), 'history kept after reset');
   ok('partner centre: private notes, all-sales list, confirmed reset, /partnerinfo');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: scenario 21 — partner management polish (bank safety, pause, delete, my sales, scale)');
+
+{
+  const { env } = fresh();
+  const P = '850000001';
+  const say = (uid, text, username) => post(env, msg(Number(uid), { id: Number(uid), username: username || 'u' + uid }, { text }));
+  const tap = (uid, data) => cb(env, { id: Number(uid) }, data, { chatId: Number(uid) });
+  const toUid = (uid) => OUTBOUND.filter((x) => ['sendMessage', 'editMessageText'].includes(x.method)
+    && String(x.body.chat_id) === String(uid));
+  const lastTo = (uid) => toUid(uid).at(-1);
+  const allTo = (uid) => toUid(uid).map((x) => x.body.text || '').join('\n');
+  const kbOf = (m) => JSON.stringify((m && m.body.reply_markup) || {});
+
+  // 1. Bank recorded by the owner before the partner connects; kept on reset.
+  await say(ADMIN_ID, '/partner BANKG Bank Group');
+  await say(ADMIN_ID, '/partnerbank BANKG CBE 1000555666777 Kebede Alemu');
+  assert.ok(lastTo(ADMIN_ID).body.text.includes('CBE 1000555666777') && lastTo(ADMIN_ID).body.text.includes('entered by you'), 'owner-entered bank on the card');
+  await say(ADMIN_ID, '/partnerbank BANKG 12');
+  assert.ok(lastTo(ADMIN_ID).body.text.includes('Give bank'), 'a too-short account is refused');
+  ok('partner polish: /partnerbank records a bank account for a partner who has not connected');
+
+  // 2. The partner connects and saves their own account: the owner is alerted,
+  //    and a CHANGE shows old and new.
+  await say(P, '/start p_' + row(env, "SELECT claim_token FROM partners WHERE code='BANKG'").claim_token, 'bank_owner');
+  OUTBOUND.length = 0;
+  await tap(P, 'ref:payout');
+  await say(P, 'Awash 0132456789012 Kebede Alemu');
+  assert.ok(allTo(ADMIN_ID).includes('added their payout account') && allTo(ADMIN_ID).includes('Awash 0132456789012'), 'owner told of a new account');
+  OUTBOUND.length = 0;
+  await tap(P, 'ref:payout');
+  await say(P, 'Dashen 5555444433332 Someone Else');
+  const alert = allTo(ADMIN_ID);
+  assert.ok(alert.includes('CHANGED') && alert.includes('old: <code>Awash') && alert.includes('new: <code>Dashen'), 'change shows old and new');
+  await tap(ADMIN_ID, 'admin:partner:BANKG');
+  assert.ok(lastTo(ADMIN_ID).body.text.includes('Dashen 5555444433332') && !lastTo(ADMIN_ID).body.text.includes('entered by you'), "partner's own account wins");
+  ok('partner polish: the owner is alerted when a partner adds or CHANGES their bank account');
+
+  // 3. Terms: the partner gets the actual numbers; the owner sees before/now and a warning.
+  OUTBOUND.length = 0;
+  await say(ADMIN_ID, '/partnerterms BANKG 900 600');
+  assert.ok(lastTo(ADMIN_ID).body.text.includes('before:') && lastTo(ADMIN_ID).body.text.includes('⚠️ Reward + discount'), 'owner: before/now + cost warning');
+  assert.ok(allTo(P).includes('900 ብር') && allTo(P).includes('600 ብር') && allTo(P).includes('ተሻሽለዋል'), 'partner told the new numbers');
+  await say(ADMIN_ID, '/partnerterms BANKG 300 200 10 250');
+  assert.ok(lastTo(ADMIN_ID).body.text.includes('LOWER'), 'tier lower than base is flagged');
+  await say(ADMIN_ID, '/partnerterms BANKG 300 200');
+  ok('partner polish: terms changes tell the partner the numbers; risky terms are flagged');
+
+  // 4. Pause asks first and can tell the partner; Resume tells them.
+  OUTBOUND.length = 0;
+  await tap(ADMIN_ID, 'admin:partner-pause:BANKG');
+  assert.equal(row(env, "SELECT active FROM partners WHERE code='BANKG'").active, 1, 'pause asks first');
+  await tap(ADMIN_ID, 'admin:partner-toggle:BANKG:card:tell');
+  assert.equal(row(env, "SELECT active FROM partners WHERE code='BANKG'").active, 0);
+  assert.ok(allTo(P).includes('paused for now'), 'partner told of the pause');
+  await tap(ADMIN_ID, 'admin:partner-toggle:BANKG:card:tell');
+  assert.equal(row(env, "SELECT active FROM partners WHERE code='BANKG'").active, 1);
+  assert.ok(allTo(P).includes('active again'), 'partner told of the resume');
+  ok('partner polish: Pause asks first (tell / quietly); Resume tells the partner');
+
+  // 5. My sales for the partner; the page tells them they can write to us.
+  const B = '850000011';
+  await say(B, '/start r_BANKG');
+  await tap(B, 'menu:pay');
+  await tap(B, 'pay:proof');
+  await say(B, '5a4b3c2d1e0f9a8b');
+  await post(env, msg(Number(B), { id: Number(B) }, { photo: [{ file_id: 'P-B1' }] }));
+  await tap(B, 'proof:confirm');
+  const ob = row(env, 'SELECT * FROM orders WHERE uid=? ORDER BY id DESC LIMIT 1', B);
+  await tap(ADMIN_ID, `approve:${ob.id}`);
+  await tap(P, 'ref:invite');
+  assert.ok(lastTo(P).body.text.includes('Just write here') && kbOf(lastTo(P)).includes('ref:sales'), 'page: write-to-us line + My sales button');
+  await tap(P, 'ref:sales');
+  assert.ok(lastTo(P).body.text.includes('#' + ob.id) && lastTo(P).body.text.includes('300 ብር') && lastTo(P).body.text.includes('⏳'), 'my sales lists the sale and when it is paid');
+  assert.ok(!lastTo(P).body.text.includes('5a4b3c2d1e0f9a8b'), 'no buyer identity on the partner side');
+  ok('partner polish: partners see their own sales with pay dates (no buyer identities)');
+
+  // 6. Reset keeps the bank account with the partner code.
+  await say(ADMIN_ID, '/partnerreset BANKG');
+  await tap(ADMIN_ID, 'admin:partner:BANKG');
+  assert.ok(lastTo(ADMIN_ID).body.text.includes('Dashen 5555444433332'), 'bank kept after a phone change');
+  ok('partner polish: a phone change keeps the bank account');
+
+  // 7. Delete only a partner with no sales, after a confirmation.
+  await say(ADMIN_ID, '/partner TYPOX Mistake');
+  await tap(ADMIN_ID, 'admin:partner:TYPOX');
+  assert.ok(kbOf(lastTo(ADMIN_ID)).includes('partner-del:TYPOX'), 'Delete offered without sales');
+  await tap(ADMIN_ID, 'admin:partner-del:TYPOX');
+  assert.ok(row(env, "SELECT code FROM partners WHERE code='TYPOX'"), 'delete asks first');
+  await tap(ADMIN_ID, 'admin:partner-del-yes:TYPOX');
+  assert.ok(!row(env, "SELECT code FROM partners WHERE code='TYPOX'"), 'deleted');
+  await tap(ADMIN_ID, 'admin:partner-del-yes:BANKG');
+  assert.ok(row(env, "SELECT code FROM partners WHERE code='BANKG'"), 'a partner with sales is never deleted');
+  ok('partner polish: 🗑 Delete only for partners with no sales, after a confirmation');
+
+  // 8. Scale: 23 partners → list pages of 10 with totals; reports 10 per run, once each.
+  for (let i = 1; i <= 22; i++) {
+    await say(ADMIN_ID, `/partner GRP${String(i).padStart(2, '0')} Group ${i}`);
+    env.DB.prepare('UPDATE partners SET uid=? WHERE code=?').bind(String(860000000 + i), `GRP${String(i).padStart(2, '0')}`).run();
+  }
+  env.DB.prepare("UPDATE partners SET uid=? WHERE code='BANKG'").bind(P).run();
+  OUTBOUND.length = 0;
+  await tap(ADMIN_ID, 'admin:partners');
+  const list = lastTo(ADMIN_ID);
+  assert.ok(list.body.text.includes('Partners</b> (23)') && list.body.text.includes('23 connected') && list.body.text.includes('1 sales'), 'totals');
+  assert.ok(list.body.text.length < 4096 && kbOf(list).includes('admin:partners:1') && list.body.text.indexOf('BANKG') < list.body.text.indexOf('GRP01'), 'paged, best first');
+  await tap(ADMIN_ID, 'admin:partners:2');
+  assert.ok(lastTo(ADMIN_ID).body.text.includes('GRP22') && kbOf(lastTo(ADMIN_ID)).includes('3/3'), 'last page');
+  await worker.scheduled({ cron: '0 */6 * * *' }, env);   // first run records the month
+  env.DB.prepare("UPDATE settings SET value='2000-01' WHERE key='partner_report_month'").run();
+  const reports = () => OUTBOUND.filter((x) => (x.body.text || '').includes('Monthly report')).length;
+  OUTBOUND.length = 0;
+  await worker.scheduled({ cron: '0 */6 * * *' }, env);
+  assert.equal(reports(), 10, 'first run: 10');
+  await worker.scheduled({ cron: '0 */6 * * *' }, env);
+  await worker.scheduled({ cron: '0 */6 * * *' }, env);
+  await worker.scheduled({ cron: '0 */6 * * *' }, env);
+  assert.equal(reports(), 23, 'every partner exactly once');
+  ok('partner polish: 23 partners — list pages of 10 with totals; monthly reports 10 per run, once each');
 }
 
 console.log('\n' + PASS.length + ' checks — all green ✅');
