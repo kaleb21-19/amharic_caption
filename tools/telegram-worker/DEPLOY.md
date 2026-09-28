@@ -564,3 +564,42 @@ Deploy order: `npm run migrate && npm run deploy`, then publish panel 1.7.7.
   that computer to the waiting order automatically.
 - Old panels (1.7.6 and earlier) still work: typing a Machine ID in the bot
   is still understood.
+
+## Security (migration 0020)
+
+**Admin PIN (strongly recommended).** Everything is run from your Telegram
+account; if it is ever taken over (SIM swap, a stolen session) the PIN stops
+the damaging actions. Set it once (pick 6+ digits nobody knows):
+
+    npx wrangler secret put AMH_ADMIN_PIN
+
+Then in the bot: `/unlock 123456` (the message is deleted at once) opens these
+for 12 hours — `/lock` closes them now:
+
+- 📣 sending a broadcast · 📤 exporting customers / sales
+- 💰 marking rewards / partners paid · 🏦 `/partnerbank` · `/partnerterms`
+- 🎁 referral ON/OFF and amounts · 🗑 delete / ♻ move a partner
+- 🚫 `/revoke` `/unrevoke` `/setexpiry`
+
+5 wrong PINs lock it for an hour and alert you. Approve / Decline never need
+the PIN (they are logged instead).
+
+**Fake / reused payment screenshots.** Every screenshot is fingerprinted and
+kept forever. The admin card shows 🚨 when the same image was already used
+(by anyone, any time) or when it was forwarded from someone else's chat, and
+Approve then asks a second time: *"The money is in my bank — approve"*.
+**Always check your bank app before approving any order.**
+
+**Audit log.** `/audit` (or 🔐 Audit log on the dashboard) lists the last 30
+admin actions: approvals, declines, exports, payouts, broadcasts, unlocks,
+failed PINs. Kept for a year.
+
+**Owner checklist (once, outside the code):**
+1. Telegram → Settings → Privacy → **Two-Step Verification ON**; Devices → end
+   sessions you don't recognise.
+2. Cloudflare, GitHub, Hugging Face and your email: **2-factor login ON**.
+3. Backups: D1 keeps a 7-day restore point automatically
+   (`npx wrangler d1 time-travel info amh_bot`); also run
+   `npx wrangler d1 export amh_bot --remote --output backup.sql` weekly and
+   keep it off the repo (the repo is public).
+4. Never put tokens, AMH_SECRET or the PIN in chat, screenshots or the repo.

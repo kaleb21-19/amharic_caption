@@ -90,6 +90,7 @@ class D1 {
     this.db.exec(readFileSync(new URL('../migrations/0017_referral_quotes.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0018_partner_profile.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0019_activation_codes.sql', import.meta.url), 'utf8'));
+    this.db.exec(readFileSync(new URL('../migrations/0020_security.sql', import.meta.url), 'utf8'));
     this.db.exec("ALTER TABLE customers ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0"); // migration 0008
   }
   prepare(sql) {
@@ -2501,6 +2502,93 @@ console.log('\n:: scenario 23 — simple buying: no Machine ID for the customer'
   }
   assert.ok(throttled, 'more than 10 tries in 10 minutes from one address are refused');
   ok('simple buying: activation-code guessing is throttled per address');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: scenario 24 — security: reused / forwarded screenshots, admin PIN, audit log');
+
+{
+  const PIN = '4827';
+  const { env } = fresh({ AMH_ADMIN_PIN: PIN });
+  const A = Number(ADMIN_ID);
+  const say = (uid, text, extra = {}) => post(env, msg(Number(uid), { id: Number(uid), username: 'u' + uid }, { text, ...extra }));
+  const tap = (uid, data) => cb(env, { id: Number(uid), username: 'u' + uid }, data, { chatId: Number(uid) });
+  const toUid = (uid) => OUTBOUND.filter((x) => x.id && ['sendMessage', 'editMessageText', 'editMessageCaption', 'sendPhoto', 'sendDocument'].includes(x.method) && String(x.body.chat_id) === String(uid));
+  const allTo = (uid) => toUid(uid).map((x) => x.body.text || x.body.caption || '').join('\n');
+  const lastTo = (uid) => toUid(uid).at(-1);
+  const buyWith = async (uid, fileId, fileUid, extra = {}) => {
+    await say(uid, '/start');
+    await tap(uid, 'menu:pay');
+    await post(env, msg(Number(uid), { id: Number(uid), username: 'u' + uid }, { photo: [{ file_id: fileId, file_unique_id: fileUid }], ...extra }));
+    return row(env, 'SELECT * FROM orders WHERE uid=? ORDER BY id DESC LIMIT 1', uid);
+  };
+  // Unlock once so the money/export parts of the flows below are allowed.
+  await say(A, '/unlock ' + PIN);
+
+  // 1. A genuine order, approved.
+  const o1 = await buyWith('910000001', 'AgAC-real', 'UNIQ-RECEIPT-1');
+  assert.equal(o1.proof_flag, null, 'a fresh screenshot is not flagged');
+  await tap(A, `approve:${o1.id}`);
+  assert.equal(row(env, 'SELECT status FROM orders WHERE id=?', o1.id).status, 'approved');
+
+  // 2. Someone else sends the SAME receipt image (a re-upload has a new file_id
+  //    but the same file_unique_id): flagged, and Approve needs a second tap.
+  OUTBOUND.length = 0;
+  const o2 = await buyWith('910000002', 'AgAC-copy', 'UNIQ-RECEIPT-1');
+  assert.ok(/SAME screenshot/.test(o2.proof_flag) && /DIFFERENT buyer/.test(o2.proof_flag), 'reused receipt flagged: ' + o2.proof_flag);
+  assert.ok(allTo(A).includes('SAME screenshot was already used for order #' + o1.id), 'admin card shows the warning');
+  assert.ok(!allTo('910000002').includes('SAME'), 'the buyer is not tipped off');
+  await tap(A, `approve:${o2.id}`);
+  assert.equal(row(env, 'SELECT status FROM orders WHERE id=?', o2.id).status, 'pending', 'first Approve tap on a flagged order does NOT approve');
+  assert.ok(lastTo(A).body.text.includes('bank app') && JSON.stringify(lastTo(A).body.reply_markup).includes(`approvef:${o2.id}`), 'asks: is the money really in your bank?');
+  await tap(A, `approvef:${o2.id}`);
+  assert.equal(row(env, 'SELECT status FROM orders WHERE id=?', o2.id).status, 'approved', 'deliberate second tap approves');
+  ok('security: a reused payment screenshot is flagged (even months later) and needs a deliberate second Approve');
+
+  // 3. A forwarded screenshot is flagged; a replacement for the SAME order is not "reuse".
+  const o3 = await buyWith('910000003', 'AgAC-fwd', 'UNIQ-FWD', { forward_origin: { type: 'user', date: 1 } });
+  assert.ok(/Forwarded/.test(o3.proof_flag), 'forwarded screenshot flagged');
+  await post(env, msg(910000003, { id: 910000003 }, { photo: [{ file_id: 'AgAC-own', file_unique_id: 'UNIQ-OWN' }] }));
+  assert.equal(row(env, 'SELECT proof_flag FROM orders WHERE id=?', o3.id).proof_flag, null, 'a clean replacement clears the flag');
+  await post(env, msg(910000003, { id: 910000003 }, { photo: [{ file_id: 'AgAC-own2', file_unique_id: 'UNIQ-OWN' }] }));
+  assert.equal(row(env, 'SELECT proof_flag FROM orders WHERE id=?', o3.id).proof_flag, null, 'the same image again for the same order is fine');
+  ok('security: forwarded screenshots are flagged; re-sending your own for the same order is not');
+
+  // 4. Admin PIN: locked by default; money/export/broadcast/bank need /unlock.
+  await say(A, '/lock');
+  OUTBOUND.length = 0;
+  await tap(A, 'admin:export');
+  assert.ok(allTo(A).includes('needs your admin PIN') && !allTo(A).includes('Customers ('), 'export blocked while locked');
+  await say(A, '/partnerbank NOPE CBE 1000123456789 X');
+  assert.ok(lastTo(A).body.text.includes('needs your admin PIN'), '/partnerbank blocked while locked');
+  await say(A, `/revoke ${o1.id}`);
+  assert.equal(row(env, "SELECT status FROM orders WHERE id=?", o1.id).status, 'approved', '/revoke blocked while locked');
+  const dash = (await say(A, '/start'), lastTo(A).body.text);
+  assert.ok(dash.includes('PIN on') && dash.includes('locked'), 'dashboard shows the lock state');
+  // Unlock deletes the PIN message from the chat.
+  OUTBOUND.length = 0;
+  const unlockMsg = msg(A, { id: A }, { text: '/unlock ' + PIN });
+  await post(env, unlockMsg);
+  assert.ok(OUTBOUND.some((x) => x.method === 'deleteMessage' && x.body.message_id === unlockMsg.message.message_id), 'PIN message deleted');
+  await tap(A, 'admin:export');
+  assert.ok(allTo(A).includes('Customers (') && allTo(A).includes('code-not-used'), 'export works once unlocked, incl. unused activation codes');
+  ok('security: money, bank, revoke, broadcast and export actions need the admin PIN; the PIN never stays in the chat');
+
+  // 5. Five wrong PINs lock it for an hour and alert the admins; then even the right PIN waits.
+  await say(A, '/lock');
+  for (let i = 0; i < 5; i++) await say(A, '/unlock 0000');
+  assert.ok(allTo(A).includes('5 wrong admin PINs'), 'admins alerted');
+  await say(A, '/unlock ' + PIN);
+  assert.ok(lastTo(A).body.text.includes('locked for an hour'), 'right PIN refused during the lockout');
+  ok('security: 5 wrong PINs → 1-hour lockout + alert (guessing the PIN is hopeless)');
+
+  // 6. Audit log: who did what, when.
+  await say(A, '/audit');
+  const log = lastTo(A).body.text;
+  for (const want of ['approve · #' + o1.id, 'approve_flagged · #' + o2.id, 'unlock_failed', 'blocked_locked', 'export', 'lock']) {
+    assert.ok(log.includes(want), 'audit has ' + want + '\n' + log);
+  }
+  ok('security: /audit shows every approval, flagged approval, export, lock and failed PIN');
 }
 
 // Across EVERY scenario: nothing may be silently refused by Telegram (a refused
