@@ -286,10 +286,30 @@ SUFFIX=""; [[ "$LITE" == "1" ]] && SUFFIX="-lite"
 ZIP="${DIST}/amharic-captions-${TARGET}${SUFFIX}.zip"
 rm -f "$ZIP"
 # The customer sees three things: the guide, the installer, the extension.
-ZIP_ENTRIES=("START HERE.html" 'Install.*' "$NAME")
+# The installer is named explicitly: the old quoted pattern 'Install.*' was
+# never expanded, so every Mac zip up to 1.7.5 shipped WITHOUT Install.command
+# and zip only printed a "name not matched" warning.
+case "$TARGET" in
+  win-*) INSTALLER="Install.cmd" ;;
+  *)     INSTALLER="Install.command" ;;
+esac
+ZIP_ENTRIES=("START HERE.html" "$INSTALLER" "$NAME")
 [[ -f "$BUILD_DIR/DEGRADED_BUILD.txt" ]] && ZIP_ENTRIES+=(DEGRADED_BUILD.txt)
 (
   cd "$BUILD_DIR"
+  for entry in "${ZIP_ENTRIES[@]}"; do
+    [[ -e "$entry" ]] || { echo "[FAIL] $entry is missing from the build folder"; exit 1; }
+  done
   zip -r -q "$ZIP" "${ZIP_ENTRIES[@]}" -x "*.DS_Store"
-)
+) || exit 1
+# Never publish a package without its installer again: check the zip itself.
+ZIP_LIST="$(unzip -l "$ZIP")"
+for want in "START HERE.html" "$INSTALLER" "$NAME/CSXS/manifest.xml"; do
+  grep -qF "$want" <<<"$ZIP_LIST" || { echo "[FAIL] $want is not inside $ZIP"; exit 1; }
+done
+if [[ "$INSTALLER" == "Install.command" ]]; then
+  # Finder can only double-click it if the zip keeps the executable bit.
+  zipinfo "$ZIP" "Install.command" | grep -q '^-rwx'     || { echo "[FAIL] Install.command lost its executable permission in $ZIP"; exit 1; }
+fi
+echo "  [ok] zip contains START HERE.html, $INSTALLER and $NAME"
 echo "== wrote $ZIP ($(du -sh "$ZIP" | cut -f1)) =="
