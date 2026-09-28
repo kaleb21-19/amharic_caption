@@ -174,7 +174,7 @@ const KNOWN = [
   // license
   'machineIdSection', 'machineIdDisplay', 'machineIdCopy', 'machineMismatch',
   'licensedNote', 'licenseInput', 'licenseActivate', 'licenseStatus', 'trialBanner',
-  'buyBtn', 'buyPending', 'bankDetails', 'bankBox',
+  'buyBtn', 'buyPending', 'bankDetails', 'bankBox', 'supportInfoLink', 'supportInfoBox',
   // logs
   'logDisc', 'logWrap', 'logBox',
   // footer

@@ -401,6 +401,11 @@ await t('3.7 simple buying: Buy link carries a secret, the panel activates itsel
     const nonce = opened.split('_').pop();
     assert.strictEqual(JSON.parse(p.storage.getItem('amh.pendingBuy')).nonce, nonce, 'secret kept by the panel');
     has(p.els('buyPending').textContent, 'activates itself', 'waiting note');
+    // The Machine ID is hidden behind "Support info" (buying never needs it).
+    assert.strictEqual(p.els('supportInfoBox').style.display || 'none', 'none', 'Machine ID hidden by default');
+    p.els('supportInfoLink').fire('click', { preventDefault() {} });
+    assert.strictEqual(p.els('supportInfoBox').style.display, 'block', 'Support info reveals it');
+    assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid, 'and it shows this computer');
     assert.deepStrictEqual(calls.filter((c) => c.u.includes('/api/license')).at(-1).body, { mid: p.mid, nonce }, 'asks with its own secret');
     p.els('buyBtn').fire('click', { preventDefault() {} });
     await flush(5);

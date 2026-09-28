@@ -573,11 +573,18 @@
           <b>Zemen</b> 1031111343277015<br>
           <span data-i18n-html="lic.bankName">Account name: <b>KALEB TEGEGEN</b> — pay no one else.</span>
         </div>
-        <!-- Only support needs this now; kept small and out of the way. -->
-        <label class="field-label" style="margin-top:10px;" data-i18n="lic.copyLabel">Machine ID — only if support asks</label>
-        <div class="row" style="align-items:stretch;">
-          <div class="machine-id" id="machineIdDisplay" title="Click to select all" data-i18n-title="lic.midTitle">loading…</div>
-          <button type="button" id="machineIdCopy" class="btn btn-neutral" style="flex:0 0 auto;min-width:70px;" title="Copy Machine ID" data-i18n="lic.copy" data-i18n-title="lic.copyTitle">📋 Copy</button>
+        <!-- Buying never needs the Machine ID any more; only support does
+             (/find in the bot). Hidden behind a small link so customers are
+             not left wondering what to do with it. -->
+        <div class="hint" style="margin-top:8px;">
+          <a href="#" id="supportInfoLink" data-i18n="lic.supportInfo">🛠 Support info</a>
+        </div>
+        <div id="supportInfoBox" style="display:none;margin-top:6px;">
+          <label class="field-label" data-i18n="lic.copyLabel">Machine ID — only if support asks</label>
+          <div class="row" style="align-items:stretch;">
+            <div class="machine-id" id="machineIdDisplay" title="Click to select all" data-i18n-title="lic.midTitle">loading…</div>
+            <button type="button" id="machineIdCopy" class="btn btn-neutral" style="flex:0 0 auto;min-width:70px;" title="Copy Machine ID" data-i18n="lic.copy" data-i18n-title="lic.copyTitle">📋 Copy</button>
+          </div>
         </div>
       </div>
 

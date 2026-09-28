@@ -73,6 +73,7 @@ const AM_STATIC = {
   'run.cancelTitle':  'ይህን ስራ አቁም',
 
   'lic.copyLabel':    'የማሽን መለያ — ድጋፍ ከጠየቀ ብቻ',
+  'lic.supportInfo':  '🛠 ለድጋፍ መረጃ',
   'lic.copy':         '📋 ቅዳ',
   'lic.copyTitle':    'የማሽን መለያውን ቅዳ',
   'lic.midTitle':     'ሁሉንም ለመምረጥ ይጫኑ',
