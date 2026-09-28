@@ -156,6 +156,7 @@ let SECRET = '';
 let SECRET_PREV = '';
 let TOKEN = '';
 let ADMIN_ID = ''; // may be comma-separated (multi-admin)
+let ADMIN_PIN = '';
 let GROUP_ID = '';
 let PRICE = 'ETB 2,500'; // display string
 let PRICE_ETB = 2500;    // numeric (source of truth for revenue/orders)
@@ -206,6 +207,9 @@ function initEnv(env) {
   SECRET = env.AMH_SECRET || '';
   SECRET_PREV = env.AMH_SECRET_PREV || '';
   WEBHOOK_SECRET = env.AMH_WEBHOOK_SECRET || '';
+  // Optional step-up PIN for money / broadcast / export actions (see "admin
+  // security" below). Unset = those actions work without it (dashboard warns).
+  ADMIN_PIN = String(env.AMH_ADMIN_PIN || '').trim();
   API_KEY = env.AMH_API_KEY || '';
   // The client cannot keep a secret: a desktop panel is public code. API-key
   // enforcement is therefore opt-in infrastructure gating, not the auth model.
@@ -280,6 +284,76 @@ function adminUids() {
 }
 function isAdmin(uid) {
   return adminUids().includes(String(uid));
+}
+
+// ── admin security: audit log + step-up PIN ─────────────────────────────────
+// The whole shop is controlled from the owner's Telegram account. If that
+// account is taken over (SIM swap, a stolen session on another device), the
+// attacker must not be able to broadcast a fake bank account to every
+// customer, redirect partner payouts, mark money as paid, or export every
+// license key. Those actions need a PIN that lives only in the owner's head
+// (Worker secret AMH_ADMIN_PIN): /unlock PIN opens them for 12 hours on that
+// account; 5 wrong PINs lock it for an hour and alert every admin.
+const UNLOCK_HOURS = 12;
+const PIN_MAX_FAILS = 5;
+
+async function audit(adminUid, action, detail = '') {
+  try {
+    await DB.prepare('INSERT INTO admin_audit (admin_uid, action, detail) VALUES (?, ?, ?)')
+      .bind(String(adminUid || ''), String(action), String(detail).slice(0, 300)).run();
+  } catch (e) { /* migration 0020 not applied: never block the action */ }
+}
+
+async function adminUnlocked(uid) {
+  if (!ADMIN_PIN) return true;
+  return !!(await kvGet('adminunlock:' + uid));
+}
+
+// true = go ahead. Otherwise tells the admin how to unlock and returns false.
+async function requireUnlock(uid, chatId, cbId, what) {
+  if (await adminUnlocked(uid)) return true;
+  if (cbId) await answerCb(cbId, '🔒 PIN needed — send /unlock PIN');
+  await sendText(chatId,
+    `🔒 <b>${esc(what)}</b> needs your admin PIN.\n\n` +
+    `Send <code>/unlock YOUR-PIN</code> — it stays unlocked for ${UNLOCK_HOURS} hours on this account ` +
+    '(the PIN message is deleted right away). Then tap again.\n\n' +
+    '<i>This protects the shop if someone ever gets into your Telegram.</i>');
+  await audit(uid, 'blocked_locked', what);
+  return false;
+}
+
+async function handleUnlock(uid, chatId, messageId, pin) {
+  // Never leave the PIN sitting in the chat history.
+  if (messageId) await safeSend(tg(TOKEN, 'deleteMessage', { chat_id: chatId, message_id: messageId }));
+  if (!ADMIN_PIN) {
+    await sendText(chatId, 'ℹ️ No admin PIN is set, so nothing is locked. Set one: <code>npx wrangler secret put AMH_ADMIN_PIN</code>');
+    return;
+  }
+  if (await kvGet('pinlock:' + uid)) {
+    await sendText(chatId, '⛔ Too many wrong PINs — locked for an hour. Try again later.');
+    return;
+  }
+  if (safeEqual(String(pin || '').trim(), ADMIN_PIN)) {
+    await kvPut('adminunlock:' + uid, '1', UNLOCK_HOURS * 3600);
+    await kvDel('pinfail:' + uid);
+    await audit(uid, 'unlock', 'ok');
+    await sendText(chatId, `🔓 Unlocked for ${UNLOCK_HOURS} hours. <i>/lock locks again now.</i>`,
+      [[{ text: '🛠 Admin', callback_data: 'admin:panel' }]]);
+    return;
+  }
+  const fails = (parseInt((await kvGet('pinfail:' + uid)) || '0', 10) || 0) + 1;
+  await kvPut('pinfail:' + uid, String(fails), 3600);
+  await audit(uid, 'unlock_failed', `attempt ${fails}`);
+  if (fails >= PIN_MAX_FAILS) {
+    await kvPut('pinlock:' + uid, '1', 3600);
+    for (const adm of adminUids()) {
+      await sendText(adm,
+        `🚨 <b>${PIN_MAX_FAILS} wrong admin PINs</b> on account <code>${esc(uid)}</code> — PIN locked for 1 hour.\n` +
+        '<i>If this was not you, someone may be in your Telegram: Settings → Devices → terminate other sessions, and turn on Two-Step Verification.</i>');
+    }
+    return;
+  }
+  await sendText(chatId, `❌ Wrong PIN (${fails}/${PIN_MAX_FAILS}).`);
 }
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -415,6 +489,8 @@ async function pruneOld() {
   const fs = await DB.prepare("DELETE FROM fsm WHERE updated_at < datetime('now', '-2 days')").run();
   const tu = await DB.prepare("DELETE FROM trial_uses WHERE used_at < datetime('now', '-30 days')").run();
   const wu = await DB.prepare("DELETE FROM webhook_updates WHERE received_at < datetime('now', '-30 days')").run();
+  // The audit log is kept for a year (who approved / paid / broadcast what).
+  try { await DB.prepare("DELETE FROM admin_audit WHERE ts < datetime('now', '-365 days')").run(); } catch (e) { /* 0020 */ }
   // Finished broadcasts: the per-recipient queue is only needed while sending.
   await DB.prepare(
     "DELETE FROM broadcast_queue WHERE broadcast_id IN (SELECT id FROM broadcasts " +
@@ -1928,6 +2004,23 @@ async function handleMessage(msg, env) {
     return;
   }
 
+  // admin security: /unlock PIN, /lock, /audit, and the PIN gate for the
+  // commands that move money, change bank details or revoke licenses.
+  if (privateChat && isAdmin(user.id)) {
+    const un = text.match(/^\/unlock(?:\s+(\S+))?$/i);
+    if (un) { await handleUnlock(uid, chatId, msg.message_id, un[1] || ''); return; }
+    if (lower === '/lock') {
+      await kvDel('adminunlock:' + uid);
+      await audit(uid, 'lock');
+      await sendText(chatId, '🔒 Locked. Money, broadcast and export actions need /unlock again.');
+      return;
+    }
+    if (lower === '/audit') { await adminAudit(chatId); return; }
+    const sensitive = /^\/(partnerbank|partnerterms|refdiscount|refreward|refhold|revoke|unrevoke|ban|unban|revoke-mid|unrevoke-mid|setexpiry)\b/i.exec(text);
+    if (sensitive && !(await requireUnlock(uid, chatId, null, '/' + sensitive[1]))) return;
+    if (sensitive) await audit(uid, 'command', text.slice(0, 120));
+  }
+
   // admin: referral programme amounts → /refdiscount 200, /refreward 300, /refhold 14
   if (privateChat && isAdmin(user.id)) {
     if (lower === '/referrals' || lower === '/referral') { await adminReferrals(chatId, null); return; }
@@ -2334,14 +2427,46 @@ async function startPanelPurchase(uid, chatId, mid, nonce) {
     payText(offer), payKeyboard(true));
 }
 
+// ── payment-screenshot fraud signals ────────────────────────────────────────
+// Bank transfers are checked by eye, so the cheap frauds are an OLD genuine
+// receipt used again (by the same or another person) and someone else's
+// receipt forwarded in. Telegram's file_unique_id is the same for the same
+// image from every user and every re-send, and `proofs` keeps it forever.
+async function proofSignals(fileUid, forwarded, uid, orderId) {
+  const flags = [];
+  if (forwarded) flags.push('⚠️ Forwarded screenshot — the buyer did not take it themselves.');
+  if (fileUid) {
+    try {
+      const prev = await DB.prepare('SELECT order_id, uid, created_at FROM proofs WHERE file_unique_id=?').bind(fileUid).first();
+      if (prev && prev.order_id !== orderId) {
+        flags.push(`🚨 SAME screenshot was already used for order #${prev.order_id} ` +
+          `(${prev.uid === String(uid) ? 'same buyer' : 'a DIFFERENT buyer'}, ${String(prev.created_at).slice(0, 10)}).`);
+      }
+    } catch (e) { /* 0020 not applied */ }
+  }
+  return flags.length ? flags.join('\n') : null;
+}
+async function recordProof(fileUid, orderId, uid, flag) {
+  try {
+    if (fileUid) {
+      await DB.prepare('INSERT OR IGNORE INTO proofs (file_unique_id, order_id, uid) VALUES (?, ?, ?)')
+        .bind(fileUid, orderId, String(uid)).run();
+    }
+    await DB.prepare('UPDATE orders SET proof_flag=? WHERE id=?').bind(flag, orderId).run();
+  } catch (e) { /* 0020 not applied: the order itself is unaffected */ }
+}
+
 // A new screenshot while an order waits replaces it (wrong / clearer photo).
-async function replaceProof(o, fileId, chatId) {
+async function replaceProof(o, fileId, chatId, meta = {}) {
   await DB.prepare("UPDATE orders SET photo_key=? WHERE id=? AND status='pending'").bind(fileId, o.id).run();
+  const flag = await proofSignals(meta.fileUid, meta.forwarded, o.uid, o.id);
+  await recordProof(meta.fileUid, o.id, o.uid, flag);
   await sendText(chatId,
     `🔄 የትዕዛዝ #${o.id} ስክሪንሾት ተቀይሯል — አዲሱን እንመለከታለን።\n<i>Screenshot for order #${o.id} updated — we will check the new one.</i>`);
   for (const adm of adminUids()) {
     await sendPhoto(adm, fileId,
-      `🔄 <b>New screenshot for #${o.id}</b> · @${esc(o.username)}\n${esc(midLabel(o.machine_id))}\n\nCheck it, then Approve or Decline:`,
+      `🔄 <b>New screenshot for #${o.id}</b> · @${esc(o.username)}\n${esc(midLabel(o.machine_id))}\n` +
+      (flag ? `\n${esc(flag)}\n` : '') + '\nCheck it, then Approve or Decline:',
       adminKeyboardPend(o.id));
     await sleep(90);
   }
@@ -2365,11 +2490,17 @@ async function handlePhoto(msg, uid, chatId, privateChat, text) {
   }
   const from = msg.from || {};
   const uname = from.username || from.first_name || '';
+  // Fraud signals: the image's permanent fingerprint, and whether it was
+  // forwarded from someone else's chat rather than sent by the buyer.
+  const meta = {
+    fileUid: msg.photo ? msg.photo[msg.photo.length - 1].file_unique_id : (msg.document && msg.document.file_unique_id) || null,
+    forwarded: !!(msg.forward_origin || msg.forward_date || msg.forward_from || msg.forward_from_chat),
+  };
 
   // An order is already waiting: this screenshot replaces its proof.
   const pend = await DB.prepare(
     "SELECT * FROM orders WHERE uid=? AND status='pending' ORDER BY id DESC LIMIT 1").bind(uid).first();
-  if (pend) { await replaceProof(pend, fileId, chatId); return; }
+  if (pend) { await replaceProof(pend, fileId, chatId, meta); return; }
 
   // Inside a purchase (they opened Pay, came from the panel, or typed their
   // Machine ID): the screenshot IS the order — no review step, no Confirm.
@@ -2378,6 +2509,7 @@ async function handlePhoto(msg, uid, chatId, privateChat, text) {
     // A picture out of the blue may be something else (an error screenshot):
     // one tap to say it is the payment.
     await setFsm(uid, { step: 'proof_ask', mid: s && s.mid, nonce: s && s.nonce, photo_key: fileId, hint: 1 });
+    await kvPut('proofmeta:' + uid, JSON.stringify(meta), 86400);
     await sendText(chatId,
       '📸 <b>ይህ የክፍያ ማረጋገጫ ነው?</b>\n<i>Is this your payment screenshot?</i>',
       [[{ text: '✅ አዎ — የከፈልኩበት ነው · Yes, my payment', callback_data: 'proof:yes' }],
@@ -2385,7 +2517,7 @@ async function handlePhoto(msg, uid, chatId, privateChat, text) {
     return;
   }
   await addFunnel(uid, 'screenshot_sent');
-  await placeOrder(uid, chatId, uname, privateChat, { ...s, photo_key: await storeProof(fileId) });
+  await placeOrder(uid, chatId, uname, privateChat, { ...s, photo_key: await storeProof(fileId), meta });
 }
 
 async function storeProof(fileId) {
@@ -2465,6 +2597,10 @@ async function placeOrder(uid, chatId, uname, privateChat, s) {
         '<i>We could not save your order. Please try again, or message @sumpak6.</i>');
     return;
   }
+  const meta = s.meta || {};
+  const flag = await proofSignals(meta.fileUid, meta.forwarded, uid, orderId);
+  await recordProof(meta.fileUid, orderId, uid, flag);
+  if (flag) log('warn', 'proof_flagged', { orderId, uid, flag });
   if (mid && s.nonce) {
     try { await DB.prepare('UPDATE orders SET nonce=? WHERE id=?').bind(s.nonce, orderId).run(); }
     catch (e) { /* 0019 not applied: the key is still sent in the chat */ }
@@ -2521,8 +2657,9 @@ async function placeOrder(uid, chatId, uname, privateChat, s) {
         ? `Machine ID: <code>${esc(mid)}</code>${s.nonce ? ' · 🖥 from the panel (activates itself)' : ''}\n`
         : '📱 <b>Paid from the phone</b> — no Machine ID; approving sends an activation code.\n') +
       `User: @${esc(uname)} (id ${esc(uid)})\nSource: ${privateChat ? 'DM' : 'Group'}\n` +
-      (offer ? `👥 <b>Referred${offer.partner ? ` via partner ${esc(offer.partner)}` : ''}</b> — expect <b>ETB ${money(amountEtb)}</b> (discount ${money(offer.discount)})\n` : '') + '\n' +
-      'Check the screenshot, then Approve or Decline:';
+      (offer ? `👥 <b>Referred${offer.partner ? ` via partner ${esc(offer.partner)}` : ''}</b> — expect <b>ETB ${money(amountEtb)}</b> (discount ${money(offer.discount)})\n` : '') +
+      (flag ? `\n${esc(flag)}\n` : '') + '\n' +
+      `✔ Check your bank app shows <b>ETB ${money(amountEtb)}</b> received, then Approve or Decline:`;
     await sendPhoto(adm, s.photo_key, caption, adminKeyboardPend(orderId));
     await sleep(90); // ~11 msg/s — admin cards have 1 photo each; calm under 30/s
   }
@@ -2639,8 +2776,27 @@ async function showMyKey(msg, chatId, messageId) {
 const money = (n) => n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 const shortTs = (s) => (s ? String(s).slice(5, 16).replace(' ', ' ') : '—');
 const orderSummary = (o) =>
-  `<b>#${o.id}</b> · ${o.username ? '@' + esc(o.username) : 'anon'} · ${isCodePlaceholder(o.machine_id) ? '📱 phone order' : `<code>${esc(o.machine_id)}</code>`} · ${shortTs(o.created_at)}` +
+  `${o.proof_flag ? '🚨 ' : ''}<b>#${o.id}</b> · ${o.username ? '@' + esc(o.username) : 'anon'} · ${isCodePlaceholder(o.machine_id) ? '📱 phone order' : `<code>${esc(o.machine_id)}</code>`} · ${shortTs(o.created_at)}` +
   (o.referrer_uid ? ` · 👥 ETB ${money(o.amount_etb || 0)}` : '');
+
+// The last 30 admin actions (who / what / when), newest first.
+async function adminAudit(chatId) {
+  let rows = [];
+  try {
+    rows = (await DB.prepare('SELECT ts, admin_uid, action, detail FROM admin_audit ORDER BY id DESC LIMIT 30').all()).results || [];
+  } catch (e) {
+    await sendText(chatId, '⚠️ The audit log needs migration 0020 — run <code>npm run migrate</code>, then deploy.');
+    return;
+  }
+  const multi = adminUids().length > 1;
+  const lines = rows.map((r) =>
+    `<code>${esc(String(r.ts).slice(5, 16))}</code> ${esc(r.action)}${r.detail ? ' · ' + esc(r.detail) : ''}${multi ? ' · ' + esc(r.admin_uid) : ''}`);
+  await sendText(chatId,
+    '🧾 <b>Audit log</b> — latest 30 admin actions (UTC)\n\n' +
+    (lines.length ? lines.join('\n') : 'Nothing yet.') +
+    '\n\n<i>Anything you do not recognise? Telegram → Settings → Devices → end other sessions, then change your PIN.</i>',
+    [[{ text: '🛠 Admin', callback_data: 'admin:panel' }]]);
+}
 
 function adminKeyboardPend(orderId) {
   return [[
@@ -2673,13 +2829,18 @@ async function adminPanel(chatId, messageId) {
     `   ├ ❌ Declined today: ${todayRow.rj}\n` +
     `   └ ⏳ Pending today:  ${todayRow.pd}\n\n` +
     `💵 <b>Revenue (30d):</b> ${soldCount} sale(s) = <b>ETB ${money(revenue)}</b>\n\n` +
-    `🔍 Support: send <code>/find</code> + a Machine ID to look up any buyer.`;
+    `🔍 Support: send <code>/find</code> + a Machine ID to look up any buyer.\n` +
+    (ADMIN_PIN
+      ? `🔐 Security: PIN on · ${(await adminUnlocked(chatId)) ? '🔓 unlocked' : '🔒 locked — /unlock PIN for money &amp; exports'}`
+      : '⚠️ <b>Security: no admin PIN.</b> Anyone in your Telegram could broadcast or export keys. ' +
+        'Set one: <code>npx wrangler secret put AMH_ADMIN_PIN</code>');
   const kb = [
     [{ text: `📥 Requests (${pend})`, callback_data: 'admin:queue' }],
     [{ text: '🧾 History (30 days)', callback_data: 'admin:history' }],
     [{ text: '📈 Sales & funnel', callback_data: 'admin:sales' }],
     [{ text: '📣 Broadcast', callback_data: 'admin:broadcast' }, { text: '📤 Export customers', callback_data: 'admin:export' }],
     [{ text: `🎁 Referrals · ${refOn ? '🟢 ON' : '⚪ OFF'}`, callback_data: 'admin:ref' }],
+    [{ text: '🔐 Audit log', callback_data: 'admin:audit' }],
   ];
   if (messageId) await editText(chatId, messageId, text, kb);
   else await sendText(chatId, text, kb);
@@ -2722,8 +2883,19 @@ async function adminQueue(chatId, messageId, cbId, offset = 0) {
 }
 
 async function adminExport(chatId, messageId, cbId) {
-  const { results } = await DB.prepare(
+  const { results: licensed } = await DB.prepare(
     'SELECT machine_id, name, expiry, key, status, revoked, uid FROM customers ORDER BY machine_id').all();
+  // Paid from the phone, code not typed into a panel yet: still a customer.
+  let codes = [];
+  try {
+    codes = (await DB.prepare(
+      "SELECT a.code, a.expiry, a.revoked, a.uid, o.username FROM activation_codes a LEFT JOIN orders o ON o.id = a.order_id WHERE a.redeemed_mid IS NULL ORDER BY a.created_at"
+    ).all()).results || [];
+  } catch (e) { /* 0019 not applied */ }
+  const results = licensed.concat(codes.map((c) => ({
+    machine_id: '(code)', name: c.username ? '@' + c.username : '', expiry: c.expiry, key: c.code,
+    status: 'code-not-used', revoked: c.revoked, uid: c.uid,
+  })));
   if (!results.length) { await answerCb(cbId, 'No customers'); return; }
   const lines = results.map((c) =>
     esc(`${c.machine_id}\t${c.name || ''}\t${c.expiry || '00000000'}\t${String(c.key || '').replace('AMH-', '')}\t${c.revoked ? 'revoked' : c.status}\t${c.uid || ''}`));
@@ -3069,7 +3241,8 @@ async function adminDetail(chatId, messageId, cbId, orderId) {
     `Amount: ${o.amount_etb ? `ETB ${money(o.amount_etb)}` : esc(PRICE)}` +
     (o.referrer_uid ? ` (👥 referred · discount ${money(o.discount_etb || 0)} · reward ${money(o.reward_etb || 0)})` : '') + '\n' +
     `Expiry: ${o.expiry === '00000000' ? 'perpetual' : esc(o.expiry)}\n` +
-    `Received: ${shortTs(o.created_at)}`;
+    `Received: ${shortTs(o.created_at)}` +
+    (o.proof_flag ? `\n\n${esc(o.proof_flag)}` : '');
   // A decided order used to offer NO actions at all — so an order approved to
   // the wrong person, or declined by mistake, could not be corrected through
   // the interface. revokeOrder() already existed and was reachable only by
@@ -3531,7 +3704,7 @@ async function handleCallback(cb) {
   const messageId = chat.message_id;
 
   // admin-only gates
-  if (data.startsWith('approve:') || data.startsWith('reject:') || data.startsWith('rej:') || data.startsWith('admin:')) {
+  if (data.startsWith('approve:') || data.startsWith('approvef:') || data.startsWith('reject:') || data.startsWith('rej:') || data.startsWith('admin:')) {
     if (!isAdmin(fromUid)) { await answerCb(cbId, '🔒 Admin only'); return; }
     // Admin cards, exports, and revoke actions can contain full bearer keys or
     // buyer data; never render them into a group chat.
@@ -3636,7 +3809,9 @@ async function handleCallback(cb) {
       const s = await getFsm(fromUid);
       if (s && s.step === 'proof_ask' && s.photo_key) {
         await addFunnel(fromUid, 'screenshot_sent');
-        await placeOrder(fromUid, chatId, fromUser.username || fromUser.first_name || '', true, s);
+        let meta = {};
+        try { meta = JSON.parse((await kvGet('proofmeta:' + fromUid)) || '{}'); } catch (e) { /* none */ }
+        await placeOrder(fromUid, chatId, fromUser.username || fromUser.first_name || '', true, { ...s, meta });
       }
       return;
     }
@@ -3660,7 +3835,22 @@ async function handleCallback(cb) {
   if (data.startsWith('admin:')) {
     const parts = data.split(':');
     const action = parts[1];
+    // Money, broadcast, export and license-killing buttons need the PIN (when
+    // one is set) and are always written to the audit log.
+    const SENSITIVE = {
+      export: 'Export customers (all keys)', 'sales-export': 'Export sales',
+      'bcast-send': 'Send a broadcast', 'ref-toggle': 'Referral ON/OFF',
+      'ref-paid': 'Mark a reward paid', 'partner-paid': 'Mark a partner paid',
+      'partner-del-yes': 'Delete a partner', 'partner-reset-yes': 'Move a partner to a new account',
+      revoke: 'Revoke a license', unrevoke: 'Restore a license',
+      'revoke-mid': 'Revoke a license', 'unrevoke-mid': 'Restore a license',
+    };
+    if (SENSITIVE[action]) {
+      if (!(await requireUnlock(fromUid, chatId, cbId, SENSITIVE[action]))) return;
+      await audit(fromUid, action, parts.slice(2).join(':'));
+    }
     if (action === 'panel') await adminPanel(chatId, messageId);
+    else if (action === 'audit') await adminAudit(chatId);
     else if (action === 'queue' || action === 'pending') await adminQueue(chatId, messageId, cbId, 0);
     else if (action === 'queuep') await adminQueue(chatId, messageId, cbId, parseInt(parts[2] || '0', 10));
     else if (action === 'history') await adminHistory(chatId, messageId, cbId, 0);
@@ -3805,9 +3995,29 @@ async function handleCallback(cb) {
     return;
   }
 
-  // approve:id / reject:id
-  if (data.startsWith('approve:')) {
-    await approve(chatId, messageId, data.split(':')[1], cbId);
+  // approve:id / reject:id. A flagged order (reused or forwarded screenshot)
+  // needs a second, deliberate tap: "the money is in my bank".
+  if (data.startsWith('approve:') || data.startsWith('approvef:')) {
+    const forced = data.startsWith('approvef:');
+    const orderId = data.split(':')[1];
+    if (!forced) {
+      let flag = null;
+      try {
+        const f = await DB.prepare('SELECT proof_flag FROM orders WHERE id=?').bind(orderId).first();
+        flag = f && f.proof_flag;
+      } catch (e) { /* 0020 not applied */ }
+      if (flag) {
+        await answerCb(cbId, '⚠️ Flagged order — check below');
+        await sendText(chatId,
+          `🚨 <b>Order #${esc(orderId)} is flagged</b>\n${esc(flag)}\n\n` +
+          '👉 Open your <b>bank app</b> and check the money really arrived before approving.',
+          [[{ text: '✅ The money is in my bank — approve', callback_data: `approvef:${orderId}` }],
+           [{ text: '❌ Decline', callback_data: `reject:${orderId}` }]]);
+        return;
+      }
+    }
+    await audit(fromUid, forced ? 'approve_flagged' : 'approve', '#' + orderId);
+    await approve(chatId, messageId, orderId, cbId);
     return;
   }
   if (data.startsWith('reject:')) {
@@ -3819,6 +4029,7 @@ async function handleCallback(cb) {
   }
   if (data.startsWith('rej:')) {
     const [, reasonKey, orderId] = data.split(':');
+    await audit(fromUid, 'decline', '#' + orderId + ' ' + reasonKey);
     await reject(chatId, messageId, orderId, cbId, reasonKey);
     return;
   }
