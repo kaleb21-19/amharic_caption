@@ -45,8 +45,8 @@ const buySteps = [
   {
     t: { am: "በፓነሉ ላይ «ፈቃድ ይግዙ» ይጫኑ", en: "Press “Buy a license” in the panel" },
     c: {
-      am: "የቴሌግራም ቦቱ ከማሽን መለያዎ (Machine ID) ጋር ይከፈታል።",
-      en: "The Telegram bot opens with your Machine ID already filled in.",
+      am: "የቴሌግራም ቦቱ ከኮምፒውተርዎ ጋር ተገናኝቶ ይከፈታል — ምንም መቅዳት አያስፈልግም።",
+      en: "The Telegram bot opens already linked to your computer — nothing to copy.",
     },
   },
   {
@@ -57,10 +57,10 @@ const buySteps = [
     },
   },
   {
-    t: { am: "ቁልፍዎ በቻቱ ይደርሳል", en: "Your key arrives in the chat" },
+    t: { am: "ፓነሉ በራሱ ይነቃል", en: "The panel activates itself" },
     c: {
-      am: "ክፍያው ሲረጋገጥ ቁልፉ በዚያው ቻት ይላካል። በፓነሉ ላይ ለጥፈው «አግብር» ይጫኑ።",
-      en: "When the payment is confirmed, the key is sent in the same chat. Paste it into the panel and press Activate.",
+      am: "ክፍያው ሲረጋገጥ ፓነሉ በራሱ ይነቃል — ምንም መለጠፍ አያስፈልግም። በስልክ ብቻ ከከፈሉ አጭር ኮድ ይደርስዎታል፤ በፓነሉ ላይ ጽፈው «አግብር» ይጫኑ።",
+      en: "Once the payment is confirmed the panel turns itself on — nothing to paste. Paid from your phone only? You get a short code; type it into the panel and press Activate.",
     },
   },
 ];

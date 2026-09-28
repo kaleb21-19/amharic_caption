@@ -367,16 +367,16 @@ function payText(offer = null) {
     `🏦 <b>${ACCT_NAME}</b> — ባንክ ዝውውር / bank transfer\n` +
     'ቁጥሩን ለመቅዳት ይንኩት / tap a number to copy:\n' +
     accountLines() + '\n\n' +
-    '🔑 ከተረጋገጠ በኋላ ቁልፍዎ በዚሁ ቻት ይደርሳል።\n' +
-    '<i>Your key arrives here once we confirm.</i>\n\n' +
+    '📸 <b>ከከፈሉ በኋላ የክፍያውን ስክሪንሾት እዚሁ ይላኩ — ያ ብቻ ነው።</b>\n' +
+    '<i>After paying, send the payment screenshot right here — that is all.</i>\n\n' +
     `⚠️ <b>${ACCT_NAME}</b> ብቻ ይክፈሉ — ሌላ ስም ወይም አካውንት ቢጠየቁ እኛ አይደለንም።\n` +
     '<i>Pay only this name. Anyone asking for a different account is not us.</i>'
   );
 }
 
-const payKeyboard = () => [
-  [{ text: '✅ ከፍያለሁ — ማረጋገጫ ልላክ · I’ve paid', callback_data: 'pay:proof' }],
-  [{ text: '🎁 መጀመሪያ በነጻ ልሞክር · Try 2 free', url: `${SITE_URL}/install` }],
+const payKeyboard = (fromPanel = false) => [
+  [{ text: '✅ ከፍያለሁ — ስክሪንሾት ልላክ · I’ve paid', callback_data: 'pay:proof' }],
+  ...(fromPanel ? [] : [[{ text: '🎁 መጀመሪያ በነጻ ልሞክር · Try 2 free', url: `${SITE_URL}/install` }]]),
 ];
 
 const MENU = 'ሰላም! 👋 ከታች ይምረጡ / Choose below:';
@@ -452,17 +452,32 @@ async function setFsm(uid, s) {
     await DB.prepare('DELETE FROM fsm WHERE uid = ?').bind(uid).run();
     return;
   }
-  await DB.prepare(
-    `INSERT INTO fsm (uid, step, mid, photo_key, ref, hint, status_msg_id, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
-     ON CONFLICT(uid) DO UPDATE SET
-       step=excluded.step, mid=excluded.mid, photo_key=excluded.photo_key,
-       ref=excluded.ref, hint=excluded.hint, status_msg_id=excluded.status_msg_id,
-       updated_at=datetime('now')`
-  ).bind(
+  const args = [
     uid, s.step, s.mid || null, s.photo_key || null, s.ref || '', s.hint ? 1 : 0,
-    s.status_msg_id != null ? s.status_msg_id : null
-  ).run();
+    s.status_msg_id != null ? s.status_msg_id : null,
+  ];
+  try {
+    // nonce: the panel's secret from its Buy button (migration 0019), which
+    // lets that panel activate itself after approval.
+    await DB.prepare(
+      `INSERT INTO fsm (uid, step, mid, photo_key, ref, hint, status_msg_id, nonce, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+       ON CONFLICT(uid) DO UPDATE SET
+         step=excluded.step, mid=excluded.mid, photo_key=excluded.photo_key,
+         ref=excluded.ref, hint=excluded.hint, status_msg_id=excluded.status_msg_id,
+         nonce=excluded.nonce, updated_at=datetime('now')`
+    ).bind(...args, s.nonce || null).run();
+  } catch (e) {
+    // Migration 0019 not applied yet: everything but self-activation works.
+    await DB.prepare(
+      `INSERT INTO fsm (uid, step, mid, photo_key, ref, hint, status_msg_id, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+       ON CONFLICT(uid) DO UPDATE SET
+         step=excluded.step, mid=excluded.mid, photo_key=excluded.photo_key,
+         ref=excluded.ref, hint=excluded.hint, status_msg_id=excluded.status_msg_id,
+         updated_at=datetime('now')`
+    ).bind(...args).run();
+  }
 }
 async function addFunnel(uid, event) {
   await DB.prepare('INSERT INTO funnel (uid, event) VALUES (?, ?)').bind(uid, event).run();
@@ -523,7 +538,13 @@ const refCutoff = (t) => `-${t.hold} days`;
 async function isBuyer(uid) {
   const r = await DB.prepare('SELECT 1 AS x FROM customers WHERE uid = ? AND revoked = 0 LIMIT 1')
     .bind(String(uid)).first();
-  return !!r;
+  if (r) return true;
+  // Paid from the phone and holding an activation code not used yet.
+  try {
+    const c = await DB.prepare('SELECT 1 AS x FROM activation_codes WHERE uid = ? AND revoked = 0 LIMIT 1')
+      .bind(String(uid)).first();
+    return !!c;
+  } catch (e) { return false; }
 }
 
 async function refCodeFor(uid) {
@@ -1873,6 +1894,13 @@ async function handleMessage(msg, env) {
       if (isAdmin(user.id)) {
         await adminPanel(chatId, null);
       } else {
+        // The panel's Buy button: m_<MachineID>_<secret>. Telegram keeps a
+        // /start payload through the START tap (a pre-typed message is lost).
+        const buy = startArg && /^m_([0-9a-fA-F]{16}|[0-9a-fA-F]{8})(?:_([A-Za-z0-9]{12,32}))?$/.exec(startArg[1]);
+        if (buy) {
+          await startPanelPurchase(uid, chatId, buy[1].toLowerCase(), buy[2] || null, null);
+          return;
+        }
         const claim = startArg && /^p_([A-Za-z0-9]{10,40})$/.exec(startArg[1]);
         if (claim) {
           await claimPartner(uid, chatId, claim[1], user.username ? '@' + user.username : (first || uid));
@@ -2151,53 +2179,33 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
     return;
   }
 
-  // step photo: waiting for screenshot
-  if (step === 'photo') {
-    await sendText(chatId,
-      '📸 የክፍያ ማረጋገጫ <b>ፎቶ</b> እየጠበቅሁ ነው — የባንክ ዝውውሩን screenshot ይላኩ።\n' +
-      '<i>Waiting for your screenshot — send the bank-transfer confirmation as a photo.</i>', [
-      [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }],
-    ]);
-    return;
-  }
-
-  // step mid: waiting for Machine ID
-  if (step === 'mid') {
-    const m = text.match(MACHINE_ID_RE);
-    if (!m) {
-      await sendHintKb(chatId,
-        '⚠️ የእርስዎ <b>Machine ID</b> ያስፈልገኛል — ከፓነሉ ግርጌ ያለው <b>16 ፊደል</b> ኮድ ነው።\n' +
-        '<i>I need your Machine ID — the 16-character code at the bottom of the panel (e.g. <code>a1b2c3d4e5f60718</code>).</i>');
-      return;
-    }
-    const mid = m[0].toLowerCase();
-    const existing = await findKey(mid);
-    if (existing) {
-      await sendText(chatId,
-        `🔑 ይህ Machine ID (<code>${mid}</code>) ቀድሞውኑ ቁልፍ አለው።\n` +
-        '<i>This machine already has a key.</i>\n\n' +
-        'ለማየት <b>ቁልፌ</b> ይንኩ። የማይሰራ ከሆነ ይጻፉልን።\n' +
-        '<i>Tap My Key to see it, or message us if it is not working.</i>',
-        [[{ text: '🔑 ቁልፌ · My Key', callback_data: 'proof:mykey' }], [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
+  // Waiting for the screenshot (step 'mid' is the old flow's name for it).
+  if (step === 'photo' || step === 'mid' || step === 'proof_ask') {
+    const mm = text.match(MACHINE_ID_RE);
+    if (mm && !suspiciousMid(mm[0].toLowerCase()) && (await findKey(mm[0].toLowerCase()))) {
       await setFsm(uid, null);
-      return;
-    }
-    if (suspiciousMid(mid)) {
       await sendText(chatId,
-        `⚠️ <code>${mid}</code> ትክክለኛ <b>Machine ID</b> አይመስልም።\n\n` +
-        'ከፓነሉ ግርጌ ያለውን <b>16 ፊደል</b> ኮድ ይላኩ (ለምሳሌ <code>a1b2c3d4e5f60718</code>)።\n' +
-        '<i>That does not look like a Machine ID — send the 16-character code from the bottom of the panel.</i>',
-        [[MID_HELP_BTN], [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
+        `🔑 ይህ ኮምፒውተር (<code>${mm[0].toLowerCase()}</code>) ቀድሞውኑ ቁልፍ አለው — ሁለተኛ ጊዜ አይክፈሉ።\n` +
+        '<i>This computer already has a key — do not pay twice.</i>',
+        [[{ text: '🔑 ቁልፌ · My Key', callback_data: 'proof:mykey' }], [{ text: '💬 ድጋፍ · Support', url: SUPPORT_URL }]]);
       return;
     }
-    // valid new machine -> ask for screenshot
-    await setFsm(uid, { step: 'photo', mid, photo_key: null, hint: 1 });
-    await addFunnel(uid, 'mid_sent');
+    if (mm && !suspiciousMid(mm[0].toLowerCase())) {
+      // They typed their Machine ID anyway: keep it, still one step left.
+      await setFsm(uid, { ...s, step: 'photo', mid: mm[0].toLowerCase() });
+      await addFunnel(uid, 'mid_sent');
+      await sendText(chatId,
+        `✅ ኮምፒውተርዎ ተመዝግቧል (<code>${mm[0].toLowerCase()}</code>)።\n` +
+        '📸 አሁን የክፍያውን ስክሪንሾት ብቻ ይላኩ።\n' +
+        '<i>Got your computer. Now just send the payment screenshot.</i>',
+        [[{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
+      return;
+    }
     await sendText(chatId,
-      '✅ Machine ID ደርሶናል!\n\n' +
-      '📤 <b>ደረጃ 2/2</b> — አሁን የባንክ ዝውውር ማረጋገጫ <b>ፎቶ</b> (screenshot) ይላኩ።\n' +
-      '<i>Step 2 of 2 — now send your bank-transfer screenshot as a photo.</i>',
-      [[{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
+      '📸 የክፍያውን <b>ስክሪንሾት</b> እየጠበቅሁ ነው — እዚሁ ይላኩት (ፎቶ ወይም ፋይል)።\n' +
+      '<i>Waiting for the payment screenshot — send it right here (photo or file).</i>',
+      [[{ text: '💳 የባንክ አካውንቶች · Bank accounts', callback_data: 'menu:pay' }],
+       [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
     return;
   }
 
@@ -2244,18 +2252,99 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
   // the proof flow skips straight to the screenshot.
   const seen = m[0].toLowerCase();
   if (!suspiciousMid(seen)) {
-    await setFsm(uid, { step: 'have_mid', mid: seen, photo_key: null, ref: '', hint: 1 });
-    await sendText(chatId,
-      `✅ Machine ID ተቀብያለሁ: <code>${seen}</code>\n` +
-      '<i>Got your Machine ID — you will not need to type it again.</i>\n\n' +
-      'ክፍያውን ለመፈጸም ከታች ይንኩ።\n<i>Tap below to see the payment details.</i>',
-      [[{ text: '💳 ክፍያ · Pay', callback_data: 'menu:pay' }]]);
+    await startPanelPurchase(uid, chatId, seen, null);
     return;
   }
   await sendText(chatId,
     '👋 ይህ Machine ID ይመስላል። ለመክፈል ከታች ይጀምሩ።\n' +
     '<i>That looks like a Machine ID — tap Pay to start.</i>',
     [[{ text: '💳 ክፍያ · Pay', callback_data: 'menu:pay' }]]);
+}
+
+// ── simple buying: no Machine ID for the customer ───────────────────────────
+// Two ways in, one step each:
+//  • From the panel's Buy button (/start m_<mid>_<secret>): the bot already
+//    knows the computer. Pay, send the screenshot — after approval the panel
+//    asks /api/license with its secret and activates ITSELF.
+//  • From the phone (a group post, TikTok, a partner link): no Machine ID at
+//    all. Pay, send the screenshot — approval sends a short activation code
+//    (K7QD-3MXP) that the panel redeems once (/api/redeem), binding it there.
+// Until redeemed, a phone order carries a placeholder "machine id"
+// code-<code> (never a valid Machine ID); redeeming rewrites it everywhere to
+// the real one, so revoke / find / sales keep working exactly as before.
+const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // no 0/O/1/I
+function newActivationCode() {
+  const b = crypto.getRandomValues(new Uint8Array(8));
+  const s = Array.from(b, (x) => CODE_ALPHABET[x % CODE_ALPHABET.length]).join('');
+  return s.slice(0, 4) + '-' + s.slice(4);
+}
+// "k7qd 3mxp", "K7QD3MXP", "k7qd-3mxp" → "K7QD-3MXP" (or null).
+function normActivationCode(c) {
+  const s = String(c || '').toUpperCase().replace(/[\s-]+/g, '');
+  return /^[A-HJ-NP-Z2-9]{8}$/.test(s) ? s.slice(0, 4) + '-' + s.slice(4) : null;
+}
+const isCodePlaceholder = (mid) => /^code-[a-z2-9]{8}$/.test(String(mid || ''));
+const placeholderCode = (mid) => {
+  const s = String(mid).slice(5).toUpperCase();
+  return s.slice(0, 4) + '-' + s.slice(4);
+};
+// What the admin sees where a Machine ID would be.
+const midLabel = (mid) => (isCodePlaceholder(mid) ? '📱 phone order (activation code)' : String(mid || ''));
+
+// The Machine ID is known (panel Buy button, or typed): straight to paying.
+async function startPanelPurchase(uid, chatId, mid, nonce) {
+  const have = await DB.prepare('SELECT revoked FROM customers WHERE machine_id=?').bind(mid).first();
+  if (have && !have.revoked) {
+    await setFsm(uid, null);
+    await sendText(chatId,
+      '🔑 <b>ይህ ኮምፒውተር ቀድሞውኑ ፈቃድ አለው።</b>\n<i>This computer already has a license.</i>\n\n' +
+      'ፓነሉ ካልነቃ ቁልፍዎን ከ«ቁልፌ» ይቅዱና ይለጥፉ፣ ወይም ይጻፉልን።\n' +
+      '<i>If the panel is not activated, copy your key from My Key and paste it — or message us.</i>',
+      [[{ text: '🔑 ቁልፌ · My Key', callback_data: 'proof:mykey' }], [{ text: '💬 ድጋፍ · Support', url: SUPPORT_URL }]]);
+    return;
+  }
+  // Paid already and waiting: attach this computer to that order.
+  const pend = await DB.prepare(
+    "SELECT id, machine_id FROM orders WHERE uid=? AND status='pending' ORDER BY id DESC LIMIT 1").bind(uid).first();
+  if (pend) {
+    let linked = false;
+    if (isCodePlaceholder(pend.machine_id) || pend.machine_id === mid) {
+      try {
+        await DB.prepare("UPDATE orders SET machine_id=? WHERE id=? AND status='pending'").bind(mid, pend.id).run();
+        linked = true;
+        if (nonce) await DB.prepare('UPDATE orders SET nonce=? WHERE id=?').bind(nonce, pend.id).run();
+      } catch (e) { /* another pending order already holds this machine, or 0019 missing */ }
+    }
+    await sendText(chatId,
+      `⏳ <b>ትዕዛዝ #${pend.id} እየተረጋገጠ ነው</b> — ሌላ ምንም አያስፈልግም።\n<i>Order #${pend.id} is being confirmed — nothing else needed.</i>` +
+      (linked
+        ? (nonce
+          ? '\n\n🖥 ይህ ኮምፒውተር ከትዕዛዙ ጋር ተገናኝቷል — ሲረጋገጥ ፓነሉ በራሱ ይነቃል።\n<i>This computer is linked — the panel activates itself once confirmed.</i>'
+          : '\n\n🖥 ይህ ኮምፒውተር ከትዕዛዙ ጋር ተገናኝቷል — ሲረጋገጥ ቁልፍዎ እዚህ ይደርሳል።\n<i>This computer is linked — your key arrives here once confirmed.</i>')
+        : ''));
+    return;
+  }
+  const prior = await getFsm(uid);
+  await setFsm(uid, { step: 'photo', mid, nonce: nonce || (prior && prior.mid === mid ? prior.nonce : null), photo_key: null, hint: 1 });
+  await addFunnel(uid, nonce ? 'panel_buy' : 'mid_sent');
+  const offer = await referralOffer(uid, mid);
+  await quoteOffer(uid, offer);
+  await sendText(chatId,
+    '🖥 <b>ኮምፒውተርዎ ተገናኝቷል ✅</b> — ምንም መጻፍ አያስፈልግም።\n<i>Your computer is connected — nothing to type.</i>\n\n' +
+    payText(offer), payKeyboard(true));
+}
+
+// A new screenshot while an order waits replaces it (wrong / clearer photo).
+async function replaceProof(o, fileId, chatId) {
+  await DB.prepare("UPDATE orders SET photo_key=? WHERE id=? AND status='pending'").bind(fileId, o.id).run();
+  await sendText(chatId,
+    `🔄 የትዕዛዝ #${o.id} ስክሪንሾት ተቀይሯል — አዲሱን እንመለከታለን።\n<i>Screenshot for order #${o.id} updated — we will check the new one.</i>`);
+  for (const adm of adminUids()) {
+    await sendPhoto(adm, fileId,
+      `🔄 <b>New screenshot for #${o.id}</b> · @${esc(o.username)}\n${esc(midLabel(o.machine_id))}\n\nCheck it, then Approve or Decline:`,
+      adminKeyboardPend(o.id));
+    await sleep(90);
+  }
 }
 
 // ── screenshots (photo/document) ────────────────────────────────────────────
@@ -2268,38 +2357,35 @@ async function handlePhoto(msg, uid, chatId, privateChat, text) {
   const mime = (msg.document && msg.document.mime_type) || '';
 
   if (!fileId) return;
+  if (isDocument && !mime.startsWith('image/')) {
+    await sendText(chatId,
+      '📁 ይህን ፋይል ማንበብ አንችልም — የክፍያውን ማረጋገጫ እንደ <b>ፎቶ</b> ወይም ምስል ይላኩ።\n' +
+      '<i>We cannot read that file — send the payment screenshot as a photo or image.</i>');
+    return;
+  }
+  const from = msg.from || {};
+  const uname = from.username || from.first_name || '';
 
-  if (step === 'photo') {
-    if (isDocument && !mime.startsWith('image/')) {
-      await sendText(chatId,
-        '📁 እንደ <b>ፋይል</b> ነው የተላከው፣ እንደ ፎቶ አይደለም።\n' +
-        'የክፍያውን ማረጋገጫ እንደ <b>ፎቶ</b> ይላኩ።\n' +
-        '<i>That arrived as a file, not a photo. Send the screenshot as an image so we can read it.</i>',
-        [[{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
-      return;
-    }
-    const objectKey = await storeProof(fileId);
-    await setFsm(uid, { ...s, photo_key: objectKey, step: 'confirm' });
-    await addFunnel(uid, 'screenshot_sent');
-    await reviewConfirm(uid, chatId, '✅ ፎቶው ደርሶናል! <i>Screenshot received.</i>\n\n');
+  // An order is already waiting: this screenshot replaces its proof.
+  const pend = await DB.prepare(
+    "SELECT * FROM orders WHERE uid=? AND status='pending' ORDER BY id DESC LIMIT 1").bind(uid).first();
+  if (pend) { await replaceProof(pend, fileId, chatId); return; }
+
+  // Inside a purchase (they opened Pay, came from the panel, or typed their
+  // Machine ID): the screenshot IS the order — no review step, no Confirm.
+  const inPurchase = s && ['photo', 'mid', 'have_mid', 'confirm', 'proof_ask'].includes(step);
+  if (!inPurchase) {
+    // A picture out of the blue may be something else (an error screenshot):
+    // one tap to say it is the payment.
+    await setFsm(uid, { step: 'proof_ask', mid: s && s.mid, nonce: s && s.nonce, photo_key: fileId, hint: 1 });
+    await sendText(chatId,
+      '📸 <b>ይህ የክፍያ ማረጋገጫ ነው?</b>\n<i>Is this your payment screenshot?</i>',
+      [[{ text: '✅ አዎ — የከፈልኩበት ነው · Yes, my payment', callback_data: 'proof:yes' }],
+       [{ text: '✖ አይደለም · No', callback_data: 'proof:cancel' }]]);
     return;
   }
-  if (step === 'confirm') {
-    await reviewConfirm(uid, chatId, '✅ ፎቶዎ ቀድሞውኑ ደርሶናል። <i>We already have your screenshot.</i>\n\n');
-    return;
-  }
-  if (step === 'mid') {
-    const objectKey = await storeProof(fileId);
-    await setFsm(uid, { ...s, photo_key: objectKey });
-    await sendText(chatId, '📸 ፎቶው ተቀምጧል! አሁን የእርስዎን <b>Machine ID</b> ይላኩ (ከፓነሉ ግርጌ ያለው 16 ፊደል ኮድ)።\n' +
-      '<i>Screenshot saved — now send your Machine ID.</i>',
-      [[MID_HELP_BTN], [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
-    return;
-  }
-  await sendText(chatId,
-    '🖼 አመሰግናለሁ — ትዕዛዝ ለመስጠት ግን መጀመሪያ ከታች <b>ክፍያ</b> ይንኩ።\n' +
-    '<i>Thanks — to place an order, start from the Pay button below.</i>',
-    [[{ text: '💳 ክፍያ · Pay', callback_data: 'menu:pay' }]]);
+  await addFunnel(uid, 'screenshot_sent');
+  await placeOrder(uid, chatId, uname, privateChat, { ...s, photo_key: await storeProof(fileId) });
 }
 
 async function storeProof(fileId) {
@@ -2333,50 +2419,61 @@ async function reviewConfirm(uid, chatId, lead = '') {
   if (r && r.ok) await setFsm(uid, { ...s, status_msg_id: r.result.message_id });
 }
 
-// ── complete proof -> create pending order + notify admin ───────────────────
+// ── the order ───────────────────────────────────────────────────────────────
+// Legacy: a buyer who was on the old "Review your order → Confirm" screen
+// when this version was deployed can still finish with Confirm.
 async function completeProof(uid, chatId, uname, privateChat) {
   const s = await getFsm(uid);
-  if (!s || !s.mid) return;
+  if (!s || !s.photo_key) return;
+  await placeOrder(uid, chatId, uname, privateChat, s);
+}
 
-  // Require a payment screenshot before booking. A missing proof means
-  // storeProof hiccups or the photo step was somehow skipped — send them
-  // back to the photo step rather than creating a proofless order.
-  if (!s.photo_key) {
-    await setFsm(uid, { ...s, step: 'photo' });
+// The screenshot arrived: book the order at once. s = { mid?, nonce?, photo_key }.
+async function placeOrder(uid, chatId, uname, privateChat, s) {
+  if (!s || !s.photo_key) return;
+  const mid = s.mid && isValidMid(s.mid) && !suspiciousMid(s.mid) ? String(s.mid).toLowerCase() : null;
+  if (mid && (await findKey(mid))) {
+    await setFsm(uid, null);
     await sendText(chatId,
-      '⚠️ <b>ፎቶው የለም።</b> እባክዎ የክፍያ ማረጋገጫ ፎቶውን እንደገና ይላኩ።\n' +
-      '<i>The screenshot is missing — please send it again as a photo.</i>',
-      [[{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
+      `🔑 ይህ ኮምፒውተር (<code>${mid}</code>) ቀድሞውኑ ቁልፍ አለው — ሁለተኛ ጊዜ አይክፈሉ።\n` +
+      '<i>This computer already has a key — do not pay twice.</i>\n\n' +
+      'ለማየት <b>ቁልፌ</b> ይንኩ፣ ወይም ይጻፉልን።\n<i>Tap My Key to see it, or message us.</i>',
+      [[{ text: '🔑 ቁልፌ · My Key', callback_data: 'proof:mykey' }], [{ text: '💬 ድጋፍ · Support', url: SUPPORT_URL }]]);
     return;
   }
+  // No Machine ID (paid from the phone): a placeholder that later becomes the
+  // activation code — see "simple buying" above.
+  const machineId = mid || ('code-' + newActivationCode().replace('-', '').toLowerCase());
 
   // Atomically insert + claim: the unique partial index on
   // (machine_id WHERE status='pending') blocks duplicate pending orders
-  // for the same machine. On duplicate (constraint error) we tell the
-  // buyer and clean up the FSM safely.
+  // for the same machine.
   let orderId;
   try {
     const order = await DB.prepare(
       `INSERT INTO orders (uid, username, machine_id, ref, photo_key, chat_id, status, amount_etb)
        VALUES (?, ?, ?, '', ?, ?, 'pending', ?)`
-    ).bind(uid, uname || 'anon', s.mid, s.photo_key, String(chatId), PRICE_ETB).run();
+    ).bind(uid, uname || 'anon', machineId, s.photo_key, String(chatId), PRICE_ETB).run();
     orderId = order.meta.last_row_id;
   } catch (err) {
     const isDupe = /UNIQUE/i.test(String(err));
     await setFsm(uid, null);
     await sendText(chatId, isDupe
-      ? '⏳ ለዚህ Machine ID ትዕዛዝ ቀድሞውኑ በመጠባበቅ ላይ ነው — ቁልፍዎ በዚሁ ቻት ይደርሳል።\n' +
-        '<i>An order for this Machine ID is already waiting for approval — your key will arrive here.</i>'
+      ? '⏳ ለዚህ ኮምፒውተር ትዕዛዝ ቀድሞውኑ በመጠባበቅ ላይ ነው — ቁልፍዎ በዚሁ ቻት ይደርሳል።\n' +
+        '<i>An order for this computer is already waiting for approval — your key will arrive here.</i>'
       : '⚠️ ትዕዛዝዎን ማስቀመጥ አልተቻለም። እባክዎ እንደገና ይሞክሩ፣ ወይም @sumpak6 ን ያግኙ።\n' +
         '<i>We could not save your order. Please try again, or message @sumpak6.</i>');
     return;
   }
+  if (mid && s.nonce) {
+    try { await DB.prepare('UPDATE orders SET nonce=? WHERE id=?').bind(s.nonce, orderId).run(); }
+    catch (e) { /* 0019 not applied: the key is still sent in the chat */ }
+  }
 
   // Referral terms are locked onto the order now (price, discount, reward), so
   // changing the amounts or switching the programme off later never changes an
-  // order in flight. A separate UPDATE keeps the plain INSERT above unchanged
-  // for every normal sale.
-  const offer = await orderOffer(uid, s.mid);
+  // order in flight.
+  const offer = await orderOffer(uid, mid);
   let amountEtb = PRICE_ETB;
   if (offer) {
     try {
@@ -2389,38 +2486,44 @@ async function completeProof(uid, chatId, uname, privateChat) {
     }
   }
 
-  // Claim succeeded — side-effects are safe (runs once).
   await setFsm(uid, null);
   await kvDel('pending:count');
   await addFunnel(uid, 'order_confirmed');
-  log('info', 'order_created', { orderId, mid: s.mid, uid, amount_etb: amountEtb, referred: !!offer, source: privateChat ? 'DM' : 'Group' });
+  log('info', 'order_created', { orderId, mid: machineId, uid, amount_etb: amountEtb, referred: !!offer, panel: !!s.nonce, source: privateChat ? 'DM' : 'Group' });
 
-  // status + ETA to buyer
+  // What happens next, in the customer's words — no Machine ID, no key talk
+  // for someone who has not installed yet.
   const pos = await pendingCount();
+  const next = mid && s.nonce
+    ? '🖥 ሲረጋገጥ <b>ፓነሉ በራሱ ይነቃል</b> — ምንም መለጠፍ አያስፈልግም።\n' +
+      '<i>Once confirmed, the panel on your computer activates by itself — nothing to paste.</i>'
+    : mid
+      ? '🔑 ሲረጋገጥ ቁልፍዎ እዚሁ ይደርሳል።\n<i>Once confirmed, your key arrives right here.</i>'
+      : '🔑 ሲረጋገጥ <b>አጭር የማግበሪያ ኮድ</b> እዚሁ ይደርስዎታል።\n' +
+        '<i>Once confirmed, you get a short activation code right here.</i>\n\n' +
+        '📲 እስከዚያው መተግበሪያውን ይጫኑ (ከታች «አጫጫን»)።\n<i>Meanwhile, install the app (Install guide below).</i>';
   const statusText =
-    '📦 <b>ትዕዛዝዎ ደርሶናል / Order received</b>\n\n' +
-    `🤖 Machine ID: <code>${s.mid}</code>\n` +
-    `💵 ዋጋ / Amount: <b>ETB ${money(amountEtb)}</b>\n\n` +
-    `⏳ <b>በመጠባበቅ ላይ / Pending</b> — በተራ <b>#${pos}</b> ላይ ነዎት።\n` +
-    'ቁልፍዎ አብዛኛውን ጊዜ በጥቂት ሰዓታት ውስጥ (በኢትዮጵያ የስራ ሰዓት) በዚሁ ቻት ይላክልዎታል። 🙏\n' +
-    '<i>Keys are usually issued within a few hours, Ethiopian working hours. ' +
-    "We'll send it right here.</i>\n\n" +
-    'እስከ ቀኑ መጨረሻ ቁልፍዎ ካልደረሰ @sumpak6 ን ያግኙ።\n' +
-    '<i>No key by the end of the day? Message @sumpak6.</i>';
-  const r = await sendText(chatId, statusText);
+    '✅ <b>ደርሶናል! / Received!</b>\n\n' +
+    `💵 ETB ${money(amountEtb)} · ⏳ በተራ / in line: <b>#${pos}</b>\n\n` +
+    next + '\n\n' +
+    '⏱ አብዛኛውን ጊዜ በጥቂት ሰዓታት ውስጥ (በኢትዮጵያ የስራ ሰዓት)።\n<i>Usually within a few hours (Ethiopian working hours).</i>\n' +
+    '🔄 የተሳሳተ ስክሪንሾት ከሆነ ትክክለኛውን ብቻ ይላኩ።\n<i>Wrong screenshot? Just send the right one.</i>';
+  const r = await sendText(chatId, statusText,
+    mid ? null : [[{ text: '📲 አጫጫን · Install guide', url: `${SITE_URL}/install` }]]);
   const statusMsgId = r && r.ok ? r.result.message_id : null;
   if (statusMsgId) await DB.prepare('UPDATE orders SET status_msg_id=? WHERE id=?').bind(statusMsgId, orderId).run();
 
   // notify admin (throttled so a queue of cards doesn't hit Telegram 429)
-  const admins = await adminList();
-  for (const adm of admins) {
+  for (const adm of adminUids()) {
     const caption =
       '🧾 <b>New order — payment proof</b>\n\n' +
-      `Machine ID: <code>${esc(s.mid)}</code>\nUser: @${esc(uname)} (id ${esc(uid)})\nSource: ${privateChat ? 'DM' : 'Group'}\n` +
+      (mid
+        ? `Machine ID: <code>${esc(mid)}</code>${s.nonce ? ' · 🖥 from the panel (activates itself)' : ''}\n`
+        : '📱 <b>Paid from the phone</b> — no Machine ID; approving sends an activation code.\n') +
+      `User: @${esc(uname)} (id ${esc(uid)})\nSource: ${privateChat ? 'DM' : 'Group'}\n` +
       (offer ? `👥 <b>Referred${offer.partner ? ` via partner ${esc(offer.partner)}` : ''}</b> — expect <b>ETB ${money(amountEtb)}</b> (discount ${money(offer.discount)})\n` : '') + '\n' +
-      'Check the screenshot, then Approve or Reject:';
-    if (s.photo_key) await sendPhoto(adm, s.photo_key, caption, adminKeyboardPend(orderId));
-    else await sendText(adm, caption, adminKeyboardPend(orderId));
+      'Check the screenshot, then Approve or Decline:';
+    await sendPhoto(adm, s.photo_key, caption, adminKeyboardPend(orderId));
     await sleep(90); // ~11 msg/s — admin cards have 1 photo each; calm under 30/s
   }
 }
@@ -2431,11 +2534,38 @@ async function adminList() {
 }
 
 // ── show my key ─────────────────────────────────────────────────────────────
-function keyDeliveryMessage(key, expiry, chatType) {
+// Paid from the phone: a short code, typed once into the panel.
+function activationCodeMessage(code) {
+  return (
+    '✅ <b>ክፍያዎ ተረጋግጧል!</b>\n<i>Payment confirmed!</i>\n\n' +
+    '🔑 የማግበሪያ ኮድዎ / Your activation code:\n' +
+    `<code>${esc(code)}</code>\n\n` +
+    '<b>①</b> አማርኛ ካፕሽን ፕሮን ይጫኑ (ከታች «አጫጫን») · <i>install the app (Install guide below)</i>\n' +
+    '<b>②</b> በPremiere ወይም After Effects ፓነሉን ይክፈቱ፣ ኮዱን <b>«የፈቃድ ቁልፍ»</b> ላይ ይጻፉ · <i>open the panel and type the code into “License key”</i>\n' +
+    '<b>③</b> <b>«አግብር»</b> ይጫኑ — ተጠናቋል! · <i>press Activate — done!</i>\n\n' +
+    '🖥 ኮዱ ለአንድ ኮምፒውተር ብቻ ነው። <i>One code = one computer.</i>\n' +
+    'እናመሰግናለን! 🙏 ችግር ካጋጠመዎት ይጻፉልን። <i>Thank you — message us if anything goes wrong.</i>'
+  );
+}
+
+function keyDeliveryMessage(key, expiry, chatType, selfActivating = false) {
   expiry = String(expiry || '00000000');
   if (chatType !== 'private') {
     return '🔒 ቁልፍዎ የሚላከው በግል ቻት ብቻ ነው።\n' +
       '<i>For your security, the key is only sent in a private chat — open a DM with this bot and tap My Key.</i>';
+  }
+  if (selfActivating) {
+    // Bought with the panel's Buy button: the panel turns itself on. The key
+    // is here only as a fallback.
+    return [
+      '✅ <b>ክፍያዎ ተረጋግጧል!</b>', '<i>Payment confirmed!</i>', '',
+      '🖥 <b>ፓነሉ በራሱ ይነቃል</b> — ክፍት ከሆነ በአንድ ደቂቃ ውስጥ፣ ካልሆነ ሲከፍቱት።',
+      '<i>Your panel activates by itself — within a minute if it is open, otherwise the next time you open it.</i>', '',
+      'ካልነቃ ብቻ ይህን ቁልፍ ይንኩ (ይቀዳል)፣ በፓነሉ «የፈቃድ ቁልፍ» ላይ ይለጥፉና «አግብር» ይጫኑ፦',
+      '<i>Only if it does not: tap this key to copy it, paste it into “License key” and press Activate:</i>',
+      `<code>${esc(key)}</code>`, '',
+      'እናመሰግናለን! 🙏 <i>Thank you!</i>',
+    ].join('\n');
   }
   const lines = [
     '✅ <b>ክፍያዎ ተረጋግጧል — ቁልፍዎ ደርሷል!</b>',
@@ -2471,22 +2601,36 @@ async function showMyKey(msg, chatId, messageId) {
      WHERE uid = ? ORDER BY machine_id LIMIT 50`
   ).bind(uid).all();
   const list = rows.results || [];
-  if (!list.length) {
+  // Activation codes bought from the phone and not typed into a panel yet.
+  let codes = [];
+  try {
+    codes = (await DB.prepare(
+      'SELECT code FROM activation_codes WHERE uid = ? AND redeemed_mid IS NULL AND revoked = 0 ORDER BY created_at LIMIT 20'
+    ).bind(uid).all()).results || [];
+  } catch (e) { /* 0019 not applied */ }
+  if (!list.length && !codes.length) {
     const text =
       '🔑 <b>ቁልፌ / My Key</b>\n\n' +
       'በዚህ የቴሌግራም አካውንት የተመዘገበ ቁልፍ እስካሁን የለም።\n' +
       '<i>No key is linked to this Telegram account yet.</i>\n\n' +
-      'ክፍያዎ ሲረጋገጥ እዚህ ይታያል። ከፍለው ካላገኙት Machine ID ዎን ይዘው @sumpak6 ን ያግኙ።\n' +
-      '<i>It appears here once your payment is approved. Paid but no key? Message @sumpak6 with your Machine ID.</i>';
+      'ክፍያዎ ሲረጋገጥ እዚህ ይታያል። ከፍለው ካላገኙት @sumpak6 ን ያግኙ።\n' +
+      '<i>It appears here once your payment is approved. Paid but nothing here? Message @sumpak6.</i>';
     const r = messageId ? await editText(chatId, messageId, text, MY_KEY_KB) : null;
     if (!r || !r.ok) await sendText(chatId, text, MY_KEY_KB);
     return;
   }
   const text =
     '🔑 <b>ቁልፍዎ / Your key</b>\n\n' +
-    list.map((r) => `🤖 <code>${esc(r.machine_id)}</code>\n🔑 <code>${esc(r.key)}</code>\n`).join('\n') +
-    '\nቁልፉን ይንኩት — ይቀዳል። በፓነሉ <b>«የፈቃድ ቁልፍ»</b> ላይ ይለጥፉና <b>«አግብር»</b> ይጫኑ።\n' +
-    '<i>Tap to copy, paste into “License key” in the panel, then press Activate.</i>';
+    (codes.length
+      ? '📱 <b>የማግበሪያ ኮድ / Activation code</b> (ገና ያልተጠቀሙበት · not used yet):\n' +
+        codes.map((c) => `🔑 <code>${esc(c.code)}</code>`).join('\n') +
+        '\n<i>ፓነሉን ይክፈቱ፣ ኮዱን «የፈቃድ ቁልፍ» ላይ ይጻፉና «አግብር» ይጫኑ። · Type it into “License key” in the panel and press Activate.</i>\n\n'
+      : '') +
+    list.map((r) => `🖥 <code>${esc(r.machine_id)}</code>\n🔑 <code>${esc(r.key)}</code>\n`).join('\n') +
+    (list.length
+      ? '\nቁልፉን ይንኩት — ይቀዳል። በፓነሉ <b>«የፈቃድ ቁልፍ»</b> ላይ ይለጥፉና <b>«አግብር»</b> ይጫኑ።\n' +
+        '<i>Tap to copy, paste into “License key” in the panel, then press Activate.</i>'
+      : '');
   const r = messageId ? await editText(chatId, messageId, text, MY_KEY_KB) : null;
   if (!r || !r.ok) await sendText(chatId, text, MY_KEY_KB);
 }
@@ -2495,7 +2639,7 @@ async function showMyKey(msg, chatId, messageId) {
 const money = (n) => n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 const shortTs = (s) => (s ? String(s).slice(5, 16).replace(' ', ' ') : '—');
 const orderSummary = (o) =>
-  `<b>#${o.id}</b> · ${o.username ? '@' + esc(o.username) : 'anon'} · <code>${esc(o.machine_id)}</code> · ${shortTs(o.created_at)}` +
+  `<b>#${o.id}</b> · ${o.username ? '@' + esc(o.username) : 'anon'} · ${isCodePlaceholder(o.machine_id) ? '📱 phone order' : `<code>${esc(o.machine_id)}</code>`} · ${shortTs(o.created_at)}` +
   (o.referrer_uid ? ` · 👥 ETB ${money(o.amount_etb || 0)}` : '');
 
 function adminKeyboardPend(orderId) {
@@ -2769,10 +2913,22 @@ async function processBroadcast(limit) {
 // ── revoke / unrevoke a sold license ────────────────────────────────────────
 async function setCustomerRevoked(machineId, revoke) {
   const mid = String(machineId || '').toLowerCase();
-  if (!isValidMid(mid)) return { ok: false, error: 'invalid mid' };
-  const cust = await DB.prepare('SELECT key FROM customers WHERE machine_id=?').bind(mid).first();
-  if (!cust) return { ok: false, error: 'customer not found' };
-  await DB.prepare('UPDATE customers SET revoked=? WHERE machine_id=?').bind(revoke ? 1 : 0, mid).run();
+  let cust = null;
+  if (isCodePlaceholder(mid)) {
+    // A phone order: its activation code, or the computer it was used on.
+    const code = placeholderCode(mid);
+    let ac = null;
+    try { ac = await DB.prepare('SELECT redeemed_mid FROM activation_codes WHERE code=?').bind(code).first(); } catch (e) {}
+    if (!ac) return { ok: false, error: 'activation code not issued yet' };
+    if (ac.redeemed_mid) return setCustomerRevoked(ac.redeemed_mid, revoke);
+    await DB.prepare('UPDATE activation_codes SET revoked=? WHERE code=?').bind(revoke ? 1 : 0, code).run();
+    cust = { key: code };
+  } else {
+    if (!isValidMid(mid)) return { ok: false, error: 'invalid mid' };
+    cust = await DB.prepare('SELECT key FROM customers WHERE machine_id=?').bind(mid).first();
+    if (!cust) return { ok: false, error: 'customer not found' };
+    await DB.prepare('UPDATE customers SET revoked=? WHERE machine_id=?').bind(revoke ? 1 : 0, mid).run();
+  }
   // A revoked sale (fraud, refund) no longer counts as revenue; restoring it does.
   await DB.prepare('UPDATE sales SET status=? WHERE machine_id=?').bind(revoke ? 'revoked' : 'sold', mid).run();
   // A refunded / revoked friend's sale cancels the referrer's unpaid reward.
@@ -2909,7 +3065,7 @@ async function adminDetail(chatId, messageId, cbId, orderId) {
     `🧾 <b>Order #${o.id} · ${o.status.toUpperCase()}</b>\n\n` +
     `${orderSummary(o)}\n` +
     `UID: <code>${o.uid}</code>\n` +
-    `Machine ID: <code>${esc(o.machine_id)}</code>\n` +
+    (isCodePlaceholder(o.machine_id) ? `${esc(midLabel(o.machine_id))}\n` : `Machine ID: <code>${esc(o.machine_id)}</code>\n`) +
     `Amount: ${o.amount_etb ? `ETB ${money(o.amount_etb)}` : esc(PRICE)}` +
     (o.referrer_uid ? ` (👥 referred · discount ${money(o.discount_etb || 0)} · reward ${money(o.reward_etb || 0)})` : '') + '\n' +
     `Expiry: ${o.expiry === '00000000' ? 'perpetual' : esc(o.expiry)}\n` +
@@ -2986,7 +3142,7 @@ async function adminHistory(chatId, messageId, cbId, offset = 0) {
   const statusEmoji = { approved: '✅', rejected: '❌', pending: '📥', revoked: '🚫' };
   const lines = results.map((o) =>
     `${statusEmoji[o.status] || '·'} <b>#${o.id}</b> · ${o.username ? '@' + esc(o.username) : 'anon'} · ` +
-    `<code>${esc(o.machine_id)}</code> · ETB ${money(o.amount_etb || PRICE_ETB)} · ${shortTs(o.created_at)}`
+    `${isCodePlaceholder(o.machine_id) ? '📱' : `<code>${esc(o.machine_id)}</code>`} · ETB ${money(o.amount_etb || PRICE_ETB)} · ${shortTs(o.created_at)}`
   ).join('\n');
 
   const from = offset + 1;
@@ -3001,7 +3157,7 @@ async function adminHistory(chatId, messageId, cbId, offset = 0) {
 
   // One button per order — this is the part that was missing.
   const kb = results.map((o) => ([{
-    text: `${statusEmoji[o.status] || '·'} #${o.id} · ${o.machine_id}`,
+    text: `${statusEmoji[o.status] || '·'} #${o.id} · ${isCodePlaceholder(o.machine_id) ? '📱 phone order' : o.machine_id}`,
     callback_data: `admin:detail:${o.id}`,
   }]));
   const nav = [];
@@ -3101,7 +3257,10 @@ async function approve(chatId, messageId, orderId, cbId) {
     return;
   }
 
-  let customer = await DB.prepare('SELECT key, expiry FROM customers WHERE machine_id=?').bind(o.machine_id).first();
+  // Paid from the phone (no Machine ID yet): approval issues an activation code.
+  const codeOrder = isCodePlaceholder(o.machine_id);
+  let customer = codeOrder ? null
+    : await DB.prepare('SELECT key, expiry FROM customers WHERE machine_id=?').bind(o.machine_id).first();
   let key = customer && customer.key;
   let issuedNow = false;
 
@@ -3112,7 +3271,7 @@ async function approve(chatId, messageId, orderId, cbId) {
     return;
   }
 
-  if (!customer || !key) {
+  if (!codeOrder && (!customer || !key)) {
     try {
       key = await keyFor(o.machine_id, o.expiry);
     } catch (e) {
@@ -3142,9 +3301,25 @@ async function approve(chatId, messageId, orderId, cbId) {
     issuedNow = true;
   }
 
+  if (codeOrder) {
+    // The code IS the placeholder's suffix, so it is stable across retries.
+    key = placeholderCode(o.machine_id);
+    try {
+      await DB.prepare(
+        'INSERT OR IGNORE INTO activation_codes (code, order_id, uid, expiry) VALUES (?, ?, ?, ?)'
+      ).bind(key, o.id, o.uid || '', o.expiry || '00000000').run();
+      await DB.prepare('UPDATE activation_codes SET revoked=0 WHERE code=?').bind(key).run();
+    } catch (e) {
+      log('error', 'activation_code_failed', { orderId, err: String((e && e.message) || e) });
+      await DB.prepare("UPDATE orders SET status='pending' WHERE id=? AND status='approved'").bind(orderId).run();
+      await answerCb(cbId, 'Run npm run migrate (0019) first — order kept pending.');
+      return;
+    }
+    if (issuedNow && !o.key_issued_at) await addFunnel(o.uid, 'approved');
+  }
   // Record/repair the customer before attempting delivery. If Telegram is down,
   // the key remains available for a later redelivery instead of being lost.
-  if (!customer || !customer.key || issuedNow) {
+  if (!codeOrder && (!customer || !customer.key || issuedNow)) {
     await DB.prepare(`INSERT INTO customers (machine_id, name, expiry, key, status, uid)
       VALUES (?,?,?,?, 'sold', ?) ON CONFLICT(machine_id) DO UPDATE SET
         key=excluded.key, name=excluded.name, expiry=excluded.expiry,
@@ -3197,7 +3372,10 @@ async function approve(chatId, messageId, orderId, cbId) {
   await DB.prepare(
     'UPDATE orders SET delivery_attempts=COALESCE(delivery_attempts, 0)+1 WHERE id=?'
   ).bind(orderId).run();
-  const delivery = await sendText(o.uid, keyDeliveryMessage(key, o.expiry, 'private'));
+  const delivery = codeOrder
+    ? await sendText(o.uid, activationCodeMessage(key),
+      [[{ text: '📲 አጫጫን · Install guide', url: `${SITE_URL}/install` }]])
+    : await sendText(o.uid, keyDeliveryMessage(key, o.expiry, 'private', !!o.nonce));
   const delivered = !!(delivery && delivery.ok);
   await DB.prepare(
     delivered
@@ -3206,23 +3384,26 @@ async function approve(chatId, messageId, orderId, cbId) {
   ).bind(orderId).run();
 
   const buyerStatusMsg = o.status_msg_id;
+  const what = codeOrder
+    ? { am: 'የማግበሪያ ኮድዎ', en: 'your activation code' }
+    : { am: 'ቁልፍዎ', en: 'your key' };
   if (buyerStatusMsg) {
     await editText(o.chat_id || o.uid, buyerStatusMsg, delivered
-      ? ('✅ <b>ትዕዛዝዎ ተረጋግጧል — ቁልፍዎ ከታች ባለው መልዕክት ነው።</b>\n' +
-         '<i>Order approved — your key is in the message below.</i>\n\n' +
-         `🤖 Machine ID: <code>${o.machine_id}</code>`)
-      : ('⚠️ <b>ትዕዛዝዎ ተረጋግጧል፣ ግን ቁልፉን መላክ አልተሳካም።</b> በቅርቡ እንደገና እንልካለን።\n' +
-         '<i>Order approved, but sending the key failed. We will send it again shortly.</i>\n\n' +
-         `🤖 Machine ID: <code>${o.machine_id}</code>`));
+      ? (`✅ <b>ትዕዛዝዎ ተረጋግጧል — ${what.am} ከታች ባለው መልዕክት ነው።</b>\n` +
+         `<i>Order approved — ${what.en} is in the message below.</i>` +
+         (codeOrder ? '' : `\n\n🖥 <code>${esc(o.machine_id)}</code>`))
+      : (`⚠️ <b>ትዕዛዝዎ ተረጋግጧል፣ ግን ${what.am}ን መላክ አልተሳካም።</b> በቅርቡ እንደገና እንልካለን።\n` +
+         `<i>Order approved, but sending ${what.en} failed. We will send it again shortly.</i>`));
   }
 
   const left = await pendingCount();
+  const sentWhat = codeOrder ? `activation code <code>${esc(key)}</code>` : 'key';
   await editText(chatId, messageId, delivered
-    ? (`✅ <b>Approved #${orderId}</b> — key delivered and logged.\n` +
-       `Machine ID: <code>${esc(o.machine_id)}</code> · @${esc(o.username)} · DM: ✅\n` +
+    ? (`✅ <b>Approved #${orderId}</b> — ${sentWhat} delivered and logged.\n` +
+       `${esc(midLabel(o.machine_id))} · @${esc(o.username)} · DM: ✅\n` +
        `${left ? `📥 ${left} request(s) left in queue.` : '🎉 Queue is clear.'}`)
-    : (`⚠️ <b>Approved #${orderId}</b> — key stored, delivery failed.\n` +
-       `Machine ID: <code>${o.machine_id}</code>\n` +
+    : (`⚠️ <b>Approved #${orderId}</b> — ${sentWhat} stored, delivery failed.\n` +
+       `${esc(midLabel(o.machine_id))}\n` +
        `Retry approval to send it again.`));
   await answerCb(cbId, delivered ? '✅ Approved & key sent' : '⚠️ Approved; delivery failed — retry');
 
@@ -3310,7 +3491,7 @@ async function reject(chatId, messageId, orderId, cbId, reasonKey) {
   const left = await pendingCount();
   await editText(chatId, messageId,
     `❌ <b>Declined #${orderId}</b> — ${(REJECT_REASONS[reasonKey] || REJECT_REASONS.other).admin}\n` +
-    `@${esc(o.username)} <code>${esc(o.machine_id)}</code>\n` +
+    `@${esc(o.username)} ${esc(midLabel(o.machine_id))}\n` +
     `${left ? `📥 ${left} request(s) left in queue.` : '🎉 Queue is clear.'}`);
   // The buyer was watching a live status message that said "Pending — you're
   // #N in line". approve() edits it; reject() never did, so a declined buyer
@@ -3319,7 +3500,7 @@ async function reject(chatId, messageId, orderId, cbId, reasonKey) {
   if (o.status_msg_id) {
     await editText(o.chat_id || o.uid, o.status_msg_id,
       '🔴 <b>ትዕዛዝ አልተሳካም / Order declined</b>\n\n' +
-      `🤖 Machine ID: <code>${o.machine_id}</code>\n🔴 <b>ሁኔታ / Status: Declined</b>`);
+      '🔴 <b>ሁኔታ / Status: Declined</b>');
   }
   // And it was a dead end: no reason, no way to retry, no way to reach a human
   // — at the single worst moment in the product, where someone believes they
@@ -3382,13 +3563,20 @@ async function handleCallback(cb) {
     const kind = data.split(':')[1];
     if (kind === 'home') await showMenu(chatId, messageId);
     else if (kind === 'pay') {
-      const payOffer = await referralOffer(fromUid);
+      // Opening Pay starts the purchase: the next screenshot is the order
+      // (keeping a Machine ID / panel secret the bot already has).
+      const known = isPrivateChat(chatId, fromUid) ? await getFsm(fromUid) : null;
+      if (isPrivateChat(chatId, fromUid) && !(known && known.step === 'payout')) {
+        await setFsm(fromUid, { step: 'photo', mid: known && known.mid, nonce: known && known.nonce, hint: 1 });
+      }
+      const payOffer = await referralOffer(fromUid, known && known.mid);
       await quoteOffer(fromUid, payOffer);
       const pt = payText(payOffer);
-      const r = await editText(chatId, messageId, pt, payKeyboard());
+      const kb = payKeyboard(!!(known && known.nonce));
+      const r = await editText(chatId, messageId, pt, kb);
       // Same fallback as showMenu: an edit that fails must not leave the buyer
       // staring at an unchanged screen after tapping Pay.
-      if (!r || !r.ok) await sendText(chatId, pt, payKeyboard());
+      if (!r || !r.ok) await sendText(chatId, pt, kb);
     } else if (kind === 'mykey') await showMyKey(cb, chatId, messageId);
     return;
   }
@@ -3412,36 +3600,16 @@ async function handleCallback(cb) {
       // near-identical prompts at once — and the second was English with no
       // way back. Editing the tapped message keeps the chat to a single
       // screen the buyer is already looking at.
+      // ONE step, whoever they are: send the screenshot. No Machine ID —
+      // a phone buyer gets an activation code; a panel buyer is already known.
       const known = await getFsm(fromUid);
-
-      // Arrived from the panel's Buy button, so the Machine ID is already
-      // known: one step left, do not ask for something we are holding.
-      if (known && known.mid && !suspiciousMid(known.mid)) {
-        await setFsm(fromUid, { ...known, step: 'photo' });
-        await addFunnel(fromUid, 'proof_start');
-        const t =
-          '📤 <b>ማረጋገጫ ይላኩ / Send proof</b>\n\n' +
-          `🤖 Machine ID: <code>${known.mid}</code> ✅\n\n` +
-          'የቀረው አንድ ነገር ብቻ ነው — የክፍያውን <b>ፎቶ</b> ይላኩ።\n' +
-          '<i>One thing left: send the payment screenshot as a photo.</i>';
-        const kb = [[{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]];
-        const r = await editText(chatId, messageId, t, kb);
-        if (!r || !r.ok) await sendText(chatId, t, kb);
-        return;
-      }
-
-      await setFsm(fromUid, { step: 'mid', mid: null, photo_key: null, ref: '', hint: 1 });
+      await setFsm(fromUid, { step: 'photo', mid: known && known.mid, nonce: known && known.nonce, photo_key: null, hint: 1 });
       await addFunnel(fromUid, 'proof_start');
       const t =
-        '📤 <b>ማረጋገጫ ይላኩ / Send proof</b>\n\n' +
-        '<b>ደረጃ 1 ከ 2</b> — የእርስዎን <b>Machine ID</b> ይላኩ (16 ፊደል)።\n' +
-        '<i>Step 1 of 2 — send your Machine ID (16 characters).</i>\n\n' +
-        'ከፓነሉ ግርጌ ይቅዱት፣ ወይም በፓነሉ ላይ <b>«ፈቃድ ይግዙ»</b> ይጫኑ — በራሱ ይላካል።\n' +
-        '<i>Copy it from the bottom of the panel, or press “Buy a license” in the panel and it is sent for you.</i>';
-      const kb = [
-        [MID_HELP_BTN],
-        [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }],
-      ];
+        '📸 <b>የክፍያውን ስክሪንሾት እዚሁ ይላኩ</b> — ፎቶ ወይም ፋይል፣ ያ ብቻ ነው።\n' +
+        '<i>Send the payment screenshot right here — photo or file, that is all.</i>' +
+        (known && known.mid && !suspiciousMid(known.mid) ? '\n\n🖥 ኮምፒውተርዎ ተገናኝቷል ✅ <i>Your computer is connected.</i>' : '');
+      const kb = [[{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]];
       const r = await editText(chatId, messageId, t, kb);
       if (!r || !r.ok) await sendText(chatId, t, kb);
     }
@@ -3461,6 +3629,17 @@ async function handleCallback(cb) {
       return;
     }
     if (action === 'mykey') { await answerCb(cbId, ''); await showMyKey(cb, chatId, messageId); return; }
+    if (action === 'yes') {
+      // "Yes, this picture is my payment" (it arrived outside a purchase).
+      await answerCb(cbId, '');
+      if (!isPrivateChat(chatId, fromUid)) return;
+      const s = await getFsm(fromUid);
+      if (s && s.step === 'proof_ask' && s.photo_key) {
+        await addFunnel(fromUid, 'screenshot_sent');
+        await placeOrder(fromUid, chatId, fromUser.username || fromUser.first_name || '', true, s);
+      }
+      return;
+    }
     if (action === 'confirm') {
       if (!isPrivateChat(chatId, fromUid)) {
         await answerCb(cbId, '🔒 በግል ቻት ይቀጥሉ · Continue in a private chat');
@@ -3964,6 +4143,91 @@ export default {
       }
       return finishReservation(out);
 
+    }
+
+    // Up to `max` requests per `ttl` seconds (KV counter; KV TTLs start at 60 s).
+    const tooMany = async (k, max, ttl) => {
+      const n = parseInt((await kvGet(k)) || '0', 10) || 0;
+      if (n >= max) return true;
+      const stored = await kvPut(k, String(n + 1), ttl);
+      if (!stored) { log('error', 'rate_limit_write_failed', { key: String(k) }); return true; }
+      return false;
+    };
+
+    // POST /api/redeem → {mid, code} → {ok:true, key} | {ok:false, reason}
+    // A phone buyer's activation code, typed once into the panel: binds the
+    // license to THIS computer. The panel then activates with the key through
+    // /api/validate as usual (signed lease). One code = one computer.
+    if (request.method === 'POST' && url.pathname === '/api/redeem') {
+      let body;
+      try { body = await request.json(); } catch { return json({ error: 'bad json' }, 400); }
+      const mid = String((body && body.mid) || '').trim().toLowerCase();
+      const code = normActivationCode(body && body.code);
+      if (!isValidMid(mid) || !code) return json({ ok: false, reason: 'bad_code' });
+      // 32^8 codes; 10 tries per IP per 10 minutes keeps guessing hopeless.
+      if (await tooMany('rl:redeem:' + clientIp(), 10, 600)) return json({ ok: false, reason: 'throttled' }, 429);
+      let ac = null;
+      try { ac = await DB.prepare('SELECT * FROM activation_codes WHERE code=?').bind(code).first(); }
+      catch (e) { return json({ ok: false, reason: 'unavailable' }, 503); }
+      if (!ac) return json({ ok: false, reason: 'not_found' });
+      if (ac.revoked) return json({ ok: false, reason: 'revoked' });
+      if (ac.redeemed_mid && ac.redeemed_mid !== mid) return json({ ok: false, reason: 'used' });
+      if (!SECRET) return json({ ok: false, reason: 'unavailable' }, 503);
+      if (ac.redeemed_mid === mid) {
+        const c = await DB.prepare('SELECT key, revoked FROM customers WHERE machine_id=?').bind(mid).first();
+        if (c && !c.revoked) return json({ ok: true, key: c.key });
+        return json({ ok: false, reason: c ? 'revoked' : 'not_found' });
+      }
+      const have = await DB.prepare('SELECT revoked FROM customers WHERE machine_id=?').bind(mid).first();
+      if (have && !have.revoked) return json({ ok: false, reason: 'already_licensed' });
+      const key = await keyFor(mid, ac.expiry || '00000000');
+      // Claim the code first (race-safe: two panels typing it at once).
+      const claim = await DB.prepare(
+        "UPDATE activation_codes SET redeemed_mid=?, redeemed_at=datetime('now') WHERE code=? AND redeemed_mid IS NULL AND revoked=0"
+      ).bind(mid, code).run();
+      if (!claim || !claim.meta || claim.meta.changes < 1) return json({ ok: false, reason: 'used' });
+      const ord = await DB.prepare('SELECT username FROM orders WHERE id=?').bind(ac.order_id).first();
+      await DB.prepare(`INSERT INTO customers (machine_id, name, expiry, key, status, uid)
+        VALUES (?,?,?,?, 'sold', ?) ON CONFLICT(machine_id) DO UPDATE SET
+          key=excluded.key, name=excluded.name, expiry=excluded.expiry, status='sold', uid=excluded.uid, revoked=0`)
+        .bind(mid, '@' + ((ord && ord.username) || 'buyer'), ac.expiry || '00000000', key, ac.uid || '').run();
+      // From now on this is an ordinary sale of this computer: orders, the
+      // sales ledger and referral rewards carry the real Machine ID.
+      const ph = 'code-' + code.replace('-', '').toLowerCase();
+      await DB.prepare('UPDATE orders SET machine_id=? WHERE machine_id=?').bind(mid, ph).run();
+      await DB.prepare('UPDATE sales SET machine_id=? WHERE machine_id=?').bind(mid, ph).run();
+      try { await DB.prepare('UPDATE referral_rewards SET friend_mid=? WHERE friend_mid=?').bind(mid, ph).run(); } catch (e) {}
+      log('info', 'activation_code_redeemed', { code, mid, orderId: ac.order_id });
+      if (ac.uid) {
+        await sendText(ac.uid,
+          '🎉 <b>አማርኛ ካፕሽን ፕሮ በኮምፒውተርዎ ላይ ነቅቷል!</b>\n<i>Amharic Captions Pro is now activated on your computer.</i>\n\n' +
+          'እርስዎ ካልሆኑ ወዲያውኑ ይጻፉልን። <i>If this was not you, message us right away.</i>');
+      }
+      return json({ ok: true, key });
+    }
+
+    // POST /api/license → {mid, nonce} → {status: none|pending|rejected|revoked|approved, key?}
+    // The panel that pressed Buy keeps a random secret (nonce) that only it and
+    // this order know. Once the order is approved, the panel fetches its key
+    // with it and activates itself — nothing for the customer to paste.
+    if (request.method === 'POST' && url.pathname === '/api/license') {
+      let body;
+      try { body = await request.json(); } catch { return json({ error: 'bad json' }, 400); }
+      const mid = String((body && body.mid) || '').trim().toLowerCase();
+      const nonce = String((body && body.nonce) || '');
+      if (!isValidMid(mid) || !/^[A-Za-z0-9]{12,32}$/.test(nonce)) return json({ error: 'bad request' }, 400);
+      if (await tooMany('rl:lic:' + clientIp(), 12, 60)) return json({ status: 'wait', retry: true }, 429);
+      let o = null;
+      try {
+        o = await DB.prepare(
+          'SELECT status FROM orders WHERE machine_id=? AND nonce=? ORDER BY id DESC LIMIT 1').bind(mid, nonce).first();
+      } catch (e) { return json({ status: 'none' }); }
+      if (!o) return json({ status: 'none' });
+      if (o.status === 'pending') return json({ status: 'pending' });
+      if (o.status !== 'approved') return json({ status: o.status === 'revoked' ? 'revoked' : 'rejected' });
+      const c = await DB.prepare('SELECT key, revoked FROM customers WHERE machine_id=?').bind(mid).first();
+      if (!c || c.revoked) return json({ status: c ? 'revoked' : 'pending' });
+      return json({ status: 'approved', key: c.key });
     }
 
     // POST /api/validate → {mid, key} → {valid, expiry?}
