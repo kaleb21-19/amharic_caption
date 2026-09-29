@@ -315,13 +315,68 @@ function aeHostCall(call, hostJsx, aeJsx) {
     'return ' + call + ';})()';
 }
 
+// ─────────────────────────────────────────── find & replace / auto-correct
+// Whole-word (or whole-phrase) replacement: "ሰላም" never matches inside
+// "ሰላምታ". Word edges are the text ends, whitespace and punctuation.
+const WORD_EDGE = '[\\s' + AMH_PUNCT_CHARS.replace(/[\]\\^-]/g, '\\$&') + '"\'«»“”()\\[\\]]';
+function escRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function replaceWords(text, find, repl) {
+  const f = String(find || '').trim().replace(/\s+/g, ' ');
+  if (!f) return { text: String(text || ''), n: 0 };
+  const re = new RegExp('(^|' + WORD_EDGE + ')' + escRe(f).replace(/ /g, '\\s+') + '(?=$|' + WORD_EDGE + ')', 'g');
+  let n = 0;
+  const out = String(text || '').replace(re, (m, pre) => { n++; return pre + String(repl || ''); });
+  return { text: out, n };
+}
+
+const STRIP_PUNCT_RE = new RegExp('^[' + AMH_PUNCT_CHARS.replace(/[\]\\^-]/g, '\\$&') + ']+|[' +
+  AMH_PUNCT_CHARS.replace(/[\]\\^-]/g, '\\$&') + ']+$', 'g');
+const bareWord = (w) => String(w || '').replace(STRIP_PUNCT_RE, '');
+
+// Word fixes an editor made: for each caption still carrying the id it had
+// when the review opened, and still the same number of words, every word
+// that changed (ignoring punctuation) is a [wrong, right] pair. Captions that
+// were split / merged / rewritten teach nothing — too ambiguous to learn from.
+function learnFixes(beforeCues, afterCues) {
+  const before = {};
+  (beforeCues || []).forEach((c) => { if (c && c._id != null) before[c._id] = String(c.text || ''); });
+  const pairs = [];
+  (afterCues || []).forEach((c) => {
+    if (!c || c._id == null || !(c._id in before)) return;
+    const a = before[c._id].split(/\s+/).filter(Boolean);
+    const b = String(c.text || '').split(/\s+/).filter(Boolean);
+    if (!a.length || a.length !== b.length) return;
+    for (let i = 0; i < a.length; i++) {
+      const w = bareWord(a[i]);
+      const r = bareWord(b[i]);
+      if (!w || !r || w === r) continue;
+      if (!/[ሀ-᎟]/.test(w) || !/[ሀ-᎟]/.test(r)) continue;   // Amharic words only
+      if (w.length < 2) continue;
+      pairs.push([w, r]);
+    }
+  });
+  return pairs;
+}
+
+// Apply remembered fixes (wrong -> right) to one caption. Returns the new
+// text and what was changed (for the "auto-fixed" note and Undo).
+function applyFixes(text, fixes) {
+  let t = String(text || '');
+  const applied = [];
+  Object.keys(fixes || {}).forEach((wrong) => {
+    const r = replaceWords(t, wrong, fixes[wrong]);
+    if (r.n) { t = r.text; applied.push({ from: wrong, to: fixes[wrong], n: r.n }); }
+  });
+  return { text: t, applied };
+}
+
 // Node (tests) — no-op in the CEP browser where `module` is undefined.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     parseSrt, formatSrtTs, cleanCueLines, AMH_PUNCT_CHARS,
     detectSpeaker, normalizeCues,
     speakerPrefix, srtTextFromCues, displaySrtTextFromCues, vttTextFromCues, txtTextFromCues,
-    speakerSummary, aeHostCall,
+    speakerSummary, aeHostCall, replaceWords, learnFixes, applyFixes,
     validateLicense,
     LICENSE_TOKEN_PUBKEY_PEM, licenseTokenParse, verifyLicenseToken,
   };

@@ -149,6 +149,27 @@ t('speakerSummary: two / one / off', () => {
   assert.strictEqual(core.speakerSummary(labelled, false), 'off');
 });
 
+t('replaceWords: whole words and phrases only, counts replacements', () => {
+  assert.deepStrictEqual(core.replaceWords('ሰላም ሰላምታ ሰላም።', 'ሰላም', 'X'), { text: 'X ሰላምታ X።', n: 2 });
+  assert.deepStrictEqual(core.replaceWords('ዶክተር  አበበ ነው', 'ዶክተር አበበ', 'ዶ/ር አበበ'), { text: 'ዶ/ር አበበ ነው', n: 1 });
+  assert.deepStrictEqual(core.replaceWords('a (b) c', 'b', 'Z'), { text: 'a (Z) c', n: 1 });
+  assert.strictEqual(core.replaceWords('x', '', 'y').n, 0, 'empty find does nothing');
+  assert.strictEqual(core.replaceWords('a.b a+b', 'a+b', 'Q').text, 'a.b Q', 'regex characters are literal');
+});
+
+t('learnFixes: word-for-word fixes only, never split/merged/new captions', () => {
+  const before = [{ _id: 1, text: 'ሰላም ፍንደ ነው' }, { _id: 2, text: 'አንድ ሁለት' }, { _id: 3, text: 'ሀ ለ' }];
+  const after = [{ _id: 1, text: 'ሰላም ፍቅሬ ነው።' }, { _id: 2, text: 'አንድ' }, { _id: 3, text: 'ሀ ለ' }, { _id: 9, text: 'አዲስ' }];
+  assert.deepStrictEqual(core.learnFixes(before, after), [['ፍንደ', 'ፍቅሬ']]);
+  assert.deepStrictEqual(core.learnFixes([{ _id: 1, text: 'ነው' }], [{ _id: 1, text: 'ነው።' }]), [], 'punctuation-only edit teaches nothing');
+});
+
+t('applyFixes: applies remembered fixes and reports them', () => {
+  const r = core.applyFixes('ሰላም ፍንደ፣ ፍንደ ሰላምታ', { 'ፍንደ': 'ፍቅሬ', 'ሰላም': 'ሰላም!' });
+  assert.strictEqual(r.text, 'ሰላም! ፍቅሬ፣ ፍቅሬ ሰላምታ');
+  assert.strictEqual(r.applied.reduce((a, x) => a + x.n, 0), 3);
+});
+
 t('vttTextFromCues: escapes caption markup', () => {
   const text = core.vttTextFromCues([{ start: 0, end: 1, text: '<script>&' }]);
   assert.ok(text.includes('&lt;script&gt;&amp;'));

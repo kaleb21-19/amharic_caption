@@ -351,6 +351,16 @@
   .review-head { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; flex-wrap: wrap; row-gap: 6px; }
   .review-head .title { font-size: var(--font-l); font-weight: 700; }
   .review-head .sub { font-size: var(--font-s); color: var(--text-secondary); }
+  .review-actions { display: flex; gap: 6px; margin-left: auto; }
+  .review-actions .btn { width: auto; padding: 4px 9px; font-size: var(--font-s); }
+  .replace-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -4px 0 10px;
+    padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); }
+  .replace-bar input[type=text] { flex: 1 1 120px; min-width: 90px; }
+  .replace-bar .btn { width: auto; padding: 4px 10px; }
+  .replace-bar .rf-remember { display: flex; align-items: center; gap: 4px; font-size: var(--font-s); color: var(--text-secondary); }
+  .replace-bar .rf-remember input { width: auto; margin: 0; }
+  .replace-bar .rf-info { font-size: var(--font-s); color: var(--accent); }
+  .replace-bar .rf-forget { font-size: var(--font-s); margin-left: auto; }
   .review-count { margin-left: auto; font-size: var(--font-s); color: var(--text-secondary); white-space: nowrap; }
   #reviewSearch {
     flex: 0 0 auto; width: 124px; height: 24px; font-size: var(--font-s); box-sizing: border-box;
@@ -642,6 +652,22 @@
       <span class="sub" id="reviewSub" data-i18n="rev.sub">edit text &amp; times, then place on the timeline</span>
       <input type="text" id="reviewSearch" placeholder="filter captions…" title="Type to filter the caption list" data-i18n-placeholder="rev.search" data-i18n-title="rev.searchTitle">
       <span class="review-count" id="reviewCount"></span>
+      <span class="review-actions">
+        <button type="button" id="revUndoFix" class="btn btn-neutral" style="display:none;"></button>
+        <button type="button" id="revNext" class="btn btn-neutral" title="Jump to the next caption with an orange word (F3)" data-i18n="rev.next" data-i18n-title="rev.nextTitle">⚠ Next to check</button>
+        <button type="button" id="revReplace" class="btn btn-neutral" title="Find and replace a word in every caption" data-i18n="rev.replace" data-i18n-title="rev.replaceTitle">⇄ Replace</button>
+      </span>
+    </div>
+    <!-- Find & replace across every caption; "remember" teaches the
+         auto-correct memory, applied to every later transcription. -->
+    <div class="replace-bar" id="replaceBar" style="display:none;">
+      <input type="text" id="rfFind" lang="am" placeholder="Find…" data-i18n-placeholder="rf.find">
+      <span class="rf-arrow">→</span>
+      <input type="text" id="rfRepl" lang="am" placeholder="Replace with…" data-i18n-placeholder="rf.repl">
+      <button type="button" id="rfGo" class="btn btn-primary" data-i18n="rf.go">Replace all</button>
+      <label class="rf-remember"><input type="checkbox" id="rfRemember" checked> <span data-i18n="rf.remember">Remember for next time</span></label>
+      <span class="rf-info" id="rfInfo"></span>
+      <a href="#" id="rfForget" class="rf-forget"></a>
     </div>
     <div id="reviewList"></div>
     <div class="review-foot">

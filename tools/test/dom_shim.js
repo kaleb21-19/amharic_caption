@@ -175,6 +175,7 @@ const KNOWN = [
   'machineIdSection', 'machineIdDisplay', 'machineIdCopy', 'machineMismatch',
   'licensedNote', 'licenseInput', 'licenseActivate', 'licenseStatus', 'trialBanner',
   'buyBtn', 'buyPending', 'bankDetails', 'bankBox',
+  'revUndoFix', 'revNext', 'revReplace', 'replaceBar', 'rfFind', 'rfRepl', 'rfGo', 'rfRemember', 'rfInfo', 'rfForget',
   // logs
   'logDisc', 'logWrap', 'logBox',
   // footer
@@ -209,6 +210,8 @@ function makeDocument(tagFor) {
     diag: ['a', null], credits: ['a', null], onboardStart: ['button', null],
     licenseActivate: ['button', null], machineIdCopy: ['button', null],
     buyBtn: ['button', null], bankDetails: ['a', null],
+    revUndoFix: ['button', null], revNext: ['button', null], revReplace: ['button', null],
+    rfFind: ['input', null], rfRepl: ['input', null], rfGo: ['button', null], rfRemember: ['input', null], rfForget: ['a', null],
     reviewAdd: ['button', null], reviewExport: ['button', null],
     reviewDiscard: ['button', null], reviewBurn: ['button', null],
     reviewPlace: ['button', null], reviewList: ['div', null],
@@ -232,6 +235,9 @@ function makeDocument(tagFor) {
   ids.fmtH.dataset.fmt = 'h'; ids.fmtV.dataset.fmt = 'v';
   ids.fmtSeg.appendChild(ids.fmtH); ids.fmtSeg.appendChild(ids.fmtV);
   ids.fmtH.classList.add('active');
+  ids.rfRemember.checked = true;   // checked in index.html
+  ids.replaceBar.style.display = 'none';
+  ids.revUndoFix.style.display = 'none';
   // initial active states as in index.html
   ids.srcClip.classList.add('active');
   ids.capWords.classList.add('active');
