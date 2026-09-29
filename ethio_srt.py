@@ -396,7 +396,9 @@ def _masked_token_ids(glyphs):
 # 82% of the time and caught 42% of all errors, so the editor checks the
 # orange words first. Costs <1% of transcription time; the caption TEXT is
 # unchanged (the marks travel in a sidecar next to the SRT).
-DOUBT_THRESHOLD = float(os.environ.get("AMH_DOUBT", "0.6"))
+# Re-measured on 935 clips: under 0.6 marked only 5% of words (catching 15%
+# of errors); under 0.75 marks ~10%, 61-83% of them wrong, catching 28-53%.
+DOUBT_THRESHOLD = float(os.environ.get("AMH_DOUBT", "0.75"))
 
 
 class Span(tuple):
