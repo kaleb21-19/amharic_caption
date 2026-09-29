@@ -163,7 +163,7 @@ const KNOWN = [
   'srcSeg', 'srcClip', 'srcWork', 'srcWhole',
   'choose', 'fileInput', 'picked',
   // style
-  'capSeg', 'capWords', 'capGroup', 'groupSize', 'maxChars', 'speakersToggle',
+  'capSeg', 'capWords', 'capGroup', 'groupSize', 'fmtSeg', 'fmtH', 'fmtV', 'speakersToggle',
   'runBtn', 'cancelBtn', 'progBar', 'progLabel', 'progWrap', 'progTrack',
   // panel polish: collapsible option field, footer price, review labels
   'groupSizeField', 'footPrice', 'reviewSub', 'healthTitle',
@@ -174,7 +174,7 @@ const KNOWN = [
   // license
   'machineIdSection', 'machineIdDisplay', 'machineIdCopy', 'machineMismatch',
   'licensedNote', 'licenseInput', 'licenseActivate', 'licenseStatus', 'trialBanner',
-  'buyBtn', 'buyPending', 'bankDetails', 'bankBox', 'supportInfoLink', 'supportInfoBox',
+  'buyBtn', 'buyPending', 'bankDetails', 'bankBox',
   // logs
   'logDisc', 'logWrap', 'logBox',
   // footer
@@ -200,7 +200,7 @@ function makeDocument(tagFor) {
   const stamp = {
     srcClip: ['button', 'clip'], srcWork: ['button', 'work'], srcWhole: ['button', 'whole'],
     capWords: ['button', 'words'], capGroup: ['button', 'grouped'],
-    groupSize: ['input', null], maxChars: ['input', null], speakersToggle: ['input', null],
+    groupSize: ['input', null], fmtH: ['button', null], fmtV: ['button', null], speakersToggle: ['input', null],
     fileInput: ['input', null], burnFileInput: ['input', null],
     licenseInput: ['input', null], reviewSearch: ['input', null],
     runBtn: ['button', null], cancelBtn: ['button', null], choose: ['button', null],
@@ -229,6 +229,9 @@ function makeDocument(tagFor) {
   ids.capWords.dataset.cap = 'words'; ids.capGroup.dataset.cap = 'grouped';
   ids.srcSeg.appendChild(ids.srcClip); ids.srcSeg.appendChild(ids.srcWork); ids.srcSeg.appendChild(ids.srcWhole);
   ids.capSeg.appendChild(ids.capWords); ids.capSeg.appendChild(ids.capGroup);
+  ids.fmtH.dataset.fmt = 'h'; ids.fmtV.dataset.fmt = 'v';
+  ids.fmtSeg.appendChild(ids.fmtH); ids.fmtSeg.appendChild(ids.fmtV);
+  ids.fmtH.classList.add('active');
   // initial active states as in index.html
   ids.srcClip.classList.add('active');
   ids.capWords.classList.add('active');

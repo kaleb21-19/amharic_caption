@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.7.7';
+const APP_VERSION = '1.7.8';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -749,15 +749,6 @@ function initBuy() {
       try { window.__adobe_cep__ && window.cep.util.openURLInDefaultBrowser(url); }
       catch (err) { window.open(url, '_blank'); }
       startBuyPoll();
-    });
-  }
-  // The Machine ID lives behind "🛠 Support info": only support asks for it.
-  const si = document.getElementById('supportInfoLink');
-  const siBox = document.getElementById('supportInfoBox');
-  if (si && siBox) {
-    si.addEventListener('click', (e) => {
-      if (e && e.preventDefault) e.preventDefault();
-      siBox.style.display = siBox.style.display === 'block' ? 'none' : 'block';
     });
   }
   // A purchase started earlier (the panel was closed meanwhile): keep checking.
@@ -1759,7 +1750,11 @@ function saveSettings(over) {
 let SOURCE = 'clip';
 let CAP = 'words';   // same default as the HTML and applySettings()
 let GROUP_SIZE = 3;
-let MAX_CHARS = 42;
+// Video shape → caption length: horizontal keeps the standard 42-letter
+// subtitle line; vertical (TikTok / Reels / Shorts) needs short captions.
+const FORMAT_CHARS = { h: 42, v: 22 };
+let FORMAT = 'h';
+let MAX_CHARS = FORMAT_CHARS.h;
 let SPEAKERS = false;
 let cancelRequested = false;
 let lastSrtPath = null;
@@ -1786,7 +1781,9 @@ function applySettings() {
   SOURCE = s.source || 'clip';
   CAP = s.cap || 'words';
   GROUP_SIZE = s.group || 3;
-  MAX_CHARS = s.chars || 42;
+  // Old settings stored a raw number; 25 or fewer meant short captions.
+  FORMAT = s.format === 'v' || s.format === 'h' ? s.format : ((s.chars && s.chars <= 25) ? 'v' : 'h');
+  MAX_CHARS = FORMAT_CHARS[FORMAT];
   SPEAKERS = !!s.speakers;
   document.querySelectorAll('#srcSeg button').forEach((b) => {
     b.classList.toggle('active', b.dataset.src === SOURCE);
@@ -1795,7 +1792,9 @@ function applySettings() {
     b.classList.toggle('active', b.dataset.cap === CAP);
   });
   $('groupSize').value = GROUP_SIZE;
-  $('maxChars').value = MAX_CHARS;
+  document.querySelectorAll('#fmtSeg button').forEach((b) => {
+    b.classList.toggle('active', b.dataset.fmt === FORMAT);
+  });
   $('speakersToggle').checked = SPEAKERS;
 }
 
@@ -2565,6 +2564,7 @@ function renderReview() {
   list.textContent = '';
   const ts = (sec) => fmtReviewTs(sec);
 
+  const reviewHasSpeakers = reviewCues.some((c) => c && c.speaker);
   let shown = 0;
   for (let i = 0; i < reviewCues.length; i++) {
     const cue = reviewCues[i];
@@ -2581,6 +2581,18 @@ function renderReview() {
     tOut.className = 't'; tOut.value = ts(cue.end); tOut.title = L('End (m:ss.cc)');
     timeBox.appendChild(tIn);
     timeBox.appendChild(tOut);
+    // Speaker (interviews): which person says this caption. Tap to switch
+    // when voice detection guessed wrong — the "– " marks follow it.
+    if (reviewHasSpeakers) {
+      const spk = document.createElement('button');
+      spk.type = 'button';
+      const n = cue.speaker === 'S2' ? 2 : 1;
+      spk.className = 'spk s' + n;
+      spk.textContent = '🗣 ' + n;
+      spk.title = L('Speaker ' + n + ' — tap to switch');
+      spk.addEventListener('click', () => { cue.speaker = n === 1 ? 'S2' : 'S1'; renderReview(); });
+      timeBox.appendChild(spk);
+    }
 
     const tools = document.createElement('div');
     tools.className = 'review-tools';
@@ -2698,12 +2710,21 @@ function mergeReview(i) {
   renderReview();
 }
 
+// After a run with "Label speakers" on, say what it found — it used to
+// change nothing visible on a one-person video and looked broken.
+const SPEAKER_NOTES = {
+  two: '2 speakers found — each change is marked with “–”',
+  one: 'One voice only — no speaker marks added',
+};
 function updateReviewCount() {
-  $('reviewCount').textContent = L(reviewCues.length + ' caption' + (reviewCues.length === 1 ? '' : 's'));
+  const note = SPEAKER_NOTES[speakerSummary(reviewCues, SPEAKERS)];
+  $('reviewCount').textContent = L(reviewCues.length + ' caption' + (reviewCues.length === 1 ? '' : 's')) +
+    (note ? ' · ' + L(note) : '');
 }
 
 function writeReviewSrt(outDir) {
-  const out = srtTextFromCues(reviewCues);
+  // This file is what Premiere shows: speaker changes as "– ", never "[S1]".
+  const out = displaySrtTextFromCues(reviewCues);
   const dest = path.join(outDir || os.tmpdir(), 'amh_review_' + Date.now() + '.srt');
   try { fs.mkdirSync(path.dirname(dest), { recursive: true, mode: 0o700 }); fs.chmodSync(path.dirname(dest), 0o700); } catch (e) {}
   fs.writeFileSync(dest, out, { encoding: 'utf8', mode: 0o600 });
@@ -2781,7 +2802,7 @@ function exportReviewFiles() {
   const vtt = path.join(dir, base + '.vtt');
   const txt = path.join(dir, base + '.txt');
   try {
-    fs.writeFileSync(srt, srtTextFromCues(cues), { encoding: 'utf8', mode: 0o600 });
+    fs.writeFileSync(srt, displaySrtTextFromCues(cues), { encoding: 'utf8', mode: 0o600 });
     fs.writeFileSync(vtt, vttTextFromCues(cues), { encoding: 'utf8', mode: 0o600 });
     fs.writeFileSync(txt, txtTextFromCues(cues), { encoding: 'utf8', mode: 0o600 });
   } catch (e) {
@@ -3425,9 +3446,14 @@ function setup() {
     GROUP_SIZE = Math.max(1, Math.min(12, Number(e.target.value) || 3));
     saveSettings({ group: GROUP_SIZE });
   });
-  $('maxChars').addEventListener('input', (e) => {
-    MAX_CHARS = Math.max(10, Math.min(200, Number(e.target.value) || 42));
-    saveSettings({ chars: MAX_CHARS });
+  document.querySelectorAll('#fmtSeg button').forEach((b) => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('#fmtSeg button').forEach((x) => x.classList.remove('active'));
+      b.classList.add('active');
+      FORMAT = b.dataset.fmt === 'v' ? 'v' : 'h';
+      MAX_CHARS = FORMAT_CHARS[FORMAT];
+      saveSettings({ format: FORMAT, chars: MAX_CHARS });
+    });
   });
   $('speakersToggle').addEventListener('change', (e) => {
     SPEAKERS = !!e.target.checked;
@@ -3462,16 +3488,6 @@ function setup() {
   $('logDisc').addEventListener('click', () => {
     $('logDisc').classList.toggle('open');
   });
-
-  // Advanced options (Max chars). Same disclosure mechanic as the Log.
-  const adv = $('advDisc');
-  if (adv) {
-    adv.addEventListener('click', (e) => {
-      e.preventDefault();
-      adv.classList.toggle('open');
-      adv.setAttribute('aria-expanded', adv.classList.contains('open') ? 'true' : 'false');
-    });
-  }
 
   // About: version + the attribution required by the CC-BY-4.0 licensed
   // acoustic model this product redistributes (snapwre/hohe-asr-amharic, a
