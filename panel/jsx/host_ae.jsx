@@ -392,3 +392,11 @@ function amh_importCaptions(argsJSON) {
         });
     });
 }
+
+/* ------------------------------------------------------------- stamp
+ * The panel checks this mark before every call inside After Effects. The
+ * manifest's host.jsx (Premiere versions, same function names) can be
+ * evaluated AFTER this file and silently replace these entry points — then
+ * After Effects ran Premiere's code and answered "no selected clip". A
+ * missing mark makes the panel re-load this file first (see aeHostCall). */
+amharic_getSelectedClip.amhAE = true;

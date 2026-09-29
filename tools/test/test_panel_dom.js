@@ -193,7 +193,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.7.9');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.7.10');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1138,8 +1138,13 @@ await t('14. After Effects: loads host_ae.jsx, AE wording, font + long timeout o
     assert.strictEqual(p.els('srcClip').textContent, 'Selected Layer');
     assert.strictEqual(p.els('srcWhole').textContent, 'Whole Comp');
     p.evalVm("importCaptions('C:/x.srt', 3, 'clip')");
-    const imp = evalLog.find((j) => /^amh_importCaptions\(/.test(j));
-    const args = JSON.parse(JSON.parse(imp.slice('amh_importCaptions('.length, -1)));
+    // In After Effects every host call is wrapped (aeHostCall) so the AE
+    // implementations are active at call time, whatever order host.jsx and
+    // host_ae.jsx were evaluated in.
+    const imp = evalLog.find((j) => /return amh_importCaptions\(/.test(j));
+    assert.ok(imp && /amharic_getSelectedClip\.amhAE!==true/.test(imp) && /host_ae\.jsx/.test(imp), 'AE call is guarded');
+    const inner = /return (amh_importCaptions\(.*\));\}\)\(\)$/.exec(imp)[1];
+    const args = JSON.parse(JSON.parse(inner.slice('amh_importCaptions('.length, -1)));
     assert.deepStrictEqual(Object.keys(args).sort(), ['baseName', 'font', 'srtPath', 'startSeconds']);
   } finally { p.close(); }
 

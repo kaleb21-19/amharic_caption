@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.7.9';
+const APP_VERSION = '1.7.10';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -1687,6 +1687,11 @@ function escJson(s) {
     : String(j).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 }
 function evalScript(jsx, timeoutMs) {
+  if (IS_AE) {
+    jsx = aeHostCall(jsx,
+      path.join(EXT_DIR, 'jsx', 'host.jsx').replace(/\\/g, '/'),
+      path.join(EXT_DIR, 'jsx', 'host_ae.jsx').replace(/\\/g, '/'));
+  }
   return new Promise((resolve, reject) => {
     let settled = false;
     const finish = (value) => {

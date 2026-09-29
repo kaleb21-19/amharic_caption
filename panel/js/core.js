@@ -301,13 +301,27 @@ async function verifyLicenseToken(token, pubKeyPem, machineId) {
   }
 }
 
+// Inside After Effects every host call is wrapped so the After Effects
+// implementations are the active ones at the moment of the call: load
+// host.jsx if nothing is loaded yet, then (re)load host_ae.jsx whenever its
+// stamp is missing (host.jsx loaded later replaces the same function names).
+function aeHostCall(call, hostJsx, aeJsx) {
+  const H = JSON.stringify(String(hostJsx));
+  const A = JSON.stringify(String(aeJsx));
+  return '(function(){' +
+    'try{if(typeof amhGuard==="undefined"){$.evalFile(new File(' + H + '));}}catch(e){}' +
+    'try{if(typeof amharic_getSelectedClip==="undefined"||amharic_getSelectedClip.amhAE!==true){' +
+    '$.evalFile(new File(' + A + '));}}catch(e){}' +
+    'return ' + call + ';})()';
+}
+
 // Node (tests) — no-op in the CEP browser where `module` is undefined.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     parseSrt, formatSrtTs, cleanCueLines, AMH_PUNCT_CHARS,
     detectSpeaker, normalizeCues,
     speakerPrefix, srtTextFromCues, displaySrtTextFromCues, vttTextFromCues, txtTextFromCues,
-    speakerSummary,
+    speakerSummary, aeHostCall,
     validateLicense,
     LICENSE_TOKEN_PUBKEY_PEM, licenseTokenParse, verifyLicenseToken,
   };

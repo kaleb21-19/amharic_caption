@@ -278,6 +278,31 @@ def _next_is_scale(words, j):
     return _num_kind(_split_trail(words[j][0])[0]) in ("scale", "hundred")
 
 
+_STRANDED_PREFIXES = {"በ", "ለ", "የ", "ከ"}
+
+
+def rejoin_prefixes(words):
+    """Glue a stranded one-letter prefix onto the next word: Amharic writes
+    በ/ለ/የ/ከ attached ("በሁሉም", never "በ ሁሉም"), but the model sometimes puts a
+    word space after them. Measured 2026-09-29 through the full pipeline:
+    FLEURS test (516) WER 25.39 -> 22.89, CER 6.45 -> 6.15; real videos
+    unchanged; one Common Voice word that was already misheard counts
+    differently. Times: start of the prefix, end of the word it joins."""
+    out = []
+    i = 0
+    n = len(words)
+    while i < n:
+        w = words[i]
+        if w[0] in _STRANDED_PREFIXES and i + 1 < n:
+            nxt = words[i + 1]
+            out.append((w[0] + nxt[0], w[1], nxt[2]))
+            i += 2
+            continue
+        out.append(tuple(w[:3]))
+        i += 1
+    return out
+
+
 def numbers_to_digits(words):
     """Rewrite spelled-out numbers in an aligned [(word, start, end, ...)]
     stream as digits. A merged number spans its first word's start to its
