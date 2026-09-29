@@ -603,3 +603,18 @@ failed PINs. Kept for a year.
    `npx wrangler d1 export amh_bot --remote --output backup.sql` weekly and
    keep it off the repo (the repo is public).
 4. Never put tokens, AMH_SECRET or the PIN in chat, screenshots or the repo.
+
+## Customer support: find, move, free keys (no migration)
+
+- **🔍 Find a customer** (dashboard button, or `/find MACHINE-ID`): the whole picture
+  for one computer, with the buttons you need.
+- **🔁 Move to a new computer** (button on that card, or `/move OLD-ID NEW-ID`): for
+  "I changed computer / reinstalled Windows". The old key stops working, a key for the
+  new Machine ID is made with the same expiry, the buyer gets it in the bot, and it
+  stays ONE sale. After 3 moves of the same license the bot warns it may be shared.
+  Needs the admin PIN.
+- **🎁 Free key** (`/givekey MACHINE-ID name`, or the button on /find of an unknown
+  computer): for partners, testers, reviewers. Status `gift` — never counted as a sale
+  or revenue; revoke any time from /find. Needs the admin PIN.
+- `/help` (as admin) or **📖 Commands** shows the admin cheat sheet. "Today" on the
+  dashboard and the /audit times are Ethiopian time.
