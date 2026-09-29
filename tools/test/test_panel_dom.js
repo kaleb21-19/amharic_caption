@@ -488,7 +488,7 @@ await t('3.9 review: doubtful words from the engine are marked; fixing one clear
   } finally { p.close(); }
 });
 
-await t('3.10 review: find & replace, auto-correct memory (remember / learn twice / undo), next to check', async () => {
+await t('3.10 review: fix one word -> "Change all" offer; auto-correct memory (learn twice / undo forgets)', async () => {
   const machineHome = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_fix_'));
   const p = loadPanel({ machineHome });
   const store = path.join(machineHome, '.amharic_captions_fixes.json');
@@ -497,29 +497,38 @@ await t('3.10 review: find & replace, auto-correct memory (remember / learn twic
     await p.evalVm('openReview("x.srt", "t", 0, {})');
   };
   const texts = () => JSON.parse(p.evalVm('JSON.stringify(reviewCues.map((c) => c.text))'));
+  const editRow = (i, text) => {
+    const ta = p.els('reviewList').children[i].children[2].children[0];
+    ta.value = text;
+    ta.fire('input', {});
+    ta.fire('change', {});
+  };
   try {
-    // Find & replace with "remember".
-    await open([{ start: 0, end: 1, text: 'ሰላም ፍንደ' }, { start: 1, end: 2, text: 'ፍንደ መጣ ፍንደታ' }]);
-    p.els('revReplace').fire('click', { preventDefault() {} });
-    assert.strictEqual(p.els('replaceBar').style.display, '', 'replace bar opens');
-    p.els('rfFind').value = 'ፍንደ';
-    p.els('rfFind').fire('input', {});
-    has(p.els('rfInfo').textContent, '2 found', 'live count (whole words only)');
-    p.els('rfRepl').value = 'ፍቅሬ';
-    p.els('rfGo').fire('click', {});
-    assert.deepStrictEqual(texts(), ['ሰላም ፍቅሬ', 'ፍቅሬ መጣ ፍንደታ']);
-    has(p.els('rfInfo').textContent, 'Replaced 2', 'result shown');
-    assert.strictEqual(JSON.parse(fs.readFileSync(store, 'utf8')).fixes['ፍንደ'].strong, true, 'remembered');
+    // No search, no Next button: only the orange marks and the offer bar.
+    for (const gone of ['revNext', 'revReplace', 'replaceBar', 'rfFind']) {
+      assert.ok(!fs.readFileSync(path.join(REPO, 'panel', 'index.html'), 'utf8').includes('id="' + gone + '"'), gone + ' removed');
+    }
+    // Fix a word once -> offered for the other captions (whole words only).
+    await open([{ start: 0, end: 1, text: 'ሰላም ፈታን' }, { start: 1, end: 2, text: 'ፈታን መጣ ፈታንታ' },
+      { start: 2, end: 3, text: 'ሌላ ቃል' }, { start: 3, end: 4, text: 'እሱ ፈታን ነው' }]);
+    assert.strictEqual(p.els('fixAllBar').style.display, 'none', 'hidden at start');
+    editRow(0, 'ሰላም ፈጣን');
+    assert.strictEqual(p.els('fixAllBar').style.display, '', 'offer shown');
+    has(p.els('fixAllText').textContent, 'ፈታን → ፈጣን', 'says what changes');
+    has(p.els('fixAllText').textContent, 'also in 2 more captions', 'says how many captions');
+    p.els('fixAllGo').fire('click', {});
+    assert.deepStrictEqual(texts(), ['ሰላም ፈጣን', 'ፈጣን መጣ ፈታንታ', 'ሌላ ቃል', 'እሱ ፈጣን ነው']);
+    assert.strictEqual(p.els('fixAllBar').style.display, 'none', 'bar closes');
+    // ✕ leaves the others alone; a word that is nowhere else offers nothing.
+    await open([{ start: 0, end: 1, text: 'ገላት ነው' }, { start: 1, end: 2, text: 'ገላት' }]);
+    editRow(0, 'ገነት ነው');
+    p.els('fixAllNo').fire('click', {});
+    assert.deepStrictEqual(texts(), ['ገነት ነው', 'ገላት']);
+    await open([{ start: 0, end: 1, text: 'ማበታ ነው' }, { start: 1, end: 2, text: 'ሌላ' }]);
+    editRow(0, 'ማታ ነው');
+    assert.strictEqual(p.els('fixAllBar').style.display, 'none', 'nothing to offer');
 
-    // Next transcription: fixed automatically, with Undo.
-    await open([{ start: 0, end: 1, text: 'ፍንደ ደረሰ' }]);
-    assert.deepStrictEqual(texts(), ['ፍቅሬ ደረሰ'], 'auto-fixed from memory');
-    has(p.els('revUndoFix').textContent, '1 auto-fixed', 'undo offered');
-    p.els('revUndoFix').fire('click', {});
-    assert.deepStrictEqual(texts(), ['ፍንደ ደረሰ'], 'undo restores the original');
-    assert.strictEqual(p.els('revUndoFix').style.display, 'none');
-
-    // A hand fix is learned only after it was made twice.
+    // A hand fix is learned only after it was made twice (in two videos).
     for (let round = 1; round <= 2; round++) {
       await open([{ start: 0, end: 1, text: 'ትናንት መጣ' }]);
       assert.deepStrictEqual(texts(), ['ትናንት መጣ'], 'not applied yet (round ' + round + ')');
@@ -528,23 +537,14 @@ await t('3.10 review: find & replace, auto-correct memory (remember / learn twic
     assert.strictEqual(JSON.parse(fs.readFileSync(store, 'utf8')).fixes['ትናንት'].n, 2);
     await open([{ start: 0, end: 1, text: 'ትናንት ሄደ' }]);
     assert.deepStrictEqual(texts(), ['ትላንት ሄደ'], 'learned after two separate fixes');
-
-    // Next to check: jumps between captions with orange words, wrapping round.
-    await open([{ start: 0, end: 1, text: 'ሀ' }, { start: 1, end: 2, text: 'ለ ሐ', doubt: ['ሐ'] },
-      { start: 2, end: 3, text: 'መ' }, { start: 3, end: 4, text: 'ሠ ረ', doubt: ['ረ'] }]);
-    const cur = () => p.evalVm('REVIEW_CURSOR');
-    p.els('revNext').fire('click', {});
-    assert.strictEqual(cur(), 1);
-    p.els('revNext').fire('click', {});
-    assert.strictEqual(cur(), 3);
-    p.els('revNext').fire('click', {});
-    assert.strictEqual(cur(), 1, 'wraps round');
-
-    // Forget: two clicks clear the memory.
-    p.els('rfForget').fire('click', { preventDefault() {} });
-    assert.ok(Object.keys(JSON.parse(fs.readFileSync(store, 'utf8')).fixes).length > 0, 'first click only asks');
-    p.els('rfForget').fire('click', { preventDefault() {} });
-    assert.deepStrictEqual(JSON.parse(fs.readFileSync(store, 'utf8')).fixes, {}, 'second click forgets');
+    has(p.els('revUndoFix').textContent, '1 auto-fixed', 'undo offered');
+    // Undo restores the word AND forgets the rule for good.
+    p.els('revUndoFix').fire('click', {});
+    assert.deepStrictEqual(texts(), ['ትናንት ሄደ'], 'undo restores the original');
+    assert.strictEqual(p.els('revUndoFix').style.display, 'none');
+    assert.ok(!JSON.parse(fs.readFileSync(store, 'utf8')).fixes['ትናንት'], 'undone rule forgotten');
+    await open([{ start: 0, end: 1, text: 'ትናንት ሄደ' }]);
+    assert.deepStrictEqual(texts(), ['ትናንት ሄደ'], 'not applied again');
   } finally { p.close(); fs.rmSync(machineHome, { recursive: true, force: true }); }
 });
 

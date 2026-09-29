@@ -2522,9 +2522,9 @@ function cueMatchesFilter(cue) {
 // The editor's own fixes, kept in the home folder (survives Premiere
 // upgrades) and applied to every later transcription — like a phone's
 // autocorrect learning your words. Nothing leaves the computer.
-//   • Find & replace with "Remember" -> used from the next caption on.
 //   • A word fixed by hand -> used once the same fix was made TWICE, so a
 //     one-off edit never becomes a rule.
+//   • "↩ undo" on the auto-fixes also forgets those rules for good.
 const FIXES_FILE = '.amharic_captions_fixes.json';
 const FIX_LEARN_AFTER = 2;
 const FIX_MAX = 500;
@@ -2569,7 +2569,7 @@ function rememberFix(st, wrong, right, strong) {
 let REVIEW_BASE = [];        // captions as the editor first saw them (after auto-fix)
 let REVIEW_AUTOFIX = { orig: {}, count: 0 };
 let REVIEW_LEARNED = {};     // fixes already counted in this review
-let REVIEW_CURSOR = -1;      // caption the editor is on (for "Next to check")
+let FIX_OFFER = null;        // { w, r } offered by the "Change all" bar
 // Count the editor's own word fixes (once per review) into the memory.
 function learnFromReview() {
   try {
@@ -2617,9 +2617,9 @@ async function openReview(outSrt, label, startSeconds, opts) {
   reviewCues = JSON.parse(JSON.stringify(lastCues)).map((c, i) =>
     Object.assign({}, c, { text: cleanCueLines(c.text), _id: i }));
   // Remembered fixes first, so the editor starts from their own spellings.
-  REVIEW_AUTOFIX = { orig: {}, count: 0 };
+  REVIEW_AUTOFIX = { orig: {}, count: 0, rules: {} };
   REVIEW_LEARNED = {};
-  REVIEW_CURSOR = -1;
+  FIX_OFFER = null;
   const fx = activeFixes(loadFixStore());
   if (Object.keys(fx).length) {
     reviewCues.forEach((c) => {
@@ -2628,12 +2628,12 @@ async function openReview(outSrt, label, startSeconds, opts) {
         REVIEW_AUTOFIX.orig[c._id] = c.text;
         c.text = r.text;
         REVIEW_AUTOFIX.count += r.applied.reduce((a, x) => a + x.n, 0);
+        r.applied.forEach((x) => { REVIEW_AUTOFIX.rules[x.from] = x.to; });
       }
     });
   }
   REVIEW_BASE = JSON.parse(JSON.stringify(reviewCues));
-  const bar = $('replaceBar');
-  if (bar) bar.style.display = 'none';
+  hideFixAll();
   syncUndoFixButton();
   reviewOpen = true;
   REVIEW_FILTER = '';
@@ -2684,7 +2684,6 @@ function renderReview() {
     shown++;
     const row = document.createElement('div');
     row.className = 'review-row';
-    row.dataset.i = String(i);
 
     const timeBox = document.createElement('div');
     timeBox.className = 'time-box';
@@ -2768,7 +2767,7 @@ function renderReview() {
     textBox.appendChild(doubtLine);
     showDoubts();
     ta.addEventListener('input', () => { cue.text = ta.value; showDoubts(); updateReviewCount(); });
-    ta.addEventListener('focus', () => { REVIEW_CURSOR = i; });
+    ta.addEventListener('change', () => offerFixAll(cue));
     del.addEventListener('click', () => { reviewCues.splice(i, 1); renderReview(); });
 
     row.appendChild(timeBox);
@@ -2984,9 +2983,10 @@ function initReview() {
   if (search) {
     search.addEventListener('input', (e) => { REVIEW_FILTER = e.target.value; renderReview(); });
   }
-  initReplaceBar();
-  const nextBtn = $('revNext');
-  if (nextBtn) nextBtn.addEventListener('click', jumpToNextDoubt);
+  const faGo = $('fixAllGo');
+  if (faGo) faGo.addEventListener('click', applyFixAll);
+  const faNo = $('fixAllNo');
+  if (faNo) faNo.addEventListener('click', hideFixAll);
   const undoBtn = $('revUndoFix');
   if (undoBtn) undoBtn.addEventListener('click', undoAutoFixes);
 
@@ -3006,40 +3006,41 @@ function initReview() {
       discardReview();
     }
     else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { placeReview(); }
-    else if (e.key === 'F3') { if (e.preventDefault) e.preventDefault(); jumpToNextDoubt(); }
   });
 }
 
-// ── review: next word to check, find & replace, undo auto-fixes ─────────
-function reviewRow(i) {
-  const rows = $('reviewList').children || [];
-  for (let k = 0; k < rows.length; k++) if (rows[k].dataset && rows[k].dataset.i === String(i)) return rows[k];
-  return null;
-}
-// F3 / "⚠ Next to check": the next caption (after the one being edited,
-// wrapping round) that still has an orange word; scroll to it, put the
-// cursor in it and move the playhead there so it can be heard.
-function jumpToNextDoubt() {
-  if (!reviewOpen || !reviewCues.length) return;
-  const n = reviewCues.length;
-  for (let k = 1; k <= n; k++) {
-    const i = (REVIEW_CURSOR + k + n) % n;
-    const cue = reviewCues[i];
-    if (!cueDoubts(cue).length) continue;
-    const row = reviewRow(i);
-    if (!row) continue;   // hidden by the filter
-    REVIEW_CURSOR = i;
-    try { if (typeof row.scrollIntoView === 'function') row.scrollIntoView({ block: 'center' }); } catch (e) {}
-    const ta = row.querySelector ? row.querySelector('textarea') : null;
-    try { if (ta && ta.focus) ta.focus(); } catch (e) {}
-    seekPlayhead(cue.start);
+// ── review: "change all" offer, undo auto-fixes ─────────────────────────
+// Nobody searches: when a word is fixed in one caption and the same wrong
+// word is in other captions, a bar offers to change them all in one tap.
+function offerFixAll(cue) {
+  const bar = $('fixAllBar');
+  if (!bar || !reviewOpen) return;
+  const base = REVIEW_BASE.find((b) => String(b._id) === String(cue._id));
+  if (!base) return;
+  const pairs = learnFixes([base], [cue]);
+  for (let k = 0; k < pairs.length; k++) {
+    const w = pairs[k][0], r = pairs[k][1];
+    const n = reviewCues.filter((c) => c !== cue && replaceWords(c.text, w, r).n).length;
+    if (!n) continue;
+    FIX_OFFER = { w, r };
+    $('fixAllText').textContent = w + ' → ' + r + ' · ' + L('also in ' + n + ' more captions');
+    bar.style.display = '';
     return;
   }
-  const b = $('revNext');
-  if (b) {
-    b.textContent = L('✓ All checked');
-    setTimeout(() => { b.textContent = L('⚠ Next to check'); }, 2000);
-  }
+}
+function hideFixAll() {
+  FIX_OFFER = null;
+  const bar = $('fixAllBar');
+  if (bar) bar.style.display = 'none';
+}
+function applyFixAll() {
+  if (!FIX_OFFER) return;
+  const w = FIX_OFFER.w, r = FIX_OFFER.r;
+  let n = 0;
+  reviewCues.forEach((c) => { const x = replaceWords(c.text, w, r); if (x.n) { c.text = x.text; n += x.n; } });
+  log('Changed "' + w + '" to "' + r + '" in ' + n + ' place(s).');
+  hideFixAll();
+  renderReview();
 }
 function syncUndoFixButton() {
   const b = $('revUndoFix');
@@ -3049,6 +3050,8 @@ function syncUndoFixButton() {
   b.textContent = n ? '↩ ' + L(n + ' auto-fixed · undo') : '';
   b.title = L('Words changed by your remembered fixes — click to put the original words back');
 }
+// Undo puts the original words back AND forgets those rules: a fix the
+// editor undid was a wrong one, so it must not come back next time.
 function undoAutoFixes() {
   Object.keys(REVIEW_AUTOFIX.orig).forEach((id) => {
     const cue = reviewCues.find((c) => String(c._id) === String(id));
@@ -3056,68 +3059,17 @@ function undoAutoFixes() {
     const base = REVIEW_BASE.find((c) => String(c._id) === String(id));
     if (base) base.text = REVIEW_AUTOFIX.orig[id];
   });
-  REVIEW_AUTOFIX = { orig: {}, count: 0 };
+  const rules = REVIEW_AUTOFIX.rules || {};
+  const words = Object.keys(rules);
+  if (words.length) {
+    const st = loadFixStore();
+    words.forEach((w) => { if (st.fixes[w] && st.fixes[w].to === rules[w]) delete st.fixes[w]; });
+    saveFixStore(st);
+    log('Auto-correct memory: forgot ' + words.length + ' fix(es) you undid.');
+  }
+  REVIEW_AUTOFIX = { orig: {}, count: 0, rules: {} };
   syncUndoFixButton();
   renderReview();
-}
-function countMatches(find) {
-  return reviewCues.reduce((a, c) => a + replaceWords(c.text, find, '').n, 0);
-}
-function syncForgetLink() {
-  const a = $('rfForget');
-  if (!a) return;
-  const n = Object.keys(loadFixStore().fixes).length;
-  a.dataset.armed = '';
-  a.textContent = n ? L('Forget remembered fixes (' + n + ')') : '';
-  a.style.display = n ? '' : 'none';
-}
-function initReplaceBar() {
-  const toggle = $('revReplace');
-  const bar = $('replaceBar');
-  const find = $('rfFind');
-  const repl = $('rfRepl');
-  const info = $('rfInfo');
-  if (!toggle || !bar || !find || !repl) return;
-  toggle.addEventListener('click', () => {
-    const open = bar.style.display === 'none';
-    bar.style.display = open ? '' : 'none';
-    if (open) { syncForgetLink(); if (find.focus) find.focus(); }
-  });
-  const showCount = () => {
-    const f = find.value.trim();
-    info.textContent = f ? L(countMatches(f) + ' found') : '';
-  };
-  find.addEventListener('input', showCount);
-  $('rfGo').addEventListener('click', () => {
-    const f = find.value.trim();
-    const r = repl.value.trim();
-    if (!f) return;
-    let n = 0;
-    reviewCues.forEach((c) => { const x = replaceWords(c.text, f, r); if (x.n) { c.text = x.text; n += x.n; } });
-    if ($('rfRemember') && $('rfRemember').checked && r && r !== f) {
-      const st = loadFixStore();
-      rememberFix(st, f, r, true);
-      saveFixStore(st);
-      REVIEW_LEARNED[f + '\u0000' + r] = true;
-    }
-    // A replace is not a hand fix: keep it out of the learning comparison.
-    REVIEW_BASE.forEach((b) => { const x = replaceWords(b.text, f, r); if (x.n) b.text = x.text; });
-    info.textContent = L('Replaced ' + n);
-    syncForgetLink();
-    renderReview();
-  });
-  const forget = $('rfForget');
-  if (forget) forget.addEventListener('click', (e) => {
-    if (e && e.preventDefault) e.preventDefault();
-    if (forget.dataset.armed !== '1') {
-      forget.dataset.armed = '1';
-      forget.textContent = L('Click again to forget all');
-      return;
-    }
-    saveFixStore({ v: 1, fixes: {} });
-    log('Auto-correct memory cleared.');
-    syncForgetLink();
-  });
 }
 
 // ---------------------------------------------------------------- runners
