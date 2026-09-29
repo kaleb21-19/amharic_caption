@@ -396,6 +396,10 @@
   }
   .review-row .spk.s2 { background: var(--warn-soft); color: var(--warn); }
   .support-mid { margin: 6px 0 8px; }
+  .review-row .text-box { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .review-row .text-box textarea { width: 100%; box-sizing: border-box; }
+  .review-row.doubt .text-box textarea { border-color: var(--warn); box-shadow: inset 3px 0 0 var(--warn); }
+  .review-row .doubt-line { color: var(--warn); font-size: 11px; line-height: 1.35; }
   .review-empty { padding: 18px 8px; text-align: center; color: var(--text-disabled); font-size: var(--font-m); }
   .review-foot { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: stretch; }
   .review-foot .btn { flex: 1 1 45%; min-width: 0; white-space: normal; }
@@ -623,7 +627,7 @@
   </div>
 
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.7.8</span><span id="footPrice"> · <span data-i18n="foot.license">License ETB 2,500 one-time</span></span></span>
+    <span>v<span id="panelVersion">1.7.9</span><span id="footPrice"> · <span data-i18n="foot.license">License ETB 2,500 one-time</span></span></span>
     <span style="display:flex;gap:10px;align-items:center;">
       <a href="#" id="supportLink" title="Get help in Telegram" data-i18n="foot.help" data-i18n-title="foot.helpTitle">💬 Help</a>
       <a href="#" id="credits" title="Version and credits" data-i18n="foot.credits" data-i18n-title="foot.creditsTitle">About</a>

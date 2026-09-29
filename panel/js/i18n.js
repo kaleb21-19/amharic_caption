@@ -192,6 +192,7 @@ const AM_TEXT = {
   'License token signature invalid': 'ፈቃዱ ሊረጋገጥ አልቻለም',
   'License token verification failed': 'ፈቃዱ ሊረጋገጥ አልቻለም',
   '✓ Copied': '✓ ተቀድቷል',
+  'check:': 'ያረጋግጡ፦',
   'Speaker 1 — tap to switch': 'ተናጋሪ 1 — ለመቀየር ይጫኑ',
   'Speaker 2 — tap to switch': 'ተናጋሪ 2 — ለመቀየር ይጫኑ',
   '2 speakers found — each change is marked with “–”': '2 ተናጋሪዎች ተገኝተዋል — የተናጋሪ ለውጥ በ «–» ይታያል',
@@ -225,6 +226,7 @@ const AM_PATTERNS = [
   [/^Licensed \(expires (\d+)\)$/, 'ፈቃድ አለው (እስከ $1)'],
   [/^License expired on (.+)$/, 'ፈቃዱ $1 ላይ አብቅቷል'],
   [/^(\d+) captions?$/, '$1 ካፕሽን'],
+  [/^(\d+) to check$/, '$1 ለማረጋገጥ'],
   [/^Version (\d+\.\d+\.\d+) is available\.$/, 'አዲስ ስሪት $1 ወጥቷል።'],
   [/^Extracting audio (\d+)\/(\d+)$/, 'ድምፅ በማውጣት ላይ $1/$2'],
   [/^Transcribing (\d+)\/(\d+)(.*)$/, function (m, a, b, rest) {

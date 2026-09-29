@@ -193,7 +193,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.7.8');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.7.9');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -455,6 +455,39 @@ await t('3.8 review: speaker marks show per caption and a tap switches the speak
   } finally { p.close(); }
 });
 
+await t('3.9 review: doubtful words from the engine are marked; fixing one clears it', async () => {
+  const p = loadPanel();
+  try {
+    // The engine writes <srt>.doubt.json next to the SRT, keyed by cue number.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_doubt_'));
+    const srt = path.join(dir, 'x.srt');
+    fs.writeFileSync(srt, '1\n00:00:00,000 --> 00:00:01,000\nሰላም ወንድሜ\n\n2\n00:00:01,000 --> 00:00:02,000\nደህና ነኝ\n\n');
+    fs.writeFileSync(srt + '.doubt.json', JSON.stringify({ 1: ['ወንድሜ'] }));
+    p.evalVm('reviewTrialCharged = true; lastCues = withDoubts(normalizeCues(parseSrt(fs.readFileSync(' +
+      JSON.stringify(srt) + ', "utf8"))), ' + JSON.stringify(srt) + ');');
+    await p.evalVm('openReview("x.srt", "t", 0, {})');
+    const rows = p.els('reviewList').children;
+    assert.ok(rows[0].classList.contains('doubt'), 'row with a doubtful word is marked');
+    assert.ok(!rows[1].classList.contains('doubt'), 'clean row is not');
+    const textBox = rows[0].children[2];
+    has(textBox.children[1].textContent, 'ወንድሜ', 'the doubtful word is listed');
+    has(p.els('reviewCount').textContent, '1 to check', 'header count');
+    // The editor fixes the word: the mark and the count go away.
+    const ta = textBox.children[0];
+    ta.value = 'ሰላም ወንድሜ፣';
+    ta.value = 'ሰላም ወንድሞቼ';
+    ta.fire('input', {});
+    assert.ok(!rows[0].classList.contains('doubt'), 'fixed word clears the mark');
+    assert.ok(p.els('reviewCount').textContent.indexOf('to check') < 0, 'count cleared');
+    // No sidecar → no marks, nothing breaks.
+    fs.unlinkSync(srt + '.doubt.json');
+    const n = p.evalVm('withDoubts(normalizeCues(parseSrt(fs.readFileSync(' + JSON.stringify(srt) + ', "utf8"))), ' +
+      JSON.stringify(srt) + ').filter((c) => c.doubt).length');
+    assert.strictEqual(n, 0);
+    fs.rmSync(dir, { recursive: true, force: true });
+  } finally { p.close(); }
+});
+
 await t('4. license: exhausted trial blocks Generate', async () => {
   const storage = makeLocalStorage();
   storage.setItem('amh.trial.used', '2');
@@ -495,7 +528,7 @@ await t('5. review: cache-hit transcribe -> edit -> export (speaker tags) -> nud
 
       // speaker label stripped in editor
       const row0 = p.els('reviewList').children[0];
-      const ta0  = row0.children[2];
+      const ta0  = row0.children[2].children[0];   // text box: textarea + doubt line
       assert.strictEqual(ta0.value, CUE1, 'first cue text in editor');
 
       // edit first caption
