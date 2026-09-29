@@ -289,7 +289,7 @@ class _CT2Engine:
         argmax = np.argmax(logits[0], axis=-1).tolist()
         text = self._decode(argmax)
         spans, _ = ctc_align(logits, self.blank_id, frame_dur, None)
-        return text, spans, frame_dur
+        return text, _spans_with_conf(spans, logits), frame_dur
 
     def _decode(self, ids):
         # CTC decoding: collapse consecutive identical tokens before joining.
@@ -387,6 +387,92 @@ def _masked_token_ids(glyphs):
     spec = os.environ.get("AMH_TOKEN_MASK", "latin,digits,symbols")
     tests = [_MASK_CLASSES[c] for c in (s.strip() for s in spec.split(",")) if c in _MASK_CLASSES]
     return sorted(tid for tid, tok in glyphs.items() if any(f(tok) for f in tests))
+
+
+# ── "doubtful word" marks for the review screen ─────────────────────────────
+# The model knows when it is unsure. Per letter we keep the best softmax
+# probability of its CTC span; a word's confidence is its WEAKEST letter.
+# Measured on the reference clips (2026-09-29): words under 0.6 were wrong
+# 82% of the time and caught 42% of all errors, so the editor checks the
+# orange words first. Costs <1% of transcription time; the caption TEXT is
+# unchanged (the marks travel in a sidecar next to the SRT).
+DOUBT_THRESHOLD = float(os.environ.get("AMH_DOUBT", "0.6"))
+
+
+class Span(tuple):
+    """(tok, start, end) that also carries the model's confidence (.conf).
+    Unpacks as a normal 3-tuple, so every existing caller keeps working."""
+    def __new__(cls, tok, s, e, conf=1.0):
+        t = tuple.__new__(cls, (tok, s, e))
+        t.conf = conf
+        return t
+
+
+class Cue(tuple):
+    """(text, start, end) plus .doubt: the words in it the model was unsure of."""
+    def __new__(cls, text, s, e, doubt=()):
+        t = tuple.__new__(cls, (text, s, e))
+        t.doubt = list(doubt)
+        return t
+
+
+def _span_conf(sp):
+    return getattr(sp, "conf", 1.0)
+
+
+def _cue_doubt(c):
+    return getattr(c, "doubt", [])
+
+
+def _spans_with_conf(spans, logits):
+    """Attach each span's peak probability (softmax over the vocab)."""
+    if not spans:
+        return spans
+    x = np.asarray(logits, dtype=np.float32)[0]
+    x = x - x.max(axis=-1, keepdims=True)
+    p = np.exp(x)
+    top = p.max(axis=-1) / p.sum(axis=-1)
+    return [Span(tok, s, e, float(top[s:e + 1].max())) for tok, s, e in spans]
+
+
+def _unit_confs(spans, frame_dur, glyphs):
+    """Letter-level (start_sec, end_sec, conf), sorted by start."""
+    from ctc_beam import _is_control_glyph
+    out = []
+    for sp in spans:
+        tok, s, e = sp
+        ch = glyphs.get(tok)
+        if ch is None or _is_control_glyph(ch) or ch in ("|", "\u1360", "\u1361"):
+            continue
+        out.append((s * frame_dur, (e + 1) * frame_dur, _span_conf(sp)))
+    out.sort()
+    return out
+
+
+def _attach_doubts(cues, words, units):
+    """Give every cue the list of its words whose weakest letter is below the
+    threshold. Words and cues keep their (post-correction) times, so letters
+    are matched by time, not by text."""
+    import bisect
+    if not units or not any(u[2] < DOUBT_THRESHOLD for u in units):
+        return [Cue(t, s, e) for t, s, e in cues]
+    starts = [u[0] for u in units]
+    doubt_words = []  # (start, text)
+    for text, ws, we in words:
+        i = max(0, bisect.bisect_left(starts, ws) - 1)
+        low = 1.0
+        while i < len(units) and units[i][0] < we:
+            us, ue, c = units[i]
+            if ue > ws and c < low:
+                low = c
+            i += 1
+        if low < DOUBT_THRESHOLD:
+            doubt_words.append((ws, text.strip("።፣፤፥፦፧፨?!.,")))
+    out = []
+    for text, cs, ce in cues:
+        d = [w for ws, w in doubt_words if cs - 1e-6 <= ws < ce + 1e-6 and w and w in text]
+        out.append(Cue(text, cs, ce, d))
+    return out
 
 
 def ctc_align(logits, blank_id, frame_dur, text):
@@ -568,6 +654,7 @@ def make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=42):
     # pass on it, so every caption mode (words/grouped/sentence) benefits and
     # the corrected words match the same timing as the original.
     raw_words = get_words(spans, frame_dur, glyphs)
+    units = _unit_confs(spans, frame_dur, glyphs)
     try:
         from amh_correct import correct_words
         words = correct_words(raw_words)
@@ -628,7 +715,7 @@ def make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=42):
         cues = group_n_cues(words, group_size, max_chars=max_chars)
     else:
         cues = group_cues(words, frame_dur, None, glyphs, max_chars=max_chars)
-    return enforce_min_duration(cues)
+    return enforce_min_duration(_attach_doubts(cues, words, units))
 
 
 def enforce_min_duration(cues, min_dur=1.0, max_dur=5.0, tail_room=0.15):
@@ -644,7 +731,8 @@ def enforce_min_duration(cues, min_dur=1.0, max_dur=5.0, tail_room=0.15):
     tail_room = float(tail_room)
     n = len(cues)
     out = []
-    for idx, (txt, s, e) in enumerate(cues):
+    for idx, cue in enumerate(cues):
+        txt, s, e = cue
         if max_dur > 0 and e - s > max_dur:
             e = s + max_dur
         if e - s < min_dur:
@@ -663,7 +751,7 @@ def enforce_min_duration(cues, min_dur=1.0, max_dur=5.0, tail_room=0.15):
                 # which put two captions on screen at once in Premiere. Seen on
                 # 2/19 real clips in karaoke mode (TESTING.md 1.2k).
                 e = max(s, nxt_s)
-        out.append((txt, s, e))
+        out.append(Cue(txt, s, e, _cue_doubt(cue)))
     return out
 
 
@@ -827,10 +915,11 @@ def _windowed_transcribe(engine, wav):
             continue
         if text:
             texts.append(text)
-        for tok, s, e in spans:
+        for sp in spans:
+            tok, s, e = sp
             ss = st + int(round(s * fdur * 16000))
             ee = st + int(round((e + 1) * fdur * 16000))
-            out_spans.append((tok, ss, max(ss, ee)))
+            out_spans.append(Span(tok, ss, max(ss, ee), _span_conf(sp)))
         _emit_progress(k + 1, len(wins))
     return " ".join(texts), out_spans, 1.0 / 16000.0
 
@@ -860,10 +949,11 @@ def _win_cues(engine, wav, st, en, mode, group_size, max_chars):
         print("[info] window %d-%d skipped: %s" % (st, en, e), file=sys.stderr)
         return "", []
     shifted = []
-    for tok, s, e in spans:
+    for sp in spans:
+        tok, s, e = sp
         ss = st + int(round(s * fdur * 16000))
         ee = st + int(round((e + 1) * fdur * 16000))
-        shifted.append((tok, ss, max(ss, ee)))
+        shifted.append(Span(tok, ss, max(ss, ee), _span_conf(sp)))
     cues = make_cues(mode, group_size, shifted, 1.0 / 16000.0, text,
                      engine.glyphs, max_chars=max_chars)
     return text, cues
@@ -947,7 +1037,8 @@ def _remap_spans(spans, frame_dur, seg_table, sr=16000):
     ORIGINAL timeline. Returns spans whose (s, e) are original sample indices;
     combine with a frame_dur of 1/sr so downstream timing math stays correct."""
     out = []
-    for tok, s, e in spans:
+    for sp in spans:
+        tok, s, e = sp
         t0 = s * frame_dur
         t1 = (e + 1) * frame_dur
         o0 = _map_trim_to_orig(t0 * sr, seg_table)
@@ -956,20 +1047,34 @@ def _remap_spans(spans, frame_dur, seg_table, sr=16000):
             continue
         if o1 < o0:
             o1 = o0
-        out.append((tok, o0, o1))
+        out.append(Span(tok, o0, o1, _span_conf(sp)))
     return out
 
 
 def write_srt(out_path, cues, offset):
     idx = 0
+    doubts = {}
     with open(out_path, "w", encoding="utf-8") as f:
-        for text_cue, start, end in cues:
+        for cue in cues:
+            text_cue, start, end = cue
             if not text_cue:
                 continue
             idx += 1
             f.write(f"{idx}\n")
             f.write(f"{format_ts(start + offset)} --> {format_ts(end + offset)}\n")
             f.write(f"{text_cue}\n\n")
+            if _cue_doubt(cue):
+                doubts[str(idx)] = _cue_doubt(cue)
+    # Doubtful-word marks for the review screen, keyed by SRT cue number.
+    side = out_path + ".doubt.json"
+    try:
+        if doubts:
+            with open(side, "w", encoding="utf-8") as f:
+                json.dump(doubts, f, ensure_ascii=False)
+        elif os.path.exists(side):
+            os.remove(side)
+    except OSError:
+        pass
     return idx
 
 
@@ -992,7 +1097,11 @@ def _maybe_diarize(cues, wav):
         print("[info] speaker labelling requested but no embedding model found",
               file=sys.stderr)
         return cues
-    return amh_diarize.label_cues(cues, wav)
+    labelled = amh_diarize.label_cues(cues, wav)
+    # Speaker prefixes rebuild the tuples: keep each cue's doubtful words.
+    if len(labelled) == len(cues):
+        labelled = [Cue(l[0], l[1], l[2], _cue_doubt(c)) for l, c in zip(labelled, cues)]
+    return labelled
 
 
 def _run_file(engine, wav, mode, group_size, max_chars, offset, out_srt=None,
@@ -1239,7 +1348,7 @@ def handle_server_batch(engine, req, rid, out):
             continue
         all_text.append(text)
         for c in cues:
-            all_cues.append((c[0], c[1] + off, c[2] + off))
+            all_cues.append(Cue(c[0], c[1] + off, c[2] + off, _cue_doubt(c)))
     if out_srt:
         idx = write_srt(out_srt, all_cues, 0.0)
     else:
@@ -1313,7 +1422,7 @@ def run_batch():
             continue
         off = float(req.get("offset") or 0.0)
         for c in cues:
-            all_cues.append((c[0], c[1] + off, c[2] + off))
+            all_cues.append(Cue(c[0], c[1] + off, c[2] + off, _cue_doubt(c)))
         print("--- full transcription ---")
         print(text)
 

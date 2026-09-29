@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.7.8';
+const APP_VERSION = '1.7.9';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -2146,17 +2146,35 @@ function attributeCues(cues, items) {
   return byItem;
 }
 
+// Doubtful-word marks from the engine (<srt>.doubt.json, keyed by SRT cue
+// number): the words the model was unsure of, shown in orange in the review
+// so the editor checks those first. Missing/broken file = no marks.
+function withDoubts(cues, srtPath) {
+  let d = null;
+  try { d = JSON.parse(fs.readFileSync(srtPath + '.doubt.json', 'utf8')); } catch (e) { d = null; }
+  if (!d || typeof d !== 'object') return cues;
+  return cues.map((c, i) => {
+    const w = d[String(i + 1)];
+    return Array.isArray(w) && w.length ? Object.assign({}, c, { doubt: w.map(String) }) : c;
+  });
+}
+
 function cacheLookup(key) {
   const c = cacheLoad()[key];
   if (!c || !c.srt) return null;
   let cues = [];
   try { cues = normalizeCues(parseSrt(c.srt)); } catch (e) { cues = []; }
   if (!cues.length) return null;
+  if (Array.isArray(c.doubts) && c.doubts.length === cues.length) {
+    cues = cues.map((q, i) => (c.doubts[i] && c.doubts[i].length ? Object.assign({}, q, { doubt: c.doubts[i] }) : q));
+  }
   return { srt: c.srt, cues, transcript: c.transcript || '' };
 }
 
-async function cacheStore(key, srt, transcript) {
-  cacheLoad()[key] = { srt, transcript, at: Date.now() };
+async function cacheStore(key, srt, transcript, cues) {
+  const doubts = (cues || []).map((c) => (c && c.doubt) || []);
+  cacheLoad()[key] = Object.assign({ srt, transcript, at: Date.now() },
+    doubts.some((d) => d.length) ? { doubts } : {});
   // Per-clip caching means one entry per clip (plus whole-file entries), so
   // keep a generous bound and drop the oldest beyond it.
   const CAP_N = 200;
@@ -2230,10 +2248,10 @@ async function transcribe(sourcePath, outSrt, range, offset) {
     warmTouch();
     protectTempFile(outSrt);
     let cues = [];
-    try { cues = normalizeCues(parseSrt(fs.readFileSync(outSrt, 'utf8'))); } catch (e) {}
+    try { cues = withDoubts(normalizeCues(parseSrt(fs.readFileSync(outSrt, 'utf8'))), outSrt); } catch (e) {}
     lastCues = cues;
     lastSrtPath = outSrt;
-    await cacheStore(key, fs.readFileSync(outSrt, 'utf8'), r.text || '');
+    await cacheStore(key, fs.readFileSync(outSrt, 'utf8'), r.text || '', cues);
     return { outSrt, cues, transcript: r.text || '', cached: false };
   } catch (e) {
     // Cancel kills the warm worker, which surfaces here as a transport error
@@ -2264,7 +2282,7 @@ function transcribeOneShot(sourcePath, outSrt, range, offset, wav) {
       const transcript = extractTranscripts(stdout).join('\n');
       protectTempFile(outSrt);
       let cues = [];
-      try { cues = normalizeCues(parseSrt(fs.readFileSync(outSrt, 'utf8'))); } catch (e) {}
+      try { cues = withDoubts(normalizeCues(parseSrt(fs.readFileSync(outSrt, 'utf8'))), outSrt); } catch (e) {}
       lastCues = cues;
       lastSrtPath = outSrt;
       resolve({ outSrt, cues, transcript });
@@ -2332,7 +2350,7 @@ async function transcribeBatch(items, outSrt, onProgress) {
         log('Note: skipped ' + r.skipped + ' clip(s) that could not be transcribed.');
       }
       let parsed = [];
-      try { parsed = normalizeCues(parseSrt(fs.readFileSync(outSrt, 'utf8'))); } catch (e) {}
+      try { parsed = withDoubts(normalizeCues(parseSrt(fs.readFileSync(outSrt, 'utf8'))), outSrt); } catch (e) {}
       byItem = attributeCues(parsed, misses);
       transcript = r.text || '';
     } else {
@@ -2356,7 +2374,7 @@ async function transcribeBatch(items, outSrt, onProgress) {
     if (ambiguous.has(it)) continue;   // overlapping clip: attribution unreliable
     const cs = byItem.get(it) || [];
     if (!cs.length) continue;
-    await cacheStore(clipCacheKey(it), srtFromCues(cs), '');
+    await cacheStore(clipCacheKey(it), srtFromCues(cs), '', cs);
   }
   return finish(byItem, transcript);
 }
@@ -2399,7 +2417,7 @@ function transcribeBatchOneShot(items, outSrt, onProgress) {
         if (inBlock) transcript += (transcript ? '\n' : '') + buf.join('\n').trim();
         protectTempFile(outSrt);
         let cues = [];
-        try { cues = normalizeCues(parseSrt(fs.readFileSync(outSrt, 'utf8'))); } catch (e) {}
+        try { cues = withDoubts(normalizeCues(parseSrt(fs.readFileSync(outSrt, 'utf8'))), outSrt); } catch (e) {}
         cleanupReq();
         let byItem;
         try { byItem = attributeCues(cues, items); }
@@ -2616,6 +2634,8 @@ function renderReview() {
     splitBtn.addEventListener('click', () => splitReview(i));
     mergeBtn.addEventListener('click', () => mergeReview(i));
 
+    const textBox = document.createElement('div');
+    textBox.className = 'text-box';
     const ta = document.createElement('textarea');
     ta.value = cue.text || ''; ta.placeholder = L('caption text');
     // The captions are Amharic. Without this the whole review list is read as
@@ -2640,12 +2660,24 @@ function renderReview() {
       cue.end = Math.max(cue.start + 0.3, v);
       renderReview();
     });
-    ta.addEventListener('input', () => { cue.text = ta.value; });
+    // Doubtful words: only those still in the text, so fixing one clears it.
+    const doubtLine = document.createElement('div');
+    doubtLine.className = 'doubt-line';
+    const showDoubts = () => {
+      const left = cueDoubts(cue);
+      row.classList.toggle('doubt', left.length > 0);
+      doubtLine.textContent = left.length ? '⚠ ' + L('check:') + ' ' + left.join(' · ') : '';
+      doubtLine.style.display = left.length ? '' : 'none';
+    };
+    textBox.appendChild(ta);
+    textBox.appendChild(doubtLine);
+    showDoubts();
+    ta.addEventListener('input', () => { cue.text = ta.value; showDoubts(); updateReviewCount(); });
     del.addEventListener('click', () => { reviewCues.splice(i, 1); renderReview(); });
 
     row.appendChild(timeBox);
     row.appendChild(tools);
-    row.appendChild(ta);
+    row.appendChild(textBox);
     row.appendChild(del);
     // Click a caption row to jump the Premiere playhead to that caption's start.
     row.addEventListener('click', (e) => {
@@ -2716,9 +2748,16 @@ const SPEAKER_NOTES = {
   two: '2 speakers found — each change is marked with “–”',
   one: 'One voice only — no speaker marks added',
 };
+// The doubtful words still present in a cue's (possibly edited) text.
+function cueDoubts(cue) {
+  const t = String((cue && cue.text) || '');
+  return ((cue && cue.doubt) || []).filter((w) => w && t.indexOf(w) >= 0);
+}
 function updateReviewCount() {
   const note = SPEAKER_NOTES[speakerSummary(reviewCues, SPEAKERS)];
+  const toCheck = reviewCues.filter((c) => cueDoubts(c).length).length;
   $('reviewCount').textContent = L(reviewCues.length + ' caption' + (reviewCues.length === 1 ? '' : 's')) +
+    (toCheck ? ' · ⚠ ' + L(toCheck + ' to check') : '') +
     (note ? ' · ' + L(note) : '');
 }
 
