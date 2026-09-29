@@ -1687,6 +1687,11 @@ function escJson(s) {
     : String(j).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 }
 function evalScript(jsx, timeoutMs) {
+  if (IS_AE) {
+    jsx = aeHostCall(jsx,
+      path.join(EXT_DIR, 'jsx', 'host.jsx').replace(/\\/g, '/'),
+      path.join(EXT_DIR, 'jsx', 'host_ae.jsx').replace(/\\/g, '/'));
+  }
   return new Promise((resolve, reject) => {
     let settled = false;
     const finish = (value) => {

@@ -270,5 +270,46 @@ t('seek moves the comp time indicator (clamped to duration)', () => {
   assert.strictEqual(comp.time, 30);
 });
 
+// The real-world bug: After Effects can evaluate the manifest's host.jsx
+// AFTER the panel loaded host_ae.jsx. host.jsx defines the same entry points
+// (Premiere versions), so After Effects answered "no selected clip". Every
+// panel call is wrapped by core.aeHostCall, which re-loads host_ae.jsx when its
+// stamp is gone.
+t('load-order race: host.jsx loaded AFTER host_ae.jsx — the wrapped call still runs the AE code', () => {
+  const core = require(path.resolve(__dirname, '..', '..', 'panel', 'js', 'core.js'));
+  const comp = new CompItem();
+  footageLayer(comp, { startTime: 0, inPoint: 1, outPoint: 6, selected: true, srcName: 'ae.mp4' });
+  const ctx = makeCtx(comp);
+  const strip = (src) => src.replace(/^#include.*$/m, '');
+  let loads = 0;
+  ctx.$ = { evalFile: (f) => { loads++; vm.runInContext(strip(fs.readFileSync(f.p, 'utf8')), ctx); } };
+  // The race: host.jsx evaluated last replaces the After Effects functions.
+  vm.runInContext(strip(fs.readFileSync(path.join(JSX, 'host.jsx'), 'utf8')), ctx);
+  assert.notStrictEqual(vm.runInContext('amharic_getSelectedClip.amhAE', ctx), true, 'race reproduced: AE code replaced');
+  const host = path.join(JSX, 'host.jsx');
+  const ae = path.join(JSX, 'host_ae.jsx');
+  const r = JSON.parse(vm.runInContext(core.aeHostCall('amharic_getSelectedClip()', host, ae), ctx));
+  assert.ok(r.ok, 'AE answer after the wrapper: ' + r.error);
+  assert.strictEqual(r.name, 'ae.mp4');
+  assert.strictEqual(loads, 1, 'host_ae.jsx re-loaded once');
+  // Already correct → nothing is re-loaded on the next call (no cost).
+  vm.runInContext(core.aeHostCall('amharic_getSelectedClip()', host, ae), ctx);
+  assert.strictEqual(loads, 1, 'no reload when the AE code is active');
+});
+
+t('nothing loaded yet: the wrapper loads host.jsx, then host_ae.jsx', () => {
+  const core = require(path.resolve(__dirname, '..', '..', 'panel', 'js', 'core.js'));
+  const comp = new CompItem();
+  footageLayer(comp, { startTime: 0, inPoint: 0, outPoint: 4, selected: true, srcName: 'first.mp4' });
+  const bare = { app: { version: '24.3', project: { activeItem: comp, numItems: 0, item: () => null, file: null } },
+    CompItem, FootageItem, TextDocument, JSON, File: class { constructor(p) { this.p = p; } } };
+  vm.createContext(bare);
+  const strip = (src) => src.replace(/^#include.*$/m, '');
+  bare.$ = { evalFile: (f) => vm.runInContext(strip(fs.readFileSync(f.p, 'utf8')), bare) };
+  const r = JSON.parse(vm.runInContext(core.aeHostCall('amharic_getSelectedClip()',
+    path.join(JSX, 'host.jsx'), path.join(JSX, 'host_ae.jsx')), bare));
+  assert.ok(r.ok && r.name === 'first.mp4', 'AE answer from a cold start: ' + JSON.stringify(r));
+});
+
 console.log('\n' + (fail === 0 ? 'ALL PASS' : 'FAILURES: ' + fail) + '  (' + pass + ' passed, ' + fail + ' failed)');
 process.exit(fail === 0 ? 0 : 1);
