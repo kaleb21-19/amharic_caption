@@ -693,6 +693,13 @@ def make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=42):
         merged.append((tok, s, e))
         i += 1
     words = merged
+    # Stranded one-letter prefixes (በ ሁሉም -> በሁሉም), before the number pass
+    # — the order it was measured in (see amh_correct.rejoin_prefixes).
+    try:
+        from amh_correct import rejoin_prefixes
+        words = rejoin_prefixes(words)
+    except Exception:
+        pass
     # Spoken numbers -> digits (ሁለት ሺህ ሀያ ስድስት -> 2026). After the digit
     # re-glue on purpose: a counting run is emitted as separate tokens
     # ("1", "2", "3") and must not be glued back into "123".
