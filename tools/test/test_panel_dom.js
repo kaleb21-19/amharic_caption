@@ -193,7 +193,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.7.7');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.7.8');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -228,13 +228,15 @@ await t('2. settings: defaults, live toggles, persistence across reload', async 
     p.els('srcWork').fire('click');
     p.els('groupSize').value = '5';
     p.els('groupSize').fire('input');
-    p.els('maxChars').value = '60';
-    p.els('maxChars').fire('input');
+    assert.ok(p.els('fmtH').classList.contains('active'), 'horizontal by default');
+    p.els('fmtV').fire('click');
+    assert.ok(p.els('fmtV').classList.contains('active') && !p.els('fmtH').classList.contains('active'), 'vertical selected');
     const s = JSON.parse(storage.getItem('amh.settings')||'{}');
     assert.strictEqual(s.speakers, true);
     assert.strictEqual(s.source, 'work');
     assert.strictEqual(s.group, 5);
-    assert.strictEqual(s.chars, 60);
+    assert.strictEqual(s.format, 'v', 'video shape saved');
+    assert.strictEqual(s.chars, 22, 'vertical = short captions');
     // reset group so cache key stays deterministic
     p.els('groupSize').value = '3'; p.els('groupSize').fire('input');
 
@@ -245,6 +247,7 @@ await t('2. settings: defaults, live toggles, persistence across reload', async 
       assert.strictEqual(p2.els('speakersToggle').checked, true, 'speakers remembered');
       assert.strictEqual(p2.els('groupSize').disabled, false, 'syncStyleControls on reload');
       assert.strictEqual(p2.els('srcWork').classList.contains('active'), true, 'source remembered');
+      assert.strictEqual(p2.els('fmtV').classList.contains('active'), true, 'video shape remembered');
     } finally { p2.close(); }
   } finally { p.close(); }
 });
@@ -401,11 +404,8 @@ await t('3.7 simple buying: Buy link carries a secret, the panel activates itsel
     const nonce = opened.split('_').pop();
     assert.strictEqual(JSON.parse(p.storage.getItem('amh.pendingBuy')).nonce, nonce, 'secret kept by the panel');
     has(p.els('buyPending').textContent, 'activates itself', 'waiting note');
-    // The Machine ID is hidden behind "Support info" (buying never needs it).
-    assert.strictEqual(p.els('supportInfoBox').style.display || 'none', 'none', 'Machine ID hidden by default');
-    p.els('supportInfoLink').fire('click', { preventDefault() {} });
-    assert.strictEqual(p.els('supportInfoBox').style.display, 'block', 'Support info reveals it');
-    assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid, 'and it shows this computer');
+    // The Machine ID lives in "Details for support" (buying never needs it).
+    assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid, 'Machine ID still shown for support');
     assert.deepStrictEqual(calls.filter((c) => c.u.includes('/api/license')).at(-1).body, { mid: p.mid, nonce }, 'asks with its own secret');
     p.els('buyBtn').fire('click', { preventDefault() {} });
     await flush(5);
@@ -434,6 +434,25 @@ await t('3.7 simple buying: Buy link carries a secret, the panel activates itsel
     assert.deepStrictEqual(calls.filter((c) => c.u.includes('/api/redeem')).at(-1).body, { mid: q.mid, code: 'K7QD-3MXP' }, 'code normalised, sent with this computer');
     assert.strictEqual(q.els('licenseStatus').textContent, 'Licensed', 'code → key → activated');
   } finally { q.close(); }
+});
+
+await t('3.8 review: speaker marks show per caption and a tap switches the speaker', async () => {
+  const p = loadPanel();
+  try {
+    p.evalVm('reviewTrialCharged = true; SPEAKERS = true; lastCues = [' +
+      '{start:0,end:1,text:"a",speaker:"S1"},{start:1,end:2,text:"b",speaker:"S2"},{start:2,end:3,text:"c",speaker:"S1"}];');
+    await p.evalVm('openReview("x.srt", "t", 0, {})');
+    const rows = p.els('reviewList').children;
+    const chip = (i) => rows[i].children[0].children[2];
+    assert.ok(chip(0) && /1/.test(chip(0).textContent) && /2/.test(chip(1).textContent), 'chips show 1 / 2');
+    chip(2).fire('click', { preventDefault() {} });
+    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(reviewCues.map((c) => c.speaker))')), ['S1', 'S2', 'S2'], 'tap switched caption 3 to speaker 2');
+    has(p.els('reviewCount').textContent, '2 speakers found', 'speaker note');
+    // Without speakers there are no marks at all.
+    p.evalVm('lastCues = [{start:0,end:1,text:"a"}];');
+    await p.evalVm('openReview("y.srt", "t", 0, {})');
+    assert.strictEqual(p.els('reviewList').children[0].children[0].children.length, 2, 'no mark without speakers');
+  } finally { p.close(); }
 });
 
 await t('4. license: exhausted trial blocks Generate', async () => {

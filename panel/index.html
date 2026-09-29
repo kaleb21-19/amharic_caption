@@ -339,7 +339,7 @@
 .ob-health .row-check .state { margin-left: auto; font-weight: 600; font-size: var(--font-s); }
   .ob-health .row-check.ok .state { color: var(--ok); }
   .ob-health .row-check.bad .state { color: var(--err); }
-  #onboardStart { margin-top: auto; }
+  #onboardStart { margin-top: 16px; }
 
   /* ---------- Caption review & edit overlay ---------- */
   #review {
@@ -390,6 +390,12 @@
   }
   .review-tools button.tool:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
   .review-tools button.tool:disabled { opacity: .35; cursor: not-allowed; }
+  .review-row .spk {
+    height: 20px; border: 0; border-radius: var(--radius-sm); font-size: 10px; font-weight: 700;
+    cursor: pointer; background: var(--accent-soft); color: var(--accent);
+  }
+  .review-row .spk.s2 { background: var(--warn-soft); color: var(--warn); }
+  .support-mid { margin: 6px 0 8px; }
   .review-empty { padding: 18px 8px; text-align: center; color: var(--text-disabled); font-size: var(--font-m); }
   .review-foot { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: stretch; }
   .review-foot .btn { flex: 1 1 45%; min-width: 0; white-space: normal; }
@@ -496,7 +502,6 @@
       <div class="card-head">
         <div class="step-num">2</div>
         <span class="card-title" data-i18n="opt.title">Options</span>
-        <span class="card-hint" data-i18n="opt.hint">caption style</span>
       </div>
       <div class="field">
         <label class="field-label" for="capSeg" data-i18n="opt.style">Caption style</label>
@@ -509,6 +514,16 @@
         <label class="field-label" for="groupSize" data-i18n="opt.words">Words / caption</label>
         <input type="number" id="groupSize" min="1" max="12" value="3">
       </div>
+      <!-- Video shape replaces the old "Advanced → max characters (42)": a
+           number nobody knew how to set. Vertical (TikTok / Reels / Shorts)
+           needs short captions; horizontal keeps the standard line length. -->
+      <div class="field">
+        <label class="field-label" for="fmtSeg" data-i18n="opt.format">Video shape</label>
+        <div class="seg" id="fmtSeg" role="radiogroup" aria-label="Video shape">
+          <button id="fmtH" data-fmt="h" class="active" data-i18n="opt.fmtH">🖥 Horizontal · YouTube</button>
+          <button id="fmtV" data-fmt="v" data-i18n="opt.fmtV">📱 Vertical · TikTok</button>
+        </div>
+      </div>
       <div class="field">
         <label class="field-label" for="speakersToggle" style="display:flex;align-items:center;gap:6px;cursor:pointer;">
           <input type="checkbox" id="speakersToggle" style="width:auto;margin:0;">
@@ -516,22 +531,6 @@
         </label>
       </div>
 
-      <!-- Max chars lives behind a disclosure rather than beside Words/caption.
-           42 is the standard subtitle line length and almost nobody needs to
-           change it, but two number inputs side by side made the options card
-           the most complicated thing in the panel. Hidden, not removed: it
-           still works for anyone who wants it. -->
-      <button class="disclosure" id="advDisc" aria-expanded="false"><span class="chevron">▶</span> <span data-i18n="opt.advanced">Advanced</span></button>
-      <div class="disclosure-content" id="advWrap">
-        <div class="field" style="margin-top:6px;">
-          <label class="field-label" for="maxChars" data-i18n="opt.maxchars">Max characters per caption</label>
-          <input type="number" id="maxChars" min="10" max="200" value="42">
-          <div class="hint" style="margin-top:4px;" data-i18n-html="opt.maxcharshint">
-            Caps how long any single caption can get. 42 is the usual subtitle
-            line length — leave it unless you have a reason.
-          </div>
-        </div>
-      </div>
     </div>
 
     <!-- STEP 3: Run -->
@@ -549,6 +548,11 @@
         <span id="progLabel" aria-live="polite"></span>
         <button id="cancelBtn" title="Stop this transcription" data-i18n="run.cancel" data-i18n-title="run.cancelTitle">Cancel</button>
       </div>
+    </div>
+
+    <div id="trialBanner"
+         style="display:none;margin-bottom:8px;padding:9px 12px;border:1px solid var(--warn);border-radius:var(--radius);background:var(--warn-soft);font-size:11px;line-height:1.45;" data-i18n-html="lic.trialBanner">
+      <b>Free trials used up</b> — buy a license below to keep making captions.
     </div>
 
     <!-- License -->
@@ -573,19 +577,6 @@
           <b>Zemen</b> 1031111343277015<br>
           <span data-i18n-html="lic.bankName">Account name: <b>KALEB TEGEGEN</b> — pay no one else.</span>
         </div>
-        <!-- Buying never needs the Machine ID any more; only support does
-             (/find in the bot). Hidden behind a small link so customers are
-             not left wondering what to do with it. -->
-        <div class="hint" style="margin-top:8px;">
-          <a href="#" id="supportInfoLink" data-i18n="lic.supportInfo">🛠 Support info</a>
-        </div>
-        <div id="supportInfoBox" style="display:none;margin-top:6px;">
-          <label class="field-label" data-i18n="lic.copyLabel">Machine ID — only if support asks</label>
-          <div class="row" style="align-items:stretch;">
-            <div class="machine-id" id="machineIdDisplay" title="Click to select all" data-i18n-title="lic.midTitle">loading…</div>
-            <button type="button" id="machineIdCopy" class="btn btn-neutral" style="flex:0 0 auto;min-width:70px;" title="Copy Machine ID" data-i18n="lic.copy" data-i18n-title="lic.copyTitle">📋 Copy</button>
-          </div>
-        </div>
       </div>
 
       <div id="machineMismatch" class="permit-box"
@@ -608,13 +599,6 @@
       </div>
     </div>
 
-    <div id="trialBanner"
-         style="display:none;margin-top:8px;padding:9px 12px;border:1px solid var(--warn);border-radius:var(--radius);background:var(--warn-soft);font-size:11px;line-height:1.45;" data-i18n-html="lic.trialBanner">
-      <b>Free trials used up.</b> Press <b>Buy a license</b> above, pay <b>ETB 2,500</b>
-      and send the screenshot in Telegram — the panel activates itself. Paid from
-      your phone? Type your activation code below.
-    </div>
-
     <!-- Engine log. Deliberately NOT numbered: it used to be presented as
          "4 · Output — review", so anyone following the steps arrived at what
          is really a debug pane. The actual fourth step is the review overlay
@@ -622,6 +606,15 @@
     <div class="support-details">
       <button class="disclosure" id="logDisc"><span class="chevron">▶</span> <span data-i18n="log.toggle">Details for support</span></button>
       <div class="disclosure-content">
+        <!-- Buying never needs the Machine ID; only support does (/find in
+             the bot), so it lives here with the rest of the support details. -->
+        <div class="support-mid">
+          <label class="field-label" data-i18n="lic.copyLabel">Machine ID — only if support asks</label>
+          <div class="row" style="align-items:stretch;">
+            <div class="machine-id" id="machineIdDisplay" title="Click to select all" data-i18n-title="lic.midTitle">loading…</div>
+            <button type="button" id="machineIdCopy" class="btn btn-neutral" style="flex:0 0 auto;min-width:70px;" title="Copy Machine ID" data-i18n="lic.copy" data-i18n-title="lic.copyTitle">📋 Copy</button>
+          </div>
+        </div>
         <div id="logBox" class="mono" data-i18n="log.initial">Pick a source, set options, then Generate.</div>
         <a href="#" id="diag" class="support-diag" data-i18n="foot.diag">Run diagnostics</a>
       </div>
@@ -630,7 +623,7 @@
   </div>
 
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.7.7</span><span id="footPrice"> · <span data-i18n="foot.license">License ETB 2,500 one-time</span></span></span>
+    <span>v<span id="panelVersion">1.7.8</span><span id="footPrice"> · <span data-i18n="foot.license">License ETB 2,500 one-time</span></span></span>
     <span style="display:flex;gap:10px;align-items:center;">
       <a href="#" id="supportLink" title="Get help in Telegram" data-i18n="foot.help" data-i18n-title="foot.helpTitle">💬 Help</a>
       <a href="#" id="credits" title="Version and credits" data-i18n="foot.credits" data-i18n-title="foot.creditsTitle">About</a>
