@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.7.10';
+const APP_VERSION = '1.8.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -2518,6 +2518,76 @@ function cueMatchesFilter(cue) {
 }
 
 
+// ── auto-correct memory ─────────────────────────────────────────────────
+// The editor's own fixes, kept in the home folder (survives Premiere
+// upgrades) and applied to every later transcription — like a phone's
+// autocorrect learning your words. Nothing leaves the computer.
+//   • Find & replace with "Remember" -> used from the next caption on.
+//   • A word fixed by hand -> used once the same fix was made TWICE, so a
+//     one-off edit never becomes a rule.
+const FIXES_FILE = '.amharic_captions_fixes.json';
+const FIX_LEARN_AFTER = 2;
+const FIX_MAX = 500;
+function fixStorePath() { return identityFile(FIXES_FILE); }
+function loadFixStore() {
+  try {
+    const j = JSON.parse(fs.readFileSync(fixStorePath(), 'utf8'));
+    if (j && j.fixes && typeof j.fixes === 'object') return j;
+  } catch (e) { /* none yet */ }
+  return { v: 1, fixes: {} };
+}
+function saveFixStore(st) {
+  try { fs.writeFileSync(fixStorePath(), JSON.stringify(st), { encoding: 'utf8', mode: 0o600 }); } catch (e) {}
+}
+function activeFixes(st) {
+  const out = {};
+  Object.keys(st.fixes || {}).forEach((w) => {
+    const f = st.fixes[w];
+    if (f && f.to && f.to !== w && (f.strong || (f.n || 0) >= FIX_LEARN_AFTER)) out[w] = f.to;
+  });
+  return out;
+}
+function rememberFix(st, wrong, right, strong) {
+  wrong = String(wrong || '').trim(); right = String(right || '').trim();
+  if (!wrong || wrong === right) return;
+  const cur = st.fixes[wrong];
+  if (cur && cur.to === right) {
+    cur.n = (cur.n || 0) + 1;
+    if (strong) cur.strong = true;
+  } else {
+    st.fixes[wrong] = { to: right, n: 1, strong: !!strong };
+  }
+  st.fixes[wrong].at = Date.now();
+  // Never keep the opposite rule (it would flip the word back and forth).
+  if (st.fixes[right] && st.fixes[right].to === wrong) delete st.fixes[right];
+  const keys = Object.keys(st.fixes);
+  if (keys.length > FIX_MAX) {
+    keys.sort((a, b) => (st.fixes[a].at || 0) - (st.fixes[b].at || 0));
+    keys.slice(0, keys.length - FIX_MAX).forEach((k) => delete st.fixes[k]);
+  }
+}
+let REVIEW_BASE = [];        // captions as the editor first saw them (after auto-fix)
+let REVIEW_AUTOFIX = { orig: {}, count: 0 };
+let REVIEW_LEARNED = {};     // fixes already counted in this review
+let REVIEW_CURSOR = -1;      // caption the editor is on (for "Next to check")
+// Count the editor's own word fixes (once per review) into the memory.
+function learnFromReview() {
+  try {
+    const pairs = learnFixes(REVIEW_BASE, reviewCues);
+    if (!pairs.length) return;
+    const st = loadFixStore();
+    let added = 0;
+    pairs.forEach(([w, r]) => {
+      const k = w + '\u0000' + r;
+      if (REVIEW_LEARNED[k]) return;
+      REVIEW_LEARNED[k] = true;
+      rememberFix(st, w, r, false);
+      added++;
+    });
+    if (added) { saveFixStore(st); log('Auto-correct memory: learned ' + added + ' fix(es) from your edits.'); }
+  } catch (e) { /* never block placement */ }
+}
+
 async function openReview(outSrt, label, startSeconds, opts) {
   opts = opts || {};
   // A transcription consumes a trial credit when it is produced, not only
@@ -2544,8 +2614,27 @@ async function openReview(outSrt, label, startSeconds, opts) {
   };
   // Transcript cleanup pass: normalize spacing/punctuation in every cue as it
   // enters the review so the user edits (and we write) tidy Amharic.
-  reviewCues = JSON.parse(JSON.stringify(lastCues)).map((c) =>
-    Object.assign({}, c, { text: cleanCueLines(c.text) }));
+  reviewCues = JSON.parse(JSON.stringify(lastCues)).map((c, i) =>
+    Object.assign({}, c, { text: cleanCueLines(c.text), _id: i }));
+  // Remembered fixes first, so the editor starts from their own spellings.
+  REVIEW_AUTOFIX = { orig: {}, count: 0 };
+  REVIEW_LEARNED = {};
+  REVIEW_CURSOR = -1;
+  const fx = activeFixes(loadFixStore());
+  if (Object.keys(fx).length) {
+    reviewCues.forEach((c) => {
+      const r = applyFixes(c.text, fx);
+      if (r.applied.length) {
+        REVIEW_AUTOFIX.orig[c._id] = c.text;
+        c.text = r.text;
+        REVIEW_AUTOFIX.count += r.applied.reduce((a, x) => a + x.n, 0);
+      }
+    });
+  }
+  REVIEW_BASE = JSON.parse(JSON.stringify(reviewCues));
+  const bar = $('replaceBar');
+  if (bar) bar.style.display = 'none';
+  syncUndoFixButton();
   reviewOpen = true;
   REVIEW_FILTER = '';
   const search = $('reviewSearch');
@@ -2595,6 +2684,7 @@ function renderReview() {
     shown++;
     const row = document.createElement('div');
     row.className = 'review-row';
+    row.dataset.i = String(i);
 
     const timeBox = document.createElement('div');
     timeBox.className = 'time-box';
@@ -2678,6 +2768,7 @@ function renderReview() {
     textBox.appendChild(doubtLine);
     showDoubts();
     ta.addEventListener('input', () => { cue.text = ta.value; showDoubts(); updateReviewCount(); });
+    ta.addEventListener('focus', () => { REVIEW_CURSOR = i; });
     del.addEventListener('click', () => { reviewCues.splice(i, 1); renderReview(); });
 
     row.appendChild(timeBox);
@@ -2805,6 +2896,7 @@ async function placeReview() {
     // Premiere's caption item links to this file. Deleting it triggers a
     // "Locate file" prompt on every project open.
     log('Captions saved to ' + dest + '  (Premiere keeps a file link to this).');
+    learnFromReview();
     closeReview(true);
   } catch (e) {
     log('ERROR: placement failed: ' + (e && e.message ? e.message : String(e)));
@@ -2853,6 +2945,7 @@ function exportReviewFiles() {
     log('Export failed: ' + (e && e.message ? e.message : String(e)));
     return;
   }
+  learnFromReview();
   log('Exported ' + cues.length + ' captions to ' + dir +
     '  (' + base + '.srt / ' + base + '.vtt / ' + base + '.txt)');
 }
@@ -2891,6 +2984,11 @@ function initReview() {
   if (search) {
     search.addEventListener('input', (e) => { REVIEW_FILTER = e.target.value; renderReview(); });
   }
+  initReplaceBar();
+  const nextBtn = $('revNext');
+  if (nextBtn) nextBtn.addEventListener('click', jumpToNextDoubt);
+  const undoBtn = $('revUndoFix');
+  if (undoBtn) undoBtn.addEventListener('click', undoAutoFixes);
 
 
   // Keyboard shortcuts while the overlay is open:
@@ -2908,6 +3006,117 @@ function initReview() {
       discardReview();
     }
     else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { placeReview(); }
+    else if (e.key === 'F3') { if (e.preventDefault) e.preventDefault(); jumpToNextDoubt(); }
+  });
+}
+
+// ── review: next word to check, find & replace, undo auto-fixes ─────────
+function reviewRow(i) {
+  const rows = $('reviewList').children || [];
+  for (let k = 0; k < rows.length; k++) if (rows[k].dataset && rows[k].dataset.i === String(i)) return rows[k];
+  return null;
+}
+// F3 / "⚠ Next to check": the next caption (after the one being edited,
+// wrapping round) that still has an orange word; scroll to it, put the
+// cursor in it and move the playhead there so it can be heard.
+function jumpToNextDoubt() {
+  if (!reviewOpen || !reviewCues.length) return;
+  const n = reviewCues.length;
+  for (let k = 1; k <= n; k++) {
+    const i = (REVIEW_CURSOR + k + n) % n;
+    const cue = reviewCues[i];
+    if (!cueDoubts(cue).length) continue;
+    const row = reviewRow(i);
+    if (!row) continue;   // hidden by the filter
+    REVIEW_CURSOR = i;
+    try { if (typeof row.scrollIntoView === 'function') row.scrollIntoView({ block: 'center' }); } catch (e) {}
+    const ta = row.querySelector ? row.querySelector('textarea') : null;
+    try { if (ta && ta.focus) ta.focus(); } catch (e) {}
+    seekPlayhead(cue.start);
+    return;
+  }
+  const b = $('revNext');
+  if (b) {
+    b.textContent = L('✓ All checked');
+    setTimeout(() => { b.textContent = L('⚠ Next to check'); }, 2000);
+  }
+}
+function syncUndoFixButton() {
+  const b = $('revUndoFix');
+  if (!b) return;
+  const n = REVIEW_AUTOFIX.count;
+  b.style.display = n ? '' : 'none';
+  b.textContent = n ? '↩ ' + L(n + ' auto-fixed · undo') : '';
+  b.title = L('Words changed by your remembered fixes — click to put the original words back');
+}
+function undoAutoFixes() {
+  Object.keys(REVIEW_AUTOFIX.orig).forEach((id) => {
+    const cue = reviewCues.find((c) => String(c._id) === String(id));
+    if (cue) cue.text = REVIEW_AUTOFIX.orig[id];
+    const base = REVIEW_BASE.find((c) => String(c._id) === String(id));
+    if (base) base.text = REVIEW_AUTOFIX.orig[id];
+  });
+  REVIEW_AUTOFIX = { orig: {}, count: 0 };
+  syncUndoFixButton();
+  renderReview();
+}
+function countMatches(find) {
+  return reviewCues.reduce((a, c) => a + replaceWords(c.text, find, '').n, 0);
+}
+function syncForgetLink() {
+  const a = $('rfForget');
+  if (!a) return;
+  const n = Object.keys(loadFixStore().fixes).length;
+  a.dataset.armed = '';
+  a.textContent = n ? L('Forget remembered fixes (' + n + ')') : '';
+  a.style.display = n ? '' : 'none';
+}
+function initReplaceBar() {
+  const toggle = $('revReplace');
+  const bar = $('replaceBar');
+  const find = $('rfFind');
+  const repl = $('rfRepl');
+  const info = $('rfInfo');
+  if (!toggle || !bar || !find || !repl) return;
+  toggle.addEventListener('click', () => {
+    const open = bar.style.display === 'none';
+    bar.style.display = open ? '' : 'none';
+    if (open) { syncForgetLink(); if (find.focus) find.focus(); }
+  });
+  const showCount = () => {
+    const f = find.value.trim();
+    info.textContent = f ? L(countMatches(f) + ' found') : '';
+  };
+  find.addEventListener('input', showCount);
+  $('rfGo').addEventListener('click', () => {
+    const f = find.value.trim();
+    const r = repl.value.trim();
+    if (!f) return;
+    let n = 0;
+    reviewCues.forEach((c) => { const x = replaceWords(c.text, f, r); if (x.n) { c.text = x.text; n += x.n; } });
+    if ($('rfRemember') && $('rfRemember').checked && r && r !== f) {
+      const st = loadFixStore();
+      rememberFix(st, f, r, true);
+      saveFixStore(st);
+      REVIEW_LEARNED[f + '\u0000' + r] = true;
+    }
+    // A replace is not a hand fix: keep it out of the learning comparison.
+    REVIEW_BASE.forEach((b) => { const x = replaceWords(b.text, f, r); if (x.n) b.text = x.text; });
+    info.textContent = L('Replaced ' + n);
+    syncForgetLink();
+    renderReview();
+  });
+  const forget = $('rfForget');
+  if (forget) forget.addEventListener('click', (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (forget.dataset.armed !== '1') {
+      forget.dataset.armed = '1';
+      forget.textContent = L('Click again to forget all');
+      return;
+    }
+    saveFixStore({ v: 1, fixes: {} });
+    log('Auto-correct memory cleared.');
+    syncForgetLink();
   });
 }
 

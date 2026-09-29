@@ -68,6 +68,11 @@ class AmharicLM:
             self.min_margin = float(data.get("min_margin", 4.0))
             self.min_part_count = int(data.get("min_part_count", 5))
             self.boundary_cost = float(data.get("boundary_cost", 1.0))
+            # 2026-09-29, 935 clips: a split must beat the joined word by 20
+            # nats (was 4). FLEURS WER -0.7, WAXAL -0.6, CV unchanged; 30
+            # was better still on FLEURS/WAXAL but worse on CV.
+            self.min_margin = max(self.min_margin,
+                                  float(os.environ.get("AMH_LM_MARGIN", "20")))
             self._ok = True
         except Exception:
             self.unigram = {}

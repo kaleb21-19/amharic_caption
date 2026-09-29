@@ -412,9 +412,14 @@ def _join_decimals(words):
 #     so the number pass after it can write the digit.
 # Result: real-speech WER unchanged (33.5%), all clips 46.4% -> 44.7%, names
 # untouched. AMH_SPELL=0 disables.
+# Re-measured 2026-09-29 on 935 clips (FLEURS 516, WAXAL 400, CV 19): the
+# general one-letter fix cost WER (+0.5 FLEURS, +0.7 WAXAL, 0 CV), the
+# number-word fix did not, so only number words are fixed now.
+# AMH_SPELL_GENERAL=1 turns the general fix back on.
 # ---------------------------------------------------------------------------
 _SPELL_MIN_COUNT = 50
 _SPELL_RATIO = 3.0
+_SPELL_GENERAL = os.environ.get("AMH_SPELL_GENERAL", "0") == "1"
 _ETH_LETTERS = [chr(c) for c in range(0x1200, 0x135B)]
 _NUM_WORDS = set(_NUM_UNITS) | set(_NUM_TENS)
 _spell_lm = None
@@ -455,6 +460,8 @@ def spell_fix_word(tok, lm, allow_num=True):
     nums = [c for c in cands if c[1] in _NUM_WORDS]
     if nums and allow_num:
         return nums[0][1] + trail
+    if not _SPELL_GENERAL:
+        return tok
     cands = [c for c in cands if c[1] not in _NUM_WORDS]
     if not cands or cands[0][0] < _SPELL_MIN_COUNT:
         return tok
