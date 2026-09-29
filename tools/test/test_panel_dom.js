@@ -491,11 +491,13 @@ await t('5. review: cache-hit transcribe -> edit -> export (speaker tags) -> nud
       const srt = fs.readFileSync(path.join(exportDir, 'twospeaker.srt'), 'utf8');
       const vtt = fs.readFileSync(path.join(exportDir, 'twospeaker.vtt'), 'utf8');
       const txt = fs.readFileSync(path.join(exportDir, 'twospeaker.txt'), 'utf8');
-      has(srt, '[S1] ' + EDITED, 'SRT edited cue with speaker tag');
-      has(srt, '[S2] ' + CUE2,   'SRT second cue with speaker');
+      // Viewers see a "– " dash where the speaker changes, never "[S1]".
+      has(srt, EDITED, 'SRT edited cue');
+      has(srt, '– ' + CUE2, 'SRT marks the speaker change with a dash');
+      assert.ok(srt.indexOf('[S1]') < 0 && srt.indexOf('[S2]') < 0, 'no [S1]/[S2] in the saved SRT');
       assert.ok(srt.indexOf('00:00:01,000 --> 00:00:03,000') >= 0, 'SRT times present');
       has(vtt, '<v S1>' + EDITED + '</v>', 'VTT voice tag');
-      has(txt, 'S1: ' + EDITED, 'TXT speaker line');
+      has(txt, 'Speaker 1: ' + EDITED, 'TXT speaker line');
 
       // nudge first cue back 0.1s
       p.els('reviewList').children[0].children[1].children[0].fire('click');

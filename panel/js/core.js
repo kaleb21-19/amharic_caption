@@ -85,6 +85,9 @@ function normalizeCues(cues) {
   return (cues || []).map(detectSpeaker);
 }
 
+// Internal SRT (engine output, caches): keeps the "[S1] " labels so speaker
+// information survives a round trip. NOT what viewers see — see
+// displaySrtTextFromCues.
 function srtTextFromCues(cues) {
   const sortable = (cues || []).slice().sort((a, b) => a.start - b.start);
   let out = '';
@@ -94,6 +97,25 @@ function srtTextFromCues(cues) {
     out += idx + '\n';
     out += formatSrtTs(cue.start) + ' --> ' + formatSrtTs(cue.end) + '\n';
     out += speakerPrefix(cue) + cleanCueLines(cue.text) + '\n\n';
+  }
+  return out;
+}
+
+// What viewers see (Premiere captions, the saved .srt): the subtitle
+// convention — a "– " dash where the speaker CHANGES, nothing otherwise.
+// "[S1]" on screen meant nothing to a viewer and every editor deleted it.
+function displaySrtTextFromCues(cues) {
+  const sortable = (cues || []).slice().sort((a, b) => a.start - b.start);
+  let out = '';
+  let idx = 0;
+  let prev = null;
+  for (const cue of sortable) {
+    idx += 1;
+    const changed = !!(cue.speaker && prev && cue.speaker !== prev);
+    if (cue.speaker) prev = cue.speaker;
+    out += idx + '\n';
+    out += formatSrtTs(cue.start) + ' --> ' + formatSrtTs(cue.end) + '\n';
+    out += (changed ? '– ' : '') + cleanCueLines(cue.text) + '\n\n';
   }
   return out;
 }
@@ -125,14 +147,24 @@ function vttTextFromCues(cues) {
   return out;
 }
 
-// Plain-text transcript: one line per cue, "S1: text" when labelled.
+// Plain-text transcript: one line per cue, "Speaker 1: text" when labelled —
+// a transcript is read, so the speaker is spelled out.
 function txtTextFromCues(cues) {
   const sortable = (cues || []).slice().sort((a, b) => a.start - b.start);
   return sortable.map((c) => {
     const text = cleanCueLines(c.text);
     if (!text) return '';
-    return (c.speaker ? c.speaker + ': ' : '') + text;
+    const n = c.speaker ? String(c.speaker).replace(/^S/, '') : '';
+    return (n ? 'Speaker ' + n + ': ' : '') + text;
   }).filter(Boolean).join('\n');
+}
+
+// What the "Label speakers" option found, for the message after a run:
+// 'two' (labels added), 'one' (a single voice — nothing added), 'off'.
+function speakerSummary(cues, enabled) {
+  if (!enabled) return 'off';
+  const set = new Set((cues || []).map((c) => c && c.speaker).filter(Boolean));
+  return set.size >= 2 ? 'two' : 'one';
 }
 
 // ────────────────────────────────────────────────────────── license check
@@ -274,7 +306,8 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     parseSrt, formatSrtTs, cleanCueLines, AMH_PUNCT_CHARS,
     detectSpeaker, normalizeCues,
-    speakerPrefix, srtTextFromCues, vttTextFromCues, txtTextFromCues,
+    speakerPrefix, srtTextFromCues, displaySrtTextFromCues, vttTextFromCues, txtTextFromCues,
+    speakerSummary,
     validateLicense,
     LICENSE_TOKEN_PUBKEY_PEM, licenseTokenParse, verifyLicenseToken,
   };

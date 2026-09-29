@@ -2698,12 +2698,21 @@ function mergeReview(i) {
   renderReview();
 }
 
+// After a run with "Label speakers" on, say what it found — it used to
+// change nothing visible on a one-person video and looked broken.
+const SPEAKER_NOTES = {
+  two: '2 speakers found — each change is marked with “–”',
+  one: 'One voice only — no speaker marks added',
+};
 function updateReviewCount() {
-  $('reviewCount').textContent = L(reviewCues.length + ' caption' + (reviewCues.length === 1 ? '' : 's'));
+  const note = SPEAKER_NOTES[speakerSummary(reviewCues, SPEAKERS)];
+  $('reviewCount').textContent = L(reviewCues.length + ' caption' + (reviewCues.length === 1 ? '' : 's')) +
+    (note ? ' · ' + L(note) : '');
 }
 
 function writeReviewSrt(outDir) {
-  const out = srtTextFromCues(reviewCues);
+  // This file is what Premiere shows: speaker changes as "– ", never "[S1]".
+  const out = displaySrtTextFromCues(reviewCues);
   const dest = path.join(outDir || os.tmpdir(), 'amh_review_' + Date.now() + '.srt');
   try { fs.mkdirSync(path.dirname(dest), { recursive: true, mode: 0o700 }); fs.chmodSync(path.dirname(dest), 0o700); } catch (e) {}
   fs.writeFileSync(dest, out, { encoding: 'utf8', mode: 0o600 });
@@ -2781,7 +2790,7 @@ function exportReviewFiles() {
   const vtt = path.join(dir, base + '.vtt');
   const txt = path.join(dir, base + '.txt');
   try {
-    fs.writeFileSync(srt, srtTextFromCues(cues), { encoding: 'utf8', mode: 0o600 });
+    fs.writeFileSync(srt, displaySrtTextFromCues(cues), { encoding: 'utf8', mode: 0o600 });
     fs.writeFileSync(vtt, vttTextFromCues(cues), { encoding: 'utf8', mode: 0o600 });
     fs.writeFileSync(txt, txtTextFromCues(cues), { encoding: 'utf8', mode: 0o600 });
   } catch (e) {

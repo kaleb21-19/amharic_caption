@@ -125,7 +125,28 @@ t('txtTextFromCues: "Sx: text" lines, skips empties', () => {
     { start: 0, end: 1, text: 'a', speaker: 'S1' },
     { start: 5, end: 6, text: '   ' },
   ]);
-  assert.strictEqual(out, 'S1: a\nS2: b');
+  assert.strictEqual(out, 'Speaker 1: a\nSpeaker 2: b');
+});
+
+t('displaySrtTextFromCues: a dash only where the speaker changes, never [Sx]', () => {
+  const out = core.displaySrtTextFromCues([
+    { start: 0, end: 1, text: 'a', speaker: 'S1' },
+    { start: 1, end: 2, text: 'b', speaker: 'S1' },
+    { start: 2, end: 3, text: 'c', speaker: 'S2' },
+    { start: 3, end: 4, text: 'd' },
+    { start: 4, end: 5, text: 'e', speaker: 'S1' },
+  ]);
+  const texts = core.parseSrt(out).map((c) => c.text);
+  assert.deepStrictEqual(texts, ['a', 'b', '– c', 'd', '– e']);
+  assert.ok(out.indexOf('[S') < 0);
+  assert.strictEqual(core.displaySrtTextFromCues([{ start: 0, end: 1, text: 'x' }]).indexOf('–'), -1, 'unlabelled: no dash');
+});
+
+t('speakerSummary: two / one / off', () => {
+  assert.strictEqual(core.speakerSummary(labelled, true), 'two');
+  assert.strictEqual(core.speakerSummary([{ start: 0, end: 1, text: 'x' }], true), 'one');
+  assert.strictEqual(core.speakerSummary([{ start: 0, end: 1, text: 'x', speaker: 'S1' }], true), 'one');
+  assert.strictEqual(core.speakerSummary(labelled, false), 'off');
 });
 
 t('vttTextFromCues: escapes caption markup', () => {
@@ -163,7 +184,7 @@ t('normalizeCues: engine-labelled SRT exports correct per-format tags', () => {
   assert.strictEqual(cues.length, 2);
   assert.strictEqual(cues[0].speaker, 'S1');
   assert.ok(core.vttTextFromCues(cues).indexOf('<v S1>ሰላም</v>') >= 0);
-  assert.strictEqual(core.txtTextFromCues(cues), 'S1: ሰላም\nS2: ዓለም');
+  assert.strictEqual(core.txtTextFromCues(cues), 'Speaker 1: ሰላም\nSpeaker 2: ዓለም');
 });
 
 // ────────────────────────────────────────────────────────── validateLicense
