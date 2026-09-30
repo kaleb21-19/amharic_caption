@@ -32,8 +32,11 @@ from collections import defaultdict
 
 import numpy as np
 
-ALPHA = float(os.environ.get("AMH_LM_ALPHA", "0.35"))
-GAMMA = float(os.environ.get("AMH_LM_GAMMA", "-3.5"))   # per-word score (see word_score)
+# LM weight / per-word score. Each word-list file carries the pair tuned for
+# it ("decoder": {"alpha", "gamma"}); these are the defaults for a file that
+# does not, and AMH_LM_ALPHA / AMH_LM_GAMMA override both.
+ALPHA = 0.35
+GAMMA = -3.5
 BEAM_WIDTH = int(os.environ.get("AMH_BEAM_WIDTH", "16"))
 TOP_K = 8
 UNK_PREFIX = -3.0
@@ -51,6 +54,10 @@ class _WordLM:
         self.uni = dict(u) if isinstance(u, list) else dict(u)
         self.bi = d.get("bigram", {})
         self.oov = float(d.get("oov_logp", -12.0))
+        tuned = d.get("decoder") or {}
+        self.alpha = float(os.environ.get("AMH_LM_ALPHA") or tuned.get("alpha", ALPHA))
+        self.gamma = float(os.environ.get("AMH_LM_GAMMA") or tuned.get("gamma", GAMMA))
+        self.path = path
         pre = set()
         for w in self.uni:
             for k in range(1, len(w) + 1):
@@ -78,11 +85,22 @@ def get_lm():
     """The word LM (loaded once per process), or None if it is missing."""
     global _LM
     if _LM is None:
-        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "amh_lm.json.gz")
-        try:
-            _LM = _WordLM(path)
-        except Exception:
-            _LM = False
+        # The decoder's own, bigger word list (amh_wordlm.json.gz: next to this
+        # file in the runtime, tools/lm/ in the repo) when it is there;
+        # otherwise the shared amh_lm.json.gz. AMH_WORDLM overrides.
+        here = os.path.dirname(os.path.abspath(__file__))
+        paths = [os.environ.get("AMH_WORDLM"),
+                 os.path.join(here, "amh_wordlm.json.gz"),
+                 os.path.join(here, "tools", "lm", "amh_wordlm.json.gz"),
+                 os.path.join(here, "amh_lm.json.gz")]
+        _LM = False
+        for path in paths:
+            if path and os.path.isfile(path):
+                try:
+                    _LM = _WordLM(path)
+                    break
+                except Exception:
+                    continue
     return _LM or None
 
 
@@ -100,9 +118,13 @@ def log_softmax(logits):
     return x - np.log(np.exp(x).sum(-1, keepdims=True))
 
 
-def beam_decode(logp, blank, glyphs, skip, space, lm, alpha=ALPHA, gamma=GAMMA, width=BEAM_WIDTH):
+def beam_decode(logp, blank, glyphs, skip, space, lm, alpha=None, gamma=None, width=BEAM_WIDTH):
     """Best token-id sequence (letters and word spaces, no blanks/repeats) for
-    a (T, V) log-prob matrix."""
+    a (T, V) log-prob matrix. alpha / gamma default to the word list's own."""
+    if alpha is None:
+        alpha = getattr(lm, "alpha", ALPHA)
+    if gamma is None:
+        gamma = getattr(lm, "gamma", GAMMA)
     T, V = logp.shape
     k = min(TOP_K, V)
     # state: (finished words tuple, current word, last token) -> [p_blank, p_nonblank, lm score, token ids]

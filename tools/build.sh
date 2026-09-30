@@ -87,6 +87,12 @@ else
   if [[ "$ALLOW_DEGRADED" != "1" ]]; then echo "  [FAIL] Amharic word-LM missing"; exit 1; fi
   echo "  [warn] tools/lm/amh_lm.json.gz missing — word-LM disabled"
 fi
+# The decoder's bigger word list (amh_decode.py; built by tools/build_wordlm.py).
+# Optional: without it the decoder uses amh_lm.json.gz.
+if [[ -f "$ROOT/tools/lm/amh_wordlm.json.gz" ]]; then
+  cp "$ROOT/tools/lm/amh_wordlm.json.gz" "$RT/amh_wordlm.json.gz"
+  echo "  [ok] amh_wordlm.json.gz"
+fi
 
 # Silero VAD (onnx) — speech-gap detector that skips music-only regions before
 # the CT2 encode. Optional: if missing, ethio_srt.py degrades to whole-clip.

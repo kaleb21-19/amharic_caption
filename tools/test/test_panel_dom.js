@@ -30,7 +30,7 @@ const DEV      = path.join(os.homedir(), 'Documents', 'amharic-captions');
 const { makeDocument, makeLocalStorage } = require('./dom_shim.js');
 
 const CACHE_FILE = path.join(os.tmpdir(), 'amh_transcript_cache.json');
-const ENGINE_FILES = ['ethio_srt.py','ctc_beam.py','amh_correct.py','amh_decode.py','amh_vad.py','amh_lm.py','amh_lm.json.gz'];
+const ENGINE_FILES = ['ethio_srt.py','ctc_beam.py','amh_correct.py','amh_decode.py','amh_vad.py','amh_lm.py','amh_lm.json.gz','amh_wordlm.json.gz'];
 
 const CUE1 = '\u1230\u120b\u121d \u12a5\u1295\u12f5\u1275 \u1290\u1205';
 const CUE2 = '\u12f0\u1205\u1293 \u1290\u129d \u12a0\u121d\u1235\u1325\u1293\u1208\u1209';

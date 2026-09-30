@@ -160,6 +160,7 @@ jobs:
           set -euo pipefail
           mkdir -p runtime/bin runtime/python/bin runtime/model
           cp ethio_srt.py ctc_beam.py amh_correct.py amh_decode.py amh_vad.py amh_lm.py amh_lm.json.gz runtime/
+          cp tools/lm/amh_wordlm.json.gz runtime/
           cp amh_diarize.py amh_model.py runtime/
           touch runtime/silero_vad.onnx runtime/speaker_embed.onnx runtime/model/model_meta.json
           ln -s "$(command -v python3)" runtime/python/bin/python3
@@ -283,6 +284,7 @@ jobs:
           mkdir -p fake_runtime/python/bin
           ln -s "$(command -v python3)" fake_runtime/python/bin/python3
           cp ethio_srt.py amh_correct.py amh_decode.py amh_lm.py amh_lm.json.gz amh_mel.py amh_vad.py ctc_beam.py fake_runtime/
+          cp tools/lm/amh_wordlm.json.gz fake_runtime/
           # amh_vad.py loads silero_vad.onnx from ITS OWN directory. Omitting it
           # disables speech-gap detection with no error at all, which is exactly
           # how this gate came to measure something the product does not do.

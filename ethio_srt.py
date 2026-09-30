@@ -1353,6 +1353,14 @@ def main():
 #          then the {"id":2,"ok":true,...} result line.
 def run_server():
     engine = load_pipeline()
+    # Load the decoder's word list now, with the model, so the first caption
+    # after opening the panel does not wait for it.
+    try:
+        if os.environ.get("AMH_DECODE", "lm") != "greedy":
+            from amh_decode import get_lm
+            get_lm()
+    except Exception:
+        pass
     out = sys.stdout
     emit(out, {"type": "ready", "engine": "ct2" if _use_ct2() else "torch"})
     for line in sys.stdin:

@@ -141,6 +141,11 @@ if (Test-Path "$ROOT\tools\lm\amh_lm.json.gz") {
     if (-not $AllowDegraded) { Write-Host "  [FAIL] Amharic word-LM missing (use -AllowDegraded only for a non-release build)"; exit 1 }
     Write-Host "  [warn] tools\lm\amh_lm.json.gz missing - word-LM disabled"
 }
+# The decoder's bigger word list (amh_decode.py; built by tools/build_wordlm.py).
+if (Test-Path "$ROOT\tools\lm\amh_wordlm.json.gz") {
+    Copy-Item "$ROOT\tools\lm\amh_wordlm.json.gz" (Join-Path $BNAME "runtime\amh_wordlm.json.gz")
+    Write-Host "  [ok] amh_wordlm.json.gz"
+}
 
 # Silero VAD (onnx) - speech-gap detector. Omitted if tools/vad/silero_vad.onnx
 # hasn't been staged; ethio_srt.py then degrades to whole-clip transcribing.
