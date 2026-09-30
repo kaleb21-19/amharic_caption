@@ -357,11 +357,6 @@
   .review-head .sub { font-size: var(--font-s); color: var(--text-secondary); }
   .review-actions { display: flex; gap: 6px; margin-left: auto; }
   .review-actions .btn { width: auto; padding: 4px 9px; font-size: var(--font-s); }
-  .fixall-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -4px 0 10px;
-    padding: 6px 8px; border: 1px solid var(--accent); border-radius: var(--radius); background: var(--bg-card);
-    font-size: var(--font-s); }
-  .fixall-bar #fixAllText { flex: 1 1 140px; }
-  .fixall-bar .btn { width: auto; padding: 4px 10px; font-size: var(--font-s); }
   .review-count { margin-left: auto; font-size: var(--font-s); color: var(--text-secondary); white-space: nowrap; }
   #reviewList {
     flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px;
@@ -453,8 +448,22 @@
   }
   .review-row .text-box .hl-back mark.fix { background: var(--ok-mark); box-shadow: inset 0 -2px 0 var(--ok); }
   /* 🧠 memory: the remembered fixes, each one forgettable */
-  .memory-panel { margin: -4px 0 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius);
-    background: var(--bg-card); font-size: var(--font-s); max-height: 200px; overflow-y: auto; }
+  .memory-panel { position: absolute; right: 14px; top: 46px; z-index: 30; width: 300px; max-width: calc(100% - 28px);
+    padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--bg-card); font-size: var(--font-s); max-height: 50vh; overflow-y: auto;
+    box-shadow: 0 10px 28px rgba(0,0,0,.4); }
+  /* The fix line under a caption (never at the top, never covering anything). */
+  .review-row { flex-wrap: wrap; }
+  .row-hint { flex: 0 0 100%; box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+    margin: 3px 0 1px; padding: 4px 6px 4px 66px; font-size: var(--font-s); }
+  .row-hint .hint-pair { color: var(--text-primary); font-family: var(--review-font, 'Abyssinica SIL', 'Kefa', serif); font-size: var(--font-m); }
+  .row-hint .hint-ok { color: var(--ok); }
+  .row-hint .hint-btn { border: 1px solid var(--border); background: var(--bg-field); color: var(--text-primary);
+    border-radius: var(--radius-sm); padding: 3px 9px; font-size: var(--font-s); cursor: pointer; }
+  .row-hint .hint-btn:hover { background: var(--bg-hover); }
+  .row-hint .hint-btn.primary { background: var(--accent); border-color: var(--accent); color: #062015; font-weight: 700; }
+  .row-hint .hint-btn.danger { color: var(--err); }
+  .row-hint .hint-btn.close { border-color: transparent; background: transparent; color: var(--text-secondary); padding: 3px 6px; }
   .memory-panel .mem-head { font-weight: 700; margin-bottom: 2px; }
   .memory-panel .mem-sub { color: var(--text-secondary); margin-bottom: 6px; }
   .memory-panel .mem-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; border-top: 1px solid var(--border); }
@@ -690,7 +699,7 @@
   </div>
 
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.8.3</span><span id="footPrice"> · <span data-i18n="foot.license">License ETB 2,500 one-time</span></span></span>
+    <span>v<span id="panelVersion">1.8.4</span><span id="footPrice"> · <span data-i18n="foot.license">License ETB 2,500 one-time</span></span></span>
     <span style="display:flex;gap:10px;align-items:center;">
       <a href="#" id="supportLink" title="Get help in Telegram" data-i18n="foot.help" data-i18n-title="foot.helpTitle">💬 Help</a>
       <a href="#" id="credits" title="Version and credits" data-i18n="foot.credits" data-i18n-title="foot.creditsTitle">About</a>
@@ -706,17 +715,8 @@
       <span class="review-count" id="reviewCount"></span>
       <span class="review-actions">
         <button type="button" id="revUndo" class="btn btn-neutral" style="display:none;"></button>
-        <button type="button" id="revUndoFix" class="btn btn-neutral" style="display:none;"></button>
         <button type="button" id="revMemory" class="btn btn-neutral">🧠 Memory</button>
       </span>
-    </div>
-    <!-- A word fixed in one caption -> change it in the others, and/or
-         remember it for every new transcription. -->
-    <div class="fixall-bar" id="fixAllBar" style="display:none;">
-      <span id="fixAllText"></span>
-      <button type="button" id="fixAllGo" class="btn btn-primary">Change all</button>
-      <button type="button" id="fixAllRemember" class="btn btn-neutral">🧠 Remember</button>
-      <button type="button" id="fixAllNo" class="btn btn-neutral" title="Leave them as they are" data-i18n-title="fa.noTitle">✕</button>
     </div>
     <div class="memory-panel" id="memoryPanel" style="display:none;"></div>
     <div id="reviewList"></div>
