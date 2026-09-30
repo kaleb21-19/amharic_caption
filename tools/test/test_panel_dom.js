@@ -193,7 +193,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.8.2');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.8.3');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -526,7 +526,7 @@ await t('3.10 review: fix one word -> "Change all" offer; auto-correct memory (l
     editRow(0, 'ሰላም ፈጣን');
     assert.strictEqual(p.els('fixAllBar').style.display, '', 'offer shown');
     has(p.els('fixAllText').textContent, 'ፈታን → ፈጣን', 'says what changes');
-    has(p.els('fixAllText').textContent, 'also in 2 more captions', 'says how many captions');
+    has(p.els('fixAllGo').textContent, '(2)', 'Change all says how many captions');
     p.els('fixAllGo').fire('click', {});
     assert.deepStrictEqual(texts(), ['ሰላም ፈጣን', 'ፈጣን መጣ ፈታንታ', 'ሌላ ቃል', 'እሱ ፈጣን ነው']);
     assert.strictEqual(p.els('fixAllBar').style.display, 'none', 'bar closes');
@@ -537,7 +537,7 @@ await t('3.10 review: fix one word -> "Change all" offer; auto-correct memory (l
     assert.deepStrictEqual(texts(), ['ገነት ነው', 'ገላት']);
     await open([{ start: 0, end: 1, text: 'ማበታ ነው' }, { start: 1, end: 2, text: 'ሌላ' }]);
     editRow(0, 'ማታ ነው');
-    assert.strictEqual(p.els('fixAllBar').style.display, 'none', 'nothing to offer');
+    assert.strictEqual(p.els('fixAllGo').style.display, 'none', 'nothing else to change (Remember is still offered)');
 
     // A hand fix is learned only after it was made twice (in two videos).
     for (let round = 1; round <= 2; round++) {
@@ -548,7 +548,7 @@ await t('3.10 review: fix one word -> "Change all" offer; auto-correct memory (l
     assert.strictEqual(JSON.parse(fs.readFileSync(store, 'utf8')).fixes['ትናንት'].n, 2);
     await open([{ start: 0, end: 1, text: 'ትናንት ሄደ' }]);
     assert.deepStrictEqual(texts(), ['ትላንት ሄደ'], 'learned after two separate fixes');
-    has(p.els('revUndoFix').textContent, '1 auto-fixed', 'undo offered');
+    has(p.els('revUndoFix').textContent, '1 fixed from memory', 'undo offered');
     // Undo restores the word AND forgets the rule for good.
     p.els('revUndoFix').fire('click', {});
     assert.deepStrictEqual(texts(), ['ትናንት ሄደ'], 'undo restores the original');
@@ -556,6 +556,94 @@ await t('3.10 review: fix one word -> "Change all" offer; auto-correct memory (l
     assert.ok(!JSON.parse(fs.readFileSync(store, 'utf8')).fixes['ትናንት'], 'undone rule forgotten');
     await open([{ start: 0, end: 1, text: 'ትናንት ሄደ' }]);
     assert.deepStrictEqual(texts(), ['ትናንት ሄደ'], 'not applied again');
+  } finally { p.close(); fs.rmSync(machineHome, { recursive: true, force: true }); }
+});
+
+await t('3.11 review: split / join / delete one click; Enter & Backspace; undo; 🧠 remember + memory list; green = from memory', async () => {
+  const machineHome = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_act_'));
+  const p = loadPanel({ machineHome });
+  const store = path.join(machineHome, '.amharic_captions_fixes.json');
+  const open = async (cues) => {
+    p.evalVm('reviewTrialCharged = true; lastCues = ' + JSON.stringify(cues) + ';');
+    await p.evalVm('openReview("x.srt", "t", 0, {})');
+  };
+  const texts = () => JSON.parse(p.evalVm('JSON.stringify(reviewCues.map((c) => c.text))'));
+  const row = (i) => p.els('reviewList').children[i];
+  const acts = (i) => row(i).children[2];
+  const btn = (i, cls) => acts(i).children.find((b) => (b.className || '').includes(cls));
+  const ta = (i) => row(i).children[1].children[0];
+  const key = (i, k, pos) => { const t = ta(i); t.selectionStart = t.selectionEnd = pos; t.fire('keydown', { key: k, preventDefault() {} }); };
+  try {
+    await open([{ start: 0, end: 4, text: 'ሰላም ውድ ተመልካቾቼ እንኳን ደህና', doubt: ['ደህና'] },
+      { start: 4, end: 6, text: 'መጣችሁ ዛሬ' }, { start: 6, end: 8, text: 'ቻው' }]);
+    // Always visible, one click each: ✂ split, ⤓ join, 🗑 delete (+ ⋯ for the rest).
+    for (const c of ['act-split', 'act-join', 'row-more', 'act-del']) assert.ok(btn(0, c), c + ' is on the row');
+    assert.ok(btn(2, 'act-join').disabled, 'the last caption cannot join a next one');
+    assert.ok(btn(2, 'act-split').disabled, 'a one-word caption cannot be split');
+
+    // Enter splits AT THE CURSOR (snapped to the space), time shared by length.
+    key(0, 'Enter', 'ሰላም ውድ ተመልካቾቼ እ'.length);
+    assert.deepStrictEqual(texts(), ['ሰላም ውድ ተመልካቾቼ', 'እንኳን ደህና', 'መጣችሁ ዛሬ', 'ቻው']);
+    const times = JSON.parse(p.evalVm('JSON.stringify(reviewCues.map((c) => [c.start, c.end]))'));
+    assert.ok(times[0][1] > 0 && times[0][1] < 4 && times[1][0] === times[0][1] && times[1][1] === 4, 'time shared: ' + JSON.stringify(times));
+    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(reviewCues[1].doubt)')), ['ደህና'], 'the orange word moves with its half');
+    has(p.els('revUndo').textContent, 'Undo split', 'undo offered');
+
+    // Backspace at the very start joins with the caption above.
+    key(1, 'Backspace', 0);
+    assert.deepStrictEqual(texts(), ['ሰላም ውድ ተመልካቾቼ እንኳን ደህና', 'መጣችሁ ዛሬ', 'ቻው']);
+    key(1, 'Backspace', 3);
+    assert.strictEqual(texts().length, 3, 'Backspace inside the text is just typing');
+    // Shift+Enter is a line break, not a split.
+    ta(0).selectionStart = ta(0).selectionEnd = 3;
+    ta(0).fire('keydown', { key: 'Enter', shiftKey: true, preventDefault() { throw new Error('must not block Shift+Enter'); } });
+    assert.strictEqual(texts().length, 3);
+
+    // The buttons: join (with the next), split (at the remembered cursor), delete.
+    btn(0, 'act-join').fire('click', {});
+    assert.deepStrictEqual(texts(), ['ሰላም ውድ ተመልካቾቼ እንኳን ደህና መጣችሁ ዛሬ', 'ቻው']);
+    ta(0).selectionStart = ta(0).selectionEnd = 'ሰላም ውድ'.length;
+    ta(0).fire('keyup', {});
+    btn(0, 'act-split').fire('click', {});
+    assert.deepStrictEqual(texts(), ['ሰላም ውድ', 'ተመልካቾቼ እንኳን ደህና መጣችሁ ዛሬ', 'ቻው'], 'split at the cursor, not the middle');
+    btn(1, 'act-del').fire('click', {});
+    assert.deepStrictEqual(texts(), ['ሰላም ውድ', 'ቻው']);
+    has(p.els('revUndo').textContent, 'Undo delete');
+    // Undo, step by step: delete, split, join.
+    p.els('revUndo').fire('click', {});
+    assert.deepStrictEqual(texts(), ['ሰላም ውድ', 'ተመልካቾቼ እንኳን ደህና መጣችሁ ዛሬ', 'ቻው'], 'undo delete');
+    p.els('revUndo').fire('click', {});
+    p.els('revUndo').fire('click', {});
+    assert.deepStrictEqual(texts(), ['ሰላም ውድ ተመልካቾቼ እንኳን ደህና', 'መጣችሁ ዛሬ', 'ቻው'], 'undo split, then join');
+    // ⋯ keeps the rarer edits: shift ±0.1s and add a caption below.
+    const more = acts(1).children[2];
+    more.children[1].children[2].fire('click');
+    assert.strictEqual(texts().length, 4, '⋯ → add a caption below');
+    assert.strictEqual(texts()[2], '', 'the new caption sits right below');
+
+    // 🧠 Remember from the fix bar: fixed in every NEW transcription at once.
+    await open([{ start: 0, end: 1, text: 'ፈታን ነው' }, { start: 1, end: 2, text: 'ሌላ ቃል' }]);
+    ta(0).value = 'ፈጣን ነው'; ta(0).fire('input', {}); ta(0).fire('change', {});
+    assert.strictEqual(p.els('fixAllBar').style.display, '', 'fix bar shown even with no other captions to change');
+    assert.strictEqual(p.els('fixAllGo').style.display, 'none', '… without Change all');
+    p.els('fixAllRemember').fire('click', {});
+    has(p.els('fixAllText').textContent, 'Remembered', 'confirmed');
+    assert.strictEqual(JSON.parse(fs.readFileSync(store, 'utf8')).fixes['ፈታን'].strong, true, 'saved as a rule');
+    has(p.els('revMemory').textContent, '(1)', 'memory count in the header');
+    await open([{ start: 0, end: 1, text: 'እሱ ፈታን ነው' }]);
+    assert.deepStrictEqual(texts(), ['እሱ ፈጣን ነው'], 'applied to the next transcription straight away');
+    const marks = row(0).children[1].children[1].children.filter((c) => c.tagName === 'MARK');
+    assert.ok(marks.length === 1 && marks[0].textContent === 'ፈጣን' && marks[0].className === 'fix', 'the fixed word is marked green');
+    has(p.els('revUndoFix').textContent, '1 fixed from memory', 'header says so');
+    // The memory list: see it, forget one.
+    p.els('revMemory').fire('click', {});
+    const panel = p.els('memoryPanel');
+    const rows = () => panel.children.find((c) => c.className === 'mem-list').children;
+    assert.strictEqual(rows().length, 1);
+    has(rows()[0].children[0].textContent, 'ፈታን → ፈጣን');
+    rows()[0].children[2].fire('click', {});
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(store, 'utf8')).fixes, {}, 'forgotten');
+    assert.ok(!p.els('revMemory').textContent.includes('('), 'count gone');
   } finally { p.close(); fs.rmSync(machineHome, { recursive: true, force: true }); }
 });
 
@@ -624,7 +712,7 @@ await t('5. review: cache-hit transcribe -> edit -> export (speaker tags) -> nud
 
       // nudge first cue back 0.1s
       // ⋯ menu → first item (−0.1s)
-      const more0 = p.els('reviewList').children[0].children[2];
+      const more0 = p.els('reviewList').children[0].children[2].children[2];
       more0.children[0].fire('click');
       assert.ok(more0.classList.contains('open'), '⋯ opens the menu');
       more0.children[1].children[0].fire('click');
@@ -942,8 +1030,8 @@ await t('8. review: empty list renders (no ReferenceError) after deleting every 
       assert.strictEqual(p.els('reviewList').children.length, 2, 'two captions to start');
 
       // Delete every cue (⋯ → Delete) -> the empty state renders, no throw.
-      const del = () => p.els('reviewList').children[0].children[2].children[1].children[4];
-      assert.ok(del().classList.contains('danger'), 'Delete is the last, red menu item');
+      const del = () => p.els('reviewList').children[0].children[2].children[3];
+      assert.ok(del().className.includes('act-del'), 'Delete is one click on the row');
       del().fire('click');
       del().fire('click');
       assert.strictEqual(p.els('reviewList').children.length, 1, 'empty-state row after deleting all');

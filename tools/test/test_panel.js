@@ -164,6 +164,16 @@ t('learnFixes: word-for-word fixes only, never split/merged/new captions', () =>
   assert.deepStrictEqual(core.learnFixes([{ _id: 1, text: 'ነው' }], [{ _id: 1, text: 'ነው።' }]), [], 'punctuation-only edit teaches nothing');
 });
 
+t('splitTextAt: at the cursor, on a word boundary; middle when no cursor', () => {
+  const t = 'ሰላም ውድ ተመልካቾቼ እንኳን';
+  assert.deepStrictEqual(core.splitTextAt(t, 'ሰላም ውድ ተመ'.length), ['ሰላም ውድ', 'ተመልካቾቼ እንኳን'], 'inside a word → nearest space');
+  assert.deepStrictEqual(core.splitTextAt(t, t.indexOf('እንኳን')), ['ሰላም ውድ ተመልካቾቼ', 'እንኳን']);
+  assert.deepStrictEqual(core.splitTextAt(t, -1), ['ሰላም ውድ', 'ተመልካቾቼ እንኳን'], 'no cursor → middle');
+  assert.deepStrictEqual(core.splitTextAt(t, 0), ['ሰላም ውድ', 'ተመልካቾቼ እንኳን'], 'cursor at the start → middle');
+  assert.strictEqual(core.splitTextAt('ቻው', 1), null, 'one word cannot be split');
+  assert.deepStrictEqual(core.splitTextAt('a  b', 2), ['a', 'b'], 'double space');
+});
+
 t('doubtRanges: where the unsure words sit (whole words, in order, no overlap)', () => {
   const t = 'ፈታን ነው፣ እሱ ፈታንታ ፈታን።';
   const r = core.doubtRanges(t, ['ፈታን']);
