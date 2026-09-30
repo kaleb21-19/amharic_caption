@@ -193,7 +193,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.8.3');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.8.4');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -499,7 +499,7 @@ await t('3.9 review: doubtful words from the engine are marked; fixing one clear
   } finally { p.close(); }
 });
 
-await t('3.10 review: fix one word -> "Change all" offer; auto-correct memory (learn twice / undo forgets)', async () => {
+await t('3.10 review: fix a word -> a line UNDER that caption (Change all / 🧠 Always fix); learn twice; nothing at the top', async () => {
   const machineHome = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_fix_'));
   const p = loadPanel({ machineHome });
   const store = path.join(machineHome, '.amharic_captions_fixes.json');
@@ -508,38 +508,49 @@ await t('3.10 review: fix one word -> "Change all" offer; auto-correct memory (l
     await p.evalVm('openReview("x.srt", "t", 0, {})');
   };
   const texts = () => JSON.parse(p.evalVm('JSON.stringify(reviewCues.map((c) => c.text))'));
+  const row = (i) => p.els('reviewList').children[i];
   const editRow = (i, text) => {
-    const ta = p.els('reviewList').children[i].children[1].children[0];
+    const ta = row(i).children[1].children[0];
     ta.value = text;
     ta.fire('input', {});
     ta.fire('change', {});
   };
+  const hint = (i) => row(i).children.find((c) => c.className === 'row-hint');
+  const hintBtn = (i, text) => hint(i).children.find((c) => c.tagName === 'BUTTON' && c.textContent.includes(text));
   try {
-    // No search, no Next button: only the orange marks and the offer bar.
-    for (const gone of ['revNext', 'revReplace', 'replaceBar', 'rfFind']) {
-      assert.ok(!fs.readFileSync(path.join(REPO, 'panel', 'index.html'), 'utf8').includes('id="' + gone + '"'), gone + ' removed');
+    // Nothing above the list any more: no search, no Next, no bar, no second 🧠 button.
+    const html = fs.readFileSync(path.join(REPO, 'panel', 'index.html'), 'utf8');
+    for (const gone of ['revNext', 'revReplace', 'replaceBar', 'rfFind', 'fixAllBar', 'revUndoFix']) {
+      assert.ok(!html.includes('id="' + gone + '"'), gone + ' removed');
     }
-    // Fix a word once -> offered for the other captions (whole words only).
+    // Fix a word once -> the line appears under THAT caption only.
     await open([{ start: 0, end: 1, text: 'ሰላም ፈታን' }, { start: 1, end: 2, text: 'ፈታን መጣ ፈታንታ' },
       { start: 2, end: 3, text: 'ሌላ ቃል' }, { start: 3, end: 4, text: 'እሱ ፈታን ነው' }]);
-    assert.strictEqual(p.els('fixAllBar').style.display, 'none', 'hidden at start');
     editRow(0, 'ሰላም ፈጣን');
-    assert.strictEqual(p.els('fixAllBar').style.display, '', 'offer shown');
-    has(p.els('fixAllText').textContent, 'ፈታን → ፈጣን', 'says what changes');
-    has(p.els('fixAllGo').textContent, '(2)', 'Change all says how many captions');
-    p.els('fixAllGo').fire('click', {});
+    assert.ok(hint(0), 'the line is under the edited caption');
+    assert.ok(!hint(1) && !hint(3), 'and nowhere else');
+    has(hint(0).children[0].textContent, 'ፈታን → ፈጣን', 'says what changes');
+    has(hintBtn(0, 'Change all').textContent, '(2)', 'Change all says how many captions');
+    hintBtn(0, 'Change all').fire('click', {});
     assert.deepStrictEqual(texts(), ['ሰላም ፈጣን', 'ፈጣን መጣ ፈታንታ', 'ሌላ ቃል', 'እሱ ፈጣን ነው']);
-    assert.strictEqual(p.els('fixAllBar').style.display, 'none', 'bar closes');
-    // ✕ leaves the others alone; a word that is nowhere else offers nothing.
+    assert.ok(!hint(0), 'the line goes away after the tap');
+    assert.ok(!fs.existsSync(store) || !JSON.parse(fs.readFileSync(store, 'utf8')).fixes['ፈታን'], 'Change all alone does not remember');
+    // ✕ closes it; editing another caption also closes it.
     await open([{ start: 0, end: 1, text: 'ገላት ነው' }, { start: 1, end: 2, text: 'ገላት' }]);
     editRow(0, 'ገነት ነው');
-    p.els('fixAllNo').fire('click', {});
+    hintBtn(0, '✕').fire('click', {});
+    assert.ok(!hint(0));
     assert.deepStrictEqual(texts(), ['ገነት ነው', 'ገላት']);
+    editRow(0, 'ገነት ናት');   // not a single-word fix of the original any more
+    const ta1 = row(1).children[1].children[0];
     await open([{ start: 0, end: 1, text: 'ማበታ ነው' }, { start: 1, end: 2, text: 'ሌላ' }]);
     editRow(0, 'ማታ ነው');
-    assert.strictEqual(p.els('fixAllGo').style.display, 'none', 'nothing else to change (Remember is still offered)');
+    assert.ok(hint(0) && !hintBtn(0, 'Change all'), 'nothing else to change: only 🧠 Always fix is offered');
+    row(1).children[1].children[0].value = 'ሌላ ነገር';
+    row(1).children[1].children[0].fire('input', {});
+    assert.ok(!hint(0), 'typing in another caption hides the line');
 
-    // A hand fix is learned only after it was made twice (in two videos).
+    // A hand fix (without the button) is still learned after it was made twice.
     for (let round = 1; round <= 2; round++) {
       await open([{ start: 0, end: 1, text: 'ትናንት መጣ' }]);
       assert.deepStrictEqual(texts(), ['ትናንት መጣ'], 'not applied yet (round ' + round + ')');
@@ -548,18 +559,10 @@ await t('3.10 review: fix one word -> "Change all" offer; auto-correct memory (l
     assert.strictEqual(JSON.parse(fs.readFileSync(store, 'utf8')).fixes['ትናንት'].n, 2);
     await open([{ start: 0, end: 1, text: 'ትናንት ሄደ' }]);
     assert.deepStrictEqual(texts(), ['ትላንት ሄደ'], 'learned after two separate fixes');
-    has(p.els('revUndoFix').textContent, '1 fixed from memory', 'undo offered');
-    // Undo restores the word AND forgets the rule for good.
-    p.els('revUndoFix').fire('click', {});
-    assert.deepStrictEqual(texts(), ['ትናንት ሄደ'], 'undo restores the original');
-    assert.strictEqual(p.els('revUndoFix').style.display, 'none');
-    assert.ok(!JSON.parse(fs.readFileSync(store, 'utf8')).fixes['ትናንት'], 'undone rule forgotten');
-    await open([{ start: 0, end: 1, text: 'ትናንት ሄደ' }]);
-    assert.deepStrictEqual(texts(), ['ትናንት ሄደ'], 'not applied again');
   } finally { p.close(); fs.rmSync(machineHome, { recursive: true, force: true }); }
 });
 
-await t('3.11 review: split / join / delete one click; Enter & Backspace; undo; 🧠 remember + memory list; green = from memory', async () => {
+await t('3.11 review: split / join / delete one click; Enter & Backspace; undo; 🧠 always fix, green words, put back / forget, memory dropdown', async () => {
   const machineHome = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_act_'));
   const p = loadPanel({ machineHome });
   const store = path.join(machineHome, '.amharic_captions_fixes.json');
@@ -621,29 +624,51 @@ await t('3.11 review: split / join / delete one click; Enter & Backspace; undo; 
     assert.strictEqual(texts().length, 4, '⋯ → add a caption below');
     assert.strictEqual(texts()[2], '', 'the new caption sits right below');
 
-    // 🧠 Remember from the fix bar: fixed in every NEW transcription at once.
-    await open([{ start: 0, end: 1, text: 'ፈታን ነው' }, { start: 1, end: 2, text: 'ሌላ ቃል' }]);
+    // 🧠 Always fix: changes it everywhere NOW (green) and in every new video.
+    await open([{ start: 0, end: 1, text: 'ፈታን ነው' }, { start: 1, end: 2, text: 'እሱም ፈታን' }, { start: 2, end: 3, text: 'ሌላ ቃል' }]);
     ta(0).value = 'ፈጣን ነው'; ta(0).fire('input', {}); ta(0).fire('change', {});
-    assert.strictEqual(p.els('fixAllBar').style.display, '', 'fix bar shown even with no other captions to change');
-    assert.strictEqual(p.els('fixAllGo').style.display, 'none', '… without Change all');
-    p.els('fixAllRemember').fire('click', {});
-    has(p.els('fixAllText').textContent, 'Remembered', 'confirmed');
+    const hint0 = () => row(0).children.find((c) => c.className === 'row-hint');
+    hint0().children.find((c) => c.tagName === 'BUTTON' && c.textContent.includes('Always fix')).fire('click', {});
+    assert.deepStrictEqual(texts(), ['ፈጣን ነው', 'እሱም ፈጣን', 'ሌላ ቃል'], 'changed in this video right away');
+    const greens = (i) => row(i).children[1].children[1].children.filter((c) => c.tagName === 'MARK' && c.className === 'fix').map((c) => c.textContent);
+    assert.deepStrictEqual([greens(0), greens(1)], [['ፈጣን'], ['ፈጣን']], 'and shown green');
+    has(hint0().children[0].textContent, 'fixed automatically from now on', 'a short ✓ in the same place');
     assert.strictEqual(JSON.parse(fs.readFileSync(store, 'utf8')).fixes['ፈታን'].strong, true, 'saved as a rule');
     has(p.els('revMemory').textContent, '(1)', 'memory count in the header');
-    await open([{ start: 0, end: 1, text: 'እሱ ፈታን ነው' }]);
-    assert.deepStrictEqual(texts(), ['እሱ ፈጣን ነው'], 'applied to the next transcription straight away');
-    const marks = row(0).children[1].children[1].children.filter((c) => c.tagName === 'MARK');
-    assert.ok(marks.length === 1 && marks[0].textContent === 'ፈጣን' && marks[0].className === 'fix', 'the fixed word is marked green');
-    has(p.els('revUndoFix').textContent, '1 fixed from memory', 'header says so');
-    // The memory list: see it, forget one.
+    await new Promise((r) => setTimeout(r, 2700));
+    assert.ok(!hint0(), 'the ✓ goes away by itself');
+    await open([{ start: 0, end: 1, text: 'እሱ ፈታን ነው' }, { start: 1, end: 2, text: 'ፈታን' }]);
+    assert.deepStrictEqual(texts(), ['እሱ ፈጣን ነው', 'ፈጣን'], 'applied to the next transcription straight away');
+    assert.deepStrictEqual(greens(0), ['ፈጣን'], 'the memory fix is green');
+    // Clicking a green word explains it: put back HERE keeps the memory.
+    ta(0).selectionStart = ta(0).selectionEnd = 'እሱ ፈ'.length;
+    ta(0).fire('click', {});
+    has(hint0().children[0].textContent, 'ፈታን → ፈጣን', 'says what the memory changed');
+    hint0().children.find((c) => c.tagName === 'BUTTON' && c.textContent.includes('Put back')).fire('click', {});
+    assert.deepStrictEqual(texts(), ['እሱ ፈታን ነው', 'ፈጣን'], 'put back in this caption only');
+    assert.ok(JSON.parse(fs.readFileSync(store, 'utf8')).fixes['ፈታን'], 'the memory is kept');
+    p.evalVm('learnFromReview()');
+    assert.ok(JSON.parse(fs.readFileSync(store, 'utf8')).fixes['ፈታን'], 'putting back is not learned as "forget"');
+    // Forget this fix: back everywhere, rule gone.
+    const ta1 = row(1).children[1].children[0];
+    ta1.selectionStart = ta1.selectionEnd = 1;
+    ta1.fire('click', {});
+    row(1).children.find((c) => c.className === 'row-hint').children
+      .find((c) => c.tagName === 'BUTTON' && c.textContent.includes('Forget this fix')).fire('click', {});
+    assert.deepStrictEqual(texts(), ['እሱ ፈታን ነው', 'ፈታን'], 'original back everywhere');
+    assert.ok(!JSON.parse(fs.readFileSync(store, 'utf8')).fixes['ፈታን'], 'forgotten');
+    // The memory list: a dropdown that closes on a click elsewhere; ✕ forgets one.
+    p.evalVm('saveFixStore({ v: 1, fixes: { "ሀለ": { to: "ሀሎ", n: 1, strong: true, at: 1 } } }); syncMemoryButton();');
     p.els('revMemory').fire('click', {});
     const panel = p.els('memoryPanel');
+    assert.strictEqual(panel.style.display, '', 'opens');
     const rows = () => panel.children.find((c) => c.className === 'mem-list').children;
-    assert.strictEqual(rows().length, 1);
-    has(rows()[0].children[0].textContent, 'ፈታን → ፈጣን');
+    has(rows()[0].children[0].textContent, 'ሀለ → ሀሎ');
     rows()[0].children[2].fire('click', {});
-    assert.deepStrictEqual(JSON.parse(fs.readFileSync(store, 'utf8')).fixes, {}, 'forgotten');
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(store, 'utf8')).fixes, {}, 'forgotten from the list');
     assert.ok(!p.els('revMemory').textContent.includes('('), 'count gone');
+    p.evalVm('closeMemoryPanel()');
+    assert.strictEqual(panel.style.display, 'none', 'closes');
   } finally { p.close(); fs.rmSync(machineHome, { recursive: true, force: true }); }
 });
 
