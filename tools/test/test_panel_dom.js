@@ -193,7 +193,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.8.1');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.8.2');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -469,15 +469,26 @@ await t('3.9 review: doubtful words from the engine are marked; fixing one clear
     const rows = p.els('reviewList').children;
     assert.ok(rows[0].classList.contains('doubt'), 'row with a doubtful word is marked');
     assert.ok(!rows[1].classList.contains('doubt'), 'clean row is not');
-    const textBox = rows[0].children[2];
-    has(textBox.children[1].textContent, 'ወንድሜ', 'the doubtful word is listed');
+    const textBox = rows[0].children[1];
+    const marks = () => textBox.children[1].children.filter((c) => c.tagName === 'MARK').map((c) => c.textContent);
+    assert.deepStrictEqual(marks(), ['ወንድሜ'], 'the unsure word itself is marked orange, in place');
+    assert.strictEqual(textBox.children[1].children.map((c) => c.textContent).join(''), 'ሰላም ወንድሜ\u200b', 'the copy behind the box is the same text');
+    assert.ok(!rows[0].querySelector('.doubt-line'), 'no "check:" label line any more');
     has(p.els('reviewCount').textContent, '1 to check', 'header count');
-    // The editor fixes the word: the mark and the count go away.
     const ta = textBox.children[0];
+    // Clicking inside the orange word selects the whole word (type to replace it).
+    ta.selectionStart = ta.selectionEnd = 6;
+    ta.fire('click', {});
+    assert.deepStrictEqual([ta.selectionStart, ta.selectionEnd], [4, 8], 'the whole word is selected');
+    ta.selectionStart = ta.selectionEnd = 1;
+    ta.fire('click', {});
+    assert.deepStrictEqual([ta.selectionStart, ta.selectionEnd], [1, 1], 'a click on a normal word just places the cursor');
+    // The editor fixes the word: the mark and the count go away.
     ta.value = 'ሰላም ወንድሜ፣';
     ta.value = 'ሰላም ወንድሞቼ';
     ta.fire('input', {});
     assert.ok(!rows[0].classList.contains('doubt'), 'fixed word clears the mark');
+    assert.deepStrictEqual(marks(), [], 'no orange left');
     assert.ok(p.els('reviewCount').textContent.indexOf('to check') < 0, 'count cleared');
     // No sidecar → no marks, nothing breaks.
     fs.unlinkSync(srt + '.doubt.json');
@@ -498,7 +509,7 @@ await t('3.10 review: fix one word -> "Change all" offer; auto-correct memory (l
   };
   const texts = () => JSON.parse(p.evalVm('JSON.stringify(reviewCues.map((c) => c.text))'));
   const editRow = (i, text) => {
-    const ta = p.els('reviewList').children[i].children[2].children[0];
+    const ta = p.els('reviewList').children[i].children[1].children[0];
     ta.value = text;
     ta.fire('input', {});
     ta.fire('change', {});
@@ -588,7 +599,7 @@ await t('5. review: cache-hit transcribe -> edit -> export (speaker tags) -> nud
 
       // speaker label stripped in editor
       const row0 = p.els('reviewList').children[0];
-      const ta0  = row0.children[2].children[0];   // text box: textarea + doubt line
+      const ta0  = row0.children[1].children[0];   // text box: textarea + the marked copy behind it
       assert.strictEqual(ta0.value, CUE1, 'first cue text in editor');
 
       // edit first caption
@@ -612,7 +623,11 @@ await t('5. review: cache-hit transcribe -> edit -> export (speaker tags) -> nud
       has(txt, 'Speaker 1: ' + EDITED, 'TXT speaker line');
 
       // nudge first cue back 0.1s
-      p.els('reviewList').children[0].children[1].children[0].fire('click');
+      // ⋯ menu → first item (−0.1s)
+      const more0 = p.els('reviewList').children[0].children[2];
+      more0.children[0].fire('click');
+      assert.ok(more0.classList.contains('open'), '⋯ opens the menu');
+      more0.children[1].children[0].fire('click');
       const rowB = p.els('reviewList').children[0];
       assert.strictEqual(rowB.children[0].children[0].value, '0:00.90', 'nudged start: ' + rowB.children[0].children[0].value);
 
@@ -904,7 +919,7 @@ await t('9. work area: second run over stacked clips returns identical captions'
 });
 
 
-await t('8. review: empty list renders (no ReferenceError) when filter matches nothing', async () => {
+await t('8. review: empty list renders (no ReferenceError) after deleting every caption', async () => {
   // Regression guard: renderReview()'s empty-state branch referenced a local
   // `filter` variable that a later refactor removed, so under 'use strict'
   // it threw "ReferenceError: filter is not defined" any time the list
@@ -926,18 +941,9 @@ await t('8. review: empty list renders (no ReferenceError) when filter matches n
       await flush(40);
       assert.strictEqual(p.els('reviewList').children.length, 2, 'two captions to start');
 
-      // 1) filter that matches nothing -> empty state, must not throw
-      p.els('reviewSearch').value = 'zzzz-no-such-caption';
-      p.els('reviewSearch').fire('input');
-      const list = p.els('reviewList');
-      assert.strictEqual(list.children.length, 1, 'only the empty-state row is rendered');
-      has(list.children[0].textContent, 'zzzz-no-such-caption',
-        'empty state names the active filter');
-
-      // 2) clear the filter, then delete every cue -> the other empty branch
-      p.els('reviewSearch').value = '';
-      p.els('reviewSearch').fire('input');
-      const del = () => p.els('reviewList').children[0].children[3];
+      // Delete every cue (⋯ → Delete) -> the empty state renders, no throw.
+      const del = () => p.els('reviewList').children[0].children[2].children[1].children[4];
+      assert.ok(del().classList.contains('danger'), 'Delete is the last, red menu item');
       del().fire('click');
       del().fire('click');
       assert.strictEqual(p.els('reviewList').children.length, 1, 'empty-state row after deleting all');

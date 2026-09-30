@@ -92,6 +92,7 @@ class El {
   set setScrollTop(v) { this.scrollTop = v; }
   scrollIntoView() {}
   select() {}
+  setSelectionRange(a, b) { this.selectionStart = a; this.selectionEnd = b; }
   // ── minimal querySelector / querySelectorAll ─────────────────────────────
   _all() { // depth-first descendants
     const out = [];
@@ -181,7 +182,7 @@ const KNOWN = [
   // footer
   'panelVersion', 'supportLink', 'diag', 'credits',
   // review overlay
-  'review', 'reviewList', 'reviewCount', 'reviewSearch', 'reviewAdd',
+  'review', 'reviewList', 'reviewCount', 'reviewAdd',
   'reviewExport', 'reviewDiscard', 'reviewBurn', 'reviewPlace',
   'burnStatus', 'burnFileInput',
   // misc
@@ -203,7 +204,7 @@ function makeDocument(tagFor) {
     capWords: ['button', 'words'], capGroup: ['button', 'grouped'],
     groupSize: ['input', null], fmtH: ['button', null], fmtV: ['button', null], speakersToggle: ['input', null],
     fileInput: ['input', null], burnFileInput: ['input', null],
-    licenseInput: ['input', null], reviewSearch: ['input', null],
+    licenseInput: ['input', null],
     runBtn: ['button', null], cancelBtn: ['button', null], choose: ['button', null],
     modelBtn: ['button', null],
     updateGo: ['button', null], updateLater: ['button', null],

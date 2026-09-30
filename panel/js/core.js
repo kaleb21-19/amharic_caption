@@ -360,6 +360,28 @@ function learnFixes(beforeCues, afterCues) {
 
 // Apply remembered fixes (wrong -> right) to one caption. Returns the new
 // text and what was changed (for the "auto-fixed" note and Undo).
+// Where the model's unsure words sit in a caption: [{start, end}], whole
+// words only, left to right, never overlapping — for the review highlight.
+function doubtRanges(text, words) {
+  const t = String(text || '');
+  const all = [];
+  (words || []).forEach((w) => {
+    w = String(w || '').trim();
+    if (!w) return;
+    const re = new RegExp('(^|' + WORD_EDGE + ')(' + escRe(w) + ')(?=$|' + WORD_EDGE + ')', 'g');
+    let m;
+    while ((m = re.exec(t))) {
+      const s = m.index + m[1].length;
+      all.push({ start: s, end: s + m[2].length });
+      if (re.lastIndex === m.index) re.lastIndex++;
+    }
+  });
+  all.sort((a, b) => a.start - b.start || b.end - a.end);
+  const out = [];
+  all.forEach((r) => { if (!out.length || r.start >= out[out.length - 1].end) out.push(r); });
+  return out;
+}
+
 function applyFixes(text, fixes) {
   let t = String(text || '');
   const applied = [];
@@ -376,7 +398,7 @@ if (typeof module !== 'undefined' && module.exports) {
     parseSrt, formatSrtTs, cleanCueLines, AMH_PUNCT_CHARS,
     detectSpeaker, normalizeCues,
     speakerPrefix, srtTextFromCues, displaySrtTextFromCues, vttTextFromCues, txtTextFromCues,
-    speakerSummary, aeHostCall, replaceWords, learnFixes, applyFixes,
+    speakerSummary, aeHostCall, replaceWords, learnFixes, applyFixes, doubtRanges,
     validateLicense,
     LICENSE_TOKEN_PUBKEY_PEM, licenseTokenParse, verifyLicenseToken,
   };

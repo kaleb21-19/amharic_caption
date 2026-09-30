@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.8.1';
+const APP_VERSION = '1.8.2';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -2509,13 +2509,6 @@ function parseReviewTs(str) {
 // editable working copy of the cues (the real lastCues is only overwritten on
 // place, so cache/transcript stay pristine if the user discards)
 let reviewCues = [];
-let REVIEW_FILTER = '';
-function cueMatchesFilter(cue) {
-  const filter = (REVIEW_FILTER || '').toLowerCase();
-  if (!filter) return true;
-  return (cue.text || '').toLowerCase().indexOf(filter) >= 0 ||
-    fmtReviewTs(cue.start).indexOf(filter) >= 0 || fmtReviewTs(cue.end).indexOf(filter) >= 0;
-}
 
 
 // ── auto-correct memory ─────────────────────────────────────────────────
@@ -2636,11 +2629,9 @@ async function openReview(outSrt, label, startSeconds, opts) {
   hideFixAll();
   syncUndoFixButton();
   reviewOpen = true;
-  REVIEW_FILTER = '';
-  const search = $('reviewSearch');
-  if (search) search.value = '';
   renderReview();
   $('review').classList.add('show');
+  fitReviewBoxes();   // heights can only be measured once the overlay shows
   log('Review your captions below — edit, then click "Place on timeline".');
   return true;
 }
@@ -2665,7 +2656,6 @@ function closeReview(keepArtifact) {
   reviewPlacing = false;
   REVIEW = null;
   reviewCues = [];
-  REVIEW_FILTER = '';
   $('review').classList.remove('show');
 }
 
@@ -2680,7 +2670,6 @@ function renderReview() {
   let shown = 0;
   for (let i = 0; i < reviewCues.length; i++) {
     const cue = reviewCues[i];
-    if (!cueMatchesFilter(cue)) continue;
     shown++;
     const row = document.createElement('div');
     row.className = 'review-row';
@@ -2706,15 +2695,30 @@ function renderReview() {
       timeBox.appendChild(spk);
     }
 
-    const tools = document.createElement('div');
-    tools.className = 'review-tools';
-    const mk = (label, title, cls) => {
+    // Everything else for this caption lives behind one small "⋯" button
+    // (shown on hover), so the text gets the whole width of the panel.
+    const more = document.createElement('div');
+    more.className = 'row-more';
+    const moreBtn = document.createElement('button');
+    moreBtn.type = 'button'; moreBtn.className = 'more'; moreBtn.textContent = '⋯';
+    moreBtn.title = L('More actions');
+    const menu = document.createElement('div');
+    menu.className = 'row-menu';
+    if (i >= 3 && i >= reviewCues.length - 2) menu.classList.add('up');   // near the bottom: open upwards
+    more.appendChild(moreBtn);
+    more.appendChild(menu);
+    const mk = (icon, title, cls) => {
       const b = document.createElement('button');
-      b.type = 'button'; b.className = 'tool'; b.textContent = label; b.title = L(title);
+      b.type = 'button'; b.className = 'tool'; b.textContent = icon + '  ' + L(title);
       if (cls) b.classList.add(cls);
-      tools.appendChild(b);
+      menu.appendChild(b);
       return b;
     };
+    moreBtn.addEventListener('click', () => {
+      const wasOpen = more.classList.contains('open');
+      closeRowMenus();
+      if (!wasOpen) more.classList.add('open');
+    });
     const nudgeBack = mk('−0.1s', 'Shift this caption −0.1s');
     const nudgeFwd = mk('+0.1s', 'Shift this caption +0.1s');
     const splitBtn = mk('\u2702', 'Split this caption into two');
@@ -2732,13 +2736,13 @@ function renderReview() {
     textBox.className = 'text-box';
     const ta = document.createElement('textarea');
     ta.value = cue.text || ''; ta.placeholder = L('caption text');
+    ta.rows = 1;
     // The captions are Amharic. Without this the whole review list is read as
     // English, and a screen reader pronounces Ge'ez with the wrong voice.
     ta.setAttribute('lang', 'am');
     ta.setAttribute('aria-label', 'Caption ' + (i + 1) + ' text');
 
-    const del = document.createElement('button');
-    del.className = 'del'; del.textContent = '✕'; del.title = L('Delete this caption');
+    const del = mk('✕', 'Delete this caption', 'danger');
 
     // Time edits re-sort and re-render; text edits update the live cue only.
     tIn.addEventListener('change', () => {
@@ -2754,26 +2758,48 @@ function renderReview() {
       cue.end = Math.max(cue.start + 0.3, v);
       renderReview();
     });
-    // Doubtful words: only those still in the text, so fixing one clears it.
-    const doubtLine = document.createElement('div');
-    doubtLine.className = 'doubt-line';
-    const showDoubts = () => {
-      const left = cueDoubts(cue);
-      row.classList.toggle('doubt', left.length > 0);
-      doubtLine.textContent = left.length ? '⚠ ' + L('check:') + ' ' + left.join(' · ') : '';
-      doubtLine.style.display = left.length ? '' : 'none';
+    // The words the model was unsure of are highlighted orange right where
+    // they are: an identical copy of the text sits behind the transparent
+    // text box with only those words marked. Fixing a word clears its mark.
+    const back = document.createElement('div');
+    back.className = 'hl-back';
+    back.setAttribute('aria-hidden', 'true');
+    const paint = () => {
+      const t = cue.text || '';
+      const rs = doubtRanges(t, cue.doubt);
+      back.textContent = '';
+      let at = 0;
+      const put = (tag, s) => {
+        if (!s) return;
+        const n = document.createElement(tag);
+        n.textContent = s;
+        back.appendChild(n);
+      };
+      rs.forEach((r) => { put('span', t.slice(at, r.start)); put('mark', t.slice(r.start, r.end)); at = r.end; });
+      put('span', t.slice(at) + '\u200b');   // keeps a trailing line break the same height
+      row.classList.toggle('doubt', rs.length > 0);
     };
     textBox.appendChild(ta);
-    textBox.appendChild(doubtLine);
-    showDoubts();
-    ta.addEventListener('input', () => { cue.text = ta.value; showDoubts(); updateReviewCount(); });
+    textBox.appendChild(back);
+    paint();
+    ta.addEventListener('input', () => { cue.text = ta.value; paint(); fitReviewBox(ta); updateReviewCount(); });
+    ta.addEventListener('scroll', () => { back.scrollTop = ta.scrollTop; });
     ta.addEventListener('change', () => offerFixAll(cue));
+    // Click an orange word: it is selected, so typing replaces it, and the
+    // playhead goes to this caption so the word can be heard.
+    ta.addEventListener('click', () => {
+      const pos = ta.selectionStart;
+      if (typeof pos !== 'number' || ta.selectionEnd !== pos) return;
+      const r = doubtRanges(ta.value, cue.doubt).find((x) => pos >= x.start && pos <= x.end);
+      if (!r) return;
+      try { ta.setSelectionRange(r.start, r.end); } catch (e) {}
+      seekPlayhead(cue.start);
+    });
     del.addEventListener('click', () => { reviewCues.splice(i, 1); renderReview(); });
 
     row.appendChild(timeBox);
-    row.appendChild(tools);
     row.appendChild(textBox);
-    row.appendChild(del);
+    row.appendChild(more);
     // Click a caption row to jump the Premiere playhead to that caption's start.
     row.addEventListener('click', (e) => {
       const el = e.target;
@@ -2787,12 +2813,11 @@ function renderReview() {
   if (shown === 0) {
     const empty = document.createElement('div');
     empty.className = 'review-empty';
-    empty.textContent = L(REVIEW_FILTER
-      ? 'No captions match "' + REVIEW_FILTER + '".'
-      : 'No captions yet — click "+ Add cue".');
+    empty.textContent = L('No captions yet — click "+ Add cue".');
     list.appendChild(empty);
   }
   updateReviewCount();
+  fitReviewBoxes();
 }
 
 // Review editor ops: nudge a caption's timing, split its text, merge with the
@@ -2846,7 +2871,23 @@ const SPEAKER_NOTES = {
 // The doubtful words still present in a cue's (possibly edited) text.
 function cueDoubts(cue) {
   const t = String((cue && cue.text) || '');
-  return ((cue && cue.doubt) || []).filter((w) => w && t.indexOf(w) >= 0);
+  return ((cue && cue.doubt) || []).filter((w) => w && doubtRanges(t, [w]).length);
+}
+function closeRowMenus() {
+  const list = $('reviewList');
+  const open = list && list.querySelectorAll ? list.querySelectorAll('.row-more') : [];
+  for (let k = 0; k < open.length; k++) open[k].classList.remove('open');
+}
+// Each caption box is exactly as tall as its text (one line = one line).
+function fitReviewBox(ta) {
+  if (!ta || !ta.style) return;
+  ta.style.height = 'auto';
+  if (ta.scrollHeight) ta.style.height = ta.scrollHeight + 'px';
+}
+function fitReviewBoxes() {
+  const list = $('reviewList');
+  const all = list && list.querySelectorAll ? list.querySelectorAll('textarea') : [];
+  for (let k = 0; k < all.length; k++) fitReviewBox(all[k]);
 }
 function updateReviewCount() {
   const note = SPEAKER_NOTES[speakerSummary(reviewCues, SPEAKERS)];
@@ -2979,10 +3020,6 @@ function initReview() {
     renderReview();
   });
 
-  const search = $('reviewSearch');
-  if (search) {
-    search.addEventListener('input', (e) => { REVIEW_FILTER = e.target.value; renderReview(); });
-  }
   const faGo = $('fixAllGo');
   if (faGo) faGo.addEventListener('click', applyFixAll);
   const faNo = $('fixAllNo');
@@ -2993,9 +3030,21 @@ function initReview() {
 
   // Keyboard shortcuts while the overlay is open:
   //   Cmd/Ctrl+Enter → place; Esc → discard.
+  // A click anywhere else closes an open "⋯" menu; so does the panel resizing
+  // (which also re-fits the caption boxes to the new width).
+  document.addEventListener('click', (e) => {
+    if (!reviewOpen) return;
+    const el = e && e.target;
+    if (el && el.closest && el.closest('.row-more')) return;
+    closeRowMenus();
+  });
+  window.addEventListener('resize', () => { if (reviewOpen) fitReviewBoxes(); });
+
   document.addEventListener('keydown', (e) => {
     if (!reviewOpen) return;
     if (e.key === 'Escape') {
+      const list = $('reviewList');
+      if (list && list.querySelector && list.querySelector('.row-more.open')) { closeRowMenus(); return; }
       // While typing in a caption/time field, Esc just cancels that edit
       // (moves focus away) instead of wiping the whole review.
       const el = e.target;

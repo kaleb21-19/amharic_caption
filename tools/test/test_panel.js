@@ -164,6 +164,18 @@ t('learnFixes: word-for-word fixes only, never split/merged/new captions', () =>
   assert.deepStrictEqual(core.learnFixes([{ _id: 1, text: 'ነው' }], [{ _id: 1, text: 'ነው።' }]), [], 'punctuation-only edit teaches nothing');
 });
 
+t('doubtRanges: where the unsure words sit (whole words, in order, no overlap)', () => {
+  const t = 'ፈታን ነው፣ እሱ ፈታንታ ፈታን።';
+  const r = core.doubtRanges(t, ['ፈታን']);
+  assert.deepStrictEqual(r.map((x) => t.slice(x.start, x.end)), ['ፈታን', 'ፈታን'], 'both whole words, not ፈታንታ');
+  assert.strictEqual(r[1].start, t.lastIndexOf('ፈታን'));
+  const two = core.doubtRanges('ገላት አትክልትና ይመረታሉ', ['ይመረታሉ', 'ገላት']);
+  assert.deepStrictEqual(two.map((x) => x.start), [0, 'ገላት አትክልትና '.length], 'sorted left to right');
+  assert.deepStrictEqual(core.doubtRanges('ሰላም', []), []);
+  assert.deepStrictEqual(core.doubtRanges('', ['ሰላም']), []);
+  assert.deepStrictEqual(core.doubtRanges('a.b a', ['a.b']).length, 1, 'regex characters are literal');
+});
+
 t('applyFixes: applies remembered fixes and reports them', () => {
   const r = core.applyFixes('ሰላም ፍንደ፣ ፍንደ ሰላምታ', { 'ፍንደ': 'ፍቅሬ', 'ሰላም': 'ሰላም!' });
   assert.strictEqual(r.text, 'ሰላም! ፍቅሬ፣ ፍቅሬ ሰላምታ');
