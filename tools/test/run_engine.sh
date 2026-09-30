@@ -90,13 +90,15 @@ for wav in "$FIX"/*.wav; do
 
     # Score every run. --max-wer keeps the legacy per-clip gate; the production
     # gate uses --mean-max-wer, which collects raw WER values and checks their
-    # arithmetic mean after the loop. The 1.0 ceiling here prevents an individual
-    # clip from turning an aggregate policy into an accidental per-clip gate.
+    # arithmetic mean after the loop. The per-clip ceiling here must never fire:
+    # WER counts insertions, so it can exceed 100% — a 3-word clip with one
+    # extra word scores 133% (that alone failed the 1.8.6 build while the mean
+    # was 25%). 100 (= 10000%) keeps this an aggregate-only policy.
     score_args=()
     if [[ -n "$MAX_WER" ]]; then
       score_args=(--max-wer "$MAX_WER")
     elif [[ -n "$MEAN_MAX_WER" ]]; then
-      score_args=(--max-wer 1.0)
+      score_args=(--max-wer 100)
     fi
     if ! score_output="$("$ROOT/test/wer.py" --truth "$truth" --hyp "$srt" "${score_args[@]}")"; then
       printf '%s\n' "$score_output"
