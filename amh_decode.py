@@ -53,6 +53,7 @@ class _WordLM:
         u = d["unigram"]
         self.uni = dict(u) if isinstance(u, list) else dict(u)
         self.bi = d.get("bigram", {})
+        self.tri = d.get("trigram", {})     # "a\tb\tc" -> log P(c | a b), optional
         self.oov = float(d.get("oov_logp", -12.0))
         tuned = d.get("decoder") or {}
         self.alpha = float(os.environ.get("AMH_LM_ALPHA") or tuned.get("alpha", ALPHA))
@@ -64,21 +65,25 @@ class _WordLM:
                 pre.add(w[:k])
         self.prefixes = pre
 
-    def logp(self, prev, w):
+    def logp(self, prev, w, prev2=None):
+        if prev2 is not None and prev is not None and self.tri:
+            t = self.tri.get(prev2 + "\t" + prev + "\t" + w)
+            if t is not None:
+                return t
         if prev is not None:
             b = self.bi.get(prev + "\t" + w)
             if b is not None:
                 return b
         return self.uni.get(w, self.oov)
 
-    def word_score(self, prev, w, alpha, gamma):
+    def word_score(self, prev, w, alpha, gamma, prev2=None):
         """What a finished word adds. A KNOWN word gets how much likelier it
         is than an unknown one (alpha * (log p - log p_oov) >= 0); an UNKNOWN
         word (a name, a new word) gets nothing — so gluing two unknown words
         into one never pays. (It did when every unknown word cost a fixed
         penalty: the decoder dropped the spaces between names.) gamma is the
         same for every word."""
-        return alpha * max(0.0, self.logp(prev, w) - self.oov) + gamma
+        return alpha * max(0.0, self.logp(prev, w, prev2) - self.oov) + gamma
 
 
 def get_lm():
@@ -165,7 +170,7 @@ def beam_decode(logp, blank, glyphs, skip, space, lm, alpha=None, gamma=None, wi
                         e[1] = _lse(e[1], src)
                         continue
                     prev = words[-1] if words else None
-                    add = lm.word_score(prev, cur, alpha, gamma)
+                    add = lm.word_score(prev, cur, alpha, gamma, words[-2] if len(words) > 1 else None)
                     e = slot((words + (cur,), "", c), lms + add, ids + (c,))
                     e[1] = _lse(e[1], src)
                 else:
@@ -182,7 +187,8 @@ def beam_decode(logp, blank, glyphs, skip, space, lm, alpha=None, gamma=None, wi
     for (words, cur, last), (pb, pnb, lms, ids) in beams.items():
         s = _lse(pb, pnb) + lms
         if cur:
-            s += lm.word_score(words[-1] if words else None, cur, alpha, gamma)
+            s += lm.word_score(words[-1] if words else None, cur, alpha, gamma,
+                               words[-2] if len(words) > 1 else None)
         if s > best_s:
             best_s, best = s, ids
     return list(best)
@@ -339,7 +345,7 @@ if __name__ == "__main__":
         def logp(self, prev, w):
             return -2.0 if w == "ሰላም" else -12.0
 
-        def word_score(self, prev, w, alpha, gamma):
+        def word_score(self, prev, w, alpha, gamma, prev2=None):
             return alpha * max(0.0, self.logp(prev, w) - self.oov) + gamma
     lp2 = frames([0, 2, 0, 3, 0, 5, 0])
     lp2[5] = np.log(np.asarray([0.0, 0.0, 0.0, 0.0, 0.52, 0.48], dtype=np.float32) + 1e-6)
