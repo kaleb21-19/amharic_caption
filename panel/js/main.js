@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.8.6';
+const APP_VERSION = '1.8.7';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -2513,19 +2513,22 @@ let reviewCues = [];
 
 // ── auto-correct memory ─────────────────────────────────────────────────
 // The editor's own fixes, kept in the home folder (survives Premiere
-// upgrades) and applied to every later transcription — like a phone's
-// autocorrect learning your words. Nothing leaves the computer.
-//   • A word fixed by hand -> used once the same fix was made TWICE, so a
-//     one-off edit never becomes a rule.
-//   • "↩ undo" on the auto-fixes also forgets those rules for good.
+// upgrades) and applied to every later transcription. Nothing leaves the
+// computer. A rule exists ONLY because the editor tapped "🧠 Always fix" —
+// the panel never learns silently (it used to, after the same hand fix in two
+// videos; in Amharic a fix that is right in one sentence is often wrong in
+// the next, and a rule nobody chose surprises the editor). Rules learned that
+// way by older versions are ignored.
 const FIXES_FILE = '.amharic_captions_fixes.json';
-const FIX_LEARN_AFTER = 2;
 const FIX_MAX = 500;
 function fixStorePath() { return identityFile(FIXES_FILE); }
 function loadFixStore() {
   try {
     const j = JSON.parse(fs.readFileSync(fixStorePath(), 'utf8'));
-    if (j && j.fixes && typeof j.fixes === 'object') return j;
+    if (j && j.fixes && typeof j.fixes === 'object') {
+      Object.keys(j.fixes).forEach((w) => { if (!(j.fixes[w] && j.fixes[w].strong)) delete j.fixes[w]; });
+      return j;
+    }
   } catch (e) { /* none yet */ }
   return { v: 1, fixes: {} };
 }
@@ -2536,7 +2539,7 @@ function activeFixes(st) {
   const out = {};
   Object.keys(st.fixes || {}).forEach((w) => {
     const f = st.fixes[w];
-    if (f && f.to && f.to !== w && (f.strong || (f.n || 0) >= FIX_LEARN_AFTER)) out[w] = f.to;
+    if (f && f.to && f.to !== w && f.strong) out[w] = f.to;
   });
   return out;
 }
@@ -2561,27 +2564,9 @@ function rememberFix(st, wrong, right, strong) {
 }
 let REVIEW_BASE = [];        // captions as the editor first saw them (after auto-fix)
 let REVIEW_AUTOFIX = { rules: {} };   // this review's memory fixes: wrong -> right
-let REVIEW_LEARNED = {};     // fixes already counted in this review
 let FIX_OFFER = null;        // { w, r } offered by the fix bar (Change all / Remember)
 let REVIEW_UNDO = [];        // snapshots before split / join / delete / shift / add
 let REVIEW_NEXT_ID = 0;      // _id for captions made by split / add
-// Count the editor's own word fixes (once per review) into the memory.
-function learnFromReview() {
-  try {
-    const pairs = learnFixes(REVIEW_BASE, reviewCues);
-    if (!pairs.length) return;
-    const st = loadFixStore();
-    let added = 0;
-    pairs.forEach(([w, r]) => {
-      const k = w + '\u0000' + r;
-      if (REVIEW_LEARNED[k]) return;
-      REVIEW_LEARNED[k] = true;
-      rememberFix(st, w, r, false);
-      added++;
-    });
-    if (added) { saveFixStore(st); log('Auto-correct memory: learned ' + added + ' fix(es) from your edits.'); }
-  } catch (e) { /* never block placement */ }
-}
 
 async function openReview(outSrt, label, startSeconds, opts) {
   opts = opts || {};
@@ -2613,7 +2598,6 @@ async function openReview(outSrt, label, startSeconds, opts) {
     Object.assign({}, c, { text: cleanCueLines(c.text), _id: i }));
   // Remembered fixes first, so the editor starts from their own spellings.
   REVIEW_AUTOFIX = { rules: {} };
-  REVIEW_LEARNED = {};
   FIX_OFFER = null;
   const fx = activeFixes(loadFixStore());
   if (Object.keys(fx).length) {
@@ -3085,7 +3069,6 @@ async function placeReview() {
     // Premiere's caption item links to this file. Deleting it triggers a
     // "Locate file" prompt on every project open.
     log('Captions saved to ' + dest + '  (Premiere keeps a file link to this).');
-    learnFromReview();
     closeReview(true);
   } catch (e) {
     log('ERROR: placement failed: ' + (e && e.message ? e.message : String(e)));
@@ -3134,7 +3117,6 @@ function exportReviewFiles() {
     log('Export failed: ' + (e && e.message ? e.message : String(e)));
     return;
   }
-  learnFromReview();
   log('Exported ' + cues.length + ' captions to ' + dir +
     '  (' + base + '.srt / ' + base + '.vtt / ' + base + '.txt)');
 }
@@ -3292,7 +3274,6 @@ function applyFix(always) {
     const st = loadFixStore();
     rememberFix(st, w, r, true);
     saveFixStore(st);
-    REVIEW_LEARNED[w + '\u0000' + r] = true;
     REVIEW_AUTOFIX.rules[w] = r;
     syncMemoryButton();
     renderMemoryPanel();
@@ -3351,7 +3332,10 @@ function syncMemoryButton() {
   const b = $('revMemory');
   if (!b) return;
   const n = Object.keys(activeFixes(loadFixStore())).length;
+  // Hidden until the editor has remembered something: a new user never sees it.
+  b.style.display = n ? '' : 'none';
   b.textContent = '🧠 ' + L('Memory') + (n ? ' (' + n + ')' : '');
+  if (!n) closeMemoryPanel();
   b.title = L('Words you taught the panel — they are fixed automatically in every new transcription.');
 }
 // The memory list is a small dropdown under its button: it closes on any
@@ -3376,7 +3360,7 @@ function renderMemoryPanel() {
   const p = $('memoryPanel');
   if (!p || p.style.display === 'none') return;
   const st = loadFixStore();
-  const words = Object.keys(st.fixes).sort((a, b) => (st.fixes[b].at || 0) - (st.fixes[a].at || 0));
+  const words = Object.keys(activeFixes(st)).sort((a, b) => (st.fixes[b].at || 0) - (st.fixes[a].at || 0));
   p.textContent = '';
   const head = document.createElement('div');
   head.className = 'mem-head';
@@ -3400,8 +3384,7 @@ function renderMemoryPanel() {
     line.appendChild(txt);
     const state = document.createElement('span');
     state.className = 'mem-state';
-    const active = f.strong || (f.n || 0) >= FIX_LEARN_AFTER;
-    state.textContent = active ? '✓' : L('learning — fix it once more');
+    state.textContent = '✓';
     line.appendChild(state);
     const x = document.createElement('button');
     x.type = 'button'; x.className = 'mem-del'; x.textContent = '✕';

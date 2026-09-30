@@ -193,7 +193,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.8.6');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.8.7');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -499,7 +499,7 @@ await t('3.9 review: doubtful words from the engine are marked; fixing one clear
   } finally { p.close(); }
 });
 
-await t('3.10 review: fix a word -> a line UNDER that caption (Change all / 🧠 Always fix); learn twice; nothing at the top', async () => {
+await t('3.10 review: fix a word -> a line UNDER that caption (Change all / 🧠 Always fix); never learns silently; nothing at the top', async () => {
   const machineHome = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_fix_'));
   const p = loadPanel({ machineHome });
   const store = path.join(machineHome, '.amharic_captions_fixes.json');
@@ -550,15 +550,22 @@ await t('3.10 review: fix a word -> a line UNDER that caption (Change all / 🧠
     row(1).children[1].children[0].fire('input', {});
     assert.ok(!hint(0), 'typing in another caption hides the line');
 
-    // A hand fix (without the button) is still learned after it was made twice.
-    for (let round = 1; round <= 2; round++) {
+    // The panel never learns silently: the same hand fix in several videos
+    // (placed and exported) creates no rule — only "🧠 Always fix" does.
+    assert.strictEqual(p.els('revMemory').style.display, 'none', 'no memory yet -> no 🧠 button');
+    for (let round = 1; round <= 3; round++) {
       await open([{ start: 0, end: 1, text: 'ትናንት መጣ' }]);
-      assert.deepStrictEqual(texts(), ['ትናንት መጣ'], 'not applied yet (round ' + round + ')');
-      p.evalVm('reviewCues[0].text = "ትላንት መጣ"; learnFromReview(); learnFromReview();');   // twice in one review counts once
+      assert.deepStrictEqual(texts(), ['ትናንት መጣ'], 'never applied (round ' + round + ')');
+      editRow(0, 'ትላንት መጣ');
     }
-    assert.strictEqual(JSON.parse(fs.readFileSync(store, 'utf8')).fixes['ትናንት'].n, 2);
+    assert.ok(!fs.existsSync(store) || !JSON.parse(fs.readFileSync(store, 'utf8')).fixes['ትናንት'], 'no rule learned by itself');
+    assert.strictEqual(typeof p.evalVm('typeof learnFromReview'), 'string');
+    assert.strictEqual(p.evalVm('typeof learnFromReview'), 'undefined', 'the silent learner is gone');
+    // A rule an OLDER version learned silently (not chosen) is ignored.
+    p.evalVm('saveFixStore({ v: 1, fixes: { "ትናንት": { to: "ትላንት", n: 2, strong: false, at: 1 } } })');
     await open([{ start: 0, end: 1, text: 'ትናንት ሄደ' }]);
-    assert.deepStrictEqual(texts(), ['ትላንት ሄደ'], 'learned after two separate fixes');
+    assert.deepStrictEqual(texts(), ['ትናንት ሄደ'], 'old silent rule not applied');
+    assert.strictEqual(p.els('revMemory').style.display, 'none', 'and not shown');
   } finally { p.close(); fs.rmSync(machineHome, { recursive: true, force: true }); }
 });
 
@@ -635,6 +642,7 @@ await t('3.11 review: split / join / delete one click; Enter & Backspace; undo; 
     has(hint0().children[0].textContent, 'fixed automatically from now on', 'a short ✓ in the same place');
     assert.strictEqual(JSON.parse(fs.readFileSync(store, 'utf8')).fixes['ፈታን'].strong, true, 'saved as a rule');
     has(p.els('revMemory').textContent, '(1)', 'memory count in the header');
+    assert.strictEqual(p.els('revMemory').style.display, '', 'the 🧠 button appears once something is remembered');
     await new Promise((r) => setTimeout(r, 2700));
     assert.ok(!hint0(), 'the ✓ goes away by itself');
     await open([{ start: 0, end: 1, text: 'እሱ ፈታን ነው' }, { start: 1, end: 2, text: 'ፈታን' }]);
@@ -647,8 +655,6 @@ await t('3.11 review: split / join / delete one click; Enter & Backspace; undo; 
     hint0().children.find((c) => c.tagName === 'BUTTON' && c.textContent.includes('Put back')).fire('click', {});
     assert.deepStrictEqual(texts(), ['እሱ ፈታን ነው', 'ፈጣን'], 'put back in this caption only');
     assert.ok(JSON.parse(fs.readFileSync(store, 'utf8')).fixes['ፈታን'], 'the memory is kept');
-    p.evalVm('learnFromReview()');
-    assert.ok(JSON.parse(fs.readFileSync(store, 'utf8')).fixes['ፈታን'], 'putting back is not learned as "forget"');
     // Forget this fix: back everywhere, rule gone.
     const ta1 = row(1).children[1].children[0];
     ta1.selectionStart = ta1.selectionEnd = 1;
@@ -667,8 +673,8 @@ await t('3.11 review: split / join / delete one click; Enter & Backspace; undo; 
     rows()[0].children[2].fire('click', {});
     assert.deepStrictEqual(JSON.parse(fs.readFileSync(store, 'utf8')).fixes, {}, 'forgotten from the list');
     assert.ok(!p.els('revMemory').textContent.includes('('), 'count gone');
-    p.evalVm('closeMemoryPanel()');
-    assert.strictEqual(panel.style.display, 'none', 'closes');
+    assert.strictEqual(p.els('revMemory').style.display, 'none', 'nothing left -> the 🧠 button hides again');
+    assert.strictEqual(panel.style.display, 'none', 'and its list closes');
   } finally { p.close(); fs.rmSync(machineHome, { recursive: true, force: true }); }
 });
 

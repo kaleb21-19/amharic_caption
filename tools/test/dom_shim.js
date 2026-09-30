@@ -236,6 +236,7 @@ function makeDocument(tagFor) {
   ids.fmtSeg.appendChild(ids.fmtH); ids.fmtSeg.appendChild(ids.fmtV);
   ids.fmtH.classList.add('active');
   ids.memoryPanel.style.display = 'none';
+  ids.revMemory.style.display = 'none';
   ids.revUndo.style.display = 'none';
   // initial active states as in index.html
   ids.srcClip.classList.add('active');
