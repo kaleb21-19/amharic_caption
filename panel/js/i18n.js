@@ -240,7 +240,6 @@ const AM_TEXT = {
   'Remembered fixes': 'የተያዙ እርማቶች',
   'Words you taught the panel — they are fixed automatically in every new transcription.': 'ያስተማሩት ቃላት — በእያንዳንዱ አዲስ ትራንስክሪፕሽን በራሳቸው ይታረማሉ።',
   'Nothing remembered yet — fix a word, then tap “🧠 Remember”.': 'ገና የተያዘ እርማት የለም — አንድ ቃል አርመው «🧠 አስታውስ» ይጫኑ።',
-  'learning — fix it once more': 'እየተማረ — አንድ ጊዜ ደግመው ያርሙት',
   'Forget this fix': 'ይህን እርማት እርሳ',
   'Forget all': 'ሁሉንም እርሳ',
   'Tap again to forget all': 'ሁሉንም ለመርሳት እንደገና ይንኩ',
