@@ -27,6 +27,7 @@
     --ok-soft:  rgba(52,192,125,.12);
     --warn:     #e8a83d;
     --warn-soft:rgba(232,168,61,.12);
+    --warn-mark:rgba(232,168,61,.34);
     --err:      #e5484d;
     --err-soft: rgba(229,72,77,.12);
     --font-s: 10px;
@@ -59,6 +60,7 @@
     --ok-soft:  rgba(34,134,58,.12);
     --warn:     #b8791f;
     --warn-soft:rgba(184,121,31,.14);
+    --warn-mark:rgba(214,146,40,.30);
     --err:      #c62828;
     --err-soft: rgba(198,40,40,.12);
     --font-s: 10px;
@@ -359,54 +361,82 @@
   .fixall-bar #fixAllText { flex: 1 1 140px; }
   .fixall-bar .btn { width: auto; padding: 4px 10px; font-size: var(--font-s); }
   .review-count { margin-left: auto; font-size: var(--font-s); color: var(--text-secondary); white-space: nowrap; }
-  #reviewSearch {
-    flex: 0 0 auto; width: 124px; height: 24px; font-size: var(--font-s); box-sizing: border-box;
-    background: var(--bg-field); color: var(--text-primary);
-    border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0 7px;
-  }
   #reviewList {
-    flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;
+    flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px;
     border: 1px solid var(--border); border-radius: var(--radius);
-    background: var(--bg-elev); padding: 8px;
+    background: var(--bg-elev); padding: 6px;
   }
-  .review-row { display: flex; gap: 6px; align-items: stretch; }
-  .review-row { cursor: pointer; }
-  .review-row .time-box { display: flex; flex-direction: column; gap: 3px; flex: 0 0 86px; }
+  /* One caption per row: time · (tools on hover) · text · (✕ on hover).
+     The list reads like a script; the tools appear only where the mouse is. */
+  .review-row { display: flex; gap: 6px; align-items: flex-start; padding: 4px; border-radius: var(--radius-sm); cursor: pointer; }
+  .review-row:hover, .review-row:focus-within { background: var(--bg-hover); }
+  .review-row .time-box { display: flex; flex-direction: column; gap: 1px; flex: 0 0 60px; }
   .review-row input, .review-row textarea, .review-row button { cursor: default; }
   .review-row input.t {
-    background: var(--bg-field); color: var(--text-primary); border: 1px solid var(--border);
-    border-radius: var(--radius-sm); padding: 4px 6px; font-size: var(--font-m); font-family: ui-monospace, Menlo, monospace;
-    text-align: center; width: 100%;
+    background: transparent; color: var(--text-secondary); border: 1px solid transparent;
+    border-radius: var(--radius-sm); padding: 1px 3px; font-size: var(--font-s); font-family: ui-monospace, Menlo, monospace;
+    text-align: center; width: 100%; box-sizing: border-box;
   }
-  .review-row textarea { height: auto; max-height: 120px;
-    flex: 1; min-height: 40px; resize: none; background: var(--bg-field); color: var(--text-primary);
-    border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px 6px;
-    font-size: var(--font-m); line-height: 1.4;
-    font-family: var(--review-font, 'Abyssinica SIL', 'Kefa', serif);
+  .review-row:hover input.t, .review-row:focus-within input.t { border-color: var(--border); background: var(--bg-field); }
+  .review-row input.t:focus { color: var(--text-primary); border-color: var(--accent); }
+  /* "⋯" per caption: appears on hover, opens a short menu of the rarer edits. */
+  .row-more { position: relative; flex: 0 0 22px; }
+  .row-more button.more {
+    width: 22px; height: 22px; border: 0; border-radius: var(--radius-sm); padding: 0;
+    background: transparent; color: var(--text-secondary); font-size: 15px; line-height: 1; cursor: pointer;
+    opacity: 0; transition: opacity .12s, background .1s;
   }
-  .review-row .del {
-    flex: 0 0 22px; height: 22px; align-self: flex-start; border: 0; border-radius: var(--radius-sm);
-    background: var(--err-soft); color: var(--err); font-size: 11px; font-weight: 700; cursor: pointer;
+  .review-row:hover .row-more button.more, .review-row:focus-within .row-more button.more,
+  .row-more.open button.more { opacity: 1; }
+  .row-more button.more:hover, .row-more.open button.more { background: var(--bg-field); color: var(--text-primary); }
+  .row-menu {
+    display: none; position: absolute; right: 0; top: 25px; z-index: 5; min-width: 210px;
+    flex-direction: column; padding: 4px; gap: 1px;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: 0 8px 24px rgba(0,0,0,.35);
   }
-  .review-row .del:hover { background: var(--err); color: #fff; }
-  .review-tools { flex: 0 0 76px; display: grid; grid-template-columns: 1fr 1fr; gap: 3px; align-content: start; }
-  .review-tools button.tool {
-    height: 20px; border: 0; border-radius: var(--radius-sm);
-    background: var(--bg-hover); color: var(--text-secondary); font-size: 10px; cursor: pointer;
-    transition: background .1s, color .1s;
+  .row-menu.up { top: auto; bottom: 25px; }
+  .row-more.open .row-menu { display: flex; }
+  .row-menu button.tool {
+    display: block; width: 100%; text-align: left; white-space: nowrap;
+    border: 0; border-radius: var(--radius-sm); padding: 6px 9px;
+    background: transparent; color: var(--text-primary); font-size: var(--font-s); cursor: pointer;
   }
-  .review-tools button.tool:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
-  .review-tools button.tool:disabled { opacity: .35; cursor: not-allowed; }
+  .row-menu button.tool:hover:not(:disabled) { background: var(--bg-hover); }
+  .row-menu button.tool:disabled { opacity: .35; cursor: not-allowed; }
+  .row-menu button.tool.danger { color: var(--err); }
+  .row-menu button.tool.danger:hover { background: var(--err-soft); }
   .review-row .spk {
-    height: 20px; border: 0; border-radius: var(--radius-sm); font-size: 10px; font-weight: 700;
+    height: 18px; border: 0; border-radius: var(--radius-sm); font-size: 10px; font-weight: 700;
     cursor: pointer; background: var(--accent-soft); color: var(--accent);
   }
   .review-row .spk.s2 { background: var(--warn-soft); color: var(--warn); }
   .support-mid { margin: 6px 0 8px; }
-  .review-row .text-box { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-  .review-row .text-box textarea { width: 100%; box-sizing: border-box; }
-  .review-row.doubt .text-box textarea { border-color: var(--warn); box-shadow: inset 3px 0 0 var(--warn); }
-  .review-row .doubt-line { color: var(--warn); font-size: 11px; line-height: 1.35; }
+  /* The caption text box and, behind it, an identical copy of the text in
+     which only the unsure words are marked — the orange sits under the word. */
+  .review-row .text-box { flex: 1; min-width: 0; position: relative;
+    background: var(--bg-field); border-radius: var(--radius-sm); }
+  .review-row .text-box textarea, .review-row .text-box .hl-back {
+    margin: 0; box-sizing: border-box; width: 100%;
+    border: 1px solid transparent; border-radius: var(--radius-sm); padding: 5px 7px;
+    font-size: var(--font-m); line-height: 1.45; letter-spacing: normal;
+    font-family: var(--review-font, 'Abyssinica SIL', 'Kefa', serif);
+    white-space: pre-wrap; overflow-wrap: break-word; word-wrap: break-word; word-break: normal;
+  }
+  .review-row .text-box textarea {
+    position: relative; z-index: 1; display: block; resize: none; overflow: hidden;
+    min-height: 0; max-height: none; background: transparent; color: var(--text-primary);
+    border-color: var(--border);
+  }
+  .review-row .text-box textarea:focus { border-color: var(--accent); outline: none; }
+  .review-row .text-box .hl-back {
+    position: absolute; inset: 0; z-index: 0; overflow: hidden;
+    color: transparent; pointer-events: none;
+  }
+  .review-row .text-box .hl-back mark {
+    color: transparent; background: var(--warn-mark); border-radius: 3px;
+    box-shadow: inset 0 -2px 0 var(--warn);
+  }
   .review-empty { padding: 18px 8px; text-align: center; color: var(--text-disabled); font-size: var(--font-m); }
   .review-foot { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: stretch; }
   .review-foot .btn { flex: 1 1 45%; min-width: 0; white-space: normal; }
@@ -634,7 +664,7 @@
   </div>
 
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.8.1</span><span id="footPrice"> · <span data-i18n="foot.license">License ETB 2,500 one-time</span></span></span>
+    <span>v<span id="panelVersion">1.8.2</span><span id="footPrice"> · <span data-i18n="foot.license">License ETB 2,500 one-time</span></span></span>
     <span style="display:flex;gap:10px;align-items:center;">
       <a href="#" id="supportLink" title="Get help in Telegram" data-i18n="foot.help" data-i18n-title="foot.helpTitle">💬 Help</a>
       <a href="#" id="credits" title="Version and credits" data-i18n="foot.credits" data-i18n-title="foot.creditsTitle">About</a>
@@ -647,7 +677,6 @@
     <div class="review-head">
       <span class="title" data-i18n="rev.title">Review captions</span>
       <span class="sub" id="reviewSub" data-i18n="rev.sub">edit text &amp; times, then place on the timeline</span>
-      <input type="text" id="reviewSearch" placeholder="filter captions…" title="Type to filter the caption list" data-i18n-placeholder="rev.search" data-i18n-title="rev.searchTitle">
       <span class="review-count" id="reviewCount"></span>
       <span class="review-actions">
         <button type="button" id="revUndoFix" class="btn btn-neutral" style="display:none;"></button>
