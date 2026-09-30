@@ -114,6 +114,7 @@ Copy-Item "$ROOT\ethio_srt.py" (Join-Path $BNAME "runtime\ethio_srt.py")
 Copy-Item "$ROOT\amh_mel.py" (Join-Path $BNAME "runtime\amh_mel.py")
 Copy-Item "$ROOT\ctc_beam.py" (Join-Path $BNAME "runtime\ctc_beam.py")
 Copy-Item "$ROOT\amh_correct.py" (Join-Path $BNAME "runtime\amh_correct.py")
+Copy-Item "$ROOT\amh_decode.py" (Join-Path $BNAME "runtime\amh_decode.py")
 # Standalone SRT maker (no Premiere/After Effects needed) + shared licensing.
 Copy-Item "$ROOT\amh_license.py" (Join-Path $BNAME "runtime\amh_license.py")
 Copy-Item "$ROOT\amh_standalone.py" (Join-Path $BNAME "runtime\amh_standalone.py")

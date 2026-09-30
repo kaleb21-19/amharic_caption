@@ -30,7 +30,7 @@ const DEV      = path.join(os.homedir(), 'Documents', 'amharic-captions');
 const { makeDocument, makeLocalStorage } = require('./dom_shim.js');
 
 const CACHE_FILE = path.join(os.tmpdir(), 'amh_transcript_cache.json');
-const ENGINE_FILES = ['ethio_srt.py','ctc_beam.py','amh_correct.py','amh_vad.py','amh_lm.py','amh_lm.json.gz'];
+const ENGINE_FILES = ['ethio_srt.py','ctc_beam.py','amh_correct.py','amh_decode.py','amh_vad.py','amh_lm.py','amh_lm.json.gz'];
 
 const CUE1 = '\u1230\u120b\u121d \u12a5\u1295\u12f5\u1275 \u1290\u1205';
 const CUE2 = '\u12f0\u1205\u1293 \u1290\u129d \u12a0\u121d\u1235\u1325\u1293\u1208\u1209';
@@ -193,7 +193,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.8.5');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.8.6');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
