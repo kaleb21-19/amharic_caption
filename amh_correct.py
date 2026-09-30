@@ -623,9 +623,14 @@ if __name__ == "__main__":
         ("አባቴ ሺህ ብር ሰጠኝ", "አባቴ 1000 ብር ሰጠኝ"),          # bare ሺህ still converts
         ("ሰባት ሺህ ብር", "7000 ብር"),                        # ሰ+ባት is not a stray letter
     ]
-    # One-letter spelling fix (needs the bundled word list).
+    # One-letter spelling fix (needs the bundled word list). The GENERAL fix
+    # is off by default since 2026-09-29 (it rewrote more right words than
+    # wrong ones), so a non-number word stays as heard unless
+    # AMH_SPELL_GENERAL=1; number words are always fixed.
+    gen = _SPELL_GENERAL
     spell_cases = [
-        ("በታም", "በጣም"), ("ኢዮጵያ", "ኢትዮጵያ"), ("የባትል", "የባህል"),
+        ("በታም", "በጣም" if gen else "በታም"), ("ኢዮጵያ", "ኢትዮጵያ" if gen else "ኢዮጵያ"),
+        ("የባትል", "የባህል" if gen else "የባትል"),
         ("ነጠኝ", "ዘጠኝ"),          # misheard number word -> number, not ነኝ
         ("ሰባቱ", "ሰባቱ"),          # "the seven": ending kept, not a number
         ("እልህና", "እልህና"),        # correct inflected word: never cut the ending

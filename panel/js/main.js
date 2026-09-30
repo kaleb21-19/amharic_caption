@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.8.5';
+const APP_VERSION = '1.8.6';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -2055,7 +2055,7 @@ let _engineHash = null;
 function engineHash() {
   if (_engineHash) return _engineHash;
   const h = crypto.createHash('sha1');
-  for (const f of ['ethio_srt.py', 'ctc_beam.py', 'amh_correct.py', 'amh_vad.py', 'amh_lm.py', 'amh_lm.json.gz']) {
+  for (const f of ['ethio_srt.py', 'ctc_beam.py', 'amh_correct.py', 'amh_decode.py', 'amh_vad.py', 'amh_lm.py', 'amh_lm.json.gz']) {
     try {
       const p = RUNTIME ? path.join(RUNTIME, f) : path.join(DEV_RUNTIME, f);
       h.update(f + ':' + Math.floor(fs.statSync(p).mtimeMs));

@@ -208,6 +208,12 @@ class _CT2Engine:
         self.glyphs = {int(tid): tok for tok, tid in raw.items()}
         self._skip = {"[PAD]", "[UNK]", "<s>", "</s>"}
         self._masked = _masked_token_ids(self.glyphs)
+        # For the word-aware decoder: tokens that are never caption text
+        # (padding, language tags, masked letters) and the word-space tokens.
+        from ctc_beam import _is_control_glyph
+        self._skip_ids = {t for t, g in self.glyphs.items()
+                          if g in self._skip or _is_control_glyph(g)} | set(self._masked or [])
+        self._space_ids = {t for t, g in self.glyphs.items() if g in ("|", "፠", "፡")}
 
     def transcribe(self, wav):
         # Very long audio (e.g. a 5-minute clip) makes the conformer attention
@@ -286,6 +292,19 @@ class _CT2Engine:
             except Exception:
                 # Fall back to greedy if beam search is unavailable/unexpected.
                 pass
+        # Word-aware decode (amh_decode): the best few letter sequences scored
+        # with the Amharic word / word-pair list, then placed back on the
+        # audio by forced alignment. Greedy is the fallback (and AMH_DECODE=
+        # greedy), so a missing word list or any error changes nothing.
+        try:
+            from amh_decode import decode as _word_decode
+            dec = _word_decode(logits, self.blank_id, self.glyphs, self._skip_ids, self._space_ids)
+        except Exception:
+            dec = None
+        if dec is not None:
+            toks, spans = dec
+            text = "".join(" " if t in self._space_ids else self.glyphs.get(t, "") for t in toks)
+            return " ".join(text.split()), _spans_with_conf(spans, logits), frame_dur
         argmax = np.argmax(logits[0], axis=-1).tolist()
         text = self._decode(argmax)
         spans, _ = ctc_align(logits, self.blank_id, frame_dur, None)
