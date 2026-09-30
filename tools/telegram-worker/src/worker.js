@@ -2121,43 +2121,24 @@ async function handleMessage(msg, env) {
     // and /revoke needs an ORDER id nobody has to hand. Paste the machine id
     // and get the whole picture, with the actions attached.
     const look = text.match(/^\/(?:find|lookup|who)\s+([0-9a-fA-F]{8}|[0-9a-fA-F]{16})$/);
-    if (look) {
-      const mid = look[1].toLowerCase();
-      const c = await DB.prepare('SELECT * FROM customers WHERE machine_id=?').bind(mid).first();
-      const o = await DB.prepare(
-        'SELECT * FROM orders WHERE machine_id=? ORDER BY id DESC LIMIT 1').bind(mid).first();
-      const t = await DB.prepare('SELECT used, max_free FROM trials WHERE machine_id=?').bind(mid).first();
-      if (!c && !o && !t) {
-        await sendText(chatId,
-          `🔍 Nothing found for <code>${mid}</code>.\n\n` +
-          'They may have typed it wrong, or never opened the panel on this machine.');
-        return;
-      }
-      const lines = [`🔍 <b>Machine</b> <code>${mid}</code>`, ''];
-      if (c) {
-        lines.push(
-          `🔑 <b>Licensed</b>${c.revoked ? ' — <b>REVOKED</b> 🚫' : ' ✅'}`,
-          `Key: <code>${esc(c.key)}</code>`,
-          `Expiry: ${c.expiry === '00000000' ? 'perpetual' : esc(c.expiry)}`,
-          `Buyer: ${esc(c.name || 'unknown')}`);
-      } else {
-        lines.push('🔑 <b>No license</b> on this machine.');
-      }
-      if (t) lines.push('', `🎁 Trial: ${t.used}/${t.max_free} used`);
-      if (o) lines.push('', `🧾 Last order <b>#${o.id}</b> · ${o.status} · ${shortTs(o.created_at)}`);
-      const kb = [];
-      if (o) kb.push([{ text: `🧾 Open order #${o.id}`, callback_data: `admin:detail:${o.id}` }]);
-      if (c && o) {
-        kb.push([c.revoked
-          ? { text: '♻ Restore key', callback_data: `admin:unrevoke:${o.id}` }
-          : { text: '🚫 Revoke key', callback_data: `admin:revoke:${o.id}` }]);
-      } else if (c) {
-        kb.push([{ text: c.revoked ? '♻ Restore key' : '🚫 Revoke key', callback_data: `admin:${c.revoked ? 'unrevoke' : 'revoke'}-mid:${mid}` }]);
-      }
-      kb.push([{ text: '🛠 Admin', callback_data: 'admin:panel' }]);
-      await sendText(chatId, lines.join('\n'), kb);
+    if (look) { await adminFind(chatId, look[1].toLowerCase()); return; }
+
+    // New computer / reinstalled Windows: /move OLD-MACHINE-ID NEW-MACHINE-ID
+    const mv = text.match(/^\/move\s+([0-9a-fA-F]{8}|[0-9a-fA-F]{16})\s+([0-9a-fA-F]{8}|[0-9a-fA-F]{16})$/);
+    if (mv) { await moveLicense(chatId, uid, mv[1], mv[2]); return; }
+    if (/^\/move\b/i.test(text)) {
+      await sendText(chatId, 'ℹ️ <code>/move OLD-MACHINE-ID NEW-MACHINE-ID</code>\n\n' +
+        '<i>Easier: /find the old Machine ID and tap 🔁 Move to a new computer.</i>');
       return;
     }
+    // Free license (partner, tester, reviewer): /givekey MACHINE-ID [name]
+    const gk = text.match(/^\/givekey\s+([0-9a-fA-F]{8}|[0-9a-fA-F]{16})(?:\s+(.{1,60}))?$/);
+    if (gk) { await giveKey(chatId, uid, gk[1], gk[2]); return; }
+    if (/^\/givekey\b/i.test(text)) {
+      await sendText(chatId, 'ℹ️ <code>/givekey MACHINE-ID name</code> — e.g. <code>/givekey 1a2b3c4d5e6f7a8b Panda</code>');
+      return;
+    }
+    if (['/help', '/help@amhariccaptionsbot', '/commands'].includes(lower)) { await adminHelp(chatId); return; }
   }
 
   // admin: composing a broadcast → the next free-text message becomes a DRAFT
@@ -2176,6 +2157,27 @@ async function handleMessage(msg, env) {
     if (pm && !lower.startsWith('/')) {
       await kvDel('pmsg:await:' + uid);
       await messagePartner(chatId, pm, text);
+      return;
+    }
+    // "🔍 Find a customer" / "🔁 Move" buttons: the next message is a Machine ID.
+    const midTyped = /^\s*([0-9a-fA-F]{8}|[0-9a-fA-F]{16})\s*$/.exec(text);
+    const mvFrom = await kvGet('move:await:' + uid);
+    if (mvFrom && !lower.startsWith('/')) {
+      if (!midTyped) {
+        await sendText(chatId, '⚠️ That is not a Machine ID (8 or 16 letters/numbers). Send the NEW computer\'s Machine ID, or /start to cancel.');
+        return;
+      }
+      await kvDel('move:await:' + uid);
+      await moveLicense(chatId, uid, mvFrom, midTyped[1]);
+      return;
+    }
+    if (await kvGet('find:await:' + uid) && !lower.startsWith('/')) {
+      if (!midTyped) {
+        await sendText(chatId, '⚠️ Send a Machine ID (8 or 16 letters/numbers), or /start to cancel.');
+        return;
+      }
+      await kvDel('find:await:' + uid);
+      await adminFind(chatId, midTyped[1].toLowerCase());
       return;
     }
   }
@@ -2790,9 +2792,9 @@ async function adminAudit(chatId) {
   }
   const multi = adminUids().length > 1;
   const lines = rows.map((r) =>
-    `<code>${esc(String(r.ts).slice(5, 16))}</code> ${esc(r.action)}${r.detail ? ' · ' + esc(r.detail) : ''}${multi ? ' · ' + esc(r.admin_uid) : ''}`);
+    `<code>${esc(eatTs(r.ts))}</code> ${esc(r.action)}${r.detail ? ' · ' + esc(r.detail) : ''}${multi ? ' · ' + esc(r.admin_uid) : ''}`);
   await sendText(chatId,
-    '🧾 <b>Audit log</b> — latest 30 admin actions (UTC)\n\n' +
+    '🧾 <b>Audit log</b> — latest 30 admin actions (Ethiopia time)\n\n' +
     (lines.length ? lines.join('\n') : 'Nothing yet.') +
     '\n\n<i>Anything you do not recognise? Telegram → Settings → Devices → end other sessions, then change your PIN.</i>',
     [[{ text: '🛠 Admin', callback_data: 'admin:panel' }]]);
@@ -2813,7 +2815,7 @@ async function adminPanel(chatId, messageId) {
     "SELECT COALESCE(SUM(CASE WHEN status='approved' THEN 1 ELSE 0 END),0) AS ap, " +
     "COALESCE(SUM(CASE WHEN status='rejected' THEN 1 ELSE 0 END),0) AS rj, " +
     "COALESCE(SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END),0) AS pd " +
-    "FROM orders WHERE date(created_at)=date('now')").first();
+    "FROM orders WHERE date(created_at, '+3 hours')=date('now', '+3 hours')").first();
   const sold30 = await DB.prepare(
     "SELECT COUNT(*) AS n, COALESCE(SUM(amount_etb), 0) AS revenue " +
     "FROM sales WHERE status='sold' AND sold_at >= datetime('now','-30 days')"
@@ -2829,7 +2831,7 @@ async function adminPanel(chatId, messageId) {
     `   ├ ❌ Declined today: ${todayRow.rj}\n` +
     `   └ ⏳ Pending today:  ${todayRow.pd}\n\n` +
     `💵 <b>Revenue (30d):</b> ${soldCount} sale(s) = <b>ETB ${money(revenue)}</b>\n\n` +
-    `🔍 Support: send <code>/find</code> + a Machine ID to look up any buyer.\n` +
+    `🔍 Support: tap <b>Find a customer</b> and send their Machine ID — move, revoke or restore from there.\n` +
     (ADMIN_PIN
       ? `🔐 Security: PIN on · ${(await adminUnlocked(chatId)) ? '🔓 unlocked' : '🔒 locked — /unlock PIN for money &amp; exports'}`
       : '⚠️ <b>Security: no admin PIN.</b> Anyone in your Telegram could broadcast or export keys. ' +
@@ -2839,8 +2841,9 @@ async function adminPanel(chatId, messageId) {
     [{ text: '🧾 History (30 days)', callback_data: 'admin:history' }],
     [{ text: '📈 Sales & funnel', callback_data: 'admin:sales' }],
     [{ text: '📣 Broadcast', callback_data: 'admin:broadcast' }, { text: '📤 Export customers', callback_data: 'admin:export' }],
+    [{ text: '🔍 Find a customer', callback_data: 'admin:findask' }, { text: '🤝 Partners', callback_data: 'admin:partners' }],
     [{ text: `🎁 Referrals · ${refOn ? '🟢 ON' : '⚪ OFF'}`, callback_data: 'admin:ref' }],
-    [{ text: '🔐 Audit log', callback_data: 'admin:audit' }],
+    [{ text: '🔐 Audit log', callback_data: 'admin:audit' }, { text: '📖 Commands', callback_data: 'admin:help' }],
   ];
   if (messageId) await editText(chatId, messageId, text, kb);
   else await sendText(chatId, text, kb);
@@ -2947,6 +2950,8 @@ async function audienceCount(kind) {
 async function cancelBroadcastCompose(uid) {
   await kvDel('bcast:await:' + uid);
   await kvDel('pmsg:await:' + uid);
+  await kvDel('move:await:' + uid);
+  await kvDel('find:await:' + uid);
   // Runs before EVERY admin command. It must never be able to break them: a
   // missing table (a deploy whose migration was not applied yet) once made
   // /start, /admin and /find all fail silently for the owner.
@@ -3166,6 +3171,202 @@ async function revokeOrder(chatId, orderId, revoke) {
   const word = revoke ? '⛔' : '✅';
   await sendText(chatId, `${word} Order <b>#${orderId}</b> → ${targetStatus}.`);
   log('info', 'order_revoke', { orderId, machine_id: o.machine_id, revoke });
+}
+
+// ── support: find a customer, move a license, give a free key ──────────────
+// Ethiopian time (UTC+3, no daylight saving) for everything the owner reads.
+function eatTs(ts) {
+  const d = new Date(String(ts || '').replace(' ', 'T') + 'Z');
+  if (isNaN(d.getTime())) return shortTs(ts);
+  return new Date(d.getTime() + 3 * 3600 * 1000).toISOString().slice(5, 16).replace('T', ' ');
+}
+
+async function moveCount(uid, mid) {
+  try {
+    const r = await DB.prepare(
+      "SELECT COUNT(*) AS n FROM admin_audit WHERE action='move' AND (detail LIKE ? OR detail LIKE ?)"
+    ).bind('%uid:' + (uid || '-') + '%', '%' + mid + '%').first();
+    return r ? r.n : 0;
+  } catch (e) { return 0; }
+}
+
+async function adminFind(chatId, mid) {
+  const c = await DB.prepare('SELECT * FROM customers WHERE machine_id=?').bind(mid).first();
+  const o = await DB.prepare(
+    'SELECT * FROM orders WHERE machine_id=? ORDER BY id DESC LIMIT 1').bind(mid).first();
+  const t = await DB.prepare('SELECT used, max_free FROM trials WHERE machine_id=?').bind(mid).first();
+  let moved = null;
+  try {
+    moved = await DB.prepare(
+      "SELECT ts, detail FROM admin_audit WHERE action='move' AND detail LIKE ? ORDER BY id DESC LIMIT 1"
+    ).bind(mid + ' -> %').first();
+  } catch (e) { /* 0020 not applied */ }
+  if (!c && !o && !t) {
+    await sendText(chatId,
+      `🔍 Nothing found for <code>${mid}</code>.\n\n` +
+      'They may have typed it wrong, or never opened the panel on this machine.',
+      [[{ text: '🎁 Give a free key to this computer', callback_data: `admin:gift:${mid}` }],
+       [{ text: '🛠 Admin', callback_data: 'admin:panel' }]]);
+    return;
+  }
+  const lines = [`🔍 <b>Machine</b> <code>${mid}</code>`, ''];
+  if (c) {
+    const kind = c.status === 'gift' ? ' · 🎁 free key' : '';
+    lines.push(
+      `🔑 <b>Licensed</b>${c.revoked ? ' — <b>REVOKED</b> 🚫' : ' ✅'}${kind}`,
+      `Key: <code>${esc(c.key)}</code>`,
+      `Expiry: ${c.expiry === '00000000' ? 'perpetual' : esc(c.expiry)}`,
+      `Buyer: ${esc(c.name || 'unknown')}${c.uid ? ' · Telegram id ' + esc(c.uid) : ''}`);
+    if (moved) {
+      const to = String(moved.detail).split(' -> ')[1] || '';
+      lines.push('', `🔁 Moved to <code>${esc(to.split(' ')[0])}</code> on ${eatTs(moved.ts)}`);
+    }
+    const n = await moveCount(c.uid, mid);
+    if (n) lines.push(`🔁 This buyer's license was moved ${n} time(s).`);
+  } else {
+    lines.push('🔑 <b>No license</b> on this machine.');
+  }
+  if (t) lines.push('', `🎁 Trial: ${t.used}/${t.max_free} used`);
+  if (o) lines.push('', `🧾 Last order <b>#${o.id}</b> · ${o.status} · ${eatTs(o.created_at)}`);
+  const kb = [];
+  if (c && !c.revoked) kb.push([{ text: '🔁 Move to a new computer', callback_data: `admin:move:${mid}` }]);
+  if (o) kb.push([{ text: `🧾 Open order #${o.id}`, callback_data: `admin:detail:${o.id}` }]);
+  if (c && o) {
+    kb.push([c.revoked
+      ? { text: '♻ Restore key', callback_data: `admin:unrevoke:${o.id}` }
+      : { text: '🚫 Revoke key', callback_data: `admin:revoke:${o.id}` }]);
+  } else if (c) {
+    kb.push([{ text: c.revoked ? '♻ Restore key' : '🚫 Revoke key', callback_data: `admin:${c.revoked ? 'unrevoke' : 'revoke'}-mid:${mid}` }]);
+  }
+  if (!c) kb.push([{ text: '🎁 Give a free key to this computer', callback_data: `admin:gift:${mid}` }]);
+  kb.push([{ text: '🛠 Admin', callback_data: 'admin:panel' }]);
+  await sendText(chatId, lines.join('\n'), kb);
+}
+
+// Changed computer / reinstalled Windows: the buyer's license follows them.
+// The old computer's key is revoked, a key for the new Machine ID is minted
+// with the same expiry, and the sale, order and referral records move along
+// (revenue is unchanged — it is still one sale). The buyer gets the new key.
+async function moveLicense(chatId, adminUid, oldMid, newMid) {
+  oldMid = String(oldMid || '').trim().toLowerCase();
+  newMid = String(newMid || '').trim().toLowerCase();
+  if (!isValidMid(oldMid) || !isValidMid(newMid)) {
+    await sendText(chatId, '⚠️ Both Machine IDs must be 8 or 16 letters/numbers.');
+    return false;
+  }
+  if (oldMid === newMid) {
+    await sendText(chatId, '⚠️ That is the same computer — nothing to move. If the key does not work there, check /find.');
+    return false;
+  }
+  if (!(await requireUnlock(adminUid, chatId, null, 'Move a license'))) return false;
+  const c = await DB.prepare('SELECT * FROM customers WHERE machine_id=?').bind(oldMid).first();
+  if (!c) {
+    await sendText(chatId, `⚠️ No license on <code>${oldMid}</code>. /find it first — maybe the buyer sent the new ID instead of the old one.`);
+    return false;
+  }
+  if (c.revoked) {
+    await sendText(chatId, `⚠️ The license on <code>${oldMid}</code> is revoked. Restore it first if the buyer should keep it.`);
+    return false;
+  }
+  const have = await DB.prepare('SELECT revoked, name FROM customers WHERE machine_id=?').bind(newMid).first();
+  if (have && !have.revoked) {
+    await sendText(chatId, `⚠️ <code>${newMid}</code> already has its own license (${esc(have.name || 'unknown')}). Nothing moved.`);
+    return false;
+  }
+  if (!(await licenseServicesReady())) {
+    await sendText(chatId, '⚠️ License signing is not ready (secrets missing?) — nothing was changed.');
+    return false;
+  }
+  const expiry = c.expiry || '00000000';
+  const key = await keyFor(newMid, expiry);
+  await DB.prepare(`INSERT INTO customers (machine_id, name, expiry, key, status, uid)
+    VALUES (?,?,?,?,?,?) ON CONFLICT(machine_id) DO UPDATE SET
+      key=excluded.key, name=excluded.name, expiry=excluded.expiry, status=excluded.status, uid=excluded.uid, revoked=0`)
+    .bind(newMid, c.name || '', expiry, key, c.status || 'sold', c.uid || '').run();
+  await DB.prepare('UPDATE customers SET revoked=1 WHERE machine_id=?').bind(oldMid).run();
+  await DB.prepare('UPDATE sales SET machine_id=? WHERE machine_id=?').bind(newMid, oldMid).run();
+  await DB.prepare('UPDATE orders SET machine_id=? WHERE machine_id=?').bind(newMid, oldMid).run();
+  try { await DB.prepare('UPDATE referral_rewards SET friend_mid=? WHERE friend_mid=?').bind(newMid, oldMid).run(); } catch (e) {}
+  const canonical = canonicalLicenseKey(c.key);
+  await kvDel('val:' + oldMid + ':' + canonical);
+  if (String(c.key).toLowerCase() !== canonical) await kvDel('val:' + oldMid + ':' + String(c.key));
+  await audit(adminUid, 'move', `${oldMid} -> ${newMid} uid:${c.uid || '-'}`);
+  log('info', 'license_moved', { from: oldMid, to: newMid });
+  let told = false;
+  if (c.uid) {
+    const r = await sendText(c.uid,
+      '🔁 <b>ፈቃድዎ ወደ አዲሱ ኮምፒውተር ተዛውሯል!</b>\n<i>Your license has moved to your new computer.</i>\n\n' +
+      `<code>${esc(key)}</code>\n\n` +
+      '<b>①</b> ቁልፉን ይንኩት — ይቀዳል · <i>tap the key to copy it</i>\n' +
+      '<b>②</b> በአዲሱ ኮምፒውተር ፓነሉን ይክፈቱ፣ <b>«የፈቃድ ቁልፍ»</b> ላይ ይለጥፉ · <i>on the new computer, paste it into “License key”</i>\n' +
+      '<b>③</b> <b>«አግብር»</b> ይጫኑ · <i>press Activate</i>\n\n' +
+      '<i>የቀድሞው ኮምፒውተር ቁልፍ ከእንግዲህ አይሰራም። The old computer\'s key no longer works.</i>');
+    told = !!(r && r.ok);
+  }
+  const n = await moveCount(c.uid, newMid);
+  await sendText(chatId,
+    `✅ <b>License moved</b>\n<code>${oldMid}</code> → <code>${newMid}</code>\n\n` +
+    `New key: <code>${esc(key)}</code>\n` +
+    (told ? '📨 The buyer got the new key in the bot.' : '⚠️ Could not message the buyer — copy the key above and send it to them.') +
+    (n > 2 ? `\n\n⚠️ This license has now been moved <b>${n}</b> times — if that seems a lot, it may be being shared.` : ''),
+    [[{ text: '🔍 Open the new computer', callback_data: `admin:find:${newMid}` }],
+     [{ text: '🛠 Admin', callback_data: 'admin:panel' }]]);
+  return true;
+}
+
+// A free license (partner, tester, reviewer, a friend helping with videos).
+// Status 'gift': never counted as a sale or as revenue; revocable like any key.
+async function giveKey(chatId, adminUid, mid, name) {
+  mid = String(mid || '').trim().toLowerCase();
+  if (!isValidMid(mid)) {
+    await sendText(chatId, '⚠️ A Machine ID is 8 or 16 letters/numbers — they copy it from the bottom of the panel.');
+    return false;
+  }
+  if (!(await requireUnlock(adminUid, chatId, null, 'Give a free key'))) return false;
+  const have = await DB.prepare('SELECT key, revoked, status FROM customers WHERE machine_id=?').bind(mid).first();
+  if (have && !have.revoked) {
+    await sendText(chatId, `ℹ️ <code>${mid}</code> already has a license (${esc(have.status)}):\n<code>${esc(have.key)}</code>`);
+    return false;
+  }
+  if (!(await licenseServicesReady())) {
+    await sendText(chatId, '⚠️ License signing is not ready (secrets missing?) — no key was made.');
+    return false;
+  }
+  const key = await keyFor(mid, '00000000');
+  const who = String(name || '').trim().slice(0, 60) || 'free key';
+  await DB.prepare(`INSERT INTO customers (machine_id, name, expiry, key, status, uid)
+    VALUES (?,?,'00000000',?,'gift','') ON CONFLICT(machine_id) DO UPDATE SET
+      key=excluded.key, name=excluded.name, expiry='00000000', status='gift', uid='', revoked=0`)
+    .bind(mid, who, key).run();
+  await audit(adminUid, 'givekey', `${mid} ${who}`);
+  log('info', 'gift_key', { mid });
+  await sendText(chatId,
+    `🎁 <b>Free key for ${esc(who)}</b> · <code>${mid}</code>\n\n` +
+    `<code>${esc(key)}</code>\n\n` +
+    'Tap the key to copy it and send it to them: panel → «የፈቃድ ቁልፍ» → paste → «አግብር».\n' +
+    '<i>Not counted as a sale. Revoke any time from /find.</i>',
+    [[{ text: '🛠 Admin', callback_data: 'admin:panel' }]]);
+  return true;
+}
+
+async function adminHelp(chatId) {
+  await sendText(chatId,
+    '📖 <b>Admin commands</b>\n\n' +
+    '<b>Customers</b>\n' +
+    '<code>/find MACHINE-ID</code> — everything about a computer, with buttons\n' +
+    '<code>/move OLD-ID NEW-ID</code> — new computer / reinstalled Windows\n' +
+    '<code>/givekey MACHINE-ID name</code> — free key (not a sale)\n' +
+    '<code>/revoke-mid ID</code> · <code>/unrevoke-mid ID</code> — kill / restore a key\n' +
+    '<code>/revoke ORDER</code> · <code>/unrevoke ORDER</code> — same, by order number\n' +
+    '<code>/setexpiry ORDER YYYYMMDD</code> — time-limited key (before approving)\n\n' +
+    '<b>Partners</b>\n' +
+    '<code>/partner CODE name</code> — new partner · <code>/partners</code> — list\n' +
+    '<code>/partnerterms CODE reward discount</code> — their amounts\n' +
+    '<code>/partnerinfo CODE</code> · <code>/pmsg CODE text</code>\n\n' +
+    '<b>Security</b>\n' +
+    '<code>/unlock PIN</code> · <code>/lock</code> · <code>/audit</code>\n\n' +
+    '<i>Buyers see the normal /help — you get this one because you are the admin.</i>',
+    [[{ text: '🛠 Admin', callback_data: 'admin:panel' }]]);
 }
 
 // ── anti-piracy: key-usage telemetry + spread alerts ─────────────────────────
@@ -3868,6 +4069,25 @@ async function handleCallback(cb) {
       await answerCb(cbId, action === 'revoke-mid' ? '🚫 Key revoked' : '♻ Key restored');
     }
     else if (action === 'detail') await adminDetail(chatId, messageId, cbId, parts[2]);
+    else if (action === 'find' && isValidMid(parts[2])) { await answerCb(cbId, ''); await adminFind(chatId, parts[2].toLowerCase()); }
+    else if (action === 'findask') {
+      await kvDel('move:await:' + fromUid);
+      await kvPut('find:await:' + fromUid, '1', 900);
+      await answerCb(cbId, 'Send the Machine ID');
+      await sendText(chatId, '🔍 <b>Find a customer</b>\n\nSend me their Machine ID (they copy it from the bottom of the panel). <i>/start to cancel.</i>');
+    }
+    else if (action === 'move' && isValidMid(parts[2])) {
+      if (!(await requireUnlock(fromUid, chatId, cbId, 'Move a license'))) return;
+      await kvDel('find:await:' + fromUid);
+      await kvPut('move:await:' + fromUid, parts[2].toLowerCase(), 900);
+      await answerCb(cbId, 'Send the new Machine ID');
+      await sendText(chatId,
+        `🔁 <b>Move the license from</b> <code>${esc(parts[2].toLowerCase())}</code>\n\n` +
+        'Send me the NEW computer\'s Machine ID. The old key stops working and the buyer gets the new key here in the bot.\n' +
+        '<i>/start to cancel.</i>');
+    }
+    else if (action === 'gift' && isValidMid(parts[2])) { await answerCb(cbId, ''); await giveKey(chatId, fromUid, parts[2], ''); }
+    else if (action === 'help') { await answerCb(cbId, ''); await adminHelp(chatId); }
     else if (action === 'retry-delivery') {
       await approve(chatId, messageId, parts[2], cbId);
       await adminDetail(chatId, null, null, parts[2]);

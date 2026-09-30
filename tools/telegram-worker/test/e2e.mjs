@@ -1368,7 +1368,7 @@ console.log('\n:: scenario 12 — broadcast, /setexpiry, reply-keyboard hint');
   await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: '/start' }));
   const home = OUTBOUND.filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === String(ADMIN_ID)).at(-1);
   const homeKb = JSON.stringify(home.body.reply_markup);
-  assert.ok(home.body.text.includes('Dashboard') && home.body.text.includes('/find'), 'admin /start = dashboard');
+  assert.ok(home.body.text.includes('Dashboard') && home.body.text.includes('Find a customer'), 'admin /start = dashboard');
   assert.ok(homeKb.includes('admin:broadcast') && homeKb.includes('admin:export'), 'with every admin button');
   ok('admin /start opens the one admin dashboard');
 
@@ -2589,6 +2589,124 @@ console.log('\n:: scenario 24 — security: reused / forwarded screenshots, admi
     assert.ok(log.includes(want), 'audit has ' + want + '\n' + log);
   }
   ok('security: /audit shows every approval, flagged approval, export, lock and failed PIN');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: scenario 25 — support: find, move a license to a new computer, free keys, admin help');
+
+{
+  const PIN = '5931';
+  const { env } = fresh({ AMH_ADMIN_PIN: PIN });
+  const A = Number(ADMIN_ID);
+  const say = (uid, text) => post(env, msg(Number(uid), { id: Number(uid), username: 'u' + uid }, { text }));
+  const tap = (uid, data) => cb(env, { id: Number(uid), username: 'u' + uid }, data, { chatId: Number(uid) });
+  const toUid = (uid) => OUTBOUND.filter((x) => x.id && ['sendMessage', 'editMessageText', 'editMessageCaption', 'sendPhoto', 'sendDocument'].includes(x.method) && String(x.body.chat_id) === String(uid));
+  const allTo = (uid) => toUid(uid).map((x) => x.body.text || x.body.caption || '').join('\n');
+  const lastTo = (uid) => toUid(uid).at(-1);
+  const kbOf = (m) => JSON.stringify((m && m.body.reply_markup) || {});
+  const validate = async (mid, key, ip) => (await api(env, '/api/validate', {
+    method: 'POST', body: { mid, key }, headers: { 'CF-Connecting-IP': ip } })).json();
+
+  // A buyer pays from the panel on the OLD computer and is approved.
+  const B = '930000001';
+  const OLD = '1111aaaa2222bbbb';
+  const NEW = '3333cccc4444dddd';
+  await say(B, `/start m_${OLD}_Nonce1234567890`);
+  await post(env, msg(Number(B), { id: Number(B), username: 'u' + B }, { photo: [{ file_id: 'AgAC-mv', file_unique_id: 'UNIQ-MV' }] }));
+  const o = row(env, 'SELECT * FROM orders WHERE uid=? ORDER BY id DESC LIMIT 1', B);
+  await say(A, '/unlock ' + PIN);
+  await tap(A, `approve:${o.id}`);
+  const oldKey = row(env, 'SELECT key FROM customers WHERE machine_id=?', OLD).key;
+  assert.equal((await validate(OLD, oldKey, '203.0.113.1')).valid, true, 'old computer works before the move');
+
+  // 1. Dashboard: Find a customer, Partners and Commands are one tap away.
+  OUTBOUND.length = 0;
+  await say(A, '/start');
+  const dash = lastTo(A);
+  for (const want of ['admin:findask', 'admin:partners', 'admin:help']) assert.ok(kbOf(dash).includes(want), 'dashboard has ' + want);
+  await tap(A, 'admin:findask');
+  assert.ok(lastTo(A).body.text.includes('Send me their Machine ID'), 'find asks for the Machine ID');
+  await say(A, OLD.toUpperCase());
+  assert.ok(lastTo(A).body.text.includes('Licensed') && kbOf(lastTo(A)).includes(`admin:move:${OLD}`), 'the card offers Move');
+  ok('admin: dashboard → 🔍 Find a customer → type the Machine ID → the card, with 🔁 Move');
+
+  // 2. Move from the card: the buyer's new computer works, the old one does not.
+  await tap(A, `admin:move:${OLD}`);
+  assert.ok(lastTo(A).body.text.includes("NEW computer's Machine ID"), 'asks for the new Machine ID');
+  await say(A, 'not an id');
+  assert.ok(lastTo(A).body.text.includes('not a Machine ID'), 'a wrong entry is explained, still waiting');
+  await say(A, NEW);
+  const moved = row(env, 'SELECT * FROM customers WHERE machine_id=?', NEW);
+  assert.ok(moved && moved.revoked === 0 && moved.uid === B && moved.status === 'sold', 'new computer licensed for the same buyer');
+  assert.equal(row(env, 'SELECT revoked FROM customers WHERE machine_id=?', OLD).revoked, 1, 'old computer revoked');
+  assert.equal(moved.key, keyFor(NEW), 'the new key is a real key for the new computer');
+  assert.equal((await validate(NEW, moved.key, '203.0.113.2')).valid, true, 'new computer validates');
+  assert.equal((await validate(OLD, oldKey, '203.0.113.3')).valid, false, 'old computer no longer validates');
+  assert.ok(allTo(B).includes('moved to your new computer') && allTo(B).includes(moved.key), 'the buyer got the new key in the bot');
+  assert.ok(allTo(A).includes('License moved') && allTo(A).includes('buyer got the new key'), 'admin sees it done');
+  const sales = env.DB.prepare("SELECT COUNT(*) AS n FROM sales WHERE status='sold'").first().n;
+  assert.equal(sales, 1, 'still exactly one sale (revenue unchanged)');
+  assert.equal(row(env, 'SELECT machine_id FROM sales LIMIT 1').machine_id, NEW, 'the sale follows the license');
+  ok('admin: 🔁 Move — new computer works, old key dies, buyer gets the key, still one sale');
+
+  // 3. Guard rails: same id, unknown id, a computer that already has a license.
+  await say(A, `/move ${NEW} ${NEW}`);
+  assert.ok(lastTo(A).body.text.includes('same computer'));
+  await say(A, `/move 9999eeee9999eeee ${OLD}`);
+  assert.ok(lastTo(A).body.text.includes('No license on'));
+  await say(A, `/move ${OLD} 5555ffff5555ffff`);
+  assert.ok(lastTo(A).body.text.includes('revoked'), 'cannot move a revoked (already moved) license again');
+  // The old card now says where it went; moving twice more warns of sharing.
+  await say(A, `/find ${OLD}`);
+  assert.ok(lastTo(A).body.text.includes('Moved to') && lastTo(A).body.text.includes(NEW), 'old computer shows where it moved');
+  await say(A, `/move ${NEW} 6666aaaa6666aaaa`);
+  await say(A, '/move 6666aaaa6666aaaa 7777bbbb7777bbbb');
+  assert.ok(lastTo(A).body.text.includes('moved <b>3</b> times'), 'moved 3 times → sharing warning: ' + lastTo(A).body.text);
+  ok('admin: move guard rails (same / unknown / already moved) and a warning after 3 moves');
+
+  // 4. The PIN protects moving: locked → nothing changes.
+  await say(A, '/lock');
+  OUTBOUND.length = 0;
+  await say(A, '/move 7777bbbb7777bbbb 8888cccc8888cccc');
+  assert.ok(lastTo(A).body.text.includes('needs your admin PIN'), 'locked → PIN asked');
+  assert.equal(row(env, 'SELECT revoked FROM customers WHERE machine_id=?', '7777bbbb7777bbbb').revoked, 0, 'nothing moved while locked');
+  await tap(A, 'admin:move:7777bbbb7777bbbb');
+  assert.ok(lastTo(A).body.text.includes('needs your admin PIN'), 'the Move button is PIN-protected too');
+  await say(A, '/unlock ' + PIN);
+  ok('admin: moving a license needs the admin PIN');
+
+  // 5. Free key: works in the panel, never counts as a sale, revocable.
+  const GIFT = 'abcdef0123456789';
+  await say(A, `/givekey ${GIFT} Panda`);
+  const g = row(env, 'SELECT * FROM customers WHERE machine_id=?', GIFT);
+  assert.ok(g && g.status === 'gift' && g.name === 'Panda' && g.key === keyFor(GIFT), 'gift key issued');
+  assert.ok(lastTo(A).body.text.includes(g.key) && lastTo(A).body.text.includes('Not counted as a sale'));
+  assert.equal((await validate(GIFT, g.key, '203.0.113.4')).valid, true, 'gift key validates');
+  assert.equal(env.DB.prepare("SELECT COUNT(*) AS n FROM sales").first().n, 1, 'no sale recorded for a gift');
+  await say(A, `/givekey ${GIFT} Again`);
+  assert.ok(lastTo(A).body.text.includes('already has a license'), 'no double gift');
+  await say(A, `/find ${GIFT}`);
+  assert.ok(lastTo(A).body.text.includes('free key'), '/find labels it a free key');
+  await say(A, `/revoke-mid ${GIFT}`);
+  assert.equal((await validate(GIFT, g.key, '203.0.113.5')).valid, false, 'gift key revocable');
+  await say(A, '/find 0000111122223333');
+  assert.ok(kbOf(lastTo(A)).includes('admin:gift:0000111122223333'), 'unknown computer → Give a free key button');
+  await tap(A, 'admin:gift:0000111122223333');
+  assert.equal(row(env, 'SELECT status FROM customers WHERE machine_id=?', '0000111122223333').status, 'gift');
+  ok('admin: 🎁 free keys (/givekey or button) work, are labelled, never count as sales, and can be revoked');
+
+  // 6. Admin /help is the admin cheat sheet; buyers still get the buyer help.
+  await say(A, '/help');
+  assert.ok(lastTo(A).body.text.includes('Admin commands') && lastTo(A).body.text.includes('/move'), 'admin /help');
+  await say(B, '/help');
+  assert.ok(lastTo(B).body.text.includes('How do I buy') && !lastTo(B).body.text.includes('Admin commands'), 'buyer /help unchanged');
+  await tap(B, 'admin:move:' + NEW);
+  assert.ok(!allTo(B).includes("NEW computer's Machine ID"), 'a buyer cannot use admin buttons');
+  // Audit shows moves and gifts, in Ethiopian time.
+  await say(A, '/audit');
+  const log = lastTo(A).body.text;
+  assert.ok(log.includes('Ethiopia time') && log.includes('move · ') && log.includes('givekey · '), 'audit: ' + log);
+  ok('admin: /help = command cheat sheet (buyers unchanged); /audit lists moves and gifts in Ethiopian time');
 }
 
 // Across EVERY scenario: nothing may be silently refused by Telegram (a refused
