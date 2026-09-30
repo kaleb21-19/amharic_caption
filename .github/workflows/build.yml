@@ -187,6 +187,9 @@ jobs:
       - name: amh_correct self-check
         run: python amh_correct.py
 
+      - name: Background-voice filter (synthetic audio, no model)
+        run: python tools/test/test_background.py
+
       - name: amh_lm self-check
         run: python amh_lm.py
 
