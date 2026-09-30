@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.8.7';
+const APP_VERSION = '1.8.8';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3960,11 +3960,15 @@ function initModelDownload() {
 function setup() {
   applySettings();
 
-  // Words-per-caption only applies in Grouped mode (karaoke = 1 word/caption).
+  // Words-per-caption and Video shape only matter in Grouped mode: karaoke is
+  // one word per caption, which always fits either shape. Hidden otherwise,
+  // so the options card stays short.
   const syncStyleControls = () => {
     $('groupSize').disabled = (CAP !== 'grouped');
-    const field = $('groupSizeField');
-    if (field) field.style.display = (CAP === 'grouped') ? '' : 'none';
+    ['groupSizeField', 'fmtField'].forEach((id) => {
+      const field = $(id);
+      if (field) field.style.display = (CAP === 'grouped') ? '' : 'none';
+    });
   };
   syncStyleControls();
 

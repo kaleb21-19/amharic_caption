@@ -193,7 +193,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.8.7');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.8.8');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1232,8 +1232,10 @@ await t('17. polish: Amharic errors/progress, compact idle UI, simple license st
     // Karaoke hides the words-per-caption field; Grouped shows it
     p.els('capWords').fire('click');
     assert.strictEqual(p.els('groupSizeField').style.display, 'none', 'karaoke: no words-per-caption');
+    assert.strictEqual(p.els('fmtField').style.display, 'none', 'karaoke: no video shape');
     p.els('capGroup').fire('click');
     assert.strictEqual(p.els('groupSizeField').style.display, '', 'grouped: words-per-caption shown');
+    assert.strictEqual(p.els('fmtField').style.display, '', 'grouped: video shape shown');
 
     // trial used up: said once (banner), not twice
     p.evalVm("localStorage.setItem('amh.trial.used','2'); updateLicenseUI()");
