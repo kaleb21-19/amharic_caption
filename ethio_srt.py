@@ -651,11 +651,71 @@ def group_cues(words, frame_dur=None, text_chars=None, glyphs=None, max_chars=42
     return cues
 
 
-def make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=42):
+# ── background voice (TV, someone talking nearby) ─────────────────────────
+# The model writes down a background voice correctly — which reads as random
+# words in the captions. That voice is much QUIETER than the speaker around
+# it. A word is dropped only when it is BG_DB quieter than the loud voice
+# within +-BG_WIN s (75th percentile of the nearby words) AND it is part of a
+# run of at least BG_RUN such words: a quieter real speaker (a guest further
+# from the mic) is surrounded by their own words and is kept, and one quiet
+# word (a trailing syllable) is never dropped.
+# Measured 2026-09-30 (90 clips with a real second voice 16-24 dB down):
+# background words -43..-47%, WER with a voice under the speaker 47.5 -> 37.0;
+# clean FLEURS / WAXAL / CV +0.00 / +0.02 / +0.00; fixtures unchanged. Costs a
+# few array reads per word. AMH_BG=0 disables.
+BG_DB = float(os.environ.get("AMH_BG_DB", "14"))
+BG_WIN = 5.0
+BG_RUN = 3
+
+
+def drop_background_words(words, wav, sr=16000):
+    if os.environ.get("AMH_BG", "1") == "0" or wav is None or len(words) < BG_RUN:
+        return words
+    x = np.asarray(wav, dtype=np.float32)
+    lv = []
+    for w in words:
+        a = max(0, int(w[1] * sr))
+        b = min(len(x), max(int(w[2] * sr), a + 160))
+        seg = x[a:b].astype(np.float64)
+        lv.append(10 * np.log10(float(np.mean(seg * seg)) + 1e-12) if len(seg) else -120.0)
+    mids = [(w[1] + w[2]) / 2 for w in words]
+    glob_ref = float(np.median(lv))
+    quiet = []
+    lo = hi = 0
+    n = len(words)
+    for k in range(n):
+        while mids[lo] < mids[k] - BG_WIN:
+            lo += 1
+        while hi + 1 < n and mids[hi + 1] <= mids[k] + BG_WIN:
+            hi += 1
+        near = [lv[j] for j in range(lo, hi + 1) if j != k]
+        ref = float(np.percentile(near, 75)) if len(near) >= 3 else glob_ref
+        quiet.append(lv[k] < ref - BG_DB)
+    out = []
+    k = 0
+    while k < n:
+        if not quiet[k]:
+            out.append(words[k])
+            k += 1
+            continue
+        j = k
+        while j < n and quiet[j]:
+            j += 1
+        if j - k < BG_RUN:
+            out.extend(words[k:j])   # a short quiet stretch is kept
+        k = j
+    return out
+
+
+def make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=42, wav=None):
     # Pull the raw word stream ONCE and run the conservative post-correction
     # pass on it, so every caption mode (words/grouped/sentence) benefits and
     # the corrected words match the same timing as the original.
     raw_words = get_words(spans, frame_dur, glyphs)
+    # `wav` is the audio on the SAME timeline as the spans (the whole clip —
+    # windowed paths shift their spans back onto it).
+    if wav is not None:
+        raw_words = drop_background_words(raw_words, wav)
     units = _unit_confs(spans, frame_dur, glyphs)
     try:
         from amh_correct import correct_words
@@ -964,7 +1024,7 @@ def _win_cues(engine, wav, st, en, mode, group_size, max_chars):
         ee = st + int(round((e + 1) * fdur * 16000))
         shifted.append(Span(tok, ss, max(ss, ee), _span_conf(sp)))
     cues = make_cues(mode, group_size, shifted, 1.0 / 16000.0, text,
-                     engine.glyphs, max_chars=max_chars)
+                     engine.glyphs, max_chars=max_chars, wav=wav)
     return text, cues
 
 
@@ -1125,7 +1185,7 @@ def _run_file(engine, wav, mode, group_size, max_chars, offset, out_srt=None,
         text, cues = _run_long(engine, wav, mode, group_size, max_chars, offset, out_srt)
     else:
         text, spans, frame_dur = engine.transcribe(wav)
-        cues = make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=max_chars)
+        cues = make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=max_chars, wav=wav)
     if speakers:
         cues = _maybe_diarize(cues, wav)
     return text, cues
@@ -1347,7 +1407,7 @@ def handle_server_batch(engine, req, rid, out):
             wav = read_wav(wav_path)
             text, spans, frame_dur = engine.transcribe(wav)
             cues = make_cues(mode, group, spans, frame_dur, text, engine.glyphs,
-                             max_chars=max_chars)
+                             max_chars=max_chars, wav=wav)
             if speakers:
                 cues = _maybe_diarize(cues, wav)
         except Exception as e:
@@ -1420,7 +1480,7 @@ def run_batch():
             wav = read_wav(req["wav"])
             text, spans, frame_dur = engine.transcribe(wav)
             cues = make_cues(mode, group_size, spans, frame_dur, text, glyphs,
-                             max_chars=max_chars)
+                             max_chars=max_chars, wav=wav)
             if speakers:
                 cues = _maybe_diarize(cues, wav)
         except Exception as e:
