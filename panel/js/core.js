@@ -360,6 +360,25 @@ function learnFixes(beforeCues, afterCues) {
 
 // Apply remembered fixes (wrong -> right) to one caption. Returns the new
 // text and what was changed (for the "auto-fixed" note and Undo).
+// Split a caption's text at `pos` (the cursor), moved to the nearest space so
+// a word is never cut in half. No usable position -> the middle word. Returns
+// [first, second] (both non-empty, trimmed) or null for a one-word caption.
+function splitTextAt(text, pos) {
+  const t = String(text || '').trim();
+  const spaces = [];
+  for (let k = 0; k < t.length; k++) if (/\s/.test(t[k]) && !/\s/.test(t[k - 1] || '')) spaces.push(k);
+  if (!spaces.length) return null;
+  let cut;
+  if (typeof pos === 'number' && pos > 0 && pos < t.length) {
+    cut = spaces.reduce((best, k) => (Math.abs(k - pos) < Math.abs(best - pos) ? k : best), spaces[0]);
+  } else {
+    cut = spaces[Math.floor((spaces.length - 1) / 2)];
+  }
+  const first = t.slice(0, cut).trim();
+  const second = t.slice(cut).trim();
+  return first && second ? [first, second] : null;
+}
+
 // Where the model's unsure words sit in a caption: [{start, end}], whole
 // words only, left to right, never overlapping — for the review highlight.
 function doubtRanges(text, words) {
@@ -398,7 +417,7 @@ if (typeof module !== 'undefined' && module.exports) {
     parseSrt, formatSrtTs, cleanCueLines, AMH_PUNCT_CHARS,
     detectSpeaker, normalizeCues,
     speakerPrefix, srtTextFromCues, displaySrtTextFromCues, vttTextFromCues, txtTextFromCues,
-    speakerSummary, aeHostCall, replaceWords, learnFixes, applyFixes, doubtRanges,
+    speakerSummary, aeHostCall, replaceWords, learnFixes, applyFixes, doubtRanges, splitTextAt,
     validateLicense,
     LICENSE_TOKEN_PUBKEY_PEM, licenseTokenParse, verifyLicenseToken,
   };

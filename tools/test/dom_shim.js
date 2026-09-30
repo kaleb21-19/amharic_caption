@@ -176,7 +176,7 @@ const KNOWN = [
   'machineIdSection', 'machineIdDisplay', 'machineIdCopy', 'machineMismatch',
   'licensedNote', 'licenseInput', 'licenseActivate', 'licenseStatus', 'trialBanner',
   'buyBtn', 'buyPending', 'bankDetails', 'bankBox',
-  'revUndoFix', 'fixAllBar', 'fixAllText', 'fixAllGo', 'fixAllNo',
+  'revUndoFix', 'revUndo', 'revMemory', 'memoryPanel', 'fixAllBar', 'fixAllText', 'fixAllGo', 'fixAllNo', 'fixAllRemember',
   // logs
   'logDisc', 'logWrap', 'logBox',
   // footer
@@ -211,7 +211,7 @@ function makeDocument(tagFor) {
     diag: ['a', null], credits: ['a', null], onboardStart: ['button', null],
     licenseActivate: ['button', null], machineIdCopy: ['button', null],
     buyBtn: ['button', null], bankDetails: ['a', null],
-    revUndoFix: ['button', null], fixAllGo: ['button', null], fixAllNo: ['button', null],
+    revUndoFix: ['button', null], revUndo: ['button', null], revMemory: ['button', null], fixAllGo: ['button', null], fixAllNo: ['button', null], fixAllRemember: ['button', null],
     reviewAdd: ['button', null], reviewExport: ['button', null],
     reviewDiscard: ['button', null], reviewBurn: ['button', null],
     reviewPlace: ['button', null], reviewList: ['div', null],
@@ -236,6 +236,8 @@ function makeDocument(tagFor) {
   ids.fmtSeg.appendChild(ids.fmtH); ids.fmtSeg.appendChild(ids.fmtV);
   ids.fmtH.classList.add('active');
   ids.fixAllBar.style.display = 'none';
+  ids.memoryPanel.style.display = 'none';
+  ids.revUndo.style.display = 'none';
   ids.revUndoFix.style.display = 'none';
   // initial active states as in index.html
   ids.srcClip.classList.add('active');

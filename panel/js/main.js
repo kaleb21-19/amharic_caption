@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.8.2';
+const APP_VERSION = '1.8.3';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -2562,7 +2562,9 @@ function rememberFix(st, wrong, right, strong) {
 let REVIEW_BASE = [];        // captions as the editor first saw them (after auto-fix)
 let REVIEW_AUTOFIX = { orig: {}, count: 0 };
 let REVIEW_LEARNED = {};     // fixes already counted in this review
-let FIX_OFFER = null;        // { w, r } offered by the "Change all" bar
+let FIX_OFFER = null;        // { w, r } offered by the fix bar (Change all / Remember)
+let REVIEW_UNDO = [];        // snapshots before split / join / delete / shift / add
+let REVIEW_NEXT_ID = 0;      // _id for captions made by split / add
 // Count the editor's own word fixes (once per review) into the memory.
 function learnFromReview() {
   try {
@@ -2622,12 +2624,19 @@ async function openReview(outSrt, label, startSeconds, opts) {
         c.text = r.text;
         REVIEW_AUTOFIX.count += r.applied.reduce((a, x) => a + x.n, 0);
         r.applied.forEach((x) => { REVIEW_AUTOFIX.rules[x.from] = x.to; });
+        c._fixed = r.applied.map((x) => x.to);   // shown green: fixed from memory
       }
     });
   }
   REVIEW_BASE = JSON.parse(JSON.stringify(reviewCues));
   hideFixAll();
   syncUndoFixButton();
+  REVIEW_UNDO = [];
+  REVIEW_NEXT_ID = reviewCues.length;
+  syncReviewUndo();
+  syncMemoryButton();
+  const mp = $('memoryPanel');
+  if (mp) mp.style.display = 'none';
   reviewOpen = true;
   renderReview();
   $('review').classList.add('show');
@@ -2695,22 +2704,38 @@ function renderReview() {
       timeBox.appendChild(spk);
     }
 
-    // Everything else for this caption lives behind one small "⋯" button
-    // (shown on hover), so the text gets the whole width of the panel.
+    // Split, join and delete are one click, always visible (Premiere hides
+    // its own in an overflow menu on a narrow panel and editors cannot find
+    // them). Shifting the time and adding a caption live behind "⋯".
+    const acts = document.createElement('div');
+    acts.className = 'row-acts';
+    const act = (cls, title) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'act ' + cls; b.title = L(title);
+      b.setAttribute('aria-label', L(title));
+      const ic = document.createElement('span');
+      ic.className = 'ic';
+      b.appendChild(ic);
+      return b;
+    };
+    const splitBtn = act('act-split', 'Split at the cursor (Enter)');
+    const mergeBtn = act('act-join', 'Join with the next caption');
     const more = document.createElement('div');
     more.className = 'row-more';
-    const moreBtn = document.createElement('button');
-    moreBtn.type = 'button'; moreBtn.className = 'more'; moreBtn.textContent = '⋯';
-    moreBtn.title = L('More actions');
+    const moreBtn = act('act-more', 'More actions');
     const menu = document.createElement('div');
     menu.className = 'row-menu';
     if (i >= 3 && i >= reviewCues.length - 2) menu.classList.add('up');   // near the bottom: open upwards
     more.appendChild(moreBtn);
     more.appendChild(menu);
-    const mk = (icon, title, cls) => {
+    const del = act('act-del', 'Delete this caption');
+    acts.appendChild(splitBtn);
+    acts.appendChild(mergeBtn);
+    acts.appendChild(more);
+    acts.appendChild(del);
+    const mk = (icon, title) => {
       const b = document.createElement('button');
       b.type = 'button'; b.className = 'tool'; b.textContent = icon + '  ' + L(title);
-      if (cls) b.classList.add(cls);
       menu.appendChild(b);
       return b;
     };
@@ -2721,16 +2746,29 @@ function renderReview() {
     });
     const nudgeBack = mk('−0.1s', 'Shift this caption −0.1s');
     const nudgeFwd = mk('+0.1s', 'Shift this caption +0.1s');
-    const splitBtn = mk('\u2702', 'Split this caption into two');
-    const mergeBtn = mk('\u2295', 'Merge this caption into the next');
+    const addBelow = mk('+', 'Add a caption below');
     const nextCue = reviewCues[i + 1];
-    mergeBtn.disabled = !nextCue ||
-      (cue.speaker && nextCue.speaker && cue.speaker !== nextCue.speaker);
-    splitBtn.disabled = ((cue.text || '').trim().split(/\s+/).filter(Boolean).length <= 1);
+    mergeBtn.disabled = !canJoin(i);
+    splitBtn.disabled = !splitTextAt(cue.text || '', -1);
     nudgeBack.addEventListener('click', () => nudgeReview(i, -0.1));
     nudgeFwd.addEventListener('click', () => nudgeReview(i, 0.1));
-    splitBtn.addEventListener('click', () => splitReview(i));
+    addBelow.addEventListener('click', () => { const j = addReviewCue(i); focusReviewCue(j, 0); });
+    splitBtn.addEventListener('click', () => {
+      const j = splitReview(i, cue._caret);
+      if (j >= 0) focusReviewCue(j, 0);
+    });
     mergeBtn.addEventListener('click', () => mergeReview(i));
+    // Hovering Join lights up the two captions that will become one; hovering
+    // Delete tints the caption that will go.
+    const joinPreview = (on) => {
+      row.classList.toggle('join-preview', on);
+      const nx = row.nextSibling || (row.parentNode && row.parentNode.children[i + 1]);
+      if (nx && nx.classList) nx.classList.toggle('join-preview', on && !!nextCue);
+    };
+    mergeBtn.addEventListener('mouseenter', () => { if (!mergeBtn.disabled) joinPreview(true); });
+    mergeBtn.addEventListener('mouseleave', () => joinPreview(false));
+    del.addEventListener('mouseenter', () => row.classList.add('del-preview'));
+    del.addEventListener('mouseleave', () => row.classList.remove('del-preview'));
 
     const textBox = document.createElement('div');
     textBox.className = 'text-box';
@@ -2742,7 +2780,6 @@ function renderReview() {
     ta.setAttribute('lang', 'am');
     ta.setAttribute('aria-label', 'Caption ' + (i + 1) + ' text');
 
-    const del = mk('✕', 'Delete this caption', 'danger');
 
     // Time edits re-sort and re-render; text edits update the live cue only.
     tIn.addEventListener('change', () => {
@@ -2764,18 +2801,25 @@ function renderReview() {
     const back = document.createElement('div');
     back.className = 'hl-back';
     back.setAttribute('aria-hidden', 'true');
+    // Words fixed from the memory are marked green the same way.
     const paint = () => {
       const t = cue.text || '';
       const rs = doubtRanges(t, cue.doubt);
+      const all = rs.map((r) => ({ start: r.start, end: r.end, cls: '' }));
+      doubtRanges(t, cue._fixed).forEach((r) => {
+        if (!all.some((x) => r.start < x.end && x.start < r.end)) all.push({ start: r.start, end: r.end, cls: 'fix' });
+      });
+      all.sort((a, b) => a.start - b.start);
       back.textContent = '';
       let at = 0;
-      const put = (tag, s) => {
+      const put = (tag, s, cls) => {
         if (!s) return;
         const n = document.createElement(tag);
         n.textContent = s;
+        if (cls) n.className = cls;
         back.appendChild(n);
       };
-      rs.forEach((r) => { put('span', t.slice(at, r.start)); put('mark', t.slice(r.start, r.end)); at = r.end; });
+      all.forEach((r) => { put('span', t.slice(at, r.start)); put('mark', t.slice(r.start, r.end), r.cls); at = r.end; });
       put('span', t.slice(at) + '\u200b');   // keeps a trailing line break the same height
       row.classList.toggle('doubt', rs.length > 0);
     };
@@ -2785,6 +2829,31 @@ function renderReview() {
     ta.addEventListener('input', () => { cue.text = ta.value; paint(); fitReviewBox(ta); updateReviewCount(); });
     ta.addEventListener('scroll', () => { back.scrollTop = ta.scrollTop; });
     ta.addEventListener('change', () => offerFixAll(cue));
+    const keepCaret = () => { cue._caret = ta.selectionStart; };
+    ta.addEventListener('keyup', keepCaret);
+    ta.addEventListener('select', keepCaret);
+    ta.addEventListener('focus', () => { setTimeout(keepCaret, 0); });
+    // Enter = split here, Shift+Enter = a line break inside the caption,
+    // Backspace at the very start = join with the caption above (like the
+    // transcript editors people know). Never while an Amharic keyboard (IME)
+    // is still composing a letter.
+    ta.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
+      if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (e.preventDefault) e.preventDefault();
+        cue.text = ta.value;
+        const j = splitReview(i, ta.selectionStart);
+        if (j >= 0) focusReviewCue(j, 0);
+        return;
+      }
+      if (e.key === 'Backspace' && ta.selectionStart === 0 && ta.selectionEnd === 0 && i > 0 && canJoin(i - 1)) {
+        if (e.preventDefault) e.preventDefault();
+        cue.text = ta.value;
+        const at = (reviewCues[i - 1].text || '').trim().length + 1;
+        mergeReview(i - 1);
+        focusReviewCue(i - 1, at);
+      }
+    });
     // Click an orange word: it is selected, so typing replaces it, and the
     // playhead goes to this caption so the word can be heard.
     ta.addEventListener('click', () => {
@@ -2795,16 +2864,17 @@ function renderReview() {
       try { ta.setSelectionRange(r.start, r.end); } catch (e) {}
       seekPlayhead(cue.start);
     });
-    del.addEventListener('click', () => { reviewCues.splice(i, 1); renderReview(); });
+    del.addEventListener('click', () => deleteReviewCue(i));
 
     row.appendChild(timeBox);
     row.appendChild(textBox);
-    row.appendChild(more);
+    row.appendChild(acts);
     // Click a caption row to jump the Premiere playhead to that caption's start.
     row.addEventListener('click', (e) => {
       const el = e.target;
       if (el === tIn || el === tOut) return; // time inputs handle their own edits
       if (el.tagName === 'BUTTON' || el.tagName === 'TEXTAREA') return;
+      if (el.parentNode && el.parentNode.tagName === 'BUTTON') return;
       seekPlayhead(cue.start);
     });
     list.appendChild(row);
@@ -2823,43 +2893,117 @@ function renderReview() {
 // Review editor ops: nudge a caption's timing, split its text, merge with the
 // next caption. All operate on the working copy; nothing reaches the timeline
 // until the user places.
+// Every structural edit (split, join, delete, shift, add, change all) saves a
+// snapshot first, so "↩ Undo" puts it back — a one-click delete is safe.
+function pushReviewUndo(what) {
+  REVIEW_UNDO.push({ what, cues: JSON.stringify(reviewCues) });
+  if (REVIEW_UNDO.length > 30) REVIEW_UNDO.shift();
+  syncReviewUndo();
+}
+function syncReviewUndo() {
+  const b = $('revUndo');
+  if (!b) return;
+  const top = REVIEW_UNDO[REVIEW_UNDO.length - 1];
+  b.style.display = top ? '' : 'none';
+  b.textContent = top ? '↩ ' + L('Undo ' + top.what) : '';
+  b.title = L('Undo the last change (Ctrl+Z)');
+}
+function undoReview() {
+  const top = REVIEW_UNDO.pop();
+  if (!top) return;
+  reviewCues = JSON.parse(top.cues);
+  hideFixAll();
+  renderReview();
+  syncReviewUndo();
+}
+function canJoin(i) {
+  const cue = reviewCues[i];
+  const next = reviewCues[i + 1];
+  return !!(cue && next && !(cue.speaker && next.speaker && cue.speaker !== next.speaker));
+}
+// Put the cursor in caption `i` at `caret` (after a split / join / add).
+function focusReviewCue(i, caret) {
+  const list = $('reviewList');
+  const row = list && list.children ? list.children[i] : null;
+  const ta = row && row.querySelector ? row.querySelector('textarea') : null;
+  if (!ta) return;
+  try {
+    if (ta.focus) ta.focus();
+    const at = Math.max(0, Math.min(caret || 0, (ta.value || '').length));
+    if (ta.setSelectionRange) ta.setSelectionRange(at, at);
+  } catch (e) { /* not focusable */ }
+}
+
 function nudgeReview(i, delta) {
   const cue = reviewCues[i];
   if (!cue) return;
+  pushReviewUndo('shift');
   cue.start = Math.max(0, cue.start + delta);
   cue.end = Math.max(cue.start + 0.3, cue.end + delta);
   renderReview();
 }
 
-function splitReview(i) {
+// Split at the cursor (snapped to the nearest space), or in the middle when
+// the cursor is not inside the text. The time is shared by the length of the
+// two halves. Returns the index of the second half, or -1.
+function splitReview(i, pos) {
   const cue = reviewCues[i];
-  if (!cue) return;
-  const words = (cue.text || '').trim().split(/\s+/).filter(Boolean);
-  if (words.length < 2) return;
-  const mid = Math.ceil(words.length / 2);
-  const first = words.slice(0, mid).join(' ');
-  const second = words.slice(mid).join(' ');
-  if (!first || !second) return;
-  const frac = (first.length + 1) / ((cue.text || '').trim().length + 2);
-  const cut = cue.start + (cue.end - cue.start) * Math.max(0.1, Math.min(0.9, frac));
+  if (!cue) return -1;
+  const parts = splitTextAt(cue.text || '', pos);
+  if (!parts) return -1;
+  pushReviewUndo('split');
+  const [first, second] = parts;
+  const frac = (first.length + 1) / (first.length + second.length + 2);
+  const cutAt = cue.start + (cue.end - cue.start) * Math.max(0.1, Math.min(0.9, frac));
   const original = cue.end;
-  cue.text = first;
-  cue.end = Math.max(cue.start + 0.3, cut);
-  const secondCue = { start: cue.end, end: original, text: second };
+  const keep = (words) => (words || []).filter((w) => doubtRanges(second, [w]).length);
+  const secondCue = { start: Math.max(cue.start + 0.3, cutAt), end: original, text: second, _id: 'n' + (REVIEW_NEXT_ID++) };
   if (cue.speaker) secondCue.speaker = cue.speaker;
+  if (cue.doubt) secondCue.doubt = keep(cue.doubt);
+  if (cue._fixed) secondCue._fixed = keep(cue._fixed);
+  cue.text = first;
+  cue.end = secondCue.start;
+  cue._caret = undefined;
   reviewCues.splice(i + 1, 0, secondCue);
+  hideFixAll();
   renderReview();
+  return i + 1;
 }
 
 function mergeReview(i) {
+  if (!canJoin(i)) return;
   const cue = reviewCues[i];
   const next = reviewCues[i + 1];
-  if (!cue || !next) return;
-  if (cue.speaker && next.speaker && cue.speaker !== next.speaker) return;
+  pushReviewUndo('join');
   cue.text = (cleanCueLines(cue.text) + ' ' + cleanCueLines(next.text)).trim();
   cue.end = next.end;
+  if (next.doubt) cue.doubt = (cue.doubt || []).concat(next.doubt);
+  if (next._fixed) cue._fixed = (cue._fixed || []).concat(next._fixed);
   reviewCues.splice(i + 1, 1);
+  hideFixAll();
   renderReview();
+}
+
+function deleteReviewCue(i) {
+  if (!reviewCues[i]) return;
+  pushReviewUndo('delete');
+  reviewCues.splice(i, 1);
+  hideFixAll();
+  renderReview();
+}
+
+// A new empty caption right after caption `i` (or at the end), in the gap
+// when there is one. Returns its index.
+function addReviewCue(i) {
+  pushReviewUndo('add');
+  const prev = i >= 0 ? reviewCues[i] : reviewCues[reviewCues.length - 1];
+  const next = i >= 0 ? reviewCues[i + 1] : null;
+  const start = prev ? prev.end : 0;
+  const end = next ? Math.max(start + 0.3, Math.min(start + 2, next.start)) : start + 2;
+  const at = i >= 0 ? i + 1 : reviewCues.length;
+  reviewCues.splice(at, 0, { start, end, text: '', _id: 'n' + (REVIEW_NEXT_ID++) });
+  renderReview();
+  return at;
 }
 
 // After a run with "Label speakers" on, say what it found — it used to
@@ -3013,12 +3157,15 @@ function initReview() {
   const expBtn = $('reviewExport');
   if (expBtn) expBtn.addEventListener('click', exportReviewFiles);
   $('reviewAdd').addEventListener('click', () => {
-    const last = reviewCues.length ? reviewCues[reviewCues.length - 1] : null;
-    const start = last ? last.end : 0;
-    const end = last ? last.end + 2 : 2;
-    reviewCues.push({ start, end, text: '' });
-    renderReview();
+    const j = addReviewCue(-1);
+    focusReviewCue(j, 0);
   });
+  const undoEdit = $('revUndo');
+  if (undoEdit) undoEdit.addEventListener('click', undoReview);
+  const memBtn = $('revMemory');
+  if (memBtn) memBtn.addEventListener('click', toggleMemoryPanel);
+  const faRem = $('fixAllRemember');
+  if (faRem) faRem.addEventListener('click', rememberOffer);
 
   const faGo = $('fixAllGo');
   if (faGo) faGo.addEventListener('click', applyFixAll);
@@ -3055,6 +3202,14 @@ function initReview() {
       discardReview();
     }
     else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { placeReview(); }
+    else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
+      // In a text box Ctrl+Z undoes typing (the browser's own); elsewhere it
+      // undoes the last split / join / delete.
+      const el = e.target;
+      if (el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')) return;
+      if (e.preventDefault) e.preventDefault();
+      undoReview();
+    }
   });
 }
 
@@ -3067,15 +3222,21 @@ function offerFixAll(cue) {
   const base = REVIEW_BASE.find((b) => String(b._id) === String(cue._id));
   if (!base) return;
   const pairs = learnFixes([base], [cue]);
-  for (let k = 0; k < pairs.length; k++) {
-    const w = pairs[k][0], r = pairs[k][1];
-    const n = reviewCues.filter((c) => c !== cue && replaceWords(c.text, w, r).n).length;
-    if (!n) continue;
-    FIX_OFFER = { w, r };
-    $('fixAllText').textContent = w + ' → ' + r + ' · ' + L('also in ' + n + ' more captions');
-    bar.style.display = '';
-    return;
-  }
+  if (!pairs.length) return;
+  const w = pairs[0][0], r = pairs[0][1];
+  const n = reviewCues.filter((c) => c !== cue && replaceWords(c.text, w, r).n).length;
+  const st = loadFixStore();
+  const known = st.fixes[w] && st.fixes[w].to === r && st.fixes[w].strong;
+  FIX_OFFER = { w, r };
+  $('fixAllText').textContent = w + ' → ' + r;
+  const go = $('fixAllGo');
+  go.textContent = L('Change all') + ' (' + n + ')';
+  go.style.display = n ? '' : 'none';
+  const rem = $('fixAllRemember');
+  rem.textContent = known ? '🧠 ' + L('Already remembered') : '🧠 ' + L('Remember');
+  rem.disabled = !!known;
+  rem.title = L('Fix this word automatically in every new transcription');
+  bar.style.display = '';
 }
 function hideFixAll() {
   FIX_OFFER = null;
@@ -3085,18 +3246,109 @@ function hideFixAll() {
 function applyFixAll() {
   if (!FIX_OFFER) return;
   const w = FIX_OFFER.w, r = FIX_OFFER.r;
+  pushReviewUndo('change all');
   let n = 0;
   reviewCues.forEach((c) => { const x = replaceWords(c.text, w, r); if (x.n) { c.text = x.text; n += x.n; } });
   log('Changed "' + w + '" to "' + r + '" in ' + n + ' place(s).');
   hideFixAll();
   renderReview();
 }
+// 🧠 Remember: this word is fixed automatically from now on (no need to fix
+// it twice first). Shown in the memory list, where it can be forgotten.
+function rememberOffer() {
+  if (!FIX_OFFER) return;
+  const w = FIX_OFFER.w, r = FIX_OFFER.r;
+  const st = loadFixStore();
+  rememberFix(st, w, r, true);
+  saveFixStore(st);
+  REVIEW_LEARNED[w + '\u0000' + r] = true;
+  $('fixAllText').textContent = '✓ ' + w + ' → ' + r + ' · ' + L('Remembered — fixed automatically next time');
+  $('fixAllGo').style.display = FIX_OFFER && reviewCues.some((c) => replaceWords(c.text, w, r).n) ? '' : 'none';
+  const rem = $('fixAllRemember');
+  rem.textContent = '🧠 ' + L('Already remembered');
+  rem.disabled = true;
+  syncMemoryButton();
+  renderMemoryPanel();
+}
+function syncMemoryButton() {
+  const b = $('revMemory');
+  if (!b) return;
+  const n = Object.keys(activeFixes(loadFixStore())).length;
+  b.textContent = '🧠 ' + L('Memory') + (n ? ' (' + n + ')' : '');
+  b.title = L('Words you taught the panel — they are fixed automatically in every new transcription.');
+}
+function toggleMemoryPanel() {
+  const p = $('memoryPanel');
+  if (!p) return;
+  const open = p.style.display === 'none';
+  p.style.display = open ? '' : 'none';
+  if (open) renderMemoryPanel();
+}
+function renderMemoryPanel() {
+  const p = $('memoryPanel');
+  if (!p || p.style.display === 'none') return;
+  const st = loadFixStore();
+  const words = Object.keys(st.fixes).sort((a, b) => (st.fixes[b].at || 0) - (st.fixes[a].at || 0));
+  p.textContent = '';
+  const head = document.createElement('div');
+  head.className = 'mem-head';
+  head.textContent = '🧠 ' + L('Remembered fixes');
+  p.appendChild(head);
+  const sub = document.createElement('div');
+  sub.className = 'mem-sub';
+  sub.textContent = words.length
+    ? L('Words you taught the panel — they are fixed automatically in every new transcription.')
+    : L('Nothing remembered yet — fix a word, then tap “🧠 Remember”.');
+  p.appendChild(sub);
+  const list = document.createElement('div');
+  list.className = 'mem-list';
+  words.forEach((w) => {
+    const f = st.fixes[w];
+    const line = document.createElement('div');
+    line.className = 'mem-row';
+    const txt = document.createElement('span');
+    txt.className = 'mem-pair';
+    txt.textContent = w + ' → ' + f.to;
+    line.appendChild(txt);
+    const state = document.createElement('span');
+    state.className = 'mem-state';
+    const active = f.strong || (f.n || 0) >= FIX_LEARN_AFTER;
+    state.textContent = active ? '✓' : L('learning — fix it once more');
+    line.appendChild(state);
+    const x = document.createElement('button');
+    x.type = 'button'; x.className = 'mem-del'; x.textContent = '✕';
+    x.title = L('Forget this fix');
+    x.addEventListener('click', () => {
+      const cur = loadFixStore();
+      delete cur.fixes[w];
+      saveFixStore(cur);
+      syncMemoryButton();
+      renderMemoryPanel();
+    });
+    line.appendChild(x);
+    list.appendChild(line);
+  });
+  p.appendChild(list);
+  if (words.length) {
+    const all = document.createElement('button');
+    all.type = 'button'; all.className = 'mem-all';
+    all.textContent = L('Forget all');
+    all.addEventListener('click', () => {
+      if (all.dataset.armed !== '1') { all.dataset.armed = '1'; all.textContent = L('Tap again to forget all'); return; }
+      saveFixStore({ v: 1, fixes: {} });
+      log('Auto-correct memory cleared.');
+      syncMemoryButton();
+      renderMemoryPanel();
+    });
+    p.appendChild(all);
+  }
+}
 function syncUndoFixButton() {
   const b = $('revUndoFix');
   if (!b) return;
   const n = REVIEW_AUTOFIX.count;
   b.style.display = n ? '' : 'none';
-  b.textContent = n ? '↩ ' + L(n + ' auto-fixed · undo') : '';
+  b.textContent = n ? '🧠 ' + L(n + ' fixed from memory · undo') : '';
   b.title = L('Words changed by your remembered fixes — click to put the original words back');
 }
 // Undo puts the original words back AND forgets those rules: a fix the
@@ -3117,7 +3369,9 @@ function undoAutoFixes() {
     log('Auto-correct memory: forgot ' + words.length + ' fix(es) you undid.');
   }
   REVIEW_AUTOFIX = { orig: {}, count: 0, rules: {} };
+  reviewCues.forEach((c) => { delete c._fixed; });
   syncUndoFixButton();
+  syncMemoryButton();
   renderReview();
 }
 
