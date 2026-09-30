@@ -2709,6 +2709,88 @@ console.log('\n:: scenario 25 — support: find, move a license to a new compute
   ok('admin: /help = command cheat sheet (buyers unchanged); /audit lists moves and gifts in Ethiopian time');
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: scenario 26 — customer bot: questions answered, home screen by customer, one reminder');
+
+{
+  const { env } = fresh();
+  const U = '960000001';
+  const say = (text) => post(env, msg(Number(U), { id: Number(U), username: 'c' + U, first_name: 'Sara' }, { text }));
+  const tap = (data) => cb(env, { id: Number(U), username: 'c' + U }, data, { chatId: Number(U) });
+  const toU = () => OUTBOUND.filter((x) => x.id && ['sendMessage', 'editMessageText'].includes(x.method) && String(x.body.chat_id) === U);
+  const last = () => toU().at(-1);
+  const txt = () => String(last().body.text || '');
+  const kb = () => JSON.stringify(last().body.reply_markup || {});
+
+  // 1. New customer: the offer, with a Questions button; FAQ list and answers.
+  await say('/start');
+  assert.ok(txt().includes('Welcome') && kb().includes('menu:pay') && kb().includes('faq:home'), 'newcomer: offer + Pay + Questions');
+  await tap('faq:home');
+  for (const k of ['price', 'trial', 'need', 'install', 'when', 'newpc', 'key']) assert.ok(kb().includes('faq:' + k), 'FAQ lists ' + k);
+  await tap('faq:need');
+  assert.ok(txt().includes('2024') && txt().includes('Mac'), 'requirements answer');
+  ok('customer: ❓ Questions — seven answers one tap away');
+
+  // 2. Questions typed in their own words (Amharic, English, Latin-typed Amharic).
+  const cases = [['ዋጋው ስንት ነው?', 'ETB 2,500'], ['waga sint new', 'ETB 2,500'], ['is there a free trial?', '2 captions free'],
+    ['እንዴት ልጫን?', 'Window → Extensions'], ['does it work on mac', '2024'], ['eske meche new', 'few hours'],
+    ['I changed computer', 'move it for free'], ['key aysera', 'Key not working'], ['amesegnalehu', 'welcome']];
+  for (const [q, want] of cases) {
+    await say(q);
+    assert.ok(txt().includes(want), `"${q}" → ${want}\n${txt()}`);
+  }
+  await say('this is great'); // "hi" inside "this" is not a greeting
+  assert.ok(txt().includes('did not get that') && kb().includes('faq:home'), 'unknown → Questions + Ask a person');
+  ok('customer: typed questions (Amharic / English / Latin Amharic) get real answers; unknown → Questions + a person');
+
+  // 3. While paying: the question is answered AND the screenshot is still expected.
+  await tap('menu:pay');
+  await say('mac lay yiseral?');
+  assert.ok(txt().includes('2024') && txt().includes('send the screenshot'), 'answer + screenshot reminder');
+  assert.equal(row(env, 'SELECT step FROM fsm WHERE uid=?', U).step, 'photo', 'still waiting for the screenshot');
+  await say('selam');
+  assert.ok(txt().includes('Waiting for the payment screenshot'), 'a greeting mid-payment just re-asks for the screenshot');
+
+  // 4. Paid and waiting: status in words and on /start; no Pay button.
+  await post(env, msg(Number(U), { id: Number(U), username: 'c' + U }, { photo: [{ file_id: 'AgAC-c26', file_unique_id: 'U-c26' }] }));
+  const o = row(env, 'SELECT * FROM orders WHERE uid=? ORDER BY id DESC LIMIT 1', U);
+  await say('eske meche new?');
+  assert.ok(txt().includes(`Order #${o.id} is being checked`) && txt().includes('in line'), 'status: order + place in line');
+  await say('/start');
+  assert.ok(txt().includes(`#${o.id}`) && !kb().includes('menu:pay'), 'pending home: status, no Pay');
+  ok('customer: mid-payment questions keep the payment going; a waiting buyer sees their place in line');
+
+  // 5. Owner: no sales pitch any more.
+  await cb(env, { id: Number(ADMIN_ID) }, 'approve:' + o.id, { chatId: Number(ADMIN_ID) });
+  await say('/start');
+  assert.ok(txt().includes('You own Amharic Captions Pro') && !kb().includes('menu:pay') && kb().includes('menu:mykey'), 'owner home');
+  await tap('menu:home');
+  assert.ok(txt().includes('You own Amharic Captions Pro'), 'Menu button shows the same owner home');
+  await say('when do i get my key');
+  assert.ok(txt().includes('confirmed') && kb().includes('menu:mykey'), 'owner asking "when" → it is under My Key');
+  ok('customer: an owner sees "you own it" + My Key — never the Pay pitch again');
+
+  // 6. One reminder for someone who opened Pay and went quiet.
+  const Q = '960000002', P = '960000003';
+  for (const uid of [Q, P]) {
+    await post(env, msg(Number(uid), { id: Number(uid), username: 'q' + uid }, { text: '/start' }));
+    await cb(env, { id: Number(uid) }, 'menu:pay', { chatId: Number(uid) });
+  }
+  await post(env, msg(Number(P), { id: Number(P), username: 'q' + P }, { photo: [{ file_id: 'AgAC-p', file_unique_id: 'U-p' }] }));
+  env.DB.prepare("UPDATE fsm SET updated_at=datetime('now','-5 hours')").run();
+  env.DB.prepare("UPDATE fsm SET step='photo'").run();
+  const before = OUTBOUND.length;
+  await worker.scheduled({ cron: '0 */6 * * *' }, env);
+  const nudges = OUTBOUND.slice(before).filter((x) => String(x.body.text || '').includes('opened the payment page earlier'));
+  assert.deepEqual(nudges.map((x) => String(x.body.chat_id)), [Q], 'only the quiet one, not the one who paid');
+  assert.ok(JSON.stringify(nudges[0].body.reply_markup).includes('faq:home'), 'reminder offers the answers');
+  const again = OUTBOUND.length;
+  env.DB.prepare("UPDATE fsm SET updated_at=datetime('now','-5 hours')").run();
+  await worker.scheduled({ cron: '0 */6 * * *' }, env);
+  assert.ok(!OUTBOUND.slice(again).some((x) => String(x.body.text || '').includes('opened the payment page earlier')), 'never twice');
+  ok('customer: one friendly reminder (with answers) for a buyer who opened Pay and went quiet — never twice, never after paying');
+}
+
 // Across EVERY scenario: nothing may be silently refused by Telegram (a refused
 // call is a screen the user never sees). Only the recovered photo→file case.
 {
