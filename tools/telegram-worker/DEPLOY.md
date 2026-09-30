@@ -618,3 +618,17 @@ failed PINs. Kept for a year.
   or revenue; revoke any time from /find. Needs the admin PIN.
 - `/help` (as admin) or **📖 Commands** shows the admin cheat sheet. "Today" on the
   dashboard and the /audit times are Ethiopian time.
+
+## Customer bot: answers, home screen, one reminder (no migration)
+
+- **❓ Questions** on the menu: price, free trial, requirements, install, when the key
+  arrives, new computer, key not working — each one tap, with the right buttons.
+- **Typed questions get answers** — Amharic, English and Amharic typed in Latin letters
+  ("waga sint", "eske meche", "aysera"). While a buyer is paying, the answer also
+  reminds them the screenshot is the only step left. Anything else → Questions +
+  "Ask a person" (@sumpak6).
+- **Home screen by customer:** newcomer → the offer; paid and waiting → "Order #N,
+  #k in line"; owner → "You own it" + My Key (no Pay button any more).
+- **One reminder:** someone who opened Pay and then went quiet for 3–24 h gets one
+  friendly message with the answers and the free trial (6-hour cron). Never twice in
+  30 days, never after an order.

@@ -410,8 +410,10 @@ function heroText(first = '', offer = null) {
 // One button per row on purpose: Amharic labels are longer than their English
 // equivalents, and two per row truncates them with an ellipsis on a phone.
 // `invite` adds the referral button (programme ON and the user is a buyer).
+const FAQ_BTN = { text: '❓ ጥያቄዎች · Questions', callback_data: 'faq:home' };
 const heroKeyboard = (invite = false) => [
   [{ text: '💳 ክፍያ · Pay', callback_data: 'menu:pay' }],
+  [FAQ_BTN],
   [{ text: '🔑 ቁልፌ · My Key', callback_data: 'menu:mykey' }],
   ...(invite ? [[{ text: '🎁 ጓደኛ ይጋብዙ · Invite friends', callback_data: 'ref:invite' }]] : []),
   [{ text: '📲 አጫጫን · Install guide', url: `${SITE_URL}/install` }],
@@ -1857,12 +1859,12 @@ async function editText(chatId, messageId, text, kb) {
 // nobody was told — which is what "Back to menu doesn't work" looked like.
 // Fall back to sending the menu so the tap always produces something visible.
 async function showMenu(chatId, messageId) {
-  const kb = await menuKeyboardFor(chatId);
+  const home = await homeScreen(chatId);
   if (messageId) {
-    const r = await editText(chatId, messageId, MENU, kb);
+    const r = await editText(chatId, messageId, home.text, home.kb);
     if (r && r.ok) return r;
   }
-  return sendText(chatId, MENU, kb);
+  return sendText(chatId, home.text, home.kb);
 }
 
 function editKeyboard(chatId, messageId, kb) {
@@ -1985,7 +1987,8 @@ async function handleMessage(msg, env) {
         const inv = startArg && /^r_([A-Za-z0-9]{3,20})$/.exec(startArg[1]);
         const reason = inv ? await attachReferral(uid, inv[1]) : null;
         const offer = await referralOffer(uid);
-        await sendText(chatId, heroText(first, offer) + (offer ? '' : linkNote(reason)), await menuKeyboardFor(uid));
+        const home = await homeScreen(uid, first, offer);
+        await sendText(chatId, home.text + (offer || !inv ? '' : linkNote(reason)), home.kb);
       }
     } else await sendText(chatId, groupWelcome(), MENU_KEYBOARD);
     return;
@@ -2254,6 +2257,236 @@ function suspiciousMid(mid) {
   return false;
 }
 
+// ── the customer's home screen, FAQ and plain-language answers ──────────────
+// The home screen depends on where the customer is: a newcomer sees the offer,
+// someone who paid sees their place in line, an owner sees their key — never
+// the sales pitch again.
+async function customerState(uid) {
+  let pend = null;
+  try {
+    pend = await DB.prepare("SELECT id FROM orders WHERE uid=? AND status='pending' ORDER BY id DESC LIMIT 1")
+      .bind(String(uid)).first();
+  } catch (e) { /* fall through */ }
+  if (pend) {
+    const pos = await DB.prepare("SELECT COUNT(*) AS n FROM orders WHERE status='pending' AND id<=?").bind(pend.id).first();
+    return { kind: 'pending', id: pend.id, pos: (pos && pos.n) || 1 };
+  }
+  if (await isBuyer(uid)) return { kind: 'owner' };
+  return { kind: 'new' };
+}
+
+const INSTALL_BTN = { text: '📲 አጫጫን · Install guide', url: `${SITE_URL}/install` };
+const SUPPORT_BTN = { text: '💬 ሰው ያናግሩ · Ask a person', url: SUPPORT_URL };
+const MENU_BTN = { text: '⬅ ወደ ዋና ገጽ · Menu', callback_data: 'menu:home' };
+
+function pendingText(st, first = '') {
+  const name = first ? `${esc(first)}, ` : '';
+  return `⏳ ${name}<b>ትዕዛዝ #${st.id} እየተረጋገጠ ነው</b> — በተራ <b>#${st.pos}</b>\n` +
+    `<i>Order #${st.id} is being checked — #${st.pos} in line.</i>\n\n` +
+    '🔑 ሲረጋገጥ እዚሁ ቻት እናሳውቅዎታለን — ሌላ ምንም ማድረግ አያስፈልግም።\n' +
+    '<i>We will tell you right here once it is confirmed — nothing else to do.</i>\n\n' +
+    '⏱ አብዛኛውን ጊዜ በጥቂት ሰዓታት ውስጥ (በኢትዮጵያ የስራ ሰዓት)።\n' +
+    '<i>Usually within a few hours (Ethiopian working hours).</i>\n\n' +
+    '📲 እስከዚያው መተግበሪያውን ይጫኑ። <i>Meanwhile, install the app.</i>';
+}
+
+async function homeScreen(uid, first = '', offer = null) {
+  const st = await customerState(uid);
+  if (st.kind === 'pending') {
+    return { text: pendingText(st, first), kb: [[INSTALL_BTN], [FAQ_BTN], [SUPPORT_BTN]] };
+  }
+  if (st.kind === 'owner') {
+    const name = first ? `${esc(first)}, ` : '';
+    const kb = (await menuKeyboardFor(uid)).filter((r) => !(r[0] && r[0].callback_data === 'menu:pay'));
+    return {
+      text: `✅ ${name}<b>አማርኛ ካፕሽን ፕሮ አለዎት።</b>\n<i>You own Amharic Captions Pro.</i>\n\n` +
+        '🔑 ቁልፍዎ ወይም ኮድዎ «ቁልፌ» ውስጥ ነው።\n<i>Your key or code is under My Key.</i>\n\n' +
+        '🖥 ኮምፒውተር ቀየሩ ወይም ቁልፉ አልሰራም? «ጥያቄዎች»ን ይመልከቱ።\n' +
+        '<i>New computer, or the key does not work? See Questions.</i>',
+      kb,
+    };
+  }
+  return { text: heroText(first, offer), kb: await menuKeyboardFor(uid) };
+}
+
+const FAQ = {
+  price: {
+    btn: '💰 ዋጋው ስንት ነው? · Price',
+    text: () => `💰 <b>ዋጋ / Price</b>\n\n<b>${PRICE}</b> — አንድ ጊዜ ብቻ፣ ወርሃዊ ክፍያ የለም። (<s>ETB 3,500</s> — የመግቢያ ዋጋ)\n` +
+      '<i>One payment — no monthly fee (launch price).</i>\n\n' +
+      '✅ ለአንድ ኮምፒውተር · ዝማኔዎች በነጻ\n<i>For one computer · updates are free.</i>\n\n' +
+      '🏦 ክፍያ በባንክ ዝውውር (CBE፣ አቢሲኒያ፣ ዘመን) — «ክፍያ» ይንኩ።\n<i>Bank transfer (CBE, Abyssinia, Zemen) — tap Pay.</i>',
+    kb: () => [[{ text: '💳 ክፍያ · Pay', callback_data: 'menu:pay' }]],
+  },
+  trial: {
+    btn: '🎁 በነጻ መሞከር እችላለሁ? · Free trial',
+    text: () => '🎁 <b>በነጻ መሞከር / Free trial</b>\n\n' +
+      'ፓነሉን ይጫኑ — <b>2 ካፕሽን በነጻ</b> ይሰራሉ፤ ክፍያም ምዝገባም አያስፈልግም። ከወደዱት በኋላ ብቻ ይክፈሉ።\n' +
+      '<i>Install the panel and make 2 captions free — no payment, no sign-up. Pay only if you like it.</i>',
+    kb: () => [[INSTALL_BTN]],
+  },
+  need: {
+    btn: '🖥 ምን ያስፈልገኛል? · Requirements',
+    text: () => '🖥 <b>ምን ያስፈልጋል? / What do I need?</b>\n\n' +
+      '• <b>Premiere Pro</b> ወይም <b>After Effects</b> — 2024 ወይም ከዚያ በኋላ\n<i>  Premiere Pro or After Effects 2024 or newer</i>\n' +
+      '• Windows (64-bit) ወይም Mac\n<i>  Windows (64-bit) or Mac</i>\n' +
+      '• ቪዲዮዎ ከኮምፒውተርዎ አይወጣም — ካፕሽኑ በኮምፒውተርዎ ላይ ይሰራል።\n<i>  Your video never leaves your computer — captions are made on it.</i>\n\n' +
+      '✂️ CapCut ወይም ሌላ ኤዲተር? ካፕሽኑን በፓነሉ ሰርተው «የሰብታይትል ፋይሎችን አስቀምጥ» ብለው የSRT ፋይሉን ያስገቡ።\n' +
+      '<i>CapCut or another editor? Make the captions in the panel, “Save subtitle files”, and import the SRT.</i>',
+    kb: () => [[INSTALL_BTN]],
+  },
+  install: {
+    btn: '📲 እንዴት እጭነዋለሁ? · How to install',
+    text: () => '📲 <b>አጫጫን / Installing</b>\n\n' +
+      '<b>①</b> ከድረ-ገጹ ያውርዱ · <i>download it from the website</i>\n' +
+      '<b>②</b> Premiere እና After Effects ይዝጉ፣ ከዚያ <b>Install</b> ን ያስኪዱ · <i>close Premiere / After Effects, then run Install</i>\n' +
+      '<b>③</b> Premiere ይክፈቱ → <b>Window → Extensions → Amharic Captions Pro</b>\n\n' +
+      'ሙሉ መመሪያው ከታች ነው። <i>The full guide is below.</i>',
+    kb: () => [[INSTALL_BTN]],
+  },
+  when: {
+    btn: '⏱ ቁልፌ መቼ ይደርሳል? · When do I get my key?',
+    text: () => '⏱ <b>ቁልፌ መቼ ይደርሳል? / When do I get my key?</b>\n\n' +
+      'ስክሪንሾቱን ከላኩ በኋላ በጥቂት ሰዓታት ውስጥ (በኢትዮጵያ የስራ ሰዓት) — እዚሁ ቻት ውስጥ።\n' +
+      '<i>A few hours after you send the screenshot (Ethiopian working hours) — right here in this chat.</i>\n\n' +
+      '🖥 ከፓነሉ «ፈቃድ ይግዙ» ከገዙ ፓነሉ በራሱ ይነቃል። 📱 ከስልክ ከገዙ አጭር ኮድ ይደርስዎታል።\n' +
+      '<i>Bought with the panel’s Buy button? It activates itself. From your phone? You get a short code.</i>',
+    kb: () => [[{ text: '💳 ክፍያ · Pay', callback_data: 'menu:pay' }]],
+  },
+  newpc: {
+    btn: '🔁 ኮምፒውተር ቀየርኩ · New computer',
+    text: () => '🔁 <b>ኮምፒውተር ቀየሩ? / New computer?</b>\n\n' +
+      'አንድ ፈቃድ ለአንድ ኮምፒውተር ነው — ኮምፒውተር ከቀየሩ ወይም Windows እንደገና ከጫኑ ግን <b>በነጻ እናዛውርልዎታለን</b>።\n' +
+      '<i>One license = one computer — but if you change computer or reinstall Windows, we move it for free.</i>\n\n' +
+      'በአዲሱ ኮምፒውተር ፓነሉን ይክፈቱ፣ ከግርጌ ያለውን <b>Machine ID</b> ቀድተው «ሰው ያናግሩ» ላይ ይላኩ።\n' +
+      '<i>Open the panel on the new computer, copy the Machine ID at the bottom and send it via “Ask a person”.</i>',
+    kb: () => [[MID_HELP_BTN], [SUPPORT_BTN]],
+  },
+  key: {
+    btn: '🔑 ቁልፉ አልሰራም · Key not working',
+    text: () => '🔑 <b>ቁልፉ አልሰራም? / Key not working?</b>\n\n' +
+      '<b>①</b> ከ«ቁልፌ» ሙሉውን ይቅዱ — ፊደል ሳይቀንሱ · <i>copy all of it from My Key</i>\n' +
+      '<b>②</b> የሚሰራው ለተሰራለት ኮምፒውተር ብቻ ነው · <i>it only works on the computer it was made for</i>\n' +
+      '<b>③</b> ለማግበር ኢንተርኔት ያስፈልጋል · <i>activating needs internet</i>\n\n' +
+      'አሁንም ካልሰራ የስህተቱን ስክሪንሾት ይላኩልን — እናስተካክላለን።\n<i>Still not working? Send us a screenshot of the error — we will fix it.</i>',
+    kb: () => [[{ text: '🔑 ቁልፌ · My Key', callback_data: 'menu:mykey' }], [SUPPORT_BTN]],
+  },
+};
+const FAQ_ORDER = ['price', 'trial', 'need', 'install', 'when', 'newpc', 'key'];
+
+async function showFaq(chatId, messageId, topic) {
+  let text;
+  let kb;
+  if (FAQ[topic]) {
+    text = FAQ[topic].text();
+    kb = FAQ[topic].kb().concat([[{ text: '❓ ሌላ ጥያቄ · Other questions', callback_data: 'faq:home' }], [MENU_BTN]]);
+  } else {
+    text = '❓ <b>ጥያቄዎች / Questions</b>\n\nጥያቄዎን ይምረጡ — ወይም በራስዎ ቃላት ይጻፉልኝ።\n' +
+      '<i>Pick a question — or just type it in your own words.</i>';
+    kb = FAQ_ORDER.map((k) => [{ text: FAQ[k].btn, callback_data: 'faq:' + k }]).concat([[SUPPORT_BTN], [MENU_BTN]]);
+  }
+  if (messageId) {
+    const r = await editText(chatId, messageId, text, kb);
+    if (r && r.ok) return;
+  }
+  await sendText(chatId, text, kb);
+}
+
+// What a typed message is about. Amharic, English and Amharic typed in Latin
+// letters ("waga sint", "eske meche", "aysera"), because that is how people
+// actually write in Telegram. Order matters: the first match wins.
+const INTENTS = [
+  ['when', ['መቼ', 'meche', 'mechee', 'how long', 'when will', 'when do', 'status', 'ከፈልኩ', 'ከፍያለሁ', 'ከፍዬ', 'kefelku', 'kefeyalehu', 'kefye', 'i paid', 'i have paid', 'already paid', 'still waiting', 'ቆየ', 'koye', 'እስካሁን', 'eskahun']],
+  ['newpc', ['new computer', 'new laptop', 'new pc', 'another computer', 'other computer', 'reinstall', 'format', 'ፎርማት', 'ቀየርኩ', 'ቀይሬ', 'ሌላ ኮምፒውተር', 'አዲስ ኮምፒውተር', 'keyerku', 'change computer', 'changed computer']],
+  ['key', ['not work', 'doesnt work', "doesn't work", 'not activ', 'invalid', 'error', 'አይሰራም', 'አልሰራም', 'አልሰራ', 'aysera', 'alsera', 'ችግር', 'chigir', 'problem', 'wrong key', 'activation fail']],
+  ['price', ['ዋጋ', 'ስንት', 'waga', 'sint', 'price', 'cost', 'how much', 'birr', 'ብር', 'discount', 'ቅናሽ']],
+  ['trial', ['ነጻ', 'ነፃ', 'free', 'trial', 'try', 'ሙከራ', 'ልሞክር', 'mokir', 'demo']],
+  ['install', ['install', 'setup', 'set up', 'download', 'ጫን', 'ልጫን', 'አጫጫን', 'ማውረድ', 'አውርድ', 'chan', 'how to use', 'how do i use', 'እንዴት ልጠቀም', 'extension', 'window → ext']],
+  ['need', ['mac', 'windows', 'premiere', 'after effect', 'version', 'ቨርሽን', 'capcut', 'davinci', 'requirement', 'laptop', 'ram', 'offline', 'internet', 'ኢንተርኔት']],
+  ['thanks', ['thank', 'thx', 'አመሰግናለሁ', 'እናመሰግናለን', 'amesegnalehu', 'amesegnalew', 'ተባረክ', 'tebarek', 'god bless']],
+  ['hello', ['selam', 'ሰላም', 'hello', 'hi', 'hey', 'ጤና', 'tena', 'good morning', 'endet']],
+];
+function intentOf(text) {
+  const t = ' ' + String(text || '').toLowerCase().replace(/[?!.,።፣፤]+/g, ' ').replace(/\s+/g, ' ') + ' ';
+  for (const [name, words] of INTENTS) {
+    for (const w of words) {
+      // Short Latin words must be whole words ("hi" is not in "this").
+      if (/^[a-z]{1,4}$/.test(w) ? t.includes(' ' + w + ' ') : t.includes(w)) return name;
+    }
+  }
+  return null;
+}
+
+// Answer a typed question. `waiting` = the buyer is in the middle of paying:
+// answer, then remind them the screenshot is the only thing left.
+async function answerQuestion(uid, chatId, text, waiting, first = '') {
+  const intent = intentOf(text);
+  if (!intent) return false;
+  if (waiting && (intent === 'hello' || intent === 'thanks')) return false;
+  const tail = waiting
+    ? '\n\n📸 <b>ከከፈሉ በኋላ ስክሪንሾቱን እዚሁ ይላኩ።</b>\n<i>Once you have paid, send the screenshot right here.</i>'
+    : '';
+  if (intent === 'thanks') {
+    await sendText(chatId, '🙏 ምንም አይደል! መልካም ስራ። <i>You are welcome — happy editing!</i>', [[MENU_BTN]]);
+    return true;
+  }
+  if (intent === 'hello') {
+    const h = await homeScreen(uid, first);
+    await sendText(chatId, '👋 ' + h.text, h.kb);
+    return true;
+  }
+  const st = await customerState(uid);
+  if (intent === 'when' && st.kind === 'pending') {
+    await sendText(chatId, pendingText(st, first), [[INSTALL_BTN], [SUPPORT_BTN]]);
+    return true;
+  }
+  if (intent === 'when' && st.kind === 'owner') {
+    await sendText(chatId, '✅ <b>ክፍያዎ ተረጋግጧል</b> — ቁልፍዎ ወይም ኮድዎ «ቁልፌ» ውስጥ ነው።\n' +
+      '<i>Your payment is confirmed — your key or code is under My Key.</i>',
+      [[{ text: '🔑 ቁልፌ · My Key', callback_data: 'menu:mykey' }], [FAQ_BTN]]);
+    return true;
+  }
+  const f = FAQ[intent];
+  if (!f) return false;
+  const kb = waiting
+    ? [[{ text: '💳 የባንክ አካውንቶች · Bank accounts', callback_data: 'menu:pay' }], [FAQ_BTN]]
+    : f.kb().concat([[FAQ_BTN], [MENU_BTN]]);
+  await sendText(chatId, f.text() + tail, kb);
+  try { await addFunnel(uid, 'faq_' + intent); } catch (e) { /* stats only */ }
+  return true;
+}
+
+// One friendly follow-up for someone who opened the payment page and then went
+// quiet: at most once a month, only if they have no order and no license.
+const NUDGE_DAYS = 30;
+async function nudgeQuietBuyers() {
+  let rows = [];
+  try {
+    rows = (await DB.prepare(
+      "SELECT uid FROM fsm WHERE step='photo' AND updated_at <= datetime('now','-3 hours') " +
+      "AND updated_at >= datetime('now','-24 hours') LIMIT 40").all()).results || [];
+  } catch (e) { return 0; }
+  let sent = 0;
+  for (const r of rows) {
+    const uid = String(r.uid || '');
+    if (!uid || isAdmin(uid)) continue;
+    if (await kvGet('nudge:' + uid)) continue;
+    const o = await DB.prepare('SELECT 1 AS x FROM orders WHERE uid=? LIMIT 1').bind(uid).first();
+    if (o || (await isBuyer(uid))) continue;
+    await kvPut('nudge:' + uid, '1', NUDGE_DAYS * 86400);
+    const res = await sendText(uid,
+      '👋 ቀደም ብለው የክፍያ ገጹን ከፍተው ነበር — ጥያቄ አለዎት? መልሶቹ ከታች ናቸው።\n' +
+      '<i>You opened the payment page earlier — any questions? The answers are below.</i>\n\n' +
+      '🎁 መጀመሪያ <b>2 ካፕሽን በነጻ</b> መሞከር ይችላሉ።\n<i>You can try 2 captions free first.</i>\n\n' +
+      '📸 ከፍለው ከሆነ ስክሪንሾቱን እዚሁ ብቻ ይላኩ።\n<i>Already paid? Just send the screenshot here.</i>',
+      [[FAQ_BTN], [{ text: '💳 የባንክ አካውንቶች · Bank accounts', callback_data: 'menu:pay' }],
+       [{ text: '🎁 በነጻ ልሞክር · Try 2 free', url: `${SITE_URL}/install` }], [SUPPORT_BTN]]);
+    if (res && res.ok) { sent++; try { await addFunnel(uid, 'nudge'); } catch (e) { /* stats only */ } }
+  }
+  if (sent) log('info', 'buyer_nudges_sent', { sent });
+  return sent;
+}
+
 async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
   if (!privateChat) {
     await sendText(chatId, '🔒 ለግላዊነትዎ በግል ቻት ይቀጥሉ።\n<i>Please continue in a private chat with this bot so your Machine ID and payment stay private.</i>');
@@ -2296,10 +2529,12 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
         [[{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
       return;
     }
+    if (await answerQuestion(uid, chatId, text, true, (msg.from && msg.from.first_name) || '')) return;
     await sendText(chatId,
       '📸 የክፍያውን <b>ስክሪንሾት</b> እየጠበቅሁ ነው — እዚሁ ይላኩት (ፎቶ ወይም ፋይል)።\n' +
       '<i>Waiting for the payment screenshot — send it right here (photo or file).</i>',
       [[{ text: '💳 የባንክ አካውንቶች · Bank accounts', callback_data: 'menu:pay' }],
+       [FAQ_BTN],
        [{ text: '⬅ ተመለስ · Back', callback_data: 'proof:cancel' }]]);
     return;
   }
@@ -2332,11 +2567,14 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
       await forwardFromPartner(asPartner, chatId, text, msg.from && msg.from.username);
       return;
     }
-    // unknown input
+    // A question in their own words → a real answer.
     const buyerName = (msg.from && msg.from.first_name) || '';
+    if (privateChat && (await answerQuestion(uid, chatId, text, false, buyerName))) return;
+    // unknown input
     if (privateChat) await sendText(chatId,
-      `😊 ${buyerName}, አልገባኝም። ከታች ይምረጡ።\n<i>Sorry, I did not understand that — choose below.</i>`,
-      await menuKeyboardFor(uid));
+      `😊 ${esc(buyerName)}, ይቅርታ — ይህን አልተረዳሁም። ከጥያቄዎቹ ይምረጡ ወይም ሰው ያናግሩ።\n` +
+      '<i>Sorry, I did not get that — pick a question below, or ask a person.</i>',
+      [[FAQ_BTN], [SUPPORT_BTN], [MENU_BTN]]);
     else await sendText(chatId, MENU, MENU_KEYBOARD);
     return;
   }
@@ -3932,6 +4170,14 @@ async function handleCallback(cb) {
   }
 
   // menu navigation
+  if (data.startsWith('faq:')) {
+    await answerCb(cbId, '');
+    const topic = data.split(':')[1];
+    await showFaq(chatId, messageId, topic);
+    if (FAQ[topic]) { try { await addFunnel(fromUid, 'faq_' + topic); } catch (e) { /* stats only */ } }
+    return;
+  }
+
   if (data.startsWith('menu:')) {
     await answerCb(cbId, '');
     const kind = data.split(':')[1];
@@ -4890,6 +5136,7 @@ export default {
       await processBroadcast(BCAST_BATCH_CRON);
       return;
     }
+    await nudgeQuietBuyers();
     await pruneOld();
     await remindReferralPayouts();
     await sendMonthlyPartnerReports();
