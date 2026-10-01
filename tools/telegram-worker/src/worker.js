@@ -1954,9 +1954,10 @@ async function handleMessage(msg, env) {
   const privateChat = chatType === 'private';
   const first = user.first_name || '';
 
-  // Group welcome for new members
-  if (msg.new_chat_members) {
-    await sendText(chatId, groupWelcome(), MENU_KEYBOARD);
+  // Groups (the support group) have their own, quiet handler: the buying flow
+  // below answers every message, which in a group would reply to everyone.
+  if (!privateChat) {
+    await handleGroupMessage(msg, text);
     return;
   }
 
@@ -1990,7 +1991,7 @@ async function handleMessage(msg, env) {
         const home = await homeScreen(uid, first, offer);
         await sendText(chatId, home.text + (offer || !inv ? '' : linkNote(reason)), home.kb);
       }
-    } else await sendText(chatId, groupWelcome(), MENU_KEYBOARD);
+    }
     return;
   }
   if (lower === '/invite' || lower === '/invite@amhariccaptionsbot') {
@@ -2229,17 +2230,136 @@ async function handleMessage(msg, env) {
   await handleBuyerMessage(msg, uid, chatId, privateChat, text);
 }
 
-function groupWelcome() {
+// ── support group ───────────────────────────────────────────────────────────
+// In a group the bot stays quiet. It only: welcomes new members (one welcome
+// on screen at a time), removes the "X joined / X left" lines, takes down a
+// license key / Machine ID / activation code someone posts by mistake, and
+// answers the three questions everyone asks (price, free trial, install) —
+// each at most once per half hour, so people still talk to people.
+// The bot needs admin rights "Delete messages" (and topics: "Manage topics").
+const BOT_URL = 'https://t.me/AmharicCaptionsBot';
+const OPEN_BOT_BTN = { text: '🤖 ቦቱን ይክፈቱ · Open the bot', url: BOT_URL };
+const GROUP_FAQ_COOLDOWN = 30 * 60;
+
+// What must never sit in a group: a key (AMH-xxxx-…, also without dashes), a
+// Machine ID (16 hex, or 8 hex mixing letters and digits so plain numbers and
+// words pass) or a phone activation code (K7QD-3MXP: it has a digit).
+function groupSecretKind(text) {
+  const t = String(text || '');
+  if (/AMH[-\s]?[0-9a-f]{4}(?:[-\s]?[0-9a-f]{4}){3,}/i.test(t) || /\b[0-9a-f]{32,}\b/i.test(t)) return 'key';
+  if (/\b[0-9a-f]{16}\b/i.test(t) || /\b(?=[0-9a-f]{0,7}[a-f])(?=[0-9a-f]{0,7}\d)[0-9a-f]{8}\b/i.test(t)) return 'mid';
+  const codes = t.match(/\b(?=[A-HJ-NP-Z2-9-]{0,8}\d)[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}\b/g) || [];
+  if (codes.some((c) => !c.split('-').some((h) => VIDEO_WORDS.has(h)))) return 'code';
+  return null;
+}
+// Editors write "H264-HEVC"; those are formats, not codes.
+const VIDEO_WORDS = new Set(['H264', 'H265', 'X264', 'X265', 'HEVC', 'AVC1', 'PRORES', 'MPEG', 'UHD4', 'HDR10']);
+
+// A message reads as a question: a question mark, or a question word.
+function looksLikeQuestion(text) {
+  const t = ' ' + String(text || '').toLowerCase() + ' ';
+  return /[?፧]/.test(t) ||
+    /(እንዴት|ስንት|የት|ምንድን|ይቻላል|አለ ወይ|ነው ወይ|endet|sint|how |what |where |can i|is it|does it)/.test(t);
+}
+
+// Same message to the same topic the person wrote in.
+async function groupSend(msg, text, kb, reply) {
+  const params = { chat_id: msg.chat.id, text, parse_mode: 'HTML', disable_web_page_preview: true };
+  if (msg.is_topic_message && msg.message_thread_id) params.message_thread_id = msg.message_thread_id;
+  if (reply) params.reply_parameters = { message_id: msg.message_id, allow_sending_without_reply: true };
+  if (kb) params.reply_markup = { inline_keyboard: kb };
+  return safeSend(tg(TOKEN, 'sendMessage', params));
+}
+const groupDelete = (chatId, messageId) =>
+  safeSend(tg(TOKEN, 'deleteMessage', { chat_id: chatId, message_id: messageId }));
+
+function groupWelcomeNew(names) {
+  const who = names.length ? ' ' + names.map((n) => '<b>' + esc(n) + '</b>').join(', ') : '';
   return (
-    'ሰላም! ወደ <b>አማርኛ ካፕሽን ፕሮ</b> እንኳን በደህና መጡ 👋\n\n' +
-    '🎁 <b>መጀመሪያ 2 ካፕሽን በነጻ ይሞክሩ</b> — ከወደዱት ብቻ ይከፍላሉ።\n\n' +
-    'በPremiere Pro እና After Effects ውስጥ የቪዲዮዎን ንግግር በራሱ ወደ <b>አማርኛ ካፕሽን</b> ይቀይራል። ' +
-    'ሙሉ በሙሉ በኮምፒውተርዎ ላይ ይሰራል — ኢንተርኔት አያስፈልግም።\n\n' +
-    `💰 ዋጋ፦ <s>ETB 3,500</s> → <b>${PRICE}</b> (አንድ ጊዜ ብቻ)\n` +
-    `🏦 ክፍያ፦ በባንክ ዝውውር ለ <b>${ACCT_NAME}</b> ብቻ\n` +
-    accountLines() + '\n' +
-    '🖥 Windows እና Mac'
+    `👋 እንኳን ወደ <b>አማርኛ ካፕሽን ፕሮ</b> ግሩፕ በደህና መጡ${who}!\n` +
+    '<i>Welcome to the Amharic Captions Pro group!</i>\n\n' +
+    '❓ ጥያቄ → <b>Questions</b> · 🛠 ችግር → <b>Problems &amp; Help</b>\n' +
+    '💡 ሀሳብ → <b>Ideas</b> · 🎬 ስራዎ → <b>Show your work</b>\n' +
+    '📌 Announcements ውስጥ የተሰካውን መልዕክት ያንብቡ። <i>Read the pinned message in Announcements.</i>\n\n' +
+    '⚠️ ክፍያ በ @AmharicCaptionsBot ብቻ — Key ወይም Machine ID በግሩፑ አይለጥፉ።\n' +
+    '<i>Pay only through @AmharicCaptionsBot. Never post your key or Machine ID here.</i>'
   );
+}
+
+const GROUP_FAQ = {
+  price: () => `💰 <b>${PRICE}</b> — አንድ ጊዜ ብቻ፣ ወርሃዊ ክፍያ የለም። ዝማኔዎች በነጻ።\n` +
+    '<i>One payment, no monthly fee, free updates.</i>\n\n' +
+    `🏦 ክፍያ በ @AmharicCaptionsBot ብቻ — ለ <b>${ACCT_NAME}</b>።\n` +
+    `<i>Pay only through @AmharicCaptionsBot, to ${ACCT_NAME}.</i>`,
+  trial: () => '🎁 ፓነሉን ይጫኑ — <b>2 ካፕሽን በነጻ</b> ይሰራሉ፤ ክፍያም ምዝገባም አያስፈልግም።\n' +
+    '<i>Install the panel and make 2 captions free — no payment, no sign-up.</i>',
+  install: () => '📲 <b>①</b> ያውርዱ · <i>download</i>  <b>②</b> Premiere / After Effects ይዝጉ፣ <b>Install</b> ን ያስኪዱ · <i>close them, run Install</i>\n' +
+    '<b>③</b> Premiere ይክፈቱ → <b>Window → Extensions → Amharic Captions Pro</b>\n\n' +
+    '🪟 / 🍎 ሙሉ መመሪያ፦ <b>Window guide</b> · <b>Macos guide</b> <i>(full steps in the guide topics)</i>',
+};
+const GROUP_FAQ_KB = {
+  price: () => [[OPEN_BOT_BTN]],
+  trial: () => [[INSTALL_BTN]],
+  install: () => [[INSTALL_BTN]],
+};
+
+async function handleGroupMessage(msg, text) {
+  const chatId = msg.chat.id;
+  const user = msg.from || {};
+
+  // Joins: drop the service line, replace the previous welcome with a new one.
+  if (msg.new_chat_members) {
+    await groupDelete(chatId, msg.message_id);
+    const people = msg.new_chat_members.filter((m) => !m.is_bot);
+    if (!people.length) return;
+    const wkey = 'grp:welcome:' + chatId;
+    const prev = await kvGet(wkey);
+    if (prev) await groupDelete(chatId, Number(prev));
+    const names = people.slice(0, 3).map((m) => m.first_name || m.username || '');
+    const r = await safeSend(tg(TOKEN, 'sendMessage', {
+      chat_id: chatId, text: groupWelcomeNew(names.filter(Boolean)), parse_mode: 'HTML',
+      disable_web_page_preview: true, reply_markup: { inline_keyboard: [[INSTALL_BTN], [OPEN_BOT_BTN]] },
+    }));
+    if (r && r.ok && r.result) await kvPut(wkey, r.result.message_id, 60 * 60 * 24 * 30);
+    return;
+  }
+  if (msg.left_chat_member) {
+    await groupDelete(chatId, msg.message_id);
+    return;
+  }
+
+  // A key / Machine ID / code posted in the open: take it down, say why.
+  const body = text || String(msg.caption || '');
+  const secret = groupSecretKind(body);
+  if (secret) {
+    await groupDelete(chatId, msg.message_id);
+    const name = esc(user.first_name || user.username || '');
+    const what = secret === 'key' ? 'license key' : secret === 'code' ? 'activation code' : 'Machine ID';
+    await groupSend(msg,
+      `🔒 ${name ? name + '፣ ' : ''}መልዕክትዎን አጥፍቼዋለሁ — ${what} ነበረበት። ይህን በግል ለ @AmharicCaptionsBot ብቻ ይላኩ።\n` +
+      `<i>I removed your message because it contained a ${what}. Send it only to @AmharicCaptionsBot in a private chat.</i>`,
+      [[OPEN_BOT_BTN]]);
+    log('info', 'group_secret_removed', { kind: secret });
+    return;
+  }
+
+  // /start or /help in the group: a short guide, never prices or accounts.
+  const lower = text.toLowerCase();
+  if (/^\/(start|help|menu)(@amhariccaptionsbot)?\b/.test(lower)) {
+    await groupSend(msg, groupWelcomeNew([]), [[INSTALL_BTN], [OPEN_BOT_BTN]]);
+    return;
+  }
+
+  // Common questions from members (admins answer themselves; replies to a
+  // person are a conversation, not a question for the bot).
+  if (!text || isAdmin(user.id) || msg.sender_chat || msg.reply_to_message && !msg.reply_to_message.forum_topic_created) return;
+  if (!looksLikeQuestion(text)) return;
+  const intent = intentOf(text);
+  if (!GROUP_FAQ[intent]) return;
+  const ckey = `grp:faq:${chatId}:${intent}`;
+  if (await kvGet(ckey)) return;
+  await kvPut(ckey, '1', GROUP_FAQ_COOLDOWN);
+  await groupSend(msg, GROUP_FAQ[intent](), GROUP_FAQ_KB[intent](), true);
 }
 
 // ── Buyer FSM flow (port of handle_buyer_message) ───────────────────────────

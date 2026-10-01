@@ -632,3 +632,23 @@ failed PINs. Kept for a year.
 - **One reminder:** someone who opened Pay and then went quiet for 3–24 h gets one
   friendly message with the answers and the free trial (6-hour cron). Never twice in
   30 days, never after an order.
+
+## Support group helper (no migration)
+
+In a group the bot is quiet. It never answers normal talk, problem reports or
+screenshots, and never posts prices with bank accounts there. It only:
+
+- **Welcomes new members**, one welcome on screen at a time (the previous one is
+  deleted), and removes the "X joined / X left" lines.
+- **Takes down secrets:** a license key, Machine ID or activation code posted in the
+  group (text or photo caption) is deleted, with a short warning in the same topic.
+  Look-alikes (H264-HEVC, phone numbers, dates, plain words) are left alone.
+- **Answers the three common questions** (price, free trial, install) when a member
+  asks one, as a reply in the same topic, at most once per 30 minutes per question.
+  Admins, statements and replies to someone are left alone.
+
+To turn it on:
+1. Deploy as usual.
+2. Add @AmharicCaptionsBot to the group and make it an **admin** with
+   **Delete messages** and **Manage topics** (Manage topics lets it post the welcome
+   in the closed Announcements topic). Nothing else is needed.

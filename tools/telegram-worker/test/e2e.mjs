@@ -2791,6 +2791,103 @@ console.log('\n:: scenario 26 — customer bot: questions answered, home screen 
   ok('customer: one friendly reminder (with answers) for a buyer who opened Pay and went quiet — never twice, never after paying');
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: support group — quiet helper');
+{
+  const { env } = fresh();
+  const G = Number(GROUP);
+  const M = { id: 970000001, first_name: 'Abel', username: 'abel_ed' };
+  // A message in a forum topic (thread 91), as Telegram sends it.
+  const topic = (extra) => msg(G, M, { is_topic_message: true, message_thread_id: 91,
+    reply_to_message: { message_id: 91, forum_topic_created: { name: 'Questions' } }, ...extra });
+  const since = (n) => OUTBOUND.slice(n);
+  const sends = (n) => since(n).filter((x) => x.method === 'sendMessage');
+  const dels = (n) => since(n).filter((x) => x.method === 'deleteMessage').map((x) => x.body.message_id);
+
+  // 1. Chatter, error reports and photos get no reply — people answer people.
+  let n = OUTBOUND.length;
+  for (const t of ['selam all', 'my premiere crashes when I press make captions', 'nice video!']) {
+    await post(env, topic({ text: t }));
+  }
+  await post(env, topic({ photo: [{ file_id: 'AgAC-shot' }], caption: 'this error' }));
+  assert.equal(since(n).length, 0, 'the bot stays silent on normal group talk');
+  ok('group: chatter, problem reports and screenshots get no bot reply (no "continue in private" spam)');
+
+  // 2. Joins: the service line goes, one welcome; the next join replaces it.
+  n = OUTBOUND.length;
+  const join1 = msg(G, M, { new_chat_members: [{ id: 970000002, first_name: 'Hana' }] });
+  await post(env, join1);
+  assert.deepEqual(dels(n), [join1.message.message_id], 'join line removed');
+  const w1 = sends(n);
+  assert.equal(w1.length, 1);
+  assert.ok(w1[0].body.text.includes('Hana') && w1[0].body.text.includes('Questions') && w1[0].body.text.includes('@AmharicCaptionsBot'));
+  assert.ok(!/\d{10,}/.test(w1[0].body.text), 'no bank account numbers in the group');
+  const w1id = w1[0].id;
+  n = OUTBOUND.length;
+  await post(env, msg(G, M, { new_chat_members: [{ id: 970000003, first_name: '<Dawit>' }] }));
+  assert.ok(dels(n).includes(w1id), 'previous welcome removed');
+  assert.ok(sends(n)[0].body.text.includes('&lt;Dawit&gt;'), 'names are escaped');
+  n = OUTBOUND.length;
+  const left = msg(G, M, { left_chat_member: { id: 970000003, first_name: 'Dawit' } });
+  await post(env, left);
+  assert.deepEqual(dels(n), [left.message.message_id]);
+  assert.equal(sends(n).length, 0);
+  ok('group: joins/leaves lines removed; one welcome on screen at a time; names escaped; no account numbers');
+
+  // 3. Secrets: key, Machine ID, activation code (also in a photo caption) are taken down.
+  for (const [t, kind] of [
+    [`my key ${keyFor('1a2b3c4d5e6f7a8b')} not working`, 'license key'],
+    ['machine id is 9f3c2a1b7d6e5f40 help', 'Machine ID'],
+    ['id: a1b2c3d4', 'Machine ID'],
+    ['my code K7QD-3MXP', 'activation code'],
+  ]) {
+    n = OUTBOUND.length;
+    const m = topic({ text: t });
+    await post(env, m);
+    assert.deepEqual(dels(n), [m.message.message_id], 'removed: ' + t);
+    const warn = sends(n);
+    assert.equal(warn.length, 1);
+    assert.ok(warn[0].body.text.includes(kind) && warn[0].body.message_thread_id === 91, 'warned in the same topic');
+  }
+  n = OUTBOUND.length;
+  const cap = topic({ photo: [{ file_id: 'AgAC-x' }], caption: 'key AMH-1a2b-3c4d-5e6f-7a8b-0000-0000-1234-5678' });
+  await post(env, cap);
+  assert.deepEqual(dels(n), [cap.message.message_id], 'caption checked too');
+  n = OUTBOUND.length;
+  for (const t of ['export as H264-HEVC please', 'call me 0911234567', 'version 20261001', 'deadbeef', 'WELL-DONE']) {
+    await post(env, topic({ text: t }));
+  }
+  assert.equal(since(n).length, 0, 'formats, phone numbers, dates and words are left alone');
+  ok('group: a pasted key / Machine ID / activation code (text or caption) is deleted with a warning in the same topic; look-alikes are not');
+
+  // 4. The three common questions: answered once per half hour, as a reply in the topic.
+  n = OUTBOUND.length;
+  await post(env, topic({ text: 'how much is it?' }));
+  let a = sends(n);
+  assert.equal(a.length, 1);
+  assert.ok(a[0].body.text.includes('@AmharicCaptionsBot') && a[0].body.message_thread_id === 91 && a[0].body.reply_parameters);
+  n = OUTBOUND.length;
+  await post(env, msg(G, { id: 970000009, first_name: 'Sara' }, { text: 'ዋጋው ስንት ነው?' }));
+  assert.equal(sends(n).length, 0, 'same question within 30 min: left to people');
+  n = OUTBOUND.length;
+  await post(env, topic({ text: 'እንዴት ነው የምጭነው? install' }));
+  assert.equal(sends(n).length, 1, 'a different question is answered');
+  n = OUTBOUND.length;
+  await post(env, msg(G, { id: Number(ADMIN_ID), first_name: 'Owner' }, { text: 'is the free trial 2 captions?' }));
+  await post(env, topic({ text: 'free trial is great' }));
+  await post(env, topic({ text: 'is there a free trial?', reply_to_message: { message_id: 7, text: 'hi' } }));
+  assert.equal(sends(n).length, 0, 'not for admins, not for statements, not inside a reply to someone');
+  ok('group: price / free trial / install questions answered once per 30 min in the same topic; admins, statements and replies left alone');
+
+  // 5. /start in the group: the short guide, never prices or accounts; no buy flow starts.
+  n = OUTBOUND.length;
+  await post(env, msg(G, M, { text: '/start@AmharicCaptionsBot' }));
+  assert.equal(sends(n).length, 1);
+  assert.ok(!/\d{10,}/.test(sends(n)[0].body.text));
+  assert.equal(rows(env, 'SELECT * FROM fsm').length, 0);
+  ok('group: /start shows the group guide (no prices, no accounts) and never starts a purchase');
+}
+
 // Across EVERY scenario: nothing may be silently refused by Telegram (a refused
 // call is a screen the user never sees). Only the recovered photo→file case.
 {
