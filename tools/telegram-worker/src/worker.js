@@ -3197,7 +3197,7 @@ async function adminPanel(chatId, messageId) {
   const kb = [
     [{ text: `📥 Requests (${pend})`, callback_data: 'admin:queue' }],
     [{ text: '🧾 History (30 days)', callback_data: 'admin:history' }],
-    [{ text: '📈 Sales & funnel', callback_data: 'admin:sales' }],
+    [{ text: '📈 Sales & funnel', callback_data: 'admin:sales' }, { text: '🎁 Trial users', callback_data: 'admin:trials' }],
     [{ text: '📣 Broadcast', callback_data: 'admin:broadcast' }, { text: '📤 Export customers', callback_data: 'admin:export' }],
     [{ text: '🔍 Find a customer', callback_data: 'admin:findask' }, { text: '🤝 Partners', callback_data: 'admin:partners' }],
     [{ text: `🎁 Referrals · ${refOn ? '🟢 ON' : '⚪ OFF'}`, callback_data: 'admin:ref' }],
@@ -3954,6 +3954,49 @@ async function adminSales(chatId, messageId) {
   else await sendText(chatId, text, kb);
 }
 
+// Computers that used the free trial but never got a license — the people
+// most likely to buy. Newest activity first; when the same Machine ID also
+// opened Pay / ordered in the bot, the Telegram account is linked.
+const TRIALS_PAGE = 10;
+async function adminTrials(chatId, messageId, offset = 0) {
+  const notLicensed = 't.used > 0 AND lower(t.machine_id) NOT IN (SELECT lower(machine_id) FROM customers)';
+  const tot = await DB.prepare(
+    `SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN t.used >= t.max_free THEN 1 ELSE 0 END), 0) AS done ` +
+    `FROM trials t WHERE ${notLicensed}`).first();
+  const total = tot ? tot.n : 0;
+  const { results } = await DB.prepare(
+    'SELECT t.machine_id AS mid, t.used, t.max_free, t.created_at, ' +
+    '(SELECT MAX(used_at) FROM trial_uses u WHERE u.machine_id = t.machine_id) AS last_at, ' +
+    'COALESCE((SELECT uid FROM orders o WHERE lower(o.machine_id) = lower(t.machine_id) ORDER BY o.id DESC LIMIT 1), ' +
+    '         (SELECT uid FROM fsm f WHERE lower(f.mid) = lower(t.machine_id) LIMIT 1)) AS uid, ' +
+    '(SELECT status FROM orders o WHERE lower(o.machine_id) = lower(t.machine_id) ORDER BY o.id DESC LIMIT 1) AS ostatus ' +
+    `FROM trials t WHERE ${notLicensed} ` +
+    'ORDER BY COALESCE((SELECT MAX(used_at) FROM trial_uses u WHERE u.machine_id = t.machine_id), t.created_at) DESC ' +
+    'LIMIT ? OFFSET ?').bind(TRIALS_PAGE, offset).all();
+  const rows = results || [];
+  const linked = rows.filter((r) => r.uid).length;
+  const lines = rows.map((r, i) => {
+    const who = r.uid
+      ? `\n   👤 <a href="tg://user?id=${esc(r.uid)}">Telegram ${esc(r.uid)}</a>` +
+        (r.ostatus ? ` · order ${esc(r.ostatus)}` : ' · opened Pay')
+      : '';
+    return `${offset + i + 1}. <code>${esc(r.mid)}</code> · ${r.used}/${r.max_free} free · ${eatTs(r.last_at || r.created_at)}${who}`;
+  });
+  const text =
+    '🎁 <b>Trial users — not licensed</b>\n\n' +
+    `💻 Tried the free captions: <b>${total}</b> computer(s)\n` +
+    `   ├ Used both free captions: ${tot ? tot.done : 0}\n` +
+    `   └ Still have a free caption left: ${total - (tot ? tot.done : 0)}\n\n` +
+    (lines.length ? lines.join('\n') : '<i>No one yet — trial users show up here after their first free caption.</i>') +
+    (linked ? '\n\n<i>👤 = also opened the bot; tap to message them.</i>' : '') +
+    '\n<i>Times are Ethiopian time. Machine IDs without 👤 never opened the bot.</i>';
+  const kb = [];
+  if (offset + TRIALS_PAGE < total) kb.push([{ text: '⬇ Load more', callback_data: `admin:trials:${offset + TRIALS_PAGE}` }]);
+  kb.push([{ text: '🛠 Admin', callback_data: 'admin:panel' }]);
+  if (messageId && !offset) await editText(chatId, messageId, text, kb);
+  else await sendText(chatId, text, kb);
+}
+
 // Every sale ever recorded, for bookkeeping: order | date | Machine ID | ETB | status.
 async function adminSalesExport(chatId, cbId) {
   const { results } = await DB.prepare(
@@ -4459,6 +4502,7 @@ async function handleCallback(cb) {
       await adminDetail(chatId, null, null, parts[2]);
     }
     else if (action === 'sales') await adminSales(chatId, messageId);
+    else if (action === 'trials') await adminTrials(chatId, messageId, Math.max(0, parseInt(parts[2] || '0', 10) || 0));
     else if (action === 'export') await adminExport(chatId, messageId, cbId);
     else if (action === 'broadcast') {
       await kvPut('bcast:await:' + fromUid, '1', 900);
