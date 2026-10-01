@@ -3463,6 +3463,39 @@ function consumeProgressLine(line) {
   return true;
 }
 
+// Toggle indeterminate (pulsing) progress bar for short clips that emit
+// no per-window progress. The bar slides left-right to show "working".
+function setIndeterminate(on) {
+  const track = $('progTrack');
+  if (track) track.classList.toggle('indeterminate', !!on);
+}
+
+// Set up the windowProgress callback for a transcription run. After the
+// first real progress event the bar switches from indeterminate to
+// determinate (fraction-based) mode automatically.
+function setWindowProgress(startedAt) {
+  windowProgress = (done, total) => {
+    const frac = Math.max(0, Math.min(1, done / total));
+    let eta = '';
+    if (done > 0 && done < total) {
+      const perWindow = (Date.now() - startedAt) / done;
+      const left = Math.round((perWindow * (total - done)) / 1000);
+      if (left > 0) {
+        eta = left >= 60
+          ? ' · about ' + Math.ceil(left / 60) + ' min left'
+          : ' · about ' + left + 's left';
+      }
+    }
+    setIndeterminate(false);
+    setProgress(0.15 + frac * 0.75, 'Transcribing ' + done + '/' + total + eta);
+  };
+}
+
+function clearWindowProgress() {
+  windowProgress = null;
+  setIndeterminate(false);
+}
+
 async function run() {
   if (reviewPlacing) {
     log('Wait for the current placement to finish.');
@@ -3593,23 +3626,12 @@ async function runSelectedClip() {
   // gives the single-clip path the same honesty.
   // Window work spans 0.15 -> 0.9, leaving room for extraction before and
   // placement after.
+  // Short clips (single window) emit no per-window progress, so show an
+  // indeterminate pulsing bar until the first real progress event arrives.
   const startedAt = Date.now();
-  windowProgress = (done, total) => {
-    const frac = Math.max(0, Math.min(1, done / total));
-    let eta = '';
-    // Only estimate once a window has actually completed, otherwise the first
-    // guess is wild and the number visibly lurches.
-    if (done > 0 && done < total) {
-      const perWindow = (Date.now() - startedAt) / done;
-      const left = Math.round((perWindow * (total - done)) / 1000);
-      if (left > 0) {
-        eta = left >= 60
-          ? ' · about ' + Math.ceil(left / 60) + ' min left'
-          : ' · about ' + left + 's left';
-      }
-    }
-    setProgress(0.15 + frac * 0.75, 'Transcribing ' + done + '/' + total + eta);
-  };
+  setWindowProgress(startedAt);
+  setIndeterminate(true);
+  setProgress(0.5, 'Transcribing…');
 
   // Bake the clip's absolute timeline position into the SRT timestamps (so the
   // cues carry their real timeline times), then place the caption band at 0.
@@ -3620,7 +3642,7 @@ async function runSelectedClip() {
   } finally {
     // Always clear, including on cancel or error — a stale reporter would
     // otherwise keep moving the bar during the next run.
-    windowProgress = null;
+    clearWindowProgress();
   }
   setProgress(0.9, 'Transcription complete');
 
@@ -3655,6 +3677,11 @@ async function runWorkArea() {
   const outSrt = path.join(os.tmpdir(), 'amh_sequence_' + Date.now() + '.srt');
   lastSrtPath = outSrt;
   const stamp = Date.now();
+  // Wire per-window progress from the engine (long clips) into the batch bar.
+  // Short clips show an indeterminate pulsing bar until the first window event.
+  setWindowProgress(Date.now());
+  setIndeterminate(true);
+  setProgress(0.5, 'Preparing…');
 
   // Fast path: if every clip (by path+offset+mtime) is in the transcript cache,
   // skip audio extraction AND transcription entirely.
@@ -3757,6 +3784,7 @@ async function runWorkArea() {
       if (it.wav) { try { fs.unlinkSync(it.wav); } catch (e) {} }
     }
     // Temporary WAVs are gone; do not retain audio paths after this block.
+    clearWindowProgress();
   }
 }
 
@@ -3814,8 +3842,15 @@ async function runFile(filePath, fileName) {
     lastSrtPath = outSrt;
     const cleanName = (fileName || path.basename(base) || 'captions').replace(/\.[^.]+$/, '');
     log('Writing captions… this can take a minute.');
-    setProgress(0.4, 'Transcribing…');
-    const r = await transcribe(filePath, outSrt);
+    setWindowProgress(Date.now());
+    setIndeterminate(true);
+    setProgress(0.5, 'Transcribing…');
+    let r;
+    try {
+      r = await transcribe(filePath, outSrt);
+    } finally {
+      clearWindowProgress();
+    }
     setProgress(0.9, 'Transcription complete');
     if (!r.cues.length) log('No speech detected in this audio — nothing to place.');
     log('Done writing captions.');
