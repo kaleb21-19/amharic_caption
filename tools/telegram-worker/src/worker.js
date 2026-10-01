@@ -202,6 +202,9 @@ function initEnv(env) {
   if (!ADMIN_ID) log('warn', 'admin_id_missing', { hint: 'set AMH_ADMIN_ID (comma-separated chat ids) via wrangler secret put' });
   GROUP_ID = env.AMH_GROUP_ID || '';
   GROUP_TOPICS = parseGroupTopics(env.AMH_GROUP_TOPICS);
+  SUPPORT_GROUP = String(env.AMH_SUPPORT_GROUP || '');
+  JOB_CHANNELS = String(env.AMH_JOB_CHANNELS || '').split(',')
+    .map((c) => c.trim().replace(/^@/, '')).filter((c) => /^[A-Za-z0-9_]{4,40}$/.test(c));
   PRICE = env.AMH_PRICE || 'ETB 2,500';
   ACCT_NAME = env.AMH_ACCT_NAME || ACCT_NAME;
   PAY_ACCOUNTS = env.AMH_PAY_ACCOUNTS || PAY_ACCOUNTS;
@@ -2304,6 +2307,7 @@ function groupWelcomeNew(names, chatId) {
     `❓ ጥያቄ → ${t('questions', 'Questions')} · 🛠 ችግር → ${t('problems', 'Problems &amp; Help')}\n` +
     `💡 ሀሳብ → ${t('ideas', 'Ideas')} · 🎬 ስራዎ → ${t('work', 'Show your work')}\n` +
     `🪟 ${t('windows', 'Window guide')} · 🍎 ${t('mac', 'Macos guide')} · 💳 ${t('payment', 'Payment')}\n` +
+    (GROUP_TOPICS.jobs ? `💼 የኤዲቲንግ ስራዎች → ${t('jobs', 'Editing Jobs')}\n` : '') +
     (Object.keys(GROUP_TOPICS).length ? '<i>Tap a name to open that topic.</i>\n\n' : '\n') +
     '⚠️ ክፍያ በ @AmharicCaptionsBot ብቻ — Key ወይም Machine ID በግሩፑ አይለጥፉ።\n' +
     '<i>Pay only through @AmharicCaptionsBot. Never post your key or Machine ID here.</i>'
@@ -2326,6 +2330,164 @@ const GROUP_FAQ_KB = {
   trial: () => [[INSTALL_BTN]],
   install: () => [[INSTALL_BTN]],
 };
+
+// ── editing jobs feed ───────────────────────────────────────────────────────
+// Public job channels (AMH_JOB_CHANNELS) are read from their public web page
+// (t.me/s/<channel>, the page anyone can open in a browser — a bot cannot
+// join other people's channels). Only video-editing jobs are kept, posted as
+// a short card with a link to the original post, into the support group's
+// jobs topic (AMH_SUPPORT_GROUP + "jobs:<id>" in AMH_GROUP_TOPICS). A job seen
+// in two channels is posted once. Off until the owner turns it on in the admin
+// dashboard. Two channels per minute, so each is checked every few minutes.
+let SUPPORT_GROUP = '';
+let JOB_CHANNELS = [];
+const JOBS_PER_TICK = 2;
+const JOBS_MAX_POSTS_PER_TICK = 5;
+const JOB_SEED_HOURS = 24;
+const JOB_SEEN_TTL = 60 * 60 * 24 * 30;
+// Strong: clearly video work. Weak: "editor" / "editing" — kept only when
+// nothing says it is about text (copy editor, editor-in-chief…).
+const JOB_STRONG = /video\s*-?\s*edit|film\s*edit|premiere|after\s*effects|motion\s*graphic|videograph|capcut|davinci|post[- ]?production|colou?rist|reels?\s*edit|youtube\s*edit|ቪዲዮ|ቪድዮ|ኤዲተር|ኢዲተር|ኤዲቲንግ/i;
+const JOB_WEAK = /\bedit(or|ors|ing)\b/i;
+const JOB_TEXT_EDITOR = /copy\s*-?\s*edit|editor[- ]?in[- ]?chief|news\s*editor|text\s*editor|code\s*editor|proof\s*-?read|language\s*editor|journal|content\s*writer/i;
+
+const jobsEnabled = async () => (await getSettings()).jobs_feed === '1';
+
+function htmlToText(h) {
+  return String(h || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'")
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&amp;/g, '&');
+}
+
+// Posts on a t.me/s/<channel> page: [{ id, text, at }], oldest first.
+function parseJobPage(html) {
+  const out = [];
+  for (const p of String(html || '').split('data-post="').slice(1)) {
+    const id = /^[^/"]+\/(\d+)"/.exec(p);
+    const body = /<div class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/.exec(p);
+    if (!id || !body) continue;
+    const time = /<time datetime="([^"]+)"/.exec(p);
+    out.push({ id: Number(id[1]), text: htmlToText(body[1]).trim(), at: time ? Date.parse(time[1]) : NaN });
+  }
+  return out.sort((a, b) => a.id - b.id);
+}
+
+const cleanJobLine = (s) => String(s || '')
+  .replace(/^[\s\d.)\-–•*#:]+/, '')
+  .replace(/^(job\s*title|position(\s*\d+)?|title|vacancy|role|የስራ\s*መደብ)\s*[:：\-–]\s*/i, '')
+  .replace(/\s+/g, ' ').trim();
+
+// A video-editing job in this post? → { title, company, location, deadline, salary, type } or null.
+function jobFromText(text) {
+  const t = String(text || '');
+  if (!JOB_STRONG.test(t) && !(JOB_WEAK.test(t) && !JOB_TEXT_EDITOR.test(t))) return null;
+  const lines = t.split('\n').map((l) => l.trim()).filter(Boolean);
+  const titleLine = lines.find((l) => JOB_STRONG.test(l) && l.length < 140) ||
+    lines.find((l) => JOB_WEAK.test(l) && !JOB_TEXT_EDITOR.test(l) && l.length < 140) || lines[0] || '';
+  const field = (re) => {
+    for (const l of lines) {
+      const m = re.exec(l);
+      if (m && m[1].trim()) return m[1].trim().slice(0, 60);
+    }
+    return '';
+  };
+  const title = cleanJobLine(titleLine).slice(0, 90);
+  if (!title) return null;
+  return {
+    title,
+    company: field(/^(?:company(?:\s*name)?|employer|organi[sz]ation|hiring\s*company)\s*[:：]\s*(.+)$/i),
+    location: field(/^(?:work\s*location|job\s*location|location|place\s*of\s*work|city)\s*[:：]\s*(.+)$/i),
+    deadline: field(/^(?:application\s*deadline|deadline(?:\s*date)?|apply\s*before|closing\s*date)\s*[:：]\s*(.+)$/i),
+    salary: field(/^(?:salary(?:\s*\/\s*compensation)?|compensation)\s*[:：]\s*(.+)$/i),
+    type: field(/^(?:job\s*type|employment(?:\s*type)?)\s*[:：]\s*(.+)$/i),
+  };
+}
+
+// Same title at the same company = the same job, whichever channel posted it.
+async function jobKey(j) {
+  const norm = (j.title + '|' + j.company).toLowerCase()
+    .replace(/&amp;|&|\band\b|እና/g, ' ').replace(/[^\p{L}\p{N}|]+/gu, '');
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(norm));
+  return [...new Uint8Array(d)].slice(0, 12).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function jobMessage(j, channel, id) {
+  const where = [j.company && '🏢 ' + esc(j.company), j.location && '📍 ' + esc(j.location)].filter(Boolean).join(' · ');
+  const when = [j.deadline && '⏰ ' + esc(j.deadline), j.salary && '💰 ' + esc(j.salary)].filter(Boolean).join(' · ');
+  return (
+    `💼 <b>${esc(j.title)}</b>\n` +
+    (where ? where + '\n' : '') +
+    (j.type ? '🕒 ' + esc(j.type) + '\n' : '') +
+    (when ? when + '\n' : '') +
+    `\n🔗 <a href="https://t.me/${encodeURIComponent(channel)}/${id}">ዝርዝር እና ማመልከቻ · Details &amp; how to apply</a> — @${esc(channel)}\n` +
+    '⚠️ ለስራ ማመልከቻ ገንዘብ አይክፈሉ። <i>Never pay to apply for a job.</i>'
+  );
+}
+
+async function scanJobChannel(channel, budget) {
+  let html = '';
+  try {
+    const r = await fetch(`https://t.me/s/${encodeURIComponent(channel)}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AmharicCaptionsBot job feed)', 'Accept-Language': 'en' },
+    });
+    if (!r.ok) { log('warn', 'jobs_fetch_failed', { channel, status: r.status }); return 0; }
+    html = await r.text();
+  } catch (e) {
+    log('warn', 'jobs_fetch_failed', { channel, err: String((e && e.message) || e) });
+    return 0;
+  }
+  const posts = parseJobPage(html);
+  if (!posts.length) return 0;
+  const lastKey = 'jobs:last:' + channel.toLowerCase();
+  const lastRaw = await kvGet(lastKey);
+  const first = lastRaw === null || lastRaw === undefined;
+  const last = first ? 0 : Number(lastRaw) || 0;
+  const now = Date.now();
+  let sent = 0;
+  let upTo = last;
+  for (const p of posts) {
+    if (p.id <= last) continue;
+    // First look at a channel: only today's jobs, never its whole history.
+    const fresh = !first || (Number.isFinite(p.at) && now - p.at < JOB_SEED_HOURS * 3600 * 1000);
+    const job = fresh ? jobFromText(p.text) : null;
+    if (job) {
+      if (sent >= budget) break; // pick it up on the next pass
+      const seenKey = 'jobs:seen:' + (await jobKey(job));
+      if (!(await kvGet(seenKey))) {
+        const r = await safeSend(tg(TOKEN, 'sendMessage', {
+          chat_id: SUPPORT_GROUP, message_thread_id: Number(GROUP_TOPICS.jobs), text: jobMessage(job, channel, p.id),
+          parse_mode: 'HTML', disable_web_page_preview: true,
+        }));
+        if (!(r && r.ok)) { log('warn', 'jobs_post_failed', { channel, id: p.id, err: r && r.description }); break; }
+        await kvPut(seenKey, channel + '/' + p.id, JOB_SEEN_TTL);
+        sent++;
+      }
+    }
+    upTo = p.id;
+  }
+  if (first) upTo = Math.max(upTo, posts[posts.length - 1].id);
+  if (upTo > last) await kvPut(lastKey, String(upTo));
+  if (sent) log('info', 'jobs_posted', { channel, sent });
+  return sent;
+}
+
+// Every minute (cron): the next two channels in turn.
+async function scanJobs() {
+  if (!SUPPORT_GROUP || !GROUP_TOPICS.jobs || !JOB_CHANNELS.length) return 0;
+  if (!(await jobsEnabled())) return 0;
+  const rr = Number(await kvGet('jobs:rr')) || 0;
+  let sent = 0;
+  for (let i = 0; i < Math.min(JOBS_PER_TICK, JOB_CHANNELS.length); i++) {
+    sent += await scanJobChannel(JOB_CHANNELS[(rr + i) % JOB_CHANNELS.length], JOBS_MAX_POSTS_PER_TICK - sent);
+    if (sent >= JOBS_MAX_POSTS_PER_TICK) break;
+  }
+  await kvPut('jobs:rr', String((rr + JOBS_PER_TICK) % JOB_CHANNELS.length));
+  return sent;
+}
 
 async function handleGroupMessage(msg, text) {
   const chatId = msg.chat.id;
@@ -3225,6 +3387,7 @@ async function adminPanel(chatId, messageId) {
     [{ text: '📣 Broadcast', callback_data: 'admin:broadcast' }, { text: '📤 Export customers', callback_data: 'admin:export' }],
     [{ text: '🔍 Find a customer', callback_data: 'admin:findask' }, { text: '🤝 Partners', callback_data: 'admin:partners' }],
     [{ text: `🎁 Referrals · ${refOn ? '🟢 ON' : '⚪ OFF'}`, callback_data: 'admin:ref' }],
+    [{ text: `💼 Jobs feed · ${(await jobsEnabled()) ? '🟢 ON' : '⚪ OFF'}`, callback_data: 'admin:jobs-toggle' }],
     [{ text: '🔐 Audit log', callback_data: 'admin:audit' }, { text: '📖 Commands', callback_data: 'admin:help' }],
   ];
   if (messageId) await editText(chatId, messageId, text, kb);
@@ -4540,6 +4703,16 @@ async function handleCallback(cb) {
     else if (action === 'bcast-cancel') await cancelBroadcast(chatId, messageId, cbId, parseInt(parts[2] || '0', 10));
     else if (action === 'sales-export') await adminSalesExport(chatId, cbId);
     else if (action === 'ref') await adminReferrals(chatId, messageId);
+    else if (action === 'jobs-toggle') {
+      const on = await jobsEnabled();
+      if (!on && (!SUPPORT_GROUP || !GROUP_TOPICS.jobs || !JOB_CHANNELS.length)) {
+        await answerCb(cbId, 'Set AMH_SUPPORT_GROUP, jobs:<topic id> in AMH_GROUP_TOPICS and AMH_JOB_CHANNELS first');
+      } else {
+        await setSetting('jobs_feed', on ? '0' : '1');
+        await answerCb(cbId, on ? '⚪ Jobs feed OFF' : '🟢 Jobs feed ON');
+        await adminPanel(chatId, messageId);
+      }
+    }
     else if (action === 'ref-toggle') {
       const on = refTerms(await getSettings()).on;
       try {
@@ -5322,6 +5495,7 @@ export default {
     // query when there is none). Every 6 hours: housekeeping.
     if (event && event.cron === '* * * * *') {
       await processBroadcast(BCAST_BATCH_CRON);
+      try { await scanJobs(); } catch (e) { log('error', 'jobs_scan_failed', { err: String((e && e.message) || e) }); }
       return;
     }
     await nudgeQuietBuyers();

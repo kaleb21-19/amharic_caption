@@ -39,7 +39,11 @@ id = "49415337946e41168f0f2c8958ea3ede"
 [vars]
 AMH_GROUP_ID = "-1004403686687"
 # Support-group topic ids: topic names in the bot's group messages become links.
-AMH_GROUP_TOPICS = "questions:91,problems:92,ideas:93,work:94,windows:75,mac:80,payment:41"
+AMH_GROUP_TOPICS = "questions:91,problems:92,ideas:93,work:94,windows:75,mac:80,payment:41,jobs:131"
+# Editing-jobs feed: the support group, and the public job channels it reads
+# (turn it on/off in the bot: /start -> 💼 Jobs feed).
+AMH_SUPPORT_GROUP = "-1003962455059"
+AMH_JOB_CHANNELS = "josad_digital,freelance_ethio,ethiojobs_official,josad_jobs,geez_jobs,geezjob,effoyjobs,elelanajobs,elelanajob,Ethiojobshubs"
 AMH_PRICE = "ETB 2,500"
 AMH_PRICE_ETB = "2500"
 AMH_ACCT_NAME = "KALEB TEGEGEN"
