@@ -2888,6 +2888,21 @@ console.log('\n:: support group — quiet helper');
   ok('group: /start shows the group guide (no prices, no accounts) and never starts a purchase');
 }
 
+{
+  // With the group's topic ids configured, topic names are links into the topics.
+  const { env } = fresh({ AMH_GROUP_TOPICS: 'questions:91,problems:92,ideas:93,work:94,windows:75,mac:80,payment:41' });
+  const G = Number(GROUP);
+  let n = OUTBOUND.length;
+  await post(env, msg(G, { id: 970000101, first_name: 'Abel' }, { new_chat_members: [{ id: 970000102, first_name: 'Hana' }] }));
+  const w = OUTBOUND.slice(n).find((x) => x.method === 'sendMessage').body.text;
+  for (const id of [91, 92, 93, 94, 75, 80, 41]) assert.ok(w.includes(`https://t.me/c/0000000001/${id}"`), 'link to topic ' + id);
+  assert.ok(w.includes('Tap a name'));
+  n = OUTBOUND.length;
+  await post(env, msg(G, { id: 970000103, first_name: 'Sara' }, { text: 'how do I install it?' }));
+  assert.ok(OUTBOUND.slice(n).find((x) => x.method === 'sendMessage').body.text.includes('https://t.me/c/0000000001/75'), 'install answer links the guides');
+  ok('group: with AMH_GROUP_TOPICS the welcome and answers link straight into each topic');
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 console.log('\n:: admin — trial users who are not licensed');
 {
