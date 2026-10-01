@@ -38,6 +38,8 @@ id = "49415337946e41168f0f2c8958ea3ede"
 
 [vars]
 AMH_GROUP_ID = "-1004403686687"
+# Support-group topic ids: topic names in the bot's group messages become links.
+AMH_GROUP_TOPICS = "questions:91,problems:92,ideas:93,work:94,windows:75,mac:80,payment:41"
 AMH_PRICE = "ETB 2,500"
 AMH_PRICE_ETB = "2500"
 AMH_ACCT_NAME = "KALEB TEGEGEN"

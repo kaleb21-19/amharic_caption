@@ -201,6 +201,7 @@ function initEnv(env) {
   ADMIN_ID = (env.AMH_ADMIN_ID || '').toString();
   if (!ADMIN_ID) log('warn', 'admin_id_missing', { hint: 'set AMH_ADMIN_ID (comma-separated chat ids) via wrangler secret put' });
   GROUP_ID = env.AMH_GROUP_ID || '';
+  GROUP_TOPICS = parseGroupTopics(env.AMH_GROUP_TOPICS);
   PRICE = env.AMH_PRICE || 'ETB 2,500';
   ACCT_NAME = env.AMH_ACCT_NAME || ACCT_NAME;
   PAY_ACCOUNTS = env.AMH_PAY_ACCOUNTS || PAY_ACCOUNTS;
@@ -2273,14 +2274,37 @@ async function groupSend(msg, text, kb, reply) {
 const groupDelete = (chatId, messageId) =>
   safeSend(tg(TOKEN, 'deleteMessage', { chat_id: chatId, message_id: messageId }));
 
-function groupWelcomeNew(names) {
+// AMH_GROUP_TOPICS = "questions:91,problems:92,ideas:93,work:94,windows:75,mac:80,payment:41"
+// (the topic ids of the support group). With it, topic names in the bot's
+// group messages are links that open the topic — on a phone a new member
+// otherwise lands in one topic and never sees the others.
+let GROUP_TOPICS = {};
+function parseGroupTopics(spec) {
+  const out = {};
+  for (const part of String(spec || '').split(',')) {
+    const m = /^\s*([a-z]+)\s*:\s*(\d{1,9})\s*$/i.exec(part);
+    if (m) out[m[1].toLowerCase()] = m[2];
+  }
+  return out;
+}
+// "Questions" as a link into that topic of this group, or bold if unknown.
+function topicRef(chatId, key, label) {
+  const id = GROUP_TOPICS[key];
+  const chat = String(chatId).replace(/^-100/, '');
+  if (!id || chat === String(chatId)) return '<b>' + label + '</b>';
+  return `<a href="https://t.me/c/${chat}/${id}">${label}</a>`;
+}
+
+function groupWelcomeNew(names, chatId) {
   const who = names.length ? ' ' + names.map((n) => '<b>' + esc(n) + '</b>').join(', ') : '';
+  const t = (key, label) => topicRef(chatId, key, label);
   return (
     `👋 እንኳን ወደ <b>አማርኛ ካፕሽን ፕሮ</b> ግሩፕ በደህና መጡ${who}!\n` +
     '<i>Welcome to the Amharic Captions Pro group!</i>\n\n' +
-    '❓ ጥያቄ → <b>Questions</b> · 🛠 ችግር → <b>Problems &amp; Help</b>\n' +
-    '💡 ሀሳብ → <b>Ideas</b> · 🎬 ስራዎ → <b>Show your work</b>\n' +
-    '📌 Announcements ውስጥ የተሰካውን መልዕክት ያንብቡ። <i>Read the pinned message in Announcements.</i>\n\n' +
+    `❓ ጥያቄ → ${t('questions', 'Questions')} · 🛠 ችግር → ${t('problems', 'Problems &amp; Help')}\n` +
+    `💡 ሀሳብ → ${t('ideas', 'Ideas')} · 🎬 ስራዎ → ${t('work', 'Show your work')}\n` +
+    `🪟 ${t('windows', 'Window guide')} · 🍎 ${t('mac', 'Macos guide')} · 💳 ${t('payment', 'Payment')}\n` +
+    (Object.keys(GROUP_TOPICS).length ? '<i>Tap a name to open that topic.</i>\n\n' : '\n') +
     '⚠️ ክፍያ በ @AmharicCaptionsBot ብቻ — Key ወይም Machine ID በግሩፑ አይለጥፉ።\n' +
     '<i>Pay only through @AmharicCaptionsBot. Never post your key or Machine ID here.</i>'
   );
@@ -2293,9 +2317,9 @@ const GROUP_FAQ = {
     `<i>Pay only through @AmharicCaptionsBot, to ${ACCT_NAME}.</i>`,
   trial: () => '🎁 ፓነሉን ይጫኑ — <b>2 ካፕሽን በነጻ</b> ይሰራሉ፤ ክፍያም ምዝገባም አያስፈልግም።\n' +
     '<i>Install the panel and make 2 captions free — no payment, no sign-up.</i>',
-  install: () => '📲 <b>①</b> ያውርዱ · <i>download</i>  <b>②</b> Premiere / After Effects ይዝጉ፣ <b>Install</b> ን ያስኪዱ · <i>close them, run Install</i>\n' +
+  install: (chatId) => '📲 <b>①</b> ያውርዱ · <i>download</i>  <b>②</b> Premiere / After Effects ይዝጉ፣ <b>Install</b> ን ያስኪዱ · <i>close them, run Install</i>\n' +
     '<b>③</b> Premiere ይክፈቱ → <b>Window → Extensions → Amharic Captions Pro</b>\n\n' +
-    '🪟 / 🍎 ሙሉ መመሪያ፦ <b>Window guide</b> · <b>Macos guide</b> <i>(full steps in the guide topics)</i>',
+    `🪟 / 🍎 ሙሉ መመሪያ፦ ${topicRef(chatId, 'windows', 'Window guide')} · ${topicRef(chatId, 'mac', 'Macos guide')} <i>(full steps in the guide topics)</i>`,
 };
 const GROUP_FAQ_KB = {
   price: () => [[OPEN_BOT_BTN]],
@@ -2317,7 +2341,7 @@ async function handleGroupMessage(msg, text) {
     if (prev) await groupDelete(chatId, Number(prev));
     const names = people.slice(0, 3).map((m) => m.first_name || m.username || '');
     const r = await safeSend(tg(TOKEN, 'sendMessage', {
-      chat_id: chatId, text: groupWelcomeNew(names.filter(Boolean)), parse_mode: 'HTML',
+      chat_id: chatId, text: groupWelcomeNew(names.filter(Boolean), chatId), parse_mode: 'HTML',
       disable_web_page_preview: true, reply_markup: { inline_keyboard: [[INSTALL_BTN], [OPEN_BOT_BTN]] },
     }));
     if (r && r.ok && r.result) await kvPut(wkey, r.result.message_id, 60 * 60 * 24 * 30);
@@ -2346,7 +2370,7 @@ async function handleGroupMessage(msg, text) {
   // /start or /help in the group: a short guide, never prices or accounts.
   const lower = text.toLowerCase();
   if (/^\/(start|help|menu)(@amhariccaptionsbot)?\b/.test(lower)) {
-    await groupSend(msg, groupWelcomeNew([]), [[INSTALL_BTN], [OPEN_BOT_BTN]]);
+    await groupSend(msg, groupWelcomeNew([], chatId), [[INSTALL_BTN], [OPEN_BOT_BTN]]);
     return;
   }
 
@@ -2359,7 +2383,7 @@ async function handleGroupMessage(msg, text) {
   const ckey = `grp:faq:${chatId}:${intent}`;
   if (await kvGet(ckey)) return;
   await kvPut(ckey, '1', GROUP_FAQ_COOLDOWN);
-  await groupSend(msg, GROUP_FAQ[intent](), GROUP_FAQ_KB[intent](), true);
+  await groupSend(msg, GROUP_FAQ[intent](chatId), GROUP_FAQ_KB[intent](), true);
 }
 
 // ── Buyer FSM flow (port of handle_buyer_message) ───────────────────────────
