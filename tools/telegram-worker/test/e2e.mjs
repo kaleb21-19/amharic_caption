@@ -2888,6 +2888,42 @@ console.log('\n:: support group — quiet helper');
   ok('group: /start shows the group guide (no prices, no accounts) and never starts a purchase');
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: admin — trial users who are not licensed');
+{
+  const { env } = fresh();
+  const q = (sql, ...a) => env.DB.prepare(sql).bind(...a).run();
+  await q("INSERT INTO customers (machine_id, key) VALUES ('aaaa1111bbbb2222', 'AMH-x')");
+  await q("INSERT INTO trials (machine_id, used) VALUES ('aaaa1111bbbb2222', 2)");          // bought: hidden
+  await q("INSERT INTO trials (machine_id, used) VALUES ('cccc3333dddd4444', 2)");          // used both
+  await q("INSERT INTO trials (machine_id, used) VALUES ('eeee5555ffff6666', 1)");          // opened Pay
+  await q("INSERT INTO trials (machine_id, used) VALUES ('0000777788889999', 0)");          // reserved, never used: hidden
+  await q("INSERT INTO trial_uses (run_id, machine_id, used_at) VALUES ('r1', 'eeee5555ffff6666', datetime('now', '+1 minute'))");
+  await q("INSERT INTO fsm (uid, step, mid) VALUES ('955500001', 'photo', 'eeee5555ffff6666')");
+  const screen = (from) => OUTBOUND.slice(from).filter((x) => /Trial users/.test(String(x.body.text || ''))).pop();
+  let n = OUTBOUND.length;
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:trials');
+  const page = screen(n);
+  assert.ok(page, 'trial users screen shown');
+  const t = page.body.text;
+  assert.ok(t.includes('<b>2</b> computer') && t.includes('Used both free captions: 1'), 'counts exclude licensed and unused');
+  assert.ok(t.includes('cccc3333dddd4444') && t.includes('eeee5555ffff6666'));
+  assert.ok(!t.includes('aaaa1111bbbb2222') && !t.includes('0000777788889999'), 'licensed / unused not listed');
+  assert.ok(t.indexOf('eeee5555ffff6666') < t.indexOf('cccc3333dddd4444'), 'most recent activity first');
+  assert.ok(t.includes('tg://user?id=955500001') && t.includes('opened Pay'), 'linked to the Telegram account that opened Pay');
+  n = OUTBOUND.length;
+  await cb(env, { id: 955500001 }, 'admin:trials');
+  assert.ok(!screen(n), 'admins only');
+  for (let i = 0; i < 12; i++) await q('INSERT INTO trials (machine_id, used) VALUES (?, 1)', 'abab' + String(i).padStart(12, '0'));
+  n = OUTBOUND.length;
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:trials');
+  assert.ok(JSON.stringify(OUTBOUND.slice(n)).includes('admin:trials:10'), 'Load more after 10');
+  n = OUTBOUND.length;
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:trials:10');
+  assert.ok(/\n11\. /.test(screen(n).body.text), 'second page numbered from 11');
+  ok('admin: 🎁 Trial users lists free-trial computers that never bought (newest first, linked to Telegram when known, paged, admins only)');
+}
+
 // Across EVERY scenario: nothing may be silently refused by Telegram (a refused
 // call is a screen the user never sees). Only the recovered photo→file case.
 {
