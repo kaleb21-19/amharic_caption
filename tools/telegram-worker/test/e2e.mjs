@@ -3030,6 +3030,42 @@ console.log('\n:: editing jobs feed');
   ok('jobs feed: off by default; owner toggles it; only today\'s video-editing jobs (English + Amharic), short card + link + safety line, into the jobs topic; no duplicates across channels or passes');
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: forum topic inventory');
+{
+  const { env } = fresh({ AMH_SUPPORT_GROUP: GROUP, AMH_GROUP_TOPICS: 'questions:91,jobs:131' });
+  const G = Number(GROUP);
+  const member = { id: 970000201, first_name: 'Dani' };
+
+  // A normal post in a topic is the only thing that reveals an id exists.
+  await post(env, msg(G, member, { text: 'ሰላም', message_thread_id: 91, is_topic_message: true }));
+  // Telegram naming a topic gives the bot the name it cannot get any other way.
+  await post(env, msg(G, member, { forum_topic_created: { name: 'Buyers chat', icon_color: 6 }, message_thread_id: 77 }));
+  // …and it is told when one closes.
+  await post(env, msg(G, member, { forum_topic_closed: { message_thread_id: 77 }, message_thread_id: 77 }));
+
+  let n = OUTBOUND.length;
+  await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID), first_name: 'Owner' }, { text: '/topics' }));
+  const t = String(OUTBOUND.slice(n).filter((x) => x.method === 'sendMessage').pop().body.text);
+
+  assert.ok(t.includes('<b>1</b>') && t.includes('cannot delete'), 'General is listed and flagged undeletable');
+  assert.ok(t.includes('<b>77</b>') && t.includes('Buyers chat') && t.includes('closed to new posts'),
+    'a created-then-closed topic keeps its real name and state');
+  assert.ok(t.includes('<b>91</b>') && t.includes('seen'), 'a topic someone posted in is marked seen');
+  assert.ok(t.includes('<b>131</b>') && t.includes('configured as <code>jobs</code>') && t.includes('never heard from'),
+    'a configured but silent topic is not passed off as confirmed');
+  assert.ok(t.includes('no API to list'), 'the report says where the list came from');
+
+  // A buyer is never shown the inventory.
+  n = OUTBOUND.length;
+  await post(env, msg(970000555, { id: 970000555, first_name: 'Buyer' }, { text: '/topics' }));
+  const leaked = OUTBOUND.slice(n).filter((x) => x.method === 'sendMessage');
+  assert.equal(leaked.length, 1, 'a buyer is told plainly it is admin-only');
+  assert.ok(/Admin only/.test(String(leaked[0].body.text)) && !/131/.test(String(leaked[0].body.text)));
+
+  ok('admin: /topics reports the support group topics — General flagged undeletable, observed ids and names, configured-only ids labelled as never heard, and never leaked to buyers');
+}
+
 // Across EVERY scenario: nothing may be silently refused by Telegram (a refused
 // call is a screen the user never sees). Only the recovered photo→file case.
 {

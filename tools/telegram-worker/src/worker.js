@@ -2012,6 +2012,12 @@ async function handleMessage(msg, env) {
     return;
   }
 
+  if (lower === '/topics' || lower === '/topics@amhariccaptionsbot') {
+    if (privateChat && isAdmin(user.id)) await adminTopics(chatId);
+    else await sendText(chatId, '🔒 ይህ ለአስተዳዳሪ ብቻ ነው። <i>Admin only.</i>');
+    return;
+  }
+
   // admin security: /unlock PIN, /lock, /audit, and the PIN gate for the
   // commands that move money, change bank details or revoke licenses.
   if (privateChat && isAdmin(user.id)) {
@@ -2298,6 +2304,67 @@ function topicRef(chatId, key, label) {
   return `<a href="https://t.me/c/${chat}/${id}">${label}</a>`;
 }
 
+// ── forum topic inventory ────────────────────────────────────────────────
+// Telegram exposes no getForumTopics: a bot cannot enumerate a group's topics,
+// and cannot read history to recover any it missed. So we record only what we
+// are genuinely told — forum_topic_created / edited / closed / reopened service
+// messages, plus the thread id on every message we see — and report from that.
+// A topic listed from config but never heard from is reported as such rather
+// than dressed up as confirmed.
+async function noteTopic(chatId, tid, patch) {
+  if (!tid) return;
+  let cur = {};
+  try { cur = JSON.parse((await kvGet('topics:' + chatId)) || '{}'); } catch (e) { cur = {}; }
+  if (!cur || typeof cur !== 'object') cur = {};
+  const prev = cur[tid] || {};
+  cur[tid] = {
+    n: patch.n !== undefined ? patch.n : (prev.n || ''),
+    s: patch.s !== undefined ? patch.s : (prev.s || ''),
+    at: Date.now(),
+  };
+  await kvPut('topics:' + chatId, JSON.stringify(cur), 60 * 60 * 24 * 90);
+}
+
+// Admin report of the support group's forum topics: what the bot has seen,
+// what is only configured, and what Telegram will never let a bot remove.
+async function adminTopics(chatId) {
+  let seen = {};
+  try { seen = JSON.parse((await kvGet('topics:' + SUPPORT_GROUP)) || '{}'); } catch (e) { seen = {}; }
+  if (!seen || typeof seen !== 'object') seen = {};
+
+  const rows = {};
+  const slot = (id) => (rows[id] = rows[id] || { name: '', state: '', cfg: '' });
+  slot('1').name = 'General — all chat';
+  for (const key in GROUP_TOPICS) slot(String(GROUP_TOPICS[key])).cfg = key;
+  for (const id in seen) {
+    const r = seen[id] || {};
+    const s = slot(String(id));
+    if (r.n) s.name = r.n;
+    s.state = r.s === 'closed' ? '🔒 closed to new posts' : r.s === 'open' ? '👁 reopened' : '👂 seen';
+  }
+
+  const ids = Object.keys(rows).sort((a, b) => Number(a) - Number(b));
+  const unheard = ids.filter((id) => id !== '1' && !rows[id].state && !rows[id].name);
+  const out = ids.map((id) => {
+    const r = rows[id];
+    const note = id === '1'
+      ? '⛔ Telegram always keeps this one — a bot cannot delete it, only close or rename it'
+      : (r.state || '❔ never heard from by the bot') + (r.cfg ? ` · configured as <code>${esc(r.cfg)}</code>` : '');
+    return `<b>${esc(id)}</b> · ${esc(r.name || '(name unknown)')}\n   <i>${note}</i>`;
+  });
+
+  await sendText(chatId,
+    '🗂 <b>Forum topics</b> — support group\n\n' +
+    '<i>Telegram gives bots no API to list a group\'s topics. This is only what the bot has been told: ' +
+    'service messages it received, plus the ids in AMH_GROUP_TOPICS. A topic nobody has posted in since ' +
+    'the last deploy cannot appear here.</i>\n\n' +
+    out.join('\n\n') +
+    (unheard.length ? `\n\n❔ Configured, never heard from: ${unheard.map((i) => '<code>' + esc(i) + '</code>').join(', ')}` : '') +
+    '\n\n<b>To clear the “all chat” section</b> — it cannot be deleted, but it can be closed so nobody ' +
+    'can post there and everyone is pushed into a topic.',
+    [[{ text: '🛠 Admin', callback_data: 'admin:panel' }]]);
+}
+
 function groupWelcomeNew(names, chatId) {
   const who = names.length ? ' ' + names.map((n) => '<b>' + esc(n) + '</b>').join(', ') : '';
   const t = (key, label) => topicRef(chatId, key, label);
@@ -2513,6 +2580,17 @@ async function scanJobs() {
 async function handleGroupMessage(msg, text) {
   const chatId = msg.chat.id;
   const user = msg.from || {};
+
+  // Forum topics: remember ids and names as Telegram reports them. There is no
+  // listing API, so these service messages are the only inventory /topics has.
+  if (msg.message_thread_id) {
+    const patch = {};
+    const named = msg.forum_topic_created || msg.forum_topic_edited;
+    if (named && named.name) patch.n = String(named.name);
+    if (msg.forum_topic_closed) patch.s = 'closed';
+    else if (msg.forum_topic_reopened) patch.s = 'open';
+    await noteTopic(chatId, msg.message_thread_id, patch);
+  }
 
   // Joins: drop the service line, replace the previous welcome with a new one.
   if (msg.new_chat_members) {
@@ -3929,6 +4007,8 @@ async function adminHelp(chatId) {
     '<code>/partner CODE name</code> — new partner · <code>/partners</code> — list\n' +
     '<code>/partnerterms CODE reward discount</code> — their amounts\n' +
     '<code>/partnerinfo CODE</code> · <code>/pmsg CODE text</code>\n\n' +
+    '<b>Group</b>\n' +
+    '<code>/topics</code> — the support group\'s forum topics, and which ones the bot has seen\n\n' +
     '<b>Security</b>\n' +
     '<code>/unlock PIN</code> · <code>/lock</code> · <code>/audit</code>\n\n' +
     '<i>Buyers see the normal /help — you get this one because you are the admin.</i>',
