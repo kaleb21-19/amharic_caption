@@ -136,6 +136,8 @@ const AM_TEXT = {
   'Your disk is full.': 'የኮምፒውተርዎ ዲስክ ሞልቷል።',
   'The transcription engine stopped unexpectedly.': 'የትራንስክሪፕሽን ሞተሩ ሳይታሰብ ቆሟል። እንደገና ይሞክሩ።',
   'The transcription runtime is missing or incomplete.': 'የትራንስክሪፕሽን ሞተሩ የለም ወይም ያልተሟላ ነው። እንደገና ይጫኑ።',
+  'Your antivirus or an incomplete install blocked part of the transcription engine. Add the extension folder to your antivirus exclusions, then reinstall and restart Premiere.':
+    'አንቲ-ቫይረስዎ ወይም ያልተሟላ ጭነት የትራንስክሪፕሽን ሞተሩን አንድ ክፍል አግዶታል። የኤክስቴንሽኑን ፎልደር ወደ አንቲ-ቫይረስዎ Exclusions ያክሉ፣ ከዚያ እንደገና ይጫኑና Premiere ን ዳግም ያስጀምሩ።',
   'Cancelled.': 'ተቋርጧል።',
   'Transcription failed.': 'ወደ ጽሑፍ መቀየር አልተሳካም።',
 

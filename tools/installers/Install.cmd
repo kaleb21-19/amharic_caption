@@ -614,6 +614,28 @@ for /d %%D in ("%ROOT%\%NAME%.staging*") do rmdir /s /q "%%D" 2>nul
 for /d %%D in ("%BASE%\%NAME%.old*") do rmdir /s /q "%%D" 2>nul
 for /d %%D in ("%BASE%\.%NAME%.staging*") do rmdir /s /q "%%D" 2>nul
 
+rem ------------------------------------------------------------
+rem Engine smoke test. Every file is present and copied, but a
+rem security app (antivirus) can still quarantine a compiled DLL
+rem during or right after the copy, and Windows' own unzip can
+rem silently drop deeply-nested files. Either leaves numpy unable
+rem to load ("DLL load failed"), which otherwise only surfaces as
+rem a crash the first time the customer makes captions. Catch it
+rem here and name the real fix instead of reporting a clean win.
+rem -E ignores PYTHON* env vars so the test reflects the bundle.
+rem ------------------------------------------------------------
+echo       Checking the transcription engine...
+set "PYEXE=%DEST%\runtime\python\python.exe"
+if not exist "%PYEXE%" goto :smoke_done
+"%PYEXE%" -E -c "import numpy, ctranslate2, soundfile" >> "%LOG%" 2>&1
+if errorlevel 1 (
+    >> "%LOG%" echo WARNING(9): engine import failed - antivirus block or incomplete unzip
+    call :ENGINEFAIL
+    exit /b 9
+)
+>> "%LOG%" echo [OK] Engine import smoke test passed.
+:smoke_done
+
 >> "%LOG%" echo INSTALLATION SUCCESSFUL
 >> "%LOG%" echo Version: !VER!
 >> "%LOG%" echo Destination: "%DEST%"
@@ -671,6 +693,50 @@ if exist "%BACKUP%" (
 ) else (
     rmdir /s /q "%DEST%" 2>nul
 )
+exit /b 0
+
+rem ============================================================
+rem Engine blocked after a clean copy: almost always antivirus or
+rem an incomplete unzip. The files are installed, so we do NOT roll
+rem back (a restored older copy is just as blocked); instead we name
+rem the one-minute fix. Yellow, not red: nothing is broken on disk.
+rem ============================================================
+
+:ENGINEFAIL
+color 0E
+title Amharic Captions Pro - one more step
+echo.
+echo ================================================================
+echo     ALMOST THERE  -  one quick fix needed
+echo ================================================================
+echo.
+echo   Everything was copied, but a part of the transcription engine
+echo   could not start. This is almost always one of two things:
+echo     - your antivirus blocked or removed a file, or
+echo     - the downloaded zip was not fully extracted.
+echo.
+echo   Please do this - it takes about a minute:
+echo.
+echo     1. Open Windows Security, go to Virus and threat protection,
+echo        Manage settings, Exclusions, Add an exclusion, Folder.
+echo     2. Choose this folder:
+echo          "%APPDATA%\Adobe\CEP\extensions"
+echo     3. Right-click the zip you downloaded, Properties, Unblock, OK.
+echo     4. Delete the extension folder, Extract the zip again, and run
+echo        Install.cmd one more time.
+echo.
+echo   Tip: the Repair.cmd next to this installer can do steps 1-3 for
+echo   you - right-click it and choose Run as administrator.
+echo.
+echo   Need help? Send this log to @AmharicCaptionsBot on Telegram:
+echo     %LOG%
+echo.
+if "!SILENT!"=="0" (
+    msg * /TIME:0 "Amharic Captions Pro is installed, but a security app likely blocked an engine file. Add %APPDATA%\Adobe\CEP\extensions to your antivirus exclusions, then re-extract the zip and run Install.cmd again. Log: %LOG%" 2>nul
+)
+echo   This window stays open - press any key when you are ready.
+echo.
+%PAUSE%
 exit /b 0
 
 :FAIL
