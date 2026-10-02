@@ -42,8 +42,12 @@ AMH_GROUP_ID = "-1004403686687"
 AMH_GROUP_TOPICS = "questions:91,problems:92,ideas:93,work:94,windows:75,mac:80,payment:41,jobs:131"
 # Editing-jobs feed: the support group, and the public job channels it reads
 # (turn it on/off in the bot: /start -> 💼 Jobs feed).
+# Usernames verified against t.me/s/<name> on 2026-10-02 (each returns public
+# posts). Dropped as dead (zero posts in 24h): josad_jobs, geez_jobs, geezjob,
+# elelanajob. Still missing handles for "Ethio daily vacancy" and the Amharic
+# "Beleqet Jobs" — add them here once the usernames are known.
 AMH_SUPPORT_GROUP = "-1003962455059"
-AMH_JOB_CHANNELS = "josad_digital,freelance_ethio,ethiojobs_official,josad_jobs,geez_jobs,geezjob,effoyjobs,elelanajobs,elelanajob,Ethiojobshubs"
+AMH_JOB_CHANNELS = "beleqetjobs,freelance_ethio,AfriworkAmharic,ethiojobsofficial,ethiojobs_official,Ethiojobs2000,ethio_job_vacancy1,ethio_job_vacancy,ethio_jobs_vacancy,josad_digital,effoyjobs,harmeejobs,fanajobs,hahujobs,jobs_in_ethio,ngojobs,elelanajobs,ethiojobshubs"
 AMH_PRICE = "ETB 2,500"
 AMH_PRICE_ETB = "2500"
 AMH_ACCT_NAME = "KALEB TEGEGEN"
