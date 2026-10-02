@@ -2990,11 +2990,13 @@ console.log('\n:: editing jobs feed');
   let posted = jobPosts(n);
   assert.equal(posted.length, 2, 'video editor (once) + the Amharic ቪዲዮ ኤዲተር job');
   const card = posted[0].body;
+  const btnUrl = (m) => String(m && m.reply_markup && m.reply_markup.inline_keyboard[0][0].url || '');
   assert.equal(String(card.chat_id), GROUP);
   assert.ok(card.text.includes('<b>Video Editor &amp; Motion Graphics</b>') && card.text.includes('🏢 Dagu Digital') &&
-    card.text.includes('⏰ October 20th, 2026') && card.text.includes('https://t.me/chanA/11') &&
-    card.text.includes('Never pay to apply'), 'short card with link to the original + safety line');
-  assert.ok(posted[1].body.text.includes('ቪዲዮ ኤዲተር') && posted[1].body.text.includes('https://t.me/chanB/7'));
+    card.text.includes('⏰ October 20th, 2026') && card.text.includes('Source: @chanA') &&
+    card.text.includes('Never pay to apply'), 'short card: labelled rows + source + safety line');
+  assert.equal(btnUrl(card), 'https://t.me/chanA/11', 'the link to the original is a button under the card');
+  assert.ok(posted[1].body.text.includes('ቪዲዮ ኤዲተር') && btnUrl(posted[1].body) === 'https://t.me/chanB/7');
   assert.ok(!JSON.stringify(posted).includes('Old Co') && !JSON.stringify(posted).includes('Accountant') &&
     !JSON.stringify(posted).includes('Copy Editor'), 'no old posts, no other jobs, no copy editors');
 
@@ -3008,7 +3010,7 @@ console.log('\n:: editing jobs feed');
   await tick();
   posted = jobPosts(n);
   assert.equal(posted.length, 1);
-  assert.ok(posted[0].body.text.includes('TikTok Video Editor') && posted[0].body.text.includes('https://t.me/chanA/12'));
+  assert.ok(posted[0].body.text.includes('TikTok Video Editor') && btnUrl(posted[0].body) === 'https://t.me/chanA/12');
 
   // A channel that disappears does not break the others.
   delete JOB_PAGES.chanB;

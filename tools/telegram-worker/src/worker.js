@@ -2425,15 +2425,23 @@ async function jobKey(j) {
   return [...new Uint8Array(d)].slice(0, 12).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-function jobMessage(j, channel, id) {
-  const where = [j.company && '🏢 ' + esc(j.company), j.location && '📍 ' + esc(j.location)].filter(Boolean).join(' · ');
-  const when = [j.deadline && '⏰ ' + esc(j.deadline), j.salary && '💰 ' + esc(j.salary)].filter(Boolean).join(' · ');
+// One job card. Compact labelled rows read best on a phone; fields the post
+// did not mention are omitted rather than left blank, so a sparse vacancy
+// renders cleanly. The chip is a label, not a link — the tappable button
+// under the card does the acting.
+function jobMessage(j, channel) {
+  const rows = [
+    j.company && `🏢 ${esc(j.company)}`,
+    j.location && `📍 ${esc(j.location)}`,
+    j.type && `🕒 ${esc(j.type)}`,
+    j.deadline && `⏰ ${esc(j.deadline)}`,
+    j.salary && `💰 ${esc(j.salary)}`,
+  ].filter(Boolean);
+  const body = rows.length ? `\n\n${rows.join('\n')}\n` : '';
   return (
-    `💼 <b>${esc(j.title)}</b>\n` +
-    (where ? where + '\n' : '') +
-    (j.type ? '🕒 ' + esc(j.type) + '\n' : '') +
-    (when ? when + '\n' : '') +
-    `\n🔗 <a href="https://t.me/${encodeURIComponent(channel)}/${id}">ዝርዝር እና ማመልከቻ · Details &amp; how to apply</a> — @${esc(channel)}\n` +
+    `🎬 <b>${esc(j.title)}</b>${body}\n` +
+    `━━━━ [ ዝርዝር እና ማመልከቻ ] ━━━━\n` +
+    `<i>Source: @${esc(channel)}</i>\n\n` +
     '⚠️ ለስራ ማመልከቻ ገንዘብ አይክፈሉ። <i>Never pay to apply for a job.</i>'
   );
 }
@@ -2471,8 +2479,9 @@ async function scanJobChannel(channel, budget) {
       const seenKey = 'jobs:seen:' + (await jobKey(job));
       if (!(await kvGet(seenKey))) {
         const r = await safeSend(tg(TOKEN, 'sendMessage', {
-          chat_id: SUPPORT_GROUP, message_thread_id: Number(GROUP_TOPICS.jobs), text: jobMessage(job, channel, p.id),
+          chat_id: SUPPORT_GROUP, message_thread_id: Number(GROUP_TOPICS.jobs), text: jobMessage(job, channel),
           parse_mode: 'HTML', disable_web_page_preview: true,
+          reply_markup: { inline_keyboard: [[{ text: '👆 Details & how to apply', url: `https://t.me/${channel}/${p.id}` }]] },
         }));
         if (!(r && r.ok)) { log('warn', 'jobs_post_failed', { channel, id: p.id, err: r && r.description }); break; }
         await kvPut(seenKey, channel + '/' + p.id, JOB_SEEN_TTL);
