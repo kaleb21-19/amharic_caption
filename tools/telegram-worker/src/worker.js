@@ -2381,13 +2381,23 @@ const cleanJobLine = (s) => String(s || '')
   .replace(/^(job\s*title|position(\s*\d+)?|title|vacancy|role|የስራ\s*መደብ)\s*[:：\-–]\s*/i, '')
   .replace(/\s+/g, ' ').trim();
 
+// Lines that only list acceptable fields/requirements. A job's role is named in
+// its title and bullets; "Film Production" inside a qualification list must not
+// make a Commercial Nominative Officer post look like an editing job.
+const JOB_NON_ROLE = /^(?:qualification|qualifications|requirement|requirements|field of study|discipline|experience)\b|^(?:ቅምቆል|የሚፈቀዳቸው|የሚጠበቀው|የልምድ)/i;
+const stripLead = (l) => String(l).replace(/^[^\p{L}\p{N}]+/u, '');
+
 // A video-editing job in this post? → { title, company, location, deadline, salary, type } or null.
 function jobFromText(text) {
   const t = String(text || '');
-  if (!JOB_STRONG.test(t) && !(JOB_WEAK.test(t) && !JOB_TEXT_EDITOR.test(t))) return null;
   const lines = t.split('\n').map((l) => l.trim()).filter(Boolean);
-  const titleLine = lines.find((l) => JOB_STRONG.test(l) && l.length < 140) ||
-    lines.find((l) => JOB_WEAK.test(l) && !JOB_TEXT_EDITOR.test(l) && l.length < 140) || lines[0] || '';
+  // Judge the role on the role lines only, so a qualification list cannot
+  // carry a post on its own.
+  const roles = lines.filter((l) => !JOB_NON_ROLE.test(stripLead(l)));
+  const roleText = roles.join('\n') || t;
+  if (!JOB_STRONG.test(roleText) && !(JOB_WEAK.test(roleText) && !JOB_TEXT_EDITOR.test(roleText))) return null;
+  const titleLine = roles.find((l) => JOB_STRONG.test(l) && l.length < 140) ||
+    roles.find((l) => JOB_WEAK.test(l) && !JOB_TEXT_EDITOR.test(l) && l.length < 140) || roles[0] || lines[0] || '';
   const field = (re) => {
     for (const l of lines) {
       const m = re.exec(l);
@@ -2451,8 +2461,10 @@ async function scanJobChannel(channel, budget) {
   let upTo = last;
   for (const p of posts) {
     if (p.id <= last) continue;
-    // First look at a channel: only today's jobs, never its whole history.
-    const fresh = !first || (Number.isFinite(p.at) && now - p.at < JOB_SEED_HOURS * 3600 * 1000);
+    // Only today's jobs, never a channel's whole history — including the very
+    // first look. (The old `!first ||` short-circuited the age check, so adding
+    // a channel dumped its last 20 posts, old ones included, into the topic.)
+    const fresh = Number.isFinite(p.at) && now - p.at < JOB_SEED_HOURS * 3600 * 1000;
     const job = fresh ? jobFromText(p.text) : null;
     if (job) {
       if (sent >= budget) break; // pick it up on the next pass
