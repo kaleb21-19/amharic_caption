@@ -1883,6 +1883,26 @@ function pyFlags() {
 
 const WARM_TRANSPORT_ERRS = new Set(['worker error', 'worker exited', 'worker write failed']);
 
+// A native extension (numpy, ctranslate2, onnxruntime, sherpa_onnx) that cannot
+// load its compiled DLL crashes the worker at import time with this signature.
+// In the field the cause is almost always a security app (antivirus) that
+// quarantined or deleted an engine file, a download that was not fully
+// unzipped, or a missing Visual C++ runtime — never anything the editor did.
+// Flag it so the one-line failure names the real fix (whitelist + reinstall)
+// instead of a generic "engine stopped unexpectedly".
+const DLL_ERROR_RE = /DLL load failed|Importing the numpy C-extensions failed|ImportError:\s*Error importing numpy/i;
+let workerDllError = false;
+function noteWorkerStderr(line) {
+  if (workerDllError || !DLL_ERROR_RE.test(line)) return;
+  workerDllError = true;
+  // English in the Log on purpose (support reads it); the customer-facing line
+  // under Generate is translated by humanError().
+  log('HINT: A security app (antivirus) most likely blocked or deleted an engine');
+  log('      file, or the download was not fully unzipped. Add this folder to your');
+  log('      antivirus exclusions, then run Install.cmd again and restart Premiere:');
+  log('      ' + EXT_DIR);
+}
+
 // --------------------------------------------------------------------------
 // Warm ASR worker: ONE long-lived Python process keeps the model loaded.
 // Requests are JSON lines on stdin; replies (and per-clip progress) are JSON
@@ -1934,6 +1954,7 @@ function warmStart() {
       const t = raw.trim();
       if (!t) return;
       if (consumeProgressLine(t)) return;
+      noteWorkerStderr(t);
       log('[worker] ' + t);
     });
   });
@@ -2231,6 +2252,7 @@ function extractToWav(sourcePath, range) {
 // Transcribe a single source (already a file path). range = {sourceIn, duration};
 // offset shifts cue times to the timeline. Result: { outSrt, cues, transcript }.
 async function transcribe(sourcePath, outSrt, range, offset) {
+  workerDllError = false;
   const key = cacheKey(sourcePath, range, offset);
   const hit = cacheLookup(key);
   if (hit) {
@@ -2301,7 +2323,8 @@ function transcribeOneShot(sourcePath, outSrt, range, offset, wav) {
         activeChild.stderr.on('data', (d) => {
           String(d).split('\n').forEach((raw) => {
             const t = raw.trim();
-            if (t) consumeProgressLine(t);
+            if (!t || consumeProgressLine(t)) return;
+            noteWorkerStderr(t);
           });
         });
       }
@@ -2314,6 +2337,7 @@ function transcribeOneShot(sourcePath, outSrt, range, offset, wav) {
 // merged (sorted) into one SRT in item order.
 // items: [{ sourcePath?, sourceIn?, duration?, wav?, offset, name?, cached? }].
 async function transcribeBatch(items, outSrt, onProgress) {
+  workerDllError = false;
   // Clips that share timeline time can't be cached per-clip without risking
   // duplicated or misattributed captions — see overlappingItems().
   const ambiguous = overlappingItems(items);
@@ -2440,6 +2464,21 @@ function transcribeBatchOneShot(items, outSrt, onProgress) {
     // cancel handler clears activeChild via child.kill()). The once-listener
     // is dropped — it stacked one listener per run and never detached.
     activeChild = child;
+    // execFile buffers stderr for its callback; attaching a listener leaves that
+    // copy intact but lets a blocked-DLL crash surface the same actionable fix
+    // as the warm path (the warm worker usually catches it first, but this is
+    // the only engine process when the warm worker never started).
+    try {
+      if (child.stderr) {
+        child.stderr.setEncoding('utf8');
+        child.stderr.on('data', (d) => {
+          String(d).split('\n').forEach((raw) => {
+            const t = raw.trim();
+            if (t) noteWorkerStderr(t);
+          });
+        });
+      }
+    } catch (e) {}
   });
 }
 
@@ -3541,6 +3580,9 @@ let runStartInProgress = false;
 // text is still written to the Log for support; this is the one line they see.
 function humanError(raw) {
   const t = String(raw || '').toLowerCase();
+  if (workerDllError || t.includes('dll load failed')) {
+    return 'Your antivirus or an incomplete install blocked part of the transcription engine. Add the extension folder to your antivirus exclusions, then reinstall and restart Premiere.';
+  }
   if (t.includes('audio too short')) return 'That clip is too short to transcribe.';
   if (t.includes('no speech')) return 'No speech found in that audio.';
   if (t.includes('audio-bearing')) return 'No transcribable clips in that range.';
