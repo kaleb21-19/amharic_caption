@@ -2361,8 +2361,33 @@ async function adminTopics(chatId) {
     out.join('\n\n') +
     (unheard.length ? `\n\n❔ Configured, never heard from: ${unheard.map((i) => '<code>' + esc(i) + '</code>').join(', ')}` : '') +
     '\n\n<b>To clear the “all chat” section</b> — it cannot be deleted, but it can be closed so nobody ' +
-    'can post there and everyone is pushed into a topic.',
-    [[{ text: '🛠 Admin', callback_data: 'admin:panel' }]]);
+    'can post there and everyone is pushed into a topic. <i>The button needs the bot to be an admin ' +
+    'with “Manage Topics”; it is reversible.</i>',
+    [[(seen['1'] && seen['1'].s === 'closed')
+      ? { text: '👁 Reopen “all chat”', callback_data: 'admin:topics-open' }
+      : { text: '🔒 Close “all chat”', callback_data: 'admin:topics-close' }],
+    [{ text: '🛠 Admin', callback_data: 'admin:panel' }]]);
+}
+
+// Close or reopen the support group's General topic. Telegram will not let a
+// bot delete thread 1, so this is the practical equivalent of removing the
+// "all chat" section: nobody can post there and everyone is pushed into a
+// topic. Fully reversible, and audited like every other admin change.
+async function adminTopicsGeneral(chatId, cbId, fromUid, close) {
+  const gid = SUPPORT_GROUP;
+  if (!gid) { await answerCb(cbId, 'AMH_SUPPORT_GROUP is not set'); return; }
+  const method = close ? 'closeForumTopic' : 'reopenForumTopic';
+  const r = await safeSend(tg(TOKEN, method, { chat_id: gid, message_thread_id: 1 }));
+  if (!r || !r.ok) {
+    const why = String((r && r.description) || 'unknown error');
+    log('error', 'topic_toggle_failed', { method, err: why });
+    await answerCb(cbId, '⚠️ ' + (close ? 'Could not close' : 'Could not reopen') + ': ' + why.slice(0, 140));
+    return;
+  }
+  await audit(fromUid, close ? 'topics-close' : 'topics-open', String(gid) + ':1');
+  await noteTopic(gid, 1, { s: close ? 'closed' : 'open' });
+  await answerCb(cbId, close ? '🔒 “All chat” closed' : '👁 “All chat” reopened');
+  await adminTopics(chatId);
 }
 
 function groupWelcomeNew(names, chatId) {
@@ -4814,6 +4839,8 @@ async function handleCallback(cb) {
         await adminPanel(chatId, messageId);
       }
     }
+    else if (action === 'topics-close') await adminTopicsGeneral(chatId, cbId, fromUid, true);
+    else if (action === 'topics-open') await adminTopicsGeneral(chatId, cbId, fromUid, false);
     else if (action === 'ref-toggle') {
       const on = refTerms(await getSettings()).on;
       try {

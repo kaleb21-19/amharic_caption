@@ -3063,7 +3063,36 @@ console.log('\n:: forum topic inventory');
   assert.equal(leaked.length, 1, 'a buyer is told plainly it is admin-only');
   assert.ok(/Admin only/.test(String(leaked[0].body.text)) && !/131/.test(String(leaked[0].body.text)));
 
+  // Close "all chat": Telegram is asked to close thread 1 of the support group.
+  n = OUTBOUND.length;
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:topics-close');
+  const closed = OUTBOUND.slice(n).filter((x) => x.method === 'closeForumTopic');
+  assert.equal(closed.length, 1, 'closeForumTopic called once');
+  assert.equal(String(closed[0].body.chat_id), String(Number(GROUP)), 'on the support group');
+  assert.equal(closed[0].body.message_thread_id, 1, 'thread 1 — General, never deleteForumTopic');
+  // It now reads as closed, and the button flips to Reopen.
+  const after = OUTBOUND.slice(n).filter((x) => x.method === 'sendMessage').pop();
+  assert.ok(/closed to new posts/.test(after.body.text), 'the report shows General as closed');
+  assert.ok(JSON.stringify(after.body.reply_markup).includes('admin:topics-open'), 'button now offers Reopen');
+
+  // And it reopens.
+  n = OUTBOUND.length;
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:topics-open');
+  const opened = OUTBOUND.slice(n).filter((x) => x.method === 'reopenForumTopic');
+  assert.equal(opened.length, 1, 'reopenForumTopic called once');
+  assert.equal(opened[0].body.message_thread_id, 1);
+
+  // If Telegram refuses (the bot missing "Manage Topics"), say so — never
+  // report a close that did not happen.
+  FAIL_NEXT = 1;
+  n = OUTBOUND.length;
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:topics-close');
+  assert.equal(OUTBOUND.slice(n).filter((x) => x.method === 'sendMessage').length, 0, 'no fresh report after a failed close');
+  const told = OUTBOUND.slice(n).filter((x) => x.method === 'answerCallbackQuery' && /Could not close/.test(String(x.body.text)))[0];
+  assert.ok(told, 'the refusal is shown to the admin');
+
   ok('admin: /topics reports the support group topics — General flagged undeletable, observed ids and names, configured-only ids labelled as never heard, and never leaked to buyers');
+  ok('admin: close/reopen “all chat” acts on thread 1 (never delete), is reversible, audited, and reports a refusal instead of pretending it worked');
 }
 
 // Across EVERY scenario: nothing may be silently refused by Telegram (a refused
