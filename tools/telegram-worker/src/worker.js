@@ -496,6 +496,11 @@ async function pruneOld() {
   // window, then drop them (run_set ttl; privacy: do not hold IPs indefinitely).
   const k = await DB.prepare("DELETE FROM key_activations WHERE last_seen < datetime('now', '-30 days')").run();
   const c = await DB.prepare("DELETE FROM ip_counters WHERE updated_at < datetime('now', '-30 days')").run();
+  // Rate-limit rows whose window has already closed (0021). Windows are short
+  // (60 s on the panel endpoints), so the table stays small; this just stops it
+  // growing for good between deploys.
+  const rl = await DB.prepare('DELETE FROM rl_counters WHERE window_end < ?').bind(Math.floor(Date.now() / 1000)).run();
+
   // Abandoned purchase flows: getFsm ignores them after 24h, this clears the rows.
   const fs = await DB.prepare("DELETE FROM fsm WHERE updated_at < datetime('now', '-2 days')").run();
   const tu = await DB.prepare("DELETE FROM trial_uses WHERE used_at < datetime('now', '-30 days')").run();
@@ -513,6 +518,8 @@ async function pruneOld() {
     funnel: f && f.meta ? f.meta.changes : 0,
     key_activations: k && k.meta ? k.meta.changes : 0,
     ip_counters: c && c.meta ? c.meta.changes : 0,
+    rl_counters: rl && rl.meta ? rl.meta.changes : 0,
+
     fsm: fs && fs.meta ? fs.meta.changes : 0,
     trial_uses: tu && tu.meta ? tu.meta.changes : 0,
     webhook_updates: wu && wu.meta ? wu.meta.changes : 0,
@@ -2715,13 +2722,21 @@ async function scanJobChannel(channel, budget) {
 async function scanJobs() {
   if (!SUPPORT_GROUP || !GROUP_TOPICS.jobs || !JOB_CHANNELS.length) return 0;
   if (!(await jobsEnabled())) return 0;
-  const rr = Number(await kvGet('jobs:rr')) || 0;
+  const rr = (Math.floor(Date.now() / 60000) * JOBS_PER_TICK) % JOB_CHANNELS.length;
   let sent = 0;
   for (let i = 0; i < Math.min(JOBS_PER_TICK, JOB_CHANNELS.length); i++) {
     sent += await scanJobChannel(JOB_CHANNELS[(rr + i) % JOB_CHANNELS.length], JOBS_MAX_POSTS_PER_TICK - sent);
     if (sent >= JOBS_MAX_POSTS_PER_TICK) break;
   }
-  await kvPut('jobs:rr', String((rr + JOBS_PER_TICK) % JOB_CHANNELS.length));
+  // No cursor write here any more. It was an unconditional KV put with no TTL,
+  // rewritten on every one of the 1,440 daily cron ticks: 1,440 puts/day by
+  // itself, which exceeds the 1,000/day free-tier limit before any user
+  // traffic, and it re-broke the quota every day. It only had to remember
+  // "which channels to check next", which the clock above now answers.
+  // (minute * JOBS_PER_TICK) steps by exactly JOBS_PER_TICK per tick, as the
+  // stored counter did, so coverage is unchanged; a missed or delayed tick just
+  // shifts the sweep phase, which costs nothing because every channel keeps its
+  // own jobs:last high-water mark and skips posts it has already seen.
   return sent;
 }
 
@@ -5304,18 +5319,42 @@ export default {
       status,
       headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...corsHeaders },
     });
-    const rateLimited = async (k, ttl) => {
-      const v = await kvGet(k);
-      if (v) return true;
-      const stored = await kvPut(k, '1', ttl);
-      // A missing/failed rate-limit write must not silently turn the endpoint
-      // into an unthrottled public service.
-      if (!stored) {
-        log('error', 'rate_limit_write_failed', { key: String(k) });
+    // Rate limiting: at most `max` hits per `ttl`-second fixed window.
+    //
+    // This is backed by D1, not KV. The KV version wrote a marker on every
+    // request that PASSED the check (not only the ones it blocked), so ordinary
+    // panel polling — ping/trial/validate, 4 markers at 60 s each — is what
+    // actually burned the 1,000 puts/day free-tier allowance, not abuse. It
+    // also failed CLOSED on write failure, so while KV was over quota and
+    // returning 429 these endpoints rejected EVERY caller, not just abusers.
+    // And it never really enforced anything: KV is eventually consistent
+    // (~60 s), so parallel requests read the same stale marker and all got
+    // through anyway. Migration 0007 moved the analogous trial counter into
+    // SQL for exactly that reason; see migration 0021.
+    const rlHit = async (k, max, ttl) => {
+      const now = Math.floor(Date.now() / 1000);
+      const end = now + ttl;
+      try {
+        // One atomic upsert: an expired window resets n to 1 and rolls the
+        // deadline forward in the same statement, so concurrent callers cannot
+        // race a read-then-write the way the KV version did.
+        await DB.prepare(
+          `INSERT INTO rl_counters (k, n, window_end) VALUES (?, 1, ?)
+           ON CONFLICT(k) DO UPDATE SET
+             n          = CASE WHEN rl_counters.window_end <= ? THEN 1 ELSE rl_counters.n + 1 END,
+             window_end = CASE WHEN rl_counters.window_end <= ? THEN ? ELSE rl_counters.window_end END`
+        ).bind(k, end, now, now, end).run();
+        const row = await DB.prepare('SELECT n FROM rl_counters WHERE k = ?').bind(k).first();
+        return (row ? row.n : 1) > max;
+      } catch (e) {
+        // Still fail closed, but this can now only happen if D1 itself is
+        // unreachable, and the log says so instead of blaming a KV quota.
+        log('error', 'rate_limit_db_failed', { key: String(k), message: String((e && e.message) || e) });
         return true;
       }
-      return false;
     };
+    // Marker-style limiter (one hit per window) is exactly a max of 1.
+    const rateLimited = (k, ttl) => rlHit(k, 1, ttl);
     const clientIp = () => request.headers.get('CF-Connecting-IP') || '0.0.0.0';
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders });
@@ -5519,14 +5558,8 @@ export default {
 
     }
 
-    // Up to `max` requests per `ttl` seconds (KV counter; KV TTLs start at 60 s).
-    const tooMany = async (k, max, ttl) => {
-      const n = parseInt((await kvGet(k)) || '0', 10) || 0;
-      if (n >= max) return true;
-      const stored = await kvPut(k, String(n + 1), ttl);
-      if (!stored) { log('error', 'rate_limit_write_failed', { key: String(k) }); return true; }
-      return false;
-    };
+    // Up to `max` requests per `ttl` seconds. D1-backed — see rlHit() above.
+    const tooMany = (k, max, ttl) => rlHit(k, max, ttl);
 
     // POST /api/redeem → {mid, code} → {ok:true, key} | {ok:false, reason}
     // A phone buyer's activation code, typed once into the panel: binds the
