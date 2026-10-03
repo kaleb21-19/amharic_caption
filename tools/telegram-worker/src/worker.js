@@ -500,7 +500,10 @@ async function pruneOld() {
   // (60 s on the panel endpoints), so the table stays small; this just stops it
   // growing for good between deploys.
   const rl = await DB.prepare('DELETE FROM rl_counters WHERE window_end < ?').bind(Math.floor(Date.now() / 1000)).run();
-
+  // Jobs-feed dedupe markers (0022): the KV form carried a 30-day TTL, so the
+  // same window is applied by hand now. Only rows older than that can be
+  // re-posted anyway, since the feed ignores anything past JOB_SEED_HOURS.
+  const js = await DB.prepare("DELETE FROM jobs_seen WHERE seen_at < datetime('now', '-30 days')").run();
   // Abandoned purchase flows: getFsm ignores them after 24h, this clears the rows.
   const fs = await DB.prepare("DELETE FROM fsm WHERE updated_at < datetime('now', '-2 days')").run();
   const tu = await DB.prepare("DELETE FROM trial_uses WHERE used_at < datetime('now', '-30 days')").run();
@@ -519,7 +522,7 @@ async function pruneOld() {
     key_activations: k && k.meta ? k.meta.changes : 0,
     ip_counters: c && c.meta ? c.meta.changes : 0,
     rl_counters: rl && rl.meta ? rl.meta.changes : 0,
-
+    jobs_seen: js && js.meta ? js.meta.changes : 0,
     fsm: fs && fs.meta ? fs.meta.changes : 0,
     trial_uses: tu && tu.meta ? tu.meta.changes : 0,
     webhook_updates: wu && wu.meta ? wu.meta.changes : 0,
@@ -2549,7 +2552,9 @@ let JOB_CHANNELS = [];
 const JOBS_PER_TICK = 2;
 const JOBS_MAX_POSTS_PER_TICK = 5;
 const JOB_SEED_HOURS = 24;
-const JOB_SEEN_TTL = 60 * 60 * 24 * 30;
+// (JOB_SEEN_TTL is gone: the dedupe markers moved from KV to the jobs_seen
+// table in migration 0022, where the same 30-day window is applied by
+// pruneOld() instead of by a KV TTL.)
 // Strong: clearly video work. Weak: "editor" / "editing" — kept only when
 // nothing says it is about text (copy editor, editor-in-chief…).
 const JOB_STRONG = /video\s*-?\s*edit|film\s*edit|premiere|after\s*effects|motion\s*graphic|videograph|capcut|davinci|post[- ]?production|colou?rist|reels?\s*edit|youtube\s*edit|ቪዲዮ|ቪድዮ|ኤዲተር|ኢዲተር|ኤዲቲንግ/i;
@@ -2682,10 +2687,14 @@ async function scanJobChannel(channel, budget) {
   }
   const posts = parseJobPage(html);
   if (!posts.length) return 0;
-  const lastKey = 'jobs:last:' + channel.toLowerCase();
-  const lastRaw = await kvGet(lastKey);
-  const first = lastRaw === null || lastRaw === undefined;
-  const last = first ? 0 : Number(lastRaw) || 0;
+  // High-water mark in D1, not KV. See migration 0022: when this write used to
+  // fail (KV over quota answers 429 and kvPut swallows it) `last` stayed 0, so
+  // every tick treated every post as new and re-sent the whole batch to the
+  // group once a minute. This read can no longer silently return nothing.
+  const chKey = channel.toLowerCase();
+  const st = await DB.prepare('SELECT last_id FROM jobs_state WHERE channel = ?').bind(chKey).first();
+  const first = !st;
+  const last = st ? Number(st.last_id) || 0 : 0;
   const now = Date.now();
   let sent = 0;
   let upTo = last;
@@ -2698,22 +2707,31 @@ async function scanJobChannel(channel, budget) {
     const job = fresh ? jobFromText(p.text) : null;
     if (job) {
       if (sent >= budget) break; // pick it up on the next pass
-      const seenKey = 'jobs:seen:' + (await jobKey(job));
-      if (!(await kvGet(seenKey))) {
+      const jk = await jobKey(job);
+      const seen = await DB.prepare('SELECT 1 FROM jobs_seen WHERE k = ?').bind(jk).first();
+      if (!seen) {
         const r = await safeSend(tg(TOKEN, 'sendMessage', {
           chat_id: SUPPORT_GROUP, message_thread_id: Number(GROUP_TOPICS.jobs), text: jobMessage(job, channel),
           parse_mode: 'HTML', disable_web_page_preview: true,
           reply_markup: { inline_keyboard: [[{ text: '👆 Details & how to apply', url: `https://t.me/${channel}/${p.id}` }]] },
         }));
         if (!(r && r.ok)) { log('warn', 'jobs_post_failed', { channel, id: p.id, err: r && r.description }); break; }
-        await kvPut(seenKey, channel + '/' + p.id, JOB_SEEN_TTL);
+        await DB.prepare(
+          `INSERT INTO jobs_seen (k, source) VALUES (?, ?)
+           ON CONFLICT(k) DO UPDATE SET source = excluded.source, seen_at = datetime('now')`
+        ).bind(jk, channel + '/' + p.id).run();
         sent++;
       }
     }
     upTo = p.id;
   }
   if (first) upTo = Math.max(upTo, posts[posts.length - 1].id);
-  if (upTo > last) await kvPut(lastKey, String(upTo));
+  if (upTo > last) {
+    await DB.prepare(
+      `INSERT INTO jobs_state (channel, last_id, updated_at) VALUES (?, ?, datetime('now'))
+       ON CONFLICT(channel) DO UPDATE SET last_id = excluded.last_id, updated_at = datetime('now')`
+    ).bind(chKey, upTo).run();
+  }
   if (sent) log('info', 'jobs_posted', { channel, sent });
   return sent;
 }
