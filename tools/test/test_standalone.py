@@ -166,6 +166,10 @@ def t1():
     assert "-->" in txt and any("ሀ" <= ch <= "፿" for ch in txt), "srt has Amharic cues"
     assert STATE["used"] == 1 and STATE["charges"] == 1, STATE
     assert not any(f.endswith(".pending") for f in os.listdir(WORK))
+    left = sorted(f for f in os.listdir(WORK) if not f.endswith((".srt", ".wav")))
+    assert not left, "only the .srt beside the video, found: %s" % left
+    assert "[info]" not in out and "CTranslate2" not in out, "engine internals stay in the log"
+    assert "CapCut" in out and "DaVinci Resolve" in out and "a.srt" in out, "says where the file is and how to import it"
 
 
 def t2():
