@@ -91,6 +91,10 @@ class D1 {
     this.db.exec(readFileSync(new URL('../migrations/0018_partner_profile.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0019_activation_codes.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0020_security.sql', import.meta.url), 'utf8'));
+    // 0021-0023: API rate limits, jobs-feed state, support-group membership (real files)
+    this.db.exec(readFileSync(new URL('../migrations/0021_rl_d1.sql', import.meta.url), 'utf8'));
+    this.db.exec(readFileSync(new URL('../migrations/0022_jobs_d1.sql', import.meta.url), 'utf8'));
+    this.db.exec(readFileSync(new URL('../migrations/0023_group_members.sql', import.meta.url), 'utf8'));
     this.db.exec("ALTER TABLE customers ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0"); // migration 0008
   }
   prepare(sql) {
@@ -1493,7 +1497,7 @@ const { env, kv } = fresh();
   assert.equal(row(env, 'SELECT status FROM orders WHERE id=?', o.id).status, 'revoked');
   assert.equal(row(env, 'SELECT revoked FROM customers WHERE machine_id=?', '9f9e9f9e').revoked, 1);
 
-  await kv.delete('rl:val:9f9e9f9e');
+  await kv.delete('rl:val:9f9e9f9e'); env.DB.prepare('DELETE FROM rl_counters WHERE k = ?').bind('rl:val:9f9e9f9e').run();
   j = await (await api(env, '/api/validate', { method: 'POST', body: { mid: '9f9e9f9e', key: c.key }, headers: { 'CF-Connecting-IP': '198.51.100.22' } })).json();
   assert.equal(j.valid, false, 'kill-switch kills validation');
   assert.equal(j.reason, 'revoked', 'revoke reason surfaced to panel');
@@ -1502,7 +1506,7 @@ const { env, kv } = fresh();
 
   await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: `/unrevoke ${o.id}` }));
   assert.equal(row(env, 'SELECT revoked FROM customers WHERE machine_id=?', '9f9e9f9e').revoked, 0);
-  await kv.delete('rl:val:9f9e9f9e');
+  await kv.delete('rl:val:9f9e9f9e'); env.DB.prepare('DELETE FROM rl_counters WHERE k = ?').bind('rl:val:9f9e9f9e').run();
   j = await (await api(env, '/api/validate', { method: 'POST', body: { mid: '9f9e9f9e', key: c.key }, headers: { 'CF-Connecting-IP': '198.51.100.23' } })).json();
   assert.equal(j.valid, true, 'unrevoke restores validation');
   ok('/revoke + /unrevoke kill/restore a license end-to-end');
@@ -1527,7 +1531,7 @@ const { env, kv } = fresh();
   await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: `/unrevoke-mid ${mid}` }));
   assert.equal(row(env, 'SELECT status FROM orders WHERE machine_id=?', mid).status, 'approved',
     'MID restore synchronizes order status');
-  await kv.delete('rl:val:' + mid);
+  await kv.delete('rl:val:' + mid); env.DB.prepare('DELETE FROM rl_counters WHERE k = ?').bind('rl:val:' + mid).run();
   j = await (await api(env, '/api/validate', { method: 'POST', body: { mid, key }, headers: { 'CF-Connecting-IP': '198.51.100.41' } })).json();
   assert.equal(j.valid, true, 'MID restore works without an order row');
   ok('MID-based revoke/restore works after order pruning');
@@ -3111,8 +3115,14 @@ console.log('\n:: jobs feed — one job posted in English and Amharic (Afriwork)
   JOB_PAGES.ejob = page('ejob', 14051, ['MULTIMEDIA ASSISTANT (VIDEOGRAPHER)', 'at OTECH ENGINEERING &amp; TECHNOLOGY SOLUTION',
     'Location: Addis Ababa', 'Deadline: Oct 10, 2026', 'Requirements:', 'at least 2 years of experience']);
   const n = OUTBOUND.length;
-  await worker.scheduled({ cron: '* * * * *' }, env);
-  await worker.scheduled({ cron: '* * * * *' }, env);
+  // The feed picks its channels by the clock minute (2 per minute), so one
+  // pass per simulated minute — like the real cron — reaches all three.
+  const realNow = Date.now;
+  let clock = realNow();
+  Date.now = () => clock;
+  try {
+    for (let i = 0; i < 3; i++) { await worker.scheduled({ cron: '* * * * *' }, env); clock += 60000; }
+  } finally { Date.now = realNow; }
   const cards = OUTBOUND.slice(n).filter((x) => x.method === 'sendMessage' && x.body.message_thread_id === 131)
     .map((x) => x.body.text + JSON.stringify(x.body.reply_markup || ''));
   assert.equal(cards.filter((t) => t.includes('Short-Form Video Editor')).length, 1, 'English + Amharic copy → one card');
@@ -3148,6 +3158,37 @@ console.log('\n:: jobs feed — the TITLE decides, not the requirements');
   assert.ok(cards[1].includes('Short-Form Video Editor') && cards[1].includes('Addis Ababa, Ethiopia') && !cards[1].includes('Position Type'),
     'location stops at the next label');
   ok('jobs feed: the job TITLE decides (requirements never do); "Job Position:" label dropped; TikTok sellers and designers skipped');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: the "/" command menu and /support');
+{
+  const { env } = fresh();
+  const tick = () => worker.scheduled({ cron: '* * * * *' }, env);
+  const setCmds = (from) => OUTBOUND.slice(from).filter((x) => x.method === 'setMyCommands');
+  let n = OUTBOUND.length;
+  await tick();
+  let sc = setCmds(n);
+  assert.equal(sc.length, 1, 'the bot sets its own command list');
+  assert.deepEqual(sc[0].body.commands.map((c) => c.command), ['start', 'buy', 'mykey', 'help', 'support'],
+    'menu, pay, key, help, support — no invite while referrals are off');
+  assert.ok(OUTBOUND.slice(n).some((x) => x.method === 'setChatMenuButton'), 'Menu button shows the commands');
+  n = OUTBOUND.length;
+  await tick();
+  assert.equal(setCmds(n).length, 0, 'unchanged list is not sent again');
+  await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('referral_enabled', '1') ON CONFLICT(key) DO UPDATE SET value='1'").run();
+  n = OUTBOUND.length;
+  await tick();
+  sc = setCmds(n);
+  assert.ok(sc.length === 1 && sc[0].body.commands.some((c) => c.command === 'invite'), 'referrals ON adds invite');
+
+  // /support: the group and a person, one tap each.
+  n = OUTBOUND.length;
+  await post(env, msg(970000301, { id: 970000301 }, { text: '/support' }));
+  const reply = OUTBOUND.slice(n).find((x) => x.method === 'sendMessage');
+  const kb = JSON.stringify(reply.body.reply_markup);
+  assert.ok(reply.body.text.includes('Support') && kb.includes('t.me/+') && kb.includes('t.me/sumpak6'), '/support: group + person');
+  ok('"/" menu: the bot keeps its own command list (start, buy, mykey, help, support; invite only with referrals ON); /support offers the group and a person');
 }
 
 // Across EVERY scenario: nothing may be silently refused by Telegram (a refused

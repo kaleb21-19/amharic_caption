@@ -191,6 +191,10 @@ let CACHE = null; // optional KV namespace (AMH_KV). Absent => graceful fallback
 let BLOCK_SHARED = false;  // when '1', /api/validate refuses a key seen from too many IPs
 let SPREAD_THRESHOLD = 3;  // distinct source IPs per key before we alert/flag a spread
 let FRESH_MID_LIMIT = 5;   // max new (never-before-seen) mids per IP/day before trial use saturates
+// Invite link for the support group. Configurable so the link can be rotated or
+// swapped without a code change; this is the same link the Support button has
+// always used.
+let SUPPORT_INVITE = 'https://t.me/+L-bMfmIRyEo3MDg0';
 
 // ── config / env ────────────────────────────────────────────────────────────
 function initEnv(env) {
@@ -203,6 +207,7 @@ function initEnv(env) {
   GROUP_ID = env.AMH_GROUP_ID || '';
   GROUP_TOPICS = parseGroupTopics(env.AMH_GROUP_TOPICS);
   SUPPORT_GROUP = String(env.AMH_SUPPORT_GROUP || '');
+  SUPPORT_INVITE = String(env.AMH_SUPPORT_INVITE || SUPPORT_INVITE);
   JOB_CHANNELS = String(env.AMH_JOB_CHANNELS || '').split(',')
     .map((c) => c.trim().replace(/^@/, '')).filter((c) => /^[A-Za-z0-9_]{4,40}$/.test(c));
   PRICE = env.AMH_PRICE || 'ETB 2,500';
@@ -421,7 +426,7 @@ const heroKeyboard = (invite = false) => [
   [{ text: '🔑 ቁልፌ · My Key', callback_data: 'menu:mykey' }],
   ...(invite ? [[{ text: '🎁 ጓደኛ ይጋብዙ · Invite friends', callback_data: 'ref:invite' }]] : []),
   [{ text: '📲 አጫጫን · Install guide', url: `${SITE_URL}/install` }],
-  [{ text: '💬 ድጋፍ · Support', url: 'https://t.me/+L-bMfmIRyEo3MDg0' }],
+  [{ text: '💬 ድጋፍ · Support', url: SUPPORT_INVITE }],
 ];
 
 // The shop owner's /start opens the same dashboard as /admin (adminPanel):
@@ -491,6 +496,14 @@ async function pruneOld() {
   // window, then drop them (run_set ttl; privacy: do not hold IPs indefinitely).
   const k = await DB.prepare("DELETE FROM key_activations WHERE last_seen < datetime('now', '-30 days')").run();
   const c = await DB.prepare("DELETE FROM ip_counters WHERE updated_at < datetime('now', '-30 days')").run();
+  // Rate-limit rows whose window has already closed (0021). Windows are short
+  // (60 s on the panel endpoints), so the table stays small; this just stops it
+  // growing for good between deploys.
+  const rl = await DB.prepare('DELETE FROM rl_counters WHERE window_end < ?').bind(Math.floor(Date.now() / 1000)).run();
+  // Jobs-feed dedupe markers (0022): the KV form carried a 30-day TTL, so the
+  // same window is applied by hand now. Only rows older than that can be
+  // re-posted anyway, since the feed ignores anything past JOB_SEED_HOURS.
+  const js = await DB.prepare("DELETE FROM jobs_seen WHERE seen_at < datetime('now', '-30 days')").run();
   // Abandoned purchase flows: getFsm ignores them after 24h, this clears the rows.
   const fs = await DB.prepare("DELETE FROM fsm WHERE updated_at < datetime('now', '-2 days')").run();
   const tu = await DB.prepare("DELETE FROM trial_uses WHERE used_at < datetime('now', '-30 days')").run();
@@ -508,6 +521,8 @@ async function pruneOld() {
     funnel: f && f.meta ? f.meta.changes : 0,
     key_activations: k && k.meta ? k.meta.changes : 0,
     ip_counters: c && c.meta ? c.meta.changes : 0,
+    rl_counters: rl && rl.meta ? rl.meta.changes : 0,
+    jobs_seen: js && js.meta ? js.meta.changes : 0,
     fsm: fs && fs.meta ? fs.meta.changes : 0,
     trial_uses: tu && tu.meta ? tu.meta.changes : 0,
     webhook_updates: wu && wu.meta ? wu.meta.changes : 0,
@@ -2214,6 +2229,21 @@ async function handleMessage(msg, env) {
     return;
   }
 
+  // /support — the "/" menu had no way to reach a person. Two doors: the
+  // group (everyone, fast) and a private chat with the owner.
+  if (['/support', '/support@amhariccaptionsbot'].includes(lower)) {
+    await sendText(chatId,
+      '💬 <b>ድጋፍ / Support</b>\n\n' +
+      'ጥያቄ ወይም ችግር ካለዎት በቴሌግራም ግሩፓችን <b>Discussion</b> ላይ ይጻፉ — በፍጥነት እንመልሳለን።\n' +
+      '<i>Questions or a problem? Write in the Discussion topic of our group — we answer fast.</i>\n\n' +
+      'የፈቃድ ወይም የክፍያ ጉዳይ ከሆነ በግል ያናግሩን።\n' +
+      '<i>License or payment issue? Message us privately.</i>',
+      [[{ text: '👥 ግሩፑን ይክፈቱ · Open the group', url: SUPPORT_INVITE }],
+       [{ text: '🙋 ሰው ያናግሩ · Ask a person', url: SUPPORT_URL }],
+       [MENU_BTN]]);
+    return;
+  }
+
   // /help — a buyer who is stuck types this before anything else, and the bot
   // used to answer "I didn't understand that" and show a menu, which reads as
   // "you are on your own". Answer the three questions support actually gets.
@@ -2390,6 +2420,107 @@ async function adminTopicsGeneral(chatId, cbId, fromUid, close) {
   await adminTopics(chatId);
 }
 
+// ── support-group membership ──────────────────────────────────────────────────
+// The bot could only ever ASK for a join before (a static invite-link button),
+// never check one. Telegram has no API to force membership — no bot can compel
+// anyone into a group — so the strongest honest lever is to detect the gap and
+// gate on it, rather than ask once and hope.
+//
+// Deliberate rule: every path here fails OPEN. If the API call fails, or the
+// table is missing, we do nothing. Nudging a customer who is already inside the
+// group is a much worse bug than staying quiet.
+
+// Live membership. Returns true / false, or null when we genuinely cannot tell
+// (API error, bot not an admin, rate limited) — callers must treat null as
+// "leave them alone". `restricted` still counts as inside: the person is a
+// member who happens to be under some restriction.
+async function isGroupMember(uid) {
+  if (!SUPPORT_GROUP) return null;
+  const r = await safeSend(tg(TOKEN, 'getChatMember', {
+    chat_id: SUPPORT_GROUP, user_id: uid,
+  }));
+  if (!r || !r.ok || !r.result) {
+    log('warn', 'group_member_unknown', { uid: String(uid), err: r && r.description });
+    return null;
+  }
+  const s = String(r.result.status || '');
+  return s === 'member' || s === 'administrator' || s === 'creator' || s === 'restricted';
+}
+
+// A private supergroup id looks like -1003962455059; Telegram's public link
+// form drops the -100. Only usable once the person is already a member.
+function groupTopicLink(topicId) {
+  if (!SUPPORT_GROUP || !topicId) return SUPPORT_INVITE;
+  return `https://t.me/c${String(SUPPORT_GROUP).replace(/^-100/, '')}/${Number(topicId)}`;
+}
+
+async function markGroupPrompt(uid) {
+  try {
+    await DB.prepare(
+      `INSERT INTO group_members (uid, prompted_at) VALUES (?, datetime('now'))
+       ON CONFLICT(uid) DO UPDATE SET prompted_at = datetime('now')`
+    ).bind(String(uid)).run();
+  } catch (e) {
+    log('error', 'group_prompt_failed', { uid: String(uid), message: String((e && e.message) || e) });
+  }
+}
+
+// joined_at is written once and never rewritten, so it answers "did they ever
+// join"; left_at is cleared on re-join so a lapsed member is distinguishable
+// from a never-member.
+async function markGroupJoined(uid) {
+  try {
+    await DB.prepare(
+      `INSERT INTO group_members (uid, joined_at) VALUES (?, datetime('now'))
+       ON CONFLICT(uid) DO UPDATE SET
+         joined_at = COALESCE(group_members.joined_at, datetime('now')),
+         left_at   = NULL`
+    ).bind(String(uid)).run();
+  } catch (e) {
+    log('error', 'group_joined_failed', { uid: String(uid), message: String((e && e.message) || e) });
+  }
+}
+
+async function markGroupLeft(uid) {
+  try {
+    await DB.prepare(
+      `INSERT INTO group_members (uid, left_at) VALUES (?, datetime('now'))
+       ON CONFLICT(uid) DO UPDATE SET left_at = datetime('now')`
+    ).bind(String(uid)).run();
+  } catch (e) {
+    log('error', 'group_left_failed', { uid: String(uid), message: String((e && e.message) || e) });
+  }
+}
+
+const JOIN_PROMPT_KB = [
+  [{ text: '👥 ግሩን ይግቡ · Join the group', url: SUPPORT_INVITE }],
+  [{ text: '✅ ተግባርላለሁ · I have joined', callback_data: 'grp-check' }],
+];
+
+const JOIN_PROMPT_TEXT =
+  '👥 <b>ግሩን ይግቡ — የማስተካከሪያ ስራዎች እዚህ ይገኛሉ</b>\n' +
+  '<i>Join the group to get every editing job as it is posted.</i>\n\n' +
+  'ስራዎቹ ነፃ ናቸው። ሁሉም የሚያዩት በግሩኑ የ<b>ስራዎች</b> ርዕስ ውስጥ ብቻ ነው።\n' +
+  '<i>Free, and only there.</i>';
+
+const JOINED_TEXT =
+  '✅ <b>እንኳን ወደ ግሩኑ ተመጡ!</b>\n' +
+  '<i>You are in — the editing jobs are in the Jobs topic.</i>\n\n' +
+  'እንኳን ወደ ግሩኑ ተመጡ! የማስተካከሪያ ስራዎች በ<b>ስራዎች</b> ርዕስ ውስጥ ናቸው።';
+
+// Ask a buyer, once, to join the group — but only if we can positively confirm
+// they are not already in it. Returns true when a prompt was sent.
+async function nudgeGroupJoin(uid) {
+  if (!SUPPORT_GROUP || !SUPPORT_INVITE) return false;
+  const member = await isGroupMember(uid);
+  if (member === true) { await markGroupJoined(uid); return false; }
+  if (member === null) return false;      // cannot tell: stay quiet
+  await markGroupPrompt(uid);
+  const sent = await sendText(uid, JOIN_PROMPT_TEXT, JOIN_PROMPT_KB);
+  log('info', sent && sent.ok ? 'group_prompt_sent' : 'group_prompt_failed_send', { uid: String(uid) });
+  return !!(sent && sent.ok);
+}
+
 function groupWelcomeNew(names, chatId) {
   const who = names.length ? ' ' + names.map((n) => '<b>' + esc(n) + '</b>').join(', ') : '';
   const t = (key, label) => topicRef(chatId, key, label);
@@ -2436,7 +2567,9 @@ let JOB_CHANNELS = [];
 const JOBS_PER_TICK = 2;
 const JOBS_MAX_POSTS_PER_TICK = 5;
 const JOB_SEED_HOURS = 24;
-const JOB_SEEN_TTL = 60 * 60 * 24 * 30;
+// (JOB_SEEN_TTL is gone: the dedupe markers moved from KV to the jobs_seen
+// table in migration 0022, where the same 30-day window is applied by
+// pruneOld() instead of by a KV TTL.)
 // Strong: clearly video work. Weak: "editor" / "editing" — kept only when
 // nothing says it is about text (copy editor, editor-in-chief…).
 const JOB_STRONG = /video\s*-?\s*edit|film\s*edit|premiere|after\s*effects|motion\s*graphic|videograph|capcut|davinci|post[- ]?production|colou?rist|reels?\s*edit|youtube\s*edit|ቪዲዮ|ቪድዮ|ኤዲተር|ኢዲተር|ኤዲቲንግ/i;
@@ -2569,10 +2702,14 @@ async function scanJobChannel(channel, budget) {
   }
   const posts = parseJobPage(html);
   if (!posts.length) return 0;
-  const lastKey = 'jobs:last:' + channel.toLowerCase();
-  const lastRaw = await kvGet(lastKey);
-  const first = lastRaw === null || lastRaw === undefined;
-  const last = first ? 0 : Number(lastRaw) || 0;
+  // High-water mark in D1, not KV. See migration 0022: when this write used to
+  // fail (KV over quota answers 429 and kvPut swallows it) `last` stayed 0, so
+  // every tick treated every post as new and re-sent the whole batch to the
+  // group once a minute. This read can no longer silently return nothing.
+  const chKey = channel.toLowerCase();
+  const st = await DB.prepare('SELECT last_id FROM jobs_state WHERE channel = ?').bind(chKey).first();
+  const first = !st;
+  const last = st ? Number(st.last_id) || 0 : 0;
   const now = Date.now();
   let sent = 0;
   let upTo = last;
@@ -2585,22 +2722,31 @@ async function scanJobChannel(channel, budget) {
     const job = fresh ? jobFromText(p.text) : null;
     if (job) {
       if (sent >= budget) break; // pick it up on the next pass
-      const seenKey = 'jobs:seen:' + (await jobKey(job));
-      if (!(await kvGet(seenKey))) {
+      const jk = await jobKey(job);
+      const seen = await DB.prepare('SELECT 1 FROM jobs_seen WHERE k = ?').bind(jk).first();
+      if (!seen) {
         const r = await safeSend(tg(TOKEN, 'sendMessage', {
           chat_id: SUPPORT_GROUP, message_thread_id: Number(GROUP_TOPICS.jobs), text: jobMessage(job, channel),
           parse_mode: 'HTML', disable_web_page_preview: true,
           reply_markup: { inline_keyboard: [[{ text: '👆 Details & how to apply', url: `https://t.me/${channel}/${p.id}` }]] },
         }));
         if (!(r && r.ok)) { log('warn', 'jobs_post_failed', { channel, id: p.id, err: r && r.description }); break; }
-        await kvPut(seenKey, channel + '/' + p.id, JOB_SEEN_TTL);
+        await DB.prepare(
+          `INSERT INTO jobs_seen (k, source) VALUES (?, ?)
+           ON CONFLICT(k) DO UPDATE SET source = excluded.source, seen_at = datetime('now')`
+        ).bind(jk, channel + '/' + p.id).run();
         sent++;
       }
     }
     upTo = p.id;
   }
   if (first) upTo = Math.max(upTo, posts[posts.length - 1].id);
-  if (upTo > last) await kvPut(lastKey, String(upTo));
+  if (upTo > last) {
+    await DB.prepare(
+      `INSERT INTO jobs_state (channel, last_id, updated_at) VALUES (?, ?, datetime('now'))
+       ON CONFLICT(channel) DO UPDATE SET last_id = excluded.last_id, updated_at = datetime('now')`
+    ).bind(chKey, upTo).run();
+  }
   if (sent) log('info', 'jobs_posted', { channel, sent });
   return sent;
 }
@@ -2609,13 +2755,21 @@ async function scanJobChannel(channel, budget) {
 async function scanJobs() {
   if (!SUPPORT_GROUP || !GROUP_TOPICS.jobs || !JOB_CHANNELS.length) return 0;
   if (!(await jobsEnabled())) return 0;
-  const rr = Number(await kvGet('jobs:rr')) || 0;
+  const rr = (Math.floor(Date.now() / 60000) * JOBS_PER_TICK) % JOB_CHANNELS.length;
   let sent = 0;
   for (let i = 0; i < Math.min(JOBS_PER_TICK, JOB_CHANNELS.length); i++) {
     sent += await scanJobChannel(JOB_CHANNELS[(rr + i) % JOB_CHANNELS.length], JOBS_MAX_POSTS_PER_TICK - sent);
     if (sent >= JOBS_MAX_POSTS_PER_TICK) break;
   }
-  await kvPut('jobs:rr', String((rr + JOBS_PER_TICK) % JOB_CHANNELS.length));
+  // No cursor write here any more. It was an unconditional KV put with no TTL,
+  // rewritten on every one of the 1,440 daily cron ticks: 1,440 puts/day by
+  // itself, which exceeds the 1,000/day free-tier limit before any user
+  // traffic, and it re-broke the quota every day. It only had to remember
+  // "which channels to check next", which the clock above now answers.
+  // (minute * JOBS_PER_TICK) steps by exactly JOBS_PER_TICK per tick, as the
+  // stored counter did, so coverage is unchanged; a missed or delayed tick just
+  // shifts the sweep phase, which costs nothing because every channel keeps its
+  // own jobs:last high-water mark and skips posts it has already seen.
   return sent;
 }
 
@@ -2639,6 +2793,9 @@ async function handleGroupMessage(msg, text) {
     await groupDelete(chatId, msg.message_id);
     const people = msg.new_chat_members.filter((m) => !m.is_bot);
     if (!people.length) return;
+    // Membership we are being told about anyway — record it, so "did they join"
+    // is answerable later without asking the API for every customer.
+    for (const m of people) await markGroupJoined(m.id);
     const wkey = 'grp:welcome:' + chatId;
     const prev = await kvGet(wkey);
     if (prev) await groupDelete(chatId, Number(prev));
@@ -2652,6 +2809,7 @@ async function handleGroupMessage(msg, text) {
   }
   if (msg.left_chat_member) {
     await groupDelete(chatId, msg.message_id);
+    await markGroupLeft(msg.left_chat_member.id);
     return;
   }
 
@@ -3493,6 +3651,56 @@ function adminKeyboardPend(orderId) {
   ]];
 }
 
+// How many buyers we asked to join actually joined. This is the number that was
+// impossible to get before: the old flow only ever handed out an invite link,
+// so there was nothing to count. "Asked but not joined" is also the actionable
+// list — those are the customers who may not know the jobs feed exists.
+async function adminGroup(chatId, messageId, cbId) {
+  await answerCb(cbId, '');
+  let row = { prompted: 0, joined: 0, joinedPrompted: 0 };
+  try {
+    row = await DB.prepare(
+      `SELECT
+         COALESCE(SUM(CASE WHEN prompted_at IS NOT NULL THEN 1 ELSE 0 END),0) AS prompted,
+         COALESCE(SUM(CASE WHEN joined_at   IS NOT NULL THEN 1 ELSE 0 END),0) AS joined,
+         COALESCE(SUM(CASE WHEN joined_at IS NOT NULL AND prompted_at IS NOT NULL THEN 1 ELSE 0 END),0) AS joinedPrompted
+       FROM group_members`
+    ).first() || row;
+  } catch (e) {
+    await sendText(chatId, '⚠️ <i>group_members table is missing — run <code>npm run migrate</code>.</i>');
+    return;
+  }
+  const prompts = row.prompted || 0;
+  const converted = row.joinedPrompted || 0;
+  const pct = prompts ? Math.round((converted / prompts) * 100) : 0;
+  const missing = prompts - converted;
+
+  let lines =
+    `👥 <b>Support group</b>\n\n` +
+    `📣 Asked to join: <b>${prompts}</b>\n` +
+    `✅ Of those, joined: <b>${converted}</b> (${pct}%)\n` +
+    `⬜ Did not join yet: <b>${missing}</b>\n` +
+    `👤 Ever joined (any path): <b>${row.joined || 0}</b>\n`;
+
+  if (missing > 0) {
+    const laggards = await DB.prepare(
+      `SELECT gm.uid, gm.prompted_at FROM group_members gm
+       WHERE gm.prompted_at IS NOT NULL AND gm.joined_at IS NULL
+       ORDER BY gm.prompted_at DESC LIMIT 15`
+    ).all();
+    const names = (laggards.results || []).map((r) =>
+      `${esc(String(r.uid))} <i>(${String(r.prompted_at || '').slice(0, 16)})</i>`).join('\n');
+    lines += `\n\n📋 <b>Not joined yet (latest 15):</b>\n${names}\n` +
+      `<i>Send them: /broadcast — the jobs feed only lives in the group.</i>`;
+  }
+  const back = [[{ text: '⬅ ተመለስ · Back', callback_data: 'admin:panel' }]];
+  if (messageId) {
+    const r = await editText(chatId, messageId, lines, back);
+    if (r && r.ok) return;
+  }
+  await sendText(chatId, lines, back);
+}
+
 async function adminPanel(chatId, messageId) {
   await pruneOld();
   const pend = await pendingCount();
@@ -3529,6 +3737,7 @@ async function adminPanel(chatId, messageId) {
     [{ text: '🔍 Find a customer', callback_data: 'admin:findask' }, { text: '🤝 Partners', callback_data: 'admin:partners' }],
     [{ text: `🎁 Referrals · ${refOn ? '🟢 ON' : '⚪ OFF'}`, callback_data: 'admin:ref' }],
     [{ text: `💼 Jobs feed · ${(await jobsEnabled()) ? '🟢 ON' : '⚪ OFF'}`, callback_data: 'admin:jobs-toggle' }],
+    [{ text: '👥 Group members', callback_data: 'admin:group' }],
     [{ text: '🔐 Audit log', callback_data: 'admin:audit' }, { text: '📖 Commands', callback_data: 'admin:help' }],
   ];
   if (messageId) await editText(chatId, messageId, text, kb);
@@ -4501,6 +4710,11 @@ async function approve(chatId, messageId, orderId, cbId) {
          `<i>Order approved, but sending ${what.en} failed. We will send it again shortly.</i>`));
   }
 
+  // The key has already gone out — this never withholds what they paid for.
+  // It only checks, and if they are not in the group yet, offers the jobs feed
+  // once, at the point of highest intent, with a one-tap way to confirm.
+  if (delivered) await nudgeGroupJoin(o.uid);
+
   const left = await pendingCount();
   const sentWhat = codeOrder ? `activation code <code>${esc(key)}</code>` : 'key';
   await editText(chatId, messageId, delivered
@@ -4742,6 +4956,30 @@ async function handleCallback(cb) {
       return;
     }
     if (action === 'mykey') { await answerCb(cbId, ''); await showMyKey(cb, chatId, messageId); return; }
+    // "I have joined" on the post-purchase prompt. Re-checks live rather than
+    // trusting the button press — joining takes a second, and people do tap
+    // before it lands, so an instant re-read would produce a false "no".
+    if (action === 'grp-check') {
+      const member = await isGroupMember(fromUid);
+      if (member === true) {
+        await markGroupJoined(fromUid);
+        const jobsLink = groupTopicLink(GROUP_TOPICS.jobs);
+        const kb = GROUP_TOPICS.jobs
+          ? [[{ text: '🎬 ስራዎች · Open the Jobs topic', url: jobsLink }]]
+          : null;
+        await answerCb(cbId, '✅ ተግባርላለሁ · Confirmed');
+        await editText(chatId, messageId, JOINED_TEXT, kb);
+      } else if (member === false) {
+        await answerCb(cbId, '👥 ግሩን አልገቡም · Not in the group yet');
+        await sendText(chatId,
+          '👥 እስካሁን በግሩኑ አይወሉም። ከላይ ያለውን አዝና ይግቡ፣ ከዚያ እነገራለሁ።\n' +
+          '<i>Not in the group yet. Tap the button above, join, then press it again.</i>',
+          JOIN_PROMPT_KB);
+      } else {
+        await answerCb(cbId, '⚠️ ማረጋገጥ አልተቻለም · Could not verify');
+      }
+      return;
+    }
     if (action === 'yes') {
       // "Yes, this picture is my payment" (it arrived outside a purchase).
       await answerCb(cbId, '');
@@ -4846,6 +5084,7 @@ async function handleCallback(cb) {
     else if (action === 'bcast-cancel') await cancelBroadcast(chatId, messageId, cbId, parseInt(parts[2] || '0', 10));
     else if (action === 'sales-export') await adminSalesExport(chatId, cbId);
     else if (action === 'ref') await adminReferrals(chatId, messageId);
+    else if (action === 'group') await adminGroup(chatId, messageId, cbId);
     else if (action === 'jobs-toggle') {
       const on = await jobsEnabled();
       if (!on && (!SUPPORT_GROUP || !GROUP_TOPICS.jobs || !JOB_CHANNELS.length)) {
@@ -5070,6 +5309,38 @@ function corsFor(request) {
 }
 
 // ── entry point: webhook ────────────────────────────────────────────────────
+// ── the "/" command menu ────────────────────────────────────────────────────
+// The list behind the Menu button and "/" used to live only in @BotFather and
+// had drifted to a single "invite" entry — customers tapping Menu saw nothing
+// else (and invite is off while referrals are off). The bot now owns the list:
+// a cron tick compares it with what was last sent and calls setMyCommands only
+// when it changed, so a deploy or the referral switch updates it within a minute.
+async function botCommands() {
+  const cmds = [
+    { command: 'start', description: 'ዋና ገጽ · Menu' },
+    { command: 'buy', description: 'ፈቃድ ይግዙ · Buy a license' },
+    { command: 'mykey', description: 'ቁልፌ · My key' },
+    { command: 'help', description: 'እገዛ · Help' },
+    { command: 'support', description: 'ድጋፍ · Support' },
+  ];
+  try {
+    if (refTerms(await getSettings()).on) cmds.push({ command: 'invite', description: 'ጓደኛ ይጋብዙ · Invite friends' });
+  } catch (e) { /* settings unavailable: base list */ }
+  return cmds;
+}
+async function syncBotCommands() {
+  const cmds = await botCommands();
+  const sig = cmds.map((c) => c.command + '=' + c.description).join('|');
+  let have = '';
+  try { have = (await getSettings()).bot_commands || ''; } catch (e) { return; }
+  if (have === sig) return;
+  const r = await safeSend(tg(TOKEN, 'setMyCommands', { commands: cmds }));
+  if (!(r && r.ok)) { log('warn', 'set_commands_failed', { err: r && r.description }); return; }
+  await safeSend(tg(TOKEN, 'setChatMenuButton', { menu_button: { type: 'commands' } }));
+  try { await setSetting('bot_commands', sig); } catch (e) { /* retried next tick */ }
+  log('info', 'bot_commands_synced', { commands: cmds.map((c) => c.command).join(',') });
+}
+
 export default {
   async fetch(request, env) {
     initEnv(env);
@@ -5113,18 +5384,42 @@ export default {
       status,
       headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...corsHeaders },
     });
-    const rateLimited = async (k, ttl) => {
-      const v = await kvGet(k);
-      if (v) return true;
-      const stored = await kvPut(k, '1', ttl);
-      // A missing/failed rate-limit write must not silently turn the endpoint
-      // into an unthrottled public service.
-      if (!stored) {
-        log('error', 'rate_limit_write_failed', { key: String(k) });
+    // Rate limiting: at most `max` hits per `ttl`-second fixed window.
+    //
+    // This is backed by D1, not KV. The KV version wrote a marker on every
+    // request that PASSED the check (not only the ones it blocked), so ordinary
+    // panel polling — ping/trial/validate, 4 markers at 60 s each — is what
+    // actually burned the 1,000 puts/day free-tier allowance, not abuse. It
+    // also failed CLOSED on write failure, so while KV was over quota and
+    // returning 429 these endpoints rejected EVERY caller, not just abusers.
+    // And it never really enforced anything: KV is eventually consistent
+    // (~60 s), so parallel requests read the same stale marker and all got
+    // through anyway. Migration 0007 moved the analogous trial counter into
+    // SQL for exactly that reason; see migration 0021.
+    const rlHit = async (k, max, ttl) => {
+      const now = Math.floor(Date.now() / 1000);
+      const end = now + ttl;
+      try {
+        // One atomic upsert: an expired window resets n to 1 and rolls the
+        // deadline forward in the same statement, so concurrent callers cannot
+        // race a read-then-write the way the KV version did.
+        await DB.prepare(
+          `INSERT INTO rl_counters (k, n, window_end) VALUES (?, 1, ?)
+           ON CONFLICT(k) DO UPDATE SET
+             n          = CASE WHEN rl_counters.window_end <= ? THEN 1 ELSE rl_counters.n + 1 END,
+             window_end = CASE WHEN rl_counters.window_end <= ? THEN ? ELSE rl_counters.window_end END`
+        ).bind(k, end, now, now, end).run();
+        const row = await DB.prepare('SELECT n FROM rl_counters WHERE k = ?').bind(k).first();
+        return (row ? row.n : 1) > max;
+      } catch (e) {
+        // Still fail closed, but this can now only happen if D1 itself is
+        // unreachable, and the log says so instead of blaming a KV quota.
+        log('error', 'rate_limit_db_failed', { key: String(k), message: String((e && e.message) || e) });
         return true;
       }
-      return false;
     };
+    // Marker-style limiter (one hit per window) is exactly a max of 1.
+    const rateLimited = (k, ttl) => rlHit(k, 1, ttl);
     const clientIp = () => request.headers.get('CF-Connecting-IP') || '0.0.0.0';
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders });
@@ -5328,14 +5623,8 @@ export default {
 
     }
 
-    // Up to `max` requests per `ttl` seconds (KV counter; KV TTLs start at 60 s).
-    const tooMany = async (k, max, ttl) => {
-      const n = parseInt((await kvGet(k)) || '0', 10) || 0;
-      if (n >= max) return true;
-      const stored = await kvPut(k, String(n + 1), ttl);
-      if (!stored) { log('error', 'rate_limit_write_failed', { key: String(k) }); return true; }
-      return false;
-    };
+    // Up to `max` requests per `ttl` seconds. D1-backed — see rlHit() above.
+    const tooMany = (k, max, ttl) => rlHit(k, max, ttl);
 
     // POST /api/redeem → {mid, code} → {ok:true, key} | {ok:false, reason}
     // A phone buyer's activation code, typed once into the panel: binds the
@@ -5640,6 +5929,7 @@ export default {
     // query when there is none). Every 6 hours: housekeeping.
     if (event && event.cron === '* * * * *') {
       await processBroadcast(BCAST_BATCH_CRON);
+      try { await syncBotCommands(); } catch (e) { log('error', 'commands_sync_failed', { err: String((e && e.message) || e) }); }
       try { await scanJobs(); } catch (e) { log('error', 'jobs_scan_failed', { err: String((e && e.message) || e) }); }
       return;
     }

@@ -60,6 +60,11 @@ AMH_FRESH_MID_DAY = "30"
 # Narrow browser origins for the CEP panel; the CEF has no disable-web-security
 # flag, so an unset allow-list would block activation/trial fetches.
 AMH_ALLOWED_ORIGIN = "null,file://"
+# Invite link for the support group, used by the home-screen Support button and
+# by the post-purchase "join the group" prompt. Set it here to rotate the link
+# without a code change; if unset the built-in default is used. Not a secret —
+# it is meant to be shared.
+AMH_SUPPORT_INVITE = "https://t.me/+L-bMfmIRyEo3MDg0"
 
 # Every 6h: prune orders/funnel older than 30 days (keeps the history window
 # consistent without depending on admin activity).
