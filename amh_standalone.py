@@ -32,16 +32,65 @@ AUDIO_CLEAN_FILTER = "highpass=f=80,lowpass=f=7500,afftdn=nf=-25"
 BUY_URL = "https://t.me/AmharicCaptionsBot"
 
 
+WIDTH = 64
+# Markers in plain ASCII: Windows 10's console draws ✓ ✗ 📁 🔔 as empty boxes.
+OK, ERR, NOTE = "  [OK] ", "  [!]  ", "  [i]  "
+LOG = os.path.join(tempfile.gettempdir(), "amharic-captions-srt.log")
+
+
 def say(am, en=None):
     """One message, Amharic first, English under it."""
     print(am)
     if en:
-        print("   " + en)
+        print("       " + en if am.startswith("  [") else "   " + en)
     sys.stdout.flush()
 
 
 def rule():
-    print("-" * 60)
+    print("-" * WIDTH)
+
+
+def banner(version):
+    print()
+    print("=" * WIDTH)
+    title = "  Amharic Captions Pro  |  SRT maker"
+    print(title + ("v" + version).rjust(WIDTH - len(title) - 2) if version else title)
+    print("  አማርኛ ካፕሽን ፕሮ — ለCapCut፣ DaVinci Resolve እና ለሌሎች ኤዲተሮች")
+    print("=" * WIDTH)
+
+
+class _EngineLog:
+    """The engine reports its internals on stderr ("[info] engine: CTranslate2
+    int8", resume notes, warnings). Useful for support, noise for an editor:
+    while it runs, stderr goes to a log file in the temp folder instead."""
+
+    def __enter__(self):
+        self._old = sys.stderr
+        try:
+            self._f = open(LOG, "a", encoding="utf-8")
+            self._f.write("\n==== %s\n" % time.strftime("%Y-%m-%d %H:%M:%S"))
+            sys.stderr = self._f
+        except OSError:
+            self._f = None
+        return self
+
+    def __exit__(self, *exc):
+        sys.stderr = self._old
+        if self._f:
+            self._f.close()
+        return False
+
+
+def drop_sidecars(srt_path):
+    """Only the .srt belongs next to the video. The engine also writes
+    <name>.srt.doubt.json (doubtful-word marks for the panel's review screen)
+    and a <name>.srt.part.json resume journal — meaningless in CapCut or
+    DaVinci, and customers asked what the .json file was."""
+    for ext in (".doubt.json", ".part.json"):
+        try:
+            os.remove(srt_path + ext)
+        except OSError:
+            pass
 
 
 def open_folder(path):
@@ -148,7 +197,7 @@ def ensure_license(mid, n_files):
     """Return 'licensed', 'trial', or None (stop)."""
     ok, info = lic.licensed(mid)
     if ok:
-        say("✓ ፈቃድ አለው።", "Licensed." + ("" if info == "00000000" else " (expires %s)" % info))
+        say(OK + "ፈቃድ አለው።", "Licensed." + ("" if info == "00000000" else " (expires %s)" % info))
         return "licensed"
 
     status = lic.trial_status(mid)
@@ -158,13 +207,13 @@ def ensure_license(mid, n_files):
         return offer_activation(mid)
     remaining = int(status.get("remaining", 0))
     if remaining > 0:
-        say("ሙከራ፦ %d ነጻ ሙከራ ቀርቷል።" % remaining,
+        say(NOTE + "ሙከራ፦ %d ነጻ ሙከራ ቀርቷል።" % remaining,
             "Trial: %d free transcription(s) left." % remaining)
         if n_files > remaining:
-            say("ማሳሰቢያ፦ %d ፋይሎች ሰጥተዋል፣ ግን %d ነጻ ሙከራ ብቻ ቀርቷል።" % (n_files, remaining),
+            say(NOTE + "ማሳሰቢያ፦ %d ፋይሎች ሰጥተዋል፣ ግን %d ነጻ ሙከራ ብቻ ቀርቷል።" % (n_files, remaining),
                 "Note: you gave %d files but only %d free transcription(s) remain." % (n_files, remaining))
         return "trial"
-    say("ነጻ ሙከራዎቹ አልቀዋል።", "Your free trials are used up.")
+    say(ERR + "ነጻ ሙከራዎቹ አልቀዋል።", "Your free trials are used up.")
     return offer_activation(mid)
 
 
@@ -187,10 +236,10 @@ def offer_activation(mid):
         return None
     ok, msg = lic.activate(mid, key)
     if ok:
-        say("✓ ፈቃዱ ገቢር ሆኗል። በPremiere/After Effects ፓነልም ይሰራል።",
-            "✓ License activated. It also unlocks the Premiere/After Effects panel.")
+        say(OK + "ፈቃዱ ገቢር ሆኗል። በPremiere/After Effects ፓነልም ይሰራል።",
+            "License activated. It also unlocks the Premiere/After Effects panel.")
         return "licensed"
-    say("✗ " + msg)
+    say(ERR + msg)
     return None
 
 
@@ -212,11 +261,11 @@ def ensure_model():
         amh_model.download(manifest, prog)
     except Exception as e:
         print()
-        say("✗ ሞዴሉን ማውረድ አልተቻለም። ኢንተርኔትዎን ፈትሸው እንደገና ይሞክሩ — ካቆመበት ይቀጥላል።",
+        say(ERR + "ሞዴሉን ማውረድ አልተቻለም። ኢንተርኔትዎን ፈትሸው እንደገና ይሞክሩ — ካቆመበት ይቀጥላል።",
             "Could not download the model (%s). Check your internet and run again; it resumes." % e)
         return False
     print()
-    say("✓ ሞዴሉ ወርዷል።", "Model downloaded and verified.")
+    say(OK + "ሞዴሉ ወርዷል።", "Model downloaded and verified.")
     return True
 
 
@@ -232,8 +281,11 @@ def transcribe(engine, src, out_srt, mode, speakers):
         say("   ወደ ጽሑፍ በመቀየር ላይ (%s ደቂቃ ድምፅ)… እባክዎ ይጠብቁ።" % fmt_secs(secs),
             "Transcribing %s of audio… please wait." % fmt_secs(secs))
         group = 3 if mode == "words" else 0
-        _text, cues = es._run_file(engine, audio, mode, group, 42, 0.0, out_srt, speakers=speakers)
-        return es.write_srt(out_srt, cues, 0.0)
+        with _EngineLog():
+            _text, cues = es._run_file(engine, audio, mode, group, 42, 0.0, out_srt, speakers=speakers)
+            n = es.write_srt(out_srt, cues, 0.0)
+        drop_sidecars(out_srt)
+        return n
 
 
 def main(argv):
@@ -248,17 +300,18 @@ def main(argv):
         elif not a.startswith("--"):
             files.append(a)
 
-    print()
-    print("=" * 60)
-    say("  አማርኛ ካፕሽን ፕሮ — SRT ሰሪ", "Amharic Captions Pro — SRT maker")
-    print("=" * 60)
+    try:
+        version = lic.installed_version(HERE) or ""
+    except Exception:
+        version = ""
+    banner(version)
     if not files:
         files = ask_files()
     files = [os.path.abspath(f) for f in files]
     good = [f for f in files if os.path.isfile(f) and os.path.splitext(f)[1].lower() in MEDIA_EXT]
     for f in files:
         if f not in good:
-            say("✗ የሚደገፍ ፋይል አይደለም፦ " + f, "Not a supported video/audio file.")
+            say(ERR + "የሚደገፍ ፋይል አይደለም፦ " + os.path.basename(f), "Not a supported video/audio file.")
     if not good:
         return 1
 
@@ -271,10 +324,12 @@ def main(argv):
         return 1
     say("   ሞዴሉን በመጫን ላይ…", "Loading the Amharic model…")
     import ethio_srt as es
-    engine = es.load_pipeline()
+    with _EngineLog():
+        engine = es.load_pipeline()
 
     done = 0
     last_saved = None
+    saved = []
     for i, src in enumerate(good, 1):
         rule()
         say("[%d/%d] %s" % (i, len(good), os.path.basename(src)))
@@ -286,44 +341,51 @@ def main(argv):
         try:
             n = transcribe(engine, src, work, mode, speakers)
         except Exception as e:
-            say("✗ ይህን ፋይል ወደ ጽሑፍ መቀየር አልተቻለም።", "Could not transcribe this file: %s" % e)
-            for p in (work, work + ".part.json"):
-                if work != final and os.path.exists(p):
-                    os.remove(p)
+            say(ERR + "ይህን ፋይል ወደ ጽሑፍ መቀየር አልተቻለም።", "Could not transcribe this file: %s" % e)
+            say("       ዝርዝር፦ " + LOG, "Details for support: " + LOG)
+            if work != final and os.path.exists(work):
+                os.remove(work)
+            drop_sidecars(work)
             continue
         remaining = None
         if state == "trial":
             charged, remaining = lic.trial_charge(mid, lic.new_run_id())
             if not charged:
-                for p in (work, work + ".part.json"):
-                    if os.path.exists(p):
-                        os.remove(p)
-                say("✗ ነጻ ሙከራውን ማረጋገጥ አልተቻለም (ኢንተርኔት የለም ወይም ሙከራዎቹ አልቀዋል)።",
+                if os.path.exists(work):
+                    os.remove(work)
+                drop_sidecars(work)
+                say(ERR + "ነጻ ሙከራውን ማረጋገጥ አልተቻለም (ኢንተርኔት የለም ወይም ሙከራዎቹ አልቀዋል)።",
                     "Could not confirm the free trial with the server (offline, or trials used up).")
                 break
             os.replace(work, final)
-            try:
-                os.remove(work + ".part.json")
-            except OSError:
-                pass
+            drop_sidecars(work)
         done += 1
         last_saved = final
+        saved.append(final)
         took = fmt_secs(time.monotonic() - t0)
-        say("✓ ተቀምጧል፦ %s  (%d ካፕሽኖች፣ %s ደቂቃ ወስዷል)" % (os.path.basename(final), n, took),
+        say(OK + "ተቀምጧል፦ %s  (%d ካፕሽኖች፣ %s ደቂቃ ወስዷል)" % (os.path.basename(final), n, took),
             "Saved %s (%d captions, took %s) next to the video." % (os.path.basename(final), n, took))
         if state == "trial" and remaining is not None:
-            say("   ሙከራ፦ %s ነጻ ሙከራ ቀርቷል።" % remaining, "Trial: %s left." % remaining)
+            say(NOTE + "ሙከራ፦ %s ነጻ ሙከራ ቀርቷል።" % remaining, "Trial: %s left." % remaining)
             if remaining == 0 and i < len(good):
-                say("ነጻ ሙከራዎቹ አልቀዋል — ለቀሪዎቹ ፋይሎች ፈቃድ ያስፈልጋል።",
+                say(ERR + "ነጻ ሙከራዎቹ አልቀዋል — ለቀሪዎቹ ፋይሎች ፈቃድ ያስፈልጋል።",
                     "Free trials used up — a license is needed for the remaining files.")
                 break
 
-    print("=" * 60)
+    print("=" * WIDTH)
     say("ተጠናቋል፦ %d/%d ፋይሎች።" % (done, len(good)), "Finished: %d of %d file(s)." % (done, len(good)))
     if last_saved:
-        say("📁 " + os.path.dirname(last_saved))
-        say("የ.srt ፋይሉን በCapCut፣ DaVinci Resolve ወይም በሌላ ኤዲተር ያስገቡ። ፎልደሩ አሁን ይከፈታል።",
-            "Import the .srt into CapCut, DaVinci Resolve or any editor. The folder opens now.")
+        print()
+        say("የተሰሩ ፋይሎች፦", "Your caption files:")
+        for p in saved:
+            print("       " + p)
+        print()
+        say("በኤዲተርዎ ውስጥ ለማስገባት፦", "To use them in your editor:")
+        print("       CapCut          Text > Local captions > Import > choose the .srt")
+        print("       DaVinci Resolve File > Import > Subtitle... > drag it onto the timeline")
+        print("       Premiere Pro    File > Import > drag it onto the timeline")
+        print()
+        say(NOTE + "ፎልደሩ አሁን ይከፈታል።", "The folder opens now.")
         open_folder(last_saved)
     show_update_notice()
     return 0 if done == len(good) else 1
@@ -335,7 +397,7 @@ def show_update_notice():
     newer = lic.newer_release(lic.installed_version(HERE))
     if newer:
         rule()
-        say("🔔 አዲስ ስሪት %s ወጥቷል፦ %s" % (newer, lic.SITE_INSTALL_URL),
+        say(NOTE + "አዲስ ስሪት %s ወጥቷል፦ %s" % (newer, lic.SITE_INSTALL_URL),
             "New version %s is available: %s" % (newer, lic.SITE_INSTALL_URL))
 
 
