@@ -195,6 +195,10 @@ let FRESH_MID_LIMIT = 5;   // max new (never-before-seen) mids per IP/day before
 // swapped without a code change; this is the same link the Support button has
 // always used.
 let SUPPORT_INVITE = 'https://t.me/+L-bMfmIRyEo3MDg0';
+// Optional public channel that mirrors every job card (AMH_JOBS_CHANNEL,
+// '@name' or -100… id; the bot must be an admin there). Channels are easy to
+// find and forward, so they grow faster than a group; every card links back.
+let JOBS_PUBLIC = '';
 
 // ── config / env ────────────────────────────────────────────────────────────
 function initEnv(env) {
@@ -207,6 +211,7 @@ function initEnv(env) {
   GROUP_ID = env.AMH_GROUP_ID || '';
   GROUP_TOPICS = parseGroupTopics(env.AMH_GROUP_TOPICS);
   SUPPORT_GROUP = String(env.AMH_SUPPORT_GROUP || '');
+  JOBS_PUBLIC = String(env.AMH_JOBS_CHANNEL || '').trim();
   SUPPORT_INVITE = String(env.AMH_SUPPORT_INVITE || SUPPORT_INVITE);
   JOB_CHANNELS = String(env.AMH_JOB_CHANNELS || '').split(',')
     .map((c) => c.trim().replace(/^@/, '')).filter((c) => /^[A-Za-z0-9_]{4,40}$/.test(c));
@@ -2688,6 +2693,58 @@ function jobMessage(j, channel) {
   );
 }
 
+// The same card in the public jobs channel, with a way into the group. A
+// failure here never blocks the group post or the "seen" mark.
+async function postJobToPublicChannel(job, channel, postId) {
+  if (!JOBS_PUBLIC) return;
+  const r = await safeSend(tg(TOKEN, 'sendMessage', {
+    chat_id: JOBS_PUBLIC, text: jobMessage(job, channel), parse_mode: 'HTML', disable_web_page_preview: true,
+    reply_markup: { inline_keyboard: [
+      [{ text: '👆 Details & how to apply', url: `https://t.me/${channel}/${postId}` }],
+      [{ text: '💬 ግሩፑን ይቀላቀሉ · Discuss in the group', url: SUPPORT_INVITE }],
+    ] },
+  }));
+  if (!(r && r.ok)) log('warn', 'jobs_public_post_failed', { channel, id: postId, err: r && r.description });
+}
+
+// Monday morning (Ethiopian time) once a week: how many editing jobs went out
+// in the last 7 days — the post people forward. Counts the jobs feed's own
+// ledger (jobs_seen), so it needs nothing new stored.
+async function postWeeklyJobsDigest() {
+  if (!SUPPORT_GROUP || !GROUP_TOPICS.jobs) return false;
+  if (!(await jobsEnabled())) return false;
+  const eat = new Date(Date.now() + 3 * 3600 * 1000);
+  if (eat.getUTCDay() !== 1 || eat.getUTCHours() < 8 || eat.getUTCHours() >= 14) return false;
+  const week = eat.toISOString().slice(0, 10);
+  if ((await getSettings()).jobs_digest_week === week) return false;
+  const row = await DB.prepare(
+    "SELECT COUNT(*) AS n, COUNT(DISTINCT substr(source, 1, instr(source, '/') - 1)) AS ch " +
+    "FROM jobs_seen WHERE seen_at >= datetime('now', '-7 days')").first();
+  const n = row ? Number(row.n) || 0 : 0;
+  const ch = row ? Number(row.ch) || 0 : 0;
+  await setSetting('jobs_digest_week', week);   // once, even if nothing to say
+  if (!n) return false;
+  const chat = String(SUPPORT_GROUP).replace(/^-100/, '');
+  const topicUrl = chat !== String(SUPPORT_GROUP) ? `https://t.me/c/${chat}/${GROUP_TOPICS.jobs}` : SUPPORT_INVITE;
+  const share = 'https://t.me/share/url?url=' + encodeURIComponent(SUPPORT_INVITE) +
+    '&text=' + encodeURIComponent('Every video editing job in Ethiopia, in one Telegram group — free.');
+  const text =
+    '📊 <b>የዚህ ሳምንት የኤዲቲንግ ስራዎች · This week in editing jobs</b>\n\n' +
+    `💼 <b>${n}</b> ስራዎች ከ <b>${ch}</b> የስራ ቻናሎች ተለጥፈዋል።\n` +
+    `<i>${n} video editing jobs from ${ch} job channels, posted as they appeared.</i>\n\n` +
+    'አዳዲሶቹ በደቂቃዎች ውስጥ በ 💼 Editing Jobs ይለጠፋሉ። ኤዲተር ጓደኛዎን ይጋብዙ!\n' +
+    '<i>New ones appear in Editing Jobs within minutes. Know an editor? Share the group.</i>';
+  const kb = [[{ text: '💼 ስራዎቹን ይመልከቱ · See the jobs', url: topicUrl }],
+              [{ text: '📣 ለጓደኛ ያጋሩ · Share with a friend', url: share }]];
+  await safeSend(tg(TOKEN, 'sendMessage', { chat_id: SUPPORT_GROUP, text, parse_mode: 'HTML', disable_web_page_preview: true, reply_markup: { inline_keyboard: kb } }));
+  if (JOBS_PUBLIC) {
+    await safeSend(tg(TOKEN, 'sendMessage', { chat_id: JOBS_PUBLIC, text, parse_mode: 'HTML', disable_web_page_preview: true,
+      reply_markup: { inline_keyboard: [[{ text: '💬 ግሩፑን ይቀላቀሉ · Join the group', url: SUPPORT_INVITE }], kb[1]] } }));
+  }
+  log('info', 'jobs_digest_posted', { n, channels: ch });
+  return true;
+}
+
 async function scanJobChannel(channel, budget) {
   let html = '';
   try {
@@ -2731,6 +2788,7 @@ async function scanJobChannel(channel, budget) {
           reply_markup: { inline_keyboard: [[{ text: '👆 Details & how to apply', url: `https://t.me/${channel}/${p.id}` }]] },
         }));
         if (!(r && r.ok)) { log('warn', 'jobs_post_failed', { channel, id: p.id, err: r && r.description }); break; }
+        await postJobToPublicChannel(job, channel, p.id);
         await DB.prepare(
           `INSERT INTO jobs_seen (k, source) VALUES (?, ?)
            ON CONFLICT(k) DO UPDATE SET source = excluded.source, seen_at = datetime('now')`
@@ -5933,6 +5991,7 @@ export default {
       try { await scanJobs(); } catch (e) { log('error', 'jobs_scan_failed', { err: String((e && e.message) || e) }); }
       return;
     }
+    try { await postWeeklyJobsDigest(); } catch (e) { log('error', 'jobs_digest_failed', { err: String((e && e.message) || e) }); }
     await nudgeQuietBuyers();
     await pruneOld();
     await remindReferralPayouts();

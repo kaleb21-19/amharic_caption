@@ -652,3 +652,14 @@ To turn it on:
 2. Add @AmharicCaptionsBot to the group and make it an **admin** with
    **Delete messages** and **Manage topics** (Manage topics lets it post the welcome
    in the closed Announcements topic). Nothing else is needed.
+
+## Jobs: public channel + weekly digest (no migration)
+
+- **Public jobs channel (optional):** create a public channel (e.g. `@EthioEditingJobs`),
+  add @AmharicCaptionsBot as an admin with **Post messages**, set
+  `AMH_JOBS_CHANNEL = "@EthioEditingJobs"` in `wrangler.toml` and deploy. Every job card the
+  group gets is also posted there, with a "Discuss in the group" button.
+- **Weekly digest:** every Monday ~09:00 Ethiopian time (the 6-hour cron), while the jobs
+  feed is ON, the bot posts "This week: N editing jobs from M channels" in the group
+  (Announcements) and the public channel, with "See the jobs" and "Share with a friend"
+  buttons. Once per week.

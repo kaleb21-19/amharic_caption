@@ -3191,6 +3191,50 @@ console.log('\n:: the "/" command menu and /support');
   ok('"/" menu: the bot keeps its own command list (start, buy, mykey, help, support; invite only with referrals ON); /support offers the group and a person');
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: jobs: public channel mirror + weekly digest');
+{
+  const { env } = fresh({ AMH_SUPPORT_GROUP: GROUP, AMH_GROUP_TOPICS: 'jobs:131', AMH_JOB_CHANNELS: 'chanP', AMH_JOBS_CHANNEL: '@EthioEditingJobs' });
+  await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('jobs_feed', '1')").run();
+  const at = new Date(Date.now() - 60000).toISOString();
+  JOB_PAGES.chanP = `<div data-post="chanP/7"><div class="tgme_widget_message_text js-message_text" dir="auto">` +
+    `Video Editor<br/>Company: Dagu Digital</div><time datetime="${at}"></time></div>`;
+  let n = OUTBOUND.length;
+  await worker.scheduled({ cron: '* * * * *' }, env);
+  const sends = OUTBOUND.slice(n).filter((x) => x.method === 'sendMessage');
+  const toGroup = sends.filter((x) => String(x.body.chat_id) === GROUP);
+  const toChan = sends.filter((x) => x.body.chat_id === '@EthioEditingJobs');
+  assert.equal(toGroup.length, 1, 'job in the group topic');
+  assert.equal(toChan.length, 1, 'same job in the public channel');
+  assert.ok(toChan[0].body.text.includes('Video Editor') && JSON.stringify(toChan[0].body.reply_markup).includes('t.me/+'),
+    'channel card links into the group');
+
+  // Weekly digest: Monday 09:00 Ethiopian time, once per week, from the jobs ledger.
+  for (let i = 0; i < 4; i++) {
+    await env.DB.prepare("INSERT INTO jobs_seen (k, source) VALUES (?, ?)").bind('k' + i, (i % 2 ? 'josad_digital' : 'freelance_ethio') + '/' + i).run();
+  }
+  const realNow = Date.now;
+  const monday0600utc = Date.parse('2026-10-05T06:00:00Z');   // Monday 09:00 EAT
+  try {
+    Date.now = () => monday0600utc - 3 * 86400000;              // a Friday: nothing
+    n = OUTBOUND.length;
+    await worker.scheduled({ cron: '0 */6 * * *' }, env);
+    assert.ok(!OUTBOUND.slice(n).some((x) => /This week in editing jobs/.test(String(x.body.text || ''))), 'not on other days');
+    Date.now = () => monday0600utc;
+    n = OUTBOUND.length;
+    await worker.scheduled({ cron: '0 */6 * * *' }, env);
+    const dig = OUTBOUND.slice(n).filter((x) => /This week in editing jobs/.test(String(x.body.text || '')));
+    assert.equal(dig.length, 2, 'group + public channel');
+    assert.ok(dig[0].body.text.includes('<b>5</b>') && dig[0].body.text.includes('<b>3</b>'), '5 jobs from 3 channels: ' + dig[0].body.text.slice(0, 120));
+    assert.ok(JSON.stringify(dig[0].body.reply_markup).includes('t.me/share/url'), 'share button');
+    n = OUTBOUND.length;
+    Date.now = () => monday0600utc + 6 * 3600 * 1000 - 1;
+    await worker.scheduled({ cron: '0 */6 * * *' }, env);
+    assert.ok(!OUTBOUND.slice(n).some((x) => /This week in editing jobs/.test(String(x.body.text || ''))), 'once a week');
+  } finally { Date.now = realNow; }
+  ok('jobs: every card is mirrored to the public jobs channel (with a group button); a Monday-morning weekly digest goes to the group and the channel, once');
+}
+
 // Across EVERY scenario: nothing may be silently refused by Telegram (a refused
 // call is a screen the user never sees). Only the recovered photo→file case.
 {
