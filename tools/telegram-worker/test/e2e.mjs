@@ -3124,6 +3124,32 @@ console.log('\n:: jobs feed — one job posted in English and Amharic (Afriwork)
   ok('jobs feed: Afriwork English/Amharic copies of one job post once; Amharic labels read; Ethiojobs company found');
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: jobs feed — the TITLE decides, not the requirements');
+{
+  const { env } = fresh({ AMH_SUPPORT_GROUP: GROUP, AMH_GROUP_TOPICS: 'jobs:131', AMH_JOB_CHANNELS: 'chanX' });
+  await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('jobs_feed', '1')").run();
+  const at = new Date(Date.now() - 60000).toISOString();
+  const post = (id, lines) => `<div data-post="chanX/${id}"><div class="tgme_widget_message_text js-message_text" dir="auto">` +
+    lines.join('<br/>') + `</div><time datetime="${at}"></time></div>`;
+  JOB_PAGES.chanX =
+    post(1, ['Job Position: Content Creator', 'FutureX is looking for a creative Content Creator.', 'Requirements:',
+      '• Basic video editing or graphic design skills.']) +                                    // posted as "Content Creator"
+    post(2, ['GRAPHIC DESIGNER', 'at FG BUSINESS GROUP', 'Requirements:', '• Adobe Premiere and After Effects']) +   // skipped
+    post(3, ['Marketing Officer', 'Company: ABC', 'Duties: video editing for social media']) +                   // skipped
+    post(4, ['TikTok live ልብስ አስተዋዋቂ', 'Salary: 10000 ETB Monthly']) +                                         // skipped
+    post(5, ['Short-Form Video Editor', 'Location: Addis Ababa, Ethiopia Position Type: Freelance']);            // posted
+  const n = OUTBOUND.length;
+  await worker.scheduled({ cron: '* * * * *' }, env);
+  const cards = OUTBOUND.slice(n).filter((x) => x.method === 'sendMessage' && x.body.message_thread_id === 131).map((x) => x.body.text);
+  assert.equal(cards.length, 2, 'only the two editing jobs: ' + cards.map((c) => c.split('\n')[0]).join(' | '));
+  assert.ok(cards[0].includes('Content Creator') && !cards[0].includes('Basic video editing') && !cards[0].includes('Job Position'),
+    'the real title, without its label');
+  assert.ok(cards[1].includes('Short-Form Video Editor') && cards[1].includes('Addis Ababa, Ethiopia') && !cards[1].includes('Position Type'),
+    'location stops at the next label');
+  ok('jobs feed: the job TITLE decides (requirements never do); "Job Position:" label dropped; TikTok sellers and designers skipped');
+}
+
 // Across EVERY scenario: nothing may be silently refused by Telegram (a refused
 // call is a screen the user never sees). Only the recovered photo→file case.
 {
