@@ -2470,7 +2470,7 @@ function parseJobPage(html) {
 
 const cleanJobLine = (s) => String(s || '')
   .replace(/^[\s\d.)\-–•*#:]+/, '')
-  .replace(/^(job\s*title|position(\s*\d+)?|title|vacancy|role|የስራ\s*መደብ)\s*[:：\-–]\s*/i, '')
+  .replace(/^(job\s*title|position(\s*\d+)?|title|vacancy|role|የ[ሥስ]ራው?\s*(?:መደብ|መጠሪያ|ርዕስ))\s*[:：\-–]\s*/i, '')
   .replace(/\s+/g, ' ').trim();
 
 // Lines that only list acceptable fields/requirements. A job's role is named in
@@ -2501,17 +2501,22 @@ function jobFromText(text) {
   if (!title) return null;
   return {
     title,
-    company: field(/^(?:company(?:\s*name)?|employer|organi[sz]ation|hiring\s*company)\s*[:：]\s*(.+)$/i),
-    location: field(/^(?:work\s*location|job\s*location|location|place\s*of\s*work|city)\s*[:：]\s*(.+)$/i),
-    deadline: field(/^(?:application\s*deadline|deadline(?:\s*date)?|apply\s*before|closing\s*date)\s*[:：]\s*(.+)$/i),
-    salary: field(/^(?:salary(?:\s*\/\s*compensation)?|compensation)\s*[:：]\s*(.+)$/i),
-    type: field(/^(?:job\s*type|employment(?:\s*type)?)\s*[:：]\s*(.+)$/i),
+    // English labels, Afriwork's Amharic labels, and Ethiojobs' "at COMPANY" line.
+    company: field(/^(?:company(?:\s*name)?|employer|organi[sz]ation|hiring\s*company|ድርጅት|የድርጅቱ\s*ስም|ቀጣሪ)\s*[:：]\s*(.+)$/i) ||
+      field(/^at\s+([A-Z0-9][A-Z0-9&.,'()\- ]{2,59})$/),
+    location: field(/^(?:work\s*location|job\s*location|location|place\s*of\s*work|city|የ[ሥስ]ራው?\s*ቦታ)\s*[:：]\s*(.+)$/i),
+    deadline: field(/^(?:application\s*deadline|deadline(?:\s*date)?|apply\s*before|closing\s*date|የማመልከቻ\s*ማብቂያ\s*ቀን)\s*[:：]\s*(.+)$/i),
+    salary: field(/^(?:salary(?:\s*\/\s*compensation)?|compensation|ደሞዝ(?:\s*\/\s*ክፍያ)?|ደመወዝ)\s*[:：]\s*(.+)$/i),
+    type: field(/^(?:job\s*type|employment(?:\s*type)?|የ[ሥስ]ራው?\s*አይነት)\s*[:：]\s*(.+)$/i),
   };
 }
 
 // Same title at the same company = the same job, whichever channel posted it.
+// Posts that name no company (Afriwork) use the deadline's digits instead, so
+// its English and Amharic copies of one job match ("October 7th, 2026" → 72026).
 async function jobKey(j) {
-  const norm = (j.title + '|' + j.company).toLowerCase()
+  const who = j.company || String(j.deadline || '').replace(/\D+/g, '');
+  const norm = (j.title + '|' + who).toLowerCase()
     .replace(/&amp;|&|\band\b|እና/g, ' ').replace(/[^\p{L}\p{N}|]+/gu, '');
   const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(norm));
   return [...new Uint8Array(d)].slice(0, 12).map((b) => b.toString(16).padStart(2, '0')).join('');

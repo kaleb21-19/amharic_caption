@@ -3095,6 +3095,35 @@ console.log('\n:: forum topic inventory');
   ok('admin: close/reopen “all chat” acts on thread 1 (never delete), is reversible, audited, and reports a refusal instead of pretending it worked');
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: jobs feed — one job posted in English and Amharic (Afriwork) is posted once');
+{
+  const { env } = fresh({ AMH_SUPPORT_GROUP: GROUP, AMH_GROUP_TOPICS: 'jobs:131', AMH_JOB_CHANNELS: 'afEn,afAm,ejob' });
+  await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('jobs_feed', '1')").run();
+  const at = new Date(Date.now() - 60000).toISOString();
+  const page = (ch, id, lines) => `<div data-post="${ch}/${id}"><div class="tgme_widget_message_text js-message_text" dir="auto">` +
+    lines.join('<br/>') + `</div><time datetime="${at}"></time></div>`;
+  JOB_PAGES.afEn = page('afEn', 104332, ['Job Title: Short-Form Video Editor ( English )', 'Job Type: Remote - Freelance',
+    'Work Location: Addis Ababa, Ethiopia', 'Salary/Compensation: Monthly', 'Deadline: October 7th, 2026']);
+  JOB_PAGES.afAm = page('afAm', 58433, ['የስራው መጠሪያ: Short-Form Video Editor ( English )', 'የስራው አይነት: ባሉበት የሚሰራ - ፍሪላንስ',
+    'የስራው ቦታ: አዲስ አበባ, ኢትዮጲያ', 'ደሞዝ/ክፍያ: ወርሃዊ', 'የማመልከቻ ማብቂያ ቀን: October 7th, 2026']) +
+    page('afAm', 58434, ['የስራው መጠሪያ: Video Editor', 'የማመልከቻ ማብቂያ ቀን: October 9th, 2026']);   // a different job
+  JOB_PAGES.ejob = page('ejob', 14051, ['MULTIMEDIA ASSISTANT (VIDEOGRAPHER)', 'at OTECH ENGINEERING &amp; TECHNOLOGY SOLUTION',
+    'Location: Addis Ababa', 'Deadline: Oct 10, 2026', 'Requirements:', 'at least 2 years of experience']);
+  const n = OUTBOUND.length;
+  await worker.scheduled({ cron: '* * * * *' }, env);
+  await worker.scheduled({ cron: '* * * * *' }, env);
+  const cards = OUTBOUND.slice(n).filter((x) => x.method === 'sendMessage' && x.body.message_thread_id === 131)
+    .map((x) => x.body.text + JSON.stringify(x.body.reply_markup || ''));
+  assert.equal(cards.filter((t) => t.includes('Short-Form Video Editor')).length, 1, 'English + Amharic copy → one card');
+  assert.ok(!cards.some((t) => t.includes('የስራው መጠሪያ')), 'the Amharic label is not part of the title');
+  assert.ok(cards.some((t) => t.includes('t.me/afAm/58434')), 'a different job with no company is still posted');
+  const ej = cards.find((t) => t.includes('MULTIMEDIA ASSISTANT'));
+  assert.ok(ej && ej.includes('OTECH ENGINEERING') && !ej.includes('least 2 years'), 'Ethiojobs "at COMPANY" line is the company');
+  assert.equal(cards.length, 3);
+  ok('jobs feed: Afriwork English/Amharic copies of one job post once; Amharic labels read; Ethiojobs company found');
+}
+
 // Across EVERY scenario: nothing may be silently refused by Telegram (a refused
 // call is a screen the user never sees). Only the recovered photo→file case.
 {
