@@ -51,6 +51,9 @@ AMH_SUPPORT_GROUP = "-1003962455059"
 # post-purchase join prompt). The group is public: t.me/EthioEditingJobs opens
 # for anyone, which beats the invite link. Not a secret.
 AMH_SUPPORT_INVITE = "https://t.me/EthioEditingJobs"
+# Public username: topic links become t.me/EthioEditingJobs/<topic>, which open
+# for anyone (also before joining) straight in that topic.
+AMH_GROUP_USERNAME = "EthioEditingJobs"
 # Public jobs channel that mirrors every job card (create it, add the bot as admin
 # with "Post messages", then remove the # below and deploy):
 # AMH_JOBS_CHANNEL = "@EthiopianEditingJobs"
