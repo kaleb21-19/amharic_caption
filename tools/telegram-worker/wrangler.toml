@@ -48,15 +48,16 @@ AMH_GROUP_TOPICS = "discussion:164,windows:75,mac:80,payment:41,jobs:131"
 # "Beleqet Jobs" — add them here once the usernames are known.
 AMH_SUPPORT_GROUP = "-1003962455059"
 # Link for the support group (home-screen Support button, /support, the
-# post-purchase join prompt). The group is public: t.me/EthioEditingJobs opens
+# post-purchase join prompt). The group is public: t.me/AmharicCaptionsPro opens
 # for anyone, which beats the invite link. Not a secret.
-AMH_SUPPORT_INVITE = "https://t.me/EthioEditingJobs"
-# Public username: topic links become t.me/EthioEditingJobs/<topic>, which open
-# for anyone (also before joining) straight in that topic.
-AMH_GROUP_USERNAME = "EthioEditingJobs"
-# Public jobs channel that mirrors every job card (create it, add the bot as admin
-# with "Post messages", then remove the # below and deploy):
-# AMH_JOBS_CHANNEL = "@EthiopianEditingJobs"
+AMH_SUPPORT_INVITE = "https://t.me/AmharicCaptionsPro"
+# Public username of the group: topic links become t.me/AmharicCaptionsPro/<topic>,
+# which open for anyone (also before joining) straight in that topic.
+AMH_GROUP_USERNAME = "AmharicCaptionsPro"
+# Public jobs channel "Ethiopian Video Editing Jobs": every job card is also posted
+# there (the bot is an admin with "Post messages"). @EthioEditingJobs is the name
+# editors are told to search for, so it opens the jobs directly.
+AMH_JOBS_CHANNEL = "@EthioEditingJobs"
 AMH_JOB_CHANNELS = "beleqetjobs,freelance_ethio,AfriworkAmharic,ethiojobsofficial,ethiojobs_official,Ethiojobs2000,ethio_job_vacancy1,ethio_job_vacancy,ethio_jobs_vacancy,josad_digital,effoyjobs,harmeejobs,fanajobs,hahujobs,jobs_in_ethio,ngojobs,elelanajobs,ethiojobshubs"
 AMH_PRICE = "ETB 2,500"
 AMH_PRICE_ETB = "2500"
