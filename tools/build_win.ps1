@@ -231,11 +231,13 @@ function Assert-CrlOnly([string]$Path, [string]$What) {
 
 Assert-CrlOnly (Join-Path $INST "Install.cmd")    "Install.cmd"
 Copy-Item (Join-Path $INST "Install.cmd") (Join-Path $BUILD "Install.cmd")
-# Repair.cmd sits next to Install.cmd at the zip root: a one-click fix for the
-# antivirus/incomplete-unzip "DLL load failed" crash (Install.cmd's smoke test
-# points customers at it).
+# Repair.cmd: a one-click fix for the antivirus/incomplete-unzip "DLL load
+# failed" crash (Install.cmd's smoke test points customers at it). It lives in
+# a Troubleshooting folder, not beside Install.cmd: two .cmd files at the top
+# left new customers unsure which one to run.
 Assert-CrlOnly (Join-Path $INST "Repair.cmd")     "Repair.cmd"
-Copy-Item (Join-Path $INST "Repair.cmd") (Join-Path $BUILD "Repair.cmd")
+New-Item -ItemType Directory -Force -Path (Join-Path $BUILD "Troubleshooting") | Out-Null
+Copy-Item (Join-Path $INST "Repair.cmd") (Join-Path $BUILD "Troubleshooting\Repair.cmd")
 Assert-CrlOnly (Join-Path $INST "Make Amharic Captions.cmd") "Make Amharic Captions.cmd"
 # Inside the extension folder, so Install.cmd's copy carries it and the
 # desktop shortcut can point at the installed runtime.
@@ -294,7 +296,7 @@ New-Item -ItemType Directory -Force -Path (Join-Path $ROOT "dist") | Out-Null
 if (Test-Path $ZIP) { Remove-Item -Force $ZIP }
 
 # The customer sees three things: the guide, the installer, the extension.
-$ZipEntries = @("START HERE.html", "Install.cmd", "Repair.cmd", "com.amharic.captions")
+$ZipEntries = @("START HERE.html", "Install.cmd", "com.amharic.captions", "Troubleshooting")
 if (Test-Path (Join-Path $BUILD "DEGRADED_BUILD.txt")) { $ZipEntries += "DEGRADED_BUILD.txt" }
 # Never 7z: GitHub's hosted runner may expose a 7z command that exits without
 # producing the requested archive (the job then reported a ZIP that was not on
