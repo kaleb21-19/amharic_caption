@@ -3301,6 +3301,23 @@ console.log('\n:: /postjobs: one-time fill of the public jobs channel');
   await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: '/postjobs' }));
   assert.ok(!OUTBOUND.slice(n).some((x) => x.body.chat_id === '@EthioEditingJobs'), 'runs once');
   ok('/postjobs: admin fills the public jobs channel once with the recent real jobs (re-checked, duplicates merged)');
+
+  // No channel: the same jobs refill the group's Editing Jobs topic, once.
+  const t = fresh({ AMH_SUPPORT_GROUP: GROUP, AMH_GROUP_TOPICS: 'jobs:131' }).env;
+  for (const src of ['freelance_ethio/104332', 'AfriworkAmharic/58433', 'effoyjobs/14160', 'ethiojobsofficial/14081', 'josad_digital/5483', 'gone_channel/9']) {
+    await t.DB.prepare('INSERT INTO jobs_seen (k, source) VALUES (?, ?)').bind('k-' + src, src).run();
+  }
+  n = OUTBOUND.length;
+  await post(t, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: '/postjobs' }));
+  const topic = OUTBOUND.slice(n).filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === GROUP && x.body.message_thread_id === 131);
+  assert.deepEqual(topic.map((x) => x.body.text.split('\n')[0]), ['🎬 <b>Short-Form Video Editor ( English )</b>', '🎬 <b>Content Creator</b>', '🎬 <b>Video editor</b>'],
+    'topic gets the real jobs only');
+  assert.ok(JSON.stringify(topic[2].body.reply_markup).includes('https://t.me/josad_digital/5483'), 'Details button opens the source post');
+  assert.ok(OUTBOUND.slice(n).filter((x) => String(x.body.chat_id) === ADMIN_ID).pop().body.text.includes('the Editing Jobs topic'));
+  n = OUTBOUND.length;
+  await post(t, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: '/postjobs' }));
+  assert.ok(!OUTBOUND.slice(n).some((x) => x.body.message_thread_id === 131), 'topic fill runs once');
+  ok('/postjobs without a channel: refills the Editing Jobs topic once with the recent real jobs');
 }
 
 // Across EVERY scenario: nothing may be silently refused by Telegram (a refused
