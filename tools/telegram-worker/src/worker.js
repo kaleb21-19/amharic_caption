@@ -2714,6 +2714,8 @@ async function postJobToPublicChannel(job, channel, postId) {
     reply_markup: { inline_keyboard: [
       [{ text: '👆 Details & how to apply', url: `https://t.me/${channel}/${postId}` }],
       [{ text: '💬 ግሩፑን ይቀላቀሉ · Discuss in the group', url: topicUrl('discussion') || SUPPORT_INVITE }],
+      // Jobs bring editors in; the tool is one quiet tap away, never the post.
+      [{ text: '🎬 ነጻ የአማርኛ ካፕሽን · Free Amharic captions', url: BOT_URL + '?start=jobs' }],
     ] },
   }));
   if (!(r && r.ok)) log('warn', 'jobs_public_post_failed', { channel, id: postId, err: r && r.description });
@@ -2737,14 +2739,18 @@ async function postWeeklyJobsDigest() {
   await setSetting('jobs_digest_week', week);   // once, even if nothing to say
   if (!n) return false;
   const jobsUrl = topicUrl('jobs') || SUPPORT_INVITE;
-  const share = 'https://t.me/share/url?url=' + encodeURIComponent(SUPPORT_INVITE) +
-    '&text=' + encodeURIComponent('Every video editing job in Ethiopia, in one Telegram group — free.');
+  // Share the jobs themselves: the public channel when there is one.
+  const jobsHome = /^@[A-Za-z0-9_]{4,}$/.test(JOBS_PUBLIC) ? 'https://t.me/' + JOBS_PUBLIC.slice(1) : SUPPORT_INVITE;
+  const share = 'https://t.me/share/url?url=' + encodeURIComponent(jobsHome) +
+    '&text=' + encodeURIComponent('Every video editing job in Ethiopia, in one place — free.');
   const text =
     '📊 <b>የዚህ ሳምንት የኤዲቲንግ ስራዎች · This week in editing jobs</b>\n\n' +
     `💼 <b>${n}</b> ስራዎች ከ <b>${ch}</b> የስራ ቻናሎች ተለጥፈዋል።\n` +
     `<i>${n} video editing jobs from ${ch} job channels, posted as they appeared.</i>\n\n` +
-    'አዳዲሶቹ በደቂቃዎች ውስጥ በ 💼 Editing Jobs ይለጠፋሉ። ኤዲተር ጓደኛዎን ይጋብዙ!\n' +
-    '<i>New ones appear in Editing Jobs within minutes. Know an editor? Share the group.</i>';
+    'አዳዲሶቹ በደቂቃዎች ውስጥ ይለጠፋሉ። ኤዲተር ጓደኛዎን ይጋብዙ!\n' +
+    '<i>New ones appear within minutes. Know an editor? Share it.</i>\n\n' +
+    '🎬 ለቪዲዮዎችዎ የአማርኛ ካፕሽን? <b>Amharic Captions Pro</b> — 2 ካፕሽን በነጻ፣ ያለ ኢንተርኔት። @AmharicCaptionsBot\n' +
+    '<i>Amharic captions for your videos? Amharic Captions Pro — 2 free, works offline.</i>';
   const kb = [[{ text: '💼 ስራዎቹን ይመልከቱ · See the jobs', url: jobsUrl }],
               [{ text: '📣 ለጓደኛ ያጋሩ · Share with a friend', url: share }]];
   await safeSend(tg(TOKEN, 'sendMessage', { chat_id: SUPPORT_GROUP, text, parse_mode: 'HTML', disable_web_page_preview: true, reply_markup: { inline_keyboard: kb } }));
