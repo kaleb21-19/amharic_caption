@@ -10,9 +10,9 @@ Local Amharic speech-to-text captions for Adobe Premiere Pro. Transcription runs
 
 ## Requirements
 
-- **Adobe Premiere Pro or After Effects 2024 or newer (v24.0+)** for the panel —
-  the manifest registers on PPRO 24.0+ and AEFT 24.0+. It does **not** load on
-  2021/2022/2023 versions. In After Effects the captions arrive as one text layer
+- **Adobe Premiere Pro or After Effects 2022 or newer (v22.0+)** for the panel —
+  the manifest registers on PPRO 22.0+ and AEFT 22.0+ (2022–2024 all run CEP 11).
+  It does **not** load on 2021 or older — use the SRT maker there. In After Effects the captions arrive as one text layer
   (Source Text keyframes) in the active composition.
 - **No Adobe app?** The installer also adds a **Make Amharic Captions** desktop
   shortcut: drag any video/audio onto it and an `.srt` appears next to the file,

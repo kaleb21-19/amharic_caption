@@ -2736,7 +2736,7 @@ console.log('\n:: scenario 26 — customer bot: questions answered, home screen 
   await tap('faq:home');
   for (const k of ['price', 'trial', 'need', 'install', 'when', 'newpc', 'key']) assert.ok(kb().includes('faq:' + k), 'FAQ lists ' + k);
   await tap('faq:need');
-  assert.ok(txt().includes('2024') && txt().includes('Mac'), 'requirements answer');
+  assert.ok(txt().includes('2022 or newer') && txt().includes('Mac'), 'requirements answer');
   ok('customer: ❓ Questions — seven answers one tap away');
 
   // 2. Questions typed in their own words (Amharic, English, Latin-typed Amharic).

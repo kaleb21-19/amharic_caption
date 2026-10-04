@@ -83,8 +83,8 @@ const faqs = [
   {
     q: { am: "የትኞቹ የAdobe ስሪቶች ይሰራሉ?", en: "Which Adobe versions work?" },
     a: {
-      am: "Premiere Pro 2024 (v24) እና ከዚያ በኋላ ያሉት፣ በWindows 10/11 እና macOS (Intel ወይም Apple Silicon)። After Effects 2024 እና ከዚያ በኋላ ያሉትም ይሰራሉ — ካፕሽኖቹ በኮምፖዚሽንዎ ውስጥ እንደ አንድ ቴክስት ሌየር ይገባሉ። ፓነሉ በ2021–2023 ስሪቶች ላይ አይከፈትም፤ እዚያ የ.srt መስሪያውን ይጠቀሙ።",
-      en: "Premiere Pro 2024 (v24) and newer, on Windows 10/11 and macOS (Intel or Apple Silicon). After Effects 2024 and newer is supported too — captions arrive as one text layer in your composition. The panel does not load on 2021–2023 versions; use the drag-and-drop .srt tool there instead.",
+      am: "Premiere Pro 2022 (v22) እና ከዚያ በኋላ ያሉት፣ በWindows 10/11 እና macOS (Intel ወይም Apple Silicon)። After Effects 2022 እና ከዚያ በኋላ ያሉትም ይሰራሉ — ካፕሽኖቹ በኮምፖዚሽንዎ ውስጥ እንደ አንድ ቴክስት ሌየር ይገባሉ። ፓነሉ በ2021–2023 ስሪቶች ላይ አይከፈትም፤ እዚያ የ.srt መስሪያውን ይጠቀሙ።",
+      en: "Premiere Pro 2022 (v22) and newer, on Windows 10/11 and macOS (Intel or Apple Silicon). After Effects 2022 and newer is supported too — captions arrive as one text layer in your composition. The panel does not load on 2021–2023 versions; use the drag-and-drop .srt tool there instead.",
     },
   },
   {
@@ -315,8 +315,8 @@ export default function HomePage() {
               <ul className="price-features">
                 <li><Tx am="ያልተገደበ ካፕሽን — የፈለጉትን ያህል" en="Unlimited captions — caption as much as you like" /></li>
                 <li><Tx am="በPremiere ውስጥ የሚስተካከሉ የካፕሽን ትራኮች" en="Editable caption tracks, native to Premiere" /></li>
-                <li><Tx am="Premiere Pro 2024+ · Windows 10/11 እና macOS" en="Premiere Pro 2024+ · Windows 10/11 & macOS" /></li>
-                <li><Tx am="After Effects 2024+ እና ለCapCut እና DaVinci የ.srt መስሪያ" en="After Effects 2024+ and a drag-and-drop .srt maker for CapCut & DaVinci" /></li>
+                <li><Tx am="Premiere Pro 2022+ · Windows 10/11 እና macOS" en="Premiere Pro 2022+ · Windows 10/11 & macOS" /></li>
+                <li><Tx am="After Effects 2022+ እና ለCapCut እና DaVinci የ.srt መስሪያ" en="After Effects 2022+ and a drag-and-drop .srt maker for CapCut & DaVinci" /></li>
                 <li><Tx am="ፓነሉ በአማርኛ ወይም በእንግሊዝኛ" en="Panel in Amharic or English" /></li>
                 <li><Tx am="በቴሌግራም ድጋፍ — ከሰሩት ሰዎች በቀጥታ" en="Support on Telegram from the people who built it" /></li>
               </ul>
