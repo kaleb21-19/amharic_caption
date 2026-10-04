@@ -196,6 +196,7 @@ const RECOVERED = (r) => (r.method === 'sendPhoto' && String(r.body.photo).start
   || (r.method === 'editMessageText' && /no text in the message/.test(r.description));
 const realFetch = globalThis.fetch;
 const JOB_PAGES = {};
+const JOB_POSTS = {};
 const JOB_FETCHES = [];
 // fake api.github.com releases/latest (update-available notice)
 const GH = { calls: 0, status: 200, body: { tag_name: 'v1.8.0' } };
@@ -206,6 +207,12 @@ globalThis.fetch = async (url, init = {}) => {
     return { ok: GH.status === 200, status: GH.status, json: async () => GH.body };
   }
   // fake public channel pages (t.me/s/<channel>) for the jobs feed
+  // single public posts (t.me/<channel>/<id>?embed=1) for the channel backfill
+  if (/^https:\/\/t\.me\/[A-Za-z0-9_]+\/\d+\?embed=1/.test(url)) {
+    const key = url.slice('https://t.me/'.length).split('?')[0];
+    const page = JOB_POSTS[key];
+    return { ok: page !== undefined, status: page !== undefined ? 200 : 404, text: async () => page || '' };
+  }
   if (url.startsWith('https://t.me/s/')) {
     JOB_FETCHES.push(url);
     const page = JOB_PAGES[decodeURIComponent(url.slice('https://t.me/s/'.length))];
@@ -3243,6 +3250,35 @@ console.log('\n:: jobs: public channel mirror + weekly digest');
     assert.ok(!OUTBOUND.slice(n).some((x) => /This week in editing jobs/.test(String(x.body.text || ''))), 'once a week');
   } finally { Date.now = realNow; }
   ok('jobs: every card is mirrored to the public jobs channel (with a group button); a Monday-morning weekly digest goes to the group and the channel, once');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: /postjobs: one-time fill of the public jobs channel');
+{
+  const { env } = fresh({ AMH_SUPPORT_GROUP: GROUP, AMH_GROUP_TOPICS: 'jobs:131', AMH_JOBS_CHANNEL: '@EthioEditingJobs' });
+  const embed = (lines) => `<div class="tgme_widget_message_text js-message_text" dir="auto">${lines.join('<br/>')}</div>`;
+  JOB_POSTS['freelance_ethio/104332'] = embed(['Job Title: Short-Form Video Editor ( English )', 'Deadline: October 7th, 2026']);
+  JOB_POSTS['AfriworkAmharic/58433'] = embed(['የስራው መጠሪያ: Short-Form Video Editor ( English )', 'የማመልከቻ ማብቂያ ቀን: October 7th, 2026']);
+  JOB_POSTS['effoyjobs/14160'] = embed(['Job Position: Content Creator', 'Requirements:', '• Basic video editing or graphic design skills.']);
+  JOB_POSTS['ethiojobsofficial/14081'] = embed(['GRAPHIC DESIGNER', 'at FG BUSINESS GROUP', 'Requirements:', '• Adobe Premiere']);
+  JOB_POSTS['josad_digital/5483'] = embed(['Video editor', 'Company: KEWAN Advertising Plc']);
+  for (const src of ['freelance_ethio/104332', 'AfriworkAmharic/58433', 'effoyjobs/14160', 'ethiojobsofficial/14081', 'josad_digital/5483', 'gone_channel/9']) {
+    await env.DB.prepare('INSERT INTO jobs_seen (k, source) VALUES (?, ?)').bind('k-' + src, src).run();
+  }
+  let n = OUTBOUND.length;
+  await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { text: '/postjobs' }));
+  assert.ok(!OUTBOUND.slice(n).some((x) => x.body.chat_id === '@EthioEditingJobs'), 'buyers cannot run it');
+  n = OUTBOUND.length;
+  await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: '/postjobs' }));
+  const chan = OUTBOUND.slice(n).filter((x) => x.method === 'sendMessage' && x.body.chat_id === '@EthioEditingJobs').map((x) => x.body.text);
+  assert.deepEqual(chan.map((t) => t.split('\n')[0]), ['🎬 <b>Short-Form Video Editor ( English )</b>', '🎬 <b>Content Creator</b>', '🎬 <b>Video editor</b>'],
+    'real jobs only, Amharic copy merged, designer skipped, unreadable skipped');
+  const report = OUTBOUND.slice(n).filter((x) => String(x.body.chat_id) === ADMIN_ID).pop();
+  assert.ok(report.body.text.includes('Posted <b>3</b>') && report.body.text.includes('Skipped 3'));
+  n = OUTBOUND.length;
+  await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: '/postjobs' }));
+  assert.ok(!OUTBOUND.slice(n).some((x) => x.body.chat_id === '@EthioEditingJobs'), 'runs once');
+  ok('/postjobs: admin fills the public jobs channel once with the recent real jobs (re-checked, duplicates merged)');
 }
 
 // Across EVERY scenario: nothing may be silently refused by Telegram (a refused
