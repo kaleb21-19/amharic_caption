@@ -2784,8 +2784,9 @@ async function postWeeklyJobsDigest() {
   await setSetting('jobs_digest_week', week);   // once, even if nothing to say
   if (!n) return false;
   const jobsUrl = topicUrl('jobs') || SUPPORT_INVITE;
-  // Share the jobs themselves: the public channel when there is one.
-  const jobsHome = /^@[A-Za-z0-9_]{4,}$/.test(JOBS_PUBLIC) ? 'https://t.me/' + JOBS_PUBLIC.slice(1) : SUPPORT_INVITE;
+  // Share the jobs themselves: the public channel when there is one, else the
+  // Editing Jobs topic (t.me/<group>/<topic> opens for non-members too).
+  const jobsHome = /^@[A-Za-z0-9_]{4,}$/.test(JOBS_PUBLIC) ? 'https://t.me/' + JOBS_PUBLIC.slice(1) : jobsUrl;
   const share = 'https://t.me/share/url?url=' + encodeURIComponent(jobsHome) +
     '&text=' + encodeURIComponent('Every video editing job in Ethiopia, in one place — free.');
   const text =

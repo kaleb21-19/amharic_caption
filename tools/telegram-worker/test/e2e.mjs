@@ -3253,6 +3253,28 @@ console.log('\n:: jobs: public channel mirror + weekly digest');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: jobs without a public channel: the Editing Jobs topic only');
+{
+  const { env } = fresh({ AMH_SUPPORT_GROUP: GROUP, AMH_GROUP_TOPICS: 'jobs:131', AMH_GROUP_USERNAME: 'AmharicCaptionsPro' });
+  await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('jobs_feed', '1')").run();
+  for (let i = 0; i < 3; i++) {
+    await env.DB.prepare("INSERT INTO jobs_seen (k, source) VALUES (?, ?)").bind('q' + i, 'josad_digital/' + i).run();
+  }
+  const realNow = Date.now;
+  try {
+    Date.now = () => Date.parse('2026-10-05T06:00:00Z');        // Monday 09:00 EAT
+    const n = OUTBOUND.length;
+    await worker.scheduled({ cron: '0 */6 * * *' }, env);
+    const dig = OUTBOUND.slice(n).filter((x) => /This week in editing jobs/.test(String(x.body.text || '')));
+    assert.equal(dig.length, 1, 'group only');
+    assert.equal(String(dig[0].body.chat_id), GROUP);
+    const kb = JSON.stringify(dig[0].body.reply_markup);
+    assert.ok(kb.includes(encodeURIComponent('https://t.me/AmharicCaptionsPro/131')), 'share opens the Editing Jobs topic: ' + kb);
+  } finally { Date.now = realNow; }
+  ok('jobs without a public channel: the weekly digest goes to the group only and shares the Editing Jobs topic');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 console.log('\n:: /postjobs: one-time fill of the public jobs channel');
 {
   const { env } = fresh({ AMH_SUPPORT_GROUP: GROUP, AMH_GROUP_TOPICS: 'jobs:131', AMH_JOBS_CHANNEL: '@EthioEditingJobs' });

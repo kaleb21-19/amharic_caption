@@ -54,10 +54,8 @@ AMH_SUPPORT_INVITE = "https://t.me/AmharicCaptionsPro"
 # Public username of the group: topic links become t.me/AmharicCaptionsPro/<topic>,
 # which open for anyone (also before joining) straight in that topic.
 AMH_GROUP_USERNAME = "AmharicCaptionsPro"
-# Public jobs channel "Ethiopian Video Editing Jobs": every job card is also posted
-# there (the bot is an admin with "Post messages"). @EthioEditingJobs is the name
-# editors are told to search for, so it opens the jobs directly.
-AMH_JOBS_CHANNEL = "@EthioEditingJobs"
+# Optional public jobs channel (AMH_JOBS_CHANNEL = "@name"): every job card would
+# also be posted there. Off: the jobs live only in the group's Editing Jobs topic.
 AMH_JOB_CHANNELS = "beleqetjobs,freelance_ethio,AfriworkAmharic,ethiojobsofficial,ethiojobs_official,Ethiojobs2000,ethio_job_vacancy1,ethio_job_vacancy,ethio_jobs_vacancy,josad_digital,effoyjobs,harmeejobs,fanajobs,hahujobs,jobs_in_ethio,ngojobs,elelanajobs,ethiojobshubs"
 AMH_PRICE = "ETB 2,500"
 AMH_PRICE_ETB = "2500"
