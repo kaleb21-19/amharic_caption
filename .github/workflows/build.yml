@@ -174,6 +174,9 @@ jobs:
       - name: Premiere caption placement tests (re-placing must not stack tracks)
         run: node tools/test/test_host_captions.js
 
+      - name: Installer script syntax (cmd.exe parse traps)
+        run: python3 tools/test/test_cmd_syntax.py
+
       # Machine identity + license durability. This suite existed but had never
       # been wired into CI, so the regressions it covers (a Premiere upgrade
       # wiping the license, a hostname change reported as "another computer")

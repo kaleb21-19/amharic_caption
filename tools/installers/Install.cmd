@@ -629,7 +629,7 @@ set "PYEXE=%DEST%\runtime\python\python.exe"
 if not exist "%PYEXE%" goto :smoke_done
 "%PYEXE%" -E -c "import numpy, ctranslate2, soundfile" >> "%LOG%" 2>&1
 if errorlevel 1 (
-    >> "%LOG%" echo WARNING(9): engine import failed - antivirus block or incomplete unzip
+    >> "%LOG%" echo WARNING 9: engine import failed - antivirus block or incomplete unzip
     call :ENGINEFAIL
     exit /b 9
 )
@@ -725,8 +725,9 @@ echo     3. Right-click the zip you downloaded, Properties, Unblock, OK.
 echo     4. Delete the extension folder, Extract the zip again, and run
 echo        Install.cmd one more time.
 echo.
-echo   Tip: the Repair.cmd next to this installer can do steps 1-3 for
-echo   you - right-click it and choose Run as administrator.
+echo   Tip: Repair.cmd in the Troubleshooting folder next to this
+echo   installer can do steps 1-3 for you - right-click it and
+echo   choose Run as administrator.
 echo.
 echo   Need help? Send this log to @AmharicCaptionsBot on Telegram:
 echo     %LOG%
