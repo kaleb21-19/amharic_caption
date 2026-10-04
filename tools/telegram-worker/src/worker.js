@@ -2723,14 +2723,20 @@ async function postJobToPublicChannel(job, channel, postId) {
   if (!(r && r.ok)) log('warn', 'jobs_public_post_failed', { channel, id: postId, err: r && r.description });
 }
 
-// One-time fill of a new public jobs channel (admin: /postjobs). The jobs
-// sent in the last 10 days are re-read from their source post and re-checked
-// with today's rules — the title decides, English/Amharic copies merge — so
-// the duplicates and mistakes of the feed's first days never reach the
-// channel. Oldest first. Runs once; '/postjobs force' repeats it.
+// One-time fill (admin: /postjobs) of the public jobs channel, or — with no
+// channel — of the group's Editing Jobs topic (e.g. after it was emptied). The
+// jobs sent in the last 10 days are re-read from their source post and
+// re-checked with today's rules — the title decides, English/Amharic copies
+// merge — so the duplicates and mistakes of the feed's first days never come
+// back. Oldest first. Runs once; '/postjobs force' repeats it.
 async function backfillJobsChannel(chatId, force) {
-  if (!JOBS_PUBLIC) { await sendText(chatId, 'ℹ️ No public jobs channel is set (AMH_JOBS_CHANNEL).'); return; }
-  const done = (await getSettings()).jobs_backfill_done;
+  const toTopic = !JOBS_PUBLIC;
+  if (toTopic && (!SUPPORT_GROUP || !GROUP_TOPICS.jobs)) {
+    await sendText(chatId, 'ℹ️ No Editing Jobs topic is set (AMH_SUPPORT_GROUP / AMH_GROUP_TOPICS jobs:ID).');
+    return;
+  }
+  const doneKey = toTopic ? 'jobs_backfill_topic_done' : 'jobs_backfill_done';
+  const done = (await getSettings())[doneKey];
   if (done && !force) {
     await sendText(chatId, `ℹ️ Already done (${esc(done)}). Send <code>/postjobs force</code> to post them again.`);
     return;
@@ -2757,11 +2763,20 @@ async function backfillJobsChannel(chatId, force) {
     const k = job ? await jobKey(job) : '';
     if (!job || keys.has(k)) { skipped++; continue; }
     keys.add(k);
-    await postJobToPublicChannel(job, m[1], Number(m[2]));
+    if (toTopic) {
+      const res = await safeSend(tg(TOKEN, 'sendMessage', {
+        chat_id: SUPPORT_GROUP, message_thread_id: Number(GROUP_TOPICS.jobs), text: jobMessage(job, m[1]),
+        parse_mode: 'HTML', disable_web_page_preview: true,
+        reply_markup: { inline_keyboard: [[{ text: '👆 Details & how to apply', url: `https://t.me/${m[1]}/${m[2]}` }]] },
+      }));
+      if (!(res && res.ok)) { skipped++; log('warn', 'jobs_backfill_post_failed', { source: r.source, err: res && res.description }); continue; }
+    } else {
+      await postJobToPublicChannel(job, m[1], Number(m[2]));
+    }
     posted++;
   }
-  await setSetting('jobs_backfill_done', new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 16).replace('T', ' '));
-  await sendText(chatId, `📢 Posted <b>${posted}</b> job(s) to ${esc(JOBS_PUBLIC)}.\n` +
+  await setSetting(doneKey, new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 16).replace('T', ' '));
+  await sendText(chatId, `📢 Posted <b>${posted}</b> job(s) to ${toTopic ? 'the Editing Jobs topic' : esc(JOBS_PUBLIC)}.\n` +
     `Skipped ${skipped}: duplicates (e.g. the Amharic copy of an Afriwork job), not editing jobs, or unreadable.`);
   log('info', 'jobs_backfill', { posted, skipped });
 }
