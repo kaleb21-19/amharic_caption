@@ -191,6 +191,8 @@ function tgRefusal(method, body) {
 const RECOVERED = (r) => (r.method === 'sendPhoto' && String(r.body.photo).startsWith('BQAC'))
   || (r.method === 'editMessageText' && /no text in the message/.test(r.description));
 const realFetch = globalThis.fetch;
+const JOB_PAGES = {};
+const JOB_FETCHES = [];
 // fake api.github.com releases/latest (update-available notice)
 const GH = { calls: 0, status: 200, body: { tag_name: 'v1.8.0' } };
 globalThis.fetch = async (url, init = {}) => {
@@ -198,6 +200,12 @@ globalThis.fetch = async (url, init = {}) => {
   if (url.startsWith('https://api.github.com/')) {
     GH.calls++;
     return { ok: GH.status === 200, status: GH.status, json: async () => GH.body };
+  }
+  // fake public channel pages (t.me/s/<channel>) for the jobs feed
+  if (url.startsWith('https://t.me/s/')) {
+    JOB_FETCHES.push(url);
+    const page = JOB_PAGES[decodeURIComponent(url.slice('https://t.me/s/'.length))];
+    return { ok: page !== undefined, status: page !== undefined ? 200 : 404, text: async () => page || '' };
   }
   if (!url.startsWith('https://api.telegram.org/bot')) return realFetch(url, init);
   const m = url.match(/\/bot[^/]+\/(\w+)$/);
@@ -2937,6 +2945,154 @@ console.log('\n:: admin — trial users who are not licensed');
   await cb(env, { id: Number(ADMIN_ID) }, 'admin:trials:10');
   assert.ok(/\n11\. /.test(screen(n).body.text), 'second page numbered from 11');
   ok('admin: 🎁 Trial users lists free-trial computers that never bought (newest first, linked to Telegram when known, paged, admins only)');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: editing jobs feed');
+{
+  const { env } = fresh({
+    AMH_SUPPORT_GROUP: GROUP, AMH_GROUP_TOPICS: 'questions:91,jobs:131', AMH_JOB_CHANNELS: 'chanA, @chanB, bad name!',
+  });
+  const now = Date.now();
+  const iso = (msAgo) => new Date(now - msAgo).toISOString().replace('.000Z', '+00:00');
+  const post = (ch, id, text, msAgo = 60000) =>
+    `<div class="tgme_widget_message_wrap"><div class="tgme_widget_message" data-post="${ch}/${id}">` +
+    `<div class="tgme_widget_message_text js-message_text" dir="auto">${text}</div>` +
+    `<a class="tgme_widget_message_date" href="#"><time datetime="${iso(msAgo)}" class="time">1:00</time></a></div></div>`;
+  const VE = 'Video Editor &amp; Motion Graphics<br/><br/>Company: Dagu Digital<br/>Deadline: October 20th, 2026<br/>Salary: Monthly';
+  JOB_PAGES.chanA = post('chanA', 9, 'Senior Video Editor<br/>Company: Old Co', 3 * 86400000) +   // older than a day
+    post('chanA', 10, 'Accountant<br/>Company: ABC') + post('chanA', 11, VE);
+  JOB_PAGES.chanB = post('chanB', 5, VE.replace('&amp;', 'and')) +                                 // same job, other channel
+    post('chanB', 6, 'Copy Editor for our magazine<br/>Company: Paper') +
+    post('chanB', 7, 'ቪዲዮ ኤዲተር እንፈልጋለን<br/>Company: ሸገር ሚዲያ');
+  const tick = () => worker.scheduled({ cron: '* * * * *' }, env);
+  const jobPosts = (from) => OUTBOUND.slice(from).filter((x) => x.method === 'sendMessage' && x.body.message_thread_id === 131);
+
+  // Off by default: nothing is fetched or posted.
+  let n = OUTBOUND.length;
+  await tick();
+  assert.equal(JOB_FETCHES.length, 0, 'feed is off until the owner turns it on');
+  assert.equal(jobPosts(n).length, 0);
+
+  // The owner turns it on from the dashboard.
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:panel');
+  assert.ok(JSON.stringify(OUTBOUND).includes('Jobs feed · ⚪ OFF'));
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:jobs-toggle');
+  assert.equal(row(env, "SELECT value FROM settings WHERE key='jobs_feed'").value, '1');
+  n = OUTBOUND.length;
+  await cb(env, { id: 955500077 }, 'admin:jobs-toggle');
+  assert.equal(row(env, "SELECT value FROM settings WHERE key='jobs_feed'").value, '1', 'buyers cannot toggle it');
+
+  // First pass: today's editing jobs only; one job in two channels posted once.
+  n = OUTBOUND.length;
+  await tick();
+  assert.deepEqual(JOB_FETCHES.map((u) => u.split('/').pop()), ['chanA', 'chanB'], 'valid channels only, both read');
+  let posted = jobPosts(n);
+  assert.equal(posted.length, 2, 'video editor (once) + the Amharic ቪዲዮ ኤዲተር job');
+  const card = posted[0].body;
+  const btnUrl = (m) => String(m && m.reply_markup && m.reply_markup.inline_keyboard[0][0].url || '');
+  assert.equal(String(card.chat_id), GROUP);
+  assert.ok(card.text.includes('<b>Video Editor &amp; Motion Graphics</b>') && card.text.includes('🏢 Dagu Digital') &&
+    card.text.includes('⏰ October 20th, 2026') && card.text.includes('Source: @chanA') &&
+    card.text.includes('Never pay to apply'), 'short card: labelled rows + source + safety line');
+  assert.equal(btnUrl(card), 'https://t.me/chanA/11', 'the link to the original is a button under the card');
+  assert.ok(posted[1].body.text.includes('ቪዲዮ ኤዲተር') && btnUrl(posted[1].body) === 'https://t.me/chanB/7');
+  assert.ok(!JSON.stringify(posted).includes('Old Co') && !JSON.stringify(posted).includes('Accountant') &&
+    !JSON.stringify(posted).includes('Copy Editor'), 'no old posts, no other jobs, no copy editors');
+
+  // Next pass: nothing new → nothing posted. A new job → posted once.
+  n = OUTBOUND.length;
+  await tick();
+  assert.equal(jobPosts(n).length, 0, 'never posted twice');
+  JOB_PAGES.chanA += post('chanA', 12, 'TikTok Video Editor (Part-time)<br/>Company: Verified Startup');
+  n = OUTBOUND.length;
+  await tick();
+  await tick();
+  posted = jobPosts(n);
+  assert.equal(posted.length, 1);
+  assert.ok(posted[0].body.text.includes('TikTok Video Editor') && btnUrl(posted[0].body) === 'https://t.me/chanA/12');
+
+  // A channel that disappears does not break the others.
+  delete JOB_PAGES.chanB;
+  JOB_PAGES.chanA += post('chanA', 13, 'Video editor<br/>Company: Next Co');
+  n = OUTBOUND.length;
+  await tick();
+  assert.equal(jobPosts(n).length, 1);
+
+  // Off again: nothing more.
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:jobs-toggle');
+  JOB_PAGES.chanA += post('chanA', 14, 'Video editor<br/>Company: Later Co');
+  const before = JOB_FETCHES.length;
+  n = OUTBOUND.length;
+  await tick();
+  assert.equal(JOB_FETCHES.length, before);
+  assert.equal(jobPosts(n).length, 0);
+  ok('jobs feed: off by default; owner toggles it; only today\'s video-editing jobs (English + Amharic), short card + link + safety line, into the jobs topic; no duplicates across channels or passes');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: forum topic inventory');
+{
+  const { env } = fresh({ AMH_SUPPORT_GROUP: GROUP, AMH_GROUP_TOPICS: 'questions:91,jobs:131' });
+  const G = Number(GROUP);
+  const member = { id: 970000201, first_name: 'Dani' };
+
+  // A normal post in a topic is the only thing that reveals an id exists.
+  await post(env, msg(G, member, { text: 'ሰላም', message_thread_id: 91, is_topic_message: true }));
+  // Telegram naming a topic gives the bot the name it cannot get any other way.
+  await post(env, msg(G, member, { forum_topic_created: { name: 'Buyers chat', icon_color: 6 }, message_thread_id: 77 }));
+  // …and it is told when one closes.
+  await post(env, msg(G, member, { forum_topic_closed: { message_thread_id: 77 }, message_thread_id: 77 }));
+
+  let n = OUTBOUND.length;
+  await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID), first_name: 'Owner' }, { text: '/topics' }));
+  const t = String(OUTBOUND.slice(n).filter((x) => x.method === 'sendMessage').pop().body.text);
+
+  assert.ok(t.includes('<b>1</b>') && t.includes('cannot delete'), 'General is listed and flagged undeletable');
+  assert.ok(t.includes('<b>77</b>') && t.includes('Buyers chat') && t.includes('closed to new posts'),
+    'a created-then-closed topic keeps its real name and state');
+  assert.ok(t.includes('<b>91</b>') && t.includes('seen'), 'a topic someone posted in is marked seen');
+  assert.ok(t.includes('<b>131</b>') && t.includes('configured as <code>jobs</code>') && t.includes('never heard from'),
+    'a configured but silent topic is not passed off as confirmed');
+  assert.ok(t.includes('no API to list'), 'the report says where the list came from');
+
+  // A buyer is never shown the inventory.
+  n = OUTBOUND.length;
+  await post(env, msg(970000555, { id: 970000555, first_name: 'Buyer' }, { text: '/topics' }));
+  const leaked = OUTBOUND.slice(n).filter((x) => x.method === 'sendMessage');
+  assert.equal(leaked.length, 1, 'a buyer is told plainly it is admin-only');
+  assert.ok(/Admin only/.test(String(leaked[0].body.text)) && !/131/.test(String(leaked[0].body.text)));
+
+  // Close "all chat": Telegram is asked to close thread 1 of the support group.
+  n = OUTBOUND.length;
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:topics-close');
+  const closed = OUTBOUND.slice(n).filter((x) => x.method === 'closeForumTopic');
+  assert.equal(closed.length, 1, 'closeForumTopic called once');
+  assert.equal(String(closed[0].body.chat_id), String(Number(GROUP)), 'on the support group');
+  assert.equal(closed[0].body.message_thread_id, 1, 'thread 1 — General, never deleteForumTopic');
+  // It now reads as closed, and the button flips to Reopen.
+  const after = OUTBOUND.slice(n).filter((x) => x.method === 'sendMessage').pop();
+  assert.ok(/closed to new posts/.test(after.body.text), 'the report shows General as closed');
+  assert.ok(JSON.stringify(after.body.reply_markup).includes('admin:topics-open'), 'button now offers Reopen');
+
+  // And it reopens.
+  n = OUTBOUND.length;
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:topics-open');
+  const opened = OUTBOUND.slice(n).filter((x) => x.method === 'reopenForumTopic');
+  assert.equal(opened.length, 1, 'reopenForumTopic called once');
+  assert.equal(opened[0].body.message_thread_id, 1);
+
+  // If Telegram refuses (the bot missing "Manage Topics"), say so — never
+  // report a close that did not happen.
+  FAIL_NEXT = 1;
+  n = OUTBOUND.length;
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:topics-close');
+  assert.equal(OUTBOUND.slice(n).filter((x) => x.method === 'sendMessage').length, 0, 'no fresh report after a failed close');
+  const told = OUTBOUND.slice(n).filter((x) => x.method === 'answerCallbackQuery' && /Could not close/.test(String(x.body.text)))[0];
+  assert.ok(told, 'the refusal is shown to the admin');
+
+  ok('admin: /topics reports the support group topics — General flagged undeletable, observed ids and names, configured-only ids labelled as never heard, and never leaked to buyers');
+  ok('admin: close/reopen “all chat” acts on thread 1 (never delete), is reversible, audited, and reports a refusal instead of pretending it worked');
 }
 
 // Across EVERY scenario: nothing may be silently refused by Telegram (a refused

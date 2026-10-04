@@ -202,6 +202,9 @@ function initEnv(env) {
   if (!ADMIN_ID) log('warn', 'admin_id_missing', { hint: 'set AMH_ADMIN_ID (comma-separated chat ids) via wrangler secret put' });
   GROUP_ID = env.AMH_GROUP_ID || '';
   GROUP_TOPICS = parseGroupTopics(env.AMH_GROUP_TOPICS);
+  SUPPORT_GROUP = String(env.AMH_SUPPORT_GROUP || '');
+  JOB_CHANNELS = String(env.AMH_JOB_CHANNELS || '').split(',')
+    .map((c) => c.trim().replace(/^@/, '')).filter((c) => /^[A-Za-z0-9_]{4,40}$/.test(c));
   PRICE = env.AMH_PRICE || 'ETB 2,500';
   ACCT_NAME = env.AMH_ACCT_NAME || ACCT_NAME;
   PAY_ACCOUNTS = env.AMH_PAY_ACCOUNTS || PAY_ACCOUNTS;
@@ -2009,6 +2012,12 @@ async function handleMessage(msg, env) {
     return;
   }
 
+  if (lower === '/topics' || lower === '/topics@amhariccaptionsbot') {
+    if (privateChat && isAdmin(user.id)) await adminTopics(chatId);
+    else await sendText(chatId, '🔒 ይህ ለአስተዳዳሪ ብቻ ነው። <i>Admin only.</i>');
+    return;
+  }
+
   // admin security: /unlock PIN, /lock, /audit, and the PIN gate for the
   // commands that move money, change bank details or revoke licenses.
   if (privateChat && isAdmin(user.id)) {
@@ -2295,6 +2304,92 @@ function topicRef(chatId, key, label) {
   return `<a href="https://t.me/c/${chat}/${id}">${label}</a>`;
 }
 
+// ── forum topic inventory ────────────────────────────────────────────────
+// Telegram exposes no getForumTopics: a bot cannot enumerate a group's topics,
+// and cannot read history to recover any it missed. So we record only what we
+// are genuinely told — forum_topic_created / edited / closed / reopened service
+// messages, plus the thread id on every message we see — and report from that.
+// A topic listed from config but never heard from is reported as such rather
+// than dressed up as confirmed.
+async function noteTopic(chatId, tid, patch) {
+  if (!tid) return;
+  let cur = {};
+  try { cur = JSON.parse((await kvGet('topics:' + chatId)) || '{}'); } catch (e) { cur = {}; }
+  if (!cur || typeof cur !== 'object') cur = {};
+  const prev = cur[tid] || {};
+  cur[tid] = {
+    n: patch.n !== undefined ? patch.n : (prev.n || ''),
+    s: patch.s !== undefined ? patch.s : (prev.s || ''),
+    at: Date.now(),
+  };
+  await kvPut('topics:' + chatId, JSON.stringify(cur), 60 * 60 * 24 * 90);
+}
+
+// Admin report of the support group's forum topics: what the bot has seen,
+// what is only configured, and what Telegram will never let a bot remove.
+async function adminTopics(chatId) {
+  let seen = {};
+  try { seen = JSON.parse((await kvGet('topics:' + SUPPORT_GROUP)) || '{}'); } catch (e) { seen = {}; }
+  if (!seen || typeof seen !== 'object') seen = {};
+
+  const rows = {};
+  const slot = (id) => (rows[id] = rows[id] || { name: '', state: '', cfg: '' });
+  slot('1').name = 'General — all chat';
+  for (const key in GROUP_TOPICS) slot(String(GROUP_TOPICS[key])).cfg = key;
+  for (const id in seen) {
+    const r = seen[id] || {};
+    const s = slot(String(id));
+    if (r.n) s.name = r.n;
+    s.state = r.s === 'closed' ? '🔒 closed to new posts' : r.s === 'open' ? '👁 reopened' : '👂 seen';
+  }
+
+  const ids = Object.keys(rows).sort((a, b) => Number(a) - Number(b));
+  const unheard = ids.filter((id) => id !== '1' && !rows[id].state && !rows[id].name);
+  const out = ids.map((id) => {
+    const r = rows[id];
+    const note = id === '1'
+      ? '⛔ Telegram always keeps this one — a bot cannot delete it, only close or rename it'
+      : (r.state || '❔ never heard from by the bot') + (r.cfg ? ` · configured as <code>${esc(r.cfg)}</code>` : '');
+    return `<b>${esc(id)}</b> · ${esc(r.name || '(name unknown)')}\n   <i>${note}</i>`;
+  });
+
+  await sendText(chatId,
+    '🗂 <b>Forum topics</b> — support group\n\n' +
+    '<i>Telegram gives bots no API to list a group\'s topics. This is only what the bot has been told: ' +
+    'service messages it received, plus the ids in AMH_GROUP_TOPICS. A topic nobody has posted in since ' +
+    'the last deploy cannot appear here.</i>\n\n' +
+    out.join('\n\n') +
+    (unheard.length ? `\n\n❔ Configured, never heard from: ${unheard.map((i) => '<code>' + esc(i) + '</code>').join(', ')}` : '') +
+    '\n\n<b>To clear the “all chat” section</b> — it cannot be deleted, but it can be closed so nobody ' +
+    'can post there and everyone is pushed into a topic. <i>The button needs the bot to be an admin ' +
+    'with “Manage Topics”; it is reversible.</i>',
+    [[(seen['1'] && seen['1'].s === 'closed')
+      ? { text: '👁 Reopen “all chat”', callback_data: 'admin:topics-open' }
+      : { text: '🔒 Close “all chat”', callback_data: 'admin:topics-close' }],
+    [{ text: '🛠 Admin', callback_data: 'admin:panel' }]]);
+}
+
+// Close or reopen the support group's General topic. Telegram will not let a
+// bot delete thread 1, so this is the practical equivalent of removing the
+// "all chat" section: nobody can post there and everyone is pushed into a
+// topic. Fully reversible, and audited like every other admin change.
+async function adminTopicsGeneral(chatId, cbId, fromUid, close) {
+  const gid = SUPPORT_GROUP;
+  if (!gid) { await answerCb(cbId, 'AMH_SUPPORT_GROUP is not set'); return; }
+  const method = close ? 'closeForumTopic' : 'reopenForumTopic';
+  const r = await safeSend(tg(TOKEN, method, { chat_id: gid, message_thread_id: 1 }));
+  if (!r || !r.ok) {
+    const why = String((r && r.description) || 'unknown error');
+    log('error', 'topic_toggle_failed', { method, err: why });
+    await answerCb(cbId, '⚠️ ' + (close ? 'Could not close' : 'Could not reopen') + ': ' + why.slice(0, 140));
+    return;
+  }
+  await audit(fromUid, close ? 'topics-close' : 'topics-open', String(gid) + ':1');
+  await noteTopic(gid, 1, { s: close ? 'closed' : 'open' });
+  await answerCb(cbId, close ? '🔒 “All chat” closed' : '👁 “All chat” reopened');
+  await adminTopics(chatId);
+}
+
 function groupWelcomeNew(names, chatId) {
   const who = names.length ? ' ' + names.map((n) => '<b>' + esc(n) + '</b>').join(', ') : '';
   const t = (key, label) => topicRef(chatId, key, label);
@@ -2304,6 +2399,7 @@ function groupWelcomeNew(names, chatId) {
     `❓ ጥያቄ → ${t('questions', 'Questions')} · 🛠 ችግር → ${t('problems', 'Problems &amp; Help')}\n` +
     `💡 ሀሳብ → ${t('ideas', 'Ideas')} · 🎬 ስራዎ → ${t('work', 'Show your work')}\n` +
     `🪟 ${t('windows', 'Window guide')} · 🍎 ${t('mac', 'Macos guide')} · 💳 ${t('payment', 'Payment')}\n` +
+    (GROUP_TOPICS.jobs ? `💼 የኤዲቲንግ ስራዎች → ${t('jobs', 'Editing Jobs')}\n` : '') +
     (Object.keys(GROUP_TOPICS).length ? '<i>Tap a name to open that topic.</i>\n\n' : '\n') +
     '⚠️ ክፍያ በ @AmharicCaptionsBot ብቻ — Key ወይም Machine ID በግሩፑ አይለጥፉ።\n' +
     '<i>Pay only through @AmharicCaptionsBot. Never post your key or Machine ID here.</i>'
@@ -2327,9 +2423,199 @@ const GROUP_FAQ_KB = {
   install: () => [[INSTALL_BTN]],
 };
 
+// ── editing jobs feed ───────────────────────────────────────────────────────
+// Public job channels (AMH_JOB_CHANNELS) are read from their public web page
+// (t.me/s/<channel>, the page anyone can open in a browser — a bot cannot
+// join other people's channels). Only video-editing jobs are kept, posted as
+// a short card with a link to the original post, into the support group's
+// jobs topic (AMH_SUPPORT_GROUP + "jobs:<id>" in AMH_GROUP_TOPICS). A job seen
+// in two channels is posted once. Off until the owner turns it on in the admin
+// dashboard. Two channels per minute, so each is checked every few minutes.
+let SUPPORT_GROUP = '';
+let JOB_CHANNELS = [];
+const JOBS_PER_TICK = 2;
+const JOBS_MAX_POSTS_PER_TICK = 5;
+const JOB_SEED_HOURS = 24;
+const JOB_SEEN_TTL = 60 * 60 * 24 * 30;
+// Strong: clearly video work. Weak: "editor" / "editing" — kept only when
+// nothing says it is about text (copy editor, editor-in-chief…).
+const JOB_STRONG = /video\s*-?\s*edit|film\s*edit|premiere|after\s*effects|motion\s*graphic|videograph|capcut|davinci|post[- ]?production|colou?rist|reels?\s*edit|youtube\s*edit|ቪዲዮ|ቪድዮ|ኤዲተር|ኢዲተር|ኤዲቲንግ/i;
+const JOB_WEAK = /\bedit(or|ors|ing)\b/i;
+const JOB_TEXT_EDITOR = /copy\s*-?\s*edit|editor[- ]?in[- ]?chief|news\s*editor|text\s*editor|code\s*editor|proof\s*-?read|language\s*editor|journal|content\s*writer/i;
+
+const jobsEnabled = async () => (await getSettings()).jobs_feed === '1';
+
+function htmlToText(h) {
+  return String(h || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'")
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&amp;/g, '&');
+}
+
+// Posts on a t.me/s/<channel> page: [{ id, text, at }], oldest first.
+function parseJobPage(html) {
+  const out = [];
+  for (const p of String(html || '').split('data-post="').slice(1)) {
+    const id = /^[^/"]+\/(\d+)"/.exec(p);
+    const body = /<div class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/.exec(p);
+    if (!id || !body) continue;
+    const time = /<time datetime="([^"]+)"/.exec(p);
+    out.push({ id: Number(id[1]), text: htmlToText(body[1]).trim(), at: time ? Date.parse(time[1]) : NaN });
+  }
+  return out.sort((a, b) => a.id - b.id);
+}
+
+const cleanJobLine = (s) => String(s || '')
+  .replace(/^[\s\d.)\-–•*#:]+/, '')
+  .replace(/^(job\s*title|position(\s*\d+)?|title|vacancy|role|የስራ\s*መደብ)\s*[:：\-–]\s*/i, '')
+  .replace(/\s+/g, ' ').trim();
+
+// Lines that only list acceptable fields/requirements. A job's role is named in
+// its title and bullets; "Film Production" inside a qualification list must not
+// make a Commercial Nominative Officer post look like an editing job.
+const JOB_NON_ROLE = /^(?:qualification|qualifications|requirement|requirements|field of study|discipline|experience)\b|^(?:ቅምቆል|የሚፈቀዳቸው|የሚጠበቀው|የልምድ)/i;
+const stripLead = (l) => String(l).replace(/^[^\p{L}\p{N}]+/u, '');
+
+// A video-editing job in this post? → { title, company, location, deadline, salary, type } or null.
+function jobFromText(text) {
+  const t = String(text || '');
+  const lines = t.split('\n').map((l) => l.trim()).filter(Boolean);
+  // Judge the role on the role lines only, so a qualification list cannot
+  // carry a post on its own.
+  const roles = lines.filter((l) => !JOB_NON_ROLE.test(stripLead(l)));
+  const roleText = roles.join('\n') || t;
+  if (!JOB_STRONG.test(roleText) && !(JOB_WEAK.test(roleText) && !JOB_TEXT_EDITOR.test(roleText))) return null;
+  const titleLine = roles.find((l) => JOB_STRONG.test(l) && l.length < 140) ||
+    roles.find((l) => JOB_WEAK.test(l) && !JOB_TEXT_EDITOR.test(l) && l.length < 140) || roles[0] || lines[0] || '';
+  const field = (re) => {
+    for (const l of lines) {
+      const m = re.exec(l);
+      if (m && m[1].trim()) return m[1].trim().slice(0, 60);
+    }
+    return '';
+  };
+  const title = cleanJobLine(titleLine).slice(0, 90);
+  if (!title) return null;
+  return {
+    title,
+    company: field(/^(?:company(?:\s*name)?|employer|organi[sz]ation|hiring\s*company)\s*[:：]\s*(.+)$/i),
+    location: field(/^(?:work\s*location|job\s*location|location|place\s*of\s*work|city)\s*[:：]\s*(.+)$/i),
+    deadline: field(/^(?:application\s*deadline|deadline(?:\s*date)?|apply\s*before|closing\s*date)\s*[:：]\s*(.+)$/i),
+    salary: field(/^(?:salary(?:\s*\/\s*compensation)?|compensation)\s*[:：]\s*(.+)$/i),
+    type: field(/^(?:job\s*type|employment(?:\s*type)?)\s*[:：]\s*(.+)$/i),
+  };
+}
+
+// Same title at the same company = the same job, whichever channel posted it.
+async function jobKey(j) {
+  const norm = (j.title + '|' + j.company).toLowerCase()
+    .replace(/&amp;|&|\band\b|እና/g, ' ').replace(/[^\p{L}\p{N}|]+/gu, '');
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(norm));
+  return [...new Uint8Array(d)].slice(0, 12).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// One job card. Compact labelled rows read best on a phone; fields the post
+// did not mention are omitted rather than left blank, so a sparse vacancy
+// renders cleanly. The chip is a label, not a link — the tappable button
+// under the card does the acting.
+function jobMessage(j, channel) {
+  const rows = [
+    j.company && `🏢 ${esc(j.company)}`,
+    j.location && `📍 ${esc(j.location)}`,
+    j.type && `🕒 ${esc(j.type)}`,
+    j.deadline && `⏰ ${esc(j.deadline)}`,
+    j.salary && `💰 ${esc(j.salary)}`,
+  ].filter(Boolean);
+  const body = rows.length ? `\n\n${rows.join('\n')}\n` : '';
+  return (
+    `🎬 <b>${esc(j.title)}</b>${body}\n` +
+    `━━━━ [ ዝርዝር እና ማመልከቻ ] ━━━━\n` +
+    `<i>Source: @${esc(channel)}</i>\n\n` +
+    '⚠️ ለስራ ማመልከቻ ገንዘብ አይክፈሉ። <i>Never pay to apply for a job.</i>'
+  );
+}
+
+async function scanJobChannel(channel, budget) {
+  let html = '';
+  try {
+    const r = await fetch(`https://t.me/s/${encodeURIComponent(channel)}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AmharicCaptionsBot job feed)', 'Accept-Language': 'en' },
+    });
+    if (!r.ok) { log('warn', 'jobs_fetch_failed', { channel, status: r.status }); return 0; }
+    html = await r.text();
+  } catch (e) {
+    log('warn', 'jobs_fetch_failed', { channel, err: String((e && e.message) || e) });
+    return 0;
+  }
+  const posts = parseJobPage(html);
+  if (!posts.length) return 0;
+  const lastKey = 'jobs:last:' + channel.toLowerCase();
+  const lastRaw = await kvGet(lastKey);
+  const first = lastRaw === null || lastRaw === undefined;
+  const last = first ? 0 : Number(lastRaw) || 0;
+  const now = Date.now();
+  let sent = 0;
+  let upTo = last;
+  for (const p of posts) {
+    if (p.id <= last) continue;
+    // Only today's jobs, never a channel's whole history — including the very
+    // first look. (The old `!first ||` short-circuited the age check, so adding
+    // a channel dumped its last 20 posts, old ones included, into the topic.)
+    const fresh = Number.isFinite(p.at) && now - p.at < JOB_SEED_HOURS * 3600 * 1000;
+    const job = fresh ? jobFromText(p.text) : null;
+    if (job) {
+      if (sent >= budget) break; // pick it up on the next pass
+      const seenKey = 'jobs:seen:' + (await jobKey(job));
+      if (!(await kvGet(seenKey))) {
+        const r = await safeSend(tg(TOKEN, 'sendMessage', {
+          chat_id: SUPPORT_GROUP, message_thread_id: Number(GROUP_TOPICS.jobs), text: jobMessage(job, channel),
+          parse_mode: 'HTML', disable_web_page_preview: true,
+          reply_markup: { inline_keyboard: [[{ text: '👆 Details & how to apply', url: `https://t.me/${channel}/${p.id}` }]] },
+        }));
+        if (!(r && r.ok)) { log('warn', 'jobs_post_failed', { channel, id: p.id, err: r && r.description }); break; }
+        await kvPut(seenKey, channel + '/' + p.id, JOB_SEEN_TTL);
+        sent++;
+      }
+    }
+    upTo = p.id;
+  }
+  if (first) upTo = Math.max(upTo, posts[posts.length - 1].id);
+  if (upTo > last) await kvPut(lastKey, String(upTo));
+  if (sent) log('info', 'jobs_posted', { channel, sent });
+  return sent;
+}
+
+// Every minute (cron): the next two channels in turn.
+async function scanJobs() {
+  if (!SUPPORT_GROUP || !GROUP_TOPICS.jobs || !JOB_CHANNELS.length) return 0;
+  if (!(await jobsEnabled())) return 0;
+  const rr = Number(await kvGet('jobs:rr')) || 0;
+  let sent = 0;
+  for (let i = 0; i < Math.min(JOBS_PER_TICK, JOB_CHANNELS.length); i++) {
+    sent += await scanJobChannel(JOB_CHANNELS[(rr + i) % JOB_CHANNELS.length], JOBS_MAX_POSTS_PER_TICK - sent);
+    if (sent >= JOBS_MAX_POSTS_PER_TICK) break;
+  }
+  await kvPut('jobs:rr', String((rr + JOBS_PER_TICK) % JOB_CHANNELS.length));
+  return sent;
+}
+
 async function handleGroupMessage(msg, text) {
   const chatId = msg.chat.id;
   const user = msg.from || {};
+
+  // Forum topics: remember ids and names as Telegram reports them. There is no
+  // listing API, so these service messages are the only inventory /topics has.
+  if (msg.message_thread_id) {
+    const patch = {};
+    const named = msg.forum_topic_created || msg.forum_topic_edited;
+    if (named && named.name) patch.n = String(named.name);
+    if (msg.forum_topic_closed) patch.s = 'closed';
+    else if (msg.forum_topic_reopened) patch.s = 'open';
+    await noteTopic(chatId, msg.message_thread_id, patch);
+  }
 
   // Joins: drop the service line, replace the previous welcome with a new one.
   if (msg.new_chat_members) {
@@ -3225,6 +3511,7 @@ async function adminPanel(chatId, messageId) {
     [{ text: '📣 Broadcast', callback_data: 'admin:broadcast' }, { text: '📤 Export customers', callback_data: 'admin:export' }],
     [{ text: '🔍 Find a customer', callback_data: 'admin:findask' }, { text: '🤝 Partners', callback_data: 'admin:partners' }],
     [{ text: `🎁 Referrals · ${refOn ? '🟢 ON' : '⚪ OFF'}`, callback_data: 'admin:ref' }],
+    [{ text: `💼 Jobs feed · ${(await jobsEnabled()) ? '🟢 ON' : '⚪ OFF'}`, callback_data: 'admin:jobs-toggle' }],
     [{ text: '🔐 Audit log', callback_data: 'admin:audit' }, { text: '📖 Commands', callback_data: 'admin:help' }],
   ];
   if (messageId) await editText(chatId, messageId, text, kb);
@@ -3745,6 +4032,8 @@ async function adminHelp(chatId) {
     '<code>/partner CODE name</code> — new partner · <code>/partners</code> — list\n' +
     '<code>/partnerterms CODE reward discount</code> — their amounts\n' +
     '<code>/partnerinfo CODE</code> · <code>/pmsg CODE text</code>\n\n' +
+    '<b>Group</b>\n' +
+    '<code>/topics</code> — the support group\'s forum topics, and which ones the bot has seen\n\n' +
     '<b>Security</b>\n' +
     '<code>/unlock PIN</code> · <code>/lock</code> · <code>/audit</code>\n\n' +
     '<i>Buyers see the normal /help — you get this one because you are the admin.</i>',
@@ -4540,6 +4829,18 @@ async function handleCallback(cb) {
     else if (action === 'bcast-cancel') await cancelBroadcast(chatId, messageId, cbId, parseInt(parts[2] || '0', 10));
     else if (action === 'sales-export') await adminSalesExport(chatId, cbId);
     else if (action === 'ref') await adminReferrals(chatId, messageId);
+    else if (action === 'jobs-toggle') {
+      const on = await jobsEnabled();
+      if (!on && (!SUPPORT_GROUP || !GROUP_TOPICS.jobs || !JOB_CHANNELS.length)) {
+        await answerCb(cbId, 'Set AMH_SUPPORT_GROUP, jobs:<topic id> in AMH_GROUP_TOPICS and AMH_JOB_CHANNELS first');
+      } else {
+        await setSetting('jobs_feed', on ? '0' : '1');
+        await answerCb(cbId, on ? '⚪ Jobs feed OFF' : '🟢 Jobs feed ON');
+        await adminPanel(chatId, messageId);
+      }
+    }
+    else if (action === 'topics-close') await adminTopicsGeneral(chatId, cbId, fromUid, true);
+    else if (action === 'topics-open') await adminTopicsGeneral(chatId, cbId, fromUid, false);
     else if (action === 'ref-toggle') {
       const on = refTerms(await getSettings()).on;
       try {
@@ -5322,6 +5623,7 @@ export default {
     // query when there is none). Every 6 hours: housekeeping.
     if (event && event.cron === '* * * * *') {
       await processBroadcast(BCAST_BATCH_CRON);
+      try { await scanJobs(); } catch (e) { log('error', 'jobs_scan_failed', { err: String((e && e.message) || e) }); }
       return;
     }
     await nudgeQuietBuyers();

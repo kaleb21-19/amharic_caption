@@ -224,6 +224,12 @@
   .progress { flex: 1; height: 6px; background: var(--bg-field); border: 1px solid var(--border);
     border-radius: 6px; overflow: hidden; }
   .progress > div { height: 100%; background: linear-gradient(90deg, var(--accent), #3cd48a); width: 0%; transition: width .2s; }
+  .progress.indeterminate > div { width: 30% !important; animation: amh-indeterminate 1.4s ease-in-out infinite; }
+  @keyframes amh-indeterminate {
+    0% { margin-left: 0; }
+    50% { margin-left: 70%; }
+    100% { margin-left: 0; }
+  }
   #progLabel { font-size: 10.5px; color: var(--text-secondary); white-space: normal; line-height: 1.4; flex: 1 1 140px; min-width: 0; }
 
   #picked {
