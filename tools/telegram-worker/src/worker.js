@@ -191,6 +191,10 @@ let CACHE = null; // optional KV namespace (AMH_KV). Absent => graceful fallback
 let BLOCK_SHARED = false;  // when '1', /api/validate refuses a key seen from too many IPs
 let SPREAD_THRESHOLD = 3;  // distinct source IPs per key before we alert/flag a spread
 let FRESH_MID_LIMIT = 5;   // max new (never-before-seen) mids per IP/day before trial use saturates
+// Invite link for the support group. Configurable so the link can be rotated or
+// swapped without a code change; this is the same link the Support button has
+// always used.
+let SUPPORT_INVITE = 'https://t.me/+L-bMfmIRyEo3MDg0';
 
 // ── config / env ────────────────────────────────────────────────────────────
 function initEnv(env) {
@@ -203,6 +207,7 @@ function initEnv(env) {
   GROUP_ID = env.AMH_GROUP_ID || '';
   GROUP_TOPICS = parseGroupTopics(env.AMH_GROUP_TOPICS);
   SUPPORT_GROUP = String(env.AMH_SUPPORT_GROUP || '');
+  SUPPORT_INVITE = String(env.AMH_SUPPORT_INVITE || SUPPORT_INVITE);
   JOB_CHANNELS = String(env.AMH_JOB_CHANNELS || '').split(',')
     .map((c) => c.trim().replace(/^@/, '')).filter((c) => /^[A-Za-z0-9_]{4,40}$/.test(c));
   PRICE = env.AMH_PRICE || 'ETB 2,500';
@@ -421,7 +426,7 @@ const heroKeyboard = (invite = false) => [
   [{ text: '🔑 ቁልፌ · My Key', callback_data: 'menu:mykey' }],
   ...(invite ? [[{ text: '🎁 ጓደኛ ይጋብዙ · Invite friends', callback_data: 'ref:invite' }]] : []),
   [{ text: '📲 አጫጫን · Install guide', url: `${SITE_URL}/install` }],
-  [{ text: '💬 ድጋፍ · Support', url: 'https://t.me/+L-bMfmIRyEo3MDg0' }],
+  [{ text: '💬 ድጋፍ · Support', url: SUPPORT_INVITE }],
 ];
 
 // The shop owner's /start opens the same dashboard as /admin (adminPanel):
@@ -2390,6 +2395,107 @@ async function adminTopicsGeneral(chatId, cbId, fromUid, close) {
   await adminTopics(chatId);
 }
 
+// ── support-group membership ──────────────────────────────────────────────────
+// The bot could only ever ASK for a join before (a static invite-link button),
+// never check one. Telegram has no API to force membership — no bot can compel
+// anyone into a group — so the strongest honest lever is to detect the gap and
+// gate on it, rather than ask once and hope.
+//
+// Deliberate rule: every path here fails OPEN. If the API call fails, or the
+// table is missing, we do nothing. Nudging a customer who is already inside the
+// group is a much worse bug than staying quiet.
+
+// Live membership. Returns true / false, or null when we genuinely cannot tell
+// (API error, bot not an admin, rate limited) — callers must treat null as
+// "leave them alone". `restricted` still counts as inside: the person is a
+// member who happens to be under some restriction.
+async function isGroupMember(uid) {
+  if (!SUPPORT_GROUP) return null;
+  const r = await safeSend(tg(TOKEN, 'getChatMember', {
+    chat_id: SUPPORT_GROUP, user_id: uid,
+  }));
+  if (!r || !r.ok || !r.result) {
+    log('warn', 'group_member_unknown', { uid: String(uid), err: r && r.description });
+    return null;
+  }
+  const s = String(r.result.status || '');
+  return s === 'member' || s === 'administrator' || s === 'creator' || s === 'restricted';
+}
+
+// A private supergroup id looks like -1003962455059; Telegram's public link
+// form drops the -100. Only usable once the person is already a member.
+function groupTopicLink(topicId) {
+  if (!SUPPORT_GROUP || !topicId) return SUPPORT_INVITE;
+  return `https://t.me/c${String(SUPPORT_GROUP).replace(/^-100/, '')}/${Number(topicId)}`;
+}
+
+async function markGroupPrompt(uid) {
+  try {
+    await DB.prepare(
+      `INSERT INTO group_members (uid, prompted_at) VALUES (?, datetime('now'))
+       ON CONFLICT(uid) DO UPDATE SET prompted_at = datetime('now')`
+    ).bind(String(uid)).run();
+  } catch (e) {
+    log('error', 'group_prompt_failed', { uid: String(uid), message: String((e && e.message) || e) });
+  }
+}
+
+// joined_at is written once and never rewritten, so it answers "did they ever
+// join"; left_at is cleared on re-join so a lapsed member is distinguishable
+// from a never-member.
+async function markGroupJoined(uid) {
+  try {
+    await DB.prepare(
+      `INSERT INTO group_members (uid, joined_at) VALUES (?, datetime('now'))
+       ON CONFLICT(uid) DO UPDATE SET
+         joined_at = COALESCE(group_members.joined_at, datetime('now')),
+         left_at   = NULL`
+    ).bind(String(uid)).run();
+  } catch (e) {
+    log('error', 'group_joined_failed', { uid: String(uid), message: String((e && e.message) || e) });
+  }
+}
+
+async function markGroupLeft(uid) {
+  try {
+    await DB.prepare(
+      `INSERT INTO group_members (uid, left_at) VALUES (?, datetime('now'))
+       ON CONFLICT(uid) DO UPDATE SET left_at = datetime('now')`
+    ).bind(String(uid)).run();
+  } catch (e) {
+    log('error', 'group_left_failed', { uid: String(uid), message: String((e && e.message) || e) });
+  }
+}
+
+const JOIN_PROMPT_KB = [
+  [{ text: '👥 ግሩን ይግቡ · Join the group', url: SUPPORT_INVITE }],
+  [{ text: '✅ ተግባርላለሁ · I have joined', callback_data: 'grp-check' }],
+];
+
+const JOIN_PROMPT_TEXT =
+  '👥 <b>ግሩን ይግቡ — የማስተካከሪያ ስራዎች እዚህ ይገኛሉ</b>\n' +
+  '<i>Join the group to get every editing job as it is posted.</i>\n\n' +
+  'ስራዎቹ ነፃ ናቸው። ሁሉም የሚያዩት በግሩኑ የ<b>ስራዎች</b> ርዕስ ውስጥ ብቻ ነው።\n' +
+  '<i>Free, and only there.</i>';
+
+const JOINED_TEXT =
+  '✅ <b>እንኳን ወደ ግሩኑ ተመጡ!</b>\n' +
+  '<i>You are in — the editing jobs are in the Jobs topic.</i>\n\n' +
+  'እንኳን ወደ ግሩኑ ተመጡ! የማስተካከሪያ ስራዎች በ<b>ስራዎች</b> ርዕስ ውስጥ ናቸው።';
+
+// Ask a buyer, once, to join the group — but only if we can positively confirm
+// they are not already in it. Returns true when a prompt was sent.
+async function nudgeGroupJoin(uid) {
+  if (!SUPPORT_GROUP || !SUPPORT_INVITE) return false;
+  const member = await isGroupMember(uid);
+  if (member === true) { await markGroupJoined(uid); return false; }
+  if (member === null) return false;      // cannot tell: stay quiet
+  await markGroupPrompt(uid);
+  const sent = await sendText(uid, JOIN_PROMPT_TEXT, JOIN_PROMPT_KB);
+  log('info', sent && sent.ok ? 'group_prompt_sent' : 'group_prompt_failed_send', { uid: String(uid) });
+  return !!(sent && sent.ok);
+}
+
 function groupWelcomeNew(names, chatId) {
   const who = names.length ? ' ' + names.map((n) => '<b>' + esc(n) + '</b>').join(', ') : '';
   const t = (key, label) => topicRef(chatId, key, label);
@@ -2639,6 +2745,9 @@ async function handleGroupMessage(msg, text) {
     await groupDelete(chatId, msg.message_id);
     const people = msg.new_chat_members.filter((m) => !m.is_bot);
     if (!people.length) return;
+    // Membership we are being told about anyway — record it, so "did they join"
+    // is answerable later without asking the API for every customer.
+    for (const m of people) await markGroupJoined(m.id);
     const wkey = 'grp:welcome:' + chatId;
     const prev = await kvGet(wkey);
     if (prev) await groupDelete(chatId, Number(prev));
@@ -2652,6 +2761,7 @@ async function handleGroupMessage(msg, text) {
   }
   if (msg.left_chat_member) {
     await groupDelete(chatId, msg.message_id);
+    await markGroupLeft(msg.left_chat_member.id);
     return;
   }
 
@@ -3493,6 +3603,56 @@ function adminKeyboardPend(orderId) {
   ]];
 }
 
+// How many buyers we asked to join actually joined. This is the number that was
+// impossible to get before: the old flow only ever handed out an invite link,
+// so there was nothing to count. "Asked but not joined" is also the actionable
+// list — those are the customers who may not know the jobs feed exists.
+async function adminGroup(chatId, messageId, cbId) {
+  await answerCb(cbId, '');
+  let row = { prompted: 0, joined: 0, joinedPrompted: 0 };
+  try {
+    row = await DB.prepare(
+      `SELECT
+         COALESCE(SUM(CASE WHEN prompted_at IS NOT NULL THEN 1 ELSE 0 END),0) AS prompted,
+         COALESCE(SUM(CASE WHEN joined_at   IS NOT NULL THEN 1 ELSE 0 END),0) AS joined,
+         COALESCE(SUM(CASE WHEN joined_at IS NOT NULL AND prompted_at IS NOT NULL THEN 1 ELSE 0 END),0) AS joinedPrompted
+       FROM group_members`
+    ).first() || row;
+  } catch (e) {
+    await sendText(chatId, '⚠️ <i>group_members table is missing — run <code>npm run migrate</code>.</i>');
+    return;
+  }
+  const prompts = row.prompted || 0;
+  const converted = row.joinedPrompted || 0;
+  const pct = prompts ? Math.round((converted / prompts) * 100) : 0;
+  const missing = prompts - converted;
+
+  let lines =
+    `👥 <b>Support group</b>\n\n` +
+    `📣 Asked to join: <b>${prompts}</b>\n` +
+    `✅ Of those, joined: <b>${converted}</b> (${pct}%)\n` +
+    `⬜ Did not join yet: <b>${missing}</b>\n` +
+    `👤 Ever joined (any path): <b>${row.joined || 0}</b>\n`;
+
+  if (missing > 0) {
+    const laggards = await DB.prepare(
+      `SELECT gm.uid, gm.prompted_at FROM group_members gm
+       WHERE gm.prompted_at IS NOT NULL AND gm.joined_at IS NULL
+       ORDER BY gm.prompted_at DESC LIMIT 15`
+    ).all();
+    const names = (laggards.results || []).map((r) =>
+      `${esc(String(r.uid))} <i>(${String(r.prompted_at || '').slice(0, 16)})</i>`).join('\n');
+    lines += `\n\n📋 <b>Not joined yet (latest 15):</b>\n${names}\n` +
+      `<i>Send them: /broadcast — the jobs feed only lives in the group.</i>`;
+  }
+  const back = [[{ text: '⬅ ተመለስ · Back', callback_data: 'admin:panel' }]];
+  if (messageId) {
+    const r = await editText(chatId, messageId, lines, back);
+    if (r && r.ok) return;
+  }
+  await sendText(chatId, lines, back);
+}
+
 async function adminPanel(chatId, messageId) {
   await pruneOld();
   const pend = await pendingCount();
@@ -3529,6 +3689,7 @@ async function adminPanel(chatId, messageId) {
     [{ text: '🔍 Find a customer', callback_data: 'admin:findask' }, { text: '🤝 Partners', callback_data: 'admin:partners' }],
     [{ text: `🎁 Referrals · ${refOn ? '🟢 ON' : '⚪ OFF'}`, callback_data: 'admin:ref' }],
     [{ text: `💼 Jobs feed · ${(await jobsEnabled()) ? '🟢 ON' : '⚪ OFF'}`, callback_data: 'admin:jobs-toggle' }],
+    [{ text: '👥 Group members', callback_data: 'admin:group' }],
     [{ text: '🔐 Audit log', callback_data: 'admin:audit' }, { text: '📖 Commands', callback_data: 'admin:help' }],
   ];
   if (messageId) await editText(chatId, messageId, text, kb);
@@ -4501,6 +4662,11 @@ async function approve(chatId, messageId, orderId, cbId) {
          `<i>Order approved, but sending ${what.en} failed. We will send it again shortly.</i>`));
   }
 
+  // The key has already gone out — this never withholds what they paid for.
+  // It only checks, and if they are not in the group yet, offers the jobs feed
+  // once, at the point of highest intent, with a one-tap way to confirm.
+  if (delivered) await nudgeGroupJoin(o.uid);
+
   const left = await pendingCount();
   const sentWhat = codeOrder ? `activation code <code>${esc(key)}</code>` : 'key';
   await editText(chatId, messageId, delivered
@@ -4742,6 +4908,30 @@ async function handleCallback(cb) {
       return;
     }
     if (action === 'mykey') { await answerCb(cbId, ''); await showMyKey(cb, chatId, messageId); return; }
+    // "I have joined" on the post-purchase prompt. Re-checks live rather than
+    // trusting the button press — joining takes a second, and people do tap
+    // before it lands, so an instant re-read would produce a false "no".
+    if (action === 'grp-check') {
+      const member = await isGroupMember(fromUid);
+      if (member === true) {
+        await markGroupJoined(fromUid);
+        const jobsLink = groupTopicLink(GROUP_TOPICS.jobs);
+        const kb = GROUP_TOPICS.jobs
+          ? [[{ text: '🎬 ስራዎች · Open the Jobs topic', url: jobsLink }]]
+          : null;
+        await answerCb(cbId, '✅ ተግባርላለሁ · Confirmed');
+        await editText(chatId, messageId, JOINED_TEXT, kb);
+      } else if (member === false) {
+        await answerCb(cbId, '👥 ግሩን አልገቡም · Not in the group yet');
+        await sendText(chatId,
+          '👥 እስካሁን በግሩኑ አይወሉም። ከላይ ያለውን አዝና ይግቡ፣ ከዚያ እነገራለሁ።\n' +
+          '<i>Not in the group yet. Tap the button above, join, then press it again.</i>',
+          JOIN_PROMPT_KB);
+      } else {
+        await answerCb(cbId, '⚠️ ማረጋገጥ አልተቻለም · Could not verify');
+      }
+      return;
+    }
     if (action === 'yes') {
       // "Yes, this picture is my payment" (it arrived outside a purchase).
       await answerCb(cbId, '');
@@ -4846,6 +5036,7 @@ async function handleCallback(cb) {
     else if (action === 'bcast-cancel') await cancelBroadcast(chatId, messageId, cbId, parseInt(parts[2] || '0', 10));
     else if (action === 'sales-export') await adminSalesExport(chatId, cbId);
     else if (action === 'ref') await adminReferrals(chatId, messageId);
+    else if (action === 'group') await adminGroup(chatId, messageId, cbId);
     else if (action === 'jobs-toggle') {
       const on = await jobsEnabled();
       if (!on && (!SUPPORT_GROUP || !GROUP_TOPICS.jobs || !JOB_CHANNELS.length)) {
