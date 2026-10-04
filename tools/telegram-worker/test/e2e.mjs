@@ -2736,12 +2736,12 @@ console.log('\n:: scenario 26 — customer bot: questions answered, home screen 
   await tap('faq:home');
   for (const k of ['price', 'trial', 'need', 'install', 'when', 'newpc', 'key']) assert.ok(kb().includes('faq:' + k), 'FAQ lists ' + k);
   await tap('faq:need');
-  assert.ok(txt().includes('2024') && txt().includes('Mac'), 'requirements answer');
+  assert.ok(txt().includes('2022 or newer') && txt().includes('Mac'), 'requirements answer');
   ok('customer: ❓ Questions — seven answers one tap away');
 
   // 2. Questions typed in their own words (Amharic, English, Latin-typed Amharic).
   const cases = [['ዋጋው ስንት ነው?', 'ETB 2,500'], ['waga sint new', 'ETB 2,500'], ['is there a free trial?', '2 captions free'],
-    ['እንዴት ልጫን?', 'Window → Extensions'], ['does it work on mac', '2024'], ['eske meche new', 'few hours'],
+    ['እንዴት ልጫን?', 'Window → Extensions'], ['does it work on mac', '2022 or newer'], ['eske meche new', 'few hours'],
     ['I changed computer', 'move it for free'], ['key aysera', 'Key not working'], ['amesegnalehu', 'welcome']];
   for (const [q, want] of cases) {
     await say(q);
@@ -2754,7 +2754,7 @@ console.log('\n:: scenario 26 — customer bot: questions answered, home screen 
   // 3. While paying: the question is answered AND the screenshot is still expected.
   await tap('menu:pay');
   await say('mac lay yiseral?');
-  assert.ok(txt().includes('2024') && txt().includes('send the screenshot'), 'answer + screenshot reminder');
+  assert.ok(txt().includes('2022 or newer') && txt().includes('send the screenshot'), 'answer + screenshot reminder');
   assert.equal(row(env, 'SELECT step FROM fsm WHERE uid=?', U).step, 'photo', 'still waiting for the screenshot');
   await say('selam');
   assert.ok(txt().includes('Waiting for the payment screenshot'), 'a greeting mid-payment just re-asks for the screenshot');

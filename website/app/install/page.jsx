@@ -44,8 +44,8 @@ export default function InstallPage() {
           <div className="req-row">
             <span className="req">
               <Tx
-                am={<><b>Premiere Pro</b> ወይም <b>After Effects</b> 2024+ — ወይም ምንም የAdobe ፕሮግራም ሳይኖር</>}
-                en={<><b>Premiere Pro</b> or <b>After Effects</b> 2024+ — or no Adobe app at all</>}
+                am={<><b>Premiere Pro</b> ወይም <b>After Effects</b> 2022+ — ወይም ምንም የAdobe ፕሮግራም ሳይኖር</>}
+                en={<><b>Premiere Pro</b> or <b>After Effects</b> 2022+ — or no Adobe app at all</>}
               />
             </span>
             <span className="req"><Tx am={<><b>Windows 10/11</b> ወይም <b>macOS</b></>} en={<><b>Windows 10/11</b> or <b>macOS</b></>} /></span>

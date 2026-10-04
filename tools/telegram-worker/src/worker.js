@@ -2763,7 +2763,7 @@ const FAQ = {
   need: {
     btn: '🖥 ምን ያስፈልገኛል? · Requirements',
     text: () => '🖥 <b>ምን ያስፈልጋል? / What do I need?</b>\n\n' +
-      '• <b>Premiere Pro</b> ወይም <b>After Effects</b> — 2024 ወይም ከዚያ በኋላ\n<i>  Premiere Pro or After Effects 2024 or newer</i>\n' +
+      '• <b>Premiere Pro</b> ወይም <b>After Effects</b> — 2022 ወይም ከዚያ በኋላ\n<i>  Premiere Pro or After Effects 2022 or newer</i>\n' +
       '• Windows (64-bit) ወይም Mac\n<i>  Windows (64-bit) or Mac</i>\n' +
       '• ቪዲዮዎ ከኮምፒውተርዎ አይወጣም — ካፕሽኑ በኮምፒውተርዎ ላይ ይሰራል።\n<i>  Your video never leaves your computer — captions are made on it.</i>\n\n' +
       '✂️ CapCut ወይም ሌላ ኤዲተር? ካፕሽኑን በፓነሉ ሰርተው «የሰብታይትል ፋይሎችን አስቀምጥ» ብለው የSRT ፋይሉን ያስገቡ።\n' +

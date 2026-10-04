@@ -216,7 +216,7 @@ if "!SILENT!"=="0" (
     echo ================================================
     echo.
     echo This installs Amharic Captions Pro for Premiere Pro and
-    echo After Effects 2024 or newer, plus the Make Amharic
+    echo After Effects 2022 or newer, plus the Make Amharic
     echo Captions tool for other editors. It takes about a
     echo minute and needs no administrator rights.
     echo.
@@ -664,7 +664,7 @@ echo     1. Fully quit Premiere Pro with  File, Exit.
 echo        Closing the window is not enough.
 echo     2. Reopen Premiere Pro and open a project.
 echo     3. Choose  Window, Extensions, Amharic Captions Pro.
-echo        After Effects 2024 or newer: the same menu.
+echo        After Effects 2022 or newer: the same menu.
 echo.
 if "!LITE!"=="1" if "!KEPT_MODEL!"=="0" (
     echo   First time only: press  Download the Amharic model  in the
