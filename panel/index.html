@@ -351,6 +351,41 @@
   .ob-health .row-check.bad .state { color: var(--err); }
   #onboardStart { margin-top: 16px; }
 
+  /* ---------- After a free caption: next step card ---------- */
+  #trialCard {
+    position: fixed; inset: 0; z-index: 120;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, .55); padding: 16px;
+  }
+  #trialCard.show { display: flex; }
+  .tc-box {
+    width: 100%; max-width: 320px; display: flex; flex-direction: column; gap: 8px;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 18px 16px 14px; text-align: center;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
+  }
+  .tc-check {
+    width: 34px; height: 34px; margin: 0 auto 2px; border-radius: 50%;
+    background: var(--accent-soft); color: var(--accent);
+    font-size: 18px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  }
+  .tc-title { font-size: var(--font-l, 14px); font-weight: 700; }
+  .tc-sub { font-size: var(--font-s); color: var(--text-secondary); line-height: 1.45; }
+  .tc-group {
+    margin: 6px 0 2px; padding: 10px 12px; text-align: left;
+    background: var(--bg-field); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  }
+  .tc-group b { display: block; font-size: var(--font-m); margin-bottom: 2px; }
+  .tc-group span { font-size: var(--font-s); color: var(--text-secondary); line-height: 1.45; }
+  #trialCard .btn { width: 100%; }
+  #trialCard [data-tc] { display: none; }
+  #trialCard.tc-left [data-tc="left"], #trialCard.tc-last [data-tc="last"] { display: inline; }
+  .tc-later {
+    font: inherit; font-size: var(--font-s); color: var(--text-secondary);
+    background: none; border: 0; cursor: pointer; padding: 4px; margin-top: 2px;
+  }
+  .tc-later:hover { color: var(--text-primary); }
+
   /* ---------- Caption review & edit overlay ---------- */
   #review {
     position: fixed; inset: 0; z-index: 110;
@@ -502,6 +537,26 @@
       <span id="fontPill"><span class="dot"></span><span id="fontText" data-i18n="font.checking">checking font…</span></span>
       <span id="statusPill"><span class="dot"></span><span id="statusText" data-i18n="status.idle">idle</span></span>
       <button type="button" id="langToggle" class="lang-toggle" data-lang-toggle title="Switch to English">EN</button>
+    </div>
+  </div>
+
+  <!-- After a free caption: next step (group / buy). Shown once per free
+       caption, after the review closes; licensed users never see it. -->
+  <div id="trialCard" role="dialog" aria-modal="true" aria-labelledby="tcTitle">
+    <div class="tc-box">
+      <div class="tc-check">✓</div>
+      <div class="tc-title" id="tcTitle">
+        <span data-tc="left" data-i18n="tc.titleLeft">Your free caption is done</span>
+        <span data-tc="last" data-i18n="tc.titleLast">That was your last free caption</span>
+      </div>
+      <div class="tc-sub">
+        <span data-tc="left" data-i18n="tc.left">You have 1 more free caption to try.</span>
+        <span data-tc="last" data-i18n="tc.last">Buy a license to keep making captions — one payment, no monthly fee.</span>
+      </div>
+      <div class="tc-group" data-i18n-html="tc.group"><b>Questions or a problem?</b><span>Ask in our Telegram group — we answer fast, and editors share tips there.</span></div>
+      <button type="button" id="tcGroup" class="btn" data-i18n="tc.join">Join the Telegram group</button>
+      <button type="button" id="tcBuy" class="btn" data-i18n="lic.buy">Buy a license — ETB 2,500</button>
+      <button type="button" id="tcLater" class="tc-later" data-i18n="tc.later">Not now</button>
     </div>
   </div>
 
@@ -705,7 +760,7 @@
   </div>
 
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.8.11</span><span id="footPrice"> · <span data-i18n="foot.license">License ETB 2,500 one-time</span></span></span>
+    <span>v<span id="panelVersion">1.8.12</span><span id="footPrice"> · <span data-i18n="foot.license">License ETB 2,500 one-time</span></span></span>
     <span style="display:flex;gap:10px;align-items:center;">
       <a href="#" id="supportLink" title="Get help in Telegram" data-i18n="foot.help" data-i18n-title="foot.helpTitle">💬 Help</a>
       <a href="#" id="credits" title="Version and credits" data-i18n="foot.credits" data-i18n-title="foot.creditsTitle">About</a>

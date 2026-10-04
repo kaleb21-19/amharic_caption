@@ -193,7 +193,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.8.11');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.8.12');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -820,6 +820,76 @@ await t('5c. trial: authoritative charge denial blocks review and placement', as
       assert.ok(/not placed|trial credit/i.test(p.els('logBox').textContent), 'denial is visible to the user');
       assert.ok(!/Captions added/.test(p.els('logBox').textContent), 'no placement can occur after denial');
     } finally { p.close(); }
+  } finally { restoreCache(snap); }
+});
+
+await t('5d. after a free caption: next-step card (group while one is left, Buy after the last); never on a denied charge', async () => {
+  const fixture = path.join(REPO, 'tools', 'test', 'fixtures', 'twospeaker.wav');
+  const key = cacheKeyFor(fixture, { cap:'words', group:3, chars:42, speakers:false });
+  const snap = snapshotCache();
+  try {
+    const base = snap !== null ? JSON.parse(snap) : {};
+    base[key] = { srt: CACHE_SEED_SRT, transcript: '', at: Date.now() };
+    restoreCache(JSON.stringify(base));
+    let used = 0;
+    const p = loadPanel({
+      fetch: async (url) => {
+        const u = String(url);
+        if (u.includes('/api/trial?')) return { ok:true, json:async()=>({used, max:2, remaining:2-used}) };
+        if (u.includes('/api/trial/use')) { used++; return { ok:true, json:async()=>({used, max:2, remaining:2-used, charged:true}) }; }
+        return { ok:false, json:async()=>null };
+      }
+    });
+    try {
+      await flush(10);
+      p.evalVm('var __opened = null; cep.util.openURLInDefaultBrowser = (u) => { __opened = u; };');
+      const card = p.els('trialCard');
+      const run = async () => {
+        p.els('fileInput').files = [{ path: fixture, name: 'twospeaker.wav' }];
+        p.els('fileInput').fire('change');
+        await flush(40);
+        assert.ok(p.els('review').classList.contains('show'), 'review open');
+        assert.ok(!card.classList.contains('show'), 'the card never covers the review');
+      };
+
+      // 1st free caption, placed: the group is the main action.
+      await run();
+      p.els('reviewPlace').fire('click');
+      await flush(30);
+      assert.ok(card.classList.contains('show'), 'card after the first free caption');
+      assert.ok(card.classList.contains('tc-left') && !card.classList.contains('tc-last'));
+      assert.ok(/btn-primary/.test(p.els('tcGroup').className) && !/btn-primary/.test(p.els('tcBuy').className));
+      p.els('tcGroup').fire('click');
+      assert.strictEqual(p.evalVm('__opened'), 'https://t.me/+L-bMfmIRyEo3MDg0', 'opens the Telegram group');
+      assert.ok(!card.classList.contains('show'), 'and closes');
+
+      // 2nd (last) free caption, discarded: Buy is the main action and starts the normal purchase.
+      await run();
+      p.els('reviewDiscard').fire('click');
+      await flush(10);
+      assert.ok(card.classList.contains('show') && card.classList.contains('tc-last'), 'last-caption card, even after discard');
+      assert.ok(/btn-primary/.test(p.els('tcBuy').className));
+      p.els('tcBuy').fire('click');
+      assert.match(String(p.evalVm('__opened')), /^https:\/\/t\.me\/AmharicCaptionsBot\?start=m_/, 'Buy opens the bot with this Machine ID');
+      assert.ok(!card.classList.contains('show'));
+    } finally { p.close(); }
+
+    // A denied charge (trial used up) shows no card: nothing was produced.
+    const q = loadPanel({
+      fetch: async (url) => {
+        const u = String(url);
+        if (u.includes('/api/trial?')) return { ok:true, json:async()=>({used:0, max:2, remaining:2}) };
+        if (u.includes('/api/trial/use')) return { ok:true, json:async()=>({used:2, max:2, remaining:0, charged:false}) };
+        return { ok:false, json:async()=>null };
+      }
+    });
+    try {
+      await flush(10);
+      q.els('fileInput').files = [{ path: fixture, name: 'twospeaker.wav' }];
+      q.els('fileInput').fire('change');
+      await flush(50);
+      assert.ok(!q.els('trialCard').classList.contains('show'), 'no card when no free caption was used');
+    } finally { q.close(); }
   } finally { restoreCache(snap); }
 });
 
