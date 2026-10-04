@@ -2828,7 +2828,7 @@ console.log('\n:: support group — quiet helper');
   assert.deepEqual(dels(n), [join1.message.message_id], 'join line removed');
   const w1 = sends(n);
   assert.equal(w1.length, 1);
-  assert.ok(w1[0].body.text.includes('Hana') && w1[0].body.text.includes('Questions') && w1[0].body.text.includes('@AmharicCaptionsBot'));
+  assert.ok(w1[0].body.text.includes('Hana') && w1[0].body.text.includes('Discussion') && w1[0].body.text.includes('@AmharicCaptionsBot'));
   assert.ok(!/\d{10,}/.test(w1[0].body.text), 'no bank account numbers in the group');
   const w1id = w1[0].id;
   n = OUTBOUND.length;
@@ -2898,12 +2898,12 @@ console.log('\n:: support group — quiet helper');
 
 {
   // With the group's topic ids configured, topic names are links into the topics.
-  const { env } = fresh({ AMH_GROUP_TOPICS: 'questions:91,problems:92,ideas:93,work:94,windows:75,mac:80,payment:41' });
+  const { env } = fresh({ AMH_GROUP_TOPICS: 'discussion:164,windows:75,mac:80,payment:41' });
   const G = Number(GROUP);
   let n = OUTBOUND.length;
   await post(env, msg(G, { id: 970000101, first_name: 'Abel' }, { new_chat_members: [{ id: 970000102, first_name: 'Hana' }] }));
   const w = OUTBOUND.slice(n).find((x) => x.method === 'sendMessage').body.text;
-  for (const id of [91, 92, 93, 94, 75, 80, 41]) assert.ok(w.includes(`https://t.me/c/0000000001/${id}"`), 'link to topic ' + id);
+  for (const id of [164, 75, 80, 41]) assert.ok(w.includes(`https://t.me/c/0000000001/${id}"`), 'link to topic ' + id);
   assert.ok(w.includes('Tap a name'));
   n = OUTBOUND.length;
   await post(env, msg(G, { id: 970000103, first_name: 'Sara' }, { text: 'how do I install it?' }));

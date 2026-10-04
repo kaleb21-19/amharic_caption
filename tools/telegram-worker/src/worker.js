@@ -2396,8 +2396,8 @@ function groupWelcomeNew(names, chatId) {
   return (
     `👋 እንኳን ወደ <b>አማርኛ ካፕሽን ፕሮ</b> ግሩፕ በደህና መጡ${who}!\n` +
     '<i>Welcome to the Amharic Captions Pro group!</i>\n\n' +
-    `❓ ጥያቄ → ${t('questions', 'Questions')} · 🛠 ችግር → ${t('problems', 'Problems &amp; Help')}\n` +
-    `💡 ሀሳብ → ${t('ideas', 'Ideas')} · 🎬 ስራዎ → ${t('work', 'Show your work')}\n` +
+    `💬 ጥያቄ፣ ችግር ወይም ሀሳብ → ${t('discussion', 'Discussion')}\n` +
+    '<i>Questions, problems or ideas → Discussion (the only topic where members write).</i>\n' +
     `🪟 ${t('windows', 'Window guide')} · 🍎 ${t('mac', 'Macos guide')} · 💳 ${t('payment', 'Payment')}\n` +
     (GROUP_TOPICS.jobs ? `💼 የኤዲቲንግ ስራዎች → ${t('jobs', 'Editing Jobs')}\n` : '') +
     (Object.keys(GROUP_TOPICS).length ? '<i>Tap a name to open that topic.</i>\n\n' : '\n') +

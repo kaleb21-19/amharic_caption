@@ -39,7 +39,7 @@ id = "49415337946e41168f0f2c8958ea3ede"
 [vars]
 AMH_GROUP_ID = "-1004403686687"
 # Support-group topic ids: topic names in the bot's group messages become links.
-AMH_GROUP_TOPICS = "questions:91,problems:92,ideas:93,work:94,windows:75,mac:80,payment:41,jobs:131"
+AMH_GROUP_TOPICS = "discussion:164,windows:75,mac:80,payment:41,jobs:131"
 # Editing-jobs feed: the support group, and the public job channels it reads
 # (turn it on/off in the bot: /start -> 💼 Jobs feed).
 # Usernames verified against t.me/s/<name> on 2026-10-02 (each returns public
