@@ -951,16 +951,31 @@ function amhCaptionTrackIsOurs(t, baseName, srtBase, keepSrtBase) {
     return false;
 }
 
+// Take our previous captions off the timeline after a new set was placed.
+// Premiere's scripting Track has no remove() — only TrackItem does — so the
+// old `t.remove()` threw, the catch swallowed it, and every re-place stacked
+// one more caption track: each word showed twice (three times after a third
+// try). Users reported "duplicated words" on their first tries. Remove the
+// track's clips instead; an empty caption track shows nothing. Walk the
+// tracks backwards so a removal cannot shift the next one past the loop.
 function amhClearCaptionTrack(seq, baseName, srtBase, keepSrtBase) {
     try {
         var tracks = seq.captionTracks;
-        if (tracks && tracks.numTracks > 0) {
-            for (var i = 0; i < tracks.numTracks; i++) {
-                var t = tracks[i];
-                try {
-                    if (amhCaptionTrackIsOurs(t, baseName, srtBase, keepSrtBase)) t.remove();
-                } catch (e) {}
-            }
+        if (!tracks || !(tracks.numTracks > 0)) return;
+        for (var i = tracks.numTracks - 1; i >= 0; i--) {
+            var t = tracks[i];
+            try {
+                if (!amhCaptionTrackIsOurs(t, baseName, srtBase, keepSrtBase)) continue;
+                var removed = false;
+                if (typeof t.remove === "function") {
+                    try { t.remove(); removed = true; } catch (e) {}
+                }
+                if (!removed) {
+                    for (var k = t.clips.numItems - 1; k >= 0; k--) {
+                        try { t.clips[k].remove(false, false); } catch (e) {}
+                    }
+                }
+            } catch (e) {}
         }
     } catch (e) {}
 }
