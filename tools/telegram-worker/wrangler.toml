@@ -47,9 +47,16 @@ AMH_GROUP_TOPICS = "discussion:164,windows:75,mac:80,payment:41,jobs:131"
 # elelanajob. Still missing handles for "Ethio daily vacancy" and the Amharic
 # "Beleqet Jobs" — add them here once the usernames are known.
 AMH_SUPPORT_GROUP = "-1003962455059"
+# Link for the support group (home-screen Support button, /support, the
+# post-purchase join prompt). The group is public: t.me/EthioEditingJobs opens
+# for anyone, which beats the invite link. Not a secret.
+AMH_SUPPORT_INVITE = "https://t.me/EthioEditingJobs"
+# Public username: topic links become t.me/EthioEditingJobs/<topic>, which open
+# for anyone (also before joining) straight in that topic.
+AMH_GROUP_USERNAME = "EthioEditingJobs"
 # Public jobs channel that mirrors every job card (create it, add the bot as admin
 # with "Post messages", then remove the # below and deploy):
-# AMH_JOBS_CHANNEL = "@EthioEditingJobs"
+# AMH_JOBS_CHANNEL = "@EthiopianEditingJobs"
 AMH_JOB_CHANNELS = "beleqetjobs,freelance_ethio,AfriworkAmharic,ethiojobsofficial,ethiojobs_official,Ethiojobs2000,ethio_job_vacancy1,ethio_job_vacancy,ethio_jobs_vacancy,josad_digital,effoyjobs,harmeejobs,fanajobs,hahujobs,jobs_in_ethio,ngojobs,elelanajobs,ethiojobshubs"
 AMH_PRICE = "ETB 2,500"
 AMH_PRICE_ETB = "2500"
@@ -63,11 +70,6 @@ AMH_FRESH_MID_DAY = "30"
 # Narrow browser origins for the CEP panel; the CEF has no disable-web-security
 # flag, so an unset allow-list would block activation/trial fetches.
 AMH_ALLOWED_ORIGIN = "null,file://"
-# Invite link for the support group, used by the home-screen Support button and
-# by the post-purchase "join the group" prompt. Set it here to rotate the link
-# without a code change; if unset the built-in default is used. Not a secret —
-# it is meant to be shared.
-AMH_SUPPORT_INVITE = "https://t.me/+L-bMfmIRyEo3MDg0"
 
 # Every 6h: prune orders/funnel older than 30 days (keeps the history window
 # consistent without depending on admin activity).

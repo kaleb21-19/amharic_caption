@@ -199,6 +199,8 @@ let SUPPORT_INVITE = 'https://t.me/+L-bMfmIRyEo3MDg0';
 // '@name' or -100… id; the bot must be an admin there). Channels are easy to
 // find and forward, so they grow faster than a group; every card links back.
 let JOBS_PUBLIC = '';
+// Public username of the support group (AMH_GROUP_USERNAME, no @).
+let GROUP_USERNAME = '';
 
 // ── config / env ────────────────────────────────────────────────────────────
 function initEnv(env) {
@@ -212,6 +214,7 @@ function initEnv(env) {
   GROUP_TOPICS = parseGroupTopics(env.AMH_GROUP_TOPICS);
   SUPPORT_GROUP = String(env.AMH_SUPPORT_GROUP || '');
   JOBS_PUBLIC = String(env.AMH_JOBS_CHANNEL || '').trim();
+  GROUP_USERNAME = String(env.AMH_GROUP_USERNAME || '').trim().replace(/^@/, '').replace(/[^A-Za-z0-9_]/g, '');
   SUPPORT_INVITE = String(env.AMH_SUPPORT_INVITE || SUPPORT_INVITE);
   JOB_CHANNELS = String(env.AMH_JOB_CHANNELS || '').split(',')
     .map((c) => c.trim().replace(/^@/, '')).filter((c) => /^[A-Za-z0-9_]{4,40}$/.test(c));
@@ -2331,12 +2334,21 @@ function parseGroupTopics(spec) {
   }
   return out;
 }
-// "Questions" as a link into that topic of this group, or bold if unknown.
-function topicRef(chatId, key, label) {
+// Link into one topic of the support group. A public group (AMH_GROUP_USERNAME)
+// gets t.me/<username>/<topic>, which opens for anyone — also people who have
+// not joined yet, who then see that topic first with a Join button. Without
+// it, t.me/c/<id>/<topic> (members only).
+function topicUrl(key, chatId = SUPPORT_GROUP) {
   const id = GROUP_TOPICS[key];
+  if (!id) return '';
+  if (GROUP_USERNAME) return `https://t.me/${GROUP_USERNAME}/${id}`;
   const chat = String(chatId).replace(/^-100/, '');
-  if (!id || chat === String(chatId)) return '<b>' + label + '</b>';
-  return `<a href="https://t.me/c/${chat}/${id}">${label}</a>`;
+  return chat === String(chatId) ? '' : `https://t.me/c/${chat}/${id}`;
+}
+// "Discussion" as a link into that topic of this group, or bold if unknown.
+function topicRef(chatId, key, label) {
+  const url = topicUrl(key, chatId);
+  return url ? `<a href="${url}">${label}</a>` : '<b>' + label + '</b>';
 }
 
 // ── forum topic inventory ────────────────────────────────────────────────
@@ -2701,7 +2713,7 @@ async function postJobToPublicChannel(job, channel, postId) {
     chat_id: JOBS_PUBLIC, text: jobMessage(job, channel), parse_mode: 'HTML', disable_web_page_preview: true,
     reply_markup: { inline_keyboard: [
       [{ text: '👆 Details & how to apply', url: `https://t.me/${channel}/${postId}` }],
-      [{ text: '💬 ግሩፑን ይቀላቀሉ · Discuss in the group', url: SUPPORT_INVITE }],
+      [{ text: '💬 ግሩፑን ይቀላቀሉ · Discuss in the group', url: topicUrl('discussion') || SUPPORT_INVITE }],
     ] },
   }));
   if (!(r && r.ok)) log('warn', 'jobs_public_post_failed', { channel, id: postId, err: r && r.description });
@@ -2724,8 +2736,7 @@ async function postWeeklyJobsDigest() {
   const ch = row ? Number(row.ch) || 0 : 0;
   await setSetting('jobs_digest_week', week);   // once, even if nothing to say
   if (!n) return false;
-  const chat = String(SUPPORT_GROUP).replace(/^-100/, '');
-  const topicUrl = chat !== String(SUPPORT_GROUP) ? `https://t.me/c/${chat}/${GROUP_TOPICS.jobs}` : SUPPORT_INVITE;
+  const jobsUrl = topicUrl('jobs') || SUPPORT_INVITE;
   const share = 'https://t.me/share/url?url=' + encodeURIComponent(SUPPORT_INVITE) +
     '&text=' + encodeURIComponent('Every video editing job in Ethiopia, in one Telegram group — free.');
   const text =
@@ -2734,7 +2745,7 @@ async function postWeeklyJobsDigest() {
     `<i>${n} video editing jobs from ${ch} job channels, posted as they appeared.</i>\n\n` +
     'አዳዲሶቹ በደቂቃዎች ውስጥ በ 💼 Editing Jobs ይለጠፋሉ። ኤዲተር ጓደኛዎን ይጋብዙ!\n' +
     '<i>New ones appear in Editing Jobs within minutes. Know an editor? Share the group.</i>';
-  const kb = [[{ text: '💼 ስራዎቹን ይመልከቱ · See the jobs', url: topicUrl }],
+  const kb = [[{ text: '💼 ስራዎቹን ይመልከቱ · See the jobs', url: jobsUrl }],
               [{ text: '📣 ለጓደኛ ያጋሩ · Share with a friend', url: share }]];
   await safeSend(tg(TOKEN, 'sendMessage', { chat_id: SUPPORT_GROUP, text, parse_mode: 'HTML', disable_web_page_preview: true, reply_markup: { inline_keyboard: kb } }));
   if (JOBS_PUBLIC) {

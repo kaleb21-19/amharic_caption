@@ -2914,6 +2914,16 @@ console.log('\n:: support group — quiet helper');
   assert.ok(OUTBOUND.slice(n).find((x) => x.method === 'sendMessage').body.text.includes('https://t.me/c/0000000001/75'), 'install answer links the guides');
   ok('group: with AMH_GROUP_TOPICS the welcome and answers link straight into each topic');
 }
+{
+  // A public group: topic links open for anyone, before joining (t.me/<username>/<topic>).
+  const { env } = fresh({ AMH_GROUP_TOPICS: 'discussion:164,jobs:131', AMH_GROUP_USERNAME: '@EthioEditingJobs' });
+  const n = OUTBOUND.length;
+  await post(env, msg(Number(GROUP), { id: 970000201, first_name: 'Abel' }, { new_chat_members: [{ id: 970000202, first_name: 'Lia' }] }));
+  const w = OUTBOUND.slice(n).find((x) => x.method === 'sendMessage').body.text;
+  assert.ok(w.includes('https://t.me/EthioEditingJobs/164"') && w.includes('https://t.me/EthioEditingJobs/131"'), 'public topic links');
+  assert.ok(!w.includes('t.me/c/'), 'no members-only links');
+  ok('group: with AMH_GROUP_USERNAME topic links are public (t.me/<username>/<topic>) and open before joining');
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 console.log('\n:: admin — trial users who are not licensed');
