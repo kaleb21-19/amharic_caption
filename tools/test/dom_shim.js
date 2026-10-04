@@ -88,7 +88,8 @@ class El {
       fn(evt && evt.target ? evt : Object.assign({ target: this }, evt || {}));
     }
   }
-  click() { this.fire('click', { target: this }); }
+  // Like a real click(): an event with preventDefault/stopPropagation.
+  click() { this.fire('click', { target: this, preventDefault() {}, stopPropagation() {} }); }
   set setScrollTop(v) { this.scrollTop = v; }
   scrollIntoView() {}
   select() {}
@@ -177,6 +178,8 @@ const KNOWN = [
   'licensedNote', 'licenseInput', 'licenseActivate', 'licenseStatus', 'trialBanner',
   'buyBtn', 'buyPending', 'bankDetails', 'bankBox',
   'revUndo', 'revMemory', 'memoryPanel',
+  // next-step card after a free caption
+  'trialCard', 'tcGroup', 'tcBuy', 'tcLater',
   // logs
   'logDisc', 'logWrap', 'logBox',
   // footer
@@ -212,6 +215,7 @@ function makeDocument(tagFor) {
     licenseActivate: ['button', null], machineIdCopy: ['button', null],
     buyBtn: ['button', null], bankDetails: ['a', null],
     revUndo: ['button', null], revMemory: ['button', null],
+    tcGroup: ['button', null], tcBuy: ['button', null], tcLater: ['button', null],
     reviewAdd: ['button', null], reviewExport: ['button', null],
     reviewDiscard: ['button', null], reviewBurn: ['button', null],
     reviewPlace: ['button', null], reviewList: ['div', null],

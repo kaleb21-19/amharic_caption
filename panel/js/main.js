@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.8.11';
+const APP_VERSION = '1.8.12';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -735,6 +735,7 @@ function startBuyPoll() {
 }
 
 function initBuy() {
+  initTrialCard();
   const b = document.getElementById('buyBtn');
   if (b) {
     b.addEventListener('click', (e) => {
@@ -2623,6 +2624,7 @@ async function openReview(outSrt, label, startSeconds, opts) {
       return false;
     }
     reviewTrialCharged = true;
+    if (!trial.licensed && trial.charged) TRIAL_CARD_DUE = { remaining: trial.remaining };
   }
   if (!LICENSED && !reviewTrialCharged) {
     log('Placement blocked because no trial credit was charged.');
@@ -2685,6 +2687,47 @@ function closeReview(keepArtifact) {
   REVIEW = null;
   reviewCues = [];
   $('review').classList.remove('show');
+  showTrialCardIfDue();
+}
+
+// ── After a free caption: the next step ─────────────────────────────────────
+// 7 of the first 9 trial users stopped after one free caption, and the panel
+// gave them no way to ask anything — most never opened the bot, so nobody
+// could help them. After each free caption (placed or discarded) a small card
+// offers the Telegram group, and Buy once the trial is used up. Licensed users
+// never see it; it never covers the review.
+const SUPPORT_GROUP_URL = 'https://t.me/+L-bMfmIRyEo3MDg0';
+let TRIAL_CARD_DUE = null;   // { remaining } set when a free caption was charged
+
+function showTrialCardIfDue() {
+  const due = TRIAL_CARD_DUE;
+  TRIAL_CARD_DUE = null;
+  if (!due || LICENSED) return;
+  const card = $('trialCard');
+  if (!card) return;
+  const last = !(due.remaining > 0);
+  card.classList.toggle('tc-left', !last);
+  card.classList.toggle('tc-last', last);
+  // The main action first: the group while a free caption is left, Buy after.
+  $('tcGroup').className = 'btn ' + (last ? 'btn-neutral' : 'btn-primary');
+  $('tcBuy').className = 'btn ' + (last ? 'btn-primary' : 'btn-neutral');
+  card.classList.add('show');
+  log(last ? 'Free trial finished — showing the next-step card (buy / group).'
+           : 'Free caption done — showing the next-step card (group).');
+}
+function hideTrialCard() {
+  const card = $('trialCard');
+  if (card) card.classList.remove('show');
+}
+function initTrialCard() {
+  const open = (url) => {
+    try { window.__adobe_cep__ && window.cep.util.openURLInDefaultBrowser(url); }
+    catch (err) { window.open(url, '_blank'); }
+  };
+  const g = $('tcGroup'); if (g) g.addEventListener('click', () => { open(SUPPORT_GROUP_URL); hideTrialCard(); });
+  const b = $('tcBuy');
+  if (b) b.addEventListener('click', () => { hideTrialCard(); const buy = $('buyBtn'); if (buy) buy.click(); });
+  const l = $('tcLater'); if (l) l.addEventListener('click', hideTrialCard);
 }
 
 function renderReview() {
