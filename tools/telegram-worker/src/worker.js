@@ -2470,7 +2470,7 @@ function parseJobPage(html) {
 
 const cleanJobLine = (s) => String(s || '')
   .replace(/^[\s\d.)\-–•*#:]+/, '')
-  .replace(/^(job\s*title|position(\s*\d+)?|title|vacancy|role|የ[ሥስ]ራው?\s*(?:መደብ|መጠሪያ|ርዕስ))\s*[:：\-–]\s*/i, '')
+  .replace(/^(job\s*(?:title|position)|position(\s*\d+)?|title|vacancy|role|የ[ሥስ]ራው?\s*(?:መደብ|መጠሪያ|ርዕስ))\s*[:：\-–]\s*/i, '')
   .replace(/\s+/g, ' ').trim();
 
 // Lines that only list acceptable fields/requirements. A job's role is named in
@@ -2478,26 +2478,38 @@ const cleanJobLine = (s) => String(s || '')
 // make a Commercial Nominative Officer post look like an editing job.
 const JOB_NON_ROLE = /^(?:qualification|qualifications|requirement|requirements|field of study|discipline|experience)\b|^(?:ቅምቆል|የሚፈቀዳቸው|የሚጠበቀው|የልምድ)/i;
 const stripLead = (l) => String(l).replace(/^[^\p{L}\p{N}]+/u, '');
+// Where a post names its role: "Job Title: …", "Job Position: …", "Position 2: …",
+// Afriwork's "የስራው መጠሪያ: …".
+const JOB_TITLE_LABEL = /^(?:job\s*(?:title|position)|position(?:\s*\d+)?|title|vacancy|role|የ[ሥስ]ራው?\s*(?:መደብ|መጠሪያ|ርዕስ))\s*[:：]/i;
+// Video roles without the word "edit" — editing jobs in practice. (TikTok /
+// YouTube alone are not: "TikTok live ልብስ አስተዋዋቂ" is a live seller.)
+const JOB_VIDEO_ROLE = /content\s*creator|videograph|camera\s*(?:man|operator|person)|multimedia|\bmotion\b/i;
+const isVideoRole = (l) => JOB_STRONG.test(l) || JOB_VIDEO_ROLE.test(l) || (JOB_WEAK.test(l) && !JOB_TEXT_EDITOR.test(l));
 
 // A video-editing job in this post? → { title, company, location, deadline, salary, type } or null.
 function jobFromText(text) {
   const t = String(text || '');
   const lines = t.split('\n').map((l) => l.trim()).filter(Boolean);
-  // Judge the role on the role lines only, so a qualification list cannot
-  // carry a post on its own.
-  const roles = lines.filter((l) => !JOB_NON_ROLE.test(stripLead(l)));
-  const roleText = roles.join('\n') || t;
-  if (!JOB_STRONG.test(roleText) && !(JOB_WEAK.test(roleText) && !JOB_TEXT_EDITOR.test(roleText))) return null;
-  const titleLine = roles.find((l) => JOB_STRONG.test(l) && l.length < 140) ||
-    roles.find((l) => JOB_WEAK.test(l) && !JOB_TEXT_EDITOR.test(l) && l.length < 140) || roles[0] || lines[0] || '';
+  // The role is what the post is TITLED, not what it asks for. A Content
+  // Creator post whose requirements said "Basic video editing or graphic
+  // design skills." went out with that line as its title, and a Graphic
+  // Designer asking for Premiere looked like an editing job. Title lines are
+  // the labelled ones if the post has any, else its first two lines.
+  const labelled = lines.filter((l) => JOB_TITLE_LABEL.test(stripLead(l)));
+  const heads = labelled.length ? labelled : lines.filter((l) => !JOB_NON_ROLE.test(stripLead(l))).slice(0, 2);
+  const titleLine = heads.find((l) => l.length < 140 && isVideoRole(cleanJobLine(stripLead(l))));
+  if (!titleLine) return null;
   const field = (re) => {
     for (const l of lines) {
       const m = re.exec(l);
-      if (m && m[1].trim()) return m[1].trim().slice(0, 60);
+      // "Addis Ababa, Ethiopia Position Type: Freelance": stop at the next label.
+      if (m && m[1].trim()) {
+        return m[1].replace(/\s+(?:position\s*type|job\s*type|salary|deadline|experience)\s*[:：].*$/i, '').trim().slice(0, 60);
+      }
     }
     return '';
   };
-  const title = cleanJobLine(titleLine).slice(0, 90);
+  const title = cleanJobLine(stripLead(titleLine)).slice(0, 90);
   if (!title) return null;
   return {
     title,
