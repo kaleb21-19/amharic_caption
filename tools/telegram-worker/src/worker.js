@@ -2168,6 +2168,8 @@ async function handleMessage(msg, env) {
         '<i>Easier: /find the old Machine ID and tap 🔁 Move to a new computer.</i>');
       return;
     }
+    // Fill a new public jobs channel once with the recent real jobs.
+    if (/^\/postjobs(?:\s+force)?$/i.test(text)) { await backfillJobsChannel(chatId, /force/i.test(text)); return; }
     // Free license (partner, tester, reviewer): /givekey MACHINE-ID [name]
     const gk = text.match(/^\/givekey\s+([0-9a-fA-F]{8}|[0-9a-fA-F]{16})(?:\s+(.{1,60}))?$/);
     if (gk) { await giveKey(chatId, uid, gk[1], gk[2]); return; }
@@ -2719,6 +2721,49 @@ async function postJobToPublicChannel(job, channel, postId) {
     ] },
   }));
   if (!(r && r.ok)) log('warn', 'jobs_public_post_failed', { channel, id: postId, err: r && r.description });
+}
+
+// One-time fill of a new public jobs channel (admin: /postjobs). The jobs
+// sent in the last 10 days are re-read from their source post and re-checked
+// with today's rules — the title decides, English/Amharic copies merge — so
+// the duplicates and mistakes of the feed's first days never reach the
+// channel. Oldest first. Runs once; '/postjobs force' repeats it.
+async function backfillJobsChannel(chatId, force) {
+  if (!JOBS_PUBLIC) { await sendText(chatId, 'ℹ️ No public jobs channel is set (AMH_JOBS_CHANNEL).'); return; }
+  const done = (await getSettings()).jobs_backfill_done;
+  if (done && !force) {
+    await sendText(chatId, `ℹ️ Already done (${esc(done)}). Send <code>/postjobs force</code> to post them again.`);
+    return;
+  }
+  // 20 rows max: each one is a fetch + a send, inside the Worker's subrequest budget.
+  const { results } = await DB.prepare(
+    "SELECT source FROM jobs_seen WHERE seen_at >= datetime('now', '-10 days') ORDER BY seen_at ASC LIMIT 20").all();
+  const keys = new Set();
+  let posted = 0;
+  let skipped = 0;
+  for (const r of results || []) {
+    const m = /^([A-Za-z0-9_]{4,40})\/(\d+)$/.exec(String(r.source || ''));
+    let html = '';
+    if (m) {
+      try {
+        const res = await fetch(`https://t.me/${m[1]}/${m[2]}?embed=1&mode=tme`, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AmharicCaptionsBot job feed)', 'Accept-Language': 'en' },
+        });
+        if (res.ok) html = await res.text();
+      } catch (e) { /* unreadable: skipped */ }
+    }
+    const body = /<div class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/.exec(html);
+    const job = body ? jobFromText(htmlToText(body[1]).trim()) : null;
+    const k = job ? await jobKey(job) : '';
+    if (!job || keys.has(k)) { skipped++; continue; }
+    keys.add(k);
+    await postJobToPublicChannel(job, m[1], Number(m[2]));
+    posted++;
+  }
+  await setSetting('jobs_backfill_done', new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 16).replace('T', ' '));
+  await sendText(chatId, `📢 Posted <b>${posted}</b> job(s) to ${esc(JOBS_PUBLIC)}.\n` +
+    `Skipped ${skipped}: duplicates (e.g. the Amharic copy of an Afriwork job), not editing jobs, or unreadable.`);
+  log('info', 'jobs_backfill', { posted, skipped });
 }
 
 // Monday morning (Ethiopian time) once a week: how many editing jobs went out
