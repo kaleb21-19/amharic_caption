@@ -2229,6 +2229,21 @@ async function handleMessage(msg, env) {
     return;
   }
 
+  // /support — the "/" menu had no way to reach a person. Two doors: the
+  // group (everyone, fast) and a private chat with the owner.
+  if (['/support', '/support@amhariccaptionsbot'].includes(lower)) {
+    await sendText(chatId,
+      '💬 <b>ድጋፍ / Support</b>\n\n' +
+      'ጥያቄ ወይም ችግር ካለዎት በቴሌግራም ግሩፓችን <b>Discussion</b> ላይ ይጻፉ — በፍጥነት እንመልሳለን።\n' +
+      '<i>Questions or a problem? Write in the Discussion topic of our group — we answer fast.</i>\n\n' +
+      'የፈቃድ ወይም የክፍያ ጉዳይ ከሆነ በግል ያናግሩን።\n' +
+      '<i>License or payment issue? Message us privately.</i>',
+      [[{ text: '👥 ግሩፑን ይክፈቱ · Open the group', url: SUPPORT_INVITE }],
+       [{ text: '🙋 ሰው ያናግሩ · Ask a person', url: SUPPORT_URL }],
+       [MENU_BTN]]);
+    return;
+  }
+
   // /help — a buyer who is stuck types this before anything else, and the bot
   // used to answer "I didn't understand that" and show a menu, which reads as
   // "you are on your own". Answer the three questions support actually gets.
@@ -5294,6 +5309,38 @@ function corsFor(request) {
 }
 
 // ── entry point: webhook ────────────────────────────────────────────────────
+// ── the "/" command menu ────────────────────────────────────────────────────
+// The list behind the Menu button and "/" used to live only in @BotFather and
+// had drifted to a single "invite" entry — customers tapping Menu saw nothing
+// else (and invite is off while referrals are off). The bot now owns the list:
+// a cron tick compares it with what was last sent and calls setMyCommands only
+// when it changed, so a deploy or the referral switch updates it within a minute.
+async function botCommands() {
+  const cmds = [
+    { command: 'start', description: 'ዋና ገጽ · Menu' },
+    { command: 'buy', description: 'ፈቃድ ይግዙ · Buy a license' },
+    { command: 'mykey', description: 'ቁልፌ · My key' },
+    { command: 'help', description: 'እገዛ · Help' },
+    { command: 'support', description: 'ድጋፍ · Support' },
+  ];
+  try {
+    if (refTerms(await getSettings()).on) cmds.push({ command: 'invite', description: 'ጓደኛ ይጋብዙ · Invite friends' });
+  } catch (e) { /* settings unavailable: base list */ }
+  return cmds;
+}
+async function syncBotCommands() {
+  const cmds = await botCommands();
+  const sig = cmds.map((c) => c.command + '=' + c.description).join('|');
+  let have = '';
+  try { have = (await getSettings()).bot_commands || ''; } catch (e) { return; }
+  if (have === sig) return;
+  const r = await safeSend(tg(TOKEN, 'setMyCommands', { commands: cmds }));
+  if (!(r && r.ok)) { log('warn', 'set_commands_failed', { err: r && r.description }); return; }
+  await safeSend(tg(TOKEN, 'setChatMenuButton', { menu_button: { type: 'commands' } }));
+  try { await setSetting('bot_commands', sig); } catch (e) { /* retried next tick */ }
+  log('info', 'bot_commands_synced', { commands: cmds.map((c) => c.command).join(',') });
+}
+
 export default {
   async fetch(request, env) {
     initEnv(env);
@@ -5882,6 +5929,7 @@ export default {
     // query when there is none). Every 6 hours: housekeeping.
     if (event && event.cron === '* * * * *') {
       await processBroadcast(BCAST_BATCH_CRON);
+      try { await syncBotCommands(); } catch (e) { log('error', 'commands_sync_failed', { err: String((e && e.message) || e) }); }
       try { await scanJobs(); } catch (e) { log('error', 'jobs_scan_failed', { err: String((e && e.message) || e) }); }
       return;
     }
