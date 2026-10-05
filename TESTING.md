@@ -209,6 +209,16 @@ customer — top manual priority.*
   (`(2)`), the folder opens, the "Captions saved" card shows CapCut and DaVinci
   import steps. CapCut desktop: Captions → Import. DaVinci: File → Import → Subtitle.
 - Free trial (2 captions), Buy, activation box (long key or XXXX-XXXX code), EN/አማ.
+- Review video preview (1.9.4+): the video sits above the list with the current
+  caption drawn on it; click a caption → the video jumps there and the row is
+  highlighted; typing updates the text on the video at once; while playing the
+  highlight follows. Check: an H.264 .mp4 / .mov plays directly; a format the
+  window cannot show (old codec, HEVC on some PCs, .mkv/.avi) shows "Preparing a
+  preview…" and then plays a small H.264 copy (temp folder, made once); a vertical
+  video is letter-boxed; a .wav / .mp3 gets a 40-px audio bar; "🎬 Hide video"
+  is remembered; Discard / Save unloads the video. Captions never depend on it.
+  (Tested 2026-10-06 on Windows with a 1280×720 H.264 mp4, a vertical MPEG-4
+  .mkv and a .wav; mac_smoke.py checks the Mac window can play H.264.)
 - No WebView2 (very old Windows 10) or `AMH_CONSOLE=1` → the classic console SRT
   maker opens instead and still works (trial, key or code, `.srt` next to the video).
 - macOS: same checks; the launcher is `Make Amharic Captions.command`.
