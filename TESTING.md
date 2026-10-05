@@ -1,46 +1,235 @@
-# Amharic Captions — Comprehensive Test Plan
+# Amharic Captions Pro — Test Plan
 
 Goal: make the caption product **unquestionable** by proving it works correctly across
 every real scenario a user can hit. The two pillars:
 
 1. **Transcription correctness** — the Amharic caption *text* must be accurate.
 2. **Pipeline robustness** — every source, option, export, license, and failure path
-   must behave correctly (no crashes, no missing timelines, no lost time.
+   must behave correctly (no crashes, no missing timelines, no lost time).
+
+**How this file is organised**
+
+- **Part A — Testing today** (this part, updated 2026-10-05 for v1.8.13): what to run,
+  on Windows and Mac, what each test covers, the current accuracy numbers and the
+  rules for engine changes. Start here.
+- **Part B — Detailed records** (§1 onwards): the original test plan and the
+  measurement log from 2026-09-17 … 09-25. Kept as history. Its commands use Mac
+  paths and some numbers there (WER tables, check counts) are from older versions —
+  Part A wins wherever they disagree.
 
 ---
 
-## How to run the automated core tests (start here)
+# Part A — Testing today (v1.8.13, 2026-10-05)
 
-These validate the transcription engine and the pure-Python helpers **without needing
-Premiere**. They run fully offline using the bundled runtime.
+## A1. The product being tested
+
+| Piece | What it is | Main tests |
+|---|---|---|
+| Premiere Pro panel | CEP panel (`panel/`) — transcribe, review, place captions | `test_panel.js`, `test_panel_dom.js`, `test_host_captions.js`, `host-safety.test.mjs`, `machine-id.test.mjs` |
+| After Effects | same panel, `panel/jsx/host_ae.jsx` (one text layer, Source Text keyframes) | `test_host_ae.js` (simulated AE — a real AE run is still manual) |
+| SRT maker | `amh_standalone.py` + `amh_license.py` — "Make Amharic Captions" for CapCut / DaVinci Resolve / others; drag a file, get an `.srt` | `test_standalone.py` |
+| Engine | `ethio_srt.py` + `amh_*.py` + `ctc_beam.py`, CTranslate2 int8 Hohe model (`tools/model.lock`) | self-checks, `amharic_regression.py`, WER sets (§A4) |
+| Installers | `Install.cmd` (Windows), `Install.command` (Mac), Lite model download | `test_cmd_syntax.py`, `test_model_download.py` |
+| Bot / license server | Cloudflare Worker `tools/telegram-worker` — sales, keys, codes, trials, group, jobs feed | `tools/telegram-worker/test/e2e.mjs` (145 checks) |
+| Website | `website/` (Next.js) | CI build + `npm audit` |
+
+## A2. Automated tests — what to run
+
+Paths. Run from the repo root. `PY` = the Python that ships with the product (it has
+numpy, ctranslate2, onnxruntime):
 
 ```bash
-# Use the SAME bundled python the extension ships with:
+# Windows (Git Bash)
+PY="$APPDATA/Adobe/CEP/extensions/com.amharic.captions/runtime/python/python.exe"
+export PYTHONIOENCODING=utf-8          # Amharic output in the Windows console
+# Mac
 PY="$HOME/Library/Application Support/Adobe/CEP/extensions/com.amharic.captions/runtime/python/bin/python3"
-
-# 0) Panel logic tests (Node, no deps, offline — fastest, run first):
-node tools/test/test_panel.js      # pure core helpers (SRT/export/speakers/license)
-node tools/test/test_panel_dom.js  # main.js driven through a dom_shim inside vm
-
-# 1) Python unit suites (no model, no torch):
-"$PY" tools/test/test_long.py      # long-audio windowing + resume + punctuation
-"$PY" tools/test/test_diarize.py   # 2-speaker k-means + labelling (e2e skipped w/o model)
-
-# 2) Self-checks that ship inside the runtime:
-"$PY" "$HOME/Library/Application Support/Adobe/CEP/extensions/com.amharic.captions/runtime/ctc_beam.py"
-"$PY" "$HOME/Library/Application Support/Adobe/CEP/extensions/com.amharic.captions/runtime/amh_correct.py"
-
-# 3) Word-split LM self-check (ships in the runtime). Asserts REAL glue splits
-#    (e.g. ኢትዮጵያሀገሬ -> ኢትዮጵያ ሀገሬ) plus known-word stay-whole cases; the two
-#    headword cases whose parts this corpus never contained report [skip] —
-#    an artifact rebuilt from any corpus can't split into unseen words:
-"$PY" "$HOME/Library/Application Support/Adobe/CEP/extensions/com.amharic.captions/runtime/amh_lm.py"
-
-# 4) Server-side worker auth (requires Node 22+, in tools/telegram-worker):
-node test/e2e.mjs               # all 53 checks: HMAC validate, admin auth,
-                                # webhook signing, trial leases, delivery/revocation
-                                # secrets from env (AMH_*_TEST)
 ```
+
+On Windows PowerShell use `node` / `& $PY` the same way; on Windows the model of an
+installed **Lite** package lives in `%LOCALAPPDATA%\AmharicCaptions\models\<hash>` —
+point `AMH_MODEL_DIR` there for the tests that need the model.
+
+### Fast tests — no model, a few seconds each (run before every commit)
+
+| Command | Covers | Time |
+|---|---|---|
+| `node tools/test/test_panel.js` | panel core: SRT parse/format, VTT/TXT export, speaker labels, license key checks | 1 s |
+| `node tools/test/test_panel_dom.js` | the whole panel in a fake DOM: settings, license gate, activation, review → edit → export, batch cache | 2 s |
+| `node tools/test/test_host_ae.js` | After Effects host layer (simulated object model) | 1 s |
+| `node tools/test/test_host_captions.js` | Premiere: placing captions again replaces them (no doubled track) | 1 s |
+| `node panel/test/machine-id.test.mjs` | Machine ID: stable, 16-hex, legacy 8-hex still read | 1 s |
+| `node panel/test/host-safety.test.mjs` | Premiere host script safety regressions | 1 s |
+| `"$PY" tools/test/test_cmd_syntax.py` | every `.cmd` we ship parses in cmd.exe (the 1.8.9/1.8.10 installer crash) | <1 s |
+| `"$PY" tools/test/test_background.py` | background-voice filter (synthetic audio) | 1 s |
+| `"$PY" tools/test/test_long.py` | long-audio windows, resume after a crash, punctuation | 1 s |
+| `"$PY" tools/test/test_diarize.py` | 2-speaker clustering (model part skipped without sherpa-onnx) | 1 s |
+| `"$PY" ctc_beam.py` | beam decoder self-check | 8 s |
+| `"$PY" amh_decode.py` | word-aware decoder: beam + word list, forced alignment | 1 s |
+| `"$PY" amh_correct.py` | number / spelling corrections | 1 s |
+| `"$PY" amh_lm.py` | word list: glued words split, known words stay whole | 1 s |
+| `"$PY" tools/test/test_model_download.py` | Lite: resumable, SHA-256-verified model download against a flaky local server | 30 s |
+| `cd tools/telegram-worker && node test/e2e.mjs` | the whole bot + license server: buying, approve, keys, activation codes, trials, partners, referrals, admin PIN, `/find` `/move` `/givekey` `/active`, group helper, jobs feed. **145 checks.** The fake Telegram is strict: any message Telegram would refuse fails the suite | ~1 min |
+
+Local setup notes:
+
+- `test_panel_dom.js` needs a placeholder `runtime/` folder at the repo root, like CI
+  builds (see `.github/workflows/build.yml`, step "Build a placeholder runtime/"):
+  copy the installed `runtime/` (or at least `python/`, the `*.py`, `amh_lm.json.gz`,
+  `silero_vad.onnx`, `bin/ffmpeg`, `model/model_meta.json`). **Delete `runtime/`
+  before committing** — it is not gitignored.
+- `test_mel_short.py` needs the model's mel assets in `tools/stage/model-ct2-int8/`
+  (CI has them; locally `tools/stage` is usually empty — rely on CI).
+- The bot suite needs `npm install` once in `tools/telegram-worker`.
+
+### Slow tests — need the real model (run after engine / SRT-maker changes)
+
+| Command | Covers | Time |
+|---|---|---|
+| `AMH_MODEL_DIR=… PATH=<runtime>/bin:$PATH "$PY" tools/test/test_standalone.py` | SRT maker end to end against a mock license server: trial, trial used up, offline, key activation, **activation code (XXXX-XXXX)**, licensed offline, update notice, tampered lease | 2–3 min |
+| `AMH_MODEL_DIR=… "$PY" tools/test/amharic_regression.py` | **Amharic must not change by accident:** 62 golden SRTs (31 clips × karaoke + grouped) compared byte for byte. Must print `AMHARIC UNCHANGED` | ~5.5 min |
+| `RUNTIME=… bash tools/test/run_engine.sh --fixtures tools/test/fixtures_real --mean-max-wer 0.40` | the CI accuracy gate (below) | a few minutes |
+
+`amharic_regression.py --update` re-records the goldens — only after a deliberate,
+measured improvement, and review every changed file (on Windows the goldens can pick
+up CRLF noise; `git add` normalises it — check `git diff --cached --stat`).
+
+## A3. What CI checks on every push (`.github/workflows/build.yml`)
+
+1. **model** — Lite download tests, fetch the approved model (SHA-256 vs `tools/model.lock`).
+2. **check-version** — every version string agrees (`tools/check_versions.sh`).
+3. **test** — every fast test above, plus `test_mel_short.py` and the bot e2e.
+4. **website** — `npm ci`, build, `npm audit --audit-level=high`.
+5. **accuracy-gate** — the real-golden WER gate: mean WER over
+   `tools/test/fixtures_real` (Common Voice Amharic, CC0) must be ≤ 40 %, VAD on as
+   customers run it.
+6. **build-ar / build-x64 / build-win** — Full + Lite zips for mac-arm64, mac-x64,
+   win-x64; the build refuses any model not in `tools/model.lock`.
+7. **publish-ready** — only on `main` and only if ALL of the above passed: stages a
+   draft release, verifies the exact 12 files (6 zips + checksums), publishes, checks
+   the public download URLs.
+
+A merge **without a version bump** ends with a red ❌ at "Stage verified packages in a
+commit-bound draft": that version is already published and CI refuses to replace it.
+Expected and harmless for bot-only / docs-only merges. Any change that must reach
+customers' zips needs a version bump (`panel/CSXS/manifest.xml` ×2,
+`panel/index.html`, `panel/js/main.js`, `tools/test/test_panel_dom.js`).
+
+## A4. Accuracy — current numbers and the rules
+
+Measured with the shipped settings (word-aware decoder 1.8.6, background-voice filter
+1.8.5, VAD on). Normalised WER = share of words wrong (lower is better):
+
+| Set | What it is | WER | When |
+|---|---|---|---|
+| FLEURS Amharic, held-out | read speech, Google | **19.6 %** (CER ~6 %) | 2026-10-01 (v1.8.6) |
+| WAXAL Amharic, held-out | everyday phone speech, Google | **25.4 %** | 2026-10-01 (v1.8.6) |
+| Common Voice (`fixtures_real`) | 20 short read clips (CC0) + `abu.mp4.wav` | ~33 % | 2026-09-29 |
+| CI gate (same clips, raw scoring) | must stay ≤ 40 % mean | passes | every build |
+
+`tools/test/fixtures/` (fast, interview, news, noisy, numbers, long5min, names, short1)
+are **synthetic TTS voices** — useful to catch changes, not a quality score. Only
+`fixtures_real/abu.mp4.wav` is a real recording. There is still no test set of real
+customer videos (music beds, outdoor, two speakers); `robustness_report.py`
+approximates them by degrading verified clips.
+
+The FLEURS / WAXAL sets (~1,000 clips) and their scoring scripts live outside the repo
+(`%LOCALAPPDATA%\Temp\amhexp`: `pipe_eval.py`, logits caches). If that folder is lost,
+the numbers above can no longer be re-measured — moving the scorer into
+`tools/test/` is an open item.
+
+**Rules for any engine / decoding / post-processing change**
+
+1. Run `amharic_regression.py` — it must print `AMHARIC UNCHANGED`, or every changed
+   golden must be an explained improvement.
+2. Measure on FLEURS + WAXAL (+ CV) and keep the old and new numbers; a change ships
+   only if real-speech WER does not get worse.
+3. **Nothing may slow transcription.** Time the added code directly (end-to-end A/B
+   on one PC drifts ±3–5 %).
+4. The model is pinned: `tools/model.lock` (Hohe, CT2 int8). A new model needs a
+   deliberate conversion, benchmark and a lock update.
+
+Engine switches (environment variables, for experiments — defaults are what customers
+get): `AMH_DECODE=lm` (word-aware decoder; `greedy` = old), `AMH_LM_ALPHA=0.35`,
+`AMH_LM_GAMMA=-3.5`, `AMH_BG=1` / `AMH_BG_DB=14` (background-voice filter),
+`AMH_SPELL=1`, `AMH_SPELL_GENERAL=0`, `AMH_LM_MARGIN=20` (word split),
+`AMH_DOUBT=0.75` (orange "check this word" marks), `AMH_VAD=1`, `AMH_WINDOW_SECS=20`,
+`AMH_THREADS` (default: half the cores on ≥8-core PCs), `AMH_MODEL_DIR`.
+
+Other languages (Oromo, Tigrinya): `tools/test/fetch_lang_eval.py orm tir` builds a
+fixed WAXAL test set in `tools/test/fixtures_langs/`, `tools/test/lang_eval.py orm
+--model <dir>` scores a model on it. Hohe today: Oromo 48.5 % WER / 14.8 % CER (WAXAL),
+not shippable.
+
+## A5. Manual tests (need Adobe apps or a real install)
+
+Run before a release that touches these areas; the automated tests do not open
+Premiere, After Effects, CapCut or DaVinci.
+
+**Install (Windows and Mac, Full and Lite zip)**
+- Extract the zip (never run from inside the zip) → Install → ends with
+  "INSTALLATION SUCCESSFUL" after the engine check. Mac: Gatekeeper "could not
+  verify" → right-click Open, or Privacy & Security → Open Anyway (macOS 15).
+- Lite: the model downloads once, survives a dropped connection (resumes), is verified.
+- "Make Amharic Captions" appears on the desktop (Windows) and the SRT maker window
+  shows `vX.Y.Z` top right. **No version shown = an install from before 1.8.10** —
+  the customer is running an old build.
+
+**Premiere Pro (2022 or newer)**
+- Window → Extensions → Amharic Captions Pro opens. Clip, active sequence, work area,
+  imported file all transcribe. Review: edit text, fix-a-word "Change all (N)",
+  "🧠 Always fix", orange doubtful words, split ✂ / join ⤓ / delete 🗑, Undo.
+- Place captions; place again → replaced, not doubled. Export SRT / VTT / TXT.
+- Video shape Horizontal / Vertical; 1 vs 2 speakers.
+
+**After Effects (2022 or newer)** — select a layer, transcribe, captions land as one
+text layer with Source Text keyframes. *Still never confirmed in a real AE by a
+customer — top manual priority.*
+
+**SRT maker (CapCut / DaVinci)**
+- Drag a video onto "Make Amharic Captions" → `.srt` next to the video, the folder
+  opens. CapCut desktop: Captions → Import. DaVinci: File → Import → Subtitle.
+- Free trial: 2 files; then it shows the Machine ID and how to pay.
+- Activation: paste the long key **or** the bot's activation code (XXXX-XXXX, 1.8.13+)
+  → "Licensed", works offline afterwards.
+
+**License flows (live bot)**
+
+| # | Scenario | Expected |
+|---|---|---|
+| 1 | Fresh install | 2 free captions (server-counted per Machine ID) |
+| 2 | Trials used | Generate blocked, Buy / Machine ID shown |
+| 3 | Panel **Buy** → pay → screenshot → admin approves | panel activates itself (no pasting) |
+| 4 | Phone buyer (no Machine ID) | bot gives an activation code; typed once in the panel or SRT maker → licensed; the code then belongs to that computer |
+| 5 | Same code on a second computer | "already used on another computer" |
+| 6 | Long key from "My Key" pasted | licensed |
+| 7 | Key for another machine / revoked / expired | clear message, no crash |
+| 8 | Admin `/active MACHINE-ID` or `/active CODE` | shows activated (first/last check) or not; code used or not |
+| 9 | Admin `/move OLD NEW` | new computer works, old key dies, still one sale |
+| 10 | Admin `/givekey` | works, labelled gift, not counted as a sale |
+| 11 | Premiere upgrade / panel reload | stays licensed (signed lease) |
+
+The server is the authority: the panel and SRT maker only check a key's shape; the
+Worker validates it and returns a signed lease (ECDSA P-256) that is then verified
+offline. Every accepted validation is stamped in `key_activations` (kept 30 days) —
+that is what `/active` and the `/find` card read.
+
+**Bot (after a deploy)** — `/start` menu, Buy, My Key, Support, the "/" command menu;
+admin dashboard, `/help`; group welcome and topic links.
+
+## A6. Suggested order before a release
+
+1. Fast tests (§A2) — all green.
+2. Engine touched? → `amharic_regression.py` + FLEURS/WAXAL numbers (§A4).
+3. SRT maker or license touched? → `test_standalone.py`.
+4. Bot touched? → `e2e.mjs`, then `npm run migrate` (if a migration was added)
+   **before** `npm run deploy`.
+5. Version bumped everywhere (`tools/check_versions.sh`).
+6. Merge → CI green → install the published zip on Windows and test §A5 basics.
+
+---
+
+# Part B — Detailed records (history, 2026-09-17 … 09-25)
 
 ### A. End-to-end transcription smoke test (offline, no Premiere)
 
