@@ -1,0 +1,27 @@
+/* app.css — desktop-app additions to the panel's own styles (app_mode.js). */
+html.amh-app body { background: var(--bg-panel); }
+
+.app-drop {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-field);
+  padding: 22px 12px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+  outline: none;
+}
+.app-drop:hover, .app-drop:focus-visible { border-color: var(--accent); }
+.app-drop.drag { border-color: var(--accent); background: var(--accent-soft); }
+.app-drop.has-file { border-style: solid; padding: 14px 12px; }
+.app-drop-icon { font-size: 26px; line-height: 1; margin-bottom: 8px; }
+.app-drop-title { font-size: var(--font-l); font-weight: 600; color: var(--text-primary); }
+.app-drop-name { font-size: var(--font-m); font-weight: 600; color: var(--text-primary); word-break: break-all; }
+.app-drop-sub { font-size: var(--font-s); color: var(--text-secondary); margin-top: 4px; }
+
+.app-done { border-color: var(--ok); }
+.app-done-head { font-weight: 600; font-size: var(--font-m); color: var(--text-primary); margin-bottom: 4px; }
+.app-done-file { font-size: var(--font-s); color: var(--text-secondary); word-break: break-all; margin-bottom: 8px; }
+.app-done .btn { margin-bottom: 8px; }
+.app-steps { font-size: var(--font-s); color: var(--text-secondary); line-height: 1.5; margin-top: 6px; }
+.app-steps b { color: var(--text-primary); }

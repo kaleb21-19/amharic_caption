@@ -583,7 +583,7 @@ set "AMH_SRT_DIR=%DEST%"
 set "SC_OK=0"
 rem AMH_NO_SHORTCUT=1 skips this step (sandboxed installer tests only).
 if not defined AMH_NO_SHORTCUT if exist "%AMH_SRT_TARGET%" (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "$w = New-Object -ComObject WScript.Shell; foreach ($f in @('Desktop','Programs')) { $d = [Environment]::GetFolderPath($f); if ($d) { $s = $w.CreateShortcut((Join-Path $d 'Make Amharic Captions.lnk')); $s.TargetPath = $env:AMH_SRT_TARGET; $s.WorkingDirectory = $env:AMH_SRT_DIR; $s.Description = 'Drag a video here to make Amharic SRT captions'; $s.Save() } }" >> "%LOG%" 2>&1
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "$w = New-Object -ComObject WScript.Shell; foreach ($f in @('Desktop','Programs')) { $d = [Environment]::GetFolderPath($f); if ($d) { $s = $w.CreateShortcut((Join-Path $d 'Make Amharic Captions.lnk')); $s.TargetPath = $env:AMH_SRT_TARGET; $s.WorkingDirectory = $env:AMH_SRT_DIR; $s.Description = 'Amharic captions for CapCut, DaVinci Resolve and other editors'; $s.Save() } }" >> "%LOG%" 2>&1
     if not errorlevel 1 set "SC_OK=1"
 )
 if "!SC_OK!"=="1" (
@@ -671,8 +671,8 @@ if "!LITE!"=="1" if "!KEPT_MODEL!"=="0" (
     echo   panel. About 610 MB, once. If the internet drops, it continues.
     echo.
 )
-echo   No Premiere?  Drag any video onto  Make Amharic Captions  on
-echo   your desktop. An .srt subtitle file appears next to the video.
+echo   CapCut or DaVinci?  Open  Make Amharic Captions  on your desktop,
+echo   drag your video in, review, then Save SRT.
 echo.
 echo   Help on Telegram: t.me/sumpak6
 echo   Guide: START HERE.html in the folder you unzipped.

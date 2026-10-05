@@ -151,6 +151,8 @@ PY_DEPS=(
   "pycparser==2.22"
   "onnxruntime==1.20.1"
   "sherpa-onnx==1.13.8"
+  # desktop app window (app/amh_app.py): Edge WebView2 on Windows, WebKit on macOS
+  "pywebview==6.2.1"
 )
 
 # ---- 3. install the tiny ML runtime ---------------------------------------
