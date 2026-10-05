@@ -193,4 +193,16 @@
   } catch (e) {}
   relabel();
   if (given) choose(given);
+
+  // Tell the app the page is fully up (used by the automated Mac check; a
+  // no-op for customers).
+  try {
+    APP.call('appReady', [{
+      version: typeof APP_VERSION !== 'undefined' ? APP_VERSION : '',
+      chosen: chosen ? chosen.name : null,
+      licenseText: ($('licenseStatus') || {}).textContent || '',
+      runtime: typeof RUNTIME !== 'undefined' ? RUNTIME : null,
+      userAgent: navigator.userAgent,
+    }]);
+  } catch (e) {}
 })();

@@ -1,0 +1,66 @@
+name: mac-smoke
+
+# Installs a PUBLISHED Mac package on GitHub's real Macs the way a customer
+# does (downloaded = quarantined, silent Install.command) and checks the app
+# window, the launcher, real Amharic captions and the SRT maker
+# (tools/test/mac_smoke.py). We have no Mac tester; this is the Mac tester.
+# Runs on demand and on pushes to ci/mac-smoke (the current branch's app/
+# files are tested on top of the published runtime).
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to test (empty = latest)"
+        required: false
+  push:
+    branches: ["ci/mac-smoke"]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15          # Apple silicon (M1/M2/M3)
+            zip: amharic-captions-mac-arm64.zip
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+
+      - name: Download the published package (like a customer)
+        env:
+          TAG: ${{ github.event.inputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [[ -z "$TAG" ]]; then
+            TAG="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | python3 -c 'import json,sys;print(json.load(sys.stdin)["tag_name"])')"
+          fi
+          echo "Testing $TAG on $(sw_vers -productName) $(sw_vers -productVersion) $(uname -m)"
+          echo "### mac-smoke: $TAG on macOS $(sw_vers -productVersion) $(uname -m)" >> "$GITHUB_STEP_SUMMARY"
+          curl -fsSL -o pkg.zip "https://github.com/$REPO/releases/download/$TAG/${{ matrix.zip }}"
+          ditto -x -k pkg.zip pkg
+          # A browser download carries the quarantine flag on every file.
+          xattr -r -w com.apple.quarantine "0083;$(printf %x "$(date +%s)");Safari;" pkg
+          ls pkg
+
+      - name: Install (Install.command silent)
+        run: bash pkg/Install.command silent
+
+      - name: Smoke test the installed product
+        run: python3 tools/test/mac_smoke.py --app-from app --standalone
+
+      - name: App log
+        if: always()
+        run: |
+          cat "${TMPDIR:-/tmp}/amharic-captions-app.log" 2>/dev/null || echo "(no app log)"
+          tail -n 40 /tmp/amharic-captions-install.log 2>/dev/null || true
