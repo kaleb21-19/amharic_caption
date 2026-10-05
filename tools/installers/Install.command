@@ -448,7 +448,7 @@ if [[ "$LITE" -eq 1 && "$KEPT_MODEL" -eq 0 ]]; then
   echo "  panel. About 610 MB, once. If the internet drops, it continues."
   echo ""
 fi
-echo "  No Premiere?  Double-click  Make Amharic Captions  on your Desktop"
+echo "  CapCut or DaVinci?  Double-click  Make Amharic Captions  on your Desktop"
 echo "  and drag a video into the window. An .srt file appears next to it."
 echo ""
 echo "  Help on Telegram: t.me/sumpak6"

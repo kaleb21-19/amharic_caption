@@ -671,8 +671,8 @@ if "!LITE!"=="1" if "!KEPT_MODEL!"=="0" (
     echo   panel. About 610 MB, once. If the internet drops, it continues.
     echo.
 )
-echo   No Premiere?  Drag any video onto  Make Amharic Captions  on
-echo   your desktop. An .srt subtitle file appears next to the video.
+echo   CapCut or DaVinci?  Open  Make Amharic Captions  on your desktop,
+echo   drag your video in, review, then Save SRT.
 echo.
 echo   Help on Telegram: t.me/sumpak6
 echo   Guide: START HERE.html in the folder you unzipped.

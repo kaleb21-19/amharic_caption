@@ -19,7 +19,7 @@ every real scenario a user can hit. The two pillars:
 
 ---
 
-# Part A — Testing today (v1.8.13, 2026-10-05)
+# Part A — Testing today (v1.9.0, 2026-10-05)
 
 ## A1. The product being tested
 
@@ -27,7 +27,8 @@ every real scenario a user can hit. The two pillars:
 |---|---|---|
 | Premiere Pro panel | CEP panel (`panel/`) — transcribe, review, place captions | `test_panel.js`, `test_panel_dom.js`, `test_host_captions.js`, `host-safety.test.mjs`, `machine-id.test.mjs` |
 | After Effects | same panel, `panel/jsx/host_ae.jsx` (one text layer, Source Text keyframes) | `test_host_ae.js` (simulated AE — a real AE run is still manual) |
-| SRT maker | `amh_standalone.py` + `amh_license.py` — "Make Amharic Captions" for CapCut / DaVinci Resolve / others; drag a file, get an `.srt` | `test_standalone.py` |
+| Desktop app (1.9.0) | `app/` — the Premiere panel in its own window (pywebview: Edge WebView2 / macOS WebKit) for CapCut / DaVinci Resolve / others; `amh_app.py` serves the panel and stands in for CEP's Node (`node_shim.js`), `app_mode.js` swaps "Place on timeline" for "Save SRT". Opened by "Make Amharic Captions" | `test_app.py`, `test_app_shim.js` + everything that tests the panel |
+| SRT maker | `amh_standalone.py` + `amh_license.py` — the console fallback when the app cannot open a window; drag a file, get an `.srt` | `test_standalone.py` |
 | Engine | `ethio_srt.py` + `amh_*.py` + `ctc_beam.py`, CTranslate2 int8 Hohe model (`tools/model.lock`) | self-checks, `amharic_regression.py`, WER sets (§A4) |
 | Installers | `Install.cmd` (Windows), `Install.command` (Mac), Lite model download | `test_cmd_syntax.py`, `test_model_download.py` |
 | Bot / license server | Cloudflare Worker `tools/telegram-worker` — sales, keys, codes, trials, group, jobs feed | `tools/telegram-worker/test/e2e.mjs` (145 checks) |
@@ -61,6 +62,8 @@ point `AMH_MODEL_DIR` there for the tests that need the model.
 | `node panel/test/machine-id.test.mjs` | Machine ID: stable, 16-hex, legacy 8-hex still read | 1 s |
 | `node panel/test/host-safety.test.mjs` | Premiere host script safety regressions | 1 s |
 | `"$PY" tools/test/test_cmd_syntax.py` | every `.cmd` we ship parses in cmd.exe (the 1.8.9/1.8.10 installer crash) | <1 s |
+| `"$PY" tools/test/test_app.py` | desktop app server without a window: refuses foreign Host / missing token / cross-site / CORS / traversal; file calls like Node (Amharic, ENOENT); spawn output, stdin, exit code, kill, timeout; license-server proxy | 3 s |
+| `node tools/test/test_app_shim.js` | `node_shim.js`: Windows + macOS path rules, fs errors, hashes, execFile / spawn events and errors, dialogs, the proxy | 1 s |
 | `"$PY" tools/test/test_background.py` | background-voice filter (synthetic audio) | 1 s |
 | `"$PY" tools/test/test_long.py` | long-audio windows, resume after a crash, punctuation | 1 s |
 | `"$PY" tools/test/test_diarize.py` | 2-speaker clustering (model part skipped without sherpa-onnx) | 1 s |
@@ -75,9 +78,10 @@ Local setup notes:
 
 - `test_panel_dom.js` needs a placeholder `runtime/` folder at the repo root, like CI
   builds (see `.github/workflows/build.yml`, step "Build a placeholder runtime/"):
-  copy the installed `runtime/` (or at least `python/`, the `*.py`, `amh_lm.json.gz`,
-  `silero_vad.onnx`, `bin/ffmpeg`, `model/model_meta.json`). **Delete `runtime/`
-  before committing** — it is not gitignored.
+  `python/`, the `*.py`, `amh_lm.json.gz`, `silero_vad.onnx`, `bin/ffmpeg`,
+  `model/model_meta.json`. Do **not** point it at an installed **Lite** runtime:
+  its `model_manifest.json` makes the panel wait for a model download and 6 review
+  tests fail. **Delete `runtime/` before committing** — it is not gitignored.
 - `test_mel_short.py` needs the model's mel assets in `tools/stage/model-ct2-int8/`
   (CI has them; locally `tools/stage` is usually empty — rely on CI).
 - The bot suite needs `npm install` once in `tools/telegram-worker`.
@@ -186,12 +190,19 @@ Premiere, After Effects, CapCut or DaVinci.
 text layer with Source Text keyframes. *Still never confirmed in a real AE by a
 customer — top manual priority.*
 
-**SRT maker (CapCut / DaVinci)**
-- Drag a video onto "Make Amharic Captions" → `.srt` next to the video, the folder
-  opens. CapCut desktop: Captions → Import. DaVinci: File → Import → Subtitle.
-- Free trial: 2 files; then it shows the Machine ID and how to pay.
-- Activation: paste the long key **or** the bot's activation code (XXXX-XXXX, 1.8.13+)
-  → "Licensed", works offline afterwards.
+**Desktop app for CapCut / DaVinci (1.9.0+)**
+- Double-click "Make Amharic Captions" on the desktop → the app window opens (no
+  black console). Dropping a video **on the icon** opens the app with that video
+  selected — also a name with brackets, e.g. `clip(2) final.mp4`.
+- Drag a video **into the window** (or click the box to choose) → ▶ Make captions →
+  the panel's review screen (orange marks, Change all, Always fix, split/join,
+  Undo) → 💾 Save SRT → `<video>.srt` next to the video, never overwritten
+  (`(2)`), the folder opens, the "Captions saved" card shows CapCut and DaVinci
+  import steps. CapCut desktop: Captions → Import. DaVinci: File → Import → Subtitle.
+- Free trial (2 captions), Buy, activation box (long key or XXXX-XXXX code), EN/አማ.
+- No WebView2 (very old Windows 10) or `AMH_CONSOLE=1` → the classic console SRT
+  maker opens instead and still works (trial, key or code, `.srt` next to the video).
+- macOS: same checks; the launcher is `Make Amharic Captions.command`.
 
 **License flows (live bot)**
 
