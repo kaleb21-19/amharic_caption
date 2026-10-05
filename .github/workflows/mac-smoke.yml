@@ -26,6 +26,10 @@ jobs:
         include:
           - os: macos-15          # Apple silicon (M1/M2/M3)
             zip: amharic-captions-mac-arm64.zip
+          - os: macos-14          # Apple silicon, one macOS version older
+            zip: amharic-captions-mac-arm64.zip
+          - os: macos-15-intel    # Intel Mac (the mac-x64 package)
+            zip: amharic-captions-mac-x64.zip
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
