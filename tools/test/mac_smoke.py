@@ -169,6 +169,10 @@ def main():
             ok("dropped video is selected", info.get("chosen"))
         if not info.get("runtime"):
             fail("panel finds the runtime", "RUNTIME is empty in the app")
+        if info.get("previewUi") and info.get("h264") in ("probably", "maybe"):
+            ok("review video preview can play H.264", "canPlayType = %s" % info.get("h264"))
+        else:
+            fail("review video preview can play H.264", "previewUi=%r canPlayType=%r" % (info.get("previewUi"), info.get("h264")))
     else:
         extra = ""
         if not IS_WIN and os.path.isfile(applog):

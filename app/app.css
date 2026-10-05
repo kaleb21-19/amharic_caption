@@ -25,3 +25,19 @@ html.amh-app body { background: var(--bg-panel); }
 .app-done .btn { margin-bottom: 8px; }
 .app-steps { font-size: var(--font-s); color: var(--text-secondary); line-height: 1.5; margin-top: 6px; }
 .app-steps b { color: var(--text-primary); }
+
+/* Review: the video with the captions on it (app_mode.js) */
+.app-preview { margin-bottom: 8px; }
+.app-video-wrap { position: relative; background: #000; border-radius: var(--radius); overflow: hidden; }
+.app-video-wrap video { display: block; width: 100%; max-height: 34vh; background: #000; }
+.app-preview.audio-only .app-video-wrap video { max-height: 40px; }
+.app-preview.audio-only .app-cap { position: static; margin: 6px auto; }
+.app-cap {
+  position: absolute; left: 50%; bottom: 44px; transform: translateX(-50%);
+  max-width: 92%; padding: 3px 10px; border-radius: 4px;
+  background: rgba(0, 0, 0, .62); color: #fff; text-align: center;
+  font-size: 15px; line-height: 1.35; font-weight: 600; white-space: pre-wrap;
+  pointer-events: none; text-shadow: 0 1px 2px rgba(0, 0, 0, .8);
+}
+.app-preview-msg { font-size: var(--font-s); color: var(--text-secondary); padding: 6px 2px 0; }
+#reviewList .review-row.app-active { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }

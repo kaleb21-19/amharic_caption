@@ -205,7 +205,33 @@ def sync_op(op, a):
         cid = secrets.token_hex(6)
         CHILDREN[cid] = c
         return cid
+    if op == "media":
+        return media_url(a[0])
     raise ValueError("unknown op " + op)
+
+
+# ── the video for the review preview ─────────────────────────────────────────
+# A <video> element cannot send our token header, so each file the page asks
+# for gets an unguessable URL (/__media/<id>/<name>); only those files are
+# served, only to our own page, with byte ranges (seeking needs them).
+MEDIA = {}
+MEDIA_TYPES = {".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/mp4",   # mov: H.264 plays as mp4
+               ".webm": "video/webm", ".mkv": "video/webm", ".mp3": "audio/mpeg", ".wav": "audio/wav",
+               ".m4a": "audio/mp4", ".aac": "audio/aac", ".ogg": "audio/ogg", ".opus": "audio/ogg",
+               ".flac": "audio/flac"}
+
+
+def media_url(path):
+    path = os.path.realpath(path)
+    if not os.path.isfile(path):
+        raise FileNotFoundError(path)
+    for mid, p in MEDIA.items():
+        if p == path:
+            break
+    else:
+        mid = secrets.token_hex(12)
+        MEDIA[mid] = path
+    return "/__media/%s/%s" % (mid, urllib.parse.quote(os.path.basename(path)))
 
 
 def env_info():
@@ -266,7 +292,56 @@ class Handler(BaseHTTPRequestHandler):
             if finished:
                 CHILDREN.pop((q.get("id") or [""])[0], None)
             return self._send(200, json.dumps({"events": evs, "done": finished}))
+        if url.path.startswith("/__media/"):
+            return self._media(url.path)
         return self._static(url.path)
+
+    def _media(self, path):
+        if self.headers.get("Sec-Fetch-Site", "same-origin") not in ("same-origin", "none"):
+            return self._send(403, "")
+        parts = path.split("/")
+        full = MEDIA.get(parts[2] if len(parts) > 2 else "")
+        if not full or not os.path.isfile(full):
+            return self._send(404, "")
+        size = os.path.getsize(full)
+        start, end = 0, size - 1
+        rng = self.headers.get("Range", "")
+        if rng.startswith("bytes="):
+            a, _, b = rng[6:].split(",")[0].strip().partition("-")
+            try:
+                if a:
+                    start = int(a)
+                    end = min(int(b), size - 1) if b else size - 1
+                else:                                   # bytes=-N: the last N bytes
+                    start, end = max(0, size - int(b)), size - 1
+            except ValueError:
+                start, end = 0, size - 1
+            if start >= size or start > end:
+                self.send_response(416)
+                self.send_header("Content-Range", "bytes */%d" % size)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+        self.send_response(206 if rng else 200)
+        self.send_header("Content-Type", MEDIA_TYPES.get(os.path.splitext(full)[1].lower(), "application/octet-stream"))
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(end - start + 1))
+        if rng:
+            self.send_header("Content-Range", "bytes %d-%d/%d" % (start, end, size))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        try:
+            with open(full, "rb") as f:
+                f.seek(start)
+                left = end - start + 1
+                while left > 0:
+                    chunk = f.read(min(1 << 20, left))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    left -= len(chunk)
+        except (ConnectionError, OSError):
+            pass        # the player moved on (a seek) and closed this request
 
     def do_POST(self):
         if not self._api_ok():

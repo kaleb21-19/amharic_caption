@@ -240,6 +240,46 @@ def t_fixed_port():
     assert amh_app.APP_PORTS and all(1024 < p < 65536 for p in amh_app.APP_PORTS)
 
 
+def t_media():
+    # The review preview: a <video> cannot send our token, so a file the page
+    # asked for gets an unguessable URL; byte ranges make seeking work.
+    vid = os.path.join(WORK, "ቪዲዮ clip(2).mp4")
+    data = bytes(range(256)) * 40                      # 10240 bytes
+    with open(vid, "wb") as f:
+        f.write(data)
+    url = sync("media", vid)["result"]
+    assert url.startswith("/__media/") and len(url.split("/")[2]) == 24, url
+    assert sync("media", vid)["result"] == url, "same file, same URL"
+
+    def get(path, headers=None):
+        c = http.client.HTTPConnection("127.0.0.1", PORT, timeout=30)
+        h = {"Host": HOST}
+        h.update(headers or {})
+        c.request("GET", path, headers=h)
+        r = c.getresponse()
+        body = r.read()
+        c.close()
+        return r.status, dict(r.getheaders()), body
+
+    st, h, body = get(url)                              # no token needed: the URL is the secret
+    assert st == 200 and body == data and h["Content-Type"] == "video/mp4" and h["Accept-Ranges"] == "bytes", (st, h)
+    st, h, body = get(url, {"Range": "bytes=100-199"})
+    assert st == 206 and body == data[100:200] and h["Content-Range"] == "bytes 100-199/10240", (st, h)
+    st, h, body = get(url, {"Range": "bytes=10000-"})
+    assert st == 206 and body == data[10000:] and h["Content-Range"] == "bytes 10000-10239/10240"
+    st, h, body = get(url, {"Range": "bytes=-40"})
+    assert st == 206 and body == data[-40:]
+    st, h, _ = get(url, {"Range": "bytes=99999-"})
+    assert st == 416 and h["Content-Range"] == "bytes */10240"
+    assert get(url, {"Sec-Fetch-Site": "cross-site"})[0] == 403, "other websites cannot read it"
+    assert get("/__media/" + "0" * 24 + "/x.mp4")[0] == 404, "only files the page asked for"
+    assert get(url, {"Host": "evil.example:%d" % PORT})[0] == 403
+    assert sync("media", os.path.join(WORK, "missing.mp4")).get("err", {}).get("code") == "ENOENT"
+    wav = os.path.join(WORK, "a.wav")
+    open(wav, "wb").write(b"RIFF")
+    assert get(sync("media", wav)["result"])[1]["Content-Type"] == "audio/wav"
+
+
 print("desktop app server (app/amh_app.py) on %s" % HOST)
 t("security: foreign Host, no/wrong token, cross-site boot.js, CORS preflight, traversal refused", t_security)
 t("index.html: app scripts injected around the panel's own; CSP unchanged; boot.js carries token + dropped file", t_index)
@@ -250,6 +290,7 @@ t("spawn: timeout kills a hung child", t_timeout)
 t("spawn: env and cwd are passed to the child", t_env)
 t("proxy: license-server calls only, status + body passed through, token required", t_proxy)
 t("fixed port: the first free preferred port, so saved settings survive a restart", t_fixed_port)
+t("media: review video served by unguessable URL with byte ranges (seek); cross-site, foreign Host, unknown refused", t_media)
 srv.shutdown()
 api.shutdown()
 shutil.rmtree(EXT, ignore_errors=True)
