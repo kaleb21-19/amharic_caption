@@ -4,16 +4,14 @@ name: mac-smoke
 # does (downloaded = quarantined, silent Install.command) and checks the app
 # window, the launcher, real Amharic captions and the SRT maker
 # (tools/test/mac_smoke.py). We have no Mac tester; this is the Mac tester.
-# Runs on demand and on pushes to ci/mac-smoke (the current branch's app/
-# files are tested on top of the published runtime).
+# On demand: Actions -> mac-smoke -> Run workflow (any published tag). Every
+# release is also tested BEFORE publishing by the mac-smoke job in build.yml.
 on:
   workflow_dispatch:
     inputs:
       tag:
         description: "Release tag to test (empty = latest)"
         required: false
-  push:
-    branches: ["ci/mac-smoke"]
 
 permissions:
   contents: read
@@ -65,7 +63,7 @@ jobs:
           bash pkg/Install.command silent | tail -n 25 || { echo "::error title=install::Install.command failed. Log: $(tail -n 25 /tmp/amharic-captions-install.log | paste -sd '|' -)"; exit 1; }
 
       - name: Smoke test the installed product
-        run: python3 tools/test/mac_smoke.py --app-from app --standalone
+        run: python3 tools/test/mac_smoke.py --standalone
 
       - name: App log
         if: always()
