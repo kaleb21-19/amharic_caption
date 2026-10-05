@@ -2177,6 +2177,13 @@ async function handleMessage(msg, env) {
       await sendText(chatId, 'ℹ️ <code>/givekey MACHINE-ID name</code> — e.g. <code>/givekey 1a2b3c4d5e6f7a8b Panda</code>');
       return;
     }
+    // Did the customer really activate? /active MACHINE-ID or /active CODE
+    const act = text.match(/^\/active\s+(\S{8,19})$/i);
+    if (act) { await adminActive(chatId, act[1]); return; }
+    if (/^\/active\b/i.test(text)) {
+      await sendText(chatId, 'ℹ️ <code>/active MACHINE-ID</code> or <code>/active XXXX-XXXX</code> — is the license activated on that computer?');
+      return;
+    }
     if (['/help', '/help@amhariccaptionsbot', '/commands'].includes(lower)) { await adminHelp(chatId); return; }
   }
 
@@ -4248,7 +4255,8 @@ async function adminFind(chatId, mid) {
       `🔑 <b>Licensed</b>${c.revoked ? ' — <b>REVOKED</b> 🚫' : ' ✅'}${kind}`,
       `Key: <code>${esc(c.key)}</code>`,
       `Expiry: ${c.expiry === '00000000' ? 'perpetual' : esc(c.expiry)}`,
-      `Buyer: ${esc(c.name || 'unknown')}${c.uid ? ' · Telegram id ' + esc(c.uid) : ''}`);
+      `Buyer: ${esc(c.name || 'unknown')}${c.uid ? ' · Telegram id ' + esc(c.uid) : ''}`,
+      '', await activationLine(mid));
     if (moved) {
       const to = String(moved.detail).split(' -> ')[1] || '';
       lines.push('', `🔁 Moved to <code>${esc(to.split(' ')[0])}</code> on ${eatTs(moved.ts)}`);
@@ -4273,6 +4281,60 @@ async function adminFind(chatId, mid) {
   if (!c) kb.push([{ text: '🎁 Give a free key to this computer', callback_data: `admin:gift:${mid}` }]);
   kb.push([{ text: '🛠 Admin', callback_data: 'admin:panel' }]);
   await sendText(chatId, lines.join('\n'), kb);
+}
+
+// Was the key ever accepted on this computer? Every server-confirmed
+// /api/validate (panel or SRT maker) stamps key_activations, kept 30 days.
+async function activationLine(mid) {
+  let a = null;
+  try {
+    a = await DB.prepare(
+      'SELECT SUM(n) AS n, MIN(first_seen) AS first, MAX(last_seen) AS last, COUNT(DISTINCT ip) AS places FROM key_activations WHERE mid=?'
+    ).bind(mid).first();
+  } catch (e) { /* 0006 not applied */ }
+  if (!a || !a.n) return '⏳ <b>Not activated yet</b> — the key was never entered on this computer (last 30 days).';
+  return `✅ <b>Activated</b> — first ${eatTs(a.first)}, last check ${eatTs(a.last)} (Ethiopia time)\n` +
+    `   ${a.n} check(s) from ${a.places} internet connection(s)`;
+}
+
+// /active MACHINE-ID | XXXX-XXXX — the short answer to "did it work for them?"
+async function adminActive(chatId, arg) {
+  const raw = String(arg || '').trim();
+  let mid = raw.toLowerCase();
+  // A dash, or letters a Machine ID never has, means an activation code.
+  const code = (raw.includes('-') || !isValidMid(mid)) ? normActivationCode(raw) : null;
+  if (code) {
+    let ac = null;
+    try { ac = await DB.prepare('SELECT * FROM activation_codes WHERE code=?').bind(code).first(); } catch (e) { /* 0019 */ }
+    if (!ac) { await sendText(chatId, `🔍 No activation code <code>${code}</code>.`); return; }
+    const ord = ac.order_id ? await DB.prepare('SELECT id, username FROM orders WHERE id=?').bind(ac.order_id).first() : null;
+    const who = ord ? `order <b>#${ord.id}</b>${ord.username ? ' · @' + esc(ord.username) : ''}` : 'no order';
+    if (!ac.redeemed_mid) {
+      await sendText(chatId,
+        `📱 Code <code>${code}</code> · ${who}\n\n` +
+        (ac.revoked ? '🚫 <b>Revoked</b>.' :
+          '⏳ <b>Not used yet</b> — not typed into any panel or SRT maker.\n' +
+          '<i>CapCut / DaVinci buyers need version 1.8.13 or newer to paste it.</i>'),
+        [[{ text: '🛠 Admin', callback_data: 'admin:panel' }]]);
+      return;
+    }
+    mid = ac.redeemed_mid;
+    await sendText(chatId,
+      `📱 Code <code>${code}</code> · ${who}\nUsed on <code>${esc(mid)}</code> · ${eatTs(ac.redeemed_at)}\n\n` +
+      await activationLine(mid),
+      [[{ text: '🔍 Open this computer', callback_data: `admin:find:${mid}` }], [{ text: '🛠 Admin', callback_data: 'admin:panel' }]]);
+    return;
+  }
+  if (!isValidMid(mid)) {
+    await sendText(chatId, '⚠️ Send a Machine ID (8 or 16 letters/numbers) or an activation code like <code>TKSL-4EYX</code>.');
+    return;
+  }
+  const c = await DB.prepare('SELECT revoked, name FROM customers WHERE machine_id=?').bind(mid).first();
+  const lic = !c ? '🔑 <b>No license</b> on this computer (free trial only).'
+    : c.revoked ? '🔑 License <b>REVOKED</b> 🚫'
+      : `🔑 Licensed ✅ · ${esc(c.name || 'unknown')}`;
+  await sendText(chatId, `🖥 <code>${mid}</code>\n${lic}\n` + (c ? await activationLine(mid) : ''),
+    [[{ text: '🔍 Open this computer', callback_data: `admin:find:${mid}` }], [{ text: '🛠 Admin', callback_data: 'admin:panel' }]]);
 }
 
 // Changed computer / reinstalled Windows: the buyer's license follows them.
@@ -4388,6 +4450,7 @@ async function adminHelp(chatId) {
     '<code>/find MACHINE-ID</code> — everything about a computer, with buttons\n' +
     '<code>/move OLD-ID NEW-ID</code> — new computer / reinstalled Windows\n' +
     '<code>/givekey MACHINE-ID name</code> — free key (not a sale)\n' +
+    '<code>/active MACHINE-ID</code> or <code>/active CODE</code> — did the customer activate?\n' +
     '<code>/revoke-mid ID</code> · <code>/unrevoke-mid ID</code> — kill / restore a key\n' +
     '<code>/revoke ORDER</code> · <code>/unrevoke ORDER</code> — same, by order number\n' +
     '<code>/setexpiry ORDER YYYYMMDD</code> — time-limited key (before approving)\n\n' +
