@@ -126,6 +126,7 @@ function loadPanel(opts) {
     __adobe_cep__:{
       getHostEnvironment(){ return JSON.stringify({appName: opts.hostApp || 'PPRO', appSkinInfo:{appBackgroundColor:{red:30,green:30,blue:30}}}); },
       addEventListener(){},
+      registerKeyEventsInterest(json){ if (opts.keyLog) opts.keyLog.push(json); },
     },
     fetch: opts.fetch || defaultFetch,
     addEventListener(){}, removeEventListener(){}, open(){},
@@ -193,7 +194,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.9.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.9.1');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1399,7 +1400,8 @@ await t('14. After Effects: loads host_ae.jsx, AE wording, font + long timeout o
     // implementations are active at call time, whatever order host.jsx and
     // host_ae.jsx were evaluated in.
     const imp = evalLog.find((j) => /return amh_importCaptions\(/.test(j));
-    assert.ok(imp && /amharic_getSelectedClip\.amhAE!==true/.test(imp) && /host_ae\.jsx/.test(imp), 'AE call is guarded');
+    assert.ok(imp && /amharic_getSelectedClip\.amhAE===true/.test(imp) && /host_ae\.jsx/.test(imp), 'AE call is guarded');
+    assert.ok(/did not load/.test(imp), 'and refuses to run the Premiere code when the AE code is not active');
     const inner = /return (amh_importCaptions\(.*\));\}\)\(\)$/.exec(imp)[1];
     const args = JSON.parse(JSON.parse(inner.slice('amh_importCaptions('.length, -1)));
     assert.deepStrictEqual(Object.keys(args).sort(), ['baseName', 'font', 'srtPath', 'startSeconds']);
@@ -1413,6 +1415,28 @@ await t('14. After Effects: loads host_ae.jsx, AE wording, font + long timeout o
     assert.ok(!pLog.some((j) => /host_ae/.test(j)), 'Premiere does not load host_ae.jsx');
     assert.strictEqual(pp.els('srcClip').textContent === 'Selected Layer', false);
   } finally { pp.close(); }
+});
+
+await t('14b. editing shortcuts (Ctrl/Cmd + C V X A Z Y, + Shift) stay in the panel, in AE and Premiere', async () => {
+  // Without this, Ctrl+C on a caption word ran After Effects' own Copy:
+  // "After Effects must have keyframes selected in order to export them as text".
+  for (const hostApp of ['AEFT', 'PPRO']) {
+    const keyLog = [];
+    const p = loadPanel({ hostApp, keyLog });
+    try {
+      await flush(5);
+      assert.strictEqual(keyLog.length, 1, hostApp + ': registered once at load');
+      const keys = JSON.parse(keyLog[0]);
+      const mac = process.platform === 'darwin';
+      const mod = mac ? 'metaKey' : 'ctrlKey';
+      const want = mac ? [0, 6, 7, 8, 9, 16] : [65, 67, 86, 88, 89, 90];   // A Z X C V Y / A C V X Y Z
+      for (const code of want) {
+        assert.ok(keys.some((k) => k.keyCode === code && k[mod] === true && !k.shiftKey), hostApp + ': key ' + code);
+        assert.ok(keys.some((k) => k.keyCode === code && k[mod] === true && k.shiftKey === true), hostApp + ': Shift+key ' + code);
+      }
+      assert.strictEqual(keys.length, want.length * 2, 'nothing else is taken from the host');
+    } finally { p.close(); }
+  }
 });
 
 await t('15. lite package: model missing -> download card, Generate blocked, finish unblocks', async () => {
