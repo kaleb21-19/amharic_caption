@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.9.0';
+const APP_VERSION = '1.9.1';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -458,6 +458,31 @@ applyTheme();
 try {
   if (window.__adobe_cep__ && window.__adobe_cep__.addEventListener) {
     window.__adobe_cep__.addEventListener('com.adobe.csxs.events.ThemeColorChanged', applyTheme);
+  }
+} catch (e) {}
+
+// ── Editing shortcuts stay in the panel ──────────────────────────────────────
+// Unless a CEP panel registers interest, the host app takes Ctrl/Cmd + C, V,
+// X, A, Z, Y even while the panel's text box has focus. In After Effects,
+// copying a caption word or the Machine ID ran AE's own Copy and showed "After
+// Effects must have keyframes selected in order to export them as text"; in
+// Premiere, Ctrl+Z in the review box could undo the timeline instead.
+// Key codes are the OS virtual-key codes (Windows VK_*, macOS kVK_ANSI_*).
+const PANEL_SHORTCUT_KEYS = (() => {
+  const mac = (typeof process !== 'undefined' && process.platform === 'darwin');
+  const codes = mac ? { a: 0, z: 6, x: 7, c: 8, v: 9, y: 16 }
+                    : { a: 65, c: 67, v: 86, x: 88, y: 89, z: 90 };
+  const mod = mac ? 'metaKey' : 'ctrlKey';
+  const list = [];
+  Object.keys(codes).forEach((k) => {
+    list.push({ keyCode: codes[k], [mod]: true });
+    list.push({ keyCode: codes[k], [mod]: true, shiftKey: true });   // redo = Shift+Z
+  });
+  return list;
+})();
+try {
+  if (window.__adobe_cep__ && window.__adobe_cep__.registerKeyEventsInterest) {
+    window.__adobe_cep__.registerKeyEventsInterest(JSON.stringify(PANEL_SHORTCUT_KEYS));
   }
 } catch (e) {}
 

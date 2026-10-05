@@ -305,13 +305,22 @@ async function verifyLicenseToken(token, pubKeyPem, machineId) {
 // implementations are the active ones at the moment of the call: load
 // host.jsx if nothing is loaded yet, then (re)load host_ae.jsx whenever its
 // stamp is missing (host.jsx loaded later replaces the same function names).
+// If the After Effects code still is not active, the call is NOT run: the
+// Premiere versions would answer with Premiere words ("No active sequence")
+// inside After Effects. A clear error with the load failure is returned
+// instead, so support sees the real cause.
 function aeHostCall(call, hostJsx, aeJsx) {
   const H = JSON.stringify(String(hostJsx));
   const A = JSON.stringify(String(aeJsx));
-  return '(function(){' +
-    'try{if(typeof amhGuard==="undefined"){$.evalFile(new File(' + H + '));}}catch(e){}' +
-    'try{if(typeof amharic_getSelectedClip==="undefined"||amharic_getSelectedClip.amhAE!==true){' +
-    '$.evalFile(new File(' + A + '));}}catch(e){}' +
+  const AE_OK = 'typeof amharic_getSelectedClip!=="undefined"&&amharic_getSelectedClip.amhAE===true';
+  return '(function(){var amhE="";' +
+    'try{if(typeof amhGuard==="undefined"){$.evalFile(new File(' + H + '));}}catch(e){amhE="host.jsx: "+e;}' +
+    'try{if(!(' + AE_OK + ')){$.evalFile(new File(' + A + '));}}' +
+    'catch(e){amhE+=(amhE?"; ":"")+"host_ae.jsx: "+e+(e.line?" (line "+e.line+")":"");}' +
+    'if(!(' + AE_OK + ')){' +
+    'return "{\\"ok\\":false,\\"error\\":\\"The After Effects part of the panel did not load' +
+    '"+(amhE?": "+String(amhE).replace(/[\\\\"\\r\\n]+/g," "):"")+' +
+    '". Click Run diagnostics and send the result to support.\\"}";}' +
     'return ' + call + ';})()';
 }
 

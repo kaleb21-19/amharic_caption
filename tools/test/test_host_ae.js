@@ -311,5 +311,30 @@ t('nothing loaded yet: the wrapper loads host.jsx, then host_ae.jsx', () => {
   assert.ok(r.ok && r.name === 'first.mp4', 'AE answer from a cold start: ' + JSON.stringify(r));
 });
 
+// Seen on a customer's Mac (v1.8.8): the AE code was not active, so the Work
+// Area answer came from the Premiere code — "No active sequence. Open one
+// first." inside After Effects, with no hint why. Now the failure is reported.
+t('host_ae.jsx fails to load: a clear error with the cause, never the Premiere answer', () => {
+  const core = require(path.resolve(__dirname, '..', '..', 'panel', 'js', 'core.js'));
+  const comp = new CompItem();
+  const ctx = makeCtx(comp);
+  const strip = (src) => src.replace(/^#include.*$/m, '');
+  vm.runInContext(strip(fs.readFileSync(path.join(JSX, 'host.jsx'), 'utf8')), ctx);   // Premiere code active
+  ctx.$ = { evalFile: (f) => {
+    if (/host_ae/.test(f.p)) { const e = new Error('I/O error "boom" \\ path'); e.line = 12; throw e; }
+  } };
+  const call = core.aeHostCall('amharic_getSequenceInfo(false)', path.join(JSX, 'host.jsx'), path.join(JSX, 'host_ae.jsx'));
+  const r = JSON.parse(vm.runInContext(call, ctx));
+  assert.strictEqual(r.ok, false);
+  assert.ok(!/sequence/i.test(r.error), 'no Premiere wording: ' + r.error);
+  assert.match(r.error, /After Effects part of the panel did not load: host_ae\.jsx: Error: I\/O error\s+boom\s+path \(line 12\)/);
+  assert.match(r.error, /Run diagnostics/);
+
+  // A file that loads but never stamps itself (e.g. an old copy) is caught too.
+  ctx.$ = { evalFile: () => {} };
+  const r2 = JSON.parse(vm.runInContext(call, ctx));
+  assert.ok(r2.ok === false && /did not load\. Click Run diagnostics/.test(r2.error), r2.error);
+});
+
 console.log('\n' + (fail === 0 ? 'ALL PASS' : 'FAILURES: ' + fail) + '  (' + pass + ' passed, ' + fail + ' failed)');
 process.exit(fail === 0 ? 0 : 1);
