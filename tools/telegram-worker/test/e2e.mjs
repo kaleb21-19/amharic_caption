@@ -3320,6 +3320,41 @@ console.log('\n:: /postjobs: one-time fill of the public jobs channel');
   ok('/postjobs without a channel: refills the Editing Jobs topic once with the recent real jobs');
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: /active: did the customer really activate?');
+{
+  const { env } = fresh();
+  const A = 'cdc507c4db2143e4';
+  const B = 'abcdef0123456789';
+  await env.DB.prepare("INSERT INTO customers (machine_id, name, expiry, key, status, uid) VALUES (?, '@D_agi_E', '00000000', 'AMH-k1', 'sold', '1355')").bind(A).run();
+  await env.DB.prepare("INSERT INTO customers (machine_id, name, expiry, key, status, uid) VALUES (?, '@other', '00000000', 'AMH-k2', 'sold', '1356')").bind(B).run();
+  await env.DB.prepare("INSERT INTO key_activations (key, ip, mid, n, first_seen, last_seen) VALUES ('AMH-k1', '1.2.3.4', ?, 2, '2026-10-05 08:14:03', '2026-10-05 09:00:00')").bind(A).run();
+  await env.DB.prepare("INSERT INTO orders (id, uid, chat_id, username, machine_id, status) VALUES (11, '1355', '1355', 'D_agi_E', ?, 'approved')").bind(A).run();
+  await env.DB.prepare("INSERT INTO orders (id, uid, chat_id, username, machine_id, status) VALUES (10, '1357', '1357', 'Yone202', 'code-22c2yp5w', 'approved')").run();
+  await env.DB.prepare("INSERT INTO activation_codes (code, order_id, uid, redeemed_mid, redeemed_at) VALUES ('TKSL-4EYX', 11, '1355', ?, '2026-10-05 07:51:06')").bind(A).run();
+  await env.DB.prepare("INSERT INTO activation_codes (code, order_id, uid) VALUES ('22C2-YP5W', 10, '1357')").run();
+  const ask = async (text, from = ADMIN_ID) => {
+    const n = OUTBOUND.length;
+    await post(env, msg(Number(from), { id: Number(from) }, { text }));
+    return OUTBOUND.slice(n).filter((x) => String(x.body.chat_id) === String(from)).map((x) => String(x.body.text || '')).join('\n');
+  };
+  let r = await ask('/active ' + A);
+  assert.ok(r.includes('Activated') && r.includes('10-05 11:14') && r.includes('2 check(s)'), r);
+  r = await ask('/active ' + B.toUpperCase());
+  assert.ok(r.includes('Not activated yet'), r);
+  r = await ask('/active tksl 4eyx'.replace(' 4', '-4'));
+  assert.ok(r.includes('TKSL-4EYX') && r.includes('@D_agi_E') && r.includes(A) && r.includes('Activated'), r);
+  r = await ask('/active 22C2-YP5W');
+  assert.ok(r.includes('Not used yet') && r.includes('@Yone202') && r.includes('1.8.13'), r);
+  r = await ask('/active ZZZZ-2222');
+  assert.ok(r.includes('No activation code'), r);
+  r = await ask('/find ' + A);
+  assert.ok(r.includes('Activated') && r.includes('Key:'), '/find card shows activation: ' + r);
+  r = await ask('/active ' + A, BUYER);
+  assert.ok(!r.includes('Activated'), 'buyers never see it');
+  ok('/active MACHINE-ID | CODE: activated or not (Ethiopia time), code used or not with the buyer; /find shows it too; admins only');
+}
+
 // Across EVERY scenario: nothing may be silently refused by Telegram (a refused
 // call is a screen the user never sees). Only the recovered photo→file case.
 {
