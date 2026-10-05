@@ -65,7 +65,7 @@ import amh_app  # noqa: E402
 
 EXT = tempfile.mkdtemp(prefix="amh_app_ext_")
 WORK = tempfile.mkdtemp(prefix="amh_app_work_")
-srv = amh_app.start_server(os.path.join(REPO, "panel"), EXT, files=[os.path.join(REPO, "README.md")])
+srv = amh_app.start_server(os.path.join(REPO, "panel"), EXT, files=[os.path.join(REPO, "README.md")], ports=())
 PORT = amh_app.PORT
 HOST = "127.0.0.1:%d" % PORT
 TOKEN = amh_app.TOKEN
@@ -224,6 +224,22 @@ def t_proxy():
     assert req("POST", "/__api/proxy", {"url": API + "/x"}, token=False)[0] == 403
 
 
+def t_fixed_port():
+    # Settings live in localStorage, which belongs to the page's origin
+    # (host + PORT): the app must come back on the same port every launch.
+    import socket
+    blocker = socket.socket()
+    blocker.bind(("127.0.0.1", 0))
+    taken = blocker.getsockname()[1]
+    free = socket.socket(); free.bind(("127.0.0.1", 0)); want = free.getsockname()[1]; free.close()
+    s1 = amh_app.start_server(os.path.join(REPO, "panel"), EXT, ports=(taken, want))
+    got = amh_app.PORT
+    s1.shutdown(); s1.server_close(); blocker.close()
+    amh_app.PORT = PORT
+    assert got == want, "first FREE preferred port is used (%d busy, wanted %d, got %d)" % (taken, want, got)
+    assert amh_app.APP_PORTS and all(1024 < p < 65536 for p in amh_app.APP_PORTS)
+
+
 print("desktop app server (app/amh_app.py) on %s" % HOST)
 t("security: foreign Host, no/wrong token, cross-site boot.js, CORS preflight, traversal refused", t_security)
 t("index.html: app scripts injected around the panel's own; CSP unchanged; boot.js carries token + dropped file", t_index)
@@ -233,6 +249,7 @@ t("spawn: kill stops a running child", t_kill)
 t("spawn: timeout kills a hung child", t_timeout)
 t("spawn: env and cwd are passed to the child", t_env)
 t("proxy: license-server calls only, status + body passed through, token required", t_proxy)
+t("fixed port: the first free preferred port, so saved settings survive a restart", t_fixed_port)
 srv.shutdown()
 api.shutdown()
 shutil.rmtree(EXT, ignore_errors=True)
