@@ -41,20 +41,25 @@ jobs:
         env:
           TAG: ${{ github.event.inputs.tag }}
           REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [[ -z "$TAG" ]]; then
-            TAG="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | python3 -c 'import json,sys;print(json.load(sys.stdin)["tag_name"])')"
-          fi
+          set -eE
+          trap 'echo "::error title=download step::line $LINENO: $BASH_COMMAND (exit $?)"' ERR
+          if [[ -z "$TAG" ]]; then TAG="$(gh release view -R "$REPO" --json tagName -q .tagName)"; fi
           echo "Testing $TAG on $(sw_vers -productName) $(sw_vers -productVersion) $(uname -m)"
           echo "### mac-smoke: $TAG on macOS $(sw_vers -productVersion) $(uname -m)" >> "$GITHUB_STEP_SUMMARY"
-          curl -fsSL -o pkg.zip "https://github.com/$REPO/releases/download/$TAG/${{ matrix.zip }}"
+          gh release download "$TAG" -R "$REPO" -p "${{ matrix.zip }}" -O pkg.zip
           ditto -x -k pkg.zip pkg
           # A browser download carries the quarantine flag on every file.
-          xattr -r -w com.apple.quarantine "0083;$(printf %x "$(date +%s)");Safari;" pkg
+          find pkg -print0 | xargs -0 xattr -w com.apple.quarantine "0083;$(printf %x "$(date +%s)");Safari;"
           ls pkg
+          echo "::notice title=package::$TAG $(du -sh pkg | cut -f1) unpacked, quarantined"
 
       - name: Install (Install.command silent)
-        run: bash pkg/Install.command silent
+        run: |
+          set -o pipefail
+          bash pkg/Install.command silent | tail -n 25 || { echo "::error title=install::Install.command failed. Log: $(tail -n 25 /tmp/amharic-captions-install.log | tr '
+' '|')"; exit 1; }
 
       - name: Smoke test the installed product
         run: python3 tools/test/mac_smoke.py --app-from app --standalone
