@@ -290,9 +290,43 @@ def newer_release(current):
         return None
 
 
+# Short activation code a phone buyer gets from the bot (XXXX-XXXX, no I/O/0/1),
+# same rule as the panel's normActivationCode().
+_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+def activation_code(value):
+    c = "".join(ch for ch in str(value or "").upper() if ch not in " 	-")
+    if len(c) == 8 and all(ch in _CODE_CHARS for ch in c):
+        return c[:4] + "-" + c[4:]
+    return None
+
+
+def redeem_code(machine_id, code):
+    """Bind an activation code to this computer (once) and return its key.
+    Returns (key|None, message_en)."""
+    res = _api("POST", "/api/redeem", {"mid": machine_id, "code": code})
+    if res is None:
+        return None, "Cannot reach the license server — check the internet and try again."
+    if res.get("ok") is True and res.get("key"):
+        return res["key"], "OK"
+    return None, {
+        "used": "This activation code was already used on another computer. Contact @sumpak6 on Telegram.",
+        "revoked": "License revoked — contact @sumpak6 on Telegram",
+        "already_licensed": "This computer already has a license — paste your key from \"My key\" in the bot.",
+        "throttled": "Too many attempts — wait ten minutes and try again.",
+    }.get(res.get("reason"), "Activation code not found — check the letters in the bot message.")
+
+
 def activate(machine_id, key):
-    """Validate a key with the server and store the signed lease exactly like
-    the panel does. Returns (ok, message_en)."""
+    """Validate a key (or redeem a short activation code first, like the
+    panel) and store the signed lease exactly like the panel does.
+    Returns (ok, message_en)."""
+    code = activation_code(key)
+    if code:
+        key, msg = redeem_code(machine_id, code)
+        if not key:
+            return False, msg
     ck = canonical_key(key)
     if len(ck) not in (32, 40) or not all(c in "0123456789abcdef" for c in ck):
         return False, "Invalid key format"

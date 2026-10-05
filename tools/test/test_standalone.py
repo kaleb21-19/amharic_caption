@@ -94,6 +94,11 @@ class Mock(BaseHTTPRequestHandler):
                 STATE["used"] += 1
             self._send({"used": STATE["used"], "max": STATE["max"],
                         "remaining": max(0, STATE["max"] - STATE["used"]), "charged": charged})
+        elif self.path == "/api/redeem":
+            if body.get("code") == "TKSL-4EYX" and body.get("mid") == MID:
+                self._send({"ok": True, "key": KEY})
+            else:
+                self._send({"ok": False, "reason": "used" if body.get("code") == "USED-2222" else "not_found"})
         elif self.path == "/api/validate":
             STATE["validates"] += 1
             if body.get("mid") == MID and body.get("key") == KEY:
@@ -207,6 +212,19 @@ def t5():
     assert set(stored) == {"key", "valid", "expiry", "activated", "serverValidated", "token"}
 
 
+def t5b():
+    os.remove(os.path.join(HOME, ".amharic_captions_license.json"))
+    STATE["used"] = STATE["max"]
+    rc, out = run([clip("e2.wav")], answers=["ABCD-2345"])
+    assert rc == 1 and "Activation code not found" in out, out[-300:]
+    rc, out = run([clip("e2.wav")], answers=["USED-2222"])
+    assert rc == 1 and "already used on another computer" in out, out[-300:]
+    rc, out = run([clip("e2.wav")], answers=["tksl 4eyx"])   # typed loosely
+    assert rc == 0 and "e2.srt" in srts(), out[-400:]
+    stored = json.load(open(os.path.join(HOME, ".amharic_captions_license.json")))
+    assert stored["key"] == KEY and stored["token"] == vec["token"], "the code's key is stored like a pasted key"
+
+
 def t6():
     charges = STATE["charges"]
     STATE["online"] = False                       # licensed works fully offline
@@ -255,6 +273,7 @@ t("2. trial: second file uses the last free transcription", t2)
 t("3. trial used up: no srt, shows Machine ID + how to pay", t3)
 t("4. offline + unlicensed: refuses, says internet is needed", t4)
 t("5. activation: bad key rejected; good key stores the panel-format lease", t5)
+t("5b. activation code (XXXX-XXXX) from the bot redeems and activates; wrong/used codes explained", t5b)
 t("6. licensed: works offline, never charged, never overwrites", t6)
 t("6b. update notice after the run: newer shows, up to date / offline silent", t6b)
 t("7. unsupported file type is refused", t7)

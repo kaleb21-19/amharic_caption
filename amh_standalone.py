@@ -226,8 +226,8 @@ def offer_activation(mid):
         "To buy: pay ETB 2,500 by bank transfer to KALEB TEGEGEN only, then send the Machine ID")
     say("   " + BUY_URL, "and the payment screenshot to the bot above.")
     rule()
-    say("ቁልፍ ካለዎት እዚህ ይለጥፉ እና Enter ይጫኑ (ለመውጣት ባዶ ይተዉ)፦",
-        "If you have a key, paste it here and press Enter (leave empty to quit):")
+    say("የማግበሪያ ኮድ (XXXX-XXXX) ወይም ቁልፍ ካለዎት እዚህ ይለጥፉ እና Enter ይጫኑ (ለመውጣት ባዶ ይተዉ)፦",
+        "If you have an activation code (XXXX-XXXX) or a key, paste it here and press Enter (leave empty to quit):")
     try:
         key = input("> ").strip()
     except EOFError:
