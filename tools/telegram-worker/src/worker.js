@@ -3742,7 +3742,8 @@ async function showMyKey(msg, chatId, messageId) {
     (codes.length
       ? '📱 <b>የማግበሪያ ኮድ / Activation code</b> (ገና ያልተጠቀሙበት · not used yet):\n' +
         codes.map((c) => `🔑 <code>${esc(c.code)}</code>`).join('\n') +
-        '\n<i>ፓነሉን ይክፈቱ፣ ኮዱን «የፈቃድ ቁልፍ» ላይ ይጻፉና «አግብር» ይጫኑ። · Type it into “License key” in the panel and press Activate.</i>\n\n'
+        '\n<i>ፓነሉን ይክፈቱ፣ ኮዱን «የፈቃድ ቁልፍ» ላይ ይጻፉና «አግብር» ይጫኑ። · Type it into “License key” in the panel and press Activate.</i>\n' +
+        '<i>CapCut / DaVinci፦ «Make Amharic Captions» ቪዲዮ ሲጥሉበት ቁልፍ ሲጠይቅ ኮዱን ይለጥፉ። · CapCut / DaVinci: paste it when “Make Amharic Captions” asks for a key (version 1.8.13 or newer).</i>\n\n'
       : '') +
     list.map((r) => `🖥 <code>${esc(r.machine_id)}</code>\n🔑 <code>${esc(r.key)}</code>\n`).join('\n') +
     (list.length
