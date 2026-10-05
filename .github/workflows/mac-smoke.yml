@@ -1,0 +1,72 @@
+name: mac-smoke
+
+# Installs a PUBLISHED Mac package on GitHub's real Macs the way a customer
+# does (downloaded = quarantined, silent Install.command) and checks the app
+# window, the launcher, real Amharic captions and the SRT maker
+# (tools/test/mac_smoke.py). We have no Mac tester; this is the Mac tester.
+# On demand: Actions -> mac-smoke -> Run workflow (any published tag). Every
+# release is also tested BEFORE publishing by the mac-smoke job in build.yml.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to test (empty = latest)"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15          # Apple silicon (M1/M2/M3)
+            zip: amharic-captions-mac-arm64.zip
+          - os: macos-14          # Apple silicon, one macOS version older
+            zip: amharic-captions-mac-arm64.zip
+          - os: macos-15-intel    # Intel Mac (the mac-x64 package)
+            zip: amharic-captions-mac-x64.zip
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+
+      - name: Download the published package (like a customer)
+        env:
+          TAG: ${{ github.event.inputs.tag }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eE
+          trap 'echo "::error title=download step::line $LINENO: $BASH_COMMAND (exit $?)"' ERR
+          if [[ -z "$TAG" ]]; then TAG="$(gh release view -R "$REPO" --json tagName -q .tagName)"; fi
+          echo "Testing $TAG on $(sw_vers -productName) $(sw_vers -productVersion) $(uname -m)"
+          echo "### mac-smoke: $TAG on macOS $(sw_vers -productVersion) $(uname -m)" >> "$GITHUB_STEP_SUMMARY"
+          gh release download "$TAG" -R "$REPO" -p "${{ matrix.zip }}" -O pkg.zip
+          ditto -x -k pkg.zip pkg
+          # A browser download carries the quarantine flag on every file.
+          find pkg -print0 | xargs -0 xattr -w com.apple.quarantine "0083;$(printf %x "$(date +%s)");Safari;"
+          ls pkg
+          echo "::notice title=package::$TAG $(du -sh pkg | cut -f1) unpacked, quarantined"
+
+      - name: Install (Install.command silent)
+        run: |
+          set -o pipefail
+          bash pkg/Install.command silent | tail -n 25 || { echo "::error title=install::Install.command failed. Log: $(tail -n 25 /tmp/amharic-captions-install.log | paste -sd '|' -)"; exit 1; }
+
+      - name: Smoke test the installed product
+        run: python3 tools/test/mac_smoke.py --standalone
+
+      - name: App log
+        if: always()
+        run: |
+          cat "${TMPDIR:-/tmp}/amharic-captions-app.log" 2>/dev/null || echo "(no app log)"
+          tail -n 40 /tmp/amharic-captions-install.log 2>/dev/null || true

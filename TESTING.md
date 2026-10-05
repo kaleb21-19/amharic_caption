@@ -93,6 +93,7 @@ Local setup notes:
 | `AMH_MODEL_DIR=… PATH=<runtime>/bin:$PATH "$PY" tools/test/test_standalone.py` | SRT maker end to end against a mock license server: trial, trial used up, offline, key activation, **activation code (XXXX-XXXX)**, licensed offline, update notice, tampered lease | 2–3 min |
 | `AMH_MODEL_DIR=… "$PY" tools/test/amharic_regression.py` | **Amharic must not change by accident:** 62 golden SRTs (31 clips × karaoke + grouped) compared byte for byte. Must print `AMHARIC UNCHANGED` | ~5.5 min |
 | `RUNTIME=… bash tools/test/run_engine.sh --fixtures tools/test/fixtures_real --mean-max-wer 0.40` | the CI accuracy gate (below) | a few minutes |
+| `python3 tools/test/mac_smoke.py [--standalone] [--app-from app]` | **the installed product used like a customer** (Mac or Windows, after the real installer): window library loads; the real "Make Amharic Captions" launcher with a dropped video opens the app and the page reports ready; real Amharic captions through the app's bridge; with `--standalone` the SRT maker tests on the installed Python. On a PC with the app open, it only stops its own instance | 1–3 min |
 
 `amharic_regression.py --update` re-records the goldens — only after a deliberate,
 measured improvement, and review every changed file (on Windows the goldens can pick
@@ -109,7 +110,15 @@ up CRLF noise; `git add` normalises it — check `git diff --cached --stat`).
    customers run it.
 6. **build-ar / build-x64 / build-win** — Full + Lite zips for mac-arm64, mac-x64,
    win-x64; the build refuses any model not in `tools/model.lock`.
-7. **publish-ready** — only on `main` and only if ALL of the above passed: stages a
+7. **mac-smoke** — our Mac tester: each fresh Mac package (Apple silicon on
+   `macos-15`, Intel on `macos-15-intel`) is unpacked with the quarantine flag of a
+   browser download, installed with `Install.command silent` and used through
+   `tools/test/mac_smoke.py --standalone` (app window via the real launcher, Amharic
+   captions, SRT maker). Failures are annotations on the run. Published releases can
+   be re-checked any time: Actions → **mac-smoke** → Run workflow (tag). First runs,
+   2026-10-06, v1.9.3: all green on macOS 15 + 14 (Apple silicon) and macOS 15 Intel.
+   After Effects / Premiere are not on GitHub's Macs — those stay manual (§A5).
+8. **publish-ready** — only on `main` and only if ALL of the above passed: stages a
    draft release, verifies the exact 12 files (6 zips + checksums), publishes, checks
    the public download URLs.
 

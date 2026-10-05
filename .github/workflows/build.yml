@@ -514,13 +514,68 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # ---- 2b. use the fresh Mac packages on real Macs -----------------------------
+  # No Mac tester: install each Mac package built above the way a customer does
+  # (quarantined download, Install.command silent) on Apple silicon and on an
+  # Intel Mac, open the app through the real launcher with a dropped video, make
+  # Amharic captions through the app, run the SRT maker tests
+  # (tools/test/mac_smoke.py). A package that fails here is never published.
+  mac-smoke:
+    needs: [build-ar, build-x64]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            artifact: package-mac-arm64
+            zip: amharic-captions-mac-arm64.zip
+          - os: macos-15-intel
+            artifact: package-mac-x64
+            zip: amharic-captions-mac-x64.zip
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+
+      - name: Download the package built in this run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist
+
+      - name: Unpack like a customer download (quarantined)
+        run: |
+          set -eE
+          trap 'echo "::error title=unpack::line $LINENO: $BASH_COMMAND (exit $?)"' ERR
+          ditto -x -k "dist/${{ matrix.zip }}" pkg
+          find pkg -print0 | xargs -0 xattr -w com.apple.quarantine "0083;$(printf %x "$(date +%s)");Safari;"
+          echo "### mac-smoke: ${{ matrix.zip }} on macOS $(sw_vers -productVersion) $(uname -m)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install (Install.command silent)
+        run: |
+          set -o pipefail
+          bash pkg/Install.command silent | tail -n 25 || { echo "::error title=install::Install.command failed. Log: $(tail -n 25 /tmp/amharic-captions-install.log | paste -sd '|' -)"; exit 1; }
+
+      - name: Use it like a customer (app window, captions, SRT maker)
+        run: python3 tools/test/mac_smoke.py --standalone
+
+      - name: App log
+        if: always()
+        run: cat "${TMPDIR:-/tmp}/amharic-captions-app.log" 2>/dev/null || echo "(no app log)"
+
   # ---- 3. publish gate -------------------------------------------------------
   # Build jobs only upload short-lived Actions artifacts. Only this protected
   # main-branch job has release write permission, and it runs after every gate.
   publish-ready:
-    needs: [build-ar, build-win, build-x64, check-version, test, website, accuracy-gate]
+    needs: [build-ar, build-win, build-x64, check-version, test, website, accuracy-gate, mac-smoke]
     runs-on: ubuntu-latest
-    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.ref_protected == true && needs.build-ar.result == 'success' && needs.build-win.result == 'success' && needs.build-x64.result == 'success' && needs.check-version.result == 'success' && needs.test.result == 'success' && needs.website.result == 'success' && needs.accuracy-gate.result == 'success' }}
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && github.ref_protected == true && needs.build-ar.result == 'success' && needs.build-win.result == 'success' && needs.build-x64.result == 'success' && needs.check-version.result == 'success' && needs.test.result == 'success' && needs.website.result == 'success' && needs.accuracy-gate.result == 'success' && needs.mac-smoke.result == 'success' }}
     permissions:
       contents: write
     steps:

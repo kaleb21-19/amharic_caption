@@ -190,6 +190,16 @@ def sync_op(op, a):
         return _reveal(a[0])
     if op == "openURL":
         return webbrowser.open(a[0])
+    if op == "appReady":
+        # The page reached the end of app_mode.js: window, web engine, panel
+        # code and app layer all work. Only recorded for automated checks
+        # (tools/test/mac_smoke.py sets AMH_APP_READY_FILE); otherwise a no-op.
+        ready = os.environ.get("AMH_APP_READY_FILE")
+        if ready:
+            info = dict(a[0] if a and isinstance(a[0], dict) else {}, port=PORT)
+            with open(ready, "w", encoding="utf-8") as f:
+                json.dump(info, f, ensure_ascii=False)
+        return None
     if op == "spawn":
         c = Child(a[0], a[1], a[2] or None, a[3], a[4])
         cid = secrets.token_hex(6)
