@@ -12,24 +12,56 @@ const steps = [
     n: "1",
     title: { am: "አንድ ጊዜ ይጫኑ", en: "Install once" },
     text: {
-      am: "ጫኚውን ሁለቴ ይጫኑ፣ Premiere ን እንደገና ይክፈቱ። አንድ ደቂቃ ገደማ ይወስዳል፤ የቴክኒክ እውቀት አያስፈልግም።",
-      en: "Double-click the installer and restart Premiere. About a minute, no technical skills needed.",
+      am: "ጫኚውን ሁለቴ ይጫኑ። አንድ ደቂቃ ገደማ ይወስዳል፤ የቴክኒክ እውቀት አያስፈልግም። Premiere እና After Effects ውስጥ ፓነል፣ ዴስክቶፕ ላይ ደግሞ ለCapCut እና DaVinci መተግበሪያ ያገኛሉ።",
+      en: "Double-click the installer — about a minute, no technical skills needed. You get a panel inside Premiere and After Effects, and an app on your desktop for CapCut and DaVinci.",
     },
   },
   {
     n: "2",
-    title: { am: "ክሊፕ ይምረጡ", en: "Pick your clip" },
+    title: { am: "ቪዲዮ ወይም ክሊፕ ይምረጡ", en: "Pick your video" },
     text: {
-      am: "አንድ ክሊፕ፣ Work Area ወይም ሙሉ ኤዲቱን ይምረጡ — ከዚያ በቡድን ወይም ካራኦኬ ካፕሽን ይምረጡ።",
-      en: "Select a clip, a work area, or the whole sequence — then choose grouped or karaoke captions.",
+      am: "Premiere ላይ ክሊፕ፣ Work Area ወይም ሙሉ ኤዲቱን ይምረጡ፤ ለCapCut ወይም DaVinci ቪዲዮውን ወደ መተግበሪያው ይጎትቱ። በቡድን ወይም ካራኦኬ ካፕሽን ይምረጡ።",
+      en: "In Premiere select a clip, the work area or the whole sequence; for CapCut or DaVinci drag the video into the app. Choose grouped or karaoke captions.",
     },
   },
   {
     n: "3",
     title: { am: "ፍጠር፣ ገምግም፣ አስቀምጥ", en: "Generate, review, place" },
     text: {
-      am: "ካፕሽኖቹን በፓነሉ ውስጥ ገምግመው ያስተካክሉ፣ ከዚያ ሊስተካከል በሚችል የካፕሽን ትራክ ላይ ታይምላይኑ ላይ ያስቀምጧቸው።",
-      en: "Review and fix the captions in the panel, then place them on your timeline as an editable caption track.",
+      am: "ቪዲዮውን እያዩ ካፕሽኖቹን ይገምግሙና ያስተካክሉ። ከዚያ በPremiere ታይምላይኑ ላይ ያስቀምጡ — ወይም .srt አስቀምጠው ወደ CapCut ወይም DaVinci ያስገቡ።",
+      en: "Review and fix the captions while you watch. Then place them on your Premiere timeline — or save the .srt and import it into CapCut or DaVinci.",
+    },
+  },
+];
+
+// The four editors, each with what actually happens there.
+const editors = [
+  {
+    icon: "Pr", name: "Premiere Pro",
+    text: {
+      am: "ፓነሉ ውስጥ ይስሩ፣ ካፕሽኑ በቀጥታ ታይምላይኑ ላይ እንደሚስተካከል የካፕሽን ትራክ ይገባል።",
+      en: "Work in the panel; the captions land on your timeline as an editable caption track.",
+    },
+  },
+  {
+    icon: "Ae", name: "After Effects",
+    text: {
+      am: "ያው ፓነል — ካፕሽኑ በኮምፖዚሽንዎ ውስጥ እንደ አንድ ቴክስት ሌየር ይገባል፣ ለስታይል እና አኒሜሽን ዝግጁ።",
+      en: "The same panel — captions arrive as one text layer in your comp, ready to style and animate.",
+    },
+  },
+  {
+    icon: "✂", name: "CapCut",
+    text: {
+      am: "«Make Amharic Captions» መተግበሪያ፦ ቪዲዮውን ይጎትቱ፣ እያዩት ያስተካክሉ፣ .srt አስቀምጠው በCapCut ውስጥ Import ያድርጉ።",
+      en: "The Make Amharic Captions app: drag the video in, fix the captions while it plays, save the .srt and import it in CapCut.",
+    },
+  },
+  {
+    icon: "◐", name: "DaVinci Resolve",
+    text: {
+      am: "ያው መተግበሪያ — .srt ፋይሉን File → Import → Subtitle ብለው ወደ ታይምላይኑ ያስገቡ።",
+      en: "The same app — bring the .srt onto your timeline with File → Import → Subtitle.",
     },
   },
 ];
@@ -43,7 +75,7 @@ const buySteps = [
     },
   },
   {
-    t: { am: "በፓነሉ ላይ «ፈቃድ ይግዙ» ይጫኑ", en: "Press “Buy a license” in the panel" },
+    t: { am: "በፓነሉ ወይም በመተግበሪያው «ፈቃድ ይግዙ» ይጫኑ", en: "Press “Buy a license” in the panel or the app" },
     c: {
       am: "የቴሌግራም ቦቱ ከኮምፒውተርዎ ጋር ተገናኝቶ ይከፈታል — ምንም መቅዳት አያስፈልግም።",
       en: "The Telegram bot opens already linked to your computer — nothing to copy.",
@@ -57,10 +89,10 @@ const buySteps = [
     },
   },
   {
-    t: { am: "ፓነሉ በራሱ ይነቃል", en: "The panel activates itself" },
+    t: { am: "በራሱ ይነቃል", en: "It activates itself" },
     c: {
-      am: "ክፍያው ሲረጋገጥ ፓነሉ በራሱ ይነቃል — ምንም መለጠፍ አያስፈልግም። በስልክ ብቻ ከከፈሉ አጭር ኮድ ይደርስዎታል፤ በፓነሉ ላይ ጽፈው «አግብር» ይጫኑ።",
-      en: "Once the payment is confirmed the panel turns itself on — nothing to paste. Paid from your phone only? You get a short code; type it into the panel and press Activate.",
+      am: "ክፍያው ሲረጋገጥ ፓነሉ ወይም መተግበሪያው በራሱ ይነቃል — ምንም መለጠፍ አያስፈልግም። በስልክ ብቻ ከከፈሉ አጭር ኮድ ይደርስዎታል፤ «የፈቃድ ቁልፍ» ላይ ጽፈው «አግብር» ይጫኑ።",
+      en: "Once the payment is confirmed the panel or app turns itself on — nothing to paste. Paid from your phone only? You get a short code; type it into “License key” and press Activate.",
     },
   },
 ];
@@ -85,6 +117,13 @@ const faqs = [
     a: {
       am: "Premiere Pro 2022 (v22) እና ከዚያ በኋላ ያሉት፣ በWindows 10/11 እና macOS (Intel ወይም Apple Silicon)። After Effects 2022 እና ከዚያ በኋላ ያሉትም ይሰራሉ — ካፕሽኖቹ በኮምፖዚሽንዎ ውስጥ እንደ አንድ ቴክስት ሌየር ይገባሉ። ፓነሉ በ2021–2023 ስሪቶች ላይ አይከፈትም፤ እዚያ የ.srt መስሪያውን ይጠቀሙ።",
       en: "Premiere Pro 2022 (v22) and newer, on Windows 10/11 and macOS (Intel or Apple Silicon). After Effects 2022 and newer is supported too — captions arrive as one text layer in your composition. The panel does not load on 2021–2023 versions; use the drag-and-drop .srt tool there instead.",
+    },
+  },
+  {
+    q: { am: "በCapCut ወይም DaVinci Resolve ይሰራል?", en: "Does it work with CapCut or DaVinci Resolve?" },
+    a: {
+      am: "አዎ። ዴስክቶፕ ላይ ያለውን «Make Amharic Captions» መተግበሪያ ይክፈቱ፣ ቪዲዮዎን ወደ ውስጥ ይጎትቱ፣ ቪዲዮውን እያዩ ካፕሽኑን ያስተካክሉ፣ ከዚያ «SRT አስቀምጥ» ይጫኑ። የ.srt ፋይሉ ከቪዲዮው አጠገብ ይቀመጣል፦ CapCut (ኮምፒውተር) ውስጥ Text → Captions → Import፣ DaVinci ውስጥ File → Import → Subtitle። Windows እና Mac (Intel ወይም M1/M2/M3) ላይ ይሰራል። የCapCut የስልክ መተግበሪያ .srt አይቀበልም — CapCut ኮምፒውተር ላይ ይጠቀሙ።",
+      en: "Yes. Open the Make Amharic Captions app on your desktop, drag your video in, fix the captions while the video plays, then press “Save SRT”. The .srt lands next to your video: in CapCut desktop use Text → Captions → Import, in DaVinci File → Import → Subtitle. Works on Windows and Mac (Intel or Apple silicon). The CapCut phone app cannot import .srt files — use CapCut on a computer.",
     },
   },
   {
@@ -142,7 +181,7 @@ export default function HomePage() {
           <div className="hero-grid">
             <div className="hero-copy">
               <p className="eyebrow">
-                <Tx am="ለPremiere Pro፣ After Effects እና ለሌሎች ኤዲተሮች" en="For Premiere Pro, After Effects & any editor" />
+                <Tx am="Premiere Pro · After Effects · CapCut · DaVinci Resolve" en="Premiere Pro · After Effects · CapCut · DaVinci Resolve" />
               </p>
 
               <h1>
@@ -154,8 +193,8 @@ export default function HomePage() {
 
               <p className="hero-sub">
                 <Tx
-                  am="እያንዳንዱን መስመር በእጅ ከመጻፍ ይልቅ፣ ሊስተካከሉ የሚችሉ የአማርኛ ካፕሽኖችን በቀጥታ በPremiere ታይምላይንዎ ላይ ይፍጠሩ።"
-                  en="Generate editable Amharic captions straight onto your Premiere timeline — instead of typing every line by hand."
+                  am="እያንዳንዱን መስመር በእጅ ከመጻፍ ይልቅ፣ ሊስተካከሉ የሚችሉ የአማርኛ ካፕሽኖችን ይፍጠሩ — በቀጥታ በPremiere ወይም After Effects ታይምላይንዎ ላይ፣ ወይም ለCapCut እና DaVinci ዝግጁ .srt።"
+                  en="Generate editable Amharic captions instead of typing every line by hand — straight onto your Premiere or After Effects timeline, or as a ready .srt for CapCut and DaVinci."
                 />
               </p>
 
@@ -227,16 +266,35 @@ export default function HomePage() {
               </Reveal>
             ))}
           </div>
-          <Reveal delay={240}>
-            <div className="note-box">
-              <p>
+        </div>
+      </section>
+
+      {/* ------------------------------------------------- works with editors */}
+      <section className="section" id="editors">
+        <div className="container">
+          <Reveal>
+            <div className="section-head center">
+              <p className="eyebrow"><Tx am="ከኤዲተርዎ ጋር ይሰራል" en="Works with your editor" /></p>
+              <h2><Tx am="Premiere፣ After Effects፣ CapCut ወይም DaVinci።" en="Premiere, After Effects, CapCut or DaVinci." /></h2>
+              <p className="section-sub">
                 <Tx
-                  am={<><strong>Premiere የለዎትም?</strong> ቪዲዮዎን ዴስክቶፕ ላይ ባለው «Make Amharic Captions» ላይ ይጎትቱት — ለCapCut፣ DaVinci Resolve ወይም YouTube የሚሆን .srt ፋይል ከቪዲዮው አጠገብ ይፈጠራል።</>}
-                  en={<><strong>No Premiere?</strong> Drag a video onto “Make Amharic Captions” on your desktop — an .srt file for CapCut, DaVinci Resolve or YouTube appears next to the video.</>}
+                  am="አንድ ፈቃድ — ሁሉም። በሁሉም ላይ ካፕሽኑን ቪዲዮውን እያዩ ያስተካክላሉ።"
+                  en="One license covers all of them. Everywhere, you fix the captions while you watch the video."
                 />
               </p>
             </div>
           </Reveal>
+          <div className="editors">
+            {editors.map((e, i) => (
+              <Reveal key={e.name} delay={i * 90}>
+                <div className="editor-card">
+                  <span className="editor-icon" aria-hidden="true">{e.icon}</span>
+                  <h3>{e.name}</h3>
+                  <p><Tx am={e.text.am} en={e.text.en} /></p>
+                </div>
+              </Reveal>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -314,10 +372,10 @@ export default function HomePage() {
 
               <ul className="price-features">
                 <li><Tx am="ያልተገደበ ካፕሽን — የፈለጉትን ያህል" en="Unlimited captions — caption as much as you like" /></li>
-                <li><Tx am="በPremiere ውስጥ የሚስተካከሉ የካፕሽን ትራኮች" en="Editable caption tracks, native to Premiere" /></li>
-                <li><Tx am="Premiere Pro 2022+ · Windows 10/11 እና macOS" en="Premiere Pro 2022+ · Windows 10/11 & macOS" /></li>
-                <li><Tx am="After Effects 2022+ እና ለCapCut እና DaVinci የ.srt መስሪያ" en="After Effects 2022+ and a drag-and-drop .srt maker for CapCut & DaVinci" /></li>
-                <li><Tx am="ፓነሉ በአማርኛ ወይም በእንግሊዝኛ" en="Panel in Amharic or English" /></li>
+                <li><Tx am="Premiere Pro እና After Effects 2022+ — በቀጥታ ታይምላይኑ ላይ" en="Premiere Pro & After Effects 2022+ — straight onto the timeline" /></li>
+                <li><Tx am="CapCut እና DaVinci Resolve — መተግበሪያ፣ ቪዲዮውን እያዩ ማስተካከያ፣ .srt" en="CapCut & DaVinci Resolve — an app with video preview, saves the .srt" /></li>
+                <li><Tx am="Windows 10/11 እና macOS (Intel ወይም M1/M2/M3)" en="Windows 10/11 & macOS (Intel or Apple silicon)" /></li>
+                <li><Tx am="በአማርኛ ወይም በእንግሊዝኛ" en="In Amharic or English" /></li>
                 <li><Tx am="በቴሌግራም ድጋፍ — ከሰሩት ሰዎች በቀጥታ" en="Support on Telegram from the people who built it" /></li>
               </ul>
 

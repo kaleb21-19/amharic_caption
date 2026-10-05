@@ -79,10 +79,10 @@ const OS = {
         },
       ],
       [
-        { am: "Premiere ወይም After Effects የለኝም", en: "I don't have Premiere or After Effects" },
+        { am: "CapCut ወይም DaVinci እጠቀማለሁ", en: "I use CapCut or DaVinci Resolve" },
         {
-          am: "ጫኚው «Make Amharic Captions» የሚል አቋራጭ ዴስክቶፕዎ ላይ ያስቀምጣል። ማንኛውንም ቪዲዮ በላዩ ላይ ይጎትቱ፤ .srt ፋይል ከቪዲዮው አጠገብ ይፈጠራል — ወደ CapCut፣ DaVinci Resolve ወይም YouTube ያስገቡት።",
-          en: "The installer also puts a “Make Amharic Captions” shortcut on your desktop. Drag any video onto it and an .srt file appears next to the video — import it into CapCut, DaVinci Resolve or YouTube.",
+          am: "ዴስክቶፕ ላይ «Make Amharic Captions» ን ይክፈቱ (ወይም ቪዲዮውን በላዩ ላይ ይጣሉ)። ቪዲዮውን ወደ መስኮቱ ይጎትቱ፣ «ካፕሽን ይስሩ» ይጫኑ፣ ቪዲዮውን እያዩ ያስተካክሉ፣ ከዚያ «SRT አስቀምጥ»። .srt ፋይሉ ከቪዲዮው አጠገብ ይቀመጣል — CapCut፦ Text → Captions → Import · DaVinci፦ File → Import → Subtitle።",
+          en: "Open “Make Amharic Captions” on your desktop (or drop the video on it). Drag the video into the window, press “Make captions”, fix them while the video plays, then “Save SRT”. The .srt lands next to your video — CapCut: Text → Captions → Import · DaVinci: File → Import → Subtitle.",
         },
       ],
       [
@@ -166,10 +166,10 @@ const OS = {
         },
       ],
       [
-        { am: "Premiere ወይም After Effects የለኝም", en: "I don't have Premiere or After Effects" },
+        { am: "CapCut ወይም DaVinci እጠቀማለሁ", en: "I use CapCut or DaVinci Resolve" },
         {
-          am: "ዴስክቶፕ ላይ ያለውን «Make Amharic Captions» ሁለቴ ይጫኑ፣ ቪዲዮውን ወደ ተከፈተው መስኮት ይጎትቱና Return ይጫኑ። .srt ፋይል ከቪዲዮው አጠገብ ይፈጠራል — ወደ CapCut፣ DaVinci Resolve ወይም YouTube ያስገቡት።",
-          en: "Double-click “Make Amharic Captions” on your Desktop, then drag a video into the window that opens and press Return. An .srt file appears next to the video — import it into CapCut, DaVinci Resolve or YouTube.",
+          am: "ዴስክቶፕ ላይ ያለውን «Make Amharic Captions» ሁለቴ ይጫኑ — የአማርኛ ካፕሽን መተግበሪያ ይከፈታል። ቪዲዮውን ወደ መስኮቱ ይጎትቱ፣ «ካፕሽን ይስሩ» ይጫኑ፣ ቪዲዮውን እያዩ ያስተካክሉ፣ ከዚያ «SRT አስቀምጥ»። .srt ፋይሉ ከቪዲዮው አጠገብ ይቀመጣል — CapCut፦ Text → Captions → Import · DaVinci፦ File → Import → Subtitle። Terminal መስኮት ብቻ ከታየ የሚጽፈውን ስክሪንሾት ለድጋፍ ይላኩ።",
+          en: "Double-click “Make Amharic Captions” on your Desktop — the Amharic Captions app opens. Drag the video into the window, press “Make captions”, fix them while the video plays, then “Save SRT”. The .srt lands next to your video — CapCut: Text → Captions → Import · DaVinci: File → Import → Subtitle. If only a Terminal window appears, send support a screenshot of what it says.",
         },
       ],
       [

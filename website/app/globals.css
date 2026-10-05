@@ -622,6 +622,31 @@ code {
 }
 .step p { color: var(--muted); font-size: var(--t-sm); }
 
+/* Works with your editor: four cards, two per row on tablets, four on desktop. */
+.editors { display: grid; gap: var(--s-4); }
+@media (min-width: 640px) { .editors { grid-template-columns: repeat(2, minmax(0,1fr)); gap: var(--s-5); } }
+@media (min-width: 1000px) { .editors { grid-template-columns: repeat(4, minmax(0,1fr)); } }
+.editor-card {
+  padding: var(--s-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  height: 100%;
+}
+.editor-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 40px; height: 40px;
+  margin-bottom: var(--s-3);
+  border-radius: 10px;
+  background: rgba(61,220,138,0.1);
+  border: 1px solid var(--brand-line);
+  color: var(--brand);
+  font-size: var(--t-sm);
+  font-weight: 800;
+}
+.editor-card p { color: var(--muted); font-size: var(--t-sm); }
+
 /* ---------------------------------------------------------------- quality */
 .quality { display: grid; gap: var(--s-4); }
 @media (min-width: 820px) { .quality { grid-template-columns: repeat(3, minmax(0,1fr)); } }

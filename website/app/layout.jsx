@@ -53,13 +53,13 @@ const ethiopic = Noto_Sans_Ethiopic({
 
 export const metadata = {
   metadataBase: new URL(SITE_URL),
-  title: "Amharic Captions Pro — የአማርኛ ካፕሽን ለPremiere Pro | 100% Offline Amharic Speech-to-Text",
+  title: "Amharic Captions Pro — የአማርኛ ካፕሽን ለPremiere፣ After Effects፣ CapCut እና DaVinci | 100% Offline",
   description:
-    "የአማርኛ ካፕሽን በደቂቃዎች — በPremiere Pro ውስጥ፣ ያለ ኢንተርኔት። Amharic captions inside Adobe Premiere Pro, fully on your computer. No uploads, no internet needed. One-time ETB 2,500. 2 free captions to try.",
+    "የአማርኛ ካፕሽን በደቂቃዎች — ለPremiere Pro፣ After Effects፣ CapCut እና DaVinci Resolve፣ ያለ ኢንተርኔት። Amharic captions for Premiere Pro, After Effects, CapCut and DaVinci Resolve, made on your computer. No uploads, no internet needed. One-time ETB 2,500. 2 free captions to try.",
   openGraph: {
-    title: "Amharic Captions Pro — Amharic subtitles inside Adobe Premiere Pro",
+    title: "Amharic Captions Pro — Amharic subtitles for Premiere, After Effects, CapCut & DaVinci",
     description:
-      "Editable Amharic captions straight onto your Premiere timeline. Runs on your computer — no uploads, no internet needed. One-time ETB 2,500.",
+      "Editable Amharic captions on your Premiere or After Effects timeline, or a ready .srt for CapCut and DaVinci. Runs on your computer — no uploads, no internet needed. One-time ETB 2,500.",
     type: "website",
     locale: "am_ET",
     alternateLocale: ["en_US"],
@@ -71,7 +71,7 @@ export const metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Amharic Captions Pro — Amharic subtitles inside Adobe Premiere Pro",
+    title: "Amharic Captions Pro — Amharic subtitles for Premiere, After Effects, CapCut & DaVinci",
   },
   alternates: {
     canonical: "/",
@@ -111,7 +111,7 @@ export default function RootLayout({ children }) {
           seller: { "@type": "Organization", name: "Amharic Captions Pro" },
         },
         description:
-          "Amharic speech-to-text captions for Adobe Premiere Pro. Runs on-device with no internet required.",
+          "Amharic speech-to-text captions for Adobe Premiere Pro, After Effects, CapCut and DaVinci Resolve. Runs on-device with no internet required.",
       },
     ],
   };
