@@ -184,9 +184,13 @@
     if (lastSaved && done.style.display !== 'none') showDone(lastSaved, (lastCues || []).length);
   }
   if (typeof i18nOnChange === 'function') i18nOnChange(() => setTimeout(relabel, 0));
+  // A video dropped on the desktop shortcut comes in from amh_app.py;
+  // otherwise offer the last one again.
+  const given = ((window.__AMH_APP__ || {}).files || [])[0];
   try {
     const last = JSON.parse(localStorage.getItem('amh.app.lastFile') || 'null');
-    if (last && last.path && fs.existsSync(last.path)) chosen = last;
+    if (!given && last && last.path && fs.existsSync(last.path)) chosen = last;
   } catch (e) {}
   relabel();
+  if (given) choose(given);
 })();

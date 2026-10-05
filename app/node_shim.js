@@ -38,8 +38,9 @@
     }
     return r.result;
   }
+  const realFetch = window.fetch.bind(window);
   function post(path, body) {
-    return fetch(path, {
+    return realFetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Amh-Token': TOKEN },
       body: JSON.stringify(body),
@@ -47,7 +48,6 @@
   }
 
   // ── license-server calls go through the app (see amh_app.py _proxy) ─────
-  const realFetch = window.fetch.bind(window);
   if (BOOT.api) {
     window.fetch = function (url, opts) {
       const u = typeof url === 'string' ? url : (url && url.url) || '';
@@ -199,13 +199,21 @@
       return true;
     }
     async _poll(since) {
+      let failures = 0;
       for (;;) {
         let r;
         try {
-          const res = await fetch('/__api/poll?id=' + this.id + '&since=' + since, { headers: { 'X-Amh-Token': TOKEN } });
+          const res = await realFetch('/__api/poll?id=' + this.id + '&since=' + since, { headers: { 'X-Amh-Token': TOKEN } });
           if (res.status === 404) { this._finish(null); return; }
           r = await res.json();
-        } catch (e) { await new Promise((ok) => setTimeout(ok, 200)); continue; }
+          failures = 0;
+        } catch (e) {
+          // The app's own server stopped answering: report the child as
+          // failed rather than waiting forever.
+          if (++failures >= 50) { this._finish(null); return; }
+          await new Promise((ok) => setTimeout(ok, 200));
+          continue;
+        }
         for (const ev of r.events) {
           since++;
           if (ev.t === 'stdout') { if (this._collect) this._out.push(ev.d); this.stdout.emit('data', ev.d); }

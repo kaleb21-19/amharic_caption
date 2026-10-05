@@ -11,7 +11,9 @@ panel reaches these users too. Only the Premiere-only parts differ
 (app_mode.js): instead of "Place on timeline" the result is saved as an .srt
 next to the video, with import steps for CapCut and DaVinci.
 
-  python app/amh_app.py [--ui DIR] [--ext DIR] [--debug]
+  python app/amh_app.py [VIDEO] [--ui DIR] [--ext DIR] [--debug]
+
+VIDEO  a file dropped on the desktop shortcut: opened ready to caption
 
 --ui   folder with index.html + js/ (default: the extension root, ../)
 --ext  extension root that holds runtime/ (default: the same)
@@ -218,6 +220,7 @@ def env_info():
 class Handler(BaseHTTPRequestHandler):
     ui_dir = ""
     ext_dir = ""
+    files = []
 
     def log_message(self, *a):
         pass
@@ -313,7 +316,8 @@ class Handler(BaseHTTPRequestHandler):
             if self.headers.get("Sec-Fetch-Site", "same-origin") not in ("same-origin", "none"):
                 return self._send(403, "")
             js = "window.__AMH_APP__=%s;" % json.dumps(
-                {"token": TOKEN, "ext": self.ext_dir, "api": API_URL, "info": env_info()})
+                {"token": TOKEN, "ext": self.ext_dir, "api": API_URL, "info": env_info(),
+                 "files": self.files})
             return self._send(200, js, "text/javascript; charset=utf-8")
         if rel.startswith("__app/"):
             name = rel[len("__app/"):]
@@ -344,24 +348,51 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(200, data, ctype)
 
 
-def main():
-    global WINDOW, PORT
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--ui", default=os.path.join(HERE, ".."))
-    ap.add_argument("--ext", default=None)
-    ap.add_argument("--debug", action="store_true")
-    a = ap.parse_args()
-    Handler.ui_dir = os.path.realpath(a.ui)
-    Handler.ext_dir = os.path.realpath(a.ext or a.ui)
-
+def start_server(ui_dir, ext_dir, files=()):
+    """Serve the panel on 127.0.0.1:<random port>. Returns the server (also
+    used by tools/test/test_app.py, without a window)."""
+    global PORT
+    Handler.ui_dir = os.path.realpath(ui_dir)
+    Handler.ext_dir = os.path.realpath(ext_dir or ui_dir)
+    Handler.files = [os.path.abspath(f) for f in files if os.path.isfile(f)]
     srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     srv.daemon_threads = True
     PORT = srv.server_address[1]
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    print("Amharic Captions app: http://127.0.0.1:%d/index.html" % PORT, flush=True)
+    return srv
 
-    import webview
-    from webview.dom import DOMEventHandler
+
+def console_fallback(ext_dir, files):
+    """No window possible (e.g. an old Windows without the Edge WebView2
+    runtime): open the classic console SRT maker instead, so the customer
+    still gets their captions."""
+    if IS_WIN:
+        cmd = os.path.join(ext_dir, "Make Amharic Captions.cmd")
+        env = dict(os.environ, AMH_CONSOLE="1")
+        subprocess.Popen([cmd] + list(files), env=env, creationflags=0x00000010)  # CREATE_NEW_CONSOLE
+    else:
+        cmd = os.path.join(ext_dir, "Make Amharic Captions.command")
+        subprocess.Popen(["open", "-a", "Terminal", cmd])
+
+
+def main():
+    global WINDOW
+    ap = argparse.ArgumentParser()
+    ap.add_argument("files", nargs="*", help="a video to open (dropped on the shortcut)")
+    ap.add_argument("--ui", default=os.path.join(HERE, ".."))
+    ap.add_argument("--ext", default=None)
+    ap.add_argument("--debug", action="store_true")
+    a = ap.parse_args()
+    ext_dir = os.path.realpath(a.ext or a.ui)
+
+    try:
+        import webview
+        from webview.dom import DOMEventHandler
+    except Exception:
+        return console_fallback(ext_dir, a.files)
+
+    start_server(a.ui, ext_dir, a.files)
+    print("Amharic Captions app: http://127.0.0.1:%d/index.html" % PORT, flush=True)
 
     def on_drop(e):
         files = (e.get("dataTransfer") or {}).get("files") or []
@@ -377,7 +408,10 @@ def main():
         "Amharic Captions Pro", "http://127.0.0.1:%d/index.html" % PORT,
         width=520, height=860, min_size=(420, 600), background_color="#1e1f22")
     storage = os.path.join(os.path.expanduser("~"), ".amharic_captions_app")
-    webview.start(on_start, WINDOW, private_mode=False, storage_path=storage, debug=a.debug)
+    try:
+        webview.start(on_start, WINDOW, private_mode=False, storage_path=storage, debug=a.debug)
+    except Exception:
+        console_fallback(ext_dir, a.files)
     for c in list(CHILDREN.values()):
         c.kill()
 

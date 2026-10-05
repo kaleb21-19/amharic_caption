@@ -203,6 +203,15 @@ if (Test-Path $PanelTests) { Remove-Item -Recurse -Force $PanelTests }
 # Local design-review scratch (_preview*) must never ship.
 Get-ChildItem $BNAME -Filter "_preview*" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
 
+# desktop app for CapCut / DaVinci users (the panel in its own window, app\)
+$APPDST = Join-Path $BNAME "app"
+New-Item -ItemType Directory -Force $APPDST | Out-Null
+foreach ($f in @("amh_app.py", "node_shim.js", "app_mode.js", "app.css")) {
+    Copy-Item (Join-Path $ROOT "app\$f") (Join-Path $APPDST $f)
+}
+if (-not (Test-Path (Join-Path $SITE "webview"))) { throw "pywebview missing from the bundled python (tools/prepare_python.sh)" }
+Write-Host "  [ok] desktop app"
+
 # one-click installer (shipped at zip root, next to the extension folder)
 $INST = Join-Path $ROOT "tools\installers"
 
