@@ -119,6 +119,7 @@ function loadPanel(opts) {
     document,
     CSInterface: class { evalScript(jsx,cb) {
       if (opts.evalLog) opts.evalLog.push(jsx);
+      if (opts.csiRaw) { cb(opts.csiRaw(jsx)); return; }
       cb(JSON.stringify(opts.csiReply || defaultCsiReply));
     } },
     cep: { fs:{ showOpenDialog(){ return opts.folderDialog ? opts.folderDialog() : {err:1}; } },
@@ -194,7 +195,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.9.1');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.9.2');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1415,6 +1416,34 @@ await t('14. After Effects: loads host_ae.jsx, AE wording, font + long timeout o
     assert.ok(!pLog.some((j) => /host_ae/.test(j)), 'Premiere does not load host_ae.jsx');
     assert.strictEqual(pp.els('srcClip').textContent === 'Selected Layer', false);
   } finally { pp.close(); }
+});
+
+await t('14c. an empty or "EvalScript error." answer is explained by a host probe (AE version, helpers, project)', async () => {
+  // Seen: After Effects on a Mac, Work Area, v1.9.1 — "No result from After
+  // Effects" and nothing else to go on.
+  const probeLog = [];
+  const p = loadPanel({ hostApp: 'AEFT', csiRaw: (jsx) => {
+    if (/s\.push\("app "/.test(jsx)) { probeLog.push(jsx); return 'app 25.2, json object, helpers function, ae-code false, project open, active Composition'; }
+    return /getSequenceInfo/.test(jsx) ? '' : /getSelectedClip/.test(jsx) ? 'EvalScript error.' : '{"ok":true}';
+  } });
+  try {
+    await flush(5);
+    const r = await p.evalVm("evalScript('amharic_getSequenceInfo(false)')");
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.error, 'No result from After Effects (app 25.2, json object, helpers function, ae-code false, project open, active Composition)');
+    const r2 = await p.evalVm("evalScript('amharic_getSelectedClip()')");
+    assert.match(r2.error, /^script error in After Effects \(app 25\.2/);
+    assert.ok(probeLog.length === 2 && !/aeHostCall|evalFile/.test(probeLog[0]), 'the probe is plain (not wrapped, no file loads)');
+    assert.ok(new Function('app', 'amhGuard', 'amharic_getSelectedClip', 'return ' + probeLog[0])({ version: '1', project: null }, undefined, undefined).indexOf('project none') >= 0,
+      'the probe itself runs and never throws, even with nothing loaded');
+  } finally { p.close(); }
+  // When the probe gets no answer either, say that.
+  const q = loadPanel({ hostApp: 'AEFT', csiRaw: () => '' });
+  try {
+    await flush(5);
+    const r = await q.evalVm("evalScript('amharic_getSequenceInfo(false)')");
+    assert.strictEqual(r.error, 'No result from After Effects (the host did not answer a test either)');
+  } finally { q.close(); }
 });
 
 await t('14b. editing shortcuts (Ctrl/Cmd + C V X A Z Y, + Shift) stay in the panel, in AE and Premiere', async () => {

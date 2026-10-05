@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.9.1';
+const APP_VERSION = '1.9.2';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -1712,6 +1712,17 @@ function escJson(s) {
   return j === undefined ? 'null'
     : String(j).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 }
+// Asked only after a host call came back empty: plain ES3, no JSON / helper
+// dependency, every step guarded — it must answer even when our code is broken.
+const HOST_PROBE_JSX = '(function(){var s=[];' +
+  'try{s.push("app "+app.version);}catch(e){s.push("app ?");}' +
+  'try{s.push("json "+typeof JSON);}catch(e){}' +
+  'try{s.push("helpers "+typeof amhGuard);}catch(e){}' +
+  'try{s.push("ae-code "+(typeof amharic_getSelectedClip!=="undefined"&&amharic_getSelectedClip.amhAE===true));}catch(e){}' +
+  'try{var p=app.project;s.push("project "+(p?"open":"none"));' +
+  'if(p&&p.activeItem){s.push("active "+(p.activeItem.typeName||"item"));}else{s.push("active none");}}catch(e){s.push("project ? "+e);}' +
+  'return s.join(", ");})()';
+
 function evalScript(jsx, timeoutMs) {
   if (IS_AE) {
     jsx = aeHostCall(jsx,
@@ -1729,11 +1740,19 @@ function evalScript(jsx, timeoutMs) {
     const timer = setTimeout(() => finish({ ok: false, error: HOST_NAME + ' script timed out' }), timeoutMs || 20000);
     try {
       csi.evalScript(jsx, (result) => {
-        if (typeof result === 'string' && result.length > 0) {
+        const failed = result === 'EvalScript error.';
+        if (typeof result === 'string' && result.length > 0 && !failed) {
           try { finish(JSON.parse(result)); }
           catch (e) { finish({ ok: true, _raw: result }); }
         } else {
-          finish({ ok: false, error: result || ('No result from ' + HOST_NAME) });
+          // An empty answer (or CEP's bare "EvalScript error.") hides the
+          // cause. Ask the host what it can see, so the customer's screenshot
+          // says why (seen: After Effects on a Mac, Work Area, right after the load-error fix).
+          const what = failed ? 'script error in ' + HOST_NAME : 'No result from ' + HOST_NAME;
+          try {
+            csi.evalScript(HOST_PROBE_JSX, (probe) => finish({ ok: false,
+              error: what + ' (' + (probe && probe !== 'EvalScript error.' ? probe : 'the host did not answer a test either') + ')' }));
+          } catch (e) { finish({ ok: false, error: what }); }
         }
       });
     } catch (e) {
