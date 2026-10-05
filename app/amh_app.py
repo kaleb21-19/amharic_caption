@@ -348,14 +348,29 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(200, data, ctype)
 
 
-def start_server(ui_dir, ext_dir, files=()):
-    """Serve the panel on 127.0.0.1:<random port>. Returns the server (also
-    used by tools/test/test_app.py, without a window)."""
+# The page's localStorage (first-run guide seen, language, caption style,
+# update snooze, …) belongs to its origin, and the origin includes the port:
+# a random port made every launch a brand-new site — the guide came back
+# each time and settings were lost. So the app prefers fixed ports; a random
+# one only if all are taken (then that one launch starts fresh).
+APP_PORTS = (47321, 47322, 47323)
+
+
+def start_server(ui_dir, ext_dir, files=(), ports=APP_PORTS):
+    """Serve the panel on 127.0.0.1 (the first free port of `ports`, else a
+    random one). Returns the server (also used by tools/test/test_app.py,
+    without a window, with ports=())."""
     global PORT
     Handler.ui_dir = os.path.realpath(ui_dir)
     Handler.ext_dir = os.path.realpath(ext_dir or ui_dir)
     Handler.files = [os.path.abspath(f) for f in files if os.path.isfile(f)]
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    srv = None
+    for port in tuple(ports) + (0,):
+        try:
+            srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+            break
+        except OSError:
+            continue
     srv.daemon_threads = True
     PORT = srv.server_address[1]
     threading.Thread(target=srv.serve_forever, daemon=True).start()
