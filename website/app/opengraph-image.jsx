@@ -13,7 +13,7 @@ import { PRICE } from "@/lib/site";
 // advertising ETB 1,500.
 
 export const runtime = "nodejs";
-export const alt = "Amharic Captions Pro — Amharic subtitles inside Adobe Premiere Pro";
+export const alt = "Amharic Captions Pro — Amharic subtitles for Premiere, After Effects, CapCut & DaVinci";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -79,7 +79,7 @@ export default function OgImage() {
               lineHeight: 1.4,
             }}
           >
-            Editable Amharic captions straight onto your Adobe Premiere Pro timeline.
+            For Premiere Pro, After Effects, CapCut and DaVinci Resolve.
           </div>
         </div>
 

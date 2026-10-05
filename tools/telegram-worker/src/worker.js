@@ -852,7 +852,7 @@ async function rewardStats(uid) {
 }
 
 function shareUrl(link, t) {
-  const text = 'አማርኛ ካፕሽን ፕሮ — የአማርኛ ካፕሽን በደቂቃዎች፣ በPremiere Pro ውስጥ።' +
+  const text = 'አማርኛ ካፕሽን ፕሮ — የአማርኛ ካፕሽን በደቂቃዎች፣ ለPremiere፣ After Effects፣ CapCut እና DaVinci።' +
     (t.discount > 0 ? ` በዚህ ሊንክ ሲገዙ ${money(t.discount)} ብር ቅናሽ ያገኛሉ 👇` : ' 👇');
   return `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`;
 }
@@ -1943,8 +1943,8 @@ function midHelpText() {
     '<i>Easiest: press “Buy a license” in the panel — this bot opens with your Machine ID already filled in.</i>\n\n' +
     '<b>ወይም፦</b> Window → Extensions → Amharic Captions Pro ይክፈቱ። ከፓነሉ ግርጌ «👇 ይቅዱ · ከክፍያው ጋር ይላኩ» ስር ያለውን <b>16 ፊደል</b> ኮድ <b>📋 ቅዳ</b> ብለው እዚህ ይለጥፉ።\n' +
     '<i>Or open the panel and, at the bottom, copy the 16-character code under “Copy · send with payment” (📋 Copy), then paste it here.</i>\n\n' +
-    '<b>Premiere የለዎትም?</b> «Make Amharic Captions» ቁልፍ ሲጠይቅ Machine ID ዎን ያሳያል።\n' +
-    '<i>No Premiere? Make Amharic Captions shows your Machine ID when it asks for a key.</i>'
+    '<b>CapCut ወይም DaVinci?</b> ዴስክቶፕ ላይ «Make Amharic Captions» ን ይክፈቱ — እዚያም «ፈቃድ ይግዙ» እና Machine ID አለ።\n' +
+    '<i>CapCut or DaVinci? Open “Make Amharic Captions” on your desktop — it has the same “Buy a license” button and Machine ID.</i>'
   );
 }
 const MID_HELP_BTN = { text: '📍 Machine ID የት ነው? · Where is it?', callback_data: 'help:mid' };
@@ -2571,7 +2571,8 @@ const GROUP_FAQ = {
   trial: () => '🎁 ፓነሉን ይጫኑ — <b>2 ካፕሽን በነጻ</b> ይሰራሉ፤ ክፍያም ምዝገባም አያስፈልግም።\n' +
     '<i>Install the panel and make 2 captions free — no payment, no sign-up.</i>',
   install: (chatId) => '📲 <b>①</b> ያውርዱ · <i>download</i>  <b>②</b> Premiere / After Effects ይዝጉ፣ <b>Install</b> ን ያስኪዱ · <i>close them, run Install</i>\n' +
-    '<b>③</b> Premiere ይክፈቱ → <b>Window → Extensions → Amharic Captions Pro</b>\n\n' +
+    '<b>③</b> Premiere ይክፈቱ → <b>Window → Extensions → Amharic Captions Pro</b>\n' +
+    '✂️ CapCut / DaVinci፦ ዴስክቶፕ ላይ <b>Make Amharic Captions</b> ን ይክፈቱ · <i>open Make Amharic Captions on your desktop</i>\n\n' +
     `🪟 / 🍎 ሙሉ መመሪያ፦ ${topicRef(chatId, 'windows', 'Window guide')} · ${topicRef(chatId, 'mac', 'Macos guide')} <i>(full steps in the guide topics)</i>`,
 };
 const GROUP_FAQ_KB = {
@@ -3076,11 +3077,10 @@ const FAQ = {
   need: {
     btn: '🖥 ምን ያስፈልገኛል? · Requirements',
     text: () => '🖥 <b>ምን ያስፈልጋል? / What do I need?</b>\n\n' +
-      '• <b>Premiere Pro</b> ወይም <b>After Effects</b> — 2022 ወይም ከዚያ በኋላ\n<i>  Premiere Pro or After Effects 2022 or newer</i>\n' +
-      '• Windows (64-bit) ወይም Mac\n<i>  Windows (64-bit) or Mac</i>\n' +
-      '• ቪዲዮዎ ከኮምፒውተርዎ አይወጣም — ካፕሽኑ በኮምፒውተርዎ ላይ ይሰራል።\n<i>  Your video never leaves your computer — captions are made on it.</i>\n\n' +
-      '✂️ CapCut ወይም ሌላ ኤዲተር? ካፕሽኑን በፓነሉ ሰርተው «የሰብታይትል ፋይሎችን አስቀምጥ» ብለው የSRT ፋይሉን ያስገቡ።\n' +
-      '<i>CapCut or another editor? Make the captions in the panel, “Save subtitle files”, and import the SRT.</i>',
+      '• Windows (64-bit) ወይም Mac (Intel ወይም M1/M2/M3)\n<i>  Windows (64-bit) or Mac (Intel or Apple silicon)</i>\n' +
+      '• <b>Premiere Pro</b> ወይም <b>After Effects</b> 2022+ — ካፕሽኑ በቀጥታ ታይምላይኑ ላይ ይገባል\n<i>  Premiere Pro or After Effects 2022+ — captions go straight onto the timeline</i>\n' +
+      '• <b>CapCut</b> ወይም <b>DaVinci Resolve</b> — «Make Amharic Captions» መተግበሪያ፦ ቪዲዮውን እያዩ ያስተካክሉ፣ የ .srt ፋይሉን ያስገቡ\n<i>  CapCut or DaVinci Resolve — the Make Amharic Captions app: fix the captions while watching the video, then import the .srt</i>\n' +
+      '• ቪዲዮዎ ከኮምፒውተርዎ አይወጣም — ካፕሽኑ በኮምፒውተርዎ ላይ ይሰራል።\n<i>  Your video never leaves your computer — captions are made on it.</i>',
     kb: () => [[INSTALL_BTN]],
   },
   install: {
@@ -3088,7 +3088,8 @@ const FAQ = {
     text: () => '📲 <b>አጫጫን / Installing</b>\n\n' +
       '<b>①</b> ከድረ-ገጹ ያውርዱ · <i>download it from the website</i>\n' +
       '<b>②</b> Premiere እና After Effects ይዝጉ፣ ከዚያ <b>Install</b> ን ያስኪዱ · <i>close Premiere / After Effects, then run Install</i>\n' +
-      '<b>③</b> Premiere ይክፈቱ → <b>Window → Extensions → Amharic Captions Pro</b>\n\n' +
+      '<b>③</b> Premiere ይክፈቱ → <b>Window → Extensions → Amharic Captions Pro</b>\n' +
+      '✂️ CapCut / DaVinci፦ ዴስክቶፕ ላይ <b>Make Amharic Captions</b> ን ይክፈቱ · <i>open Make Amharic Captions on your desktop</i>\n\n' +
       'ሙሉ መመሪያው ከታች ነው። <i>The full guide is below.</i>',
     kb: () => [[INSTALL_BTN]],
   },
@@ -3666,7 +3667,7 @@ function activationCodeMessage(code) {
     '🔑 የማግበሪያ ኮድዎ / Your activation code:\n' +
     `<code>${esc(code)}</code>\n\n` +
     '<b>①</b> አማርኛ ካፕሽን ፕሮን ይጫኑ (ከታች «አጫጫን») · <i>install the app (Install guide below)</i>\n' +
-    '<b>②</b> በPremiere ወይም After Effects ፓነሉን ይክፈቱ፣ ኮዱን <b>«የፈቃድ ቁልፍ»</b> ላይ ይጻፉ · <i>open the panel and type the code into “License key”</i>\n' +
+    '<b>②</b> ፓነሉን (Premiere / After Effects) ወይም <b>Make Amharic Captions</b> ን (CapCut / DaVinci) ይክፈቱ፣ ኮዱን <b>«የፈቃድ ቁልፍ»</b> ላይ ይጻፉ · <i>open the panel or Make Amharic Captions and type the code into “License key”</i>\n' +
     '<b>③</b> <b>«አግብር»</b> ይጫኑ — ተጠናቋል! · <i>press Activate — done!</i>\n\n' +
     '🖥 ኮዱ ለአንድ ኮምፒውተር ብቻ ነው። <i>One code = one computer.</i>\n' +
     'እናመሰግናለን! 🙏 ችግር ካጋጠመዎት ይጻፉልን። <i>Thank you — message us if anything goes wrong.</i>'
@@ -3700,8 +3701,8 @@ function keyDeliveryMessage(key, expiry, chatType, selfActivating = false) {
     '<b>②</b> ፓነሉን ይክፈቱ (Premiere ወይም After Effects)፣ ከግርጌ <b>«የፈቃድ ቁልፍ»</b> ላይ ይለጥፉ · <i>open the panel and paste it into “License key” at the bottom</i>',
     '<b>③</b> <b>«አግብር»</b> ይጫኑ · <i>press Activate</i>',
     '',
-    '🎬 <b>Make Amharic Captions</b>፦ ቁልፍ ሲጠይቅ ይለጥፉና Enter ይጫኑ።',
-    '<i>Make Amharic Captions: paste it when asked for a key and press Enter.</i>',
+    '✂️ <b>CapCut / DaVinci</b>፦ በ «Make Amharic Captions» ውስጥም «የፈቃድ ቁልፍ» ላይ ይለጥፉ።',
+    '<i>CapCut / DaVinci: paste it into “License key” in Make Amharic Captions too.</i>',
   ];
   if (expiry !== '00000000') lines.push('', `⏰ የሚያበቃበት / Expires: ${esc(expiry)}`);
   lines.push('', 'እናመሰግናለን! 🙏 ችግር ካጋጠመዎት ይጻፉልን።\n<i>Thank you — message us if anything goes wrong.</i>');
