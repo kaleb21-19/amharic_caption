@@ -29,6 +29,19 @@ const PANEL_JS = path.join(REPO, 'panel', 'js');
 const DEV      = path.join(os.homedir(), 'Documents', 'amharic-captions');
 const { makeDocument, makeLocalStorage } = require('./dom_shim.js');
 
+// Never touch the real ~/.amharic_captions_* files. loadPanel() points each
+// panel at a temp home and restores the variable on close(), but a panel's
+// async license check can finish AFTER close() — it once overwrote the dev
+// PC's real license with a test lease. So the whole run defaults to a
+// throwaway home, and the end of the run checks the real files are untouched.
+const REAL_IDENTITY = ['.amharic_captions_license.json', '.amharic_captions_machine.json']
+  .map((f) => path.join(os.homedir(), f));
+const realIdentityState = () => REAL_IDENTITY.map((f) => {
+  try { const s = fs.statSync(f); return f + ':' + s.size + ':' + s.mtimeMs; } catch (e) { return f + ':-'; }
+}).join('|');
+const REAL_IDENTITY_BEFORE = realIdentityState();
+process.env.AMH_MACHINE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_panel_home_'));
+
 const CACHE_FILE = path.join(os.tmpdir(), 'amh_transcript_cache.json');
 const ENGINE_FILES = ['ethio_srt.py','ctc_beam.py','amh_correct.py','amh_decode.py','amh_vad.py','amh_lm.py','amh_lm.json.gz'];
 
@@ -195,7 +208,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.9.2');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.9.3');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1634,6 +1647,11 @@ await t('13b. language: an unset preference defaults to Amharic; unknown text fa
     assert.strictEqual(p.evalVm("T('License expired on 2027-01-01')"), 'ፈቃዱ 2027-01-01 ላይ አብቅቷል');
     assert.strictEqual(p.evalVm("T('2 captions')"), '2 ካፕሽን');
   } finally { p.close(); }
+});
+
+await t('the real license / machine-ID files in the home folder were never touched', async () => {
+  await flush(50);   // let any late async license work finish first
+  assert.strictEqual(realIdentityState(), REAL_IDENTITY_BEFORE);
 });
 
 console.log('\n' + (fail===0 ? 'ALL PASS' : 'FAILURES: '+fail) + '  (' + pass + ' passed, ' + fail + ' failed)');

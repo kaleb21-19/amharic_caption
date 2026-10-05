@@ -580,10 +580,14 @@ rem ------------------------------------------------------------
 >> "%LOG%" echo Creating the Make Amharic Captions shortcut...
 set "AMH_SRT_TARGET=%DEST%\Make Amharic Captions.cmd"
 set "AMH_SRT_DIR=%DEST%"
+rem The app is started straight with pythonw.exe: no console window flashes
+rem up first. Without the app, the shortcut runs the .cmd as before.
+set "AMH_APP_PYW=%DEST%\runtime\python\pythonw.exe"
+set "AMH_APP_PY=%DEST%\app\amh_app.py"
 set "SC_OK=0"
 rem AMH_NO_SHORTCUT=1 skips this step (sandboxed installer tests only).
 if not defined AMH_NO_SHORTCUT if exist "%AMH_SRT_TARGET%" (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "$w = New-Object -ComObject WScript.Shell; foreach ($f in @('Desktop','Programs')) { $d = [Environment]::GetFolderPath($f); if ($d) { $s = $w.CreateShortcut((Join-Path $d 'Make Amharic Captions.lnk')); $s.TargetPath = $env:AMH_SRT_TARGET; $s.WorkingDirectory = $env:AMH_SRT_DIR; $s.Description = 'Amharic captions for CapCut, DaVinci Resolve and other editors'; $s.Save() } }" >> "%LOG%" 2>&1
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "$w = New-Object -ComObject WScript.Shell; $q = [char]34; foreach ($f in @('Desktop','Programs')) { $d = [Environment]::GetFolderPath($f); if ($d) { $s = $w.CreateShortcut((Join-Path $d 'Make Amharic Captions.lnk')); if ((Test-Path $env:AMH_APP_PYW) -and (Test-Path $env:AMH_APP_PY)) { $s.TargetPath = $env:AMH_APP_PYW; $s.Arguments = '-E -s -X utf8 ' + $q + $env:AMH_APP_PY + $q } else { $s.TargetPath = $env:AMH_SRT_TARGET; $s.Arguments = '' }; $s.WorkingDirectory = $env:AMH_SRT_DIR; $s.Description = 'Amharic captions for CapCut, DaVinci Resolve and other editors'; $s.Save() } }" >> "%LOG%" 2>&1
     if not errorlevel 1 set "SC_OK=1"
 )
 if "!SC_OK!"=="1" (
