@@ -58,8 +58,7 @@ jobs:
       - name: Install (Install.command silent)
         run: |
           set -o pipefail
-          bash pkg/Install.command silent | tail -n 25 || { echo "::error title=install::Install.command failed. Log: $(tail -n 25 /tmp/amharic-captions-install.log | tr '
-' '|')"; exit 1; }
+          bash pkg/Install.command silent | tail -n 25 || { echo "::error title=install::Install.command failed. Log: $(tail -n 25 /tmp/amharic-captions-install.log | paste -sd '|' -)"; exit 1; }
 
       - name: Smoke test the installed product
         run: python3 tools/test/mac_smoke.py --app-from app --standalone
