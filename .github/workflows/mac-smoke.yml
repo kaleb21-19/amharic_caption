@@ -31,8 +31,8 @@ jobs:
             zip: amharic-captions-mac-arm64.zip
           - os: macos-15-intel    # Intel Mac (the mac-x64 package)
             zip: amharic-captions-mac-x64.zip
-          - os: macos-13          # Intel Mac on an older macOS (Ventura)
-            zip: amharic-captions-mac-x64.zip
+          # (macos-13 is retired on GitHub: its jobs queue forever. Older macOS
+          # versions are covered by the launcher explaining any failure.)
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
