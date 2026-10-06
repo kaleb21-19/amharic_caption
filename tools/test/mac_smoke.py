@@ -124,6 +124,10 @@ def main():
                        capture_output=True, text=True, timeout=120)
     if r.returncode == 0:
         ok("window library loads", " ".join(r.stdout.split()))
+        if r.stderr.strip():
+            # Harmless warnings are fine, but the launcher must not mistake
+            # them for a failure (it judges by exit code since 1.9.5).
+            note("notice", "window library printed warnings (harmless)", r.stderr.strip()[-1500:])
     else:
         fail("window library loads", (r.stderr or r.stdout)[-2000:])
 

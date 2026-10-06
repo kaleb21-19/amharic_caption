@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.9.4';
+const APP_VERSION = '1.9.5';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a

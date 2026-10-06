@@ -1,5 +1,5 @@
 /*
- * Amharic Captions — ExtendScript host layer for Premiere Pro.
+ * Amharic Captions - ExtendScript host layer for Premiere Pro.
  *
  * Every exported function returns a JSON string of the shape
  *   { ok: true,  ... }
@@ -248,11 +248,11 @@ function amharic_getSelectedClip() {
         if (!seq) { return amhErr("No active sequence. Open one first."); }
 
         // Find the clip. We do this in two passes:
-        //   Pass 1 — only clips that are EXPLICITLY selected (across all
+        //   Pass 1 - only clips that are EXPLICITLY selected (across all
         //            video+audio tracks) qualify. This must not consult the
         //            playhead, otherwise an earlier unselected clip under the
         //            playhead can "win" before we reach the real selection.
-        //   Pass 2 — only if nothing was selected, fall back to the clip
+        //   Pass 2 - only if nothing was selected, fall back to the clip
         //            under the playhead.
         var picked = null;
         var pickedVia = "";
@@ -322,7 +322,7 @@ function amharic_getSelectedClip() {
         // Read a Premiere time object (Tick) to seconds. Tick objects expose
         // .seconds in most versions, but that can be unreliable across builds;
         // fall back to .ticks / ticks-per-second. (254016000000 ticks/sec on
-        // Mac, 254016000000 on Win too — Premiere uses a fixed 60fps timebase.)
+        // Mac, 254016000000 on Win too - Premiere uses a fixed 60fps timebase.)
         var toSec = function (timeObj) {
             if (timeObj === null || timeObj === undefined) { return null; }
             try {
@@ -407,7 +407,7 @@ function amharic_getSequenceInfo(all) {
 
         // Work-area bounds. The bar the editor drags is the Work Area bar
         // (workAreaBarStart/End). Sequence getInPoint()/getOutPoint() are the
-        // separate In/Out MARKERS — reading those made "Work Area" silently
+        // separate In/Out MARKERS - reading those made "Work Area" silently
         // transcribe the whole edit (or the marker span) instead of the bar,
         // which is exactly what a customer reports as "doesn't work".
         var inP = null, outP = null;
@@ -600,12 +600,12 @@ function amh_importCaptions(argsJSON) {
         // Find the imported item by (in order) human label, SRT file base name,
         // or the most recently added caption item as a last resort.
         // Find the caption item. The human label (baseName) can COLLIDE with a
-        // media clip's name — a caption on a Selected Clip is labeled with the
+        // media clip's name - a caption on a Selected Clip is labeled with the
         // clip's name (e.g. "Tiktok.mp3"), and the clip itself lives in this bin,
         // so a baseName lookup can silently hand Sequence.createCaptionTrack the
         // *media clip*, which makes it return false (no error thrown). Prefer the
-        // SRT file base name first — it uniquely names the imported caption item
-        // (amh_review_*/amh_file_*/amh_captions_*) — and only accept a baseName
+        // SRT file base name first - it uniquely names the imported caption item
+        // (amh_review_*/amh_file_*/amh_captions_*) - and only accept a baseName
         // match when it's caption-typed or .srt/.vtt-named.
         var captionItem = importedItem;
         var firstMatch = null;
@@ -952,7 +952,7 @@ function amhCaptionTrackIsOurs(t, baseName, srtBase, keepSrtBase) {
 }
 
 // Take our previous captions off the timeline after a new set was placed.
-// Premiere's scripting Track has no remove() — only TrackItem does — so the
+// Premiere's scripting Track has no remove() - only TrackItem does - so the
 // old `t.remove()` threw, the catch swallowed it, and every re-place stacked
 // one more caption track: each word showed twice (three times after a third
 // try). Users reported "duplicated words" on their first tries. Remove the
@@ -990,7 +990,7 @@ function amhPlaceCaptions(seq, captionItem, startTicks, startSeconds) {
         try { fmt = Sequence.CAPTION_FORMAT_SUBTITLE; } catch (e) { fmt = null; }
         var forms = [];
         // The documented, current signature is (captionItem, startSeconds, format)
-        // — start in SECONDS (a raw TickTime as the 2nd arg reads as ~26 trillion
+        // - start in SECONDS (a raw TickTime as the 2nd arg reads as ~26 trillion
         // seconds and Premiere caps it), 3rd arg an integer constant, NOT a
         // string/boolean ("Illegal Parameter type" otherwise). Try seconds far
         // ahead of ticks so every modern version gets the correct unit first.

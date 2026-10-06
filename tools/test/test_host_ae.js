@@ -336,5 +336,21 @@ t('host_ae.jsx fails to load: a clear error with the cause, never the Premiere a
   assert.ok(r2.ok === false && /did not load\. Click Run diagnostics/.test(r2.error), r2.error);
 });
 
+// After Effects 2026 (26.0) never loaded host_ae.jsx: one literal BOM
+// character in a regex was enough, and nothing reported why. Every
+// ExtendScript file we ship stays pure ASCII (write \uXXXX escapes instead).
+t('every panel/jsx/*.jsx file is pure ASCII (no BOM, no dashes or quotes outside ASCII)', () => {
+  const dir = path.join(__dirname, '..', '..', 'panel', 'jsx');
+  for (const f of fs.readdirSync(dir).filter((n) => n.endsWith('.jsx'))) {
+    const buf = fs.readFileSync(path.join(dir, f));
+    const bad = [];
+    for (let i = 0; i < buf.length; i++) if (buf[i] > 127) bad.push(i);
+    if (bad.length) {
+      const line = buf.slice(0, bad[0]).toString('latin1').split('\n').length;
+      assert.fail(f + ': ' + bad.length + ' non-ASCII byte(s), first on line ' + line);
+    }
+  }
+});
+
 console.log('\n' + (fail === 0 ? 'ALL PASS' : 'FAILURES: ' + fail) + '  (' + pass + ' passed, ' + fail + ' failed)');
 process.exit(fail === 0 ? 0 : 1);

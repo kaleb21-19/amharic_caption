@@ -1,6 +1,6 @@
 /*
  * Minimal JSON for ExtendScript (which ships without it).
- * Only stringify/parse of plain data — enough to move structs across the bridge.
+ * Only stringify/parse of plain data - enough to move structs across the bridge.
  */
 if (typeof JSON !== 'object') { JSON = {}; }
 
@@ -61,7 +61,7 @@ if (typeof JSON !== 'object') { JSON = {}; }
             // ExtendScript has no native parser; every payload we parse is our own.
             // Defuse raw U+2028/U+2029 before eval: ES3/ES5 treats them as string
             // terminators, so a barely-encoded payload would splice the literal.
-            // Replacing them globally is safe — in valid JSON they only ever occur
+            // Replacing them globally is safe - in valid JSON they only ever occur
             // INSIDE string literals, where the escape and the raw char are equal.
             text = String(text).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
             return eval('(' + text + ')');
