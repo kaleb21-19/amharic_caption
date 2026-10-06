@@ -12,6 +12,9 @@ on:
       tag:
         description: "Release tag to test (empty = latest)"
         required: false
+  # ci/* branches: test that branch's launcher + app on the published runtime
+  push:
+    branches: ["ci/**"]
 
 permissions:
   contents: read
@@ -27,6 +30,8 @@ jobs:
           - os: macos-14          # Apple silicon, one macOS version older
             zip: amharic-captions-mac-arm64.zip
           - os: macos-15-intel    # Intel Mac (the mac-x64 package)
+            zip: amharic-captions-mac-x64.zip
+          - os: macos-13          # Intel Mac on an older macOS (Ventura)
             zip: amharic-captions-mac-x64.zip
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
@@ -61,6 +66,15 @@ jobs:
         run: |
           set -o pipefail
           bash pkg/Install.command silent | tail -n 25 || { echo "::error title=install::Install.command failed. Log: $(tail -n 25 /tmp/amharic-captions-install.log | paste -sd '|' -)"; exit 1; }
+
+      - name: Use this branch's launcher and app (branch runs only)
+        if: github.ref_name != 'main'
+        run: |
+          EXT="$HOME/Library/Application Support/Adobe/CEP/extensions/com.amharic.captions"
+          cp "tools/installers/Make Amharic Captions.command" "$EXT/Make Amharic Captions.command"
+          chmod +x "$EXT/Make Amharic Captions.command"
+          cp app/*.py app/*.js app/*.css "$EXT/app/"
+          echo "::notice title=branch files::launcher + app from ${{ github.ref_name }}"
 
       - name: Smoke test the installed product
         run: python3 tools/test/mac_smoke.py --standalone

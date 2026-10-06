@@ -15,8 +15,13 @@ if [[ -z "${AMH_CONSOLE:-}" ]]; then
     echo "  [!] This install has no app folder (older version). Install the latest version"
     echo "      from https://amharic-caption-pro.vercel.app/install/ to get the app window."
   else
-    WHY="$("$PY" -E -s -c "import webview" 2>&1 >/dev/null | tail -n 3)"
-    if [[ -z "$WHY" ]]; then
+    # Judge by the EXIT CODE: the window library can print harmless warnings
+    # while loading fine (some macOS versions), and any output used to count
+    # as failure here — the console opened although the app would have worked.
+    WHY="$("$PY" -E -s -c "import webview" 2>&1 >/dev/null)"
+    IMPORT_OK=$?
+    WHY="$(printf '%s\n' "$WHY" | tail -n 3)"
+    if [[ $IMPORT_OK -eq 0 ]]; then
       LOG="${TMPDIR:-/tmp}/amharic-captions-app.log"
       nohup "$PY" -E -s -X utf8 "$DIR/app/amh_app.py" "$@" </dev/null >"$LOG" 2>&1 &
       APP=$!
