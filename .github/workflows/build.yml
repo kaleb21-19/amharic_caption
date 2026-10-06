@@ -565,6 +565,9 @@ jobs:
       - name: Use it like a customer (app window, captions, SRT maker)
         run: python3 tools/test/mac_smoke.py --standalone
 
+      - name: App server on this Mac (open in CapCut / DaVinci, clipboard)
+        run: python3 tools/test/test_app.py
+
       - name: App log
         if: always()
         run: cat "${TMPDIR:-/tmp}/amharic-captions-app.log" 2>/dev/null || echo "(no app log)"
