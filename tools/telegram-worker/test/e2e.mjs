@@ -2811,6 +2811,53 @@ console.log('\n:: scenario 26 — customer bot: questions answered, home screen 
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: customer: "does it work on my phone / CapCut phone" gets its own answer');
+{
+  const { env } = fresh();
+  const U = '960000011';
+  const say = (text) => post(env, msg(Number(U), { id: Number(U), username: 'c' + U, first_name: 'Mimi' }, { text }));
+  const tap = (data) => cb(env, { id: Number(U), username: 'c' + U }, data, { chatId: Number(U) });
+  const toU = () => OUTBOUND.filter((x) => x.id && ['sendMessage', 'editMessageText'].includes(x.method) && String(x.body.chat_id) === U);
+  const last = () => toU().at(-1);
+  const txt = () => String(last().body.text || '');
+  const kb = () => JSON.stringify(last().body.reply_markup || {});
+
+  // This answer's fingerprint — no other answer says it.
+  const PHONE_ANS = 'The CapCut phone app cannot import .srt files';
+
+  // 1. A phone word AND an editing word, however it is typed → this answer.
+  //    "alsera" ("doesn't work") must not take capcut phone lay alsera.
+  for (const q of ['capcut phone lay yiseral?', 'ስልኬ ላይ ይሰራል?', 'does it work on capcut mobile', 'capcut phone lay alsera']) {
+    await say(q);
+    assert.ok(txt().includes(PHONE_ANS), `"${q}" → the phone answer\n${txt()}`);
+    assert.ok(txt().includes('Windows or Mac') && txt().includes('Text → Captions → Import') && txt().includes('2 captions free'),
+      `"${q}" says: runs on a computer, how to import in CapCut, 2 captions free\n${txt()}`);
+    assert.ok(txt().indexOf('መሣሪያው') > -1 && txt().indexOf('መሣሪያው') < txt().indexOf('The tool runs'),
+      `"${q}" — Amharic first, English after\n${txt()}`);
+    assert.ok(kb().includes('/install'), `"${q}" carries the install button`);
+  }
+  ok('customer: phone + editing word ("capcut phone lay yiseral" / "ስልኬ ላይ ይሰራል" / "capcut mobile" / "…lay alsera") → computer answer, .srt limit, import steps, 2 free + Install — Amharic first');
+
+  // 2. A phone word or an editing word ALONE is a different question.
+  await say('I paid from my phone');
+  assert.ok(!txt().includes(PHONE_ANS) && txt().includes('few hours'), `"I paid from my phone" stays the payment question\n${txt()}`);
+  await say('ስልክ ቁጥሬ 0911…');
+  assert.ok(!txt().includes(PHONE_ANS) && txt().includes('did not get that'), `a phone number is not the phone question\n${txt()}`);
+  await say('hi');
+  assert.ok(!txt().includes(PHONE_ANS) && txt().includes('Welcome'), `a greeting is still a greeting\n${txt()}`);
+  await say('how much');
+  assert.ok(!txt().includes(PHONE_ANS) && txt().includes('ETB 2,500'), `price is still price\n${txt()}`);
+  ok('customer: "I paid from my phone" / "ስልክ ቁጥሬ 0911…" / "hi" / "how much" never get the phone answer');
+
+  // 3. Mid-payment: the answer comes, AND the screenshot is still the one thing left.
+  await tap('menu:pay');
+  await say('capcut phone lay alsera');
+  assert.ok(txt().includes(PHONE_ANS) && txt().includes('send the screenshot'), 'phone answer + screenshot reminder while paying');
+  assert.equal(row(env, 'SELECT step FROM fsm WHERE uid=?', U).step, 'photo', 'still waiting for the screenshot');
+  ok('customer: mid-payment the phone answer comes with the usual screenshot reminder — the payment keeps going');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 console.log('\n:: support group — quiet helper');
 {
   const { env } = fresh();
