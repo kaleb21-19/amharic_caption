@@ -3179,12 +3179,15 @@ const PHONE_Q_WORDS = [
   ['phone', 'mobile', 'android', 'iphone', 'ስልክ', 'ስልኬ', 'silk'],
   ['capcut', 'edit', 'caption', 'ካፕሽን', 'app', 'ይሰራል', 'yiseral'],
 ];
+// The phone question must never win when the message is about paying —
+// "I paid with the app on my phone" is a payment question, not this one.
+const PAY_Q_WORDS = ['paid', 'pay', 'payment', 'transfer', 'screenshot', 'ከፈልኩ', 'ክፍያ', 'kefelku', 'birr', 'ብር'];
 
 function intentOf(text) {
   const t = ' ' + String(text || '').toLowerCase().replace(/[?!.,።፣፤]+/g, ' ').replace(/\s+/g, ' ') + ' ';
   // Short Latin words must be whole words ("hi" is not in "this").
   const has = (w) => (/^[a-z]{1,4}$/.test(w) ? t.includes(' ' + w + ' ') : t.includes(w));
-  if (PHONE_Q_WORDS.every((group) => group.some(has))) return 'phone';
+  if (PHONE_Q_WORDS.every((group) => group.some(has)) && !PAY_Q_WORDS.some(has)) return 'phone';
   for (const [name, words] of INTENTS) {
     for (const w of words) {
       if (has(w)) return name;

@@ -2841,13 +2841,15 @@ console.log('\n:: customer: "does it work on my phone / CapCut phone" gets its o
   // 2. A phone word or an editing word ALONE is a different question.
   await say('I paid from my phone');
   assert.ok(!txt().includes(PHONE_ANS) && txt().includes('few hours'), `"I paid from my phone" stays the payment question\n${txt()}`);
+  await say('I paid with the app on my phone');
+  assert.ok(!txt().includes(PHONE_ANS) && txt().includes('few hours'), `payment words veto the phone answer: "I paid with the app on my phone"\n${txt()}`);
   await say('ስልክ ቁጥሬ 0911…');
   assert.ok(!txt().includes(PHONE_ANS) && txt().includes('did not get that'), `a phone number is not the phone question\n${txt()}`);
   await say('hi');
   assert.ok(!txt().includes(PHONE_ANS) && txt().includes('Welcome'), `a greeting is still a greeting\n${txt()}`);
   await say('how much');
   assert.ok(!txt().includes(PHONE_ANS) && txt().includes('ETB 2,500'), `price is still price\n${txt()}`);
-  ok('customer: "I paid from my phone" / "ስልክ ቁጥሬ 0911…" / "hi" / "how much" never get the phone answer');
+  ok('customer: "I paid from my phone" / "I paid with the app on my phone" (payment words veto) / "ስልክ ቁጥሬ 0911…" / "hi" / "how much" never get the phone answer');
 
   // 3. Mid-payment: the answer comes, AND the screenshot is still the one thing left.
   await tap('menu:pay');
