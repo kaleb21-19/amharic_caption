@@ -79,6 +79,9 @@ jobs:
       - name: Smoke test the installed product
         run: python3 tools/test/mac_smoke.py --standalone
 
+      - name: App server on this Mac (open in CapCut / DaVinci, clipboard)
+        run: python3 tools/test/test_app.py
+
       - name: App log
         if: always()
         run: |

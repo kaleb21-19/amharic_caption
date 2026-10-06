@@ -158,6 +158,124 @@ def _reveal(p):
         subprocess.Popen(["xdg-open", os.path.dirname(p)])
 
 
+# ── "Open in CapCut / DaVinci Resolve" on the done card ──────────────────────
+# Only these two names can be opened (the page never passes a program path).
+# Neither editor can be told to import a file from outside, so the app opens
+# the editor, copies the .srt location and shows the folder; the import itself
+# is one menu click the done card shows step by step.
+def _env_path(var, *parts):
+    base = os.environ.get(var)
+    return os.path.join(base, *parts) if base else None
+
+
+EDITORS = {
+    "capcut": {
+        "win": [("LOCALAPPDATA", "CapCut", "Apps", "CapCut.exe"),
+                ("PROGRAMFILES", "CapCut", "Apps", "CapCut.exe"),
+                ("PROGRAMFILES(X86)", "CapCut", "Apps", "CapCut.exe")],
+        "win_lnk": "CapCut",
+        "mac": ["CapCut.app"],
+        "mac_id": "com.lemon.lvoverseas",
+    },
+    "davinci": {
+        "win": [("PROGRAMFILES", "Blackmagic Design", "DaVinci Resolve", "Resolve.exe"),
+                ("PROGRAMW6432", "Blackmagic Design", "DaVinci Resolve", "Resolve.exe")],
+        "win_lnk": "DaVinci Resolve",
+        "mac": ["DaVinci Resolve/DaVinci Resolve.app", "DaVinci Resolve.app"],
+        "mac_id": "com.blackmagic-design.DaVinciResolve",
+    },
+}
+
+
+def _start_menu_lnk(name):
+    """A Start-menu shortcut — covers installs in unusual folders."""
+    for var in ("APPDATA", "PROGRAMDATA"):
+        root = _env_path(var, "Microsoft", "Windows", "Start Menu", "Programs")
+        if not root or not os.path.isdir(root):
+            continue
+        for d, _, files in os.walk(root):
+            for f in files:
+                if f.lower() == name.lower() + ".lnk":
+                    return os.path.join(d, f)
+    return None
+
+
+def find_editor(name):
+    e = EDITORS[name]
+    if IS_WIN:
+        for parts in e["win"]:
+            p = _env_path(*parts)
+            if p and os.path.isfile(p):
+                return p
+        return _start_menu_lnk(e["win_lnk"])
+    if sys.platform == "darwin":
+        for root in ("/Applications", os.path.expanduser("~/Applications")):
+            for rel in e["mac"]:
+                p = os.path.join(root, rel)
+                if os.path.isdir(p):
+                    return p
+        try:   # installed somewhere else: ask Spotlight by bundle id
+            r = subprocess.run(["mdfind", "kMDItemCFBundleIdentifier == '%s'" % e["mac_id"]],
+                               capture_output=True, text=True, timeout=5)
+            for p in r.stdout.splitlines():
+                if p.endswith(".app") and os.path.isdir(p):
+                    return p
+        except Exception:
+            pass
+    return None
+
+
+def editors():
+    return {n: bool(find_editor(n)) for n in EDITORS}
+
+
+def open_editor(name):
+    if name not in EDITORS:
+        raise ValueError("unknown editor")
+    p = find_editor(name)
+    if not p:
+        return False
+    if IS_WIN:
+        os.startfile(p)          # .exe or .lnk; an open editor just comes to the front
+    else:
+        subprocess.Popen(["open", p])
+    return True
+
+
+def copy_text(text):
+    """Put text on the clipboard (the .srt location, ready to paste in the
+    editor's Open dialog). Unicode-safe: Amharic file names survive."""
+    if IS_WIN:
+        import ctypes
+        from ctypes import wintypes
+        k32, u32 = ctypes.windll.kernel32, ctypes.windll.user32
+        k32.GlobalAlloc.restype = wintypes.HGLOBAL
+        k32.GlobalAlloc.argtypes = (wintypes.UINT, ctypes.c_size_t)
+        k32.GlobalLock.restype = ctypes.c_void_p
+        k32.GlobalLock.argtypes = (wintypes.HGLOBAL,)
+        k32.GlobalUnlock.argtypes = (wintypes.HGLOBAL,)
+        u32.SetClipboardData.argtypes = (wintypes.UINT, wintypes.HANDLE)
+        u32.SetClipboardData.restype = wintypes.HANDLE
+        data = (text + "\0").encode("utf-16-le")
+        for _ in range(10):                  # another program may hold it a moment
+            if u32.OpenClipboard(None):
+                break
+            time.sleep(0.05)
+        else:
+            return False
+        try:
+            u32.EmptyClipboard()
+            h = k32.GlobalAlloc(0x0002, len(data))          # GMEM_MOVEABLE
+            ctypes.memmove(k32.GlobalLock(h), data, len(data))
+            k32.GlobalUnlock(h)
+            return bool(u32.SetClipboardData(13, h))       # CF_UNICODETEXT
+        finally:
+            u32.CloseClipboard()
+    cmd = ["pbcopy"] if sys.platform == "darwin" else ["xclip", "-selection", "clipboard"]
+    env = dict(os.environ, LANG="en_US.UTF-8", LC_ALL="en_US.UTF-8")
+    return subprocess.run(cmd, input=text.encode("utf-8"), env=env, timeout=10).returncode == 0
+
+
 def sync_op(op, a):
     if op == "existsSync":
         return os.path.exists(a[0])
@@ -188,6 +306,12 @@ def sync_op(op, a):
         return _dialog(a[0], a[1] if len(a) > 1 else "", a[2] if len(a) > 2 else None)
     if op == "reveal":
         return _reveal(a[0])
+    if op == "editors":
+        return editors()
+    if op == "openEditor":
+        return open_editor(a[0])
+    if op == "copyText":
+        return copy_text(str(a[0]))
     if op == "openURL":
         return webbrowser.open(a[0])
     if op == "appReady":

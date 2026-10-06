@@ -25,6 +25,26 @@ html.amh-app body { background: var(--bg-panel); }
 .app-done .btn { margin-bottom: 8px; }
 .app-steps { font-size: var(--font-s); color: var(--text-secondary); line-height: 1.5; margin-top: 6px; }
 .app-steps b { color: var(--text-primary); }
+.app-done-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.app-done-actions .btn { flex: 1 1 auto; width: auto; }
+.app-done-sub { font-size: var(--font-s); color: var(--text-secondary); text-transform: uppercase; letter-spacing: .06em; margin: 4px 0 6px; }
+.app-editor {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-field); padding: 8px 10px; margin-bottom: 6px;
+  transition: border-color .15s, background .15s;
+}
+.app-editor.active { border-color: var(--accent); background: var(--accent-soft); }
+.app-editor-head { display: flex; align-items: center; gap: 8px; }
+.app-editor-icon { font-size: 16px; line-height: 1; }
+.app-editor-name { font-weight: 600; font-size: var(--font-m); color: var(--text-primary); flex: 1 1 auto; }
+.app-done .app-editor-open { width: auto; flex: 0 0 auto; margin: 0; padding: 5px 12px; }
+.app-editor-missing { font-size: var(--font-s); color: var(--text-secondary); }
+.app-editor-steps { margin: 6px 0 0; padding-left: 18px; font-size: var(--font-s); color: var(--text-secondary); line-height: 1.55; }
+.app-editor-steps b { color: var(--text-primary); }
+.app-editor-note { font-size: var(--font-s); margin-top: 4px; }
+.app-editor-note:empty { display: none; }
+.app-editor-note.ok { color: var(--ok); }
+.app-editor-note.warn { color: var(--warn); }
 
 /* Review: the video with the captions on it (app_mode.js) */
 .app-preview { margin-bottom: 8px; }

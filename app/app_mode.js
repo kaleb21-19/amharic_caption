@@ -120,7 +120,10 @@
     log(tx('ተቀምጧል፦ ', 'Saved: ') + out);
     closeReview(true);
     showDone(out, cues.length);
-    try { APP.call('reveal', [out]); } catch (e) {}
+    // With an editor on this computer the card's "Open in …" button is the
+    // next step; without one, show the file in its folder straight away.
+    const here = editorsHere();
+    if (!here.capcut && !here.davinci) { try { APP.call('reveal', [out]); } catch (e) {} }
   }
 
   const oldPlace = $('reviewPlace');
@@ -139,20 +142,85 @@
   const runCard = $('runBtn') && $('runBtn').closest('.card');
   if (runCard) runCard.after(done);
 
+  // Which editors are on this computer (asked once; installs rarely change
+  // while the app is open). The one used last is shown first.
+  const IS_MAC = (window.process && process.platform) === 'darwin';
+  const PASTE = IS_MAC ? '⌘V' : 'Ctrl+V';
+  const LAST_EDITOR = 'amh.app.lastEditor';
+  let installed = null;
+  function editorsHere() {
+    if (!installed) { try { installed = APP.call('editors', []) || {}; } catch (e) { installed = {}; } }
+    return installed;
+  }
+  // The Open window: on Windows the path goes in "File name"; a Mac Open
+  // window only takes a typed path after ⌘⇧G ("Go to folder").
+  const pasteStep = () => IS_MAC
+    ? tx('<b>⌘⇧G</b> ይጫኑ፣ <b>⌘V</b> (ቦታውን ይለጥፉ)፣ ከዚያ <b>Return</b>', 'press <b>⌘⇧G</b>, paste with <b>⌘V</b>, then <b>Return</b>')
+    : tx('<b>Ctrl+V</b> (ቦታውን ይለጥፉ)፣ ከዚያ <b>Enter</b>', 'paste with <b>Ctrl+V</b>, then <b>Enter</b>');
+  const EDITORS = [
+    { id: 'capcut', name: 'CapCut', icon: '✂️', steps: () => [
+      tx('<b>Text → Captions → Import captions</b> (ወይም Local captions)', '<b>Text → Captions → Import captions</b> (or Local captions)'),
+      pasteStep(),
+      tx('ካፕሽኑ በ timeline ላይ ይገባል — ስታይል ይምረጡ', 'the captions land on the timeline — pick a style') ] },
+    { id: 'davinci', name: 'DaVinci Resolve', icon: '🎞️', steps: () => [
+      tx('<b>File → Import → Subtitle…</b>', '<b>File → Import → Subtitle…</b>'),
+      pasteStep(),
+      tx('ከ Media Pool ወደ timeline ይጎትቱት', 'drag it from the Media Pool onto the timeline') ] },
+  ];
+
+  function openIn(ed, file, tile) {
+    let copied = false, opened = false;
+    try { copied = !!APP.call('copyText', [file]); } catch (e) {}
+    try { opened = !!APP.call('openEditor', [ed.id]); } catch (e) {}
+    try { localStorage.setItem(LAST_EDITOR, ed.id); } catch (e) {}
+    done.querySelectorAll('.app-editor').forEach((t) => t.classList.toggle('active', t === tile));
+    const note = tile.querySelector('.app-editor-note');
+    note.textContent = opened
+      ? (copied ? tx(ed.name + ' እየተከፈተ ነው · የ .srt ቦታው ተቀድቷል (' + PASTE + ')', ed.name + ' is opening · the .srt location is copied (' + PASTE + ')')
+                : tx(ed.name + ' እየተከፈተ ነው', ed.name + ' is opening'))
+      : tx(ed.name + ' አልተከፈተም — እራስዎ ይክፈቱት', 'Could not open ' + ed.name + ' — please open it yourself');
+    note.className = 'app-editor-note ' + (opened ? 'ok' : 'warn');
+  }
+
   function showDone(file, n) {
+    const here = editorsHere();
+    let last = null;
+    try { last = localStorage.getItem(LAST_EDITOR); } catch (e) {}
+    const order = EDITORS.slice().sort((a, b) =>
+      (b.id === last) - (a.id === last) || (!!here[b.id]) - (!!here[a.id]));
     done.innerHTML =
       '<div class="app-done-head">✅ ' + tx('ካፕሽኑ ተቀምጧል', 'Captions saved') + ' · ' + n + '</div>' +
       '<div class="app-done-file"></div>' +
+      '<div class="app-done-actions">' +
       '<button class="btn btn-neutral" id="appReveal">📂 ' + tx('ፎልደሩን ክፈት', 'Show in folder') + '</button>' +
-      '<div class="app-steps"><b>CapCut</b> — ' +
-      tx('Text → Captions → <b>Import captions</b> (ወይም Local captions) → ይህን .srt ይምረጡ።',
-         'Text → Captions → <b>Import captions</b> (or Local captions) → choose this .srt.') +
-      '</div><div class="app-steps"><b>DaVinci Resolve</b> — ' +
-      tx('<b>File → Import → Subtitle</b> → ይህን .srt ይምረጡ፣ ከዚያ ወደ timeline ይጎትቱት።',
-         '<b>File → Import → Subtitle</b> → choose this .srt, then drag it onto the timeline.') +
-      '</div>';
+      '<button class="btn btn-neutral" id="appCopy">📋 ' + tx('ቦታውን ቅዳ', 'Copy location') + '</button>' +
+      '</div>' +
+      '<div class="app-done-sub">' + tx('በኤዲተርዎ ይክፈቱት', 'Open it in your editor') + '</div>' +
+      order.map((ed) =>
+        '<div class="app-editor" data-ed="' + ed.id + '">' +
+          '<div class="app-editor-head"><span class="app-editor-icon">' + ed.icon + '</span>' +
+          '<span class="app-editor-name">' + ed.name + '</span>' +
+          (here[ed.id]
+            ? '<button class="btn btn-primary app-editor-open">' + tx('በ ' + ed.name + ' ክፈት', 'Open in ' + ed.name) + '</button>'
+            : '<span class="app-editor-missing">' + tx('በዚህ ኮምፒውተር አልተገኘም', 'not found on this computer') + '</span>') +
+          '</div>' +
+          '<ol class="app-editor-steps">' + ed.steps().map((s) => '<li>' + s + '</li>').join('') + '</ol>' +
+          '<div class="app-editor-note"></div>' +
+        '</div>').join('');
     done.querySelector('.app-done-file').textContent = APP.path.basename(file);
     done.querySelector('#appReveal').addEventListener('click', () => { try { APP.call('reveal', [file]); } catch (e) {} });
+    const copyBtn = done.querySelector('#appCopy');
+    copyBtn.addEventListener('click', () => {
+      let okc = false;
+      try { okc = !!APP.call('copyText', [file]); } catch (e) {}
+      copyBtn.textContent = okc ? '✓ ' + tx('ተቀድቷል', 'Copied') : tx('መቅዳት አልተቻለም', 'Could not copy');
+      setTimeout(() => { copyBtn.textContent = '📋 ' + tx('ቦታውን ቅዳ', 'Copy location'); }, 2000);
+    });
+    done.querySelectorAll('.app-editor').forEach((tile) => {
+      const ed = EDITORS.find((e) => e.id === tile.dataset.ed);
+      const b = tile.querySelector('.app-editor-open');
+      if (b) b.addEventListener('click', () => openIn(ed, file, tile));
+    });
     done.style.display = '';
     done.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
