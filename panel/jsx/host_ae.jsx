@@ -1,5 +1,5 @@
 /*
- * Amharic Captions — ExtendScript host layer for After Effects.
+ * Amharic Captions - ExtendScript host layer for After Effects.
  *
  * Loaded by main.js (via $.evalFile) only when the panel runs inside After
  * Effects, AFTER host.jsx. It redefines the same six entry points the panel
@@ -237,7 +237,9 @@ function amhAeReadSrt(path) {
     if (!f.open("r")) { return null; }
     var raw = f.read();
     f.close();
-    raw = raw.replace(/^﻿/, "").replace(/\r\n?/g, "\n");
+    // \uFEFF as an escape, never the raw character: After Effects 2026 (26.0)
+    // stopped loading this file when a literal BOM sat in the source.
+    raw = raw.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
     var blocks = raw.split(/\n{2,}/);
     var re = /(\d+):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(\d+):(\d{2}):(\d{2})[,.](\d{1,3})/;
     var toS = function (h, m, s, ms) {
@@ -396,7 +398,7 @@ function amh_importCaptions(argsJSON) {
 /* ------------------------------------------------------------- stamp
  * The panel checks this mark before every call inside After Effects. The
  * manifest's host.jsx (Premiere versions, same function names) can be
- * evaluated AFTER this file and silently replace these entry points — then
+ * evaluated AFTER this file and silently replace these entry points - then
  * After Effects ran Premiere's code and answered "no selected clip". A
  * missing mark makes the panel re-load this file first (see aeHostCall). */
 amharic_getSelectedClip.amhAE = true;
