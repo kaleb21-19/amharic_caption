@@ -62,7 +62,7 @@ point `AMH_MODEL_DIR` there for the tests that need the model.
 | `node panel/test/machine-id.test.mjs` | Machine ID: stable, 16-hex, legacy 8-hex still read | 1 s |
 | `node panel/test/host-safety.test.mjs` | Premiere host script safety regressions | 1 s |
 | `"$PY" tools/test/test_cmd_syntax.py` | every `.cmd` we ship parses in cmd.exe (the 1.8.9/1.8.10 installer crash) | <1 s |
-| `"$PY" tools/test/test_app.py` | desktop app server without a window: refuses foreign Host / missing token / cross-site / CORS / traversal; file calls like Node (Amharic, ENOENT); spawn output, stdin, exit code, kill, timeout; license-server proxy | 3 s |
+| `"$PY" tools/test/test_app.py` | desktop app server without a window: refuses foreign Host / missing token / cross-site / CORS / traversal; file calls like Node (Amharic, ENOENT); spawn output, stdin, exit code, kill, timeout; license-server proxy; CapCut / DaVinci found, nothing else can be opened, Amharic path copied to the clipboard | 3 s |
 | `node tools/test/test_app_shim.js` | `node_shim.js`: Windows + macOS path rules, fs errors, hashes, execFile / spawn events and errors, dialogs, the proxy | 1 s |
 | `"$PY" tools/test/test_background.py` | background-voice filter (synthetic audio) | 1 s |
 | `"$PY" tools/test/test_long.py` | long-audio windows, resume after a crash, punctuation | 1 s |
@@ -206,8 +206,17 @@ customer — top manual priority.*
 - Drag a video **into the window** (or click the box to choose) → ▶ Make captions →
   the panel's review screen (orange marks, Change all, Always fix, split/join,
   Undo) → 💾 Save SRT → `<video>.srt` next to the video, never overwritten
-  (`(2)`), the folder opens, the "Captions saved" card shows CapCut and DaVinci
-  import steps. CapCut desktop: Captions → Import. DaVinci: File → Import → Subtitle.
+  (`(2)`), the "Captions saved" card shows CapCut and DaVinci import steps.
+  CapCut desktop: Captions → Import. DaVinci: File → Import → Subtitle.
+- Open in CapCut / DaVinci (1.9.6+): each editor found on the computer gets an
+  "Open in …" button (found by its install folder or Start-menu shortcut on
+  Windows, /Applications or Spotlight on Mac); one not installed says "not found
+  on this computer" and keeps its steps. Click it → the editor opens (or comes to
+  the front), the tile turns green, and the .srt location is on the clipboard:
+  in the editor's Import window Ctrl+V + Enter (Mac: ⌘⇧G, ⌘V, Return) opens it —
+  also with an Amharic file name. "📋 Copy location" copies it too; the editor
+  used last is listed first. With no editor installed the folder opens right
+  after saving (as before).
 - Free trial (2 captions), Buy, activation box (long key or XXXX-XXXX code), EN/አማ.
 - Review video preview (1.9.4+): the video sits above the list with the current
   caption drawn on it; click a caption → the video jumps there and the row is

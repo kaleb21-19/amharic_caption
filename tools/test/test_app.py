@@ -280,6 +280,77 @@ def t_media():
     assert get(sync("media", wav)["result"])[1]["Content-Type"] == "audio/wav"
 
 
+def read_clipboard():
+    if sys.platform == "win32":
+        import ctypes
+        u32, k32 = ctypes.windll.user32, ctypes.windll.kernel32
+        u32.GetClipboardData.restype = ctypes.c_void_p
+        k32.GlobalLock.restype = ctypes.c_wchar_p
+        k32.GlobalLock.argtypes = (ctypes.c_void_p,)
+        k32.GlobalUnlock.argtypes = (ctypes.c_void_p,)
+        for _ in range(20):
+            if u32.OpenClipboard(None):
+                break
+            time.sleep(0.05)
+        try:
+            h = u32.GetClipboardData(13)
+            text = k32.GlobalLock(h) if h else None
+            if h:
+                k32.GlobalUnlock(h)
+            return text
+        finally:
+            u32.CloseClipboard()
+    import subprocess
+    if sys.platform == "darwin":
+        return subprocess.run(["pbpaste"], capture_output=True,
+                              env=dict(os.environ, LANG="en_US.UTF-8")).stdout.decode("utf-8")
+    return None
+
+
+def t_editors():
+    # "Open in CapCut / DaVinci Resolve": found where each installer puts it,
+    # only those two names can be opened, and the .srt location is copied.
+    found = sync("editors")["result"]
+    assert set(found) == {"capcut", "davinci"} and all(isinstance(v, bool) for v in found.values()), found
+    assert "err" in sync("openEditor", "C:/Windows/System32/calc.exe"), "only known editors, never a path"
+    fake = os.path.join(WORK, "fake home ቤት")
+    keep = {k: os.environ.get(k) for k in ("LOCALAPPDATA", "PROGRAMFILES", "PROGRAMW6432", "PROGRAMFILES(X86)",
+                                           "APPDATA", "PROGRAMDATA", "HOME")}
+    try:
+        for k in keep:
+            os.environ[k] = fake
+        if sys.platform == "win32":
+            exe = os.path.join(fake, "CapCut", "Apps", "CapCut.exe")
+            os.makedirs(os.path.dirname(exe))
+            open(exe, "wb").close()
+            assert amh_app.find_editor("capcut") == exe
+            assert amh_app.find_editor("davinci") is None
+            lnk = os.path.join(fake, "Microsoft", "Windows", "Start Menu", "Programs", "Blackmagic Design", "DaVinci Resolve.lnk")
+            os.makedirs(os.path.dirname(lnk))
+            open(lnk, "wb").close()
+            assert amh_app.find_editor("davinci") == lnk, "a Start-menu shortcut counts"
+        elif sys.platform == "darwin":
+            app = os.path.join(fake, "Applications", "DaVinci Resolve", "DaVinci Resolve.app")
+            os.makedirs(app)
+            found = amh_app.find_editor("davinci")
+            assert found == app or (found or "").startswith("/Applications/"), found
+    finally:
+        for k, v in keep.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    if sys.platform in ("win32", "darwin"):
+        before = read_clipboard()
+        path = os.path.join(WORK, "ቪዲዮ clip (2).srt")
+        try:
+            assert sync("copyText", path)["result"] is True
+            assert read_clipboard() == path, (read_clipboard(), path)
+        finally:
+            if before is not None:
+                amh_app.copy_text(before)
+
+
 print("desktop app server (app/amh_app.py) on %s" % HOST)
 t("security: foreign Host, no/wrong token, cross-site boot.js, CORS preflight, traversal refused", t_security)
 t("index.html: app scripts injected around the panel's own; CSP unchanged; boot.js carries token + dropped file", t_index)
@@ -291,6 +362,7 @@ t("spawn: env and cwd are passed to the child", t_env)
 t("proxy: license-server calls only, status + body passed through, token required", t_proxy)
 t("fixed port: the first free preferred port, so saved settings survive a restart", t_fixed_port)
 t("media: review video served by unguessable URL with byte ranges (seek); cross-site, foreign Host, unknown refused", t_media)
+t("editors: CapCut / DaVinci found where installed (or by Start-menu shortcut), no other program can be opened, Amharic .srt path copied", t_editors)
 srv.shutdown()
 api.shutdown()
 shutil.rmtree(EXT, ignore_errors=True)
