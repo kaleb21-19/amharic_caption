@@ -5,6 +5,12 @@ project — Claude, Codex, Gemini, Copilot, Cursor or a person — follows the s
 flow, so nobody breaks what customers already depend on. If something here is
 unclear or wrong, say so in your report; do not quietly work around it.
 
+> **Step 0 — always start from the latest version.** If you work in a folder on
+> the owner's computer, first update it: `git checkout main` then
+> `git pull --ff-only`. A stale copy is missing rules and code (an assistant once
+> answered from a folder two merges behind and never saw this file). Never start
+> from a folder with uncommitted changes you did not make — report it instead.
+
 The **owner** is Kaleb Tegegen (GitHub `kaleb21-19`). He writes in English and
 Amharic mixed, often short; answer in plain, simple English (Amharic for
 anything a customer will read). One AI acts as **manager**: it hands out tasks
