@@ -1,5 +1,7 @@
 # Amharic Captions — Premiere Pro Extension
 
+> **Working on this repo (AI or human)? Read [AGENTS.md](AGENTS.md) first** — the flow, release rules and safety rules everyone follows. How we test: [TESTING.md](TESTING.md).
+
 Local Amharic speech-to-text captions for Adobe Premiere Pro. Transcription runs entirely on-device; no footage, audio, or transcript is uploaded. A connection is needed for first activation, trial sync, and optional online license checks.
 
 ## Pricing
