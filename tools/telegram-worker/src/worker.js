@@ -3120,6 +3120,21 @@ const FAQ = {
       'አሁንም ካልሰራ የስህተቱን ስክሪንሾት ይላኩልን — እናስተካክላለን።\n<i>Still not working? Send us a screenshot of the error — we will fix it.</i>',
     kb: () => [[{ text: '🔑 ቁልፌ · My Key', callback_data: 'menu:mykey' }], [SUPPORT_BTN]],
   },
+  // Typed only (not one of the seven buttons): the customer asks about their
+  // phone in their own words — "capcut phone lay yiseral", "ስልኬ ላይ ይሰራል".
+  phone: {
+    btn: '📱 በስልክ ይሰራል? · On my phone?',
+    text: () => '📱 <b>በስልክ ይሰራል? / Does it work on my phone?</b>\n\n' +
+      '🛠 መሣሪያው <b>በኮምፒውተር ላይ ይሰራል</b> — Windows ወይም Mac።\n' +
+      '<i>The tool runs on a computer — Windows or Mac.</i>\n\n' +
+      '📱 የCapCut የስልክ መተግበሪያው .srt ፋይል አይገባውም።\n' +
+      '<i>The CapCut phone app cannot import .srt files.</i>\n\n' +
+      '💻 ኮምፒውተር ካለዎት፦ በ«Make Amharic Captions» ካፕሽኖችን ይሥራሉ፤ ከዚያ በኮምፒውተሩ ላይ በCapCut ያስገቡ (Text → Captions → Import)።\n' +
+      '<i>If you have a computer: make the captions in “Make Amharic Captions”, then use CapCut on the computer (Text → Captions → Import).</i>\n\n' +
+      '🎁 በነጻ ይሞክሩ፦ <b>2 ካፕሽን በነጻ</b> — መጫን ብቻ ይበቃል።\n' +
+      '<i>Try 2 captions free — tap Install to start.</i>',
+    kb: () => [[INSTALL_BTN]],
+  },
 };
 const FAQ_ORDER = ['price', 'trial', 'need', 'install', 'when', 'newpc', 'key'];
 
@@ -3155,12 +3170,24 @@ const INTENTS = [
   ['thanks', ['thank', 'thx', 'አመሰግናለሁ', 'እናመሰግናለን', 'amesegnalehu', 'amesegnalew', 'ተባረክ', 'tebarek', 'god bless']],
   ['hello', ['selam', 'ሰላም', 'hello', 'hi', 'hey', 'ጤና', 'tena', 'good morning', 'endet']],
 ];
+// "Does it work on my phone?" needs BOTH word groups in one message: a phone
+// word AND an editing word ("capcut phone lay yiseral", "ስልኬ ላይ ይሰራል").
+// Either group alone is a different question — "I paid from my phone" is about
+// payment, "ስልክ ቁጥሬ 0911" is no question at all — so it is checked before
+// INTENTS, and the "doesn't work" words ("alsera") cannot claim it either.
+const PHONE_Q_WORDS = [
+  ['phone', 'mobile', 'android', 'iphone', 'ስልክ', 'ስልኬ', 'silk'],
+  ['capcut', 'edit', 'caption', 'ካፕሽን', 'app', 'ይሰራል', 'yiseral'],
+];
+
 function intentOf(text) {
   const t = ' ' + String(text || '').toLowerCase().replace(/[?!.,።፣፤]+/g, ' ').replace(/\s+/g, ' ') + ' ';
+  // Short Latin words must be whole words ("hi" is not in "this").
+  const has = (w) => (/^[a-z]{1,4}$/.test(w) ? t.includes(' ' + w + ' ') : t.includes(w));
+  if (PHONE_Q_WORDS.every((group) => group.some(has))) return 'phone';
   for (const [name, words] of INTENTS) {
     for (const w of words) {
-      // Short Latin words must be whole words ("hi" is not in "this").
-      if (/^[a-z]{1,4}$/.test(w) ? t.includes(' ' + w + ' ') : t.includes(w)) return name;
+      if (has(w)) return name;
     }
   }
   return null;
