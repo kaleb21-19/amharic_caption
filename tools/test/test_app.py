@@ -334,6 +334,10 @@ def t_editors():
             os.makedirs(app)
             found = amh_app.find_editor("davinci")
             assert found == app or (found or "").startswith("/Applications/"), found
+            if not os.path.isdir("/Applications/CapCut.app"):
+                cc = os.path.join(fake, "Applications", "CapCut.app")
+                os.makedirs(cc)
+                assert amh_app.find_editor("capcut") == cc, amh_app.find_editor("capcut")
     finally:
         for k, v in keep.items():
             if v is None:
