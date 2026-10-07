@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.9.8';
+const APP_VERSION = '1.10.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -2344,6 +2344,8 @@ async function transcribe(sourcePath, outSrt, range, offset) {
   }
 
   const wav = await extractToWav(sourcePath, range);
+  let livePoll = null;
+  let finished = false;
   try {
     if (!warmStart()) {
       // Server unavailable → one-shot process.
@@ -2354,6 +2356,7 @@ async function transcribe(sourcePath, outSrt, range, offset) {
     // interrupted (power cut, sleep, crash, Cancel) the next run of the same
     // video continues where it stopped instead of starting again.
     const work = resumeWorkPath(key);
+    livePoll = startLivePoll(work);
     const r = await warmSend(Object.assign({
       wav, out_srt: work, offset: offset || 0
     }, warmStyle()));
@@ -2365,6 +2368,7 @@ async function transcribe(sourcePath, outSrt, range, offset) {
     lastCues = cues;
     lastSrtPath = outSrt;
     await cacheStore(key, fs.readFileSync(outSrt, 'utf8'), r.text || '', cues);
+    finished = true;
     return { outSrt, cues, transcript: r.text || '', cached: false };
   } catch (e) {
     // Cancel kills the warm worker, which surfaces here as a transport error
@@ -2376,6 +2380,12 @@ async function transcribe(sourcePath, outSrt, range, offset) {
     // One-shot fallback (worker missing or failed this request).
     return transcribeOneShot(sourcePath, outSrt, range, offset, wav);
   } finally {
+    if (livePoll) clearInterval(livePoll);
+    // Stopped before the end with a live review open: keep what is written.
+    if (!finished && REVIEW_LIVE) {
+      if (LIVE_OPENING) { try { await LIVE_OPENING; } catch (e) {} }
+      finishLiveReview(null, false);
+    }
     try { fs.unlinkSync(wav); } catch (e) {}
   }
 }
@@ -2747,8 +2757,173 @@ async function openReview(outSrt, label, startSeconds, opts) {
   renderReview();
   $('review').classList.add('show');
   fitReviewBoxes();   // heights can only be measured once the overlay shows
-  log('Review your captions below — edit, then click "Place on timeline".');
+  if (!opts.live) log('Review your captions below — edit, then click "Place on timeline".');
   return true;
+}
+
+// ── Review while it is still working (long videos) ──────────────────────
+// A 10-minute video takes minutes on a laptop; the editor used to stare at a
+// bar. The engine writes a valid partial SRT after every window of a long
+// video (>5 min, _run_long), so the review opens as soon as the first
+// captions exist and new ones are added every few seconds — the editor fixes
+// the start while the rest is being written. Never while typing: new rows
+// wait until the editor leaves the text box. "Place on timeline" / "Save
+// SRT" stay locked until everything is done.
+// Only for licensed users (a trial credit is charged when the review opens,
+// which must never happen for a run that then fails) and without speaker
+// marks (that pass rewrites every caption at the very end).
+let LIVE_WANTED = null;      // { outSrt, label } — set by the run that may go live
+let REVIEW_LIVE = null;      // { seen, pending } while a live review is open
+let LIVE_OPENING = null;     // the live review's openReview() while it runs
+const LIVE_POLL_MS = 2000;
+
+function liveReviewAllowed() {
+  return !!(LIVE_WANTED && LICENSED && !SPEAKERS);
+}
+
+function startLivePoll(work) {
+  if (!liveReviewAllowed()) return null;
+  const want = LIVE_WANTED;
+  let busy = false;
+  const tick = async () => {
+    if (busy || cancelRequested || want !== LIVE_WANTED) return;
+    busy = true;
+    try {
+      if (!fs.existsSync(work)) return;
+      let cues = [];
+      try { cues = withDoubts(normalizeCues(parseSrt(fs.readFileSync(work, 'utf8'))), work); } catch (e) { return; }
+      const seen = REVIEW_LIVE ? REVIEW_LIVE.seen : 0;
+      if (REVIEW_LIVE && REVIEW_LIVE.pending && reviewOpen && !editingReview()) renderLive();
+      if (cues.length <= seen) return;
+      if (!REVIEW_LIVE) {
+        if (reviewOpen) return;            // another review is open: leave it alone
+        lastCues = cues;
+        REVIEW_LIVE = { seen: cues.length, pending: false };
+        LIVE_OPENING = openReview(want.outSrt, want.label, 0, { live: true });
+        const opened = await LIVE_OPENING;
+        LIVE_OPENING = null;
+        if (!opened) { REVIEW_LIVE = null; return; }
+        lockLivePlace(PROGRESS_EN || 'Transcribing…');
+        log('The first captions are ready — you can start fixing them while the rest is written.');
+      } else if (reviewOpen) {
+        appendLiveCues(cues.slice(REVIEW_LIVE.seen));
+        REVIEW_LIVE.seen = cues.length;
+      }
+    } finally { busy = false; }
+  };
+  return setInterval(tick, LIVE_POLL_MS);
+}
+
+// New captions enter the review exactly like the first ones did (tidy text,
+// remembered fixes), then the list is redrawn — unless the editor is typing.
+function appendLiveCues(cues) {
+  if (!cues.length) return;
+  const fx = activeFixes(loadFixStore());
+  cues.forEach((c) => {
+    const cue = Object.assign({}, JSON.parse(JSON.stringify(c)), { text: cleanCueLines(c.text), _id: REVIEW_NEXT_ID++ });
+    if (Object.keys(fx).length) {
+      const r = applyFixes(cue.text, fx);
+      if (r.applied.length) {
+        cue.text = r.text;
+        r.applied.forEach((x) => { REVIEW_AUTOFIX.rules[x.from] = x.to; });
+        cue._fixed = r.applied.map((x) => x.to);
+      }
+    }
+    reviewCues.push(cue);
+    REVIEW_BASE.push(JSON.parse(JSON.stringify(cue)));
+  });
+  renderLive();
+}
+
+function editingReview() {
+  const list = $('reviewList');
+  return !!(list && document.activeElement && list.contains(document.activeElement));
+}
+
+// Redraw now, or — while the editor is typing — on a later poll tick, so
+// the text box they are in is never rebuilt under their fingers.
+function renderLive() {
+  if (editingReview()) {
+    if (REVIEW_LIVE) REVIEW_LIVE.pending = true;
+    updateReviewCount();
+    return;
+  }
+  if (REVIEW_LIVE) REVIEW_LIVE.pending = false;
+  renderKeepingScroll();
+}
+
+// After the run: draw the waiting captions once the editor leaves the box.
+function renderWhenNotTyping() {
+  if (!editingReview()) { if (reviewOpen) renderKeepingScroll(); return; }
+  const t = setInterval(() => {
+    if (!reviewOpen) { clearInterval(t); return; }
+    if (!editingReview()) { clearInterval(t); renderKeepingScroll(); }
+  }, 1000);
+}
+
+function renderKeepingScroll() {
+  const list = $('reviewList');
+  const box = $('review');
+  const a = list ? list.scrollTop : 0;
+  const b = box ? box.scrollTop : 0;
+  renderReview();
+  if (list) list.scrollTop = a;
+  if (box) box.scrollTop = b;
+  updateReviewCount();
+}
+
+function lockLivePlace(progressText) {
+  const btn = $('reviewPlace');
+  if (btn) {
+    if (btn.dataset.liveLabel === undefined) btn.dataset.liveLabel = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ ' + L(progressText || 'Transcribing…');
+  }
+  const ex = $('reviewExport');
+  if (ex) ex.disabled = true;
+}
+
+function unlockLivePlace() {
+  const btn = $('reviewPlace');
+  if (btn) {
+    if (btn.dataset.liveLabel !== undefined) {
+      btn.textContent = btn.dataset.liveLabel;
+      delete btn.dataset.liveLabel;
+    }
+    btn.disabled = false;
+  }
+  const ex = $('reviewExport');
+  if (ex) ex.disabled = false;
+}
+
+// The run finished: add the last captions and unlock "Place". If the run
+// stopped early (error), keep what is there — Make captions again continues
+// where it stopped (1.9.7 resume), Place/Save keeps the part that is done.
+function finishLiveReview(finalCues, ok) {
+  if (!REVIEW_LIVE) return false;
+  const live = REVIEW_LIVE;
+  if (ok && reviewOpen && finalCues && finalCues.length > live.seen) {
+    appendLiveCues(finalCues.slice(live.seen));
+  }
+  REVIEW_LIVE = null;
+  unlockLivePlace();
+  if (!reviewOpen) return true;          // discarded while it was working
+  if (live.pending) renderWhenNotTyping();
+  log(ok ? 'All captions are written — check the last ones, then save or place them.'
+         : 'Stopped before the end. The captions written so far are kept; Make captions again continues where it stopped.');
+  return true;
+}
+
+// After a run: finish the live review, or open the review as before.
+async function showRunResult(outSrt, label, r) {
+  if (LIVE_OPENING) { try { await LIVE_OPENING; } catch (e) {} }
+  if (REVIEW_LIVE && reviewOpen) {
+    if (REVIEW) REVIEW.outSrt = outSrt;
+    finishLiveReview(r.cues, true);
+    return true;
+  }
+  REVIEW_LIVE = null;
+  return openReview(outSrt, label, 0);
 }
 
 function removeTempCaptionArtifact(filePath) {
@@ -3208,7 +3383,7 @@ function writeReviewSrt(outDir) {
 }
 
 async function placeReview() {
-  if (!reviewOpen || !REVIEW || reviewPlacing) return;
+  if (!reviewOpen || !REVIEW || reviewPlacing || REVIEW_LIVE) return;
   if (!LICENSED && !reviewTrialCharged) {
     log('Placement blocked: the trial credit was not confirmed.');
     setStatus('err', 'trial credit required');
@@ -3248,6 +3423,11 @@ async function placeReview() {
 
 function discardReview() {
   if (!reviewOpen || reviewPlacing) return;
+  if (REVIEW_LIVE) {
+    cancelRequested = true;
+    try { if (activeChild) activeChild.kill(); } catch (e) {}
+    try { if (warmChild && !warmChild.killed) warmChild.kill(); } catch (e) {}
+  }
   log('Discarded — nothing was placed on the timeline.');
   closeReview();
 }
@@ -3255,7 +3435,7 @@ function discardReview() {
 // Export the (edited) captions as a set of files into a user-chosen folder.
 // Writes <name>.srt + <name>.vtt + <name>.txt together (overwriting).
 function exportReviewFiles() {
-  if (!reviewOpen) return;
+  if (!reviewOpen || REVIEW_LIVE) return;
   const cues = (reviewCues && reviewCues.length ? reviewCues : lastCues)
     .filter((c) => (c.text || '').trim().length > 0);
   if (!cues.length) { log('Nothing to export yet.'); return; }
@@ -3669,6 +3849,7 @@ function setWindowProgress(startedAt) {
     if (onBattery && done < total) eta += ' · 🔌 plug in the charger to go faster';
     setIndeterminate(false);
     setProgress(0.15 + frac * 0.75, 'Transcribing ' + done + '/' + total + eta);
+    if (REVIEW_LIVE && reviewOpen) lockLivePlace(PROGRESS_EN);
   };
 }
 
@@ -3820,6 +4001,7 @@ async function runSelectedClip() {
   // Bake the clip's absolute timeline position into the SRT timestamps (so the
   // cues carry their real timeline times), then place the caption band at 0.
   let r;
+  LIVE_WANTED = { outSrt, label: cleanName };
   try {
     r = await transcribe(c.sourcePath, outSrt,
       { sourceIn: c.sourceIn, duration: c.duration }, c.timelineStart);
@@ -3827,14 +4009,16 @@ async function runSelectedClip() {
     // Always clear, including on cancel or error — a stale reporter would
     // otherwise keep moving the bar during the next run.
     clearWindowProgress();
+    LIVE_WANTED = null;
   }
   setProgress(0.9, 'Transcription complete');
 
   if (!r.cues.length) log('No speech detected in this audio — nothing to place.');
   log('Done writing captions.');
 
-  // Review flow: let the user edit before anything hits the timeline.
-  await openReview(outSrt, cleanName, 0);
+  // Review flow: let the user edit before anything hits the timeline (or
+  // finish the review that opened while it was still working).
+  await showRunResult(outSrt, cleanName, r);
 }
 
 async function runWorkArea() {
@@ -4030,15 +4214,17 @@ async function runFile(filePath, fileName) {
     setIndeterminate(true);
     setProgress(0.5, 'Transcribing…');
     let r;
+    LIVE_WANTED = { outSrt, label: cleanName };
     try {
       r = await transcribe(filePath, outSrt);
     } finally {
       clearWindowProgress();
+      LIVE_WANTED = null;
     }
     setProgress(0.9, 'Transcription complete');
     if (!r.cues.length) log('No speech detected in this audio — nothing to place.');
     log('Done writing captions.');
-    await openReview(outSrt, cleanName, 0);
+    await showRunResult(outSrt, cleanName, r);
   } catch (e) {
     if (!cancelRequested) {
       const raw = (e && e.message) ? e.message : String(e);
