@@ -1192,6 +1192,77 @@ def _maybe_diarize(cues, wav):
     return labelled
 
 
+# --------------------------------------------------------------------------
+# long jobs: keep the computer awake, say when it runs on battery
+# --------------------------------------------------------------------------
+# A laptop goes to sleep after 10-30 min without mouse/keyboard use even while
+# the CPU is busy, which froze long videos half-way ("it can't handle a
+# 10-minute video"). While a transcription runs we ask the OS not to sleep
+# (the screen may still turn off); the request ends with the job, so the
+# computer's normal sleep settings come back. AMH_KEEP_AWAKE=0 turns it off.
+class keep_awake:
+    def __enter__(self):
+        self._proc = None
+        self._win = False
+        if os.environ.get("AMH_KEEP_AWAKE", "1") == "0":
+            return self
+        try:
+            if sys.platform == "win32":
+                import ctypes
+                # ES_CONTINUOUS | ES_SYSTEM_REQUIRED: no idle sleep while set.
+                self._win = bool(ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001))
+            elif sys.platform == "darwin":
+                import subprocess
+                # -i: no idle sleep; -w: ends by itself if we die.
+                self._proc = subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())],
+                                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+        return self
+
+    def __exit__(self, *exc):
+        try:
+            if self._win:
+                import ctypes
+                ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
+            if self._proc is not None:
+                self._proc.terminate()
+        except Exception:
+            pass
+        return False
+
+
+def on_battery():
+    """True when a laptop runs on battery (it is then 2-3x slower)."""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            class _SPS(ctypes.Structure):
+                _fields_ = [("ACLineStatus", ctypes.c_ubyte), ("BatteryFlag", ctypes.c_ubyte),
+                            ("BatteryLifePercent", ctypes.c_ubyte), ("SystemStatusFlag", ctypes.c_ubyte),
+                            ("BatteryLifeTime", ctypes.c_ulong), ("BatteryFullLifeTime", ctypes.c_ulong)]
+            s = _SPS()
+            return bool(ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(s))) and s.ACLineStatus == 0
+        if sys.platform == "darwin":
+            import subprocess
+            r = subprocess.run(["pmset", "-g", "batt"], capture_output=True, text=True, timeout=5)
+            return "Battery Power" in r.stdout
+    except Exception:
+        pass
+    return False
+
+
+def _power_notice(seconds):
+    """`[power] battery` on stderr for a long job on battery: the panel shows
+    "plug in the charger". Short clips finish before it would matter."""
+    if seconds >= 120 and on_battery():
+        try:
+            print("[power] battery", file=sys.stderr, flush=True)
+        except Exception:
+            pass
+
+
 def _run_file(engine, wav, mode, group_size, max_chars, offset, out_srt=None,
               speakers=False):
     glyphs = engine.glyphs
@@ -1200,13 +1271,15 @@ def _run_file(engine, wav, mode, group_size, max_chars, offset, out_srt=None,
     # starting over (see _run_long). Shorter clips keep the single-shot path
     # (engine.transcribe still windows internally only past ~60s for memory).
     long_secs = float(os.environ.get("AMH_LONG_SECS", "300"))
-    if out_srt and len(wav) > int(long_secs * 16000):
-        text, cues = _run_long(engine, wav, mode, group_size, max_chars, offset, out_srt)
-    else:
-        text, spans, frame_dur = engine.transcribe(wav)
-        cues = make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=max_chars, wav=wav)
-    if speakers:
-        cues = _maybe_diarize(cues, wav)
+    _power_notice(len(wav) / 16000.0)
+    with keep_awake():
+        if out_srt and len(wav) > int(long_secs * 16000):
+            text, cues = _run_long(engine, wav, mode, group_size, max_chars, offset, out_srt)
+        else:
+            text, spans, frame_dur = engine.transcribe(wav)
+            cues = make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=max_chars, wav=wav)
+        if speakers:
+            cues = _maybe_diarize(cues, wav)
     return text, cues
 
 
@@ -1409,34 +1482,35 @@ def handle_server_batch(engine, req, rid, out):
     all_text = []
     total = len(batch)
     skipped = 0
-    for n, item in enumerate(batch, start=1):
-        wav_path = item.get("wav")
-        name = item.get("name") or wav_path
-        emit(out, {"id": rid, "type": "prog", "at": n, "of": total,
-                   "name": item.get("name", "")})
-        # One bad clip must never abort the whole work-area run: log it,
-        # count it, and keep going. Failures are reported via the skipped count.
-        if not wav_path or not os.path.isfile(wav_path):
-            skipped += 1
-            print("[batch] skip %d/%d (audio not found): %s" % (n, total, name),
-                  file=sys.stderr)
-            continue
-        off = float(item.get("offset", 0.0))
-        try:
-            wav = read_wav(wav_path)
-            text, spans, frame_dur = engine.transcribe(wav)
-            cues = make_cues(mode, group, spans, frame_dur, text, engine.glyphs,
-                             max_chars=max_chars, wav=wav)
-            if speakers:
-                cues = _maybe_diarize(cues, wav)
-        except Exception as e:
-            skipped += 1
-            print("[batch] skip %d/%d (transcribe failed): %s: %s"
-                  % (n, total, name, e), file=sys.stderr)
-            continue
-        all_text.append(text)
-        for c in cues:
-            all_cues.append(Cue(c[0], c[1] + off, c[2] + off, _cue_doubt(c)))
+    with keep_awake():
+        for n, item in enumerate(batch, start=1):
+            wav_path = item.get("wav")
+            name = item.get("name") or wav_path
+            emit(out, {"id": rid, "type": "prog", "at": n, "of": total,
+                       "name": item.get("name", "")})
+            # One bad clip must never abort the whole work-area run: log it,
+            # count it, and keep going. Failures are reported via the skipped count.
+            if not wav_path or not os.path.isfile(wav_path):
+                skipped += 1
+                print("[batch] skip %d/%d (audio not found): %s" % (n, total, name),
+                      file=sys.stderr)
+                continue
+            off = float(item.get("offset", 0.0))
+            try:
+                wav = read_wav(wav_path)
+                text, spans, frame_dur = engine.transcribe(wav)
+                cues = make_cues(mode, group, spans, frame_dur, text, engine.glyphs,
+                                 max_chars=max_chars, wav=wav)
+                if speakers:
+                    cues = _maybe_diarize(cues, wav)
+            except Exception as e:
+                skipped += 1
+                print("[batch] skip %d/%d (transcribe failed): %s: %s"
+                      % (n, total, name, e), file=sys.stderr)
+                continue
+            all_text.append(text)
+            for c in cues:
+                all_cues.append(Cue(c[0], c[1] + off, c[2] + off, _cue_doubt(c)))
     if out_srt:
         idx = write_srt(out_srt, all_cues, 0.0)
     else:
@@ -1492,27 +1566,28 @@ def run_batch():
     total = len(requests)
     all_cues = []
     skipped = 0
-    for n, req in enumerate(requests, start=1):
-        print(f"\n[batch] % {n}/{total} {req.get('wav', '')}")
-        # Never let one bad clip abort the whole work-area run.
-        try:
-            wav = read_wav(req["wav"])
-            text, spans, frame_dur = engine.transcribe(wav)
-            cues = make_cues(mode, group_size, spans, frame_dur, text, glyphs,
-                             max_chars=max_chars, wav=wav)
-            if speakers:
-                cues = _maybe_diarize(cues, wav)
-        except Exception as e:
-            skipped += 1
-            # stderr so it never pollutes the stdout transcript parse.
-            print(f"[batch] skip {n}/{total} (failed): {req.get('wav', '')}: {e}",
-                  file=sys.stderr)
-            continue
-        off = float(req.get("offset") or 0.0)
-        for c in cues:
-            all_cues.append(Cue(c[0], c[1] + off, c[2] + off, _cue_doubt(c)))
-        print("--- full transcription ---")
-        print(text)
+    with keep_awake():
+        for n, req in enumerate(requests, start=1):
+            print(f"\n[batch] % {n}/{total} {req.get('wav', '')}")
+            # Never let one bad clip abort the whole work-area run.
+            try:
+                wav = read_wav(req["wav"])
+                text, spans, frame_dur = engine.transcribe(wav)
+                cues = make_cues(mode, group_size, spans, frame_dur, text, glyphs,
+                                 max_chars=max_chars, wav=wav)
+                if speakers:
+                    cues = _maybe_diarize(cues, wav)
+            except Exception as e:
+                skipped += 1
+                # stderr so it never pollutes the stdout transcript parse.
+                print(f"[batch] skip {n}/{total} (failed): {req.get('wav', '')}: {e}",
+                      file=sys.stderr)
+                continue
+            off = float(req.get("offset") or 0.0)
+            for c in cues:
+                all_cues.append(Cue(c[0], c[1] + off, c[2] + off, _cue_doubt(c)))
+            print("--- full transcription ---")
+            print(text)
 
     if out_srt:
         idx = write_srt(out_srt, all_cues, 0.0)

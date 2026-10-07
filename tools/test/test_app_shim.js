@@ -63,6 +63,9 @@ function load(platform, opts) {
     o = o || {};
     if (url === '/__api/proxy') { posts.push(['proxy', JSON.parse(o.body)]); return { json: async () => ({ status: 403, body: '{"valid":false}' }) }; }
     if (url.startsWith('/__api/poll')) {
+      // opts.pollDown: the app server does not answer the first N polls
+      // (e.g. right after the computer wakes from sleep).
+      if (opts.pollDown && opts.pollDown-- > 0) throw new TypeError('Failed to fetch');
       const q = new URLSearchParams(url.split('?')[1]);
       const c = children[q.get('id')];
       if (!c) return { status: 404, json: async () => ({}) };
@@ -81,6 +84,7 @@ function load(platform, opts) {
         tmp: platform === 'win32' ? 'C:\\Users\\me\\AppData\\Local\\Temp' : '/tmp', hostname: 'pc', username: 'me' } },
     crypto: nodeCrypto.webcrypto,
     matchMedia: () => ({ matches: false }),
+    __amhPollGiveUpMs: opts.giveUpMs,
   };
   win.fetch = fetchFn;
   const ctx = { window: win, XMLHttpRequest, Response, URLSearchParams, setTimeout, console, Promise, JSON, Object, Error, TypeError, Uint8Array };
@@ -192,6 +196,17 @@ function load(platform, opts) {
     assert.ok(c.killed);
     await new Promise((ok) => setTimeout(ok, 10));
     assert.ok(posts.some((p) => p[0] === '/__api/kill'));
+  });
+  await t('spawn: a few seconds without contact (waking from sleep) does not fail the job; a dead server does, in time', async () => {
+    const ev = { 'python.exe': [{ t: 'stdout', d: 'done' }, { t: 'exit', code: 0 }] };
+    const { win } = load('win32', { events: ev, pollDown: 2 });
+    const code = await new Promise((ok) => win.require('child_process').spawn('python.exe', []).on('exit', ok));
+    assert.strictEqual(code, 0, 'job finished normally after the outage');
+    const dead = load('win32', { events: ev, pollDown: 1e9, giveUpMs: 1500 }).win;
+    const t0 = Date.now();
+    const code2 = await new Promise((ok) => dead.require('child_process').spawn('python.exe', []).on('exit', ok));
+    assert.notStrictEqual(code2, 0, 'reported as failed');
+    assert.ok(Date.now() - t0 >= 1400, 'only after the give-up time');
   });
   await t('fetch: only license-server URLs go through the app proxy', async () => {
     const { win, posts } = load('win32');

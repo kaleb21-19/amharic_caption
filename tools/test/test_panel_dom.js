@@ -208,7 +208,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.9.6');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.9.7');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1257,6 +1257,58 @@ await t('10. single-clip progress: engine window lines drive the bar', async () 
     p.evalVm('windowProgress = null;');
     assert.strictEqual(p.evalVm('consumeProgressLine("[progress] 1/5")'), true,
       'consumed even with no reporter attached');
+  } finally { p.close(); }
+});
+
+await t('10b. long videos: battery tip, honest time after a resume, watchdog, resume file', async () => {
+  // "It can't handle a 10-minute video": laptops on battery are 2-3x slower,
+  // a resumed job must not show a fake "seconds left", a slow-but-working
+  // engine must never be cut off, and an interrupted run continues.
+  const p = loadPanel({});
+  try {
+    p.evalVm('setWindowProgress(Date.now()); consumeProgressLine("[power] battery"); windowProgress(3, 10);');
+    const label = p.evalVm('$("progLabel").textContent');
+    assert.ok(label.includes('plug in the charger'), 'battery tip shown: ' + label);
+    const am = p.evalVm('(() => { const keep = AMH_LANG; AMH_LANG = "am"; const r = T(PROGRESS_EN); AMH_LANG = keep; return r; })()');
+    assert.ok(am.includes('ቻርጀር ይሰኩ') && am.startsWith('ወደ ጽሑፍ በመቀየር ላይ 3/10'), 'and in Amharic: ' + am);
+    assert.strictEqual(p.evalVm('consumeProgressLine("[power] battery")'), true, 'power line is consumed, not logged as an error');
+    p.evalVm('setWindowProgress(Date.now()); windowProgress(5, 10);');
+    assert.ok(!p.evalVm('$("progLabel").textContent').includes('ቻርጀር'), 'a new run starts without the tip');
+
+    // resumed at 20/39: the first line must not produce an estimate
+    p.evalVm('setWindowProgress(Date.now() - 100000); windowProgress(20, 39);');
+    const resumed = p.evalVm('$("progLabel").textContent');
+    assert.ok(!/ደቂቃ|ሰከንድ/.test(resumed), 'no instant estimate on a resumed job: ' + resumed);
+
+    // watchdog: any worker output restarts it (slow but working is fine)
+    const rearmed = p.evalVm(`(() => {
+      let fired = 0;
+      const fake = { onTimeout: () => { fired++; }, timer: null };
+      warmPending.set(9999, fake);
+      warmBeat();
+      const armed = !!fake.timer;
+      clearTimeout(fake.timer);
+      warmPending.delete(9999);
+      return armed && fired === 0;
+    })()`);
+    assert.strictEqual(rearmed, true, 'worker output re-arms the watchdog');
+    assert.strictEqual(p.evalVm('WARM_SEND_TIMEOUT_MS'), 20 * 60 * 1000, 'watchdog = 20 min of silence, not a total limit');
+
+    // resume: same video + settings -> same work file; it is moved to the
+    // run's output with its doubt marks when done
+    assert.strictEqual(p.evalVm('resumeWorkPath("abc")'), p.evalVm('resumeWorkPath("abc")'));
+    assert.notStrictEqual(p.evalVm('resumeWorkPath("abc")'), p.evalVm('resumeWorkPath("abd")'));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_resume_'));
+    try {
+      const work = path.join(dir, 'w.srt');
+      const out = path.join(dir, 'o.srt');
+      fs.writeFileSync(work, '1\n00:00:00,000 --> 00:00:01,000\nሰላም\n');
+      fs.writeFileSync(work + '.doubt.json', '{}');
+      p.evalVm('finishWork(' + JSON.stringify(work) + ', ' + JSON.stringify(out) + ')');
+      assert.ok(fs.readFileSync(out, 'utf8').includes('ሰላም'), 'output written');
+      assert.ok(fs.existsSync(out + '.doubt.json'), 'doubt marks moved too');
+      assert.ok(!fs.existsSync(work) && !fs.existsSync(work + '.doubt.json'), 'work files removed');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   } finally { p.close(); }
 });
 

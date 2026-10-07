@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.9.6';
+const APP_VERSION = '1.9.7';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -1955,7 +1955,11 @@ function noteWorkerStderr(line) {
 // if the server cannot start.
 // --------------------------------------------------------------------------
 const WARM_IDLE_MS = 20 * 60 * 1000; // kill the worker after 20 min idle
-const WARM_SEND_TIMEOUT_MS = 60 * 60 * 1000; // per-request watchdog (worker hung)
+// Per-request watchdog (worker hung): fires only after this long WITHOUT any
+// output from the worker. The engine reports progress every window (10-30 s
+// even on a slow laptop), so a long video on a slow computer is never cut off
+// — only a worker that has gone silent is.
+const WARM_SEND_TIMEOUT_MS = 20 * 60 * 1000;
 let warmChild = null;
 let warmReady = false;
 let warmIdleTimer = null;
@@ -1978,6 +1982,7 @@ function warmStart() {
   child.stdout.setEncoding('utf8');
   let buf = '';
   child.stdout.on('data', (d) => {
+    warmBeat();
     buf += d;
     let nl = buf.indexOf('\n');
     while (nl >= 0) {
@@ -1993,6 +1998,7 @@ function warmStart() {
   // panel log instead of vanishing.
   child.stderr.setEncoding('utf8');
   child.stderr.on('data', (d) => {
+    warmBeat();
     // Split: a single chunk can carry several lines, and progress lines must
     // be consumed individually rather than logged as one blob.
     String(d).split('\n').forEach((raw) => {
@@ -2047,17 +2053,28 @@ function warmSend(req) {
     // deadlock we no longer let happen, but a hard clamp beats an eternal
     // spinner). The worker is discarded afterward — a stuck process can't be
     // trusted to answer the next request.
-    p.timer = setTimeout(() => {
+    p.onTimeout = () => {
       warmPending.delete(req.id);
       const err = new Error('worker timeout');
       warmDiscard('worker timeout');
       reject(err);
-    }, WARM_SEND_TIMEOUT_MS);
+    };
+    p.timer = setTimeout(p.onTimeout, WARM_SEND_TIMEOUT_MS);
     try {
       const ok = warmChild.stdin.write(JSON.stringify(req) + '\n');
       if (!ok) setImmediate(warmDiscard, 'worker write failed');
     } catch (e) { warmPending.delete(req.id); if (p.timer) clearTimeout(p.timer); reject(e); }
   });
+}
+
+// Any output from the worker proves it is alive: restart every pending
+// request's watchdog.
+function warmBeat() {
+  for (const [, p] of warmPending) {
+    if (!p.onTimeout) continue;
+    if (p.timer) clearTimeout(p.timer);
+    p.timer = setTimeout(p.onTimeout, WARM_SEND_TIMEOUT_MS);
+  }
 }
 
 function warmIdleKill() {
@@ -2294,6 +2311,24 @@ function extractToWav(sourcePath, range) {
   });
 }
 
+function resumeWorkPath(key) {
+  return path.join(os.tmpdir(), 'amh_work_' + String(key).slice(0, 24) + '.srt');
+}
+
+// Move the finished work file (and its doubt marks) to the run's own output.
+function finishWork(work, outSrt) {
+  for (const ext of ['', '.doubt.json']) {
+    try {
+      if (fs.existsSync(work + ext)) {
+        fs.copyFileSync(work + ext, outSrt + ext);
+        fs.unlinkSync(work + ext);
+      } else if (ext) {
+        try { fs.unlinkSync(outSrt + ext); } catch (e) {}
+      }
+    } catch (e) {}
+  }
+}
+
 // Transcribe a single source (already a file path). range = {sourceIn, duration};
 // offset shifts cue times to the timeline. Result: { outSrt, cues, transcript }.
 async function transcribe(sourcePath, outSrt, range, offset) {
@@ -2314,10 +2349,16 @@ async function transcribe(sourcePath, outSrt, range, offset) {
       // Server unavailable → one-shot process.
       return transcribeOneShot(sourcePath, outSrt, range, offset, wav);
     }
+    // The engine writes to a work file named after THIS video + settings and
+    // keeps a progress journal next to it (<work>.part.json). If the run is
+    // interrupted (power cut, sleep, crash, Cancel) the next run of the same
+    // video continues where it stopped instead of starting again.
+    const work = resumeWorkPath(key);
     const r = await warmSend(Object.assign({
-      wav, out_srt: outSrt, offset: offset || 0
+      wav, out_srt: work, offset: offset || 0
     }, warmStyle()));
     warmTouch();
+    finishWork(work, outSrt);
     protectTempFile(outSrt);
     let cues = [];
     try { cues = withDoubts(normalizeCues(parseSrt(fs.readFileSync(outSrt, 'utf8'))), outSrt); } catch (e) {}
@@ -3574,11 +3615,19 @@ function setProgress(pct, text) {
 // drain routes matching lines here. Null at every other time, so batch runs
 // (which drive the bar from their own clip counter) are unaffected.
 let windowProgress = null;
+let onBattery = false;
 
 // Parse one engine stderr line. Returns true when it was a progress line and
 // has been consumed, so the caller can keep it out of the log — one line per
 // 20s window would otherwise bury real messages on a long clip.
 function consumeProgressLine(line) {
+  // `[power] battery`: a long job on a laptop running on battery (2-3x
+  // slower). The progress line then suggests plugging in the charger.
+  if (/^\[power\]\s+battery\s*$/.test(String(line).trim())) {
+    if (!onBattery) log('🔌 This computer is on battery — plug in the charger and captions are made 2-3x faster.');
+    onBattery = true;
+    return true;
+  }
   const m = /^\[progress\]\s+(\d+)\/(\d+)\s*$/.exec(String(line).trim());
   if (!m) return false;
   if (!windowProgress) return true;
@@ -3600,11 +3649,16 @@ function setIndeterminate(on) {
 // first real progress event the bar switches from indeterminate to
 // determinate (fraction-based) mode automatically.
 function setWindowProgress(startedAt) {
+  onBattery = false;
+  // The time estimate is measured from the FIRST progress line: a resumed
+  // job starts at e.g. 20/39 at once, which would otherwise look instant.
+  let first = null;
   windowProgress = (done, total) => {
     const frac = Math.max(0, Math.min(1, done / total));
     let eta = '';
-    if (done > 0 && done < total) {
-      const perWindow = (Date.now() - startedAt) / done;
+    if (!first) first = { done: done, at: done > 0 ? startedAt : Date.now() };
+    if (done > first.done && done < total) {
+      const perWindow = (Date.now() - first.at) / (done - first.done);
       const left = Math.round((perWindow * (total - done)) / 1000);
       if (left > 0) {
         eta = left >= 60
@@ -3612,6 +3666,7 @@ function setWindowProgress(startedAt) {
           : ' · about ' + left + 's left';
       }
     }
+    if (onBattery && done < total) eta += ' · 🔌 plug in the charger to go faster';
     setIndeterminate(false);
     setProgress(0.15 + frac * 0.75, 'Transcribing ' + done + '/' + total + eta);
   };
