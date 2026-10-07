@@ -212,6 +212,13 @@ customer — top manual priority.*
   Undo) → 💾 Save SRT → `<video>.srt` next to the video, never overwritten
   (`(2)`), the "Captions saved" card shows CapCut and DaVinci import steps.
   CapCut desktop: Captions → Import. DaVinci: File → Import → Subtitle.
+- Review while it works (1.10.0+, licensed, speaker marks off): a video over 5
+  minutes opens the review after the first captions (~20-30 s); new ones are
+  added every few seconds. While you type in a caption nothing is redrawn; the
+  waiting captions appear when you leave the box. Place / Save is locked with
+  "⏳ ... 12/39" until the end, then unlocks; the count matches a normal run and
+  your edits are kept. Discard while it works stops the run. A free-trial user
+  still sees the review only at the end.
 - Long videos (1.9.7+): a 10+ minute video on a laptop. While it works the
   computer does not go to sleep (Windows: SetThreadExecutionState; Mac:
   caffeinate -i) and sleeps normally again afterwards. On battery the progress

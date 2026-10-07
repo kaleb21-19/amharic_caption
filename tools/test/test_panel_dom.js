@@ -208,7 +208,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.9.8');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.10.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1310,6 +1310,75 @@ await t('10b. long videos: battery tip, honest time after a resume, watchdog, re
       assert.ok(!fs.existsSync(work) && !fs.existsSync(work + '.doubt.json'), 'work files removed');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   } finally { p.close(); }
+});
+
+await t('10c. review while it is still working: opens early, waits while typing, locks Place, finishes', async () => {
+  const p = loadPanel({});
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_live_'));
+  const srt = (n) => Array.from({ length: n }, (_, i) =>
+    (i + 1) + '\n00:00:' + String(i * 2).padStart(2, '0') + ',000 --> 00:00:' + String(i * 2 + 1).padStart(2, '0') + ',500\nካፕሽን ' + (i + 1) + '\n').join('\n');
+  try {
+    const work = path.join(dir, 'work.srt');
+    const out = path.join(dir, 'out.srt');
+    p.evalVm('LICENSED = true; SPEAKERS = false; cancelRequested = false; reviewTrialCharged = false;' +
+      'setInterval = (fn) => { __tick = fn; return 77; };' +
+      'LIVE_WANTED = { outSrt: ' + JSON.stringify(out) + ', label: "clip" };' +
+      '__poll = startLivePoll(' + JSON.stringify(work) + ');');
+    assert.strictEqual(p.evalVm('__poll'), 77, 'polling starts for a licensed run');
+
+    await p.evalVm('__tick()');
+    assert.strictEqual(p.evalVm('reviewOpen'), false, 'nothing written yet -> no review');
+
+    fs.writeFileSync(work, srt(3));
+    await p.evalVm('__tick()');
+    assert.strictEqual(p.evalVm('reviewOpen && !!REVIEW_LIVE'), true, 'the review opens with the first captions');
+    assert.strictEqual(p.els('reviewList').children.length, 3);
+    assert.strictEqual(p.evalVm('$("reviewPlace").disabled'), true, 'Place is locked while it works');
+    assert.ok(p.evalVm('$("reviewPlace").textContent').startsWith('⏳'), 'and says it is still working');
+    assert.strictEqual(p.evalVm('$("reviewExport").disabled'), true, 'export too');
+    p.evalVm('placeReview()');
+    assert.strictEqual(p.evalVm('reviewOpen'), true, 'Place does nothing while it works');
+
+    // the editor is typing: new captions wait, nothing is redrawn under them
+    p.evalVm('reviewCues[0].text = "የተስተካከለ"; editingReview = () => true;');
+    fs.writeFileSync(work, srt(5));
+    await p.evalVm('__tick()');
+    assert.strictEqual(p.evalVm('reviewCues.length'), 5, 'new captions are kept');
+    assert.strictEqual(p.els('reviewList').children.length, 3, 'but not drawn while typing');
+    p.evalVm('editingReview = () => false;');
+    await p.evalVm('__tick()');
+    assert.strictEqual(p.els('reviewList').children.length, 5, 'drawn once the editor stops typing');
+    assert.strictEqual(p.evalVm('reviewCues[0].text'), 'የተስተካከለ', 'the edit is kept');
+
+    // the run ends: the last captions come in, Place unlocks with its own label
+    const label0 = p.evalVm('$("reviewPlace").dataset.liveLabel');
+    fs.writeFileSync(out, srt(6));
+    await p.evalVm('showRunResult(' + JSON.stringify(out) + ', "clip", { cues: normalizeCues(parseSrt(' + JSON.stringify(srt(6)) + ')) })');
+    assert.strictEqual(p.evalVm('REVIEW_LIVE'), null);
+    assert.strictEqual(p.evalVm('reviewCues.length'), 6, 'the final captions are all there, once');
+    assert.strictEqual(p.evalVm('$("reviewPlace").disabled'), false, 'Place unlocked');
+    assert.strictEqual(p.evalVm('$("reviewPlace").textContent'), label0, 'with its normal label');
+    assert.strictEqual(p.evalVm('reviewCues[0].text'), 'የተስተካከለ', 'edit still kept');
+
+    // Discard while it works also stops the run
+    p.evalVm('closeReview(true); cancelRequested = false; LIVE_WANTED = { outSrt: ' + JSON.stringify(out) + ', label: "clip" };' +
+      'startLivePoll(' + JSON.stringify(work) + ');');
+    await p.evalVm('__tick()');
+    assert.strictEqual(p.evalVm('reviewOpen && !!REVIEW_LIVE'), true);
+    p.evalVm('discardReview()');
+    assert.strictEqual(p.evalVm('cancelRequested'), true, 'Discard stops the run');
+    assert.strictEqual(p.evalVm('reviewOpen'), false);
+    p.evalVm('finishLiveReview(null, false)');
+
+    // not for trial users (a free caption must not be charged for a run that
+    // may still fail) and not with speaker marks (rewritten at the end)
+    p.evalVm('LICENSED = false; cancelRequested = false;');
+    assert.strictEqual(p.evalVm('startLivePoll("x")'), null, 'trial: the review opens at the end as before');
+    p.evalVm('LICENSED = true; SPEAKERS = true;');
+    assert.strictEqual(p.evalVm('startLivePoll("x")'), null, 'speaker marks: at the end as before');
+    p.evalVm('SPEAKERS = false; LIVE_WANTED = null;');
+    assert.strictEqual(p.evalVm('startLivePoll("x")'), null, 'only the runs that ask for it');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); p.close(); }
 });
 
 await t('11. a failed run says so on screen, not only in the log', async () => {

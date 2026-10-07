@@ -468,11 +468,18 @@ class Handler(BaseHTTPRequestHandler):
             pass        # the player moved on (a seek) and closed this request
 
     def do_POST(self):
+        try:
+            n = max(0, min(int(self.headers.get("Content-Length") or 0), 64 * 2**20))
+        except ValueError:
+            n = 0
+        # Read the body even when refusing: answering with unread request
+        # data in the socket makes Windows reset the connection, so the
+        # caller saw a dropped connection instead of the 403.
+        body = self.rfile.read(n) if n else b""
         if not self._api_ok():
             return self._send(403, "{}")
-        n = int(self.headers.get("Content-Length") or 0)
         try:
-            req = json.loads(self.rfile.read(n).decode("utf-8") or "{}")
+            req = json.loads(body.decode("utf-8") or "{}")
         except ValueError:
             return self._send(400, "{}")
         path = urllib.parse.urlparse(self.path).path

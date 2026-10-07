@@ -103,6 +103,7 @@
 
   function saveSrt() {
     if (!reviewOpen) return;
+    if (typeof REVIEW_LIVE !== 'undefined' && REVIEW_LIVE) return;   // still writing
     const cues = (reviewCues || []).filter((c) => (c.text || '').trim().length > 0);
     if (!cues.length) { log(tx('የሚቀመጥ ካፕሽን የለም።', 'Nothing to save yet.')); return; }
     const src = chosen && chosen.path;
