@@ -347,12 +347,21 @@ A license key can only ever validate against the machine_id embedded in it
 (the panel and server both enforce that), so `machine_id` is NOT a share
 signal — the panel *invents* it (localStorage). The honest signals are:
 
-- **Key spread by source IP**: every valid `/api/validate` (cache hit or miss)
-  stamps a `(key, CF-Connecting-IP)` row in `key_activations`. When a key has
-  been presented from `AMH_SPREAD_THRESHOLD` distinct IPs (default 3) an admin
-  gets one alert per key per 24 h. To hard-block instead of just flag:
-  `wrangler secret put AMH_BLOCK_SHARED` → enter `1`. Default is notify-only so
-  legit buyers on CGNAT/rotating IPs aren't locked out.
+- **Key sharing by COMPUTER (migration 0024, 1.10.1+ clients)**: the panel,
+  desktop app and SRT maker send `hf` with `/api/validate` — an 8-hex hash of
+  username | home folder | platform (the same value on all three). Every valid
+  check stamps `(key, hf)` in `key_hosts`. A license copied to another PC has
+  the same Machine ID but a different `hf`, whatever the network. Rules (30
+  days): `AMH_SHARE_ALERT_HOSTS` (default 2) computers → one admin alert per
+  key per 24 h; `AMH_SHARE_HOSTS` (default 3) computers + `AMH_BLOCK_SHARED=1`
+  → only the NEW computer is refused (`reason: shared`, never cached), the
+  first ones keep working. Clients without `hf` (panels before 1.10.1) are
+  never refused.
+  **Source IPs are no longer a share signal.** They are still stamped in
+  `key_activations` (shown by /find) for support. The old rule (3 distinct
+  IPs per key) refused the owner's own key and two customers on 2026-10-07:
+  Ethio Telecom gives one computer a new address all the time.
+  `AMH_SPREAD_THRESHOLD` is no longer read.
 - **Fresh-machine trial flood**: `/api/trial/use` with a mid never seen in D1
   `trials` is the classic clearing-localStorage reset. Per IP, only
   `AMH_FRESH_MID_DAY` (default 5) fresh mids are allowed per 24 h. `/api/trial/use`

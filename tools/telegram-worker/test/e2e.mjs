@@ -93,6 +93,7 @@ class D1 {
     this.db.exec(readFileSync(new URL('../migrations/0020_security.sql', import.meta.url), 'utf8'));
     // 0021-0023: API rate limits, jobs-feed state, support-group membership (real files)
     this.db.exec(readFileSync(new URL('../migrations/0021_rl_d1.sql', import.meta.url), 'utf8'));
+    this.db.exec(readFileSync(new URL('../migrations/0024_key_hosts.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0022_jobs_d1.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0023_group_members.sql', import.meta.url), 'utf8'));
     this.db.exec("ALTER TABLE customers ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0"); // migration 0008
@@ -1430,39 +1431,65 @@ console.log('\n:: scenario 12 — broadcast, /setexpiry, reply-keyboard hint');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-console.log('\n:: scenario 13 — key spread (per-key distinct IPs) + fresh-mid flood');
+console.log('\n:: scenario 13 — key sharing (computers, not IPs) + fresh-mid flood');
 
 {
-  // one key, validated from 3 different IPs → distinct reaches threshold → alert; still valid
-  const { env } = fresh();
+  const alerts = () => OUTBOUND.filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === ADMIN_ID &&
+    (x.body.text || '').includes('License on more than one computer'));
+  const validate = async (env, body, ip) => (await api(env, '/api/validate', { method: 'POST', body, headers: { 'CF-Connecting-IP': ip } })).json();
+
+  // ONE computer whose address changes all the time (Ethio Telecom) — even
+  // with blocking ON it always works and never raises an alert.
+  const { env } = fresh({ AMH_BLOCK_SHARED: '1' });
   const mid = 'aabbccdd';
   const key = keyFor(mid);
   env.DB.prepare("INSERT INTO customers (machine_id, name, expiry, key, status, uid) VALUES (?, 'sold', '00000000', ?, 'sold', '1')").bind(mid, key).run();
-  for (const ip of ['203.0.113.10', '203.0.113.11', '203.0.113.12']) {
-    const r = await api(env, '/api/validate', { method: 'POST', body: { mid, key }, headers: { 'CF-Connecting-IP': ip } });
-    const j = await r.json();
-    assert.equal(j.valid, true, `valid from ${ip}`);
+  const before = alerts().length;
+  for (let i = 0; i < 12; i++) {
+    const j = await validate(env, { mid, key, hf: 'e3c6442f' }, '196.188.227.' + (10 + i));
+    assert.equal(j.valid, true, 'one computer, new address #' + (i + 1) + ' -> still valid');
   }
-  const alert = OUTBOUND.filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === ADMIN_ID && (x.body.text || '').includes('Key spread alert'));
-  assert.equal(alert.length, 1, 'one spread alert after 3rd distinct IP');
-  const acts = rows(env, 'SELECT * FROM key_activations WHERE key=?', canonicalKey(key));
-  assert.equal(acts.length, 3, 'three (key, ip) rows recorded');
-  ok('key spread: distinct-IP telemetry + throttled admin alert');
+  assert.equal(alerts().length, before, 'no alert for one computer on 12 addresses');
+  assert.equal(rows(env, 'SELECT * FROM key_activations WHERE key=?', canonicalKey(key)).length, 12, 'IPs still kept for support');
+  // old panels send no fingerprint: never refused, never alerted
+  for (let i = 0; i < 5; i++) {
+    const j = await validate(env, { mid, key }, '10.0.0.' + i);
+    assert.equal(j.valid, true, 'no fingerprint -> valid');
+  }
+  assert.equal(alerts().length, before, 'and no alert');
+  // a malformed fingerprint is ignored (never stored)
+  await validate(env, { mid, key, hf: 'not-hex!' }, '10.0.1.1');
+  assert.equal(rows(env, 'SELECT * FROM key_hosts WHERE key=?', canonicalKey(key)).length, 1, 'only real fingerprints are stored');
+  ok('key sharing: one computer on 12 changing addresses (and old panels) always valid, no alert');
 
-  // AMH_BLOCK_SHARED=1 → the key stops validating beyond the threshold
-  const envB = fresh({ AMH_BLOCK_SHARED: '1' });
-  envB.env.DB.prepare("INSERT INTO customers (machine_id, name, expiry, key, status, uid) VALUES (?, 'b', '00000000', ?, 'sold', '2')").bind(mid, key).run();
-  for (const ip of ['203.0.113.21', '203.0.113.22']) {
-    const r = await api(envB.env, '/api/validate', { method: 'POST', body: { mid, key }, headers: { 'CF-Connecting-IP': ip } });
-    const j = await r.json();
-    assert.equal(j.valid, true, `block env valid below threshold (${ip})`);
+  // a 2nd computer (e.g. Windows reinstalled under a new user name): the owner
+  // is told once, nothing is blocked
+  let j = await validate(env, { mid, key, hf: '11111111' }, '196.188.1.1');
+  assert.equal(j.valid, true, '2nd computer still valid');
+  assert.equal(alerts().length, before + 1, 'one alert at the 2nd computer');
+  assert.ok(alerts().at(-1).body.text.includes('/find ' + mid), 'alert names the machine and how to check');
+  j = await validate(env, { mid, key, hf: '11111111' }, '196.188.1.2');
+  assert.equal(alerts().length, before + 1, 'alert throttled to once a day');
+  ok('key sharing: a 2nd computer -> one alert to the owner, still valid');
+
+  // a 3rd computer with blocking ON is refused — the first two keep working
+  j = await validate(env, { mid, key, hf: '22222222' }, '196.188.2.1');
+  assert.equal(j.valid, false);
+  assert.equal(j.reason, 'shared', '3rd computer refused as shared');
+  j = await validate(env, { mid, key, hf: 'e3c6442f' }, '196.188.99.1');
+  assert.equal(j.valid, true, "the buyer's own computer keeps working");
+  j = await validate(env, { mid, key, hf: '11111111' }, '196.188.99.2');
+  assert.equal(j.valid, true, 'the 2nd computer keeps working too');
+  ok('AMH_BLOCK_SHARED: a 3rd computer is refused, the first ones keep working');
+
+  // blocking OFF (default): a 3rd computer only alerts
+  const envN = fresh();
+  envN.env.DB.prepare("INSERT INTO customers (machine_id, name, expiry, key, status, uid) VALUES (?, 'n', '00000000', ?, 'sold', '3')").bind(mid, key).run();
+  for (const hf of ['aaaaaaaa', 'bbbbbbbb', 'cccccccc']) {
+    j = await validate(envN.env, { mid, key, hf }, '41.0.0.1');
+    assert.equal(j.valid, true, 'blocking off -> valid on ' + hf);
   }
-  const r3 = await api(envB.env, '/api/validate', { method: 'POST', body: { mid, key }, headers: { 'CF-Connecting-IP': '203.0.113.23' } });
-  assert.equal(r3.status, 200);
-  const j3 = await r3.json();
-  assert.equal(j3.valid, false);
-  assert.equal(j3.reason, 'shared', 'at threshold + BLOCK_SHARED → valid:false reason shared');
-  ok('AMH_BLOCK_SHARED caps a key at threshold IPs');
+  ok('blocking off (default): 3 computers -> still valid, owner alerted');
 }
 
 {

@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.10.0';
+const APP_VERSION = '1.10.1';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -935,7 +935,7 @@ async function revalidateLicenseOnline(force) {
   let last = 0;
   try { last = parseInt(localStorage.getItem('amh.license.lastCheck') || '0', 10) || 0; } catch (e) {}
   if (!force && last && Date.now() - last < LICENSE_RECHECK_INTERVAL) return;
-  const result = await apiPost('/api/validate', { mid: MACHINE_ID, key: stored.key });
+  const result = await apiPost('/api/validate', { mid: MACHINE_ID, key: stored.key, hf: hostFingerprint() || undefined });
   // Only a real semantic response starts the retry interval. Network errors,
   // 5xx responses, and malformed payloads must be retried on the next focus.
   if (!result || (result.valid !== true && result.valid !== false)) return;
@@ -1215,12 +1215,17 @@ async function activateLicense() {
     //    fail-closed: a first activation REQUIRES the server to confirm the key.
     //    After a key is once confirmed, offline re-activation is allowed via cache.
     const cached = getLicense();
-    const serverResult = await apiPost('/api/validate', { mid: MACHINE_ID, key: key });
+    // hf: which computer (user account + home folder, hashed) — lets the
+    // server tell a license copied to another PC from an honest buyer whose
+    // internet address changes.
+    const serverResult = await apiPost('/api/validate', { mid: MACHINE_ID, key: key, hf: hostFingerprint() || undefined });
     if (serverResult && serverResult.valid === false) {
       const reason = serverResult.reason === 'expired'
         ? 'License expired'
         : serverResult.reason === 'revoked'
         ? 'License revoked — contact @sumpak6 on Telegram'
+        : serverResult.reason === 'shared'
+        ? 'This key is used on other computers — contact @sumpak6 on Telegram'
         : 'Key not recognized — contact @sumpak6 on Telegram';
       if (licStatus) { licStatus.textContent = L(reason); licStatus.style.color = 'var(--err)'; }
       return;

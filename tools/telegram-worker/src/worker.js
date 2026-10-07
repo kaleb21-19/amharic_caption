@@ -189,7 +189,8 @@ let API_KEY_REQUIRED = false;
 let SIGN_KEY = ''; // PKCS8 PEM (ECDSA P-256) for signing install leases. Required for activation.
 let CACHE = null; // optional KV namespace (AMH_KV). Absent => graceful fallback.
 let BLOCK_SHARED = false;  // when '1', /api/validate refuses a key seen from too many IPs
-let SPREAD_THRESHOLD = 3;  // distinct source IPs per key before we alert/flag a spread
+let SHARE_ALERT_HOSTS = 2; // different computers per key (30 days) before the owner is told
+let SHARE_HOSTS = 3;       // ... before AMH_BLOCK_SHARED=1 refuses it
 let FRESH_MID_LIMIT = 5;   // max new (never-before-seen) mids per IP/day before trial use saturates
 // Invite link for the support group. Configurable so the link can be rotated or
 // swapped without a code change; this is the same link the Support button has
@@ -235,7 +236,8 @@ function initEnv(env) {
   ALLOWED_ORIGIN = env.AMH_ALLOWED_ORIGIN || '';
   PRICE_ETB = parseInt(env.AMH_PRICE_ETB, 10) || parseInt(PRICE.replace(/[^\d]/g, ''), 10) || 2500;
   BLOCK_SHARED = String(env.AMH_BLOCK_SHARED || '').toLowerCase() === '1';
-  SPREAD_THRESHOLD = parseInt(env.AMH_SPREAD_THRESHOLD, 10) || 3;
+  SHARE_ALERT_HOSTS = parseInt(env.AMH_SHARE_ALERT_HOSTS, 10) || 2;
+  SHARE_HOSTS = parseInt(env.AMH_SHARE_HOSTS, 10) || 3;
   FRESH_MID_LIMIT = parseInt(env.AMH_FRESH_MID_DAY, 10) || 5;
   CACHE = env.AMH_KV || null;
   SETTINGS_CACHE = null;   // owner settings are re-read on every request
@@ -503,6 +505,7 @@ async function pruneOld() {
   // key_activations stores raw source IPs for spread detection — keep a 30-day
   // window, then drop them (run_set ttl; privacy: do not hold IPs indefinitely).
   const k = await DB.prepare("DELETE FROM key_activations WHERE last_seen < datetime('now', '-30 days')").run();
+  try { await DB.prepare("DELETE FROM key_hosts WHERE last_seen < datetime('now', '-30 days')").run(); } catch (e) { /* 0024 */ }
   const c = await DB.prepare("DELETE FROM ip_counters WHERE updated_at < datetime('now', '-30 days')").run();
   // Rate-limit rows whose window has already closed (0021). Windows are short
   // (60 s on the panel endpoints), so the table stays small; this just stops it
@@ -4494,25 +4497,51 @@ async function adminHelp(chatId) {
     [[{ text: '🛠 Admin', callback_data: 'admin:panel' }]]);
 }
 
-// ── anti-piracy: key-usage telemetry + spread alerts ─────────────────────────
-// Every server-confirmed /api/validate stamps a (key, source IP). A key can
-// only ever validate against the machine_id embedded in it, so the machine_id
-// is not a share signal — the honest one is DISTINCT SOURCE IPs per key.
-// Reaching AMH_SPREAD_THRESHOLD IPs triggers one admin alert per key per 24h
-// (KV-throttled); AMH_BLOCK_SHARED=1 additionally refuses further validation.
-async function recordKeyActivation(key, mid, ip) {
+// ── anti-piracy: which COMPUTERS use a key ───────────────────────────────────
+// A key only validates against the machine_id embedded in it, so sharing
+// means copying the license + machine record to another PC. That PC sends a
+// different computer fingerprint (`hf`: sha256 of username|home|platform, 8
+// hex) — whatever the network. Source IPs are NOT a share signal here:
+// Ethio Telecom gives one computer a new address all the time, and the old
+// 3-IP rule refused the owner's own key and two customers (2026-10-07).
+//   SHARE_ALERT_HOSTS (2) computers in 30 days -> one admin alert per key/day
+//   SHARE_HOSTS (3) computers in 30 days + AMH_BLOCK_SHARED=1 -> refused
+// Clients that send no fingerprint (panels before 1.10.1) are never refused.
+// IPs are still stamped in key_activations, for support only (/find).
+function validHostFp(hf) {
+  return typeof hf === 'string' && /^[0-9a-f]{8}$/.test(hf);
+}
+
+async function recordKeyActivation(key, mid, ip, hf) {
   try {
     await DB.prepare(
       `INSERT INTO key_activations (key, ip, mid) VALUES (?, ?, ?)
        ON CONFLICT(key, ip) DO UPDATE SET
          n = n + 1, mid = excluded.mid, last_seen = datetime('now')`
     ).bind(key, ip, mid).run();
-    const spreadRow = await DB.prepare('SELECT COUNT(DISTINCT ip) AS n FROM key_activations WHERE key = ?').bind(key).first();
-    const distinct = spreadRow ? spreadRow.n : 1;
-    if (distinct >= SPREAD_THRESHOLD) {
-      log('warn', 'key_spread', { key: key.slice(0, 12) + '…', mid, ip, distinct });
-      await alertKeySpread(key, mid, ip, distinct);
-      if (BLOCK_SHARED) return false;
+    if (!validHostFp(hf)) return true;
+    await DB.prepare(
+      `INSERT INTO key_hosts (key, hf, mid) VALUES (?, ?, ?)
+       ON CONFLICT(key, hf) DO UPDATE SET
+         n = n + 1, mid = excluded.mid, last_seen = datetime('now')`
+    ).bind(key, hf, mid).run();
+    const row = await DB.prepare(
+      "SELECT COUNT(*) AS n FROM key_hosts WHERE key = ? AND last_seen >= datetime('now', '-30 days')"
+    ).bind(key).first();
+    const hosts = row ? row.n : 1;
+    if (hosts >= SHARE_ALERT_HOSTS) {
+      log('warn', 'key_shared_hosts', { key: key.slice(0, 12) + '…', mid, hosts });
+      await alertKeySpread(key, mid, ip, hosts);
+    }
+    if (BLOCK_SHARED && hosts >= SHARE_HOSTS) {
+      // Only a computer this key has NOT been used on before is refused; the
+      // first ones (the buyer's) keep working.
+      // (insertion order: first_seen only has 1-second precision)
+      const older = await DB.prepare(
+        "SELECT COUNT(*) AS n FROM key_hosts WHERE key = ? AND last_seen >= datetime('now', '-30 days') " +
+        "AND rowid < (SELECT rowid FROM key_hosts WHERE key = ? AND hf = ?)"
+      ).bind(key, key, hf).first();
+      if ((older ? older.n : 0) >= SHARE_HOSTS - 1) return false;
     }
   } catch (e) {
     // Telemetry must never break the money path.
@@ -4521,15 +4550,15 @@ async function recordKeyActivation(key, mid, ip) {
   return true;
 }
 
-async function alertKeySpread(key, mid, ip, distinct) {
+async function alertKeySpread(key, mid, ip, hosts) {
   const seen = await kvGet('alert:keyspread:' + key);
   if (seen) return;
   await kvPut('alert:keyspread:' + key, '1', 86400);
   const text =
-    '🚨 <b>Key spread alert</b>\n\n' +
-    `Key <code>${key.slice(0, 12)}…</code> has now validated from <b>${distinct}</b> different IPs.\n` +
-    `Latest: machine <code>${mid}</code> from IP <code>${ip}</code>\n\n` +
-    'Unless the owner moved between internet connections, this is a leaked/shared key. Check /admin → History → Customer record.';
+    '🚨 <b>License on more than one computer</b>\n\n' +
+    `Machine <code>${mid}</code>: its key was used on <b>${hosts}</b> different computers in 30 days.\n\n` +
+    'One buyer who reinstalled Windows or made a new user account shows 2. Three or more usually means the license files were copied to friends. ' +
+    `Check with /find ${mid}` + (BLOCK_SHARED ? '' : ' (nothing is blocked: AMH_BLOCK_SHARED is off).');
   for (const adm of adminUids()) { await sendText(adm, text); await sleep(90); }
 }
 
@@ -5935,6 +5964,7 @@ export default {
       let body;
       try { body = await request.json(); } catch { return json({ error: 'bad json' }, 400); }
       const { mid, key } = body || {};
+      const hf = validHostFp(body && body.hf) ? body.hf : '';
       if (!mid || !key || !isValidMid(mid) || typeof key !== 'string' || key.length > 256) {
         return json({ error: 'missing mid or key' }, 400);
       }
@@ -6050,13 +6080,14 @@ export default {
         if (cacheKey) await kvPut(cacheKey, JSON.stringify(out), out.valid ? 3600 : 60);
       }
       // A known-good key is served from cache for an hour — but every VALID
-      // response still records a (key, source IP) activation so distinct-IP
-      // spread detection sees repeat validations, not just the first one.
+      // response still records the activation (IP for support, computer
+      // fingerprint for sharing), not just the first one.
       if (out.valid) {
-        const okActivation = await recordKeyActivation(clean, midKey, clientIp());
+        const okActivation = await recordKeyActivation(clean, midKey, clientIp(), hf);
         if (!okActivation) {
+          // Not cached: the answer depends on WHICH computer asks — the
+          // buyer's own one must keep working.
           out = { valid: false, reason: 'shared' };
-          if (cacheKey) await kvPut(cacheKey, JSON.stringify(out), 60);
         }
       }
       if (out.valid) {

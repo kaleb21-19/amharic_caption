@@ -156,6 +156,21 @@ def _home():
     return os.environ.get("AMH_MACHINE_HOME") or os.path.expanduser("~")
 
 
+def host_fingerprint():
+    """Which computer + user account this is (8 hex). The same recipe as the
+    panel's hostFingerprint() — sha256 of username|home folder|platform — so
+    the panel, the desktop app and this SRT maker report the same value on one
+    computer. The license server counts computers per key with it (a key
+    copied to another PC shows a second one); internet addresses are not used
+    for that, because they change all the time."""
+    try:
+        import getpass
+        raw = "|".join([getpass.getuser(), os.path.expanduser("~"), sys.platform])
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:8]
+    except Exception:
+        return ""
+
+
 def _machine_path():
     return os.path.join(_home(), ".amharic_captions_machine.json")
 
@@ -332,7 +347,11 @@ def activate(machine_id, key):
         return False, "Invalid key format"
     if not ck.startswith(machine_id):
         return False, "Key is for a different machine"
-    res = _api("POST", "/api/validate", {"mid": machine_id, "key": key.strip()})
+    body = {"mid": machine_id, "key": key.strip()}
+    hf = host_fingerprint()
+    if hf:
+        body["hf"] = hf
+    res = _api("POST", "/api/validate", body)
     if res is None:
         return False, "Cannot verify license — no connection to the license server. Try again online."
     if res.get("valid") is not True:
@@ -341,6 +360,8 @@ def activate(machine_id, key):
             return False, "License expired"
         if reason == "revoked":
             return False, "License revoked — contact @sumpak6 on Telegram"
+        if reason == "shared":
+            return False, "This key is used on other computers — contact @sumpak6 on Telegram"
         if reason == "throttled":
             return False, "Too many attempts — wait one minute and try again."
         return False, "Key not recognized — contact @sumpak6 on Telegram"
