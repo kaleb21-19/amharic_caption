@@ -31,6 +31,11 @@ CLI (used by the panel, which reads stdout):
   python amh_model.py path        -> prints the resolved dir, or nothing
   python amh_model.py status      -> one JSON line
   python amh_model.py download    -> "[dl] <done> <total>" lines, then JSON
+
+Language packs (1.10.5+): `--pack orm` (Afaan Oromo) works with every command.
+A pack has its own runtime/model_manifest_<pack>.json and is resolved the same
+way: AMH_<PACK>_MODEL_DIR, then runtime/model_<pack>/, then <shared root>/<id>/
+(the id comes from that model's own model.bin, so packs never collide).
 """
 
 import hashlib
@@ -116,12 +121,21 @@ def shared_ok(manifest):
         return False
 
 
-def resolve(runtime_dir=HERE):
-    env = os.environ.get("AMH_MODEL_DIR")
+PACKS = ("orm",)
+
+
+def manifest_path(runtime_dir=HERE, pack=None):
+    return os.path.join(runtime_dir, "model_manifest%s.json" % ("_" + pack if pack else ""))
+
+
+def resolve(runtime_dir=HERE, pack=None):
+    env = os.environ.get("AMH_%s_MODEL_DIR" % pack.upper() if pack else "AMH_MODEL_DIR")
     if env and os.path.isdir(env) and _looks_like_model(env):
         return env
-    manifest = load_manifest(os.path.join(runtime_dir, "model_manifest.json"))
-    bundled = os.path.join(runtime_dir, "model")
+    manifest = load_manifest(manifest_path(runtime_dir, pack))
+    bundled = os.path.join(runtime_dir, "model_" + pack if pack else "model")
+    if pack and not manifest:
+        return bundled if bundled_ok(bundled, None) else None
     if bundled_ok(bundled, manifest):
         return bundled
     if manifest and shared_ok(manifest):
@@ -237,15 +251,24 @@ def download(manifest=None, progress=None, sources=None):
 
 
 def main(argv):
+    argv = list(argv)
+    pack = None
+    if "--pack" in argv:
+        k = argv.index("--pack")
+        pack = argv[k + 1] if k + 1 < len(argv) else ""
+        del argv[k:k + 2]
+        if pack not in PACKS:
+            print(json.dumps({"ok": False, "error": "unknown pack: %s" % pack}), flush=True)
+            return 2
     cmd = argv[0] if argv else "status"
-    manifest = load_manifest()
+    manifest = load_manifest(manifest_path(HERE, pack))
     if cmd == "path":
-        d = resolve()
+        d = resolve(HERE, pack)
         if d:
             print(d)
         return 0
     if cmd == "status":
-        d = resolve()
+        d = resolve(HERE, pack)
         total = sum(f["size"] for f in manifest["files"]) if manifest else 0
         print(json.dumps({"ok": True, "dir": d, "needDownload": d is None and bool(manifest),
                           "total": total, "target": shared_dir(manifest) if manifest else None}))

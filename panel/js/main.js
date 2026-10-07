@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.10.19';
+const APP_VERSION = '1.10.20';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -1866,6 +1866,181 @@ const AMH_ENV = Object.assign({}, process.env, {
 
 const $ = (id) => document.getElementById(id);
 
+// ── Afaan Oromo (beta) language pack (1.10.5) ───────────────────────────
+// A second, optional model (badrex/Ethio-ASR-multilingual-600M, CC-BY-4.0,
+// 583 MB) downloaded once on request — like the Lite Amharic model, with the
+// same resumable / verified download (amh_model.py --pack orm). Found the way
+// amh_model.resolve(pack="orm") finds it, so the engine agrees.
+let ORM_MANIFEST = (() => {
+  if (!RUNTIME || RUNTIME === DEV_RUNTIME) return null;
+  try {
+    const m = JSON.parse(fs.readFileSync(runtimePath('model_manifest_orm.json'), 'utf8'));
+    return (m && m.id && Array.isArray(m.files)) ? m : null;
+  } catch (e) { return null; }
+})();
+const ORM_TOTAL_BYTES = ORM_MANIFEST ? ORM_MANIFEST.files.reduce((a, f) => a + f.size, 0) : 0;
+function ormPackDir() {
+  const env = process.env.AMH_ORM_MODEL_DIR;
+  if (env && fs.existsSync(path.join(env, 'model_meta.json'))) return env;
+  if (!RUNTIME) return null;
+  const bundled = runtimePath('model_orm');
+  if (fs.existsSync(path.join(bundled, 'model_meta.json'))) return bundled;
+  if (!ORM_MANIFEST) return null;
+  const d = path.join(modelSharedRoot(), ORM_MANIFEST.id);
+  try {
+    const done = JSON.parse(fs.readFileSync(path.join(d, 'complete.json'), 'utf8'));
+    if (done.id === ORM_MANIFEST.id &&
+        ORM_MANIFEST.files.every((f) => fileSize(path.join(d, f.name)) === f.size)) return d;
+  } catch (e) {}
+  return null;
+}
+let ORM_DIR = ormPackDir();
+if (ORM_DIR) AMH_ENV.AMH_ORM_MODEL_DIR = ORM_DIR;
+let LANG = 'amh';          // 'amh' | 'orm' — the language of the captions
+let ormChild = null;
+let ORM_UI = { state: 'idle', done: 0 };
+let ORM_RESUME = null;        // the job to start when the pack is ready
+let ORM_RETRY = { n: 0, timer: null, tick: null, at: 0 };
+
+function syncLangUi() {
+  document.querySelectorAll('#langSeg button').forEach((b) => b.classList.toggle('active', b.dataset.lang === LANG));
+  const box = $('ormPackBox');
+  if (!box) return;
+  const show = LANG === 'orm';
+  box.style.display = show ? '' : 'none';
+  if (!show) return;
+  const txt = $('ormPackText');
+  const btn = $('ormPackBtn');
+  const mb = (n) => Math.round(n / 1e6);
+  if (ORM_DIR) {
+    txt.textContent = L('Afaan Oromo (beta) is ready. Captions come out in Latin letters (Qubee). Tell us what to improve.');
+    btn.style.display = 'none';
+    return;
+  }
+  btn.style.display = '';
+  if (!ORM_MANIFEST) {
+    txt.textContent = L('The Afaan Oromo pack is not available in this installation. Update to the newest version.');
+    btn.style.display = 'none';
+  } else if (ORM_UI.state === 'running') {
+    txt.textContent = L('Downloading the Afaan Oromo pack… ' + mb(ORM_UI.done) + ' / ' + mb(ORM_TOTAL_BYTES) + ' MB');
+    btn.textContent = L('Pause');
+  } else if (ORM_UI.state === 'retrying') {
+    const s = Math.max(0, Math.ceil((ORM_RETRY.at - Date.now()) / 1000));
+    txt.textContent = L('Internet connection lost at ' + mb(ORM_UI.done) + ' / ' + mb(ORM_TOTAL_BYTES) +
+      ' MB — trying again in ' + s + ' s. Nothing downloaded is lost.');
+    btn.textContent = L('Try now');
+  } else {
+    txt.textContent = L(ORM_UI.state === 'failed'
+      ? 'The download stopped. Check your internet and press Download again — it continues where it stopped.'
+      : 'Afaan Oromo needs a one-time download (' + mb(ORM_TOTAL_BYTES) + ' MB). It continues where it stopped if the internet drops.');
+    btn.textContent = L(ORM_UI.state === 'paused' || ORM_UI.state === 'failed' ? 'Continue download' : 'Download Afaan Oromo');
+  }
+}
+
+function clearOrmRetry() {
+  if (ORM_RETRY.timer) clearTimeout(ORM_RETRY.timer);
+  if (ORM_RETRY.tick) clearInterval(ORM_RETRY.tick);
+  ORM_RETRY.timer = null; ORM_RETRY.tick = null;
+}
+// Same as the Amharic model (1.10.17): a dropped connection is retried by
+// itself, later and later, and keeps every byte already downloaded.
+function scheduleOrmRetry() {
+  clearOrmRetry();
+  if (ORM_RETRY.n >= MODEL_RETRY_S.length) { ORM_UI.state = 'failed'; syncLangUi(); return; }
+  const wait = MODEL_RETRY_S[ORM_RETRY.n++];
+  ORM_RETRY.at = Date.now() + wait * 1000;
+  ORM_UI.state = 'retrying';
+  syncLangUi();
+  ORM_RETRY.tick = setInterval(() => { if (ORM_UI.state === 'retrying') syncLangUi(); }, 1000);
+  ORM_RETRY.timer = setTimeout(() => { clearOrmRetry(); if (!ORM_DIR && !ormChild) startOrmDownload(); }, wait * 1000);
+}
+function onOrmButton() {
+  if (ormChild) { ormChild.__paused = true; clearOrmRetry(); try { ormChild.kill(); } catch (e) {} return; }
+  ORM_RETRY.n = 0;
+  clearOrmRetry();
+  startOrmDownload();
+}
+function startOrmDownload() {
+  if (ormChild) return;
+  clearOrmRetry();
+  const script = runtimePath('amh_model.py');
+  if (!fs.existsSync(script)) { log('ERROR: amh_model.py is missing from the runtime. Reinstall.'); return; }
+  ORM_UI = { state: 'running', done: ORM_UI.done };
+  syncLangUi();
+  if (!ORM_RETRY.n) track('orm_dl_start');
+  log('Downloading the Afaan Oromo pack…');
+  let out = '';
+  let child;
+  try {
+    child = spawn(PYTHON, ['-E', '-s', script, 'download', '--pack', 'orm'], { env: AMH_ENV, windowsHide: true });
+  } catch (e) {
+    ORM_UI.state = 'failed'; syncLangUi(); return;
+  }
+  ormChild = child;
+  child.stdout.on('data', (buf) => {
+    out += buf.toString('utf8');
+    let nl;
+    while ((nl = out.indexOf('\n')) >= 0) {
+      const line = out.slice(0, nl).trim();
+      out = out.slice(nl + 1);
+      const m = /^\[dl\] (\d+) (\d+)$/.exec(line);
+      if (m) {
+        const got = Number(m[1]);
+        if (got > ORM_UI.done) ORM_RETRY.n = 0;
+        ORM_UI.done = got; syncLangUi(); continue;
+      }
+      if (line.charAt(0) === '{') {
+        try { const r = JSON.parse(line); if (r.ok && r.dir) child.__result = r; else if (r.error) log('Afaan Oromo download: ' + r.error); } catch (e) {}
+      }
+    }
+  });
+  child.stderr.on('data', () => {});
+  child.on('close', () => {
+    ormChild = null;
+    if (child.__result) {
+      ORM_DIR = child.__result.dir;
+      AMH_ENV.AMH_ORM_MODEL_DIR = ORM_DIR;
+      ORM_UI = { state: 'done', done: ORM_TOTAL_BYTES };
+      track('orm_dl_ok');
+      log('✓ Afaan Oromo pack downloaded and verified.');
+      setStatus('ready', 'ready');
+      syncLangUi();
+      const resume = ORM_RESUME;
+      ORM_RESUME = null;
+      if (resume && !runInProgress && !runStartInProgress) {
+        log('✓ Afaan Oromo ready — starting your captions.');
+        resume();
+      }
+      return;
+    }
+    if (child.__paused) { ORM_UI.state = 'paused'; syncLangUi(); return; }
+    if (ORM_RETRY.n === 0) track('orm_dl_fail');
+    scheduleOrmRetry();
+  });
+  child.on('error', () => { ormChild = null; ORM_UI.state = 'failed'; syncLangUi(); });
+}
+
+// Before a run: Oromo needs its pack.
+// Generate starts the download and the job follows by itself (as 1.10.17
+// does for the Amharic model).
+function langReadyForRun(resume) {
+  if (LANG !== 'orm' || ORM_DIR) return true;
+  if (!ORM_MANIFEST) {
+    log('The Afaan Oromo pack is not available in this installation. Update to the newest version.');
+    syncLangUi();
+    return false;
+  }
+  if (resume) ORM_RESUME = resume;
+  log('First the Afaan Oromo pack is downloaded (' + Math.round(ORM_TOTAL_BYTES / 1e6) + ' MB, one time only).');
+  log('Your captions start by themselves when it is ready.');
+  setStatus('err', 'Afaan Oromo pack needed');
+  if (!ormChild) { ORM_RETRY.n = 0; startOrmDownload(); }
+  syncLangUi();
+  const box = $('ormPackBox');
+  if (box && typeof box.scrollIntoView === 'function') { try { box.scrollIntoView({ block: 'center' }); } catch (e) {} }
+  return false;
+}
+
 const logEl = $('logBox');
 function log(msg) {
   const line = typeof msg === 'string' ? msg : String(msg);
@@ -2049,6 +2224,7 @@ function applySettings() {
   // Old settings stored a raw number; 25 or fewer meant short captions.
   FORMAT = s.format === 'v' || s.format === 'h' ? s.format : ((s.chars && s.chars <= 25) ? 'v' : 'h');
   MAX_CHARS = FORMAT_CHARS[FORMAT];
+  LANG = s.lang === 'orm' ? 'orm' : 'amh';
   document.querySelectorAll('#srcSeg button').forEach((b) => {
     b.classList.toggle('active', b.dataset.src === SOURCE);
   });
@@ -2132,6 +2308,7 @@ function extractTranscripts(stdout) {
 
 function pyFlags() {
   const f = [];
+  if (LANG === 'orm') f.push('--lang', 'orm');
   if (CAP === 'words') f.push('--words');
   else f.push('--group', String(GROUP_SIZE));
   f.push('--max-chars', String(MAX_CHARS));
@@ -2369,7 +2546,7 @@ function cacheKey(sourcePath, range, offset) {
     h.update(':' + String(range.sourceIn || 0));
     h.update(':' + String(range.duration || 0));
   }
-  h.update(':' + CAP + ':' + GROUP_SIZE + ':' + MAX_CHARS);
+  h.update(':' + CAP + ':' + GROUP_SIZE + ':' + MAX_CHARS + (LANG === 'amh' ? '' : ':' + LANG));
   h.update(':' + engineHash() + ':' + MODEL_DIR);
   h.update(':' + String(offset || 0));
   try {
@@ -2496,7 +2673,8 @@ async function cacheStore(key, srt, transcript, cues) {
 
 // Warm-worker style options.
 function warmStyle() {
-  return { mode: CAP === 'words' ? 'words' : 'grouped',
+  return { lang: LANG,
+           mode: CAP === 'words' ? 'words' : 'grouped',
            group: CAP === 'grouped' ? GROUP_SIZE : 0,
            max_chars: MAX_CHARS };
 }
@@ -3363,7 +3541,7 @@ function renderReview() {
     ta.rows = 1;
     // The captions are Amharic. Without this the whole review list is read as
     // English, and a screen reader pronounces Ge'ez with the wrong voice.
-    ta.setAttribute('lang', 'am');
+    ta.setAttribute('lang', LANG === 'orm' ? 'om' : 'am');
     ta.setAttribute('aria-label', 'Caption ' + (i + 1) + ' text');
 
 
@@ -4695,6 +4873,7 @@ let MODEL_RETRY = { n: 0, timer: null, tick: null, at: 0 };
 const MODEL_RETRY_S = [10, 20, 30, 60, 60, 120, 120, 300, 300, 300];
 let MODEL_SPEED = { t: 0, bytes: 0, bps: 0 };
 function modelReadyForRun(resume) {
+  if (!langReadyForRun(resume)) return false;
   if (!MODEL_MISSING) return true;
   track('blocked_model');
   if (resume) MODEL_RESUME = resume;
@@ -4931,6 +5110,17 @@ function setup() {
       saveSettings({ format: FORMAT, chars: MAX_CHARS });
     });
   });
+  document.querySelectorAll('#langSeg button').forEach((b) => {
+    b.addEventListener('click', () => {
+      LANG = b.dataset.lang === 'orm' ? 'orm' : 'amh';
+      saveSettings({ lang: LANG });
+      if (LANG === 'orm') track('orm_pick');
+      syncLangUi();
+    });
+  });
+  const ormBtn = $('ormPackBtn');
+  if (ormBtn) ormBtn.addEventListener('click', onOrmButton);
+  syncLangUi();
 
   $('runBtn').addEventListener('click', run);
   $('cancelBtn').addEventListener('click', () => {

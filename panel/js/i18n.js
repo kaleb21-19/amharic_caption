@@ -59,6 +59,7 @@ const AM_STATIC = {
   'opt.karaoke':      'ካራኦኬ',
   'opt.grouped':      'በቡድን',
   'opt.words':        'ቃላት በአንድ ካፕሽን',
+  'opt.lang':         'ቋንቋ',
   'opt.format':       'የቪዲዮ ቅርጽ',
   'fa.noTitle':       'እንዳሉ ይተዉ',
   'opt.fmtH':         '🖥 አግድም · YouTube',
@@ -165,6 +166,16 @@ const AM_TEXT = {
   'Your antivirus or an incomplete install blocked part of the transcription engine. Add the extension folder to your antivirus exclusions, then reinstall and restart Premiere.':
     'አንቲ-ቫይረስዎ ወይም ያልተሟላ ጭነት የትራንስክሪፕሽን ሞተሩን አንድ ክፍል አግዶታል። የኤክስቴንሽኑን ፎልደር ወደ አንቲ-ቫይረስዎ Exclusions ያክሉ፣ ከዚያ እንደገና ይጫኑና Premiere ን ዳግም ያስጀምሩ።',
   'Cancelled.': 'ተቋርጧል።',
+  'Afaan Oromo (beta) is ready. Captions come out in Latin letters (Qubee). Tell us what to improve.':
+    'Afaan Oromoo (ሙከራ) ዝግጁ ነው። ካፕሽኖቹ በላቲን ፊደል (ቁቤ) ይወጣሉ። ምን እንደሚሻሻል ይንገሩን።',
+  'The Afaan Oromo pack is not available in this installation. Update to the newest version.':
+    'የAfaan Oromoo ጥቅል በዚህ ጭነት ውስጥ የለም። አዲሱን ስሪት ይጫኑ።',
+  'The download stopped. Check your internet and press Download again — it continues where it stopped.':
+    'ማውረዱ ቆሟል። ኢንተርኔትዎን ፈትሸው እንደገና ይጫኑ — ካቆመበት ይቀጥላል።',
+  'Download Afaan Oromo': 'Afaan Oromoo አውርድ',
+  'Continue download': 'ማውረዱን ቀጥል',
+  'Pause': 'ለአፍታ አቁም',
+  'Afaan Oromo pack needed': 'የAfaan Oromoo ጥቅል ያስፈልጋል',
   'Your free captions are used up. Activate your license key to continue.': 'ነጻ ሙከራዎቹ አልቀዋል። ለመቀጠል የፈቃድ ቁልፍዎን ያስገቡ።',
   'Connect to the internet once for a free caption (your license key works offline).': 'ለነጻ ሙከራ አንድ ጊዜ ኢንተርኔት ያገናኙ (ፈቃድ ያለው ያለ ኢንተርኔት ይሰራል)።',
   'Get your free minutes in Telegram first (the button above the license).': 'መጀመሪያ ነጻ ደቂቃዎችዎን በቴሌግራም ይቀበሉ (ከፈቃዱ በላይ ያለው ቁልፍ)።',
@@ -175,6 +186,7 @@ const AM_TEXT = {
   'Your request is being checked — we will tell you in Telegram.': 'ጥያቄዎ እየተረጋገጠ ነው — በቴሌግራም እንነግርዎታለን።',
   'Your captions start by themselves when it is ready.': 'ሲጨርስ ካፕሽኑ በራሱ ይጀምራል።',
   'Try now': 'አሁን ሞክር',
+  '✓ Afaan Oromo ready — starting your captions.': '✓ Afaan Oromoo ዝግጁ ነው — ካፕሽኑ እየጀመረ ነው።',
   'Connecting…': 'በመገናኘት ላይ…',
   '✓ Model ready — starting your captions.': '✓ ሞዴሉ ዝግጁ ነው — ካፕሽኑ እየጀመረ ነው።',
   'Press Generate (or "Download the Amharic model" at the top). It is a': '«ካፕሽን ፍጠር»ን ይጫኑ (ወይም ከላይ «የአማርኛ ሞዴሉን አውርድ»)። ይህ',
@@ -318,6 +330,7 @@ const AM_TEXT = {
 
 // Parameterised English → Amharic ($1.. are the regex groups).
 const AM_PATTERNS = [
+  [/^First the Afaan Oromo pack is downloaded \((\d+) MB, one time only\)\.$/, 'መጀመሪያ የAfaan Oromoo ጥቅሉ ይወርዳል ($1 MB፣ አንድ ጊዜ ብቻ)።'],
   [/^First the Amharic model is downloaded \((\d+) MB, one time only\)\.$/, 'መጀመሪያ የአማርኛ ሞዴሉ ይወርዳል ($1 MB፣ አንድ ጊዜ ብቻ)።'],
   [/^Internet connection lost at (\d+) \/ (\d+) MB — trying again in (\d+) s\. Nothing downloaded is lost\.$/,
     'ኢንተርኔት ተቋርጧል ($1 / $2 MB) — በ$3 ሰከንድ ውስጥ እንደገና ይሞከራል። የወረደው አይጠፋም።'],
@@ -325,6 +338,9 @@ const AM_PATTERNS = [
   [/^Downloading… (\d+) \/ (\d+) MB · less than 2 min left$/, 'በማውረድ ላይ… $1 / $2 MB · ከ2 ደቂቃ ያነሰ ቀርቷል'],
   [/^🎁 First, get your (\d+) free minutes$/, '🎁 መጀመሪያ $1 ነጻ ደቂቃዎችዎን ይውሰዱ'],
   [/^🎁 Get (\d+) free minutes — 1 tap$/, '🎁 $1 ነጻ ደቂቃ ያግኙ — 1 ንክኪ'],
+  [/^Downloading the Afaan Oromo pack… (\d+) \/ (\d+) MB$/, 'Afaan Oromoo በማውረድ ላይ… $1 / $2 MB'],
+  [/^Afaan Oromo needs a one-time download \((\d+) MB\)\. It continues where it stopped if the internet drops\.$/,
+    'Afaan Oromoo አንድ ጊዜ መውረድ አለበት ($1 MB)። ኢንተርኔት ቢቋረጥ ካቆመበት ይቀጥላል።'],
   [/^Trial: (\d+) free transcriptions? left$/, 'ሙከራ፦ $1 ነጻ ሙከራ ቀርቷል'],
   [/^Free trial: (\d+:\d\d) minutes left$/, 'ነጻ ሙከራ፦ $1 ደቂቃ ቀርቷል'],
   [/^Try (\d+) minutes free$/, '$1 ደቂቃ በነጻ ይሞክሩ'],

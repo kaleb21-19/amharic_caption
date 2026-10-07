@@ -5017,6 +5017,7 @@ const EVENT_NAMES = new Set([
   'open', 'model_needed', 'model_dl_start', 'model_dl_ok', 'model_dl_fail',
   'run_click', 'blocked_model', 'blocked_trial', 'blocked_runtime', 'run_ok', 'placed',
   'buy_click', 'activate_ok', 'activate_fail', 'trial_link',
+  'orm_pick', 'orm_dl_start', 'orm_dl_ok', 'orm_dl_fail',
   'err_av_blocked', 'err_too_short', 'err_no_speech', 'err_no_clips', 'err_no_clip', 'err_no_media',
   'err_media_unreadable', 'err_disk_full', 'err_engine', 'err_runtime', 'err_license', 'err_other',
   'err_memory', 'err_engine_hang', 'report_sent', 'feedback_sent',
@@ -5082,6 +5083,8 @@ async function adminUsage(chatId, messageId, days = 7) {
     `🎁 Pressed “Try free”: ${c('trial_link')}\n` +
     (c('report_sent') ? `📨 Problem reports sent: ${c('report_sent')}\n` : '') +
     (c('feedback_sent') ? `💡 Feedback sent: ${c('feedback_sent')}\n` : '') +
+    (c('orm_pick') ? `🟩 Afaan Oromo (beta): picked ${c('orm_pick')} · pack downloaded ${c('orm_dl_ok')}` +
+      (c('orm_dl_fail') ? ` · download failed ${c('orm_dl_fail')}` : '') + '\n' : '') +
     `💳 Pressed Buy: ${c('buy_click')} · 🔑 Activated: ${c('activate_ok')}` +
     (c('activate_fail') ? ` · activation failed: ${c('activate_fail')}` : '') + '\n\n' +
     `<i>Outside Ethiopia (mostly our test machines): opened ${otherOpen}.</i>`;
