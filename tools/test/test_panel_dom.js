@@ -161,6 +161,8 @@ function loadPanel(opts) {
   if (opts.hooks) {
     ctx.__hooks = opts.hooks;
     vm.runInContext('warmStart = __hooks.warmStart; warmSend = __hooks.warmSend;', ctx);
+    // The fake engine needs no permission (1.10.3 engineAuth is tested in 10e).
+    vm.runInContext('engineAuth = async () => ({ lease: "test" });', ctx);
   }
 
   let mid = null;
@@ -208,7 +210,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.10.2');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.10.3');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1412,6 +1414,48 @@ await t('10d. anonymous step counts: once a day per step, nothing personal, erro
     ];
     for (const [raw, want] of cases) assert.strictEqual(p.evalVm('errorStep(' + JSON.stringify(raw) + ')'), want, raw);
   } finally { p.close(); }
+});
+
+await t('10e. engine permission: license lease, or a trial ticket charged when the engine starts', async () => {
+  // 1.10.3: the engine refuses a job without permission, so the panel gets it
+  // first — the licensed user's lease, or one free caption's signed ticket.
+  let charges = 0;
+  const trialFetch = (withTicket) => async (url, o) => {
+    if (String(url).includes('/api/trial/use')) {
+      charges++;
+      return { ok: true, json: async () => Object.assign({ used: 1, max: 2, remaining: 1, charged: true },
+        withTicket ? { ticket: 't1.x.run.1.' + '0'.repeat(128) } : {}) };
+    }
+    return { ok: true, json: async () => ({ ok: true }) };
+  };
+  const p = loadPanel({ fetch: trialFetch(true) });
+  try {
+    p.evalVm('LICENSED = false; activeRunId = "run-1"; reviewTrialCharged = false; ENGINE_AUTH = null;');
+    const a = await p.evalVm('engineAuth()');
+    assert.ok(a.ticket && a.ticket.startsWith('t1.'), 'a free caption brings the trial ticket');
+    assert.strictEqual(p.evalVm('reviewTrialCharged'), true, 'and is charged now, not again when the review opens');
+    await p.evalVm('engineAuth()');
+    assert.strictEqual(charges, 1, 'the same run never charges twice');
+    assert.deepStrictEqual(Array.from(p.evalVm('authArgs({ ticket: "T" })')), ['--ticket', 'T']);
+    assert.deepStrictEqual(Array.from(p.evalVm('authArgs({ lease: "L" })')), ['--lease', 'L']);
+  } finally { p.close(); }
+
+  const off = loadPanel({ fetch: trialFetch(false) });
+  try {
+    off.evalVm('LICENSED = false; activeRunId = "run-2"; ENGINE_AUTH = null;');
+    let err = '';
+    try { await off.evalVm('engineAuth()'); } catch (e) { err = String(e && e.message); }
+    assert.strictEqual(err, 'free caption needs internet', 'no ticket -> no free caption');
+    assert.ok(off.evalVm('humanError("free caption needs internet")').includes('internet'), 'said in plain words');
+    assert.strictEqual(off.evalVm('errorStep("license required: no license")'), 'err_license');
+  } finally { off.close(); }
+
+  const lic = loadPanel({});
+  try {
+    lic.evalVm('LICENSED = true; getLicense = () => ({ token: "v1.lease" }); activeRunId = "run-3"; ENGINE_AUTH = null;');
+    const a = await lic.evalVm('engineAuth()');
+    assert.strictEqual(a.lease, 'v1.lease', 'a licensed computer sends its lease (no trial charge)');
+  } finally { lic.close(); }
 });
 
 await t('11. a failed run says so on screen, not only in the log', async () => {

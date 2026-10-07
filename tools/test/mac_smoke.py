@@ -191,8 +191,23 @@ def main():
         token = json.loads(boot[boot.index("=") + 1:].rstrip(";"))["token"]
         out_srt = os.path.join(work, "smoke.srt")
         engine = os.path.join(ext, "runtime", "ethio_srt.py")
+        # 1.10.3+: the engine refuses a job without a license or a trial ticket
+        # (this test machine has neither) — check that the packaged product
+        # really refuses, then make the captions through the engine's own
+        # function (what the warm worker runs once permission is given).
+        if "require_license" in open(engine, encoding="utf-8", errors="replace").read():
+            g = subprocess.run([py, "-E", "-s", "-X", "utf8", engine, video, out_srt],
+                               capture_output=True, text=True, timeout=120)
+            if g.returncode == 3 and "license required" in g.stderr:
+                ok("engine refuses to run without a license", "exit 3")
+            else:
+                fail("engine refuses to run without a license", "exit %s\n%s" % (g.returncode, (g.stderr or g.stdout)[-800:]))
+        rt = os.path.dirname(engine)
+        run_py = ("import sys; sys.path.insert(0, %r); import ethio_srt as es; w = es.read_wav(%r); "
+                  "e = es.load_pipeline(); t, c = es._run_file(e, w, 'grouped', 3, 42, 0.0, %r); "
+                  "es.write_srt(%r, c, 0.0)") % (rt, video, out_srt, out_srt)
         res = json.loads(http(port, "POST", "/__api/sync", {"op": "spawn", "args": [
-            py, ["-E", "-s", "-X", "utf8", engine, video, out_srt, "--group", "3"], None, None, 600000]}, token))
+            py, ["-E", "-s", "-X", "utf8", "-c", run_py], None, None, 600000]}, token))
         cid = res["result"]
         since, code, t1, err = 0, None, time.time(), []
         while time.time() - t1 < 600 and code is None:

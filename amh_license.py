@@ -151,6 +151,68 @@ def verify_token(token, machine_id, pubkey_pem=LICENSE_TOKEN_PUBKEY_PEM):
     return (True, tok["exp"]) if ok else (False, "License token signature invalid")
 
 
+# ── trial tickets: one free caption, signed by the server (1.10.3+) ────────
+def verify_ticket(ticket, machine_id, pubkey_pem=LICENSE_TOKEN_PUBKEY_PEM, now=None):
+    """Return (ok, error). Format t1.<mid>.<run_id>.<until>.<sig>; the server
+    signs "trial|<mid>|<run_id>|<until>" (worker signTicket)."""
+    if not isinstance(ticket, str):
+        return False, "No trial ticket"
+    parts = ticket.split(".")
+    if len(parts) < 5 or parts[0] != "t1":
+        return False, "Malformed trial ticket"
+    mid, until, sig = parts[1], parts[-2], parts[-1]
+    run = ".".join(parts[2:-2])
+    hexd = set("0123456789abcdef")
+    if len(sig) != 128 or not set(sig) <= hexd or not until.isdigit() or not run:
+        return False, "Malformed trial ticket"
+    if mid != str(machine_id or "").lower():
+        return False, "Trial ticket is for a different machine"
+    if int(until) < int(now if now is not None else time.time()):
+        return False, "Trial ticket expired"
+    try:
+        ok = ecdsa_p256_verify(pubkey_pem, ("trial|%s|%s|%s" % (mid, run, until)).encode(), bytes.fromhex(sig))
+    except Exception:
+        return False, "Trial ticket verification failed"
+    return (True, run) if ok else (False, "Trial ticket signature invalid")
+
+
+def machine_id_if_any():
+    """This computer's Machine ID, or None — never creates one."""
+    for candidate in (_machine_path(), _machine_path() + ".bak"):
+        rec = _read_json(candidate)
+        if rec and _valid_mid(rec.get("id")):
+            return rec["id"]
+    return None
+
+
+def engine_auth(lease=None, ticket=None):
+    """May the transcription engine run on this computer? (ok, reason).
+
+    Yes with a license lease that verifies for THIS computer's Machine ID
+    (passed by the panel, or the one stored in the license file), or with a
+    server-signed trial ticket for one free caption. Since 1.10.3 the engine
+    asks this before every job: starting it directly, or from an edited panel,
+    no longer gives free captions."""
+    mid = machine_id_if_any()
+    if not mid:
+        return False, "no Machine ID on this computer — open the panel once"
+    for tok in (lease, (_read_json(_license_path()) or {}).get("token")):
+        if tok and verify_token(tok, mid)[0]:
+            return True, "licensed"
+    if ticket:
+        ok, why = verify_ticket(ticket, mid)
+        return (True, "trial") if ok else (False, why)
+    return False, "no license or free-caption ticket on this computer"
+
+
+_LAST_TICKET = None
+
+
+def last_ticket():
+    """The trial ticket of the last successful trial_charge() (or None)."""
+    return _LAST_TICKET
+
+
 # ── machine identity (mirror of main.js getOrCreateMachineId) ───────────────
 def _home():
     return os.environ.get("AMH_MACHINE_HOME") or os.path.expanduser("~")
@@ -386,7 +448,10 @@ def trial_status(machine_id):
 
 
 def trial_charge(machine_id, run_id):
-    """Charge one free transcription. Returns (charged, remaining|None)."""
+    """Charge one free transcription. Returns (charged, remaining|None).
+    The server's trial ticket for the engine is kept for last_ticket()."""
+    global _LAST_TICKET
+    _LAST_TICKET = None
     for attempt in range(2):
         res = _api("POST", "/api/trial/use", {"mid": machine_id, "run_id": run_id})
         if res and res.get("pending") and attempt == 0:
@@ -396,6 +461,7 @@ def trial_charge(machine_id, run_id):
             charged = res.get("charged")
             if charged is None:
                 charged = res["used"] <= TRIAL_ALLOWED
+            _LAST_TICKET = res.get("ticket") if charged else None
             return bool(charged), res.get("remaining")
         return False, None
     return False, None

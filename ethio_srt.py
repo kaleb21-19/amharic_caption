@@ -1561,6 +1561,7 @@ def main():
     offset = 0.0
     max_chars = 42
     speakers = False
+    auth = {}
     i = 2
     while i < len(sys.argv):
         a = sys.argv[i]
@@ -1578,6 +1579,9 @@ def main():
             i += 1
         elif a == "--speakers":
             speakers = True
+        elif a in ("--lease", "--ticket") and i + 1 < len(sys.argv):
+            auth[a[2:]] = sys.argv[i + 1]
+            i += 1
         elif a == "--batch":
             mode = "batch"
         elif not a.startswith("-"):
@@ -1587,6 +1591,11 @@ def main():
     if mode == "batch":
         return run_batch()
 
+    try:
+        require_license(auth.get("lease"), auth.get("ticket"))
+    except LicenseRequired as e:
+        print("[error] %s" % e, file=sys.stderr)
+        sys.exit(3)
     engine = load_pipeline()
     print(f"[info] engine: {'CTranslate2 int8' if _use_ct2() else 'transformers/torch'}")
     print("[info] loading audio:", audio_path)
@@ -1658,7 +1667,29 @@ def emit(out, obj):
     out.flush()
 
 
+# ── permission to transcribe (1.10.3) ─────────────────────────────────────────
+# Every job the panel, the desktop app or the command line hands the engine
+# must carry permission for THIS computer: the license lease (server-signed,
+# bound to the Machine ID) or a server-signed trial ticket for one free
+# caption. Before this, running this file directly — or a panel edited to
+# skip its license check — gave free captions. (The SRT maker checks with the
+# server itself before it hands over a file.)
+class LicenseRequired(Exception):
+    pass
+
+
+def require_license(lease=None, ticket=None):
+    try:
+        import amh_license
+    except Exception:
+        raise LicenseRequired("license required: the license module is missing — reinstall")
+    ok, why = amh_license.engine_auth(lease, ticket)
+    if not ok:
+        raise LicenseRequired("license required: " + why)
+
+
 def handle_server_one(engine, req, rid, out):
+    require_license(req.get("lease"), req.get("ticket"))
     wav_path = req.get("wav")
     if not wav_path or not os.path.isfile(wav_path):
         emit(out, {"id": rid, "ok": False, "error": "audio file not found: %s" % wav_path})
@@ -1678,6 +1709,7 @@ def handle_server_one(engine, req, rid, out):
 
 
 def handle_server_batch(engine, req, rid, out):
+    require_license(req.get("lease"), req.get("ticket"))
     batch = req["batch"]
     mode, group, max_chars = request_style(req)
     out_srt = req.get("out_srt")
@@ -1747,6 +1779,13 @@ def run_batch():
     if not req_path:
         print("[error] --batch requires a requests.json path", file=sys.stderr)
         sys.exit(2)
+    try:
+        lease = args[args.index("--lease") + 1] if "--lease" in args else None
+        ticket = args[args.index("--ticket") + 1] if "--ticket" in args else None
+        require_license(lease, ticket)
+    except (LicenseRequired, IndexError) as e:
+        print("[error] %s" % e, file=sys.stderr)
+        sys.exit(3)
 
     with open(req_path, "r", encoding="utf-8") as f:
         import json as _json

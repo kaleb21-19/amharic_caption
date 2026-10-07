@@ -211,6 +211,9 @@ jobs:
       - name: Long-audio windowing / resume / punctuation (stub engine)
         run: python tools/test/test_long.py
 
+      - name: Engine refuses to work without a license or trial ticket (1.10.3)
+        run: python tools/test/test_engine_license.py
+
       - name: Diarization — pure clustering/labelling (no model)
         run: python tools/test/test_diarize.py
 
