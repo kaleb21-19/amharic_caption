@@ -5,7 +5,9 @@ permissions:
 
 on:
   push:
-    branches: [main]
+    # ci/build-*: the full build + Mac gate on a branch, never published
+    # (publish-ready runs on the protected main branch only).
+    branches: [main, 'ci/build-*']
   workflow_dispatch:
 
 concurrency:
@@ -370,6 +372,10 @@ jobs:
       - name: Prepare runtime (python + ffmpeg)
         run: bash tools/prepare_python.sh
 
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+
       - name: Assemble + zip
         run: bash tools/build.sh mac-arm64
 
@@ -433,6 +439,10 @@ jobs:
 
       - name: Prepare runtime (python + ffmpeg)
         run: bash tools/prepare_python.sh
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
 
       - name: Assemble + zip
         run: bash tools/build.sh mac-x64
@@ -498,6 +508,10 @@ jobs:
       - name: Prepare runtime (python + ffmpeg)
         shell: bash
         run: bash tools/prepare_python.sh
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
 
       - name: Assemble + zip
         shell: pwsh

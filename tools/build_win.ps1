@@ -196,6 +196,11 @@ Get-ChildItem $SITE -Directory -Recurse -ErrorAction SilentlyContinue |
 Get-ChildItem (Join-Path $SITE "sherpa_onnx\lib") -Filter *.lib -ErrorAction SilentlyContinue | Remove-Item -Force
 Write-Host "  [ok] python trimmed"
 
+# ship the license-relevant modules compiled, not readable (with the BUNDLED
+# python: a .pyc only loads in the same Python version) — tools/compile_runtime.py
+& (Join-Path $PYOUT "python.exe") -E -s (Join-Path $ROOT "tools\compile_runtime.py") (Join-Path $BNAME "runtime")
+if ($LASTEXITCODE -ne 0) { throw "compiling the engine failed" }
+
 # shared panel (developer tests are not shipped to customers)
 Copy-Item "$ROOT\panel\*" $BNAME -Recurse
 $PanelTests = Join-Path $BNAME "test"
@@ -211,6 +216,9 @@ foreach ($f in @("amh_app.py", "node_shim.js", "app_mode.js", "app.css")) {
 }
 if (-not (Test-Path (Join-Path $SITE "webview"))) { throw "pywebview missing from the bundled python (tools/prepare_python.sh)" }
 Write-Host "  [ok] desktop app"
+# The released JavaScript without comments/whitespace (names unchanged).
+& node (Join-Path $ROOT "tools\minify_panel.mjs") $BNAME
+if ($LASTEXITCODE -ne 0) { throw "minifying the panel failed" }
 
 # one-click installer (shipped at zip root, next to the extension folder)
 $INST = Join-Path $ROOT "tools\installers"

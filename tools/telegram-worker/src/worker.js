@@ -4537,6 +4537,15 @@ function validHostFp(hf) {
   return typeof hf === 'string' && /^[0-9a-f]{8}$/.test(hf);
 }
 
+// Free captions this computer (fingerprint) has used under ANY Machine ID
+// (0026). 0 when the table is not migrated yet — never blocks the money path.
+async function hostTrialUsed(hf) {
+  try {
+    const r = await DB.prepare('SELECT used FROM trial_hosts WHERE hf = ?').bind(hf).first();
+    return r ? r.used : 0;
+  } catch (e) { return 0; }
+}
+
 async function recordKeyActivation(key, mid, ip, hf) {
   try {
     await DB.prepare(
@@ -5892,7 +5901,9 @@ export default {
       if (!mid || !isValidMid(mid)) {
         return json({ error: 'bad mid' }, 400);
       }
-      const cacheKey = 'trial:' + mid;
+      const qhf = url.searchParams.get('hf') || '';
+      const hfq = validHostFp(qhf) ? qhf : '';
+      const cacheKey = 'trial:' + mid + (hfq ? ':' + hfq : '');
       const cached = await kvGet(cacheKey);
       if (cached) { try { return json(JSON.parse(cached)); } catch (e) {} }
       // Per-IP throttle so a scraper spraying many machine IDs can't burn
@@ -5901,9 +5912,10 @@ export default {
         return json({ error: 'throttled' }, 429);
       }
       const row = await DB.prepare('SELECT used, max_free FROM trials WHERE machine_id = ?').bind(mid).first();
-      const used = row ? row.used : 0;
+      let used = row ? row.used : 0;
       const maxFree = row ? row.max_free : 2;
-      const out = { used, max: maxFree, remaining: Math.max(0, maxFree - used) };
+      if (hfq) used = Math.max(used, await hostTrialUsed(hfq));
+      const out = { used: Math.min(used, maxFree), max: maxFree, remaining: Math.max(0, maxFree - used) };
       await kvPut(cacheKey, JSON.stringify(out), 60);
       return json(out);
     }
@@ -5915,6 +5927,7 @@ export default {
       try { body = await request.json(); } catch { return json({ error: 'bad json' }, 400); }
       const mid = String((body && body.mid) || '').trim().toLowerCase();
       const runId = body && body.run_id != null ? String(body.run_id) : '';
+      const hf = validHostFp(body && body.hf) ? body.hf : '';
       if (!isValidMid(mid) || (runId && !/^[A-Za-z0-9._:-]{8,96}$/.test(runId))) {
         return json({ error: 'bad mid or run_id' }, 400);
       }
@@ -5977,6 +5990,16 @@ export default {
         return finishReservation({ used: 2, remaining: 0, charged: false });
       }
       await DB.prepare('INSERT OR IGNORE INTO trials (machine_id, used, max_free) VALUES (?, 0, 2)').bind(mid).run();
+      // The same computer under a new Machine ID (the machine file deleted)
+      // gets no new free captions once it has used its two.
+      if (hf) {
+        const mine = await DB.prepare('SELECT used, max_free FROM trials WHERE machine_id = ?').bind(mid).first();
+        const hostUsed = await hostTrialUsed(hf);
+        if (hostUsed >= (mine ? mine.max_free : 2) && (mine ? mine.used : 0) < hostUsed) {
+          log('warn', 'trial_reset_blocked', { mid, hf });
+          return finishReservation({ used: 2, max: 2, remaining: 0, charged: false, reason: 'computer' });
+        }
+      }
       const updateTrial = runId
         ? `UPDATE trials SET used = used + 1, last_at = datetime('now')
            WHERE machine_id = ? AND used < max_free`
@@ -6007,6 +6030,14 @@ export default {
         }
       }
       const out = Object.assign(await trialState(mid), { charged });
+      if (charged && hf) {
+        try {
+          await DB.prepare(
+            `INSERT INTO trial_hosts (hf, used) VALUES (?, 1)
+             ON CONFLICT(hf) DO UPDATE SET used = used + 1, updated_at = datetime('now')`
+          ).bind(hf).run();
+        } catch (e) { log('warn', 'trial_host_store_failed', { err: String((e && e.message) || e) }); }
+      }
       if (charged && runId && SIGN_KEY) {
         // The engine's permission for this one free caption (stored with the
         // result, so a retry of the same run gets the same ticket back).

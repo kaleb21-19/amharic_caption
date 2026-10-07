@@ -190,12 +190,14 @@ def main():
         boot = http(port, "GET", "/__app/boot.js")
         token = json.loads(boot[boot.index("=") + 1:].rstrip(";"))["token"]
         out_srt = os.path.join(work, "smoke.srt")
-        engine = os.path.join(ext, "runtime", "ethio_srt.py")
+        engine = os.path.join(ext, "runtime", "ethio_srt.pyc")
+        if not os.path.isfile(engine):                     # before 1.10.4
+            engine = os.path.join(ext, "runtime", "ethio_srt.py")
         # 1.10.3+: the engine refuses a job without a license or a trial ticket
         # (this test machine has neither) — check that the packaged product
         # really refuses, then make the captions through the engine's own
         # function (what the warm worker runs once permission is given).
-        if "require_license" in open(engine, encoding="utf-8", errors="replace").read():
+        if b"require_license" in open(engine, "rb").read():
             g = subprocess.run([py, "-E", "-s", "-X", "utf8", engine, video, out_srt],
                                capture_output=True, text=True, timeout=120)
             if g.returncode == 3 and "license required" in g.stderr:

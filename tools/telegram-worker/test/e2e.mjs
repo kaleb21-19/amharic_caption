@@ -95,6 +95,7 @@ class D1 {
     this.db.exec(readFileSync(new URL('../migrations/0021_rl_d1.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0024_key_hosts.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0025_events_daily.sql', import.meta.url), 'utf8'));
+    this.db.exec(readFileSync(new URL('../migrations/0026_trial_hosts.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0022_jobs_d1.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0023_group_members.sql', import.meta.url), 'utf8'));
     this.db.exec("ALTER TABLE customers ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0"); // migration 0008
@@ -3489,6 +3490,39 @@ console.log('\n:: 🧭 in the program: anonymous step counts (/api/event, /funne
   await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { text: '/funnel' }));
   assert.ok(!OUTBOUND.slice(nAdmin).some((x) => String(x.body.text || '').includes('In the program')), 'buyers never see it');
   ok('/funnel and 🧭 In the program: opened → model → pressed → errors → captions, Ethiopia only, admins only');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: free captions per computer: a new Machine ID on the same computer gets none');
+{
+  const { env } = fresh();
+  const use = async (mid, hf, ip, run) => (await api(env, '/api/trial/use', {
+    method: 'POST', body: Object.assign({ mid, run_id: run }, hf ? { hf } : {}), headers: { 'CF-Connecting-IP': ip } })).json();
+  const HF = 'c0ffee11';
+  let j = await use('1111aaaa1111aaaa', HF, '196.188.5.1', 'run-reset-000001');
+  assert.equal(j.charged, true, '1st free caption');
+  j = await use('1111aaaa1111aaaa', HF, '196.188.5.1', 'run-reset-000002');
+  assert.equal(j.charged, true, '2nd free caption');
+  // the machine file is deleted -> new Machine ID, same computer
+  j = await use('2222bbbb2222bbbb', HF, '196.188.5.1', 'run-reset-000003');
+  assert.equal(j.charged, false, 'a new Machine ID on the same computer gets no free caption');
+  assert.equal(j.remaining, 0);
+  assert.equal(j.ticket, undefined, 'and no engine ticket');
+  const g = await (await api(env, '/api/trial?mid=2222bbbb2222bbbb&hf=' + HF, { headers: { 'CF-Connecting-IP': '196.188.5.9' } })).json();
+  assert.equal(g.remaining, 0, 'its status says none left (the panel shows Buy, not "2 free")');
+  // a computer that used ONE keeps its second under a new Machine ID
+  j = await use('3333cccc3333cccc', 'beef0002', '196.188.6.1', 'run-reset-000004');
+  j = await use('4444dddd4444dddd', 'beef0002', '196.188.6.1', 'run-reset-000005');
+  assert.equal(j.charged, true, 'a reinstall keeps the unused free caption');
+  j = await use('5555eeee5555eeee', 'beef0002', '196.188.6.1', 'run-reset-000006');
+  assert.equal(j.charged, false, '...but never more than two per computer');
+  // a different computer on the same internet address is not affected
+  j = await use('6666ffff6666ffff', 'feed0003', '196.188.5.1', 'run-reset-000007');
+  assert.equal(j.charged, true, 'another computer behind the same address still gets its free captions');
+  // older panels (no fingerprint) behave as before
+  j = await use('7777aaaa7777aaaa', null, '196.188.7.1', 'run-reset-000008');
+  assert.equal(j.charged, true, 'no fingerprint -> old per-Machine-ID rule');
+  ok('free captions: two per computer — deleting the machine file does not give new ones; other computers unaffected');
 }
 
 // Across EVERY scenario: nothing may be silently refused by Telegram (a refused

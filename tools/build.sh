@@ -195,6 +195,20 @@ find "$SITE" -depth -type d \( -name tests -o -name testdata \) -exec rm -rf {} 
 rm -f  "$SITE"/sherpa_onnx/lib/*.lib 2>/dev/null || true
 echo "  [ok] python trimmed ($(du -sh "$RT/python" | cut -f1))"
 
+# ---- 1c. ship the license-relevant modules compiled, not readable ---------
+# With the BUNDLED interpreter: a .pyc only loads in the same Python version.
+RTPY=""
+for cand in "$RT/python/bin/python3" "$RT/python/python.exe"; do
+  if [[ -x "$cand" ]] && "$cand" -E -s -c "import sys" >/dev/null 2>&1; then RTPY="$cand"; break; fi
+done
+if [[ -n "$RTPY" ]]; then
+  "$RTPY" -E -s "$ROOT/tools/compile_runtime.py" "$RT" || { echo "  [FAIL] compiling the engine"; exit 1; }
+elif [[ "$ALLOW_DEGRADED" == "1" ]]; then
+  echo "  [warn] bundled python cannot run on this machine — engine left as source (degraded build)"
+else
+  echo "  [FAIL] the bundled python cannot run here, so the engine cannot be compiled — build $TARGET on its own OS"; exit 1
+fi
+
 # ---- 2. include the shared panel files ------------------------------------
 # The small, cross-platform panel (same files for every target) lives in the
 # project's panel/ folder. It is generated from the live CEP extension by
@@ -217,6 +231,8 @@ if ! ls -d "$RT"/python/lib/python3.11/site-packages/webview >/dev/null 2>&1; th
   echo "  [FAIL] pywebview missing from the bundled python (tools/prepare_python.sh)"; exit 1
 fi
 echo "  [ok] desktop app"
+# The released JavaScript without comments/whitespace (names unchanged).
+node "$ROOT/tools/minify_panel.mjs" "${BUILD_DIR}/${NAME}" || { echo "  [FAIL] minifying the panel"; exit 1; }
 
 echo "== runtime + panel staged (total $(du -sh "${BUILD_DIR}/${NAME}" | cut -f1)) =="
 
