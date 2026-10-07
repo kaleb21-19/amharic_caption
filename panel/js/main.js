@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.10.1';
+const APP_VERSION = '1.10.2';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -349,6 +349,44 @@ function pingPanel() {
   } catch (e) {}
 }
 setTimeout(pingPanel, 800);
+
+// ── Anonymous step counts (what happens before people buy) ──────────────
+// Half of the computers in Ethiopia that opened the panel never made a
+// caption, and nothing said why. track('step') reports one fixed step name
+// (opened, model download failed, pressed Make captions, error type, …) at
+// most once per computer per day. Only the step, the app (Premiere / After
+// Effects / desktop app), the OS and the version are sent — no Machine ID,
+// no text, nothing from the video. The server keeps daily totals only
+// (/api/event, migration 0025).
+const TRACK_HOST = (typeof window !== 'undefined' && window.__amhApp) ? 'APP' : HOST_APP;
+const TRACK_OS = (typeof process !== 'undefined' && process.platform === 'darwin') ? 'mac' : 'win';
+function track(step) {
+  try {
+    const day = new Date().toISOString().slice(0, 10);
+    const key = 'amh.ev.' + step;
+    if (localStorage.getItem(key) === day) return;
+    localStorage.setItem(key, day);
+    const p = apiPost('/api/event', { e: step, h: TRACK_HOST, os: TRACK_OS, v: APP_VERSION });
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  } catch (e) {}
+}
+// The error TYPE behind a failed run (the same buckets as humanError()).
+function errorStep(raw) {
+  const t = String(raw || '').toLowerCase();
+  if (workerDllError || t.includes('dll load failed')) return 'err_av_blocked';
+  if (t.includes('audio too short')) return 'err_too_short';
+  if (t.includes('no speech')) return 'err_no_speech';
+  if (t.includes('audio-bearing')) return 'err_no_clips';
+  if (t.includes('no clip found') || t.includes('no selected clip') || t.includes('select a clip')) return 'err_no_clip';
+  if (t.includes('source path') || t.includes('no media file')) return 'err_no_media';
+  if (t.includes('ffmpeg')) return 'err_media_unreadable';
+  if (t.includes('enospc') || t.includes('no space')) return 'err_disk_full';
+  if (t.includes('python failed') || t.includes('worker')) return 'err_engine';
+  if (t.includes('runtime')) return 'err_runtime';
+  if (t.includes('cancel')) return '';
+  return 'err_other';
+}
+setTimeout(() => track('open'), 1200);
 
 // ── Update-available notice ──────────────────────────────────────────────────
 // Asks our Worker (GET /api/latest, one cached GitHub lookup for everyone) at
@@ -765,6 +803,7 @@ function initBuy() {
   if (b) {
     b.addEventListener('click', (e) => {
       e.preventDefault();
+      track('buy_click');
       // Reuse the secret of an unfinished purchase so a second tap never
       // orphans the order that is already waiting.
       let p = getPendingBuy();
@@ -1002,6 +1041,7 @@ async function refreshTrialFromServer() {
 // trial credits remain; licensed users always pass.
 function assertCanRun() {
   if (!LICENSED && trialRemaining() <= 0) {
+    track('blocked_trial');
     log('Your free trial (2 transcriptions) is used up.');
     log('Enter your license key in the License section and click Activate to continue.');
     return false;
@@ -1228,6 +1268,7 @@ async function activateLicense() {
         ? 'This key is used on other computers — contact @sumpak6 on Telegram'
         : 'Key not recognized — contact @sumpak6 on Telegram';
       if (licStatus) { licStatus.textContent = L(reason); licStatus.style.color = 'var(--err)'; }
+      track('activate_fail');
       return;
     }
     if (serverResult && serverResult.valid === true && serverResult.token) {
@@ -1258,6 +1299,7 @@ async function activateLicense() {
       }
       const logBox = document.getElementById('logBox');
       if (logBox) logBox.textContent += (logBox.textContent ? '\n' : '') + 'License activated successfully.';
+      track('activate_ok');
       return;
     }
     if (serverResult && serverResult.valid === true && !serverResult.token) {
@@ -2763,6 +2805,7 @@ async function openReview(outSrt, label, startSeconds, opts) {
   $('review').classList.add('show');
   fitReviewBoxes();   // heights can only be measured once the overlay shows
   if (!opts.live) log('Review your captions below — edit, then click "Place on timeline".');
+  track('run_ok');
   return true;
 }
 
@@ -3416,6 +3459,7 @@ async function placeReview() {
     // Premiere's caption item links to this file. Deleting it triggers a
     // "Locate file" prompt on every project open.
     log('Captions saved to ' + dest + '  (Premiere keeps a file link to this).');
+    track('placed');
     closeReview(true);
   } catch (e) {
     log('ERROR: placement failed: ' + (e && e.message ? e.message : String(e)));
@@ -3874,6 +3918,7 @@ async function run() {
   }
   // A fresh run replaces whatever review/overlay was showing.
   if (reviewOpen) closeReview();
+  track('run_click');
   clearLog();
   cancelRequested = false;
   runFailed = false;
@@ -3881,6 +3926,7 @@ async function run() {
   activeRunId = newRunId();
   setProgress(0, '');
   if (!RUNTIME) {
+    track('blocked_runtime');
     log('ERROR: Transcription runtime not found.');
     log('The extension folder is missing the bundled "runtime" directory.');
     log('Reinstall the correct platform build, then restart Premiere.');
@@ -3888,6 +3934,7 @@ async function run() {
     return;
   }
   if (!PYTHON || !FFMPEG || !fs.existsSync(PYTHON) || !fs.existsSync(FFMPEG)) {
+    track('blocked_runtime');
     log('ERROR: Runtime is incomplete — missing python or ffmpeg.');
     log('python: ' + PYTHON + ' -> ' + (fs.existsSync(PYTHON) ? 'OK' : 'MISSING'));
     log('ffmpeg: ' + FFMPEG + ' -> ' + (fs.existsSync(FFMPEG) ? 'OK' : 'MISSING'));
@@ -3963,6 +4010,8 @@ function humanError(raw) {
 
 function failRun(raw) {
   runFailed = true;
+  const step = errorStep(raw);
+  if (step) track(step);
   removeTempCaptionArtifact(lastSrtPath);
   const msg = humanError(raw);
   setStatus('err', 'failed');
@@ -4190,12 +4239,14 @@ async function runFromFile(input) {
 
 async function runFile(filePath, fileName) {
   if (reviewOpen) closeReview();
+  track('run_click');
   clearLog();
   cancelRequested = false;
   reviewTrialCharged = false;
   runFailed = false;
   activeRunId = newRunId();
   if (!RUNTIME || !PYTHON || !FFMPEG || !fs.existsSync(PYTHON) || !fs.existsSync(FFMPEG)) {
+    track('blocked_runtime');
     log('ERROR: Transcription runtime is missing or incomplete.');
     log('Reinstall the correct platform build and restart Premiere.');
     return;
@@ -4256,6 +4307,7 @@ async function runFile(filePath, fileName) {
 let modelChild = null;
 function modelReadyForRun() {
   if (!MODEL_MISSING) return true;
+  track('blocked_model');
   log('The Amharic model has not been downloaded yet.');
   log('Use "Download the Amharic model" at the top of the panel first.');
   setStatus('err', 'model needed');
@@ -4304,6 +4356,7 @@ function modelDownloadFinished(dir) {
   MODEL_MISSING = false;
   AMH_ENV.AMH_MODEL_DIR = dir;
   modelUi('done', MODEL_TOTAL_BYTES);
+  track('model_dl_ok');
   log('✓ Amharic model downloaded and verified: ' + dir);
   setStatus('ready', 'ready');
   renderHealthList();
@@ -4314,6 +4367,7 @@ function startModelDownload() {
   const script = runtimePath('amh_model.py');
   if (!fs.existsSync(script)) { log('ERROR: amh_model.py is missing from the runtime. Reinstall.'); return; }
   modelUi('running');
+  track('model_dl_start');
   log('Downloading the Amharic model…');
   let out = '';
   let child;
@@ -4348,13 +4402,15 @@ function startModelDownload() {
     if (child.__result) { modelDownloadFinished(child.__result.dir); return; }
     if (child.__paused) { modelUi('paused'); return; }
     modelUi('failed');
+    track('model_dl_fail');
   });
-  child.on('error', () => { modelChild = null; modelUi('failed'); });
+  child.on('error', () => { modelChild = null; modelUi('failed'); track('model_dl_fail'); });
 }
 function initModelDownload() {
   const btn = $('modelBtn');
   if (!btn) return;
   if (!MODEL_MISSING) { const c = $('modelCard'); if (c) c.style.display = 'none'; return; }
+  track('model_needed');
   btn.addEventListener('click', () => {
     if (modelChild) {
       modelChild.__paused = true;

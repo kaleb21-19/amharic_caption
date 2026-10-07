@@ -94,6 +94,7 @@ class D1 {
     // 0021-0023: API rate limits, jobs-feed state, support-group membership (real files)
     this.db.exec(readFileSync(new URL('../migrations/0021_rl_d1.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0024_key_hosts.sql', import.meta.url), 'utf8'));
+    this.db.exec(readFileSync(new URL('../migrations/0025_events_daily.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0022_jobs_d1.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0023_group_members.sql', import.meta.url), 'utf8'));
     this.db.exec("ALTER TABLE customers ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0"); // migration 0008
@@ -302,10 +303,11 @@ async function cb(env, from, data, opts = {}) {
     },
   });
 }
-const api = async (env, path, { method = 'GET', body, headers = {} } = {}) => {
+const api = async (env, path, { method = 'GET', body, headers = {}, cf } = {}) => {
   const req = new Request('https://x.workers.dev' + path, {
     method, headers: { 'Content-Type': 'application/json', ...headers }, body: body ? JSON.stringify(body) : undefined,
   });
+  if (cf) Object.defineProperty(req, 'cf', { value: cf });   // Cloudflare's request.cf (country)
   return worker.fetch(req, env);
 };
 function keyForWith(secret, mid, expiry = '00000000') {
@@ -3427,6 +3429,52 @@ console.log('\n:: /active: did the customer really activate?');
   r = await ask('/active ' + A, BUYER);
   assert.ok(!r.includes('Activated'), 'buyers never see it');
   ok('/active MACHINE-ID | CODE: activated or not (Ethiopia time), code used or not with the buyer; /find shows it too; admins only');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: 🧭 in the program: anonymous step counts (/api/event, /funnel)');
+{
+  const { env } = fresh();
+  const ev = (e, ip, cc = 'ET', extra = {}) => api(env, '/api/event', {
+    method: 'POST', body: Object.assign({ e, h: 'PPRO', os: 'win', v: '1.10.2' }, extra),
+    headers: { 'CF-Connecting-IP': ip }, cf: { country: cc } });
+  // 5 computers in Ethiopia open it, 3 need the model, 1 download fails, 2 press
+  // Make captions, one gets "no clip selected", one makes captions
+  for (let i = 1; i <= 5; i++) assert.equal((await ev('open', '196.188.0.' + i)).status, 200);
+  for (let i = 1; i <= 3; i++) await ev('model_needed', '196.188.0.' + i);
+  await ev('model_dl_start', '196.188.0.1'); await ev('model_dl_fail', '196.188.0.1');
+  await ev('run_click', '196.188.0.4'); await ev('run_click', '196.188.0.5');
+  await ev('err_no_clip', '196.188.0.4'); await ev('run_ok', '196.188.0.5');
+  await ev('open', '20.1.1.1', 'US', { h: 'APP', os: 'mac' });          // a GitHub test Mac
+  // nothing identifying is stored, only daily totals
+  const cols = rows(env, "SELECT name FROM pragma_table_info('events_daily')").map((r) => r.name).sort();
+  assert.deepEqual(cols, ['cc', 'day', 'e', 'host', 'n', 'os', 'v'], 'no machine id / ip column');
+  const open = rows(env, "SELECT SUM(n) AS n FROM events_daily WHERE e='open' AND cc='ET'")[0].n;
+  assert.equal(open, 5, '5 opens counted');
+  // junk is refused, a flood from one address is not counted twice
+  assert.equal((await ev('drop_tables', '1.1.1.1')).status, 400, 'unknown step refused');
+  assert.equal((await ev('open', '1.1.1.2', 'ET', { h: 'XX' })).status, 400, 'unknown app refused');
+  assert.equal((await ev('open', '1.1.1.3', 'ET', { v: '1.10.2; DROP' })).status, 400, 'bad version refused');
+  await ev('run_click', '196.188.0.4');
+  assert.equal(rows(env, "SELECT SUM(n) AS n FROM events_daily WHERE e='run_click'")[0].n, 2, 'same address + step within 20 s not double counted');
+  ok('/api/event: fixed steps only, daily totals with country, no machine id or IP, flood-safe');
+
+  const ask = async (text) => {
+    const n = OUTBOUND.length;
+    await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text }));
+    return OUTBOUND.slice(n).filter((x) => String(x.body.chat_id) === String(ADMIN_ID)).map((x) => String(x.body.text || '')).join('\n');
+  };
+  const r = await ask('/funnel');
+  assert.ok(r.includes('In the program') && r.includes('Opened: <b>5</b>'), r);
+  assert.ok(r.includes('Needed the model download: 3') && r.includes('failed: 1'), r);
+  assert.ok(r.includes('Pressed “Make captions”: <b>2</b>') && r.includes('no clip selected: 1'), r);
+  assert.ok(r.includes('Captions made: <b>1</b>') && r.includes('opened 1'), 'test machines abroad shown apart: ' + r);
+  const r30 = await ask('/funnel 30');
+  assert.ok(r30.includes('last 30 days'), r30);
+  const nAdmin = OUTBOUND.length;
+  await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { text: '/funnel' }));
+  assert.ok(!OUTBOUND.slice(nAdmin).some((x) => String(x.body.text || '').includes('In the program')), 'buyers never see it');
+  ok('/funnel and 🧭 In the program: opened → model → pressed → errors → captions, Ethiopia only, admins only');
 }
 
 // Across EVERY scenario: nothing may be silently refused by Telegram (a refused
