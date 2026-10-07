@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.10.2';
+const APP_VERSION = '1.10.3';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -384,6 +384,7 @@ function errorStep(raw) {
   if (t.includes('python failed') || t.includes('worker')) return 'err_engine';
   if (t.includes('runtime')) return 'err_runtime';
   if (t.includes('cancel')) return '';
+  if (t.includes('license required') || t.includes('trial used up') || t.includes('needs internet')) return 'err_license';
   return 'err_other';
 }
 setTimeout(() => track('open'), 1200);
@@ -1081,7 +1082,7 @@ async function consumeTrialCredit(runId) {
       setTrialUsed(retry.used);
       const retryLeft = retry.remaining;
       log('Free trial: ' + retry.used + '/' + TRIAL_ALLOWED + ' used, ' + retryLeft + ' left.');
-      return { allowed: charged, charged, used: retry.used, remaining: retryLeft, pending: false };
+      return { allowed: charged, charged, used: retry.used, remaining: retryLeft, pending: false, ticket: retry.ticket };
     }
     log('The server will reconcile this trial charge; local state was not advanced.');
     return { allowed: false, charged: false, pending: true };
@@ -1100,7 +1101,7 @@ async function consumeTrialCredit(runId) {
     } else {
       log('Free trial used up (' + TRIAL_ALLOWED + '/' + TRIAL_ALLOWED + '). Enter a license key to continue.');
     }
-    return { allowed: charged, charged, used: serverResult.used, remaining: left, pending: false };
+    return { allowed: charged, charged, used: serverResult.used, remaining: left, pending: false, ticket: serverResult.ticket };
   }
 
   // Fallback: local-only (offline or API unreachable).
@@ -2402,11 +2403,12 @@ async function transcribe(sourcePath, outSrt, range, offset) {
     // keeps a progress journal next to it (<work>.part.json). If the run is
     // interrupted (power cut, sleep, crash, Cancel) the next run of the same
     // video continues where it stopped instead of starting again.
+    const auth = await engineAuth();
     const work = resumeWorkPath(key);
     livePoll = startLivePoll(work);
     const r = await warmSend(Object.assign({
       wav, out_srt: work, offset: offset || 0
-    }, warmStyle()));
+    }, warmStyle(), auth));
     warmTouch();
     finishWork(work, outSrt);
     protectTempFile(outSrt);
@@ -2437,13 +2439,43 @@ async function transcribe(sourcePath, outSrt, range, offset) {
   }
 }
 
+// ── Permission for the engine (1.10.3) ──────────────────────────────────
+// The engine refuses a job without either this computer's license lease or a
+// server-signed trial ticket for one free caption (ethio_srt.require_license),
+// so an edited panel or the engine started by hand no longer gives free
+// captions. A free caption is therefore charged when the engine starts (it
+// used to be charged when the review opened); a retry of the same run reuses
+// the same ticket. Free captions need internet once, to get the ticket.
+let ENGINE_AUTH = null;     // { run, auth } for the current run
+async function engineAuth() {
+  if (ENGINE_AUTH && ENGINE_AUTH.run === activeRunId) return ENGINE_AUTH.auth;
+  const stored = getLicense();
+  let auth;
+  if (LICENSED && stored && stored.token) {
+    auth = { lease: stored.token };
+  } else {
+    const r = await consumeTrialCredit(activeRunId);
+    if (!r || !r.allowed) throw new Error('trial used up');
+    if (!r.ticket) throw new Error('free caption needs internet');
+    reviewTrialCharged = true;
+    if (!r.licensed && r.charged) TRIAL_CARD_DUE = { remaining: r.remaining };
+    auth = { ticket: r.ticket };
+  }
+  ENGINE_AUTH = { run: activeRunId, auth };
+  return auth;
+}
+function authArgs(auth) {
+  return auth.lease ? ['--lease', auth.lease] : (auth.ticket ? ['--ticket', auth.ticket] : []);
+}
+
 // Original per-run python process (fallback when the warm worker is absent).
 // `onProgress` used to be a parameter here that every caller passed as an empty
 // function and nothing ever invoked. Progress now flows the same way as on the
 // warm path — parsed off the child's stderr — so the dead parameter is gone.
-function transcribeOneShot(sourcePath, outSrt, range, offset, wav) {
+async function transcribeOneShot(sourcePath, outSrt, range, offset, wav) {
+  const auth = await engineAuth();
   return new Promise((resolve, reject) => {
-    const pyArgs = [SCRIPT, wav, outSrt].concat(pyFlags());
+    const pyArgs = [SCRIPT, wav, outSrt].concat(pyFlags(), authArgs(auth));
     if (offset && offset !== 0) pyArgs.push('--offset', String(offset));
     activeChild = execFile(PYTHON, pyArgs, { maxBuffer: 32 * 1024 * 1024, env: AMH_ENV, timeout: 4 * 60 * 60 * 1000 }, (perr, stdout) => {
       activeChild = null;
@@ -2511,10 +2543,10 @@ async function transcribeBatch(items, outSrt, onProgress) {
   let transcript = '';
   try {
     if (warmStart()) {
-      const req = {
+      const req = Object.assign({
         batch: misses.map((it) => ({ wav: it.wav, offset: it.offset, name: it.name || '' })),
         out_srt: outSrt
-      };
+      }, await engineAuth());
       if (onProgress) req.onProgress = onProgress;
       const r = await warmSend(Object.assign(req, warmStyle()));
       warmTouch();
@@ -2552,7 +2584,8 @@ async function transcribeBatch(items, outSrt, onProgress) {
 }
 
 // Original multi-clip one-shot fallback (one process, one model load).
-function transcribeBatchOneShot(items, outSrt, onProgress) {
+async function transcribeBatchOneShot(items, outSrt, onProgress) {
+  const auth = await engineAuth();
   const reqPath = path.join(os.tmpdir(), 'amharic_batch_' + Date.now() + '.json');
   try {
     fs.writeFileSync(reqPath, JSON.stringify(items.map((it) => ({
@@ -2563,7 +2596,7 @@ function transcribeBatchOneShot(items, outSrt, onProgress) {
     try { fs.unlinkSync(reqPath); } catch (cleanupError) {}
     throw e;
   }
-  const pyArgs = [SCRIPT, '--batch', reqPath, outSrt].concat(pyFlags());
+  const pyArgs = [SCRIPT, '--batch', reqPath, outSrt].concat(pyFlags(), authArgs(auth));
   return new Promise((resolve, reject) => {
     const cleanupReq = () => { try { fs.unlinkSync(reqPath); } catch (e) {} };
     let child;
@@ -3991,6 +4024,9 @@ function humanError(raw) {
   if (workerDllError || t.includes('dll load failed')) {
     return 'Your antivirus or an incomplete install blocked part of the transcription engine. Add the extension folder to your antivirus exclusions, then reinstall and restart Premiere.';
   }
+  if (t.includes('trial used up')) return 'Your free captions are used up. Activate your license key to continue.';
+  if (t.includes('free caption needs internet')) return 'Connect to the internet once for a free caption (your license key works offline).';
+  if (t.includes('license required')) return 'This computer has no active license. Activate your license key (or connect to the internet for a free caption).';
   if (t.includes('audio too short')) return 'That clip is too short to transcribe.';
   if (t.includes('no speech')) return 'No speech found in that audio.';
   if (t.includes('audio-bearing')) return 'No transcribable clips in that range.';

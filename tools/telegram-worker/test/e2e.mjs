@@ -11,7 +11,7 @@
 // Requires Node 22+ (global WebCrypto, Request/Response, node:sqlite).
 
 import { DatabaseSync } from 'node:sqlite';
-import { createHmac, randomBytes, generateKeyPairSync } from 'node:crypto';
+import { createHmac, randomBytes, generateKeyPairSync, createPublicKey, verify as cryptoVerify } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 
@@ -1096,8 +1096,21 @@ console.log('\n:: scenario 9 — extension API: trial, rate limits, API key togg
   j = await r.json();
   assert.equal(j.used, 1);
   assert.equal(j.charged, true, 'run-id charge is explicitly accepted');
+  // 1.10.3: the charged free caption comes with the engine's trial ticket —
+  // signed with the lease key over "trial|mid|run|until", valid ~2 hours
+  const ticket = j.ticket;
+  const tp = String(ticket || '').split('.');
+  assert.equal(tp[0], 't1', 'a trial ticket is returned: ' + ticket);
+  assert.equal(tp[1], '13579bdf');
+  assert.equal(tp.slice(2, -2).join('.'), runId);
+  const until = Number(tp[tp.length - 2]);
+  assert.ok(until > Date.now() / 1000 + 6600 && until < Date.now() / 1000 + 7300, 'valid for 2 hours');
+  assert.ok(cryptoVerify('sha256', Buffer.from('trial|13579bdf|' + runId + '|' + until),
+    { key: createPublicKey(SIGNING_KEY), dsaEncoding: 'ieee-p1363' }, Buffer.from(tp[tp.length - 1], 'hex')),
+    'ticket signature verifies with the lease key');
   r = await api(env, '/api/trial/use', { method: 'POST', body: { mid: '13579bdf', run_id: runId }, headers: { 'CF-Connecting-IP': '198.51.100.31' } });
   j = await r.json();
+  assert.equal(j.ticket, ticket, 'a retry of the same run gets the same ticket');
   assert.equal(j.used, 1, 'same run retry is idempotent');
   assert.equal(j.duplicate, true);
   assert.equal(j.charged, true, 'duplicate run preserves the original charge result');
@@ -1106,6 +1119,7 @@ console.log('\n:: scenario 9 — extension API: trial, rate limits, API key togg
   j = await r.json();
   assert.equal(j.remaining, 0);
   assert.equal(j.charged, false, 'conflicting run ID is never charged');
+  assert.equal(j.ticket, undefined, 'no ticket without a charged free caption');
   assert.equal(row(env, 'SELECT used FROM trials WHERE machine_id=?', '2468ace0'), null);
   ok('trial reservations are idempotent and bound to their machine ID');
 

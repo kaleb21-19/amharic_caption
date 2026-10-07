@@ -212,6 +212,11 @@ customer — top manual priority.*
   Undo) → 💾 Save SRT → `<video>.srt` next to the video, never overwritten
   (`(2)`), the "Captions saved" card shows CapCut and DaVinci import steps.
   CapCut desktop: Captions → Import. DaVinci: File → Import → Subtitle.
+- Engine permission (1.10.3+): licensed — captions as always. Free trial — the free
+  caption is counted when the engine starts (needs internet once; the panel says
+  so in Amharic if offline). Without a license, running ethio_srt.py by hand exits 3
+  "license required", and a panel edited to think it is licensed shows "ይህ ኮምፒውተር
+  ፈቃድ የለውም…" instead of captions (tools/test/test_engine_license.py).
 - Review while it works (1.10.0+, licensed, speaker marks off): a video over 5
   minutes opens the review after the first captions (~20-30 s); new ones are
   added every few seconds. While you type in a caption nothing is redrawn; the

@@ -122,6 +122,25 @@ async function signLease(machineId, expiry) {
   return 'v1.' + mid + exp + '.' + sigHex; // matches licenseTokenParse() in core.js
 }
 
+// A signed "trial ticket" for ONE free caption: the transcription engine
+// refuses to run without either a license lease or this (1.10.3+), so the
+// engine can no longer be started directly, or from an edited panel, to get
+// captions for free. Bound to the computer and the run, valid for 2 hours.
+// Message "trial|<mid>|<run_id>|<until unix seconds>" — the "trial|" prefix
+// keeps it from ever passing as a lease (those sign "<mid>|<expiry>").
+const TICKET_SECONDS = 2 * 60 * 60;
+async function signTicket(machineId, runId) {
+  const mid = String(machineId).trim().toLowerCase();
+  const until = Math.floor(Date.now() / 1000) + TICKET_SECONDS;
+  const der = pemToDer(SIGN_KEY);
+  if (!der) throw new Error('AMH_LICENSE_SIGNING_KEY not set');
+  const key = await crypto.subtle.importKey('pkcs8', der, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+  const msg = new TextEncoder().encode('trial|' + mid + '|' + runId + '|' + until);
+  const raw = new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, msg));
+  const sigHex = [...raw].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return 't1.' + mid + '.' + runId + '.' + until + '.' + sigHex;
+}
+
 async function licenseServicesReady() {
   if (!SECRET || !SIGN_KEY) return false;
   try {
@@ -4767,13 +4786,13 @@ const EVENT_NAMES = new Set([
   'run_click', 'blocked_model', 'blocked_trial', 'blocked_runtime', 'run_ok', 'placed',
   'buy_click', 'activate_ok', 'activate_fail',
   'err_av_blocked', 'err_too_short', 'err_no_speech', 'err_no_clips', 'err_no_clip', 'err_no_media',
-  'err_media_unreadable', 'err_disk_full', 'err_engine', 'err_runtime', 'err_other',
+  'err_media_unreadable', 'err_disk_full', 'err_engine', 'err_runtime', 'err_license', 'err_other',
 ]);
 const ERROR_LABELS = {
   err_no_clip: 'no clip selected', err_no_clips: 'no clips in range', err_no_media: 'item has no media file',
   err_media_unreadable: 'media file unreadable', err_no_speech: 'no speech found', err_too_short: 'clip too short',
   err_engine: 'engine stopped', err_runtime: 'runtime missing', err_av_blocked: 'antivirus blocked',
-  err_disk_full: 'disk full', err_other: 'other',
+  err_disk_full: 'disk full', err_license: 'no license / free captions used up', err_other: 'other',
 };
 
 async function usageCounts(days, cc) {
@@ -5988,6 +6007,12 @@ export default {
         }
       }
       const out = Object.assign(await trialState(mid), { charged });
+      if (charged && runId && SIGN_KEY) {
+        // The engine's permission for this one free caption (stored with the
+        // result, so a retry of the same run gets the same ticket back).
+        try { out.ticket = await signTicket(mid, runId); }
+        catch (e) { log('error', 'ticket_sign_failed', { err: String((e && e.message) || e) }); }
+      }
       if (runId) {
         // Store the actual post-charge result for duplicate retries.
         await DB.prepare('UPDATE trial_uses SET result_json=? WHERE run_id=? AND machine_id=?')

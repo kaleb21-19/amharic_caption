@@ -146,6 +146,9 @@ const AM_TEXT = {
   'Your antivirus or an incomplete install blocked part of the transcription engine. Add the extension folder to your antivirus exclusions, then reinstall and restart Premiere.':
     'አንቲ-ቫይረስዎ ወይም ያልተሟላ ጭነት የትራንስክሪፕሽን ሞተሩን አንድ ክፍል አግዶታል። የኤክስቴንሽኑን ፎልደር ወደ አንቲ-ቫይረስዎ Exclusions ያክሉ፣ ከዚያ እንደገና ይጫኑና Premiere ን ዳግም ያስጀምሩ።',
   'Cancelled.': 'ተቋርጧል።',
+  'Your free captions are used up. Activate your license key to continue.': 'ነጻ ሙከራዎቹ አልቀዋል። ለመቀጠል የፈቃድ ቁልፍዎን ያስገቡ።',
+  'Connect to the internet once for a free caption (your license key works offline).': 'ለነጻ ሙከራ አንድ ጊዜ ኢንተርኔት ያገናኙ (ፈቃድ ያለው ያለ ኢንተርኔት ይሰራል)።',
+  'This computer has no active license. Activate your license key (or connect to the internet for a free caption).': 'ይህ ኮምፒውተር ፈቃድ የለውም። የፈቃድ ቁልፍዎን ያስገቡ (ወይም ለነጻ ሙከራ ኢንተርኔት ያገናኙ)።',
   'Transcription failed.': 'ወደ ጽሑፍ መቀየር አልተሳካም።',
 
   // progress under Generate
