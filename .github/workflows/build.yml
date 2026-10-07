@@ -568,6 +568,11 @@ jobs:
       - name: App server on this Mac (open in CapCut / DaVinci, clipboard)
         run: python3 tools/test/test_app.py
 
+      - name: Engine on this Mac (keep awake while working, long-audio windows)
+        run: |
+          EXT="$HOME/Library/Application Support/Adobe/CEP/extensions/com.amharic.captions"
+          "$EXT/runtime/python/bin/python3" -E -s tools/test/test_long.py
+
       - name: App log
         if: always()
         run: cat "${TMPDIR:-/tmp}/amharic-captions-app.log" 2>/dev/null || echo "(no app log)"

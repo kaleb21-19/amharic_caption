@@ -208,6 +208,14 @@ customer — top manual priority.*
   Undo) → 💾 Save SRT → `<video>.srt` next to the video, never overwritten
   (`(2)`), the "Captions saved" card shows CapCut and DaVinci import steps.
   CapCut desktop: Captions → Import. DaVinci: File → Import → Subtitle.
+- Long videos (1.9.7+): a 10+ minute video on a laptop. While it works the
+  computer does not go to sleep (Windows: SetThreadExecutionState; Mac:
+  caffeinate -i) and sleeps normally again afterwards. On battery the progress
+  line adds "🔌 ቻርጀር ይሰኩ — ይፈጥናል". Press Stop half-way, then Make captions
+  again: it continues from the same part (e.g. 8/20), with no fake time estimate,
+  and the captions cover the whole video. A slow computer is never cut off while
+  it reports progress (the watchdog only fires after 20 min of silence); in the
+  app, a few seconds without contact after waking from sleep does not fail the job.
 - Open in CapCut / DaVinci (1.9.6+): each editor found on the computer gets an
   "Open in …" button (found by its install folder or Start-menu shortcut on
   Windows, /Applications or Spotlight on Mac); one not installed says "not found
