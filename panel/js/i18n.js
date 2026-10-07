@@ -183,6 +183,7 @@ const AM_TEXT = {
   'Key is for a different machine': 'ቁልፉ የሌላ ኮምፒውተር ነው',
   'License expired': 'ፈቃዱ አብቅቷል',
   'License revoked — contact @sumpak6 on Telegram': 'ፈቃዱ ተሰርዟል — በቴሌግራም @sumpak6 ያግኙ',
+  'This key is used on other computers — contact @sumpak6 on Telegram': 'ይህ ቁልፍ በሌሎች ኮምፒውተሮች ላይ እየተሰራበት ነው — በቴሌግራም @sumpak6 ያግኙ',
   'Key not recognized — contact @sumpak6 on Telegram': 'ቁልፉ አልታወቀም — በቴሌግራም @sumpak6 ያግኙ',
   'Could not save the signed lease to this installation. Check folder permissions and try again.':
     'ፈቃዱን በዚህ ኮምፒውተር ላይ ማስቀመጥ አልተቻለም። የፎልደር ፈቃዶችን ፈትሸው እንደገና ይሞክሩ።',

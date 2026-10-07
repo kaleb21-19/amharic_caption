@@ -208,7 +208,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.10.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.10.1');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -292,9 +292,13 @@ await t('3. license: initial trial, bad keys, activation', async () => {
     assert.match(p.els('licenseStatus').textContent, /different machine/i);
 
     // valid key + server confirm -> Licensed
-    const licFetch = async (url) => {
+    let validateBody = null;
+    const licFetch = async (url, o) => {
       const u = String(url);
-      if (u.includes('/api/validate')) return { ok:true, json:async()=>({valid:true, token:'v1.b1b2c3d400000000.' + '0'.repeat(128)}) };
+      if (u.includes('/api/validate')) {
+        validateBody = JSON.parse((o && o.body) || '{}');
+        return { ok:true, json:async()=>({valid:true, token:'v1.b1b2c3d400000000.' + '0'.repeat(128)}) };
+      }
       if (u.includes('/api/trial'))    return { ok:true, json:async()=>({used:0}) };
       return { ok:true, json:async()=>({ok:true}) };
     };
@@ -315,6 +319,10 @@ await t('3. license: initial trial, bad keys, activation', async () => {
         'activation persists a durable license file');
       assert.ok(/License activated successfully./.test(p2.els('logBox').textContent),
         'activation message appended to log');
+      // which computer (not which internet address) — the server counts
+      // computers per key to spot a license copied to friends
+      assert.ok(validateBody && /^[0-9a-f]{8}$/.test(validateBody.hf || ''), 'activation sends the computer fingerprint: ' + JSON.stringify(validateBody && validateBody.hf));
+      assert.strictEqual(validateBody.hf, p2.evalVm('hostFingerprint()'), 'the same one the machine record keeps');
     } finally { p2.close(); }
   } finally { p.close(); }
 });
