@@ -118,6 +118,8 @@ Copy-Item "$ROOT\amh_decode.py" (Join-Path $BNAME "runtime\amh_decode.py")
 # Standalone SRT maker (no Premiere/After Effects needed) + shared licensing.
 Copy-Item "$ROOT\amh_license.py" (Join-Path $BNAME "runtime\amh_license.py")
 Copy-Item "$ROOT\amh_standalone.py" (Join-Path $BNAME "runtime\amh_standalone.py")
+# Afaan Oromo (beta) language pack: downloaded on request (amh_model.py --pack orm)
+Copy-Item "$ROOT\tools\model_manifest_orm.json" (Join-Path $BNAME "runtime\model_manifest_orm.json")
 Copy-Item "$ROOT\amh_model.py" (Join-Path $BNAME "runtime\amh_model.py")
 
 # 2-speaker diarization (interview labels). Omitted only if the model file

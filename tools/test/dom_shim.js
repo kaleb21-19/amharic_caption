@@ -184,6 +184,8 @@ const KNOWN = [
   'logDisc', 'logWrap', 'logBox',
   // footer
   'panelVersion', 'supportLink', 'diag', 'credits',
+  // language (1.10.5): Afaan Oromo pack box
+  'ormPackBox', 'ormPackText', 'ormPackBtn',
   // review overlay
   'review', 'reviewList', 'reviewCount', 'reviewAdd',
   'reviewExport', 'reviewDiscard', 'reviewBurn', 'reviewPlace',

@@ -210,7 +210,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.10.4');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.10.5');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1456,6 +1456,38 @@ await t('10e. engine permission: license lease, or a trial ticket charged when t
     const a = await lic.evalVm('engineAuth()');
     assert.strictEqual(a.lease, 'v1.lease', 'a licensed computer sends its lease (no trial charge)');
   } finally { lic.close(); }
+});
+
+await t('10f. Afaan Oromo (beta): language choice, pack needed first, engine gets the language', async () => {
+  const p = loadPanel({});
+  try {
+    assert.strictEqual(p.evalVm('LANG'), 'amh', 'Amharic by default');
+    assert.strictEqual(p.evalVm('warmStyle().lang'), 'amh');
+    assert.ok(!Array.from(p.evalVm('pyFlags()')).includes('--lang'), 'no --lang for Amharic (unchanged command line)');
+    const keyAmh = p.evalVm('cacheKey("C:/v.mp4")');
+
+    // pick Oromo with no pack installed: the run is stopped, the box offers the download
+    p.evalVm('ORM_DIR = null; ORM_MANIFEST_TEST = true;');
+    p.evalVm('LANG = "orm"; saveSettings({ lang: "orm" }); syncLangUi();');
+    assert.strictEqual(p.evalVm('langReadyForRun()'), false, 'no pack -> no run');
+    assert.strictEqual(p.evalVm('modelReadyForRun()'), false, 'and the normal run check says so too');
+    assert.notStrictEqual(p.evalVm('$("ormPackBox").style.display'), 'none', 'the Oromo box is shown');
+    assert.strictEqual(JSON.parse(p.storage.getItem('amh.settings')).lang, 'orm', 'the choice is remembered');
+
+    // pack installed: the engine is told the language; cached results are kept apart
+    p.evalVm('ORM_DIR = "C:/models/orm"; syncLangUi();');
+    assert.strictEqual(p.evalVm('langReadyForRun()'), true);
+    assert.strictEqual(p.evalVm('warmStyle().lang'), 'orm');
+    const flags = Array.from(p.evalVm('pyFlags()'));
+    assert.deepStrictEqual(flags.slice(0, 2), ['--lang', 'orm'], 'one-shot engine gets --lang orm');
+    assert.notStrictEqual(p.evalVm('cacheKey("C:/v.mp4")'), keyAmh, 'an Amharic result is never served for Oromo');
+    assert.ok(p.evalVm('$("ormPackText").textContent').includes('Qubee'), 'ready text names the Latin script');
+
+    // back to Amharic: everything as before
+    p.evalVm('LANG = "amh"; syncLangUi();');
+    assert.strictEqual(p.evalVm('$("ormPackBox").style.display'), 'none');
+    assert.strictEqual(p.evalVm('cacheKey("C:/v.mp4")'), keyAmh, 'Amharic cache keys unchanged');
+  } finally { p.close(); }
 });
 
 await t('11. a failed run says so on screen, not only in the log', async () => {

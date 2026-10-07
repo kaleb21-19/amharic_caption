@@ -59,6 +59,7 @@ const AM_STATIC = {
   'opt.karaoke':      'ካራኦኬ',
   'opt.grouped':      'በቡድን',
   'opt.words':        'ቃላት በአንድ ካፕሽን',
+  'opt.lang':         'ቋንቋ',
   'opt.speakers':     'የተናጋሪ ለውጥ አሳይ (2 ሰዎች) — ለቃለ መጠይቅ',
   'opt.format':       'የቪዲዮ ቅርጽ',
   'fa.noTitle':       'እንዳሉ ይተዉ',
@@ -146,6 +147,16 @@ const AM_TEXT = {
   'Your antivirus or an incomplete install blocked part of the transcription engine. Add the extension folder to your antivirus exclusions, then reinstall and restart Premiere.':
     'አንቲ-ቫይረስዎ ወይም ያልተሟላ ጭነት የትራንስክሪፕሽን ሞተሩን አንድ ክፍል አግዶታል። የኤክስቴንሽኑን ፎልደር ወደ አንቲ-ቫይረስዎ Exclusions ያክሉ፣ ከዚያ እንደገና ይጫኑና Premiere ን ዳግም ያስጀምሩ።',
   'Cancelled.': 'ተቋርጧል።',
+  'Afaan Oromo (beta) is ready. Captions come out in Latin letters (Qubee). Tell us what to improve.':
+    'Afaan Oromoo (ሙከራ) ዝግጁ ነው። ካፕሽኖቹ በላቲን ፊደል (ቁቤ) ይወጣሉ። ምን እንደሚሻሻል ይንገሩን።',
+  'The Afaan Oromo pack is not available in this installation. Update to the newest version.':
+    'የAfaan Oromoo ጥቅል በዚህ ጭነት ውስጥ የለም። አዲሱን ስሪት ይጫኑ።',
+  'The download stopped. Check your internet and press Download again — it continues where it stopped.':
+    'ማውረዱ ቆሟል። ኢንተርኔትዎን ፈትሸው እንደገና ይጫኑ — ካቆመበት ይቀጥላል።',
+  'Download Afaan Oromo': 'Afaan Oromoo አውርድ',
+  'Continue download': 'ማውረዱን ቀጥል',
+  'Pause': 'ለአፍታ አቁም',
+  'Afaan Oromo pack needed': 'የAfaan Oromoo ጥቅል ያስፈልጋል',
   'Your free captions are used up. Activate your license key to continue.': 'ነጻ ሙከራዎቹ አልቀዋል። ለመቀጠል የፈቃድ ቁልፍዎን ያስገቡ።',
   'Connect to the internet once for a free caption (your license key works offline).': 'ለነጻ ሙከራ አንድ ጊዜ ኢንተርኔት ያገናኙ (ፈቃድ ያለው ያለ ኢንተርኔት ይሰራል)።',
   'This computer has no active license. Activate your license key (or connect to the internet for a free caption).': 'ይህ ኮምፒውተር ፈቃድ የለውም። የፈቃድ ቁልፍዎን ያስገቡ (ወይም ለነጻ ሙከራ ኢንተርኔት ያገናኙ)።',
@@ -264,6 +275,9 @@ const AM_TEXT = {
 
 // Parameterised English → Amharic ($1.. are the regex groups).
 const AM_PATTERNS = [
+  [/^Downloading the Afaan Oromo pack… (\d+) \/ (\d+) MB$/, 'Afaan Oromoo በማውረድ ላይ… $1 / $2 MB'],
+  [/^Afaan Oromo needs a one-time download \((\d+) MB\)\. It continues where it stopped if the internet drops\.$/,
+    'Afaan Oromoo አንድ ጊዜ መውረድ አለበት ($1 MB)። ኢንተርኔት ቢቋረጥ ካቆመበት ይቀጥላል።'],
   [/^Trial: (\d+) free transcriptions? left$/, 'ሙከራ፦ $1 ነጻ ሙከራ ቀርቷል'],
   [/^Licensed \(expires (\d+)\)$/, 'ፈቃድ አለው (እስከ $1)'],
   [/^License expired on (.+)$/, 'ፈቃዱ $1 ላይ አብቅቷል'],

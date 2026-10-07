@@ -640,6 +640,18 @@
         <div class="step-num">2</div>
         <span class="card-title" data-i18n="opt.title">Options</span>
       </div>
+      <!-- Language (1.10.5): Afaan Oromo is an optional one-time download. -->
+      <div class="field" id="langField">
+        <label class="field-label" for="langSeg" data-i18n="opt.lang">Language</label>
+        <div class="seg" id="langSeg" role="radiogroup" aria-label="Language">
+          <button data-lang="amh" class="active">አማርኛ</button>
+          <button data-lang="orm">Afaan Oromoo · beta</button>
+        </div>
+        <div id="ormPackBox" class="hint" style="display:none;margin-top:6px;">
+          <div id="ormPackText"></div>
+          <button id="ormPackBtn" class="btn btn-neutral btn-sm" type="button" style="margin-top:6px;">Download Afaan Oromo</button>
+        </div>
+      </div>
       <div class="field">
         <label class="field-label" for="capSeg" data-i18n="opt.style">Caption style</label>
         <div class="seg" id="capSeg" role="radiogroup" aria-label="Caption style">
@@ -760,7 +772,7 @@
   </div>
 
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.10.4</span><span id="footPrice"> · <span data-i18n="foot.license">License ETB 2,500 one-time</span></span></span>
+    <span>v<span id="panelVersion">1.10.5</span><span id="footPrice"> · <span data-i18n="foot.license">License ETB 2,500 one-time</span></span></span>
     <span style="display:flex;gap:10px;align-items:center;">
       <a href="#" id="supportLink" title="Get help in Telegram" data-i18n="foot.help" data-i18n-title="foot.helpTitle">💬 Help</a>
       <a href="#" id="credits" title="Version and credits" data-i18n="foot.credits" data-i18n-title="foot.creditsTitle">About</a>

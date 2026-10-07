@@ -125,6 +125,35 @@ def _find_model():
 
 MODEL_DIR = _find_model()
 
+# ── languages ────────────────────────────────────────────────────────────────
+# "amh" (default, the Hohe model above) and "orm" — Afaan Oromo (beta), a
+# separate optional pack: badrex/Ethio-ASR-multilingual-600M (CC-BY-4.0),
+# converted to CT2 int8. Measured 2026-10-06 on WAXAL Oromo phone speech:
+# 24.1% WER / 5.6% CER (Hohe: 48.5%), as fast as Hohe. Oromo is written in
+# Latin letters, so the Ethiopic columns are removed from the logits, and the
+# Amharic-only steps (word-aware decoder, spelling / number / prefix fixes,
+# word splitting, Ethiopic punctuation) are skipped. Amharic is unchanged.
+LANGS = ("amh", "orm")
+_LANG = "amh"          # the language of the transcription running now
+
+
+def _find_model_for(lang):
+    if lang == "amh":
+        return MODEL_DIR
+    env = os.environ.get("AMH_%s_MODEL_DIR" % lang.upper())
+    if env and os.path.isdir(env):
+        return env
+    base = os.path.dirname(os.path.abspath(__file__))
+    try:
+        import amh_model
+        found = amh_model.resolve(base, pack=lang)
+        if found:
+            return found
+    except Exception:
+        pass
+    p = os.path.join(base, "model_" + lang)
+    return p if os.path.isfile(os.path.join(p, "model_meta.json")) else None
+
 
 # --------------------------------------------------------------------------
 # engine selection
@@ -146,11 +175,32 @@ def _load_torch():
     return torch, AutoProcessor, AutoModelForCTC
 
 
-def load_pipeline():
+def load_pipeline(lang="amh"):
     """Return an engine handler object with a `.transcribe(wav)` method."""
+    if lang != "amh":
+        if lang not in LANGS:
+            raise ValueError("unknown language: %s" % lang)
+        d = _find_model_for(lang)
+        if not d:
+            raise RuntimeError("language pack not installed: %s" % lang)
+        return _CT2Engine(d, lang=lang)
     if _use_ct2():
         return _CT2Engine(MODEL_DIR)
     return _TorchEngine(MODEL_DIR)
+
+
+_ENGINES = {}
+
+
+def engine_for(lang, first=None):
+    """One loaded engine per language for the warm worker (Oromo is loaded
+    the first time it is asked for, Amharic stays loaded)."""
+    lang = lang if lang in LANGS else "amh"
+    if first is not None and getattr(first, "lang", "amh") == lang:
+        return first
+    if lang not in _ENGINES:
+        _ENGINES[lang] = load_pipeline(lang)
+    return _ENGINES[lang]
 
 
 def _preflight_audio(wav):
@@ -181,7 +231,8 @@ def _preflight_audio(wav):
 class _CT2Engine:
     """CTranslate2 INT8 engine (shipped runtime)."""
 
-    def __init__(self, model_dir):
+    def __init__(self, model_dir, lang="amh"):
+        self.lang = lang
         ctranslate2 = _load_ct2()
         from amh_mel import MelExtractor  # noqa: E402
         with open(os.path.join(model_dir, "model_meta.json"), encoding="utf-8") as f:
@@ -211,7 +262,7 @@ class _CT2Engine:
             raw = json.load(f)
         self.glyphs = {int(tid): tok for tok, tid in raw.items()}
         self._skip = {"[PAD]", "[UNK]", "<s>", "</s>"}
-        self._masked = _masked_token_ids(self.glyphs)
+        self._masked = _masked_token_ids(self.glyphs) if lang == "amh" else _ethiopic_token_ids(self.glyphs)
         # For the word-aware decoder: tokens that are never caption text
         # (padding, language tags, masked letters) and the word-space tokens.
         from ctc_beam import _is_control_glyph
@@ -283,6 +334,12 @@ class _CT2Engine:
         #   AMH_LM_LAMBDA    weight for word-LM shallow fusion at word
         #                    boundaries (default 0 = disabled; the LM isn't
         #                    even loaded unless this is > 0). Requires beam.
+        if getattr(self, "lang", "amh") != "amh":
+            # Oromo: plain greedy — the beam's and the word decoder's word
+            # lists are Amharic.
+            argmax = np.argmax(logits[0], axis=-1).tolist()
+            spans, _ = ctc_align(logits, self.blank_id, frame_dur, None)
+            return self._decode(argmax), _spans_with_conf(spans, logits), frame_dur
         if os.environ.get("AMH_BEAM", "0") != "0":
             try:
                 from ctc_beam import ctc_beam_decode
@@ -406,6 +463,15 @@ _MASK_CLASSES = {
     "digits": lambda t: len(t) == 1 and "0" <= t <= "9",
     "symbols": lambda t: t in set("!#$%&'*+,-.=?@€"),
 }
+
+
+def _ethiopic_token_ids(glyphs):
+    """Latin-script languages (Oromo): the Ethiopic columns are removed from
+    the logits, so a word can never come out half in Ge'ez. Latin letters,
+    digits and the apostrophe (Oromo hudhaa: ta'e) stay."""
+    return sorted(tid for tid, tok in glyphs.items()
+                  if any(0x1200 <= ord(c) <= 0x139F or 0x2D80 <= ord(c) <= 0x2DDF for c in tok)
+                  and tok not in ("|",))
 
 
 def _masked_token_ids(glyphs):
@@ -601,6 +667,8 @@ def get_words(spans, frame_dur, glyphs):
     if cur:
         words.append((cur, cur_start, units[-1][2]))
         word_units.append(cur_u + [])
+    if _LANG != "amh":
+        return words           # the split uses the Amharic word list
     return _lm_split_words(words, word_units)
 
 
@@ -741,6 +809,18 @@ def drop_background_words(words, wav, sr=16000):
     return out
 
 
+def _make_cues_plain(mode, group_size, words, units, frame_dur, glyphs, max_chars):
+    """Captions for a non-Amharic language: the same grouping, timing and
+    doubt marks, none of the Amharic spelling / number / punctuation passes."""
+    if mode == "words":
+        cues = group_word_cues(words, max_chars=max_chars)
+    elif mode == "grouped" and group_size > 0:
+        cues = group_n_cues(words, group_size, max_chars=max_chars)
+    else:
+        cues = group_cues(words, frame_dur, None, glyphs, max_chars=max_chars)
+    return enforce_min_duration(_attach_doubts(cues, words, units))
+
+
 def make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=42, wav=None):
     # Pull the raw word stream ONCE and run the conservative post-correction
     # pass on it, so every caption mode (words/grouped/sentence) benefits and
@@ -751,6 +831,8 @@ def make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=42, wa
     if wav is not None:
         raw_words = drop_background_words(raw_words, wav)
     units = _unit_confs(spans, frame_dur, glyphs)
+    if _LANG != "amh":
+        return _make_cues_plain(mode, group_size, raw_words, units, frame_dur, glyphs, max_chars)
     try:
         from amh_correct import correct_words
         words = correct_words(raw_words)
@@ -1465,6 +1547,8 @@ def _power_notice(seconds):
 
 def _run_file(engine, wav, mode, group_size, max_chars, offset, out_srt=None,
               speakers=False):
+    global _LANG
+    _LANG = getattr(engine, "lang", "amh")
     glyphs = engine.glyphs
     # Audio past the long-audio threshold is chunked at VAD boundaries AND
     # journaled to disk so an interrupted/crashed run resumes instead of
@@ -1562,6 +1646,7 @@ def main():
     max_chars = 42
     speakers = False
     auth = {}
+    lang = "amh"
     i = 2
     while i < len(sys.argv):
         a = sys.argv[i]
@@ -1581,6 +1666,8 @@ def main():
             speakers = True
         elif a in ("--lease", "--ticket") and i + 1 < len(sys.argv):
             auth[a[2:]] = sys.argv[i + 1]
+        elif a == "--lang":
+            lang = sys.argv[i + 1]
             i += 1
         elif a == "--batch":
             mode = "batch"
@@ -1596,8 +1683,8 @@ def main():
     except LicenseRequired as e:
         print("[error] %s" % e, file=sys.stderr)
         sys.exit(3)
-    engine = load_pipeline()
-    print(f"[info] engine: {'CTranslate2 int8' if _use_ct2() else 'transformers/torch'}")
+    engine = load_pipeline(lang)
+    print(f"[info] engine: {'CTranslate2 int8' if _use_ct2() else 'transformers/torch'} ({lang})")
     print("[info] loading audio:", audio_path)
     wav = read_wav(audio_path)
     try:
@@ -1690,6 +1777,7 @@ def require_license(lease=None, ticket=None):
 
 def handle_server_one(engine, req, rid, out):
     require_license(req.get("lease"), req.get("ticket"))
+    engine = engine_for(req.get("lang") or "amh", engine)
     wav_path = req.get("wav")
     if not wav_path or not os.path.isfile(wav_path):
         emit(out, {"id": rid, "ok": False, "error": "audio file not found: %s" % wav_path})
@@ -1710,6 +1798,9 @@ def handle_server_one(engine, req, rid, out):
 
 def handle_server_batch(engine, req, rid, out):
     require_license(req.get("lease"), req.get("ticket"))
+    global _LANG
+    engine = engine_for(req.get("lang") or "amh", engine)
+    _LANG = getattr(engine, "lang", "amh")
     batch = req["batch"]
     mode, group, max_chars = request_style(req)
     out_srt = req.get("out_srt")
@@ -1806,8 +1897,11 @@ def run_batch():
         if m + 1 < len(args):
             max_chars = int(args[m + 1])
     speakers = "--speakers" in args
+    lang = args[args.index("--lang") + 1] if "--lang" in args and args.index("--lang") + 1 < len(args) else "amh"
 
-    engine = load_pipeline()
+    global _LANG
+    engine = load_pipeline(lang)
+    _LANG = getattr(engine, "lang", "amh")
     glyphs = engine.glyphs
     total = len(requests)
     all_cues = []

@@ -63,6 +63,8 @@ echo "  [ok] ethio_srt.py + amh_mel.py + ctc_beam.py + amh_correct.py + amh_deco
 # Standalone SRT maker (no Premiere/After Effects needed) + shared licensing.
 cp "$ROOT/amh_license.py" "$RT/amh_license.py"
 cp "$ROOT/amh_standalone.py" "$RT/amh_standalone.py"
+# Afaan Oromo (beta) language pack: downloaded on request (amh_model.py --pack orm)
+cp "$ROOT/tools/model_manifest_orm.json" "$RT/model_manifest_orm.json"
 echo "  [ok] amh_standalone.py + amh_license.py (standalone SRT maker)"
 
 # 2-speaker diarization (interview labels). Pure-python engine + a small ONNX
