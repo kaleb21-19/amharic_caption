@@ -212,6 +212,13 @@ customer — top manual priority.*
   Undo) → 💾 Save SRT → `<video>.srt` next to the video, never overwritten
   (`(2)`), the "Captions saved" card shows CapCut and DaVinci import steps.
   CapCut desktop: Captions → Import. DaVinci: File → Import → Subtitle.
+- Release hardening (1.10.4+): in the installed runtime ethio_srt, amh_license and
+  amh_standalone are .pyc only (tools/compile_runtime.py, with the bundled Python,
+  docstrings stripped); js/*.js and app/*.js are minified (tools/minify_panel.mjs:
+  comments/whitespace removed, names unchanged). Captions, the SRT maker console
+  and the desktop app work as before. Free captions are per computer: deleting
+  ~/.amharic_captions_machine.json does not give two new ones (bot e2e).
+  Full build + Mac gate without publishing: push the branch to ci/build-<name>.
 - Engine permission (1.10.3+): licensed — captions as always. Free trial — the free
   caption is counted when the engine starts (needs internet once; the panel says
   so in Amharic if offline). Without a license, running ethio_srt.py by hand exits 3

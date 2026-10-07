@@ -15,7 +15,10 @@ WHAT THE SOFTWARE DOES SEND
   1.10.1 each license check also sends a short computer fingerprint (8
   characters calculated from your user name, home folder and operating
   system; the name itself is never sent), so one buyer whose internet address
-  changes can be told apart from a license copied to other computers.
+  changes can be told apart from a license copied to other computers. Since
+  1.10.4 the same code is sent with free-trial requests, so the two free
+  captions belong to the computer and do not return when the Machine ID file
+  is deleted.
 * Anonymous step counts (1.10.2+): a few fixed steps (e.g. "opened", "model
   download failed", "pressed Make captions", the type of an error) are reported
   at most once per computer per day with the app, operating system and

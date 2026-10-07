@@ -18,7 +18,9 @@ exit /b 0
 
 :console
 title Amharic Captions Pro - SRT maker
-"%RT%\python\python.exe" -E -s -X utf8 "%RT%\amh_standalone.py" %*
+set "SRT=%RT%\amh_standalone.pyc"
+if not exist "%SRT%" set "SRT=%RT%\amh_standalone.py"
+"%RT%\python\python.exe" -E -s -X utf8 "%SRT%" %*
 echo.
 echo Press any key to close this window.
 pause >nul

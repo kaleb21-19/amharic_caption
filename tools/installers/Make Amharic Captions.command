@@ -42,5 +42,7 @@ if [[ -z "${AMH_CONSOLE:-}" ]]; then
   echo "  Using the classic SRT maker in this window instead."
   echo
 fi
-"$PY" -E -s -X utf8 "$RT/amh_standalone.py" "$@"
+SRT="$RT/amh_standalone.pyc"
+[[ -f "$SRT" ]] || SRT="$RT/amh_standalone.py"
+"$PY" -E -s -X utf8 "$SRT" "$@"
 echo; read -r -p "Press Enter to close."

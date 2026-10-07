@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.10.3';
+const APP_VERSION = '1.10.4';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -1020,7 +1020,7 @@ async function refreshTrialFromServer() {
   if (trialSyncPromise) return trialSyncPromise;
   trialSyncPromise = (async () => {
     try {
-      const data = await apiGet('/api/trial?mid=' + encodeURIComponent(MACHINE_ID), TRIAL_SYNC_TIMEOUT_MS);
+      const data = await apiGet('/api/trial?mid=' + encodeURIComponent(MACHINE_ID) + trialHostParam(), TRIAL_SYNC_TIMEOUT_MS);
       if (data && typeof data.used === 'number') {
         setTrialUsed(data.used);
         updateLicenseUI();
@@ -1060,12 +1060,19 @@ function newRunId() {
 // toward the free-trial limit even if the user later discards the review;
 // licensed users are unaffected.
 // Uses server-side tracking (D1) with localStorage fallback for offline.
+// Free captions are counted per computer too (1.10.4): a new Machine ID on
+// the same computer gets none once its two are used.
+function trialHostParam() {
+  const hf = hostFingerprint();
+  return hf ? '&hf=' + encodeURIComponent(hf) : '';
+}
+
 async function consumeTrialCredit(runId) {
   if (LICENSED) return { allowed: true, licensed: true };
 
   // Try server-side increment first. The run ID makes retries idempotent.
   const chargeRunId = runId || activeRunId || newRunId();
-  const serverResult = await apiPost('/api/trial/use', { mid: MACHINE_ID, run_id: chargeRunId });
+  const serverResult = await apiPost('/api/trial/use', { mid: MACHINE_ID, run_id: chargeRunId, hf: hostFingerprint() || undefined });
   // A duplicate request can arrive while the original Worker invocation still
   // holds its D1 lease. Do not mistake that pending response for a completed
   // zero-credit charge (or fall through to the local counter). Give the owner a
@@ -1074,7 +1081,7 @@ async function consumeTrialCredit(runId) {
   if (serverResult && serverResult.pending) {
     log('Trial charge is still being finalized; reconciling with the server…');
     await new Promise((resolve) => setTimeout(resolve, 1000));
-    const retry = await apiPost('/api/trial/use', { mid: MACHINE_ID, run_id: chargeRunId });
+    const retry = await apiPost('/api/trial/use', { mid: MACHINE_ID, run_id: chargeRunId, hf: hostFingerprint() || undefined });
     if (retry && !retry.pending && typeof retry.used === 'number') {
       const charged = retry.charged === undefined
         ? retry.used < TRIAL_ALLOWED
@@ -1385,7 +1392,7 @@ async function activateLicense() {
   // Sync server-side trial count on load (best effort — silently ignore if offline)
   const storedLicense = getLicense();
   if (!storedLicense || !storedLicense.token) {
-    apiGet('/api/trial?mid=' + MACHINE_ID).then((data) => {
+    apiGet('/api/trial?mid=' + MACHINE_ID + trialHostParam()).then((data) => {
       if (data && typeof data.used === 'number') setTrialUsed(data.used);
     });
   }
@@ -1546,9 +1553,17 @@ function isDegradedRuntime(base) {
   } catch (e) { return false; }
 }
 
+// Released packages ship the license-relevant modules compiled (1.10.4,
+// tools/compile_runtime.py): ethio_srt.pyc instead of ethio_srt.py. Python runs
+// either directly. The compiled one wins if a stray .py sits next to it.
+function engineFileIn(base, name) {
+  const pyc = path.join(base, name + '.pyc');
+  return fs.existsSync(pyc) ? pyc : path.join(base, name + '.py');
+}
+
 function runtimeComplete(base) {
   if (!base || !fs.existsSync(base)) return false;
-  if (!fs.existsSync(path.join(base, 'ethio_srt.py'))) return false;
+  if (!fs.existsSync(engineFileIn(base, 'ethio_srt'))) return false;
   // A shipped, self-contained runtime must include the model, ffmpeg and a
   // python interpreter. (The dev fallback is handled separately below.)
   const degraded = isDegradedRuntime(base);
@@ -1639,7 +1654,7 @@ function resolvePython() {
 }
 const PYTHON = resolvePython();
 
-const SCRIPT = runtimePath('ethio_srt.py');
+const SCRIPT = RUNTIME ? engineFileIn(RUNTIME, 'ethio_srt') : runtimePath('ethio_srt.py');
 // ── Where the model lives ─────────────────────────────────────────────────
 // Full packages bundle it in runtime/model. Lite packages ship only
 // runtime/model_manifest.json and download the model ONCE into a per-user
@@ -2188,7 +2203,8 @@ function engineHash() {
   const h = crypto.createHash('sha1');
   for (const f of ['ethio_srt.py', 'ctc_beam.py', 'amh_correct.py', 'amh_decode.py', 'amh_vad.py', 'amh_lm.py', 'amh_lm.json.gz']) {
     try {
-      const p = RUNTIME ? path.join(RUNTIME, f) : path.join(DEV_RUNTIME, f);
+      const base = RUNTIME || DEV_RUNTIME;
+      const p = f === 'ethio_srt.py' ? engineFileIn(base, 'ethio_srt') : path.join(base, f);
       h.update(f + ':' + Math.floor(fs.statSync(p).mtimeMs));
     } catch (e) { h.update(f + ':x'); }
   }

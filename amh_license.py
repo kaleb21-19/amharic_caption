@@ -441,7 +441,8 @@ def activate(machine_id, key):
 # ── server-authoritative trial ──────────────────────────────────────────────
 def trial_status(machine_id):
     """{'used','max','remaining'} or None when offline."""
-    res = _api("GET", "/api/trial?mid=" + machine_id)
+    hf = host_fingerprint()
+    res = _api("GET", "/api/trial?mid=" + machine_id + ("&hf=" + hf if hf else ""))
     if res and isinstance(res.get("used"), int):
         return res
     return None
@@ -453,7 +454,10 @@ def trial_charge(machine_id, run_id):
     global _LAST_TICKET
     _LAST_TICKET = None
     for attempt in range(2):
-        res = _api("POST", "/api/trial/use", {"mid": machine_id, "run_id": run_id})
+        body = {"mid": machine_id, "run_id": run_id}
+        if host_fingerprint():
+            body["hf"] = host_fingerprint()
+        res = _api("POST", "/api/trial/use", body)
         if res and res.get("pending") and attempt == 0:
             time.sleep(1.0)
             continue

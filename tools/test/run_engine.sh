@@ -19,6 +19,10 @@ FIX="$ROOT/test/fixtures"
 RT="${RUNTIME:-$HOME/Library/Application Support/Adobe/CEP/extensions/com.amharic.captions/runtime}"
 PY="$RT/python/bin/python3"
 SCRIPT="$RT/ethio_srt.py"
+[[ -f "$SCRIPT" ]] || SCRIPT="$RT/ethio_srt.pyc"     # released runtimes (1.10.4+)
+# The engine's command line needs a license (1.10.3); tests drive its own
+# transcription function through engine_cli.py instead.
+DRIVER="$ROOT/test/engine_cli.py"
 
 if [[ ! -x "$PY" || ! -f "$SCRIPT" ]]; then
   echo "[FAIL] runtime not found. Set RUNTIME=/path/to/com.amharic.captions/runtime"
@@ -83,7 +87,7 @@ for wav in "$FIX"/*.wav; do
     fi
     name="[$mode]"
 
-    if ! "$PY" "$SCRIPT" "${args[@]}" >/dev/null 2>&1; then
+    if ! "$PY" "$DRIVER" "$RT" "${args[@]}" >/dev/null 2>&1; then
       echo "  $name [FAIL] engine error"
       fail=$((fail+1)); continue
     fi

@@ -168,7 +168,10 @@ export default function LegalPage() {
               computer fingerprint (an 8-character code calculated from your
               user name, home folder and operating system — the name itself is
               never sent). It lets the server tell one buyer whose internet
-              address changes from a license copied to other computers.
+              address changes from a license copied to other computers. Since
+              1.10.4 the same code is sent with free-trial requests, so the two
+              free captions belong to the computer and do not come back when
+              the Machine ID file is deleted.
             </li>
             <li>
               <strong>Usage beacon.</strong> When the panel opens, it may send
