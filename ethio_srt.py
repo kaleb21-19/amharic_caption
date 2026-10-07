@@ -187,10 +187,14 @@ class _CT2Engine:
         with open(os.path.join(model_dir, "model_meta.json"), encoding="utf-8") as f:
             meta = json.load(f)
         self.blank_id = int(meta.get("blank_id", 408))
+        threads = max(1, int(_THREADS))
+        self.workers = _workers_for(threads)
         self.model = ctranslate2.models.Wav2Vec2Bert(
             model_dir, device="cpu", compute_type="int8",
-            intra_threads=max(1, int(_THREADS)),
+            inter_threads=self.workers,
+            intra_threads=max(1, threads // self.workers),
         )
+        self.prefetch = _Prefetch(self, self.workers) if self.workers > 1 else None
         self.mel = MelExtractor(model_dir)
         # lm_head projection (1024 hidden -> vocab logits): CT2's encode()
         # returns the final CTC logits directly on arm64 but raw 1024-wide
@@ -220,9 +224,25 @@ class _CT2Engine:
         # allocate O(T^2) memory and gets the process OOM-killed. Window it.
         return _windowed_transcribe(self, wav)
 
+    def _encode(self, wav):
+        """Mel features -> model -> CTC logits (1, T', vocab). Thread-safe:
+        the parallel-window workers call it side by side."""
+        ctranslate2 = _load_ct2()
+        feats = self.mel(wav)  # (1, T', 160)
+        out = self.model.encode(ctranslate2.StorageView.from_array(feats))
+        logits = np.asarray(out, dtype=np.float32)  # (1, T', vocab) or (1, T', 1024)
+        if logits.shape[-1] == 1024 and self.lm_w is not None:
+            logits = logits @ self.lm_w.T + self.lm_b  # -> (1, T', vocab)
+        return logits
+
     def _transcribe_one(self, wav):
+        # Logits a parallel worker already computed for this piece (taken
+        # FIRST so a scheduled piece is always collected, even when silent).
+        ready = self.prefetch.take(wav) if self.prefetch is not None else None
         if _preflight_audio(wav):
             return "", [], 1.0 / 16000.0
+        if ready is not None:
+            return self._align(wav, ready)
         ctranslate2 = _load_ct2()
         trimmed, seg_table = _vad_trim(wav)
         if seg_table:
@@ -237,12 +257,7 @@ class _CT2Engine:
             # each span (tok, s, e) in trimmed-frame space -> original samples.
             spans = _remap_spans(spans, frame_dur, seg_table)
             return text, spans, 1.0 / 16000.0
-        feats = self.mel(wav)  # (1, T', 160)
-        out = self.model.encode(ctranslate2.StorageView.from_array(feats))
-        logits = np.asarray(out, dtype=np.float32)  # (1, T', vocab) or (1, T', 1024)
-        if logits.shape[-1] == 1024 and self.lm_w is not None:
-            logits = logits @ self.lm_w.T + self.lm_b  # -> (1, T', vocab)
-        return self._align(wav, logits)
+        return self._align(wav, self._encode(wav))
 
     def _align(self, wav, logits):
         T = logits.shape[1]
@@ -887,6 +902,13 @@ def _snap_boundary(wav, nominal, lo, hi, win=320, search=16000 * 2):
 
 
 def _window_target_samples():
+    # Re-checked 2026-10-07 (1.9.8). 10s windows are 13% faster and slightly
+    # better on sentences with pauses between them (59 min FLEURS + WAXAL,
+    # word-scored: WER 26.07 -> 25.78), but WORSE on continuous speech, where
+    # more cuts land inside words (golden clips: interview WER 64 -> 80,
+    # long5min 53.6 -> 57.6; all 7 scored clips 60.7 -> 63.0). Interviews
+    # are continuous speech, so 20s stays. The speed now comes from running
+    # windows side by side (_Prefetch), which leaves the output identical.
     # 20s, not 60s. Measured 2026-09-21/22 on the SHIPPED runtime (VAD on)
     # over 340s of concatenated real Amharic speech, 468 reference words.
     # Output is deterministic - the 60s run was reproduced byte-identically
@@ -969,6 +991,150 @@ def _emit_progress(done, total):
         pass
 
 
+# --------------------------------------------------------------------------
+# parallel windows: run the model on the NEXT windows while this one finishes
+# --------------------------------------------------------------------------
+# One model call scales poorly past ~4 CPU threads, but several calls side by
+# side keep every core busy. Measured on 2 min of real speech, 10 s windows
+# (identical output in every layout, 14/14 windows bit-exact):
+#     threads  1 call at a time   parallel
+#        2       RTF 0.455        0.481 (2x1)  -> keep 1 worker
+#        4           0.377        0.321 (2x2)  -> 2 workers, 15% faster
+#        8+          0.355        0.252 (4x2)  -> 4 workers, 29% faster
+# The model is created with `workers` CT2 workers of THREADS/workers threads.
+# Callers schedule() the audio pieces they are about to transcribe; worker
+# threads compute their logits ahead; _CT2Engine._logits() then takes the
+# ready result for the same piece (matched by content) instead of computing
+# it. Anything not scheduled is computed as before, so every path stays
+# correct. AMH_WORKERS=1 turns it off.
+def _workers_for(threads):
+    try:
+        env = os.environ.get("AMH_WORKERS", "").strip()
+        if env:
+            return max(1, min(8, int(env)))
+    except Exception:
+        pass
+    if os.environ.get("AMH_VAD_TRIM", "0") == "1":
+        return 1      # trimmed windows take their own path
+    return min(4, threads // 2) if threads >= 4 else 1
+
+
+class _Prefetch:
+    def __init__(self, engine, workers):
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        self.engine = engine
+        self.pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="amh-model")
+        self.ready = {}                       # key -> [future, ...] in order
+        self.lock = threading.Lock()
+        self.room = threading.Semaphore(workers * 3)   # bounded look-ahead
+        self.queue = []
+        self.pending = {}                     # key -> pieces queued or ready, not yet taken
+        self.feeding = False
+
+    @staticmethod
+    def key(wav):
+        import hashlib
+        a = np.ascontiguousarray(wav, dtype=np.float32)
+        return hashlib.sha1(a.tobytes()).hexdigest() + ":%d" % len(a)
+
+    def schedule(self, pieces):
+        """Queue audio pieces (in the order they will be transcribed)."""
+        import threading
+        keyed = [(self.key(p), p) for p in pieces]
+        with self.lock:
+            for k, p in keyed:
+                if self.pending.get(k):
+                    continue          # already scheduled (a batch clip, then its windows)
+                self.pending[k] = 1
+                self.queue.append((k, p))
+            if self.feeding or not self.queue:
+                return
+            self.feeding = True
+        threading.Thread(target=self._feed, daemon=True).start()
+
+    def _feed(self):
+        while True:
+            self.room.acquire()          # bounded look-ahead: wait for a free slot
+            with self.lock:
+                if not self.queue:
+                    self.feeding = False
+                    self.room.release()
+                    return
+                # Taken off the queue and registered as ready in ONE step, so
+                # take() never sees a piece that is in neither place.
+                k, piece = self.queue.pop(0)
+                self.ready.setdefault(k, []).append(self.pool.submit(self._compute, piece))
+
+    def _compute(self, piece):
+        if _preflight_audio(piece):      # silent: the caller returns early
+            return None
+        return self.engine._encode(piece)
+
+    def take(self, wav):
+        """The prefetched logits for this piece, or None (compute it here).
+        Re-raises what the worker raised (e.g. "audio too short")."""
+        k = self.key(wav)
+        import time as _t
+        waited = 0.0
+        while True:
+            with self.lock:
+                queued = any(q[0] == k for q in self.queue)
+            if not queued:
+                break
+            if waited > 30:
+                return None       # never wait forever: compute it here instead
+            _t.sleep(0.005)       # the feeder is about to submit it
+            waited += 0.005
+        with self.lock:
+            futs = self.ready.get(k)
+            fut = futs.pop(0) if futs else None
+            if futs is not None and not futs:
+                del self.ready[k]
+            if fut is not None:
+                self.pending.pop(k, None)
+        if fut is None:
+            return None
+        try:
+            return fut.result()
+        finally:
+            self.room.release()
+
+    def clear(self):
+        """Drop look-ahead that will not be used (e.g. a request failed)."""
+        with self.lock:
+            self.queue = []
+            self.pending = {}
+            stale = [f for fs in self.ready.values() for f in fs]
+            self.ready = {}
+        for f in stale:
+            try:
+                f.result()
+            except Exception:
+                pass
+            self.room.release()
+
+
+def _schedule(engine, pieces):
+    pre = getattr(engine, "prefetch", None)
+    if pre is not None:
+        pre.schedule(pieces)
+
+
+def _clear_prefetch(engine):
+    pre = getattr(engine, "prefetch", None)
+    if pre is not None:
+        pre.clear()
+
+
+def _pieces(wav, target=None):
+    """The audio pieces engine.transcribe(wav) will run the model on."""
+    target = target or _window_target_samples()
+    if len(wav) <= target:
+        return [wav]
+    return [wav[st:en] for st, en in _plan_windows(wav, target)]
+
+
 def _windowed_transcribe(engine, wav):
     """Transcribe arbitrary-length audio in bounded VAD-aligned windows so
     memory stays flat, merging per-window spans back onto the original timeline.
@@ -983,6 +1149,7 @@ def _windowed_transcribe(engine, wav):
     texts = []
     out_spans = []
     wins = _plan_windows(wav, target)
+    _schedule(engine, [wav[st:en] for st, en in wins])
     # Per-window progress. The caller (the panel) shows a bar that otherwise
     # sits frozen for the whole transcription: a single clip used to jump to
     # 40% and not move again until it finished, which on a long interview
@@ -1010,6 +1177,39 @@ def _windowed_transcribe(engine, wav):
             out_spans.append(Span(tok, ss, max(ss, ee), _span_conf(sp)))
         _emit_progress(k + 1, len(wins))
     return " ".join(texts), out_spans, 1.0 / 16000.0
+
+
+class _ClipsAhead:
+    """Batch of clips (a Premiere work area): while clip n is transcribed,
+    clip n+1 is already read and its model work started, so many short clips
+    keep every worker busy too."""
+
+    def __init__(self, engine, paths):
+        self.engine = engine
+        self.paths = paths
+        self.wavs = {}
+
+    def _load(self, i):
+        if i in self.wavs or i >= len(self.paths) or i < 0:
+            return
+        p = self.paths[i]
+        try:
+            w = read_wav(p)
+            self.wavs[i] = w
+            if getattr(self.engine, "prefetch", None) is not None:
+                _schedule(self.engine, _pieces(w))
+        except Exception as e:
+            self.wavs[i] = e
+
+    def get(self, i, path):
+        self._load(i)
+        w = self.wavs.pop(i, None)
+        pre = getattr(self.engine, "prefetch", None)
+        for j in range(i + 1, i + 1 + (self.engine.workers if pre is not None else 1)):
+            self._load(j)
+        if isinstance(w, Exception):
+            raise w
+        return w if w is not None else read_wav(path)
 
 
 def _audio_fp(wav):
@@ -1273,11 +1473,14 @@ def _run_file(engine, wav, mode, group_size, max_chars, offset, out_srt=None,
     long_secs = float(os.environ.get("AMH_LONG_SECS", "300"))
     _power_notice(len(wav) / 16000.0)
     with keep_awake():
-        if out_srt and len(wav) > int(long_secs * 16000):
-            text, cues = _run_long(engine, wav, mode, group_size, max_chars, offset, out_srt)
-        else:
-            text, spans, frame_dur = engine.transcribe(wav)
-            cues = make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=max_chars, wav=wav)
+        try:
+            if out_srt and len(wav) > int(long_secs * 16000):
+                text, cues = _run_long(engine, wav, mode, group_size, max_chars, offset, out_srt)
+            else:
+                text, spans, frame_dur = engine.transcribe(wav)
+                cues = make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=max_chars, wav=wav)
+        finally:
+            _clear_prefetch(engine)
         if speakers:
             cues = _maybe_diarize(cues, wav)
     return text, cues
@@ -1314,6 +1517,7 @@ def _run_long(engine, wav, mode, group_size, max_chars, offset, out_srt):
         except Exception:
             done, cues, texts = 0, [], []
     _emit_progress(done, total)
+    _schedule(engine, [wav[st:en] for st, en in wins[done:]])
     for k in range(done, total):
         st, en = wins[k]
         text, wcues = _win_cues(engine, wav, st, en, mode, group_size, max_chars)
@@ -1482,6 +1686,7 @@ def handle_server_batch(engine, req, rid, out):
     all_text = []
     total = len(batch)
     skipped = 0
+    ahead = _ClipsAhead(engine, [it.get("wav") for it in batch])
     with keep_awake():
         for n, item in enumerate(batch, start=1):
             wav_path = item.get("wav")
@@ -1497,13 +1702,14 @@ def handle_server_batch(engine, req, rid, out):
                 continue
             off = float(item.get("offset", 0.0))
             try:
-                wav = read_wav(wav_path)
+                wav = ahead.get(n - 1, wav_path)
                 text, spans, frame_dur = engine.transcribe(wav)
                 cues = make_cues(mode, group, spans, frame_dur, text, engine.glyphs,
                                  max_chars=max_chars, wav=wav)
                 if speakers:
                     cues = _maybe_diarize(cues, wav)
             except Exception as e:
+                _clear_prefetch(engine)
                 skipped += 1
                 print("[batch] skip %d/%d (transcribe failed): %s: %s"
                       % (n, total, name, e), file=sys.stderr)
@@ -1511,6 +1717,7 @@ def handle_server_batch(engine, req, rid, out):
             all_text.append(text)
             for c in cues:
                 all_cues.append(Cue(c[0], c[1] + off, c[2] + off, _cue_doubt(c)))
+    _clear_prefetch(engine)
     if out_srt:
         idx = write_srt(out_srt, all_cues, 0.0)
     else:
@@ -1566,18 +1773,20 @@ def run_batch():
     total = len(requests)
     all_cues = []
     skipped = 0
+    ahead = _ClipsAhead(engine, [r.get("wav") for r in requests])
     with keep_awake():
         for n, req in enumerate(requests, start=1):
             print(f"\n[batch] % {n}/{total} {req.get('wav', '')}")
             # Never let one bad clip abort the whole work-area run.
             try:
-                wav = read_wav(req["wav"])
+                wav = ahead.get(n - 1, req["wav"])
                 text, spans, frame_dur = engine.transcribe(wav)
                 cues = make_cues(mode, group_size, spans, frame_dur, text, glyphs,
                                  max_chars=max_chars, wav=wav)
                 if speakers:
                     cues = _maybe_diarize(cues, wav)
             except Exception as e:
+                _clear_prefetch(engine)
                 skipped += 1
                 # stderr so it never pollutes the stdout transcript parse.
                 print(f"[batch] skip {n}/{total} (failed): {req.get('wav', '')}: {e}",

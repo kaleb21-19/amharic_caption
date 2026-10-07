@@ -215,5 +215,57 @@ try:
 finally:
     E.on_battery = real
 
+# ---- parallel windows (1.9.8): how many workers, and the look-ahead -------
+os.environ.pop("AMH_WORKERS", None)
+check("workers: 2 threads -> 1, 4 -> 2, 8 -> 4, 16 -> 4",
+      [E._workers_for(t) for t in (1, 2, 4, 6, 8, 16)] == [1, 1, 2, 3, 4, 4])
+os.environ["AMH_WORKERS"] = "1"
+check("AMH_WORKERS=1 turns it off", E._workers_for(16) == 1)
+os.environ.pop("AMH_WORKERS")
+os.environ["AMH_VAD_TRIM"] = "1"
+check("VAD trimming keeps one worker", E._workers_for(16) == 1)
+os.environ.pop("AMH_VAD_TRIM")
+
+
+class _StubEnc:
+    def __init__(self):
+        import threading
+        self.calls = 0
+        self.lock = threading.Lock()
+
+    def _encode(self, piece):
+        with self.lock:
+            self.calls += 1
+        return float(np.sum(piece))
+
+
+rng = np.random.default_rng(1)
+pieces = [rng.standard_normal(16000).astype(np.float32) * 0.1 for _ in range(6)]
+st = _StubEnc()
+pre = E._Prefetch(st, 3)
+pre.schedule(pieces + [pieces[0]])          # a repeat is not computed twice
+got = [pre.take(x) for x in pieces]
+check("look-ahead returns each piece's own result",
+      all(abs(g - float(np.sum(x))) < 1e-3 for g, x in zip(got, pieces)))
+check("a piece scheduled twice is computed once", st.calls == 6)
+check("not scheduled -> None (the caller computes it)", pre.take(rng.standard_normal(16000).astype(np.float32)) is None)
+check("nothing left behind", not pre.ready and not pre.queue and not pre.pending)
+pre.schedule(pieces[:4])
+pre.clear()
+check("clear() drops unused look-ahead", not pre.ready and not pre.queue and not pre.pending)
+pre.schedule(pieces[:2])
+check("still works after clear()", pre.take(pieces[0]) is not None and pre.take(pieces[1]) is not None)
+silent = np.zeros(32000, dtype=np.float32)
+pre.schedule([silent])
+check("silent piece -> None from the worker (caller returns early)", pre.take(silent) is None)
+tiny = np.zeros(100, dtype=np.float32)
+pre.schedule([tiny])
+try:
+    pre.take(tiny)
+    raised = False
+except ValueError as e:
+    raised = str(e).startswith("audio too short")
+check("a worker error reaches the caller like before (audio too short)", raised)
+
 print("\nALL PASS" if fails == 0 else f"\n{fails} FAILED")
 sys.exit(1 if fails else 0)

@@ -167,7 +167,11 @@ get): `AMH_DECODE=lm` (word-aware decoder; `greedy` = old), `AMH_LM_ALPHA=0.35`,
 `AMH_LM_GAMMA=-3.5`, `AMH_BG=1` / `AMH_BG_DB=14` (background-voice filter),
 `AMH_SPELL=1`, `AMH_SPELL_GENERAL=0`, `AMH_LM_MARGIN=20` (word split),
 `AMH_DOUBT=0.75` (orange "check this word" marks), `AMH_VAD=1`, `AMH_WINDOW_SECS=20`,
-`AMH_THREADS` (default: half the cores on ≥8-core PCs), `AMH_MODEL_DIR`.
+`AMH_THREADS` (default: half the cores on ≥8-core PCs), `AMH_MODEL_DIR`,
+`AMH_WORKERS` (1.9.8: windows run side by side — 4 workers × 2 threads on 8+
+threads, 2 × 2 on 4, 1 below; `AMH_WORKERS=1` = one at a time; output is
+byte-identical either way, about 21–24% faster on long videos),
+`AMH_KEEP_AWAKE=0` (1.9.7: don't hold off sleep during a job).
 
 Other languages (Oromo, Tigrinya): `tools/test/fetch_lang_eval.py orm tir` builds a
 fixed WAXAL test set in `tools/test/fixtures_langs/`, `tools/test/lang_eval.py orm
