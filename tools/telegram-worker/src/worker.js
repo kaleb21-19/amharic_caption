@@ -506,6 +506,7 @@ async function pruneOld() {
   // window, then drop them (run_set ttl; privacy: do not hold IPs indefinitely).
   const k = await DB.prepare("DELETE FROM key_activations WHERE last_seen < datetime('now', '-30 days')").run();
   try { await DB.prepare("DELETE FROM key_hosts WHERE last_seen < datetime('now', '-30 days')").run(); } catch (e) { /* 0024 */ }
+  try { await DB.prepare("DELETE FROM events_daily WHERE day < date('now', '-120 days')").run(); } catch (e) { /* 0025 */ }
   const c = await DB.prepare("DELETE FROM ip_counters WHERE updated_at < datetime('now', '-30 days')").run();
   // Rate-limit rows whose window has already closed (0021). Windows are short
   // (60 s on the panel endpoints), so the table stays small; this just stops it
@@ -2180,6 +2181,9 @@ async function handleMessage(msg, env) {
       await sendText(chatId, 'ℹ️ <code>/givekey MACHINE-ID name</code> — e.g. <code>/givekey 1a2b3c4d5e6f7a8b Panda</code>');
       return;
     }
+    // What happens in the program before people buy (opened, errors, …)
+    const fun = text.match(/^\/funnel(?:\s+(7|30))?$/i);
+    if (fun) { await adminUsage(chatId, null, parseInt(fun[1] || '7', 10)); return; }
     // Did the customer really activate? /active MACHINE-ID or /active CODE
     const act = text.match(/^\/active\s+(\S{8,19})$/i);
     if (act) { await adminActive(chatId, act[1]); return; }
@@ -3908,6 +3912,7 @@ async function adminPanel(chatId, messageId) {
     [{ text: `📥 Requests (${pend})`, callback_data: 'admin:queue' }],
     [{ text: '🧾 History (30 days)', callback_data: 'admin:history' }],
     [{ text: '📈 Sales & funnel', callback_data: 'admin:sales' }, { text: '🎁 Trial users', callback_data: 'admin:trials' }],
+    [{ text: '🧭 In the program (before buying)', callback_data: 'admin:usage:7' }],
     [{ text: '📣 Broadcast', callback_data: 'admin:broadcast' }, { text: '📤 Export customers', callback_data: 'admin:export' }],
     [{ text: '🔍 Find a customer', callback_data: 'admin:findask' }, { text: '🤝 Partners', callback_data: 'admin:partners' }],
     [{ text: `🎁 Referrals · ${refOn ? '🟢 ON' : '⚪ OFF'}`, callback_data: 'admin:ref' }],
@@ -4482,6 +4487,7 @@ async function adminHelp(chatId) {
     '<code>/move OLD-ID NEW-ID</code> — new computer / reinstalled Windows\n' +
     '<code>/givekey MACHINE-ID name</code> — free key (not a sale)\n' +
     '<code>/active MACHINE-ID</code> or <code>/active CODE</code> — did the customer activate?\n' +
+    '<code>/funnel</code> or <code>/funnel 30</code> — what happens in the program before people buy\n' +
     '<code>/revoke-mid ID</code> · <code>/unrevoke-mid ID</code> — kill / restore a key\n' +
     '<code>/revoke ORDER</code> · <code>/unrevoke ORDER</code> — same, by order number\n' +
     '<code>/setexpiry ORDER YYYYMMDD</code> — time-limited key (before approving)\n\n' +
@@ -4744,7 +4750,88 @@ async function adminSales(chatId, messageId) {
     '<i>The biggest drop-off step = your sales opportunity.</i>';
   const kb = [
     [{ text: '📄 Sales list', callback_data: 'admin:sales-export' }],
+    [{ text: '🧭 In the program (before buying)', callback_data: 'admin:usage:7' }],
     [{ text: '🛠 Admin', callback_data: 'admin:panel' }],
+  ];
+  if (messageId) await editText(chatId, messageId, text, kb);
+  else await sendText(chatId, text, kb);
+}
+
+// ── 🧭 In the program: what happens before anyone buys ─────────────────────
+// Anonymous daily counts the panel / desktop app send (/api/event, migration
+// 0025): each step at most once per computer per day, no Machine ID or IP.
+// Only Ethiopia is shown by default — GitHub's test Macs open the product
+// abroad on every release check.
+const EVENT_NAMES = new Set([
+  'open', 'model_needed', 'model_dl_start', 'model_dl_ok', 'model_dl_fail',
+  'run_click', 'blocked_model', 'blocked_trial', 'blocked_runtime', 'run_ok', 'placed',
+  'buy_click', 'activate_ok', 'activate_fail',
+  'err_av_blocked', 'err_too_short', 'err_no_speech', 'err_no_clips', 'err_no_clip', 'err_no_media',
+  'err_media_unreadable', 'err_disk_full', 'err_engine', 'err_runtime', 'err_other',
+]);
+const ERROR_LABELS = {
+  err_no_clip: 'no clip selected', err_no_clips: 'no clips in range', err_no_media: 'item has no media file',
+  err_media_unreadable: 'media file unreadable', err_no_speech: 'no speech found', err_too_short: 'clip too short',
+  err_engine: 'engine stopped', err_runtime: 'runtime missing', err_av_blocked: 'antivirus blocked',
+  err_disk_full: 'disk full', err_other: 'other',
+};
+
+async function usageCounts(days, cc) {
+  const where = "day >= date('now', ?) " + (cc ? 'AND cc = ?' : "AND cc != 'ET'");
+  const binds = cc ? ['-' + (days - 1) + ' days', cc] : ['-' + (days - 1) + ' days'];
+  const { results } = await DB.prepare(
+    `SELECT e, host, SUM(n) AS n FROM events_daily WHERE ${where} GROUP BY e, host`).bind(...binds).all();
+  const by = {}, hosts = {};
+  for (const r of results || []) {
+    by[r.e] = (by[r.e] || 0) + r.n;
+    if (r.e === 'open') hosts[r.host] = (hosts[r.host] || 0) + r.n;
+  }
+  return { by, hosts };
+}
+
+async function adminUsage(chatId, messageId, days = 7) {
+  days = days === 30 ? 30 : 7;
+  let et, other;
+  try {
+    et = await usageCounts(days, 'ET');
+    other = await usageCounts(days, null);
+  } catch (e) {
+    await sendText(chatId, 'ℹ️ No program steps yet — run <code>npm run migrate</code> (0025) and update the panel to 1.10.2+.');
+    return;
+  }
+  const c = (k) => et.by[k] || 0;
+  const pct = (a, b) => (a ? Math.round(100 * b / a) + '%' : '–');
+  const errs = Object.keys(ERROR_LABELS)
+    .filter((k) => c(k))
+    .sort((a, b) => c(b) - c(a))
+    .map((k) => `   • ${ERROR_LABELS[k]}: ${c(k)}`);
+  const hostLine = Object.keys(et.hosts).length
+    ? ' (' + Object.entries(et.hosts).map(([h, n]) => ({ PPRO: 'Premiere', AEFT: 'After Effects', APP: 'CapCut/DaVinci app' }[h] || h) + ' ' + n).join(' · ') + ')'
+    : '';
+  const otherOpen = other.by.open || 0;
+  const text =
+    `🧭 <b>In the program — last ${days} days</b> · Ethiopia\n` +
+    '<i>Each computer counts once per day per step.</i>\n\n' +
+    `💻 Opened: <b>${c('open')}</b>${hostLine}\n` +
+    (c('model_needed')
+      ? `📦 Needed the model download: ${c('model_needed')}\n` +
+        `   ├ started: ${c('model_dl_start')}\n` +
+        `   ├ ✅ finished: ${c('model_dl_ok')}\n` +
+        `   └ ❌ failed: ${c('model_dl_fail')}\n`
+      : '') +
+    `▶️ Pressed “Make captions”: <b>${c('run_click')}</b> (${pct(c('open'), c('run_click'))} of opened)\n` +
+    ((c('blocked_model') + c('blocked_trial') + c('blocked_runtime'))
+      ? `⛔ Stopped before starting: no model ${c('blocked_model')} · trial used up ${c('blocked_trial')} · runtime ${c('blocked_runtime')}\n`
+      : '') +
+    (errs.length ? '❌ Errors:\n' + errs.join('\n') + '\n' : '') +
+    `✅ Captions made: <b>${c('run_ok')}</b> (${pct(c('run_click'), c('run_ok'))} of pressed)\n` +
+    `🎬 Placed / saved: ${c('placed')}\n` +
+    `💳 Pressed Buy: ${c('buy_click')} · 🔑 Activated: ${c('activate_ok')}` +
+    (c('activate_fail') ? ` · activation failed: ${c('activate_fail')}` : '') + '\n\n' +
+    `<i>Outside Ethiopia (mostly our test machines): opened ${otherOpen}.</i>`;
+  const kb = [
+    [{ text: days === 7 ? '📅 Last 30 days' : '📅 Last 7 days', callback_data: 'admin:usage:' + (days === 7 ? 30 : 7) }],
+    [{ text: '📈 Sales & funnel', callback_data: 'admin:sales' }, { text: '🛠 Admin', callback_data: 'admin:panel' }],
   ];
   if (messageId) await editText(chatId, messageId, text, kb);
   else await sendText(chatId, text, kb);
@@ -5327,6 +5414,7 @@ async function handleCallback(cb) {
       await adminDetail(chatId, null, null, parts[2]);
     }
     else if (action === 'sales') await adminSales(chatId, messageId);
+    else if (action === 'usage') await adminUsage(chatId, messageId, parseInt(parts[2] || '7', 10));
     else if (action === 'trials') await adminTrials(chatId, messageId, Math.max(0, parseInt(parts[2] || '0', 10) || 0));
     else if (action === 'export') await adminExport(chatId, messageId, cbId);
     else if (action === 'broadcast') {
@@ -5717,6 +5805,35 @@ export default {
     // per machine per day from the panel boot — shows which build is in the
     // field (support triage) and what Origin a real CEP panel sends (used to
     // lock AMH_ALLOWED_ORIGIN).
+    // POST /api/event {e, h, os, v} — one anonymous step from the panel /
+    // desktop app ("opened", "model download failed", "pressed Make
+    // captions", "error: no clip selected" …). Counted per day; nothing that
+    // identifies the computer or the person is stored (see 0025).
+    if (request.method === 'POST' && url.pathname === '/api/event') {
+      let b = {};
+      try { b = await request.json(); } catch (e) {}
+      const e = String((b && b.e) || '');
+      const host = ['PPRO', 'AEFT', 'APP'].includes(b && b.h) ? b.h : '';
+      const os = ['win', 'mac'].includes(b && b.os) ? b.os : '';
+      const v = String((b && b.v) || '');
+      if (!EVENT_NAMES.has(e) || !host || !os || !/^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(v)) {
+        return json({ error: 'bad event' }, 400);
+      }
+      // A panel sends each step at most once a day; this only stops a loop or
+      // a flood from inflating the counts.
+      if (await rateLimited('rl:ip:' + clientIp() + ':ev:' + e, 20)) return json({ ok: true, dropped: true });
+      const cc = /^[A-Z]{2}$/.test(String((request.cf && request.cf.country) || '')) ? request.cf.country : '??';
+      try {
+        await DB.prepare(
+          `INSERT INTO events_daily (day, e, host, os, v, cc, n) VALUES (date('now'), ?, ?, ?, ?, ?, 1)
+           ON CONFLICT(day, e, host, os, v, cc) DO UPDATE SET n = n + 1`
+        ).bind(e, host, os, v, cc).run();
+      } catch (err) {
+        log('warn', 'event_store_failed', { err: String((err && err.message) || err) });
+      }
+      return json({ ok: true });
+    }
+
     if (request.method === 'POST' && url.pathname === '/api/ping') {
       let b = {};
       try { b = await request.json(); } catch (e) {}

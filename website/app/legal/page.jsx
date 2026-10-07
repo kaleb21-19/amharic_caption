@@ -164,6 +164,11 @@ export default function LegalPage() {
               re-derives the key&rsquo;s cryptographic signature — this is how
               forged or stolen keys are rejected. The license is file-bound,
               not a hardware attestation; do not share the identity/license files.
+              Since version 1.10.1 each license check also sends a short
+              computer fingerprint (an 8-character code calculated from your
+              user name, home folder and operating system — the name itself is
+              never sent). It lets the server tell one buyer whose internet
+              address changes from a license copied to other computers.
             </li>
             <li>
               <strong>Usage beacon.</strong> When the panel opens, it may send
@@ -172,6 +177,16 @@ export default function LegalPage() {
               count installs, detect abuse, and support version diagnostics. It
               does not contain audio, text, or transcripts. Telemetry retention
               is bounded separately from license records.
+            </li>
+            <li>
+              <strong>Anonymous step counts.</strong> Since version 1.10.2 the
+              Software reports a few fixed steps — for example &ldquo;opened&rdquo;,
+              &ldquo;model download failed&rdquo;, &ldquo;pressed Make captions&rdquo;
+              or the type of an error — at most once per computer per day, with
+              the app, operating system and version. No Machine ID, name,
+              audio or text is sent with them, and the server keeps only daily
+              totals per country (no IP address), for 120 days. They show where
+              people get stuck so it can be fixed.
             </li>
             <li>
               <strong>Free-trial usage.</strong> The number of free

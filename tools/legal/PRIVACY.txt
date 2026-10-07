@@ -1,5 +1,5 @@
 PRIVACY POLICY — Amharic Captions Pro
-Version 1.3 · Effective 2026-09-28
+Version 1.5 · Effective 2026-10-07
 
 WHAT TRANSCRIPTION NEVER DOES
 All speech recognition, correction, speaker labeling and caption placement
@@ -11,7 +11,16 @@ WHAT THE SOFTWARE DOES SEND
 * License activation: when you activate a key, your Machine ID and the key are
   sent to the license server to confirm the key belongs to this installation
   (forged/stolen keys are rejected). A signed, installation-bound lease token is
-  returned and verified locally on your machine thereafter.
+  returned and verified locally on your machine thereafter. Since version
+  1.10.1 each license check also sends a short computer fingerprint (8
+  characters calculated from your user name, home folder and operating
+  system; the name itself is never sent), so one buyer whose internet address
+  changes can be told apart from a license copied to other computers.
+* Anonymous step counts (1.10.2+): a few fixed steps (e.g. "opened", "model
+  download failed", "pressed Make captions", the type of an error) are reported
+  at most once per computer per day with the app, operating system and
+  version. No Machine ID, name, audio or text is sent with them; the server
+  keeps only daily totals per country (no IP address) for 120 days.
 * Usage beacon: when the panel opens, it may send your application version, a
   pseudonymous Machine ID, origin, and network source information to the license
   server. This is used to count installs, detect abuse, and support diagnostics.

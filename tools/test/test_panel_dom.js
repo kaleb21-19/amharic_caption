@@ -208,7 +208,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.10.1');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.10.2');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1387,6 +1387,31 @@ await t('10c. review while it is still working: opens early, waits while typing,
     p.evalVm('SPEAKERS = false; LIVE_WANTED = null;');
     assert.strictEqual(p.evalVm('startLivePoll("x")'), null, 'only the runs that ask for it');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); p.close(); }
+});
+
+await t('10d. anonymous step counts: once a day per step, nothing personal, error types', async () => {
+  const sent = [];
+  const p = loadPanel({ fetch: async (url, o) => {
+    if (String(url).includes('/api/event')) sent.push(JSON.parse((o && o.body) || '{}'));
+    return { ok: true, json: async () => ({ ok: true }) };
+  } });
+  try {
+    await flush(1500);                        // the 'open' step fires after load
+    p.evalVm('track("run_click"); track("run_click"); track("buy_click");');
+    await flush(5);
+    const steps = sent.map((x) => x.e);
+    assert.ok(steps.includes('open'), 'opened is reported: ' + steps);
+    assert.strictEqual(steps.filter((x) => x === 'run_click').length, 1, 'each step once a day');
+    const body = sent.find((x) => x.e === 'run_click');
+    assert.deepStrictEqual(Object.keys(body).sort(), ['e', 'h', 'os', 'v'], 'only step, app, OS, version — no Machine ID');
+    assert.strictEqual(body.v, p.evalVm('APP_VERSION'));
+    const cases = [
+      ['No selected clip.', 'err_no_clip'], ['ffmpeg failed: x', 'err_media_unreadable'],
+      ['Python failed: worker exited', 'err_engine'], ['ENOSPC: no space left', 'err_disk_full'],
+      ['Cancelled', ''], ['something odd', 'err_other'],
+    ];
+    for (const [raw, want] of cases) assert.strictEqual(p.evalVm('errorStep(' + JSON.stringify(raw) + ')'), want, raw);
+  } finally { p.close(); }
 });
 
 await t('11. a failed run says so on screen, not only in the log', async () => {

@@ -118,6 +118,7 @@
       fs.writeFileSync(out, displaySrtTextFromCues(cues), { encoding: 'utf8' });
     }
     lastSaved = out;
+    if (typeof track === 'function') track('placed');
     log(tx('ተቀምጧል፦ ', 'Saved: ') + out);
     closeReview(true);
     showDone(out, cues.length);
