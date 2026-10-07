@@ -170,5 +170,50 @@ check("no overlap in the tail_room case", _no_overlaps(got))
 got = E.enforce_min_duration([("a", 0.0, 90.0)], min_dur=1.0, max_dur=5.0)
 check("max_dur still trims a long cue", abs(got[0][2] - 5.0) < 1e-9)
 
+# ---- keep the computer awake during a job; battery notice ------------------
+# A laptop that sleeps half-way through a long video froze the job ("can't
+# handle a 10-minute video"). keep_awake() asks the OS not to idle-sleep while
+# a job runs and gives that back afterwards.
+if sys.platform == "win32":
+    import ctypes
+    STES = ctypes.windll.kernel32.SetThreadExecutionState
+    STES.restype = ctypes.c_uint
+    with E.keep_awake():
+        inside = STES(0x80000000 | 0x00000001)   # returns the flags in force
+    after = STES(0x80000000)
+    check("Windows: no idle sleep while a job runs", inside & 0x1 == 0x1)
+    check("Windows: normal sleep comes back after the job", after & 0x1 == 0)
+elif sys.platform == "darwin":
+    import subprocess
+    with E.keep_awake() as ka:
+        alive = ka._proc is not None and ka._proc.poll() is None
+        args = subprocess.run(["ps", "-o", "args=", "-p", str(ka._proc.pid)], capture_output=True, text=True).stdout
+    ka._proc.wait(timeout=10)
+    check("Mac: caffeinate -i runs while a job runs", alive and "caffeinate -i -w %d" % os.getpid() in args)
+    check("Mac: caffeinate ends with the job", ka._proc.poll() is not None)
+os.environ["AMH_KEEP_AWAKE"] = "0"
+with E.keep_awake() as ka:
+    check("AMH_KEEP_AWAKE=0 turns it off", ka._proc is None and not ka._win)
+os.environ.pop("AMH_KEEP_AWAKE")
+check("on_battery() answers True/False", E.on_battery() in (True, False))
+import io as _io
+import contextlib
+real = E.on_battery
+try:
+    E.on_battery = lambda: True
+    buf = _io.StringIO()
+    with contextlib.redirect_stderr(buf):
+        E._power_notice(600)
+        E._power_notice(30)
+    check("long job on battery -> one [power] battery line; short clip -> none",
+          buf.getvalue() == "[power] battery" + chr(10))
+    E.on_battery = lambda: False
+    buf = _io.StringIO()
+    with contextlib.redirect_stderr(buf):
+        E._power_notice(600)
+    check("plugged in -> no power line", buf.getvalue() == "")
+finally:
+    E.on_battery = real
+
 print("\nALL PASS" if fails == 0 else f"\n{fails} FAILED")
 sys.exit(1 if fails else 0)

@@ -270,7 +270,8 @@ const AM_PATTERNS = [
   [/^Transcribing (\d+)\/(\d+)(.*)$/, function (m, a, b, rest) {
     rest = rest
       .replace(/ · about (\d+) min left/, ' · ወደ $1 ደቂቃ ቀርቷል')
-      .replace(/ · (?:about |~)(\d+)s left/, ' · ወደ $1 ሰከንድ ቀርቷል');
+      .replace(/ · (?:about |~)(\d+)s left/, ' · ወደ $1 ሰከንድ ቀርቷል')
+      .replace(/ · 🔌 plug in the charger to go faster/, ' · 🔌 ቻርጀር ይሰኩ — ይፈጥናል');
     return 'ወደ ጽሑፍ በመቀየር ላይ ' + a + '/' + b + rest;
   }],
   [/^(.+) See “Details for support” below\.$/, function (m, inner) {

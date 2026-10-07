@@ -39,6 +39,7 @@
     return r.result;
   }
   const realFetch = window.fetch.bind(window);
+  const POLL_GIVE_UP_MS = (window.__amhPollGiveUpMs || 3 * 60 * 1000);
   function post(path, body) {
     return realFetch(path, {
       method: 'POST',
@@ -199,19 +200,23 @@
       return true;
     }
     async _poll(since) {
-      let failures = 0;
+      let failingSince = 0;
       for (;;) {
         let r;
         try {
           const res = await realFetch('/__api/poll?id=' + this.id + '&since=' + since, { headers: { 'X-Amh-Token': TOKEN } });
           if (res.status === 404) { this._finish(null); return; }
           r = await res.json();
-          failures = 0;
+          failingSince = 0;
         } catch (e) {
-          // The app's own server stopped answering: report the child as
-          // failed rather than waiting forever.
-          if (++failures >= 50) { this._finish(null); return; }
-          await new Promise((ok) => setTimeout(ok, 200));
+          // The app's own server is not answering. Right after the computer
+          // wakes from sleep that can last a while although the engine is
+          // still working, so keep trying for POLL_GIVE_UP_MS before
+          // reporting the child as failed (never wait forever).
+          const now = Date.now();
+          if (!failingSince) failingSince = now;
+          if (now - failingSince >= POLL_GIVE_UP_MS) { this._finish(null); return; }
+          await new Promise((ok) => setTimeout(ok, 1000));
           continue;
         }
         for (const ev of r.events) {
