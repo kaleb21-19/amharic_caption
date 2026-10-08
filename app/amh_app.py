@@ -593,6 +593,18 @@ def start_server(ui_dir, ext_dir, files=(), ports=APP_PORTS):
     return srv
 
 
+def note_window_failure():
+    """Why the window could not open, for support: %TEMP%/amharic-captions-app.log."""
+    try:
+        import tempfile
+        import traceback
+        with open(os.path.join(tempfile.gettempdir(), "amharic-captions-app.log"), "a", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S") + " window failed, console opened instead\n")
+            f.write(traceback.format_exc() + "\n")
+    except Exception:
+        pass
+
+
 def console_fallback(ext_dir, files):
     """No window possible (e.g. an old Windows without the Edge WebView2
     runtime): open the classic console SRT maker instead, so the customer
@@ -606,6 +618,29 @@ def console_fallback(ext_dir, files):
         subprocess.Popen(["open", "-a", "Terminal", cmd])
 
 
+def unblock_window_files():
+    """Windows: remove the "downloaded from the internet" mark from the
+    window library's files. A zip unpacked with "Extract All" keeps the mark
+    on every file, and .NET refuses to load a marked Python.Runtime.dll —
+    the window then failed and the console opened instead (1.10.8). Older
+    installs are fixed here on their next start; the installer removes the
+    mark too."""
+    if not IS_WIN:
+        return
+    try:
+        import pythonnet
+        root = os.path.dirname(os.path.abspath(pythonnet.__file__))
+    except Exception:
+        return
+    for base, _dirs, names in os.walk(root):
+        for n in names:
+            if n.lower().endswith((".dll", ".exe", ".json")):
+                try:
+                    os.remove(os.path.join(base, n) + ":Zone.Identifier")
+                except OSError:
+                    pass
+
+
 def main():
     global WINDOW
     ap = argparse.ArgumentParser()
@@ -616,10 +651,12 @@ def main():
     a = ap.parse_args()
     ext_dir = os.path.realpath(a.ext or a.ui)
 
+    unblock_window_files()
     try:
         import webview
         from webview.dom import DOMEventHandler
     except Exception:
+        note_window_failure()
         return console_fallback(ext_dir, a.files)
 
     start_server(a.ui, ext_dir, a.files)
@@ -642,6 +679,7 @@ def main():
     try:
         webview.start(on_start, WINDOW, private_mode=False, storage_path=storage, debug=a.debug)
     except Exception:
+        note_window_failure()
         console_fallback(ext_dir, a.files)
     for c in list(CHILDREN.values()):
         c.kill()

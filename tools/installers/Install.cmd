@@ -320,6 +320,14 @@ if !RC! GTR 7 (
 
 >> "%LOG%" echo [OK] Extension copied to staging.
 
+rem A zip unpacked with Windows "Extract All" marks every file as
+rem downloaded from the internet, and robocopy keeps that mark. .NET then
+rem refuses to load the app window's Python.Runtime.dll, so the CapCut and
+rem DaVinci app fell back to the console. Remove the mark from our own
+rem copied files only.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -LiteralPath $env:STAGE -Recurse -File | Unblock-File" >> "%LOG%" 2>&1
+>> "%LOG%" echo [OK] Download marks removed from the copied files.
+
 rem ------------------------------------------------------------
 rem Verify the staged copy before touching the live folder
 rem ------------------------------------------------------------
