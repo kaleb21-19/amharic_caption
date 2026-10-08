@@ -334,31 +334,35 @@ def main(argv):
         rule()
         say("[%d/%d] %s" % (i, len(good), os.path.basename(src)))
         final = output_path(src)
-        # Trial output goes to a temp file first: nothing is delivered until
-        # the server has actually charged the free transcription.
-        work = final if state == "licensed" else final + ".pending"
-        t0 = time.monotonic()
-        try:
-            n = transcribe(engine, src, work, mode, speakers)
-        except Exception as e:
-            say(ERR + "ይህን ፋይል ወደ ጽሑፍ መቀየር አልተቻለም።", "Could not transcribe this file: %s" % e)
-            say("       ዝርዝር፦ " + LOG, "Details for support: " + LOG)
-            if work != final and os.path.exists(work):
-                os.remove(work)
-            drop_sidecars(work)
-            continue
+        # A free transcription is charged BEFORE it is made (1.10.6): the
+        # server's ticket for it is what lets the engine run. (Charging after
+        # left a finished caption on disk when the window was closed first.)
         remaining = None
+        ticket = None
         if state == "trial":
             charged, remaining = lic.trial_charge(mid, lic.new_run_id())
-            if not charged:
-                if os.path.exists(work):
-                    os.remove(work)
-                drop_sidecars(work)
+            ticket = lic.last_ticket() if charged else None
+            if not ticket:
                 say(ERR + "ነጻ ሙከራውን ማረጋገጥ አልተቻለም (ኢንተርኔት የለም ወይም ሙከራዎቹ አልቀዋል)።",
                     "Could not confirm the free trial with the server (offline, or trials used up).")
                 break
-            os.replace(work, final)
-            drop_sidecars(work)
+        try:
+            es.require_license(None, ticket)
+        except es.LicenseRequired as e:
+            say(ERR + "ፈቃድ ያስፈልጋል።", str(e))
+            break
+        t0 = time.monotonic()
+        try:
+            n = transcribe(engine, src, final, mode, speakers)
+        except Exception as e:
+            say(ERR + "ይህን ፋይል ወደ ጽሑፍ መቀየር አልተቻለም።", "Could not transcribe this file: %s" % e)
+            say("       ዝርዝር፦ " + LOG, "Details for support: " + LOG)
+            if state == "trial" and os.path.exists(final):
+                os.remove(final)
+            drop_sidecars(final)
+            continue
+        finally:
+            es.end_permit()
         done += 1
         last_saved = final
         saved.append(final)

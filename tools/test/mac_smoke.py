@@ -205,8 +205,18 @@ def main():
             else:
                 fail("engine refuses to run without a license", "exit %s\n%s" % (g.returncode, (g.stderr or g.stdout)[-800:]))
         rt = os.path.dirname(engine)
+        # 1.10.6+: calling the engine's functions straight from Python is
+        # refused too (the model checks permission) — then the test stands in
+        # for the license check in its own process and makes the captions.
         run_py = ("import sys; sys.path.insert(0, %r); import ethio_srt as es; w = es.read_wav(%r); "
-                  "e = es.load_pipeline(); t, c = es._run_file(e, w, 'grouped', 3, 42, 0.0, %r); "
+                  "e = es.load_pipeline()\n"
+                  "if hasattr(es, 'end_permit'):\n"
+                  "    try:\n"
+                  "        es._run_file(e, w, 'grouped', 3, 42, 0.0, None); sys.stderr.write('INNER-NOT-GATED\\n')\n"
+                  "    except es.LicenseRequired:\n"
+                  "        sys.stderr.write('INNER-GATED\\n')\n"
+                  "    import amh_license; amh_license.engine_auth = lambda l=None, t=None: (True, 'test'); es.require_license()\n"
+                  "t, c = es._run_file(e, w, 'grouped', 3, 42, 0.0, %r); "
                   "es.write_srt(%r, c, 0.0)") % (rt, video, out_srt, out_srt)
         res = json.loads(http(port, "POST", "/__api/sync", {"op": "spawn", "args": [
             py, ["-E", "-s", "-X", "utf8", "-c", run_py], None, None, 600000]}, token))
@@ -223,6 +233,10 @@ def main():
             if r["done"] and code is None:
                 code = -1
         text = open(out_srt, encoding="utf-8").read() if os.path.isfile(out_srt) else ""
+        if "INNER-GATED" in "".join(err):
+            ok("engine's own functions refuse without a license", "LicenseRequired")
+        elif "INNER-NOT-GATED" in "".join(err):
+            fail("engine's own functions refuse without a license", "made captions with no permission")
         ethiopic = sum(1 for ch in text if "ሀ" <= ch <= "፿")
         if code == 0 and ethiopic > 20:
             first = [l for l in text.splitlines() if any("ሀ" <= c <= "፿" for c in l)][:2]

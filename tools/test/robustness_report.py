@@ -154,6 +154,9 @@ def main():
     args = ap.parse_args()
 
     import ethio_srt as E
+    import amh_license
+    amh_license.engine_auth = lambda lease=None, ticket=None: (True, "test")
+    E.require_license()   # tests only: the model checks permission (1.10.6)
     from wer import normalize, wer, cer, cer_nospace
     if args.grid or args.approx_vowel:
         from wer import grid_tokens, _load_lm

@@ -21,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 
 # The SRT maker opens Explorer/Finder on the result and copies the Machine ID
 # to the clipboard; a test run must do neither.
@@ -46,11 +47,26 @@ const {publicKey,privateKey}=c.generateKeyPairSync('ec',{namedCurve:'P-256'});
 const msg=process.argv[1]+'|00000000';
 const sig=c.sign('sha256',Buffer.from(msg),{key:privateKey,dsaEncoding:'ieee-p1363'}).toString('hex');
 console.log(JSON.stringify({pem:publicKey.export({type:'spki',format:'pem'}),
+  priv:privateKey.export({type:'pkcs8',format:'pem'}),
   token:'v1.'+process.argv[1]+'00000000.'+sig}));
 """, MID]).decode())
 
+
+
+def sign_ticket(mid, run):
+    """A trial ticket like the Worker's signTicket (test key)."""
+    until = str(int(time.time()) + 7200)
+    sig = subprocess.check_output(["node", "-e", r"""
+const c=require('crypto');
+process.stdout.write(c.sign('sha256',Buffer.from(process.argv[2]),
+  {key:process.env.AMH_TEST_PRIV,dsaEncoding:'ieee-p1363'}).toString('hex'));
+""", "sign", "trial|%s|%s|%s" % (mid, run, until)],
+                                  env=dict(os.environ, AMH_TEST_PRIV=vec["priv"])).decode()
+    return "t1.%s.%s.%s.%s" % (mid, run, until, sig)
+
+
 # ── mock license server ─────────────────────────────────────────────────────
-STATE = {"used": 0, "max": 2, "online": True, "charges": 0, "validates": 0}
+STATE = {"used": 0, "max": 2, "online": True, "charges": 0, "validates": 0, "tickets": True}
 
 
 class Mock(BaseHTTPRequestHandler):
@@ -92,8 +108,11 @@ class Mock(BaseHTTPRequestHandler):
             charged = STATE["used"] < STATE["max"]
             if charged:
                 STATE["used"] += 1
-            self._send({"used": STATE["used"], "max": STATE["max"],
-                        "remaining": max(0, STATE["max"] - STATE["used"]), "charged": charged})
+            res = {"used": STATE["used"], "max": STATE["max"],
+                   "remaining": max(0, STATE["max"] - STATE["used"]), "charged": charged}
+            if charged and STATE["tickets"]:
+                res["ticket"] = sign_ticket(body["mid"], body["run_id"])
+            self._send(res)
         elif self.path == "/api/redeem":
             if body.get("code") == "TKSL-4EYX" and body.get("mid") == MID:
                 self._send({"ok": True, "key": KEY})
@@ -117,6 +136,7 @@ import amh_license as lic  # noqa: E402  (reads AMH_API_URL at import)
 import amh_standalone as tool  # noqa: E402
 
 lic.verify_token.__defaults__ = (vec["pem"],)   # test key, this process only
+lic.verify_ticket.__defaults__ = (vec["pem"], None)
 
 HOME = tempfile.mkdtemp(prefix="amh_sa_home_")
 WORK = tempfile.mkdtemp(prefix="amh_sa_work_")
@@ -175,6 +195,20 @@ def t1():
     assert not left, "only the .srt beside the video, found: %s" % left
     assert "[info]" not in out and "CTranslate2" not in out, "engine internals stay in the log"
     assert "CapCut" in out and "DaVinci Resolve" in out and "a.srt" in out, "says where the file is and how to import it"
+
+
+def t1b():
+    # 1.10.6: the free transcription is charged BEFORE it is made, and the
+    # server's ticket is what lets the engine run. A server that charges but
+    # gives no ticket (or an edited one) gets no caption.
+    STATE["tickets"] = False
+    try:
+        rc, out = run([clip("z.wav")])
+    finally:
+        STATE["tickets"] = True
+    assert rc == 1 and "z.srt" not in srts(), out[-400:]
+    assert STATE["used"] == 2 and STATE["charges"] == 2, STATE
+    STATE["used"] = 1                     # give the free one back for t2
 
 
 def t2():
@@ -269,6 +303,7 @@ def t8():
 
 print("standalone SRT maker (mock server %s)" % os.environ["AMH_API_URL"])
 t("1. trial: first file transcribes, is charged once, srt delivered", t1)
+t("1b. trial: charged first; no server ticket -> no caption", t1b)
 t("2. trial: second file uses the last free transcription", t2)
 t("3. trial used up: no srt, shows Machine ID + how to pay", t3)
 t("4. offline + unlicensed: refuses, says internet is needed", t4)
