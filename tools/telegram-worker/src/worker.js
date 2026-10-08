@@ -141,6 +141,22 @@ async function signTicket(machineId, runId) {
   return 't1.' + mid + '.' + runId + '.' + until + '.' + sigHex;
 }
 
+// 1.10.7 free minutes: the ticket also says how many seconds of audio the
+// engine may transcribe — "trial2|<mid>|<run_id>|<until>|<seconds>" (its own
+// prefix, so it can never pass as a 1.10.3 ticket or a lease).
+async function signTicket2(machineId, runId, seconds) {
+  const mid = String(machineId).trim().toLowerCase();
+  const until = Math.floor(Date.now() / 1000) + TICKET_SECONDS;
+  const secs = Math.max(1, Math.floor(seconds));
+  const der = pemToDer(SIGN_KEY);
+  if (!der) throw new Error('AMH_LICENSE_SIGNING_KEY not set');
+  const key = await crypto.subtle.importKey('pkcs8', der, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+  const msg = new TextEncoder().encode('trial2|' + mid + '|' + runId + '|' + until + '|' + secs);
+  const raw = new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, msg));
+  const sigHex = [...raw].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return 't2.' + mid + '.' + runId + '.' + until + '.' + secs + '.' + sigHex;
+}
+
 async function licenseServicesReady() {
   if (!SECRET || !SIGN_KEY) return false;
   try {
@@ -2019,6 +2035,12 @@ async function handleMessage(msg, env) {
   // "/start r_CODE" = a friend opened a buyer's invite link.
   const startArg = text.match(/^\/start(?:@\w+)?\s+(\S+)$/i);
   if (startArg || ['/start', '/start@amhariccaptionsbot', '/menu', 'menu'].includes(lower)) {
+    // The panel's free-minutes button (1.10.7): t_<nonce>.
+    const trialLink = privateChat && startArg && /^t_([a-z0-9]{16})$/.exec(startArg[1]);
+    if (trialLink) {
+      await startTrialGrant(uid, chatId, trialLink[1], user.username ? '@' + user.username : (first || String(uid)));
+      return;
+    }
     if (privateChat) {
       if (isAdmin(user.id)) {
         await adminPanel(chatId, null);
@@ -4865,11 +4887,11 @@ async function adminUsage(chatId, messageId, days = 7) {
   else await sendText(chatId, text, kb);
 }
 
-// Computers that used the free trial but never got a license — the people
-// most likely to buy. Newest activity first; when the same Machine ID also
-// opened Pay / ordered in the bot, the Telegram account is linked.
+// Before 1.10.7: computers that used the 2 free captions but never got a
+// license. Newest activity first; when the same Machine ID also opened Pay /
+// ordered in the bot, the Telegram account is linked.
 const TRIALS_PAGE = 10;
-async function adminTrials(chatId, messageId, offset = 0) {
+async function adminTrialsOld(chatId, messageId, offset = 0) {
   const notLicensed = 't.used > 0 AND lower(t.machine_id) NOT IN (SELECT lower(machine_id) FROM customers)';
   const tot = await DB.prepare(
     `SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN t.used >= t.max_free THEN 1 ELSE 0 END), 0) AS done ` +
@@ -4894,7 +4916,7 @@ async function adminTrials(chatId, messageId, offset = 0) {
     return `${offset + i + 1}. <code>${esc(r.mid)}</code> · ${r.used}/${r.max_free} free · ${eatTs(r.last_at || r.created_at)}${who}`;
   });
   const text =
-    '🎁 <b>Trial users — not licensed</b>\n\n' +
+    '📜 <b>Before 1.10.7 — 2 free captions, not licensed</b>\n\n' +
     `💻 Tried the free captions: <b>${total}</b> computer(s)\n` +
     `   ├ Used both free captions: ${tot ? tot.done : 0}\n` +
     `   └ Still have a free caption left: ${total - (tot ? tot.done : 0)}\n\n` +
@@ -4902,10 +4924,328 @@ async function adminTrials(chatId, messageId, offset = 0) {
     (linked ? '\n\n<i>👤 = also opened the bot; tap to message them.</i>' : '') +
     '\n<i>Times are Ethiopian time. Machine IDs without 👤 never opened the bot.</i>';
   const kb = [];
-  if (offset + TRIALS_PAGE < total) kb.push([{ text: '⬇ Load more', callback_data: `admin:trials:${offset + TRIALS_PAGE}` }]);
-  kb.push([{ text: '🛠 Admin', callback_data: 'admin:panel' }]);
+  if (offset + TRIALS_PAGE < total) kb.push([{ text: '⬇ Load more', callback_data: `admin:trialsold:${offset + TRIALS_PAGE}` }]);
+  kb.push([{ text: '🎁 Free minutes (now)', callback_data: 'admin:trials' }, { text: '🛠 Admin', callback_data: 'admin:panel' }]);
   if (messageId && !offset) await editText(chatId, messageId, text, kb);
   else await sendText(chatId, text, kb);
+}
+
+// ── free minutes via Telegram (1.10.7) ──────────────────────────────────────
+// The free trial is N free minutes of audio (owner setting, default 20), given
+// by this bot to a Telegram account: the panel asks /api/trial/request for a
+// one-time link t_<nonce>, the person opens it here, and that computer gets the
+// minutes — one trial per Telegram account and one per computer. Every free
+// caption is charged in seconds (/api/trial/use with "seconds"); the engine's
+// ticket carries the seconds it may transcribe. Automatic, except when many
+// requests come from one internet address in a day or many new trials arrive
+// in one hour: then the owner gets an Approve / Refuse card.
+const TRIAL_FLOOD_HOUR = 15;
+const TRIAL_REFUNDS = 2;
+function trialTerms(s) {
+  const n = parseInt(s.trial_free_minutes, 10);
+  return { on: s.trial_enabled !== '0', minutes: Number.isFinite(n) ? Math.min(Math.max(n, 1), 600) : 20 };
+}
+const fmtMin = (secs) => {
+  const s = Math.max(0, Math.round(Number(secs) || 0));
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+};
+async function trialGrant(mid) {
+  try { return await DB.prepare('SELECT * FROM trial_grants WHERE machine_id = ?').bind(mid).first(); }
+  catch (e) { return null; }
+}
+// What the panel shows (GET /api/trial?v=2, POST /api/trial/request).
+async function trialMinutesState(mid) {
+  const terms = trialTerms(await getSettings());
+  const lic = await DB.prepare('SELECT revoked FROM customers WHERE machine_id = ?').bind(mid).first();
+  if (lic && !lic.revoked) return { mode: 'minutes', status: 'licensed', minutes: terms.minutes };
+  const g = await trialGrant(mid);
+  if (!g) return { mode: 'minutes', status: terms.on ? 'none' : 'off', minutes: terms.minutes, seconds_total: 0, seconds_left: 0 };
+  return {
+    mode: 'minutes', status: g.status, minutes: terms.minutes,
+    seconds_total: g.seconds_total, seconds_left: Math.max(0, g.seconds_total - g.seconds_used),
+  };
+}
+function verAtLeast(v, min) {
+  const a = String(v).split('.').map(Number);
+  const b = String(min).split('.').map(Number);
+  for (let i = 0; i < 3; i++) if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+  return true;
+}
+// Panels before 1.10.7 count two free captions of ANY length with no Telegram
+// account behind them. They keep working only until 1.10.7 is the published
+// release — then everyone can update to the free minutes. (Owner override:
+// setting trial_legacy = 1 keeps them, 0 stops them now.)
+async function legacyTrialsOpen() {
+  const s = await getSettings();
+  if (s.trial_legacy === '1') return true;
+  if (s.trial_legacy === '0') return false;
+  const rel = await latestRelease();
+  return !(rel && verAtLeast(rel.version, '1.10.7'));
+}
+const trialBuyKb = () => [
+  [{ text: '💳 ይግዙ · Buy', callback_data: 'menu:pay' }],
+  [{ text: '💬 ድጋፍ · Support', url: SUPPORT_URL }],
+];
+function trialReadyText(minutes) {
+  return `✅ <b>${minutes} ደቂቃ ነጻ ሙከራ ተዘጋጅቷል!</b>\n` +
+    'ወደ ፕሮግራሙ ይመለሱ — በራሱ ይዘመናል — ከዚያ ካፕሽን ይፍጠሩ።\n' +
+    `<i>${minutes} free minutes are ready! Go back to the program — it updates by itself — and make your captions.</i>\n\n` +
+    '💡 በማንኛውም ቪዲዮ ይጠቀሙባቸው፤ ደቂቃዎቹ ሲያልቁ ቀሪው ፈቃድ ይፈልጋል።\n' +
+    '<i>Use them on any videos; when they run out, the rest needs a license.</i>';
+}
+const TRIAL_COMPUTER_USED =
+  '🖥 <b>ይህ ኮምፒውተር ነጻ ደቂቃዎቹን አስቀድሞ ተቀብሏል።</b>\n' +
+  '<i>This computer already had its free minutes.</i>\n\n' +
+  'ውጤቱ ከወደዱት ፈቃዱ አንድ ጊዜ ብቻ ይከፈላል።\n<i>If you liked the result, the license is a one-time payment.</i>';
+function trialStatusText(g) {
+  const left = Math.max(0, g.seconds_total - g.seconds_used);
+  if (g.status === 'pending') return '⏳ <b>ጥያቄዎ እየተረጋገጠ ነው።</b>\n<i>Your request is being checked — we will tell you here.</i>';
+  if (g.status === 'blocked' || g.status === 'refused') {
+    return '⛔ <b>ለዚህ ኮምፒውተር ነጻ ደቂቃዎች አልተሰጡም።</b>\n<i>Free minutes are not available for this computer.</i>';
+  }
+  if (left <= 0) return '🎬 <b>ነጻ ደቂቃዎችዎን ተጠቅመዋል።</b>\n<i>You have used your free minutes.</i>';
+  return `🎁 <b>ቀሪ ነጻ ደቂቃዎች፦ ${fmtMin(left)}</b>\n<i>Free minutes left: ${fmtMin(left)} — go back to the program and make your captions.</i>`;
+}
+
+// /start t_<nonce> — the panel's "free minutes" button.
+async function startTrialGrant(uid, chatId, nonce, who) {
+  let req = null;
+  try {
+    req = await DB.prepare(
+      "SELECT * FROM trial_requests WHERE nonce = ? AND created_at > datetime('now', '-1 day')").bind(nonce).first();
+  } catch (e) { log('error', 'trial_tables_missing', { err: String((e && e.message) || e) }); }
+  if (!req) {
+    await sendText(chatId,
+      '⌛ <b>ይህ ሊንክ ጊዜው አልፏል።</b> በፕሮግራሙ ውስጥ የነጻ ደቂቃዎች ቁልፉን እንደገና ይጫኑ።\n' +
+      '<i>This link has expired — press the free-minutes button in the program again.</i>');
+    return;
+  }
+  const mid = req.machine_id;
+  const terms = trialTerms(await getSettings());
+  const lic = await DB.prepare('SELECT revoked FROM customers WHERE machine_id = ?').bind(mid).first();
+  if (lic && !lic.revoked) {
+    await sendText(chatId, '🔑 <b>ይህ ኮምፒውተር ፈቃድ አለው</b> — ነጻ ደቂቃ አያስፈልገውም።\n<i>This computer is already licensed — no free minutes needed.</i>');
+    return;
+  }
+  const mine = await trialGrant(mid);
+  if (mine) {
+    if (String(mine.uid) === String(uid)) {
+      const used = mine.status === 'active' && mine.seconds_used >= mine.seconds_total;
+      await sendText(chatId, trialStatusText(mine), used ? trialBuyKb() : null);
+    } else {
+      await sendText(chatId, TRIAL_COMPUTER_USED, trialBuyKb());
+    }
+    return;
+  }
+  if (!terms.on) {
+    await sendText(chatId,
+      '⏸ <b>ነጻ ሙከራ ለጊዜው ቆሟል።</b>\n<i>Free trials are paused for now — message us, or buy a license.</i>', trialBuyKb());
+    return;
+  }
+  const byUser = await DB.prepare('SELECT machine_id FROM trial_grants WHERE uid = ?').bind(String(uid)).first();
+  if (byUser) {
+    await sendText(chatId,
+      '👤 <b>ይህ የቴሌግራም መለያ ነጻ ደቂቃዎቹን አስቀድሞ ተቀብሏል</b> (በሌላ ኮምፒውተር)።\n' +
+      '<i>This Telegram account already had its free minutes (on another computer).</i>', trialBuyKb());
+    return;
+  }
+  if (req.hf) {
+    const byHost = await DB.prepare('SELECT 1 AS x FROM trial_grants WHERE hf = ?').bind(req.hf).first();
+    if (byHost) { await sendText(chatId, TRIAL_COMPUTER_USED, trialBuyKb()); return; }
+  }
+  const hour = await DB.prepare(
+    "SELECT COUNT(*) AS n FROM trial_grants WHERE created_at > datetime('now', '-1 hour')").first();
+  const why = req.flagged ? 'many free-minute requests from one internet address today'
+    : (hour && hour.n >= TRIAL_FLOOD_HOUR ? `${hour.n} new trials in the last hour` : '');
+  try {
+    await DB.prepare(
+      'INSERT INTO trial_grants (machine_id, uid, name, hf, seconds_total, status) VALUES (?, ?, ?, ?, ?, ?)'
+    ).bind(mid, String(uid), String(who || '').slice(0, 64), req.hf || null, terms.minutes * 60, why ? 'pending' : 'active').run();
+  } catch (e) {
+    // Two taps at once, or the same account/computer in a race: one row wins.
+    await sendText(chatId, TRIAL_COMPUTER_USED, trialBuyKb());
+    return;
+  }
+  try { await addFunnel(String(uid), why ? 'trial_pending' : 'trial_grant'); } catch (e) {}
+  if (why) {
+    await sendText(chatId,
+      '⏳ <b>ጥያቄዎ ደርሷል።</b> በቅርቡ እናረጋግጣለን፤ ሲጸድቅ እዚሁ እንነግርዎታለን።\n' +
+      '<i>Request received — we will confirm soon and tell you here.</i>');
+    for (const adm of adminUids()) {
+      await sendText(adm,
+        '🎁 <b>Free minutes — needs your OK</b>\n\n' +
+        `👤 <a href="tg://user?id=${esc(uid)}">${esc(who || uid)}</a>\n` +
+        `💻 <code>${esc(mid)}</code>\n` +
+        `Why: ${esc(why)}`,
+        [[{ text: '✅ Approve', callback_data: 'admin:tgok:' + mid }, { text: '❌ Refuse', callback_data: 'admin:tgno:' + mid }]]);
+    }
+    return;
+  }
+  await sendText(chatId, trialReadyText(terms.minutes));
+}
+
+// The free minutes ran out: one friendly message with the Buy button.
+async function nudgeTrialDone(mid) {
+  const g = await trialGrant(mid);
+  if (!g || g.nudged) return;
+  const r = await DB.prepare('UPDATE trial_grants SET nudged = 1 WHERE machine_id = ? AND nudged = 0').bind(mid).run();
+  if (!r || !r.meta || r.meta.changes < 1) return;
+  await sendText(g.uid,
+    '🎬 <b>ነጻ ደቂቃዎችዎን ተጠቅመዋል።</b>\n' +
+    `ውጤቱ ከወደዱት ፈቃዱ አንድ ጊዜ ብቻ ይከፈላል — ETB ${money(PRICE_ETB)}፣ ለዘለቄታው።\n` +
+    `<i>You have used your free minutes. If you liked the result, the license is one payment — ETB ${money(PRICE_ETB)}, forever.</i>`,
+    trialBuyKb());
+}
+
+// Once a day (6-hourly cron, after 18:00 Ethiopian time): a short summary.
+async function trialDigest() {
+  try {
+    const eatNow = new Date(Date.now() + 3 * 3600 * 1000);
+    const day = eatNow.toISOString().slice(0, 10);
+    if (eatNow.getUTCHours() < 18) return;
+    const s = await getSettings();
+    if (s.trial_digest_day === day) return;
+    await setSetting('trial_digest_day', day);
+    const r = await DB.prepare(
+      "SELECT COUNT(*) AS n, " +
+      "COALESCE(SUM(CASE WHEN seconds_used >= seconds_total THEN 1 ELSE 0 END), 0) AS done, " +
+      "COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) AS pend, " +
+      "COALESCE(SUM(CASE WHEN lower(machine_id) IN (SELECT lower(machine_id) FROM customers WHERE revoked = 0) THEN 1 ELSE 0 END), 0) AS bought " +
+      "FROM trial_grants WHERE date(created_at, '+3 hours') = ?").bind(day).first();
+    if (!r || !r.n) return;
+    for (const adm of adminUids()) {
+      await sendText(adm,
+        `🎁 <b>Free minutes today</b>\n\nNew: ${r.n} · used all: ${r.done} · bought: ${r.bought}` +
+        (r.pend ? ` · ⏳ waiting for your OK: ${r.pend}` : ''),
+        [[{ text: '🎁 Trial users', callback_data: 'admin:trials' }]]);
+    }
+  } catch (e) { log('warn', 'trial_digest_failed', { err: String((e && e.message) || e) }); }
+}
+
+// 🎁 Trial users: the Telegram free-minutes trials, newest activity first.
+async function adminTrials(chatId, messageId, offset = 0) {
+  const terms = trialTerms(await getSettings());
+  const boughtSql = '(lower(g.machine_id) IN (SELECT lower(machine_id) FROM customers WHERE revoked = 0))';
+  let tot = null;
+  let rows = [];
+  try {
+    tot = await DB.prepare(
+      'SELECT COUNT(*) AS n, ' +
+      "COALESCE(SUM(CASE WHEN g.status = 'active' AND g.seconds_used < g.seconds_total THEN 1 ELSE 0 END), 0) AS live, " +
+      'COALESCE(SUM(CASE WHEN g.seconds_used >= g.seconds_total THEN 1 ELSE 0 END), 0) AS done, ' +
+      "COALESCE(SUM(CASE WHEN g.status = 'pending' THEN 1 ELSE 0 END), 0) AS pend, " +
+      `COALESCE(SUM(CASE WHEN ${boughtSql} THEN 1 ELSE 0 END), 0) AS bought FROM trial_grants g`).first();
+    rows = (await DB.prepare(
+      `SELECT g.*, ${boughtSql} AS bought FROM trial_grants g ORDER BY g.updated_at DESC, g.created_at DESC LIMIT ? OFFSET ?`
+    ).bind(TRIALS_PAGE, offset).all()).results || [];
+  } catch (e) {
+    const text = '🎁 <b>Trial users</b>\n\n⚠️ The free-minutes tables are missing — run <code>npm.cmd run migrate</code> (0027), then deploy.';
+    const kb = [[{ text: '📜 Before 1.10.7', callback_data: 'admin:trialsold' }], [{ text: '🛠 Admin', callback_data: 'admin:panel' }]];
+    if (messageId) await editText(chatId, messageId, text, kb); else await sendText(chatId, text, kb);
+    return;
+  }
+  const total = tot ? tot.n : 0;
+  const state = (r) => (r.bought ? '💰 bought'
+    : r.status === 'pending' ? '⏳ needs your OK'
+      : r.status === 'blocked' ? '⛔ blocked'
+        : r.status === 'refused' ? '❌ refused'
+          : r.seconds_used >= r.seconds_total ? '✅ used all' : '🟢 has minutes');
+  const lines = rows.map((r, i) =>
+    `${offset + i + 1}. 👤 <a href="tg://user?id=${esc(r.uid)}">${esc(r.name || r.uid)}</a> · ` +
+    `${fmtMin(r.seconds_used)}/${fmtMin(r.seconds_total)} · ${state(r)}\n` +
+    `   <code>${esc(r.machine_id)}</code> · ${eatTs(r.created_at)}`);
+  const text =
+    `🎁 <b>Free trial — ${terms.minutes} free minutes via Telegram</b> · ${terms.on ? '🟢 ON' : '⚪ OFF'}\n\n` +
+    `👥 Got free minutes: <b>${total}</b>\n` +
+    `   ├ Still have minutes: ${tot ? tot.live : 0}\n` +
+    `   ├ Used all: ${tot ? tot.done : 0}\n` +
+    `   ├ Bought: ${tot ? tot.bought : 0}\n` +
+    `   └ Waiting for your OK: ${tot ? tot.pend : 0}\n\n` +
+    (lines.length ? lines.join('\n') : '<i>No one yet — people show up here when they take their free minutes in the bot.</i>') +
+    '\n\n<i>Tap a name to message them. Times are Ethiopian time.</i>';
+  const kb = [];
+  for (const r of rows) {
+    const nm = String(r.name || r.uid).slice(0, 14);
+    if (r.status === 'pending') {
+      kb.push([{ text: `✅ ${nm}`, callback_data: 'admin:tgok:' + r.machine_id }, { text: '❌ Refuse', callback_data: 'admin:tgno:' + r.machine_id }]);
+    } else if (!r.bought) {
+      kb.push([
+        { text: `➕${terms.minutes} min · ${nm}`, callback_data: 'admin:tgadd:' + r.machine_id },
+        r.status === 'blocked' || r.status === 'refused'
+          ? { text: '↩ Unblock', callback_data: 'admin:tgunb:' + r.machine_id }
+          : { text: '⛔ Block', callback_data: 'admin:tgblk:' + r.machine_id },
+      ]);
+    }
+  }
+  if (offset + TRIALS_PAGE < total) kb.push([{ text: '⬇ Load more', callback_data: `admin:trials:${offset + TRIALS_PAGE}` }]);
+  kb.push([
+    { text: '− 5 min', callback_data: 'admin:tmin:-5' },
+    { text: `${terms.minutes} min`, callback_data: 'admin:trials' },
+    { text: '+ 5 min', callback_data: 'admin:tmin:5' },
+  ]);
+  kb.push([{ text: terms.on ? '⏸ Turn free trials OFF' : '▶ Turn free trials ON', callback_data: 'admin:ttoggle' }]);
+  kb.push([{ text: '📜 Before 1.10.7 (2 free captions)', callback_data: 'admin:trialsold' }, { text: '🛠 Admin', callback_data: 'admin:panel' }]);
+  if (messageId && !offset) await editText(chatId, messageId, text, kb);
+  else await sendText(chatId, text, kb);
+}
+
+// Approve / refuse / block / unblock / +minutes on one trial; settings.
+async function adminTrialAction(chatId, messageId, cbId, fromUid, act, arg) {
+  if (act === 'tmin') {
+    const terms = trialTerms(await getSettings());
+    const next = Math.min(Math.max(terms.minutes + (parseInt(arg, 10) || 0), 5), 600);
+    await setSetting('trial_free_minutes', next);
+    await audit(fromUid, 'trial_minutes', String(next));
+    await answerCb(cbId, `New trials get ${next} minutes`);
+    await adminTrials(chatId, messageId, 0);
+    return;
+  }
+  if (act === 'ttoggle') {
+    const on = trialTerms(await getSettings()).on;
+    await setSetting('trial_enabled', on ? '0' : '1');
+    await audit(fromUid, 'trial_toggle', on ? 'off' : 'on');
+    await answerCb(cbId, on ? 'Free trials OFF' : 'Free trials ON');
+    await adminTrials(chatId, messageId, 0);
+    return;
+  }
+  const mid = String(arg || '').toLowerCase();
+  const g = isValidMid(mid) ? await trialGrant(mid) : null;
+  if (!g) { await answerCb(cbId, 'Not found'); return; }
+  const terms = trialTerms(await getSettings());
+  const upd = (sql, ...a) => DB.prepare(sql).bind(...a).run();
+  const who = esc(g.name || g.uid);
+  if (act === 'tgok' || act === 'tgno') {
+    if (g.status !== 'pending') { await answerCb(cbId, 'Already decided: ' + g.status); return; }
+    if (act === 'tgok') {
+      await upd("UPDATE trial_grants SET status = 'active', updated_at = datetime('now') WHERE machine_id = ?", mid);
+      await sendText(g.uid, trialReadyText(Math.round(g.seconds_total / 60)));
+    } else {
+      await upd("UPDATE trial_grants SET status = 'refused', updated_at = datetime('now') WHERE machine_id = ?", mid);
+      await sendText(g.uid,
+        '😔 <b>ይቅርታ — በዚህ ጊዜ ነጻ ደቂቃዎችን መስጠት አልቻልንም።</b>\n<i>Sorry — we could not give free minutes this time.</i>',
+        trialBuyKb());
+    }
+    await audit(fromUid, 'trial_' + act, mid);
+    await answerCb(cbId, act === 'tgok' ? 'Approved' : 'Refused');
+    await editText(chatId, messageId,
+      `🎁 Free minutes for ${who} (<code>${esc(mid)}</code>): <b>${act === 'tgok' ? '✅ approved' : '❌ refused'}</b>`,
+      [[{ text: '🎁 Trial users', callback_data: 'admin:trials' }]]);
+    return;
+  }
+  if (act === 'tgblk') {
+    await upd("UPDATE trial_grants SET status = 'blocked', updated_at = datetime('now') WHERE machine_id = ?", mid);
+  } else if (act === 'tgunb') {
+    await upd("UPDATE trial_grants SET status = 'active', updated_at = datetime('now') WHERE machine_id = ?", mid);
+  } else if (act === 'tgadd') {
+    await upd(
+      "UPDATE trial_grants SET seconds_total = seconds_total + ?, nudged = 0, status = CASE WHEN status = 'active' THEN 'active' ELSE status END, updated_at = datetime('now') WHERE machine_id = ?",
+      terms.minutes * 60, mid);
+    await sendText(g.uid,
+      `🎁 <b>+${terms.minutes} ነጻ ደቂቃዎች ተጨምረዋል!</b>\n<i>+${terms.minutes} free minutes were added — go back to the program.</i>`);
+  } else { await answerCb(cbId, ''); return; }
+  await audit(fromUid, 'trial_' + act, mid);
+  await answerCb(cbId, act === 'tgadd' ? `+${terms.minutes} min` : act === 'tgblk' ? 'Blocked' : 'Unblocked');
+  await adminTrials(chatId, messageId, 0);
 }
 
 // Every sale ever recorded, for bookkeeping: order | date | Machine ID | ETB | status.
@@ -5444,6 +5784,10 @@ async function handleCallback(cb) {
     else if (action === 'sales') await adminSales(chatId, messageId);
     else if (action === 'usage') await adminUsage(chatId, messageId, parseInt(parts[2] || '7', 10));
     else if (action === 'trials') await adminTrials(chatId, messageId, Math.max(0, parseInt(parts[2] || '0', 10) || 0));
+    else if (action === 'trialsold') await adminTrialsOld(chatId, messageId, Math.max(0, parseInt(parts[2] || '0', 10) || 0));
+    else if (['tgok', 'tgno', 'tgblk', 'tgunb', 'tgadd', 'tmin', 'ttoggle'].includes(action)) {
+      await adminTrialAction(chatId, messageId, cbId, fromUid, action, parts[2]);
+    }
     else if (action === 'export') await adminExport(chatId, messageId, cbId);
     else if (action === 'broadcast') {
       await kvPut('bcast:await:' + fromUid, '1', 900);
@@ -5895,6 +6239,49 @@ export default {
       return out ? json(out) : json({ error: 'unavailable' }, 503);
     }
 
+    // POST /api/trial/request {mid, hf} → the free-minutes state, plus a
+    // one-time bot link (t_<nonce>) when this computer has none yet (1.10.7).
+    if (request.method === 'POST' && url.pathname === '/api/trial/request') {
+      let body;
+      try { body = await request.json(); } catch { return json({ error: 'bad json' }, 400); }
+      const mid = String((body && body.mid) || '').trim().toLowerCase();
+      const hf = validHostFp(body && body.hf) ? body.hf : '';
+      if (!isValidMid(mid)) return json({ error: 'bad mid' }, 400);
+      if (await rlHit('rl:ip:' + clientIp() + ':treq', 30, 3600)) return json({ error: 'throttled' }, 429);
+      const state = await trialMinutesState(mid);
+      if (state.status !== 'none') return json(state);
+      // Many links from one internet address in a day: the owner approves.
+      const flagged = await rlHit('rl:ip:' + clientIp() + ':treqday', 10, 86400);
+      const b = crypto.getRandomValues(new Uint8Array(16));
+      const nonce = Array.from(b, (x) => 'abcdefghijklmnopqrstuvwxyz0123456789'[x % 36]).join('');
+      await DB.prepare('INSERT INTO trial_requests (nonce, machine_id, hf, flagged) VALUES (?, ?, ?, ?)')
+        .bind(nonce, mid, hf || null, flagged ? 1 : 0).run();
+      return json(Object.assign(state, { nonce, link: BOT_LINK + '?start=t_' + nonce }));
+    }
+
+    // POST /api/trial/refund {mid, run_id} → a free caption that failed gives
+    // its seconds back (at most TRIAL_REFUNDS per trial, within 3 hours).
+    if (request.method === 'POST' && url.pathname === '/api/trial/refund') {
+      let body;
+      try { body = await request.json(); } catch { return json({ error: 'bad json' }, 400); }
+      const mid = String((body && body.mid) || '').trim().toLowerCase();
+      const runId = String((body && body.run_id) || '');
+      if (!isValidMid(mid) || !/^[A-Za-z0-9._:-]{8,96}$/.test(runId)) return json({ error: 'bad mid or run_id' }, 400);
+      const run = await DB.prepare(
+        "SELECT * FROM trial_runs WHERE run_id = ? AND machine_id = ? AND created_at > datetime('now', '-3 hours')").bind(runId, mid).first();
+      const g = await trialGrant(mid);
+      if (!run || run.refunded || !run.seconds || !g || g.refunds >= TRIAL_REFUNDS) {
+        return json(Object.assign(await trialMinutesState(mid), { refunded: false }));
+      }
+      const done = await DB.prepare('UPDATE trial_runs SET refunded = 1 WHERE run_id = ? AND refunded = 0').bind(runId).run();
+      if (done && done.meta && done.meta.changes >= 1) {
+        await DB.prepare(
+          "UPDATE trial_grants SET seconds_used = MAX(0, seconds_used - ?), refunds = refunds + 1, updated_at = datetime('now') WHERE machine_id = ?"
+        ).bind(run.seconds, mid).run();
+      }
+      return json(Object.assign(await trialMinutesState(mid), { refunded: true }));
+    }
+
     // GET /api/trial?mid=XXXX → {used, max, remaining}
     if (request.method === 'GET' && url.pathname === '/api/trial') {
       const mid = (url.searchParams.get('mid') || '').trim().toLowerCase();
@@ -5903,6 +6290,13 @@ export default {
       }
       const qhf = url.searchParams.get('hf') || '';
       const hfq = validHostFp(qhf) ? qhf : '';
+      // 1.10.7 panels: the free-minutes state (not cached — the panel watches
+      // it while the person is in the bot).
+      if (url.searchParams.get('v') === '2') {
+        if (await rlHit('rl:ip:' + clientIp() + ':trial2', 600, 3600)) return json({ error: 'throttled' }, 429);
+        return json(await trialMinutesState(mid));
+      }
+      if (!(await legacyTrialsOpen())) return json({ used: 2, max: 2, remaining: 0 });
       const cacheKey = 'trial:' + mid + (hfq ? ':' + hfq : '');
       const cached = await kvGet(cacheKey);
       if (cached) { try { return json(JSON.parse(cached)); } catch (e) {} }
@@ -5930,6 +6324,49 @@ export default {
       const hf = validHostFp(body && body.hf) ? body.hf : '';
       if (!isValidMid(mid) || (runId && !/^[A-Za-z0-9._:-]{8,96}$/.test(runId))) {
         return json({ error: 'bad mid or run_id' }, 400);
+      }
+      // 1.10.7 panels charge free MINUTES: {mid, run_id, seconds} → the seconds
+      // granted (≤ asked, ≤ left) and the engine ticket that says so.
+      if (body && body.seconds !== undefined) {
+        const asked = Math.ceil(Number(body.seconds));
+        if (!runId || !(asked >= 1 && asked <= 86400)) return json({ error: 'bad run_id or seconds' }, 400);
+        const claim = await DB.prepare('INSERT OR IGNORE INTO trial_runs (run_id, machine_id) VALUES (?, ?)').bind(runId, mid).run();
+        if (!claim || !claim.meta || claim.meta.changes < 1) {
+          const prior = await DB.prepare('SELECT machine_id, result_json FROM trial_runs WHERE run_id = ?').bind(runId).first();
+          if (!prior || prior.machine_id !== mid) return json({ mode: 'minutes', error: 'run_id_conflict', charged: false });
+          if (prior.result_json) { try { return json(Object.assign(JSON.parse(prior.result_json), { duplicate: true })); } catch (e) {} }
+          return json(Object.assign(await trialMinutesState(mid), { charged: false, pending: true }));
+        }
+        const finish = async (out) => {
+          await DB.prepare('UPDATE trial_runs SET seconds = ?, result_json = ? WHERE run_id = ?')
+            .bind(out.charged ? out.seconds : 0, JSON.stringify(out), runId).run();
+          return json(out);
+        };
+        const g = await trialGrant(mid);
+        const left = g ? Math.max(0, g.seconds_total - g.seconds_used) : 0;
+        if (!g || g.status !== 'active' || left <= 0) {
+          const reason = !g ? 'need_telegram' : g.status !== 'active' ? g.status : 'minutes_used';
+          return finish(Object.assign(await trialMinutesState(mid), { charged: false, reason }));
+        }
+        const give = Math.min(asked, left);
+        const credit = await DB.prepare(
+          "UPDATE trial_grants SET seconds_used = seconds_used + ?, updated_at = datetime('now') " +
+          "WHERE machine_id = ? AND status = 'active' AND seconds_total - seconds_used >= ?").bind(give, mid, give).run();
+        if (!credit || !credit.meta || credit.meta.changes < 1) {
+          return finish(Object.assign(await trialMinutesState(mid), { charged: false, reason: 'minutes_used' }));
+        }
+        const out = Object.assign(await trialMinutesState(mid), { charged: true, seconds: give });
+        try { out.ticket = await signTicket2(mid, runId, give); }
+        catch (e) { log('error', 'ticket_sign_failed', { err: String((e && e.message) || e) }); }
+        if (out.seconds_left <= 0) {
+          try { await nudgeTrialDone(mid); } catch (e) { log('warn', 'trial_nudge_failed', { err: String((e && e.message) || e) }); }
+        }
+        return finish(out);
+      }
+      // Older panels (two free captions of any length) — only until 1.10.7
+      // is the published release.
+      if (!(await legacyTrialsOpen())) {
+        return json({ used: 2, max: 2, remaining: 0, charged: false, reason: 'update' });
       }
       // A run ID makes retries idempotent and is bound to the MID that created
       // it. Pending rows are leases: a crashed worker can be reclaimed after a
@@ -6367,6 +6804,7 @@ export default {
     }
     try { await postWeeklyJobsDigest(); } catch (e) { log('error', 'jobs_digest_failed', { err: String((e && e.message) || e) }); }
     await nudgeQuietBuyers();
+    await trialDigest();
     await pruneOld();
     await remindReferralPayouts();
     await sendMonthlyPartnerReports();
