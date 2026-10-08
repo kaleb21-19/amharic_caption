@@ -53,6 +53,9 @@ console.log(JSON.stringify({
   expired: 't1.' + mid + '.run-1234.' + past + '.' + sign('trial|' + mid + '|run-1234|' + past),
   ticketOther: 't1.' + other + '.run-1234.' + later + '.' + sign('trial|' + other + '|run-1234|' + later),
   leaseAsTicket: 't1.' + mid + '.run-1234.' + later + '.' + sign(mid + '|00000000'),
+  minutes: 't2.' + mid + '.run-5678.' + later + '.90.' + sign('trial2|' + mid + '|run-5678|' + later + '|90'),
+  minutesMore: 't2.' + mid + '.run-5678.' + later + '.900.' + sign('trial2|' + mid + '|run-5678|' + later + '|90'),
+  minutesAsT1: 't1.' + mid + '.run-5678.' + later + '.' + sign('trial2|' + mid + '|run-5678|' + later + '|90'),
 }));
 """, MID, OTHER, str(NOW)]).decode())
 
@@ -174,6 +177,54 @@ finally:
     sys.stdin, sys.stdout, E.load_pipeline = orig_in, orig_out, orig_load
 check("warm worker: a licensed request's permission ends with it",
       '"audio file not found' in out.getvalue() and refused(E._need_permit))
+
+# Free minutes (1.10.7): the ticket says how many seconds this job may hear.
+print("\nfree minutes: the ticket's seconds (1.10.7)")
+check("a free-minutes ticket (t2) for this computer -> allowed", allowed(ticket=keys["minutes"]))
+check("it allows exactly its 90 seconds", E.permit_samples_left() == 90 * 16000)
+check("seconds changed after signing -> refused", not allowed(ticket=keys["minutesMore"]))
+check("a t2 signature dressed as t1 (no limit) -> refused", not allowed(ticket=keys["minutesAsT1"]))
+check("a license has no limit", allowed(lease=keys["lease"]) and E.permit_samples_left() is None)
+allowed(ticket=keys["minutes"])
+long_wav = np.zeros(16000 * 300, dtype=np.float32)
+cut_wav, cut = E._trial_cut(long_wav)
+check("a 5-minute clip is cut to the 90 free seconds", len(cut_wav) == 90 * 16000 and cut == 90.0)
+check("a short clip is not cut", E._trial_cut(long_wav[:16000 * 30])[1] is None)
+try:
+    E._count_audio(90 * 16000)
+    within = True
+except E.LicenseRequired:
+    within = False
+check("the model may hear the 90 seconds", within)
+check("but not a second more (backstop inside the model)", refused(lambda: E._count_audio(3 * 16000)))
+
+
+class Stub:
+    glyphs = {}
+    prefetch = None
+    heard = 0
+
+    def transcribe(self, w):
+        Stub.heard += len(w)
+        return "", [], 1.0 / 16000.0
+
+
+import soundfile as sf  # noqa: E402
+wavp = os.path.join(HOME, "five_min.wav")
+sf.write(wavp, long_wav, 16000)
+allowed(ticket=keys["minutes"])
+out = io.StringIO()
+E.handle_server_one(Stub(), {"wav": wavp, "ticket": keys["minutes"]}, 7, out)
+res = json.loads(out.getvalue().strip().splitlines()[-1])
+check("warm worker: a 5-minute clip on 90 free seconds hears 90 s and says where it stopped",
+      Stub.heard == 90 * 16000 and res.get("trial_cut") == 90.0)
+Stub.heard = 0
+allowed(ticket=keys["minutes"])
+out = io.StringIO()
+E.handle_server_batch(Stub(), {"batch": [{"wav": wavp, "offset": 0}, {"wav": wavp, "offset": 300}], "ticket": keys["minutes"]}, 8, out)
+res = json.loads(out.getvalue().strip().splitlines()[-1])
+check("warm worker batch: one 90 s budget across the clips", Stub.heard == 90 * 16000 and res.get("trial_cut") == 90.0)
+E.end_permit()
 
 import shutil  # noqa: E402
 shutil.rmtree(HOME, ignore_errors=True)

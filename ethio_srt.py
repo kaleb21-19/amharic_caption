@@ -263,6 +263,7 @@ class _CT2Engine:
 
     def _align(self, wav, logits):
         _need_permit()
+        _count_audio(len(wav))
         T = logits.shape[1]
         frame_dur = (len(wav) / 16000) / T
         if self._masked:
@@ -372,6 +373,7 @@ class _TorchEngine:
         _need_permit()
         if _preflight_audio(wav):
             return "", [], 1.0 / 16000.0
+        _count_audio(len(wav))
         inputs = self.processor(wav, sampling_rate=16000, return_tensors="pt")
         key = "input_features" if "input_features" in inputs else "input_values"
         feats = inputs[key].to(self.device)
@@ -1603,7 +1605,9 @@ def main():
     engine = load_pipeline()
     print(f"[info] engine: {'CTranslate2 int8' if _use_ct2() else 'transformers/torch'}")
     print("[info] loading audio:", audio_path)
-    wav = read_wav(audio_path)
+    wav, cut = _trial_cut(read_wav(audio_path))
+    if cut is not None:
+        print("[trial] cut %.2f" % cut, file=sys.stderr, flush=True)
     try:
         text, cues = _run_file(engine, wav, mode, group_size, max_chars, offset, out_path,
                                speakers=speakers)
@@ -1690,7 +1694,12 @@ class LicenseRequired(Exception):
     pass
 
 
-_PERMIT = {"ok": False}
+# Free minutes (1.10.7): a trial ticket says how many seconds of audio this
+# job may turn into text. The model counts every piece it transcribes (the
+# pieces of one clip never overlap); the job paths shorten the audio to that
+# length first (_trial_cut), so the count is only a backstop.
+_PERMIT = {"ok": False, "samples": None, "used": 0}
+_SAMPLE_SLACK = 16000          # one second of rounding
 
 
 def _need_permit():
@@ -1698,13 +1707,37 @@ def _need_permit():
         raise LicenseRequired("license required: no license or free-caption ticket for this job")
 
 
+def _count_audio(n):
+    lim = _PERMIT["samples"]
+    if lim is None:
+        return
+    _PERMIT["used"] += int(n)
+    if _PERMIT["used"] > lim + _SAMPLE_SLACK:
+        raise LicenseRequired("license required: the free minutes for this job are used up")
+
+
+def permit_samples_left():
+    """Samples of audio this job may still transcribe; None = no limit."""
+    lim = _PERMIT["samples"]
+    return None if lim is None else max(0, lim - _PERMIT["used"])
+
+
+def _trial_cut(wav, budget=None):
+    """(wav, cut_seconds): the audio shortened to what the free-minutes ticket
+    allows. cut_seconds is None when nothing was cut."""
+    left = permit_samples_left() if budget is None else budget
+    if left is None or len(wav) <= left:
+        return wav, None
+    return wav[:left], left / 16000.0
+
+
 def end_permit():
     """The job is over: the next one must be allowed again."""
-    _PERMIT["ok"] = False
+    _PERMIT.update(ok=False, samples=None, used=0)
 
 
 def require_license(lease=None, ticket=None):
-    _PERMIT["ok"] = False
+    _PERMIT.update(ok=False, samples=None, used=0)
     try:
         import amh_license
     except Exception:
@@ -1712,7 +1745,10 @@ def require_license(lease=None, ticket=None):
     ok, why = amh_license.engine_auth(lease, ticket)
     if not ok:
         raise LicenseRequired("license required: " + why)
-    _PERMIT["ok"] = True
+    secs = None
+    if why == "trial" and ticket and hasattr(amh_license, "ticket_seconds"):
+        secs = amh_license.ticket_seconds(ticket)
+    _PERMIT.update(ok=True, samples=None if secs is None else int(secs) * 16000, used=0)
 
 
 def handle_server_one(engine, req, rid, out):
@@ -1724,7 +1760,7 @@ def handle_server_one(engine, req, rid, out):
     mode, group, max_chars = request_style(req)
     offset = float(req.get("offset", 0.0))
     speakers = bool(req.get("speakers", False))
-    wav = read_wav(wav_path)
+    wav, cut = _trial_cut(read_wav(wav_path))
     out_srt = req.get("out_srt")
     text, cues = _run_file(engine, wav, mode, group, max_chars, offset, out_srt,
                            speakers=speakers)
@@ -1732,7 +1768,10 @@ def handle_server_one(engine, req, rid, out):
         idx = write_srt(out_srt, cues, offset)
     else:
         idx = len(cues)
-    emit(out, {"id": rid, "ok": True, "cues": idx, "text": text})
+    res = {"id": rid, "ok": True, "cues": idx, "text": text}
+    if cut is not None:
+        res["trial_cut"] = round(cut, 2)
+    emit(out, res)
 
 
 def handle_server_batch(engine, req, rid, out):
@@ -1746,8 +1785,13 @@ def handle_server_batch(engine, req, rid, out):
     total = len(batch)
     skipped = 0
     ahead = _ClipsAhead(engine, [it.get("wav") for it in batch])
+    budget = permit_samples_left()
+    cut_at = None
     with keep_awake():
         for n, item in enumerate(batch, start=1):
+            if budget is not None and budget <= 0:
+                cut_at = cut_at or 0.0
+                break
             wav_path = item.get("wav")
             name = item.get("name") or wav_path
             emit(out, {"id": rid, "type": "prog", "at": n, "of": total,
@@ -1762,6 +1806,11 @@ def handle_server_batch(engine, req, rid, out):
             off = float(item.get("offset", 0.0))
             try:
                 wav = ahead.get(n - 1, wav_path)
+                if budget is not None:
+                    wav, cut = _trial_cut(wav, budget)
+                    budget -= len(wav)
+                    if cut is not None:
+                        cut_at = off + cut
                 text, spans, frame_dur = engine.transcribe(wav)
                 cues = make_cues(mode, group, spans, frame_dur, text, engine.glyphs,
                                  max_chars=max_chars, wav=wav)
@@ -1781,8 +1830,11 @@ def handle_server_batch(engine, req, rid, out):
         idx = write_srt(out_srt, all_cues, 0.0)
     else:
         idx = len(all_cues)
-    emit(out, {"id": rid, "ok": True, "cues": idx, "skipped": skipped,
-               "text": "\n\n".join(all_text)})
+    res = {"id": rid, "ok": True, "cues": idx, "skipped": skipped,
+           "text": "\n\n".join(all_text)}
+    if cut_at is not None:
+        res["trial_cut"] = round(cut_at, 2)
+    emit(out, res)
 
 
 def request_style(req):
@@ -1840,12 +1892,21 @@ def run_batch():
     all_cues = []
     skipped = 0
     ahead = _ClipsAhead(engine, [r.get("wav") for r in requests])
+    budget = permit_samples_left()
     with keep_awake():
         for n, req in enumerate(requests, start=1):
+            if budget is not None and budget <= 0:
+                print("[trial] cut %.2f" % float(req.get("offset", 0.0)), file=sys.stderr, flush=True)
+                break
             print(f"\n[batch] % {n}/{total} {req.get('wav', '')}")
             # Never let one bad clip abort the whole work-area run.
             try:
                 wav = ahead.get(n - 1, req["wav"])
+                if budget is not None:
+                    wav, cut = _trial_cut(wav, budget)
+                    budget -= len(wav)
+                    if cut is not None:
+                        print("[trial] cut %.2f" % (float(req.get("offset", 0.0)) + cut), file=sys.stderr, flush=True)
                 text, spans, frame_dur = engine.transcribe(wav)
                 cues = make_cues(mode, group_size, spans, frame_dur, text, glyphs,
                                  max_chars=max_chars, wav=wav)

@@ -154,15 +154,25 @@ def verify_token(token, machine_id, pubkey_pem=LICENSE_TOKEN_PUBKEY_PEM):
 # ── trial tickets: one free caption, signed by the server (1.10.3+) ────────
 def verify_ticket(ticket, machine_id, pubkey_pem=LICENSE_TOKEN_PUBKEY_PEM, now=None):
     """Return (ok, error). Format t1.<mid>.<run_id>.<until>.<sig>; the server
-    signs "trial|<mid>|<run_id>|<until>" (worker signTicket)."""
+    signs "trial|<mid>|<run_id>|<until>" (worker signTicket). Free minutes
+    (1.10.7): t2.<mid>.<run_id>.<until>.<seconds>.<sig> over
+    "trial2|<mid>|<run_id>|<until>|<seconds>" — ticket_seconds() reads it."""
     if not isinstance(ticket, str):
         return False, "No trial ticket"
     parts = ticket.split(".")
-    if len(parts) < 5 or parts[0] != "t1":
-        return False, "Malformed trial ticket"
-    mid, until, sig = parts[1], parts[-2], parts[-1]
-    run = ".".join(parts[2:-2])
     hexd = set("0123456789abcdef")
+    if len(parts) >= 6 and parts[0] == "t2":
+        mid, until, secs, sig = parts[1], parts[-3], parts[-2], parts[-1]
+        run = ".".join(parts[2:-3])
+        if not secs.isdigit() or int(secs) < 1:
+            return False, "Malformed trial ticket"
+        message = "trial2|%s|%s|%s|%s" % (mid, run, until, secs)
+    elif len(parts) >= 5 and parts[0] == "t1":
+        mid, until, sig = parts[1], parts[-2], parts[-1]
+        run = ".".join(parts[2:-2])
+        message = "trial|%s|%s|%s" % (mid, run, until)
+    else:
+        return False, "Malformed trial ticket"
     if len(sig) != 128 or not set(sig) <= hexd or not until.isdigit() or not run:
         return False, "Malformed trial ticket"
     if mid != str(machine_id or "").lower():
@@ -170,10 +180,19 @@ def verify_ticket(ticket, machine_id, pubkey_pem=LICENSE_TOKEN_PUBKEY_PEM, now=N
     if int(until) < int(now if now is not None else time.time()):
         return False, "Trial ticket expired"
     try:
-        ok = ecdsa_p256_verify(pubkey_pem, ("trial|%s|%s|%s" % (mid, run, until)).encode(), bytes.fromhex(sig))
+        ok = ecdsa_p256_verify(pubkey_pem, message.encode(), bytes.fromhex(sig))
     except Exception:
         return False, "Trial ticket verification failed"
     return (True, run) if ok else (False, "Trial ticket signature invalid")
+
+
+def ticket_seconds(ticket):
+    """How many seconds of audio a free-minutes ticket (t2) allows; None for
+    any other ticket. Only meaningful after verify_ticket() accepted it."""
+    parts = str(ticket or "").split(".")
+    if len(parts) >= 6 and parts[0] == "t2" and parts[-2].isdigit():
+        return int(parts[-2])
+    return None
 
 
 def machine_id_if_any():
@@ -439,6 +458,55 @@ def activate(machine_id, key):
 
 
 # ── server-authoritative trial ──────────────────────────────────────────────
+def trial_minutes(machine_id):
+    """Free minutes (1.10.7): {'status','seconds_left','seconds_total','minutes'}
+    or None offline. status: none | pending | active | blocked | refused |
+    off | licensed."""
+    hf = host_fingerprint()
+    res = _api("GET", "/api/trial?v=2&mid=" + machine_id + ("&hf=" + hf if hf else ""))
+    if res and res.get("mode") == "minutes":
+        return res
+    return None
+
+
+def trial_link(machine_id):
+    """Ask for the one-time bot link that gives this computer its free minutes:
+    the state dict, with 'link' when there is none yet (None offline)."""
+    body = {"mid": machine_id}
+    if host_fingerprint():
+        body["hf"] = host_fingerprint()
+    res = _api("POST", "/api/trial/request", body)
+    if res and res.get("mode") == "minutes":
+        return res
+    return None
+
+
+def trial_charge_seconds(machine_id, run_id, seconds):
+    """Charge free minutes for one transcription: the server's answer
+    ({'charged','seconds','seconds_left','ticket',...}) or None offline."""
+    global _LAST_TICKET
+    _LAST_TICKET = None
+    body = {"mid": machine_id, "run_id": run_id, "seconds": max(1, int(round(seconds + 0.499)))}
+    if host_fingerprint():
+        body["hf"] = host_fingerprint()
+    for attempt in range(2):
+        res = _api("POST", "/api/trial/use", body)
+        if res and res.get("pending") and attempt == 0:
+            time.sleep(1.0)
+            continue
+        if res and res.get("mode") == "minutes":
+            if res.get("charged"):
+                _LAST_TICKET = res.get("ticket")
+            return res
+        return None
+    return None
+
+
+def trial_refund(machine_id, run_id):
+    """A free transcription failed: give its seconds back (server decides)."""
+    return _api("POST", "/api/trial/refund", {"mid": machine_id, "run_id": run_id})
+
+
 def trial_status(machine_id):
     """{'used','max','remaining'} or None when offline."""
     hf = host_fingerprint()
