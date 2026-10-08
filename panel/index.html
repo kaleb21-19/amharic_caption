@@ -379,7 +379,10 @@
   .tc-group span { font-size: var(--font-s); color: var(--text-secondary); line-height: 1.45; }
   #trialCard .btn { width: 100%; }
   #trialCard [data-tc] { display: none; }
-  #trialCard.tc-left [data-tc="left"], #trialCard.tc-last [data-tc="last"] { display: inline; }
+  #trialCard.tc-left [data-tc="left"], #trialCard.tc-last [data-tc="last"], #trialCard.tc-cut [data-tc="cut"] { display: inline; }
+  #freeMinBox { margin-bottom: 8px; padding: 10px 12px; border: 1px solid var(--accent, #3b82f6); border-radius: var(--radius); font-size: 11px; line-height: 1.45; }
+  #freeMinBox .fm-title { font-weight: 700; font-size: 12.5px; margin-bottom: 3px; }
+  #freeMinBox .btn { width: 100%; margin-top: 7px; }
   .tc-later {
     font: inherit; font-size: var(--font-s); color: var(--text-secondary);
     background: none; border: 0; cursor: pointer; padding: 4px; margin-top: 2px;
@@ -546,12 +549,14 @@
     <div class="tc-box">
       <div class="tc-check">✓</div>
       <div class="tc-title" id="tcTitle">
-        <span data-tc="left" data-i18n="tc.titleLeft">Your free caption is done</span>
-        <span data-tc="last" data-i18n="tc.titleLast">That was your last free caption</span>
+        <span data-tc="left" data-i18n="tc.titleLeft">Your free captions are done</span>
+        <span data-tc="last" data-i18n="tc.titleLast">Your free minutes are used up</span>
+        <span data-tc="cut" data-i18n="tc.titleCut">The rest of this video needs a license</span>
       </div>
       <div class="tc-sub">
-        <span data-tc="left" data-i18n="tc.left">You have 1 more free caption to try.</span>
+        <span data-tc="left" id="tcLeftText">You have free minutes left.</span>
         <span data-tc="last" data-i18n="tc.last">Buy a license to keep making captions — one payment, no monthly fee.</span>
+        <span data-tc="cut"><span id="tcCutText">Your free minutes covered the first part of this video.</span> <span data-i18n="tc.cut">Buy a license to caption whole videos — one payment, no monthly fee.</span></span>
       </div>
       <div class="tc-group" data-i18n-html="tc.group"><b>Questions or a problem?</b><span>Ask in our Telegram group — we answer fast, and editors share tips there.</span></div>
       <button type="button" id="tcGroup" class="btn" data-i18n="tc.join">Join the Telegram group</button>
@@ -692,6 +697,14 @@
       <b>Free trials used up</b> — buy a license below to keep making captions.
     </div>
 
+    <!-- Free trial (1.10.7): free minutes from our Telegram bot. -->
+    <div id="freeMinBox" style="display:none;">
+      <div class="fm-title">🎁 <span id="freeMinTitle">Try 20 minutes free</span></div>
+      <div class="hint" data-i18n="fm.hint">One tap in our Telegram bot, then come back here — it updates by itself. Use the minutes on any videos.</div>
+      <button type="button" id="freeMinBtn" class="btn btn-primary" data-i18n="fm.button">Get them in Telegram</button>
+      <div class="hint" id="freeMinWait" style="display:none;margin-top:6px;font-weight:600;"></div>
+    </div>
+
     <!-- License -->
     <div class="section-license">
       <div id="licenseStatus" class="license-status" data-i18n="lic.checking">Checking license…</div>
@@ -760,7 +773,7 @@
   </div>
 
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.10.6</span><span id="footPrice"> · <span data-i18n="foot.license">License ETB 2,500 one-time</span></span></span>
+    <span>v<span id="panelVersion">1.10.7</span><span id="footPrice"> · <span data-i18n="foot.license">License ETB 2,500 one-time</span></span></span>
     <span style="display:flex;gap:10px;align-items:center;">
       <a href="#" id="supportLink" title="Get help in Telegram" data-i18n="foot.help" data-i18n-title="foot.helpTitle">💬 Help</a>
       <a href="#" id="credits" title="Version and credits" data-i18n="foot.credits" data-i18n-title="foot.creditsTitle">About</a>

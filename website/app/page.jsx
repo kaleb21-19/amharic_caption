@@ -437,8 +437,8 @@ export default function HomePage() {
               <h2><Tx am="የአማርኛ ካፕሽንን በእጅ መጻፍ ያቁሙ።" en="Stop typing Amharic captions by hand." /></h2>
               <p className="section-sub" style={{ marginInline: "auto" }}>
                 <Tx
-                  am="በራስዎ ቪዲዮ በነጻ ይሞክሩ — ሁለት ካፕሽን፣ ያለ ክፍያ፣ ያለ አካውንት።"
-                  en="Try it free on your own footage — two captions, no payment, no account."
+                  am="በራስዎ ቪዲዮ በነጻ ይሞክሩ — 20 ደቂቃ፣ ያለ ክፍያ፣ በቴሌግራም አንድ ጊዜ በመጫን።"
+                  en="Try it free on your own footage — 20 minutes, no payment, one tap in Telegram."
                 />
               </p>
               <div className="cta-row">

@@ -1,5 +1,5 @@
 END USER LICENSE AGREEMENT — Amharic Captions Pro
-Version 1.1 · Effective 2026-09-27
+Version 1.2 · Effective 2026-10-08
 
 By installing, running, or otherwise using Amharic Captions Pro ("the
 Software"), you agree to this End User License Agreement with KALEB TEGEGEN
@@ -19,8 +19,12 @@ Software"), you agree to this End User License Agreement with KALEB TEGEGEN
    requires a second key.
 
 3. FREE TRIAL
-   Every new machine may run 2 free transcriptions before a key is required, so
-   you can test on your own Premiere Pro before paying. No card, no account.
+   Before buying you may get free minutes of transcription (20 unless we
+   announce otherwise) from our Telegram bot, to test on your own videos. One
+   free trial per Telegram account and per computer; minutes are counted by
+   the length of the audio, and a longer video is transcribed only up to the
+   minutes left. We may pause or change the free trial, or refuse it where we
+   see abuse. No card needed.
 
 4. RESTRICTIONS
    You may not redistribute, resell, sub-license, rent or lend the Software or

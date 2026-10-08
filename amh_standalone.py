@@ -8,8 +8,8 @@ import into CapCut, DaVinci Resolve, older Premiere, YouTube, etc.
   python amh_standalone.py <file> [<file> ...] [--karaoke] [--speakers]
 
 Licensing is shared with the panel (amh_license.py): a licensed machine runs
-freely; otherwise each file uses one of the 2 free transcriptions, charged on
-the server only after a transcription succeeds. The console speaks Amharic
+freely; otherwise each file uses free trial minutes (from the Telegram bot),
+charged in seconds of audio before the model runs (a failed file gets them back). The console speaks Amharic
 with English underneath, because Windows 10's legacy console cannot draw
 Ethiopic glyphs and a user must never be left with only boxes on screen.
 """
@@ -157,6 +157,10 @@ def extract_audio(src, wav):
         raise RuntimeError((r.stderr or "").strip()[-400:] or "ffmpeg failed")
 
 
+class TrialStop(Exception):
+    """The free trial could not be charged (offline / minutes used up)."""
+
+
 def output_path(src):
     """<name>.srt beside the source; never overwrite a finished file. A path
     with a resume journal (long audio cut off by a power cut or a closed
@@ -193,28 +197,84 @@ def ask_files():
         return [raw]
 
 
+def open_link(url):
+    """Open a link in the browser (Telegram opens from there). AMH_NO_OPEN=1
+    disables (tests)."""
+    if os.environ.get("AMH_NO_OPEN") == "1":
+        return False
+    try:
+        import webbrowser
+        return bool(webbrowser.open(url))
+    except Exception:
+        return False
+
+
 def ensure_license(mid, n_files):
-    """Return 'licensed', 'trial', or None (stop)."""
+    """Return 'licensed', 'trial', or None (stop).
+
+    Free trial (1.10.7): free MINUTES, given by the Telegram bot — the first
+    time, this prints a one-time link; the person opens it in Telegram, comes
+    back and presses Enter."""
     ok, info = lic.licensed(mid)
     if ok:
         say(OK + "ፈቃድ አለው።", "Licensed." + ("" if info == "00000000" else " (expires %s)" % info))
         return "licensed"
 
-    status = lic.trial_status(mid)
-    if status is None:
+    st = lic.trial_minutes(mid)
+    if st is None:
         say("ኢንተርኔት ያስፈልጋል፦ ያለ ፈቃድ ለነጻ ሙከራ ከሰርቨሩ ጋር መገናኘት አለብን።",
             "Internet needed: free trials are checked with the server when there is no license.")
         return offer_activation(mid)
-    remaining = int(status.get("remaining", 0))
-    if remaining > 0:
-        say(NOTE + "ሙከራ፦ %d ነጻ ሙከራ ቀርቷል።" % remaining,
-            "Trial: %d free transcription(s) left." % remaining)
-        if n_files > remaining:
-            say(NOTE + "ማሳሰቢያ፦ %d ፋይሎች ሰጥተዋል፣ ግን %d ነጻ ሙከራ ብቻ ቀርቷል።" % (n_files, remaining),
-                "Note: you gave %d files but only %d free transcription(s) remain." % (n_files, remaining))
+    if st.get("status") == "none":
+        st = trial_from_telegram(mid, st)
+        if st is None:
+            return offer_activation(mid)
+    status = st.get("status")
+    left = int(st.get("seconds_left") or 0)
+    if status == "active" and left > 0:
+        say(NOTE + "ነጻ ሙከራ፦ %s ደቂቃ ቀርቷል።" % fmt_secs(left),
+            "Free trial: %s minutes left." % fmt_secs(left))
         return "trial"
-    say(ERR + "ነጻ ሙከራዎቹ አልቀዋል።", "Your free trials are used up.")
+    if status == "pending":
+        say(NOTE + "የነጻ ደቂቃዎች ጥያቄዎ እየተረጋገጠ ነው — ሲጸድቅ በቴሌግራም እንነግርዎታለን።",
+            "Your free-minutes request is being checked — we will tell you in Telegram.")
+    elif status == "off":
+        say(NOTE + "ነጻ ሙከራ ለጊዜው ቆሟል።", "Free trials are paused for now.")
+    elif status in ("blocked", "refused"):
+        say(ERR + "ለዚህ ኮምፒውተር ነጻ ደቂቃዎች አልተሰጡም።", "Free minutes are not available for this computer.")
+    else:
+        say(ERR + "ነጻ ደቂቃዎቹ አልቀዋል።", "Your free minutes are used up.")
     return offer_activation(mid)
+
+
+def trial_from_telegram(mid, st):
+    """No free minutes yet: show the one-time Telegram link, wait for Enter,
+    then check again. Returns the new state, or None (go to buying)."""
+    got = lic.trial_link(mid)
+    link = got and got.get("link")
+    if not link:
+        return got if got and got.get("status") != "none" else None
+    minutes = int(st.get("minutes") or 20)
+    rule()
+    say("🎁 %d ደቂቃ በነጻ ይሞክሩ — በቴሌግራም ይቀበሉ፦" % minutes,
+        "Try %d minutes free — get them in Telegram:" % minutes)
+    say("   " + link)
+    opened = open_link(link)
+    if copy_to_clipboard(link):
+        say("   (ሊንኩ ተቀድቷል)", "(the link is copied)")
+    say("ሊንኩን %sበቴሌግራም ይክፈቱ (START ይጫኑ)፣ ከዚያ እዚህ ተመልሰው Enter ይጫኑ።" % ("" if not opened else "— አሁን ተከፍቷል — "),
+        "Open the link in Telegram (press START), then come back here and press Enter.")
+    for _ in range(3):
+        try:
+            input("> ")
+        except EOFError:
+            return None
+        st2 = lic.trial_minutes(mid)
+        if st2 and st2.get("status") != "none":
+            return st2
+        say(NOTE + "እስካሁን አልደረሰም — በቴሌግራም START መጫንዎን ያረጋግጡ፣ ከዚያ Enter ይጫኑ።",
+            "Not there yet — make sure you pressed START in Telegram, then press Enter.")
+    return None
 
 
 def offer_activation(mid):
@@ -269,7 +329,10 @@ def ensure_model():
     return True
 
 
-def transcribe(engine, src, out_srt, mode, speakers):
+def transcribe(engine, src, out_srt, mode, speakers, permit=None):
+    """permit(seconds) runs after the audio is read and before the model: it
+    gets the engine its permission (and, for a free trial, cuts the audio to
+    the free seconds — it returns the seconds allowed, or None for all)."""
     import ethio_srt as es
     es._emit_progress = progress_bar
     with tempfile.TemporaryDirectory(prefix="amh_srt_") as tmp:
@@ -277,6 +340,12 @@ def transcribe(engine, src, out_srt, mode, speakers):
         say("   ድምፁን በማውጣት ላይ…", "Reading the audio…")
         extract_audio(src, wav)
         audio = es.read_wav(wav)
+        if permit is not None:
+            allowed = permit(len(audio) / 16000)
+            if allowed is not None and len(audio) > int(allowed * 16000):
+                audio = audio[:int(allowed * 16000)]
+                say(NOTE + "ነጻ ደቂቃዎቹ የመጀመሪያዎቹን %s ይሸፍናሉ — ቀሪው ፈቃድ ይፈልጋል።" % fmt_secs(allowed),
+                    "Your free minutes cover the first %s — the rest needs a license." % fmt_secs(allowed))
         secs = len(audio) / 16000
         say("   ወደ ጽሑፍ በመቀየር ላይ (%s ደቂቃ ድምፅ)… እባክዎ ይጠብቁ።" % fmt_secs(secs),
             "Transcribing %s of audio… please wait." % fmt_secs(secs))
@@ -334,35 +403,47 @@ def main(argv):
         rule()
         say("[%d/%d] %s" % (i, len(good), os.path.basename(src)))
         final = output_path(src)
-        # A free transcription is charged BEFORE it is made (1.10.6): the
-        # server's ticket for it is what lets the engine run. (Charging after
-        # left a finished caption on disk when the window was closed first.)
+        # A free transcription is charged BEFORE it is made: the server's
+        # ticket is what lets the engine run, and (1.10.7) it says how many
+        # seconds of this file the free minutes cover.
         remaining = None
-        ticket = None
-        if state == "trial":
-            charged, remaining = lic.trial_charge(mid, lic.new_run_id())
-            ticket = lic.last_ticket() if charged else None
-            if not ticket:
-                say(ERR + "ነጻ ሙከራውን ማረጋገጥ አልተቻለም (ኢንተርኔት የለም ወይም ሙከራዎቹ አልቀዋል)።",
-                    "Could not confirm the free trial with the server (offline, or trials used up).")
-                break
-        try:
+        run_id = lic.new_run_id()
+        charge = {}
+
+        def permit(seconds):
+            ticket = None
+            if state == "trial":
+                res = lic.trial_charge_seconds(mid, run_id, seconds)
+                ticket = lic.last_ticket() if res and res.get("charged") else None
+                if not ticket:
+                    raise TrialStop()
+                charge.update(res)
             es.require_license(None, ticket)
+            return charge.get("seconds") if state == "trial" else None
+
+        t0 = time.monotonic()
+        try:
+            n = transcribe(engine, src, final, mode, speakers, permit=permit)
+        except TrialStop:
+            say(ERR + "ነጻ ሙከራውን ማረጋገጥ አልተቻለም (ኢንተርኔት የለም ወይም ደቂቃዎቹ አልቀዋል)።",
+                "Could not confirm the free trial with the server (offline, or the free minutes are used up).")
+            break
         except es.LicenseRequired as e:
             say(ERR + "ፈቃድ ያስፈልጋል።", str(e))
             break
-        t0 = time.monotonic()
-        try:
-            n = transcribe(engine, src, final, mode, speakers)
         except Exception as e:
             say(ERR + "ይህን ፋይል ወደ ጽሑፍ መቀየር አልተቻለም።", "Could not transcribe this file: %s" % e)
             say("       ዝርዝር፦ " + LOG, "Details for support: " + LOG)
             if state == "trial" and os.path.exists(final):
                 os.remove(final)
             drop_sidecars(final)
+            if charge.get("charged"):
+                lic.trial_refund(mid, run_id)      # a failed job gives its minutes back
             continue
         finally:
             es.end_permit()
+        if state == "trial":
+            remaining = charge.get("seconds_left")
         done += 1
         last_saved = final
         saved.append(final)
@@ -370,10 +451,11 @@ def main(argv):
         say(OK + "ተቀምጧል፦ %s  (%d ካፕሽኖች፣ %s ደቂቃ ወስዷል)" % (os.path.basename(final), n, took),
             "Saved %s (%d captions, took %s) next to the video." % (os.path.basename(final), n, took))
         if state == "trial" and remaining is not None:
-            say(NOTE + "ሙከራ፦ %s ነጻ ሙከራ ቀርቷል።" % remaining, "Trial: %s left." % remaining)
-            if remaining == 0 and i < len(good):
-                say(ERR + "ነጻ ሙከራዎቹ አልቀዋል — ለቀሪዎቹ ፋይሎች ፈቃድ ያስፈልጋል።",
-                    "Free trials used up — a license is needed for the remaining files.")
+            say(NOTE + "ነጻ ሙከራ፦ %s ደቂቃ ቀርቷል።" % fmt_secs(remaining),
+                "Free trial: %s minutes left." % fmt_secs(remaining))
+            if remaining <= 0 and i < len(good):
+                say(ERR + "ነጻ ደቂቃዎቹ አልቀዋል — ለቀሪዎቹ ፋይሎች ፈቃድ ያስፈልጋል።",
+                    "Free minutes used up — a license is needed for the remaining files.")
                 break
 
     print("=" * WIDTH)

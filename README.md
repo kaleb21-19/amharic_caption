@@ -19,7 +19,7 @@ Local Amharic speech-to-text captions for Adobe Premiere Pro. Transcription runs
 - **No Adobe app?** The installer also adds a **Make Amharic Captions** desktop
   shortcut: drag any video/audio onto it and an `.srt` appears next to the file,
   for CapCut, DaVinci Resolve, older Premiere, YouTube, etc. Same license key and
-  the same 2 free transcriptions as the panel (trials need internet here).
+  the same free trial as the panel (20 free minutes from the Telegram bot; needs internet).
 - Windows 10/11 or macOS (Apple Silicon or Intel). No internet needed at runtime
   once licensed.
 
@@ -33,8 +33,9 @@ Pay **ETB 2,500** by bank transfer to **KALEB TEGEGEN** — CBE 1000504159977 ·
 4. Send payment by bank transfer to **KALEB TEGEGEN** (CBE 1000504159977 · Abyssinia 402393939 · Zemen 1031111343277015), then send your **Machine ID** + payment screenshot to get your license key
 5. Paste the key into the panel → **Activate** → done. One key per licensed installation; do not share the identity or license files.
 
-> **Free trial:** every new machine gets **2 free transcriptions** before a
-> license key is required, so buyers can try it on their own Premiere first.
+> **Free trial (1.10.7+):** **20 free minutes** of audio, given by the Telegram
+> bot (one per Telegram account and per computer) — the panel's "Try 20 minutes
+> free" button opens it. A longer video is captioned up to the minutes left.
 
 ### Known limitations
 

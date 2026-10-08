@@ -96,6 +96,7 @@ class D1 {
     this.db.exec(readFileSync(new URL('../migrations/0024_key_hosts.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0025_events_daily.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0026_trial_hosts.sql', import.meta.url), 'utf8'));
+    this.db.exec(readFileSync(new URL('../migrations/0027_trial_minutes.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0022_jobs_d1.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0023_group_members.sql', import.meta.url), 'utf8'));
     this.db.exec("ALTER TABLE customers ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0"); // migration 0008
@@ -2456,7 +2457,7 @@ console.log('\n:: scenario 23 — simple buying: no Machine ID for the customer'
   await say(P, `/start m_${PMID}_${NONCE}`);
   let t = lastTo(P);
   assert.ok(t.body.text.includes('computer is connected') && t.body.text.includes('ETB 2,500') && t.body.text.includes('send the payment screenshot'), 'connected + price + send-the-screenshot');
-  assert.ok(!t.body.text.includes('Machine ID') && !kbOf(t).includes('Try 2 free'), 'no Machine ID talk; no trial button for someone who has the panel');
+  assert.ok(!t.body.text.includes('Machine ID') && !kbOf(t).includes('Try free'), 'no Machine ID talk; no trial button for someone who has the panel');
   assert.equal((await apiJ('/api/license', { mid: PMID, nonce: NONCE })).status, 'none', 'nothing before paying');
   await photo(P, 'AgAC-panel');
   let o = row(env, 'SELECT * FROM orders WHERE uid=?', P);
@@ -2795,7 +2796,7 @@ console.log('\n:: scenario 26 — customer bot: questions answered, home screen 
   ok('customer: ❓ Questions — seven answers one tap away');
 
   // 2. Questions typed in their own words (Amharic, English, Latin-typed Amharic).
-  const cases = [['ዋጋው ስንት ነው?', 'ETB 2,500'], ['waga sint new', 'ETB 2,500'], ['is there a free trial?', '2 captions free'],
+  const cases = [['ዋጋው ስንት ነው?', 'ETB 2,500'], ['waga sint new', 'ETB 2,500'], ['is there a free trial?', '20 minutes free'],
     ['እንዴት ልጫን?', 'Window → Extensions'], ['does it work on mac', 'Apple silicon'], ['capcut lay yiseral', 'CapCut or DaVinci Resolve'], ['eske meche new', 'few hours'],
     ['I changed computer', 'move it for free'], ['key aysera', 'Key not working'], ['amesegnalehu', 'welcome']];
   for (const [q, want] of cases) {
@@ -2874,13 +2875,13 @@ console.log('\n:: customer: "does it work on my phone / CapCut phone" gets its o
   for (const q of ['capcut phone lay yiseral?', 'ስልኬ ላይ ይሰራል?', 'does it work on capcut mobile', 'capcut phone lay alsera']) {
     await say(q);
     assert.ok(txt().includes(PHONE_ANS), `"${q}" → the phone answer\n${txt()}`);
-    assert.ok(txt().includes('Windows or Mac') && txt().includes('Text → Captions → Import') && txt().includes('2 captions free'),
-      `"${q}" says: runs on a computer, how to import in CapCut, 2 captions free\n${txt()}`);
+    assert.ok(txt().includes('Windows or Mac') && txt().includes('Text → Captions → Import') && txt().includes('20 minutes free'),
+      `"${q}" says: runs on a computer, how to import in CapCut, 20 minutes free\n${txt()}`);
     assert.ok(txt().indexOf('መሣሪያው') > -1 && txt().indexOf('መሣሪያው') < txt().indexOf('The tool runs'),
       `"${q}" — Amharic first, English after\n${txt()}`);
     assert.ok(kb().includes('/install'), `"${q}" carries the install button`);
   }
-  ok('customer: phone + editing word ("capcut phone lay yiseral" / "ስልኬ ላይ ይሰራል" / "capcut mobile" / "…lay alsera") → computer answer, .srt limit, import steps, 2 free + Install — Amharic first');
+  ok('customer: phone + editing word ("capcut phone lay yiseral" / "ስልኬ ላይ ይሰራል" / "capcut mobile" / "…lay alsera") → computer answer, .srt limit, import steps, 20 free minutes + Install — Amharic first');
 
   // 2. A phone word or an editing word ALONE is a different question.
   await say('I paid from my phone');
@@ -3024,7 +3025,7 @@ console.log('\n:: support group — quiet helper');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-console.log('\n:: admin — trial users who are not licensed');
+console.log('\n:: admin — before 1.10.7: trial users who are not licensed');
 {
   const { env } = fresh();
   const q = (sql, ...a) => env.DB.prepare(sql).bind(...a).run();
@@ -3035,9 +3036,9 @@ console.log('\n:: admin — trial users who are not licensed');
   await q("INSERT INTO trials (machine_id, used) VALUES ('0000777788889999', 0)");          // reserved, never used: hidden
   await q("INSERT INTO trial_uses (run_id, machine_id, used_at) VALUES ('r1', 'eeee5555ffff6666', datetime('now', '+1 minute'))");
   await q("INSERT INTO fsm (uid, step, mid) VALUES ('955500001', 'photo', 'eeee5555ffff6666')");
-  const screen = (from) => OUTBOUND.slice(from).filter((x) => /Trial users/.test(String(x.body.text || ''))).pop();
+  const screen = (from) => OUTBOUND.slice(from).filter((x) => /Before 1\.10\.7/.test(String(x.body.text || ''))).pop();
   let n = OUTBOUND.length;
-  await cb(env, { id: Number(ADMIN_ID) }, 'admin:trials');
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:trialsold');
   const page = screen(n);
   assert.ok(page, 'trial users screen shown');
   const t = page.body.text;
@@ -3047,16 +3048,159 @@ console.log('\n:: admin — trial users who are not licensed');
   assert.ok(t.indexOf('eeee5555ffff6666') < t.indexOf('cccc3333dddd4444'), 'most recent activity first');
   assert.ok(t.includes('tg://user?id=955500001') && t.includes('opened Pay'), 'linked to the Telegram account that opened Pay');
   n = OUTBOUND.length;
-  await cb(env, { id: 955500001 }, 'admin:trials');
+  await cb(env, { id: 955500001 }, 'admin:trialsold');
   assert.ok(!screen(n), 'admins only');
   for (let i = 0; i < 12; i++) await q('INSERT INTO trials (machine_id, used) VALUES (?, 1)', 'abab' + String(i).padStart(12, '0'));
   n = OUTBOUND.length;
-  await cb(env, { id: Number(ADMIN_ID) }, 'admin:trials');
-  assert.ok(JSON.stringify(OUTBOUND.slice(n)).includes('admin:trials:10'), 'Load more after 10');
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:trialsold');
+  assert.ok(JSON.stringify(OUTBOUND.slice(n)).includes('admin:trialsold:10'), 'Load more after 10');
   n = OUTBOUND.length;
-  await cb(env, { id: Number(ADMIN_ID) }, 'admin:trials:10');
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:trialsold:10');
   assert.ok(/\n11\. /.test(screen(n).body.text), 'second page numbered from 11');
   ok('admin: 🎁 Trial users lists free-trial computers that never bought (newest first, linked to Telegram when known, paged, admins only)');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: 1.10.7 free minutes via Telegram');
+{
+  const { env } = fresh();
+  const MID = 'abcdef0123456789';
+  const HF = 'a1b2c3d4';
+  const IP = { 'CF-Connecting-IP': '196.188.40.1' };
+  const reqLink = async (mid, hf, ip = IP) => (await api(env, '/api/trial/request', { method: 'POST', body: { mid, hf }, headers: ip })).json();
+  const state = async (mid) => (await api(env, '/api/trial?v=2&mid=' + mid, { headers: IP })).json();
+  const use = async (mid, run, seconds) => (await api(env, '/api/trial/use', { method: 'POST', body: { mid, run_id: run, seconds }, headers: IP })).json();
+  const said = (from, uid) => OUTBOUND.slice(from).filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === String(uid)).map((x) => x.body.text || '').join('\n');
+  const U1 = 971000001;
+  const U2 = 971000002;
+
+  // nothing yet: no free captions without Telegram
+  let j = await state(MID);
+  assert.equal(j.status, 'none');
+  assert.equal(j.minutes, 20, 'default 20 free minutes');
+  j = await use(MID, 'run-min-000001', 60);
+  assert.equal(j.charged, false);
+  assert.equal(j.reason, 'need_telegram');
+  assert.equal(j.ticket, undefined);
+
+  // the panel asks for a link, the person opens it in the bot
+  j = await reqLink(MID, HF);
+  assert.ok(/^[a-z0-9]{16}$/.test(j.nonce) && j.link === 'https://t.me/AmharicCaptionsBot?start=t_' + j.nonce, 'one-time bot link');
+  let n = OUTBOUND.length;
+  await post(env, msg(U1, { id: U1, username: 'tester1' }, { text: '/start t_' + j.nonce }));
+  assert.ok(said(n, U1).includes('20 free minutes are ready'), 'bot confirms the free minutes');
+  j = await state(MID);
+  assert.equal(j.status, 'active');
+  assert.equal(j.seconds_left, 1200);
+  assert.equal(row(env, 'SELECT uid FROM trial_grants WHERE machine_id=?', MID).uid, String(U1));
+
+  // charge in seconds; the ticket says how many
+  j = await use(MID, 'run-min-000002', 300);
+  assert.equal(j.charged, true);
+  assert.equal(j.seconds, 300);
+  assert.equal(j.seconds_left, 900);
+  const tp = j.ticket.split('.');
+  assert.equal(tp[0], 't2');
+  assert.equal(tp[1], MID);
+  assert.equal(tp[4], '300');
+  assert.ok(cryptoVerify('sha256', Buffer.from(`trial2|${MID}|run-min-000002|${tp[3]}|300`),
+    { key: createPublicKey(SIGNING_KEY), dsaEncoding: 'ieee-p1363' }, Buffer.from(tp[5], 'hex')),
+    'ticket signed over trial2|mid|run|until|seconds');
+  // the same run again: same answer, not charged twice
+  const again = await use(MID, 'run-min-000002', 300);
+  assert.equal(again.ticket, j.ticket);
+  assert.equal((await state(MID)).seconds_left, 900, 'retry not charged twice');
+  // a failed job gives its seconds back (twice at most)
+  j = await (await api(env, '/api/trial/refund', { method: 'POST', body: { mid: MID, run_id: 'run-min-000002' }, headers: IP })).json();
+  assert.equal(j.refunded, true);
+  assert.equal(j.seconds_left, 1200);
+  j = await (await api(env, '/api/trial/refund', { method: 'POST', body: { mid: MID, run_id: 'run-min-000002' }, headers: IP })).json();
+  assert.equal(j.refunded, false, 'a run is refunded once');
+  // a long video: only what is left
+  j = await use(MID, 'run-min-000003', 3600);
+  assert.equal(j.charged, true);
+  assert.equal(j.seconds, 1200, 'a 1-hour video gets the 20 minutes left');
+  assert.equal(j.seconds_left, 0);
+  assert.ok(said(n, U1).includes('You have used your free minutes'), 'one follow-up message with Buy');
+  j = await use(MID, 'run-min-000004', 30);
+  assert.equal(j.charged, false);
+  assert.equal(j.reason, 'minutes_used');
+  ok('free minutes: Telegram link gives 20 min, charged in seconds, signed t2 ticket, idempotent, refund once, follow-up when used up');
+
+  // one per Telegram account, one per computer
+  const MID2 = '1111222233334444';
+  j = await reqLink(MID2, 'feedf00d');
+  n = OUTBOUND.length;
+  await post(env, msg(U1, { id: U1 }, { text: '/start t_' + j.nonce }));
+  assert.ok(said(n, U1).includes('This Telegram account already had its free minutes'));
+  assert.equal(row(env, 'SELECT 1 AS x FROM trial_grants WHERE machine_id=?', MID2), null);
+  const MID3 = '5555666677778888';
+  j = await reqLink(MID3, HF);           // same computer, new Machine ID
+  n = OUTBOUND.length;
+  await post(env, msg(U2, { id: U2 }, { text: '/start t_' + j.nonce }));
+  assert.ok(said(n, U2).includes('This computer already had its free minutes'));
+  j = await reqLink(MID, HF);
+  assert.equal(j.status, 'active', 'a computer with a trial gets its state, no new link');
+  assert.equal(j.nonce, undefined);
+  n = OUTBOUND.length;
+  await post(env, msg(U2, { id: U2 }, { text: '/start t_zzzzzzzzzzzzzzzz' }));
+  assert.ok(said(n, U2).includes('This link has expired'));
+  ok('free minutes: one per Telegram account and one per computer; unknown links explained');
+
+  // many requests from one internet address in a day -> the owner approves
+  let last = null;
+  for (let i = 0; i < 11; i++) last = await reqLink('9999' + String(i).padStart(12, '0'), null, { 'CF-Connecting-IP': '196.188.41.9' });
+  const FMID = '9999000000000010';
+  n = OUTBOUND.length;
+  await post(env, msg(U2, { id: U2, username: 'flood' }, { text: '/start t_' + last.nonce }));
+  assert.ok(said(n, U2).includes('Request received'));
+  const card = OUTBOUND.slice(n).find((x) => String(x.body.chat_id) === String(ADMIN_ID) && /needs your OK/.test(x.body.text || ''));
+  assert.ok(card && JSON.stringify(card.body.reply_markup).includes('admin:tgok:' + FMID), 'owner gets Approve / Refuse');
+  assert.equal((await state(FMID)).status, 'pending');
+  assert.equal((await use(FMID, 'run-min-000010', 60)).charged, false, 'nothing until approved');
+  n = OUTBOUND.length;
+  await cb(env, { id: 955500001 }, 'admin:tgok:' + FMID);
+  assert.equal((await state(FMID)).status, 'pending', 'admins only');
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:tgok:' + FMID);
+  assert.equal((await state(FMID)).status, 'active');
+  assert.ok(said(n, U2).includes('free minutes are ready'), 'the person is told when approved');
+  ok('free minutes: suspicious requests wait for the owner (Approve / Refuse card, admins only)');
+
+  // owner screen + tools
+  n = OUTBOUND.length;
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:trials');
+  let scr = OUTBOUND.slice(n).filter((x) => /Free trial — 20 free minutes/.test(String(x.body.text || ''))).pop();
+  assert.ok(scr, 'trial screen');
+  assert.ok(scr.body.text.includes('@tester1') && scr.body.text.includes('20:00/20:00'), 'names and minutes');
+  assert.ok(JSON.stringify(scr.body.reply_markup).includes('admin:tgadd:' + MID));
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:tgadd:' + MID);
+  assert.equal((await state(MID)).seconds_left, 1200, '+20 min given');
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:tgblk:' + MID);
+  assert.equal((await use(MID, 'run-min-000005', 30)).reason, 'blocked', 'blocked: no more free captions');
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:tgunb:' + MID);
+  assert.equal((await use(MID, 'run-min-000006', 30)).charged, true, 'unblocked');
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:tmin:5');
+  assert.equal((await state('0000111122223333')).minutes, 25, 'owner changes the free minutes');
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:ttoggle');
+  assert.equal((await state('0000111122223333')).status, 'off', 'free trials OFF');
+  j = await reqLink('0000111122223333', 'cafe0001');
+  assert.equal(j.status, 'off', 'no link while OFF');
+  ok('free minutes: owner screen (names, minutes), +minutes, block / unblock, change minutes, ON / OFF');
+
+  // older panels: 2 free captions only while 1.10.7 is not the published release
+  const legacy = async (mid, run) => (await api(env, '/api/trial/use', { method: 'POST', body: { mid, run_id: run }, headers: { 'CF-Connecting-IP': '196.188.42.1' } })).json();
+  j = await legacy('7777888899990000', 'run-old-000001');
+  assert.equal(j.charged, true, 'old panel works while the latest release is older');
+  GH.body = { tag_name: 'v1.10.7' };
+  await env.AMH_KV.delete('latest:release');
+  j = await legacy('7777888899990000', 'run-old-000002');
+  assert.equal(j.charged, false, 'old panels stop once 1.10.7 is published');
+  assert.equal(j.reason, 'update');
+  j = await (await api(env, '/api/trial?mid=7777888899990001', { headers: { 'CF-Connecting-IP': '196.188.42.2' } })).json();
+  assert.equal(j.remaining, 0, 'and see none left');
+  GH.body = { tag_name: 'v1.8.0' };
+  await env.AMH_KV.delete('latest:release');
+  ok('older panels: two free captions only until 1.10.7 is published');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

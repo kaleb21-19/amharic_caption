@@ -106,7 +106,28 @@ function restoreCache(raw) {
 }
 
 /* ---------- harness ---------- */
-const defaultFetch = async () => ({ ok: false, json: async () => null });
+// The license server, with this computer's free minutes already given in the
+// Telegram bot (1.10.7): 20 free minutes, each job charged in seconds.
+const minutesState = (left, extra) => Object.assign({ mode: 'minutes', status: 'active', minutes: 20, seconds_total: 1200, seconds_left: left }, extra || {});
+const trialServer = (opts) => {
+  opts = opts || {};
+  let left = opts.left === undefined ? 1200 : opts.left;
+  const st = opts.status || 'active';
+  return async (url, init) => {
+    const u = String(url);
+    if (u.includes('/api/trial?v=2')) return { ok: true, json: async () => minutesState(left, { status: st }) };
+    if (u.includes('/api/trial/use')) {
+      const b = JSON.parse((init && init.body) || '{}');
+      const give = st === 'active' && !opts.deny ? Math.min(b.seconds || 1, left) : 0;
+      left -= give;
+      if (opts.onUse) opts.onUse(b, give);
+      return { ok: true, json: async () => minutesState(left, { status: st, charged: give > 0, seconds: give, ticket: give > 0 ? 't2.' + b.mid + '.' + b.run_id + '.9999999999.' + give + '.' + '0'.repeat(128) : undefined }) };
+    }
+    if (opts.more) { const r = opts.more(u, init); if (r) return r; }
+    return { ok: false, json: async () => null };
+  };
+};
+const defaultFetch = trialServer();
 const defaultCsiReply = {ok:true,captionItemName:'Caption',placed:true,requestedStart:0,landedStart:1,landedEnd:3,note:null};
 
 function loadPanel(opts) {
@@ -210,7 +231,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.10.6');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.10.7');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -274,7 +295,7 @@ await t('3. license: initial trial, bad keys, activation', async () => {
   try {
     await flush(5);
     assert.strictEqual(p.els('runBtn').disabled, false);
-    assert.ok(/Trial: 2 free transcription/.test(p.els('licenseStatus').textContent), 'trial text: ' + p.els('licenseStatus').textContent);
+    assert.strictEqual(p.els('licenseStatus').textContent, 'Free trial: 20:00 minutes left', 'free minutes shown');
 
     // empty key
     p.els('licenseInput').value = '   ';
@@ -333,13 +354,12 @@ await t('3.5 license: unsigned legacy state is always refused', async () => {
   // Legacy-shaped state is not a license. It is rejected even when its
   // timestamp is current or in the future.
   const forged = makeLocalStorage();
-  forged.setItem('amh.trial.used', '2');
   forged.setItem('amh.license', JSON.stringify({
     key: mkKey('00000000', '00000000', '0123456789abcdef'),
     valid: true, serverValidated: true,
     activated: Date.now() + 365 * 86400000,
   }));
-  const pf = loadPanel({ storage: forged });
+  const pf = loadPanel({ storage: forged, fetch: trialServer({ left: 0 }) });
   try {
     await flush(30);
     assert.strictEqual(pf.els('runBtn').disabled, true, 'unsigned legacy state must NOT enable Generate');
@@ -349,11 +369,10 @@ await t('3.5 license: unsigned legacy state is always refused', async () => {
 
   // (b) Present-but-forged token: verify FAILS → license invalidated, no fallback.
   const badTok = makeLocalStorage();
-  badTok.setItem('amh.trial.used', '2');
   badTok.setItem('amh.license', JSON.stringify({
     valid: true, token: 'v1.a1b2c3d400000000.' + 'f'.repeat(128),
   }));
-  const pb = loadPanel({ storage: badTok });
+  const pb = loadPanel({ storage: badTok, fetch: trialServer({ left: 0 }) });
   try {
     await flush(30);
     assert.strictEqual(JSON.parse(pb.storage.getItem('amh.license') || 'null').valid, false, 'invalid token clears valid');
@@ -378,16 +397,13 @@ await t('3.6 license: legacy state is not silently upgraded or trusted', async (
   // Unsigned client state cannot be migrated securely. The customer must
   // activate a key online once and receive a signed lease.
   const legacy = makeLocalStorage();
-  legacy.setItem('amh.trial.used', '2');
   legacy.setItem('amh.license', JSON.stringify({
     key: mkKey('00000000', '00000000', '0123456789abcdef'),
     valid: true, serverValidated: true, activated: Date.now() - 5 * 86400000,
   }));
-  const migFetch = async (url) => {
-    const u = String(url);
-    if (u.includes('/api/validate')) return { ok:true, json:async()=>({valid:true, token:'v1.b1b2b3b400000000.' + '0'.repeat(128)}) };
-    return { ok:true, json:async()=>({ok:true}) };
-  };
+  const migFetch = trialServer({ left: 0, more: (u) => (u.includes('/api/validate')
+    ? { ok:true, json:async()=>({valid:true, token:'v1.b1b2b3b400000000.' + '0'.repeat(128)}) }
+    : { ok:true, json:async()=>({ok:true}) }) });
   const p = loadPanel({ storage: legacy, fetch: migFetch, folderDialog: () => ({err:1}) });
   try {
     await flush(40);
@@ -703,20 +719,62 @@ await t('3.11 review: split / join / delete one click; Enter & Backspace; undo; 
   } finally { p.close(); fs.rmSync(machineHome, { recursive: true, force: true }); }
 });
 
-await t('4. license: exhausted trial blocks Generate', async () => {
-  const storage = makeLocalStorage();
-  storage.setItem('amh.trial.used', '2');
-  const p = loadPanel({ storage });
+await t('4. license: free minutes used up block Generate', async () => {
+  const p = loadPanel({ fetch: trialServer({ left: 0 }) });
   try {
     await flush(10);
     assert.strictEqual(p.els('runBtn').disabled, true, 'Generate disabled');
     assert.ok(/Trial used/.test(p.els('licenseStatus').textContent), 'trial-used banner');
     assert.strictEqual(p.els('trialBanner').style.display, 'block');
-    p.els('runBtn').fire('click');
-    await flush(10);
-    assert.ok(/free trial \(2 transcriptions\) is used up/.test(p.els('logBox').textContent), 'gate logged');
+    assert.strictEqual(p.els('freeMinBox').style.display, 'none', 'no free-minutes offer once used');
+    p.evalVm('assertCanRun()');
+    assert.ok(/free minutes are used up/.test(p.els('logBox').textContent), 'gate logged');
     assert.strictEqual(p.els('runBtn').disabled, true, 'still disabled');
   } finally { p.close(); }
+});
+
+await t('4b. free minutes from Telegram: offer, one-time bot link, the panel notices by itself', async () => {
+  let status = 'none';
+  let opened = null;
+  const reqs = [];
+  const f = trialServer({ left: 0, more: (u, init) => {
+    if (u.includes('/api/trial/request')) {
+      reqs.push(JSON.parse(init.body));
+      return { ok: true, json: async () => minutesState(0, { status: 'none', seconds_total: 0, nonce: 'abcdefghijklmnop', link: 'https://t.me/AmharicCaptionsBot?start=t_abcdefghijklmnop' }) };
+    }
+    return null;
+  } });
+  const g = async (url, init) => {
+    if (String(url).includes('/api/trial?v=2')) {
+      return { ok: true, json: async () => (status === 'none'
+        ? minutesState(0, { status: 'none', seconds_total: 0 }) : minutesState(1200)) };
+    }
+    return f(url, init);
+  };
+  const p = loadPanel({ fetch: g });
+  try {
+    await flush(10);
+    p.evalVm('cep.util.openURLInDefaultBrowser = (u) => { globalThis.__opened = u; };');
+    assert.strictEqual(p.els('freeMinBox').style.display, '', 'the free-minutes box shows');
+    assert.strictEqual(p.els('freeMinTitle').textContent, 'Try 20 minutes free');
+    assert.strictEqual(p.els('runBtn').disabled, false, 'Generate stays clickable and explains');
+    assert.strictEqual(p.evalVm('assertCanRun()'), false, 'no free caption before Telegram');
+    assert.ok(/Get your 20 free minutes in Telegram first/.test(p.els('logBox').textContent));
+    p.els('freeMinBtn').fire('click');
+    await flush(10);
+    opened = p.evalVm('globalThis.__opened');
+    assert.strictEqual(opened, 'https://t.me/AmharicCaptionsBot?start=t_abcdefghijklmnop', 'opens the one-time bot link');
+    assert.strictEqual(reqs.length, 1);
+    assert.strictEqual(reqs[0].mid, p.mid);
+    assert.ok(/^[0-9a-f]{8}$/.test(reqs[0].hf || ''), 'with the computer fingerprint');
+    assert.ok(/Waiting for Telegram/.test(p.els('freeMinWait').textContent), 'says it is waiting');
+    status = 'active';                         // the person pressed START
+    await p.evalVm('refreshTrialFromServer()');
+    p.evalVm('updateLicenseUI()');
+    assert.strictEqual(p.els('freeMinBox').style.display, 'none', 'box gone once the minutes are there');
+    assert.strictEqual(p.els('licenseStatus').textContent, 'Free trial: 20:00 minutes left');
+    assert.strictEqual(p.evalVm('assertCanRun()'), true, 'Generate works');
+  } finally { p.evalVm('if (TRIAL_POLL) clearInterval(TRIAL_POLL); TRIAL_POLL = null;'); p.close(); }
 });
 
 await t('5. review: cache-hit transcribe -> edit -> export (speaker tags) -> nudge -> add -> discard', async () => {
@@ -820,32 +878,25 @@ await t('5b. review: Premiere placement=false keeps review open and reports fail
   } finally { restoreCache(snap); }
 });
 
-await t('5c. trial: authoritative charge denial blocks review and placement', async () => {
-  const fixture = path.join(REPO, 'tools', 'test', 'fixtures', 'twospeaker.wav');
-  const key = cacheKeyFor(fixture, { cap:'words', group:3, chars:42, speakers:false });
-  const snap = snapshotCache();
+await t('5c. trial: a charge the server denies stops the engine (no ticket, nothing made)', async () => {
+  const p = loadPanel({ fetch: trialServer({ deny: true }) });
   try {
-    const base = snap !== null ? JSON.parse(snap) : {};
-    base[key] = { srt: CACHE_SEED_SRT, transcript: '', at: Date.now() };
-    restoreCache(JSON.stringify(base));
-    const p = loadPanel({
-      fetch: async (url) => {
-        const u = String(url);
-        if (u.includes('/api/trial?')) return { ok:true, json:async()=>({used:0, max:2, remaining:2}) };
-        if (u.includes('/api/trial/use')) return { ok:true, json:async()=>({used:2, max:2, remaining:0, charged:false}) };
-        return { ok:false, json:async()=>null };
-      }
-    });
-    try {
-      await flush(10);
-      p.els('fileInput').files = [{ path: fixture, name: 'twospeaker.wav' }];
-      p.els('fileInput').fire('change');
-      await flush(50);
-      assert.ok(!p.els('review').classList.contains('show'), 'denied trial charge never opens placement review');
-      assert.ok(/not placed|trial credit/i.test(p.els('logBox').textContent), 'denial is visible to the user');
-      assert.ok(!/Captions added/.test(p.els('logBox').textContent), 'no placement can occur after denial');
-    } finally { p.close(); }
-  } finally { restoreCache(snap); }
+    await flush(10);
+    p.evalVm('LICENSED = false; activeRunId = "run-deny"; ENGINE_AUTH = null; reviewTrialCharged = false;');
+    let err = '';
+    try { await p.evalVm('engineAuth(60)'); } catch (e) { err = String(e && e.message); }
+    assert.strictEqual(err, 'trial used up', 'denied -> the engine never starts');
+    assert.strictEqual(p.evalVm('reviewTrialCharged'), false);
+    assert.strictEqual(p.evalVm('TRIAL_CHARGED_RUN'), null, 'nothing to give back');
+    assert.ok(/free minutes are used up/i.test(p.evalVm('humanError("trial used up")')), 'said in plain words');
+  } finally { p.close(); }
+  const off = loadPanel({});
+  try {
+    off.evalVm('LICENSED = false; activeRunId = "run-off"; ENGINE_AUTH = null; apiPost = async () => null;');
+    let err = '';
+    try { await off.evalVm('engineAuth(60)'); } catch (e) { err = String(e && e.message); }
+    assert.strictEqual(err, 'free caption needs internet', 'offline -> needs internet');
+  } finally { off.close(); }
 });
 
 await t('5d. after a free caption: next-step card (group while one is left, Buy after the last); never on a denied charge', async () => {
@@ -856,20 +907,21 @@ await t('5d. after a free caption: next-step card (group while one is left, Buy 
     const base = snap !== null ? JSON.parse(snap) : {};
     base[key] = { srt: CACHE_SEED_SRT, transcript: '', at: Date.now() };
     restoreCache(JSON.stringify(base));
-    let used = 0;
-    const p = loadPanel({
-      fetch: async (url) => {
-        const u = String(url);
-        if (u.includes('/api/trial?')) return { ok:true, json:async()=>({used, max:2, remaining:2-used}) };
-        if (u.includes('/api/trial/use')) { used++; return { ok:true, json:async()=>({used, max:2, remaining:2-used, charged:true}) }; }
-        return { ok:false, json:async()=>null };
-      }
-    });
+    const p = loadPanel({ fetch: trialServer() });
     try {
       await flush(10);
       p.evalVm('var __opened = null; cep.util.openURLInDefaultBrowser = (u) => { __opened = u; };');
       const card = p.els('trialCard');
+      // A free job is charged when the engine starts (here: 300 s of 1200);
+      // the last one is set as its charge would leave it (0 left).
+      const charge = [300];
       const run = async () => {
+        if (charge.length) {
+          p.evalVm('ENGINE_AUTH = null; activeRunId = "run-" + Math.random();');
+          await p.evalVm('engineAuth(' + charge.shift() + ')');
+        } else {
+          p.evalVm('TRIAL_CARD_DUE = { remaining: 0, cut: null };');
+        }
         p.els('fileInput').files = [{ path: fixture, name: 'twospeaker.wav' }];
         p.els('fileInput').fire('change');
         await flush(40);
@@ -883,6 +935,7 @@ await t('5d. after a free caption: next-step card (group while one is left, Buy 
       await flush(30);
       assert.ok(card.classList.contains('show'), 'card after the first free caption');
       assert.ok(card.classList.contains('tc-left') && !card.classList.contains('tc-last'));
+      assert.strictEqual(p.els('tcLeftText').textContent, 'You have 15:00 free minutes left.');
       assert.ok(/btn-primary/.test(p.els('tcGroup').className) && !/btn-primary/.test(p.els('tcBuy').className));
       p.els('tcGroup').fire('click');
       assert.strictEqual(p.evalVm('__opened'), 'https://t.me/+L-bMfmIRyEo3MDg0', 'opens the Telegram group');
@@ -899,21 +952,29 @@ await t('5d. after a free caption: next-step card (group while one is left, Buy 
       assert.ok(!card.classList.contains('show'));
     } finally { p.close(); }
 
-    // A denied charge (trial used up) shows no card: nothing was produced.
-    const q = loadPanel({
-      fetch: async (url) => {
-        const u = String(url);
-        if (u.includes('/api/trial?')) return { ok:true, json:async()=>({used:0, max:2, remaining:2}) };
-        if (u.includes('/api/trial/use')) return { ok:true, json:async()=>({used:2, max:2, remaining:0, charged:false}) };
-        return { ok:false, json:async()=>null };
-      }
-    });
+    // A longer video than the minutes left: the card says what was covered.
+    const c = loadPanel({ fetch: trialServer({ left: 600 }) });
+    try {
+      await flush(10);
+      c.evalVm('ENGINE_AUTH = null; activeRunId = "run-cut";');
+      await c.evalVm('engineAuth(1500)');
+      assert.strictEqual(c.evalVm('TRIAL_CUT'), 600, 'the free minutes cover 10:00 of a 25-minute video');
+      c.evalVm('showTrialCardIfDue()');
+      const cc = c.els('trialCard');
+      assert.ok(cc.classList.contains('show') && cc.classList.contains('tc-cut'), 'the "rest needs a license" card');
+      assert.strictEqual(c.els('tcCutText').textContent, 'Your free minutes covered the first 10:00 of this video.');
+      assert.ok(/btn-primary/.test(c.els('tcBuy').className), 'Buy first');
+    } finally { c.close(); }
+
+    // A cached run (no engine) charges nothing and shows no card.
+    const q = loadPanel({ fetch: trialServer({ onUse: () => { throw new Error('charged'); } }) });
     try {
       await flush(10);
       q.els('fileInput').files = [{ path: fixture, name: 'twospeaker.wav' }];
       q.els('fileInput').fire('change');
       await flush(50);
-      assert.ok(!q.els('trialCard').classList.contains('show'), 'no card when no free caption was used');
+      assert.ok(q.els('review').classList.contains('show'), 'cached result opens');
+      assert.ok(!q.els('trialCard').classList.contains('show'), 'no card when no free minutes were used');
     } finally { q.close(); }
   } finally { restoreCache(snap); }
 });
@@ -1420,21 +1481,26 @@ await t('10e. engine permission: license lease, or a trial ticket charged when t
   // 1.10.3: the engine refuses a job without permission, so the panel gets it
   // first — the licensed user's lease, or one free caption's signed ticket.
   let charges = 0;
+  let asked = null;
   const trialFetch = (withTicket) => async (url, o) => {
     if (String(url).includes('/api/trial/use')) {
       charges++;
-      return { ok: true, json: async () => Object.assign({ used: 1, max: 2, remaining: 1, charged: true },
-        withTicket ? { ticket: 't1.x.run.1.' + '0'.repeat(128) } : {}) };
+      asked = JSON.parse(o.body);
+      return { ok: true, json: async () => minutesState(1200 - asked.seconds, Object.assign({ charged: true, seconds: asked.seconds },
+        withTicket ? { ticket: 't2.x.run.1.' + asked.seconds + '.' + '0'.repeat(128) } : {})) };
     }
     return { ok: true, json: async () => ({ ok: true }) };
   };
   const p = loadPanel({ fetch: trialFetch(true) });
   try {
     p.evalVm('LICENSED = false; activeRunId = "run-1"; reviewTrialCharged = false; ENGINE_AUTH = null;');
-    const a = await p.evalVm('engineAuth()');
-    assert.ok(a.ticket && a.ticket.startsWith('t1.'), 'a free caption brings the trial ticket');
+    const a = await p.evalVm('engineAuth(83.4)');
+    assert.ok(a.ticket && a.ticket.startsWith('t2.'), 'a free job brings the free-minutes ticket');
+    assert.strictEqual(asked.seconds, 84, 'charged in whole seconds of this job');
+    assert.strictEqual(asked.run_id, 'run-1');
     assert.strictEqual(p.evalVm('reviewTrialCharged'), true, 'and is charged now, not again when the review opens');
-    await p.evalVm('engineAuth()');
+    assert.strictEqual(p.evalVm('TRIAL_CHARGED_RUN'), 'run-1', 'remembered for a refund if the job fails');
+    await p.evalVm('engineAuth(83.4)');
     assert.strictEqual(charges, 1, 'the same run never charges twice');
     assert.deepStrictEqual(Array.from(p.evalVm('authArgs({ ticket: "T" })')), ['--ticket', 'T']);
     assert.deepStrictEqual(Array.from(p.evalVm('authArgs({ lease: "L" })')), ['--lease', 'L']);
@@ -1444,7 +1510,7 @@ await t('10e. engine permission: license lease, or a trial ticket charged when t
   try {
     off.evalVm('LICENSED = false; activeRunId = "run-2"; ENGINE_AUTH = null;');
     let err = '';
-    try { await off.evalVm('engineAuth()'); } catch (e) { err = String(e && e.message); }
+    try { await off.evalVm('engineAuth(10)'); } catch (e) { err = String(e && e.message); }
     assert.strictEqual(err, 'free caption needs internet', 'no ticket -> no free caption');
     assert.ok(off.evalVm('humanError("free caption needs internet")').includes('internet'), 'said in plain words');
     assert.strictEqual(off.evalVm('errorStep("license required: no license")'), 'err_license');
@@ -1521,7 +1587,7 @@ await t('17. polish: Amharic errors/progress, compact idle UI, simple license st
     assert.strictEqual(p.els('fmtField').style.display, '', 'grouped: video shape shown');
 
     // trial used up: said once (banner), not twice
-    p.evalVm("localStorage.setItem('amh.trial.used','2'); updateLicenseUI()");
+    p.evalVm("TRIAL_MIN = { status: 'active', seconds_left: 0, seconds_total: 1200, minutes: 20 }; updateLicenseUI()");
     assert.strictEqual(p.els('trialBanner').style.display, 'block');
     assert.strictEqual(p.els('licenseStatus').style.display, 'none', 'no duplicate status line');
     // licensed: thank-you note, no price in the footer, no redundant status line
@@ -1576,18 +1642,17 @@ await t('12. the boot ping really is once per day', async () => {
 await t('13. language: Amharic by default, live switch to English and back', async () => {
   const storage = makeLocalStorage();
   storage.setItem('amh.lang', 'am');      // what a fresh install resolves to
-  storage.setItem('amh.trial.used', '1');
-  const p = loadPanel({ storage });
+  const p = loadPanel({ storage, fetch: trialServer({ left: 754 }) });
   try {
     await flush(10);
     assert.strictEqual(p.evalVm('i18nGetLang()'), 'am');
     assert.strictEqual(p.els('statusText').textContent, 'ዝግጁ', 'status pill in Amharic');
-    has(p.els('licenseStatus').textContent, 'ሙከራ፦ 1', 'trial count in Amharic');
+    assert.strictEqual(p.els('licenseStatus').textContent, 'ነጻ ሙከራ፦ 12:34 ደቂቃ ቀርቷል', 'free minutes in Amharic');
 
     p.evalVm("i18nSetLang('en')");
     assert.strictEqual(storage.getItem('amh.lang'), 'en', 'choice persisted');
     assert.strictEqual(p.els('statusText').textContent, 'ready', 'status re-rendered in English');
-    assert.strictEqual(p.els('licenseStatus').textContent, 'Trial: 1 free transcription left');
+    assert.strictEqual(p.els('licenseStatus').textContent, 'Free trial: 12:34 minutes left');
 
     p.evalVm("i18nSetLang('am')");
     assert.strictEqual(p.els('statusText').textContent, 'ዝግጁ', 'and back to Amharic');
