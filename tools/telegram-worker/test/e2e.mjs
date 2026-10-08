@@ -2457,7 +2457,7 @@ console.log('\n:: scenario 23 — simple buying: no Machine ID for the customer'
   await say(P, `/start m_${PMID}_${NONCE}`);
   let t = lastTo(P);
   assert.ok(t.body.text.includes('computer is connected') && t.body.text.includes('ETB 2,500') && t.body.text.includes('send the payment screenshot'), 'connected + price + send-the-screenshot');
-  assert.ok(!t.body.text.includes('Machine ID') && !kbOf(t).includes('Try 2 free'), 'no Machine ID talk; no trial button for someone who has the panel');
+  assert.ok(!t.body.text.includes('Machine ID') && !kbOf(t).includes('Try free'), 'no Machine ID talk; no trial button for someone who has the panel');
   assert.equal((await apiJ('/api/license', { mid: PMID, nonce: NONCE })).status, 'none', 'nothing before paying');
   await photo(P, 'AgAC-panel');
   let o = row(env, 'SELECT * FROM orders WHERE uid=?', P);
@@ -2796,7 +2796,7 @@ console.log('\n:: scenario 26 — customer bot: questions answered, home screen 
   ok('customer: ❓ Questions — seven answers one tap away');
 
   // 2. Questions typed in their own words (Amharic, English, Latin-typed Amharic).
-  const cases = [['ዋጋው ስንት ነው?', 'ETB 2,500'], ['waga sint new', 'ETB 2,500'], ['is there a free trial?', '2 captions free'],
+  const cases = [['ዋጋው ስንት ነው?', 'ETB 2,500'], ['waga sint new', 'ETB 2,500'], ['is there a free trial?', '20 minutes free'],
     ['እንዴት ልጫን?', 'Window → Extensions'], ['does it work on mac', 'Apple silicon'], ['capcut lay yiseral', 'CapCut or DaVinci Resolve'], ['eske meche new', 'few hours'],
     ['I changed computer', 'move it for free'], ['key aysera', 'Key not working'], ['amesegnalehu', 'welcome']];
   for (const [q, want] of cases) {
@@ -2875,13 +2875,13 @@ console.log('\n:: customer: "does it work on my phone / CapCut phone" gets its o
   for (const q of ['capcut phone lay yiseral?', 'ስልኬ ላይ ይሰራል?', 'does it work on capcut mobile', 'capcut phone lay alsera']) {
     await say(q);
     assert.ok(txt().includes(PHONE_ANS), `"${q}" → the phone answer\n${txt()}`);
-    assert.ok(txt().includes('Windows or Mac') && txt().includes('Text → Captions → Import') && txt().includes('2 captions free'),
-      `"${q}" says: runs on a computer, how to import in CapCut, 2 captions free\n${txt()}`);
+    assert.ok(txt().includes('Windows or Mac') && txt().includes('Text → Captions → Import') && txt().includes('20 minutes free'),
+      `"${q}" says: runs on a computer, how to import in CapCut, 20 minutes free\n${txt()}`);
     assert.ok(txt().indexOf('መሣሪያው') > -1 && txt().indexOf('መሣሪያው') < txt().indexOf('The tool runs'),
       `"${q}" — Amharic first, English after\n${txt()}`);
     assert.ok(kb().includes('/install'), `"${q}" carries the install button`);
   }
-  ok('customer: phone + editing word ("capcut phone lay yiseral" / "ስልኬ ላይ ይሰራል" / "capcut mobile" / "…lay alsera") → computer answer, .srt limit, import steps, 2 free + Install — Amharic first');
+  ok('customer: phone + editing word ("capcut phone lay yiseral" / "ስልኬ ላይ ይሰራል" / "capcut mobile" / "…lay alsera") → computer answer, .srt limit, import steps, 20 free minutes + Install — Amharic first');
 
   // 2. A phone word or an editing word ALONE is a different question.
   await say('I paid from my phone');

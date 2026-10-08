@@ -179,7 +179,8 @@ const KNOWN = [
   'buyBtn', 'buyPending', 'bankDetails', 'bankBox',
   'revUndo', 'revMemory', 'memoryPanel',
   // next-step card after a free caption
-  'trialCard', 'tcGroup', 'tcBuy', 'tcLater',
+  'trialCard', 'tcGroup', 'tcBuy', 'tcLater', 'tcLeftText', 'tcCutText',
+  'freeMinBox', 'freeMinTitle', 'freeMinBtn', 'freeMinWait',
   // logs
   'logDisc', 'logWrap', 'logBox',
   // footer
@@ -215,7 +216,7 @@ function makeDocument(tagFor) {
     licenseActivate: ['button', null], machineIdCopy: ['button', null],
     buyBtn: ['button', null], bankDetails: ['a', null],
     revUndo: ['button', null], revMemory: ['button', null],
-    tcGroup: ['button', null], tcBuy: ['button', null], tcLater: ['button', null],
+    tcGroup: ['button', null], tcBuy: ['button', null], tcLater: ['button', null], freeMinBtn: ['button', null],
     reviewAdd: ['button', null], reviewExport: ['button', null],
     reviewDiscard: ['button', null], reviewBurn: ['button', null],
     reviewPlace: ['button', null], reviewList: ['div', null],

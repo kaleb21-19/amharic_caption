@@ -8,8 +8,8 @@ import into CapCut, DaVinci Resolve, older Premiere, YouTube, etc.
   python amh_standalone.py <file> [<file> ...] [--karaoke] [--speakers]
 
 Licensing is shared with the panel (amh_license.py): a licensed machine runs
-freely; otherwise each file uses one of the 2 free transcriptions, charged on
-the server only after a transcription succeeds. The console speaks Amharic
+freely; otherwise each file uses free trial minutes (from the Telegram bot),
+charged in seconds of audio before the model runs (a failed file gets them back). The console speaks Amharic
 with English underneath, because Windows 10's legacy console cannot draw
 Ethiopic glyphs and a user must never be left with only boxes on screen.
 """

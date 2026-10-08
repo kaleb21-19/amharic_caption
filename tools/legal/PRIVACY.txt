@@ -1,5 +1,5 @@
 PRIVACY POLICY — Amharic Captions Pro
-Version 1.5 · Effective 2026-10-07
+Version 1.6 · Effective 2026-10-08
 
 WHAT TRANSCRIPTION NEVER DOES
 All speech recognition, correction, speaker labeling and caption placement
@@ -16,9 +16,9 @@ WHAT THE SOFTWARE DOES SEND
   characters calculated from your user name, home folder and operating
   system; the name itself is never sent), so one buyer whose internet address
   changes can be told apart from a license copied to other computers. Since
-  1.10.4 the same code is sent with free-trial requests, so the two free
-  captions belong to the computer and do not return when the Machine ID file
-  is deleted.
+  1.10.4 the same code is sent with free-trial requests, so free trials
+  belong to the computer and do not return when the Machine ID file is
+  deleted.
 * Anonymous step counts (1.10.2+): a few fixed steps (e.g. "opened", "model
   download failed", "pressed Make captions", the type of an error) are reported
   at most once per computer per day with the app, operating system and
@@ -29,9 +29,13 @@ WHAT THE SOFTWARE DOES SEND
   server. This is used to count installs, detect abuse, and support diagnostics.
   It does not contain audio, text, or transcripts. Telemetry retention is
   bounded separately from license records.
-* Free-trial usage: the number of free transcriptions used is synced so the
-  trial limit is enforced. Trial counters may be retained as pseudonymous
-  abuse-prevention records; request deletion where applicable.
+* Free trial (1.10.7+): when you take the free minutes in our Telegram bot,
+  your Telegram account (numeric ID and @username or first name) is linked to
+  your Machine ID and computer fingerprint, so each account and computer gets
+  one trial; we may send you one message when the minutes are used up. Each
+  free job reports the length of its audio in seconds (never the audio).
+  Trial records may be retained as pseudonymous abuse-prevention records;
+  request deletion where applicable.
 
 WHAT IS STORED AND WHERE
 License data lives on Cloudflare's platform (Workers + D1): Machine ID,

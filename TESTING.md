@@ -229,6 +229,14 @@ customer — top manual priority.*
   the SRT maker charges a free caption BEFORE making it (no ticket from the server ->
   no caption). Test tools that drive the engine stand in for the license check in
   their own process (tools/test/engine_cli.py).
+- Free minutes (1.10.7+): an unlicensed panel shows "🎁 Try 20 minutes free" → the
+  bot opens (t_<link>) → START → the panel shows "Free trial: 20:00 minutes left"
+  by itself within a few seconds. Each job is charged in seconds of audio when the
+  engine starts; a video longer than the minutes left is captioned only up to them
+  and the card says "the rest needs a license". A second Telegram account on the
+  same computer, or the same account on another computer, gets no new minutes.
+  Owner: 🎁 Trial users (+minutes, block, minutes setting, ON/OFF). Panels before
+  1.10.7 keep 2 free captions only until 1.10.7 is the published release.
 - Review while it works (1.10.0+, licensed, speaker marks off): a video over 5
   minutes opens the review after the first captions (~20-30 s); new ones are
   added every few seconds. While you type in a caption nothing is redrawn; the

@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.10.6';
+const APP_VERSION = '1.10.7';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -800,6 +800,7 @@ function startBuyPoll() {
 
 function initBuy() {
   initTrialCard();
+  initFreeMinutes();
   const b = document.getElementById('buyBtn');
   if (b) {
     b.addEventListener('click', (e) => {
@@ -1000,18 +1001,38 @@ async function revalidateLicenseOnline(force) {
   }
 }
 
-// Free-trial credits: an unlicensed user may run this many transcriptions
-// before being asked to enter a license key. Count is stored per-machine.
-const TRIAL_ALLOWED = 2;
-function getTrialUsed() {
-  try { return parseInt(localStorage.getItem('amh.trial.used') || '0', 10) || 0; }
-  catch (e) { return 0; }
-}
-function setTrialUsed(n) {
-  try { localStorage.setItem('amh.trial.used', String(Math.max(0, n))); } catch (e) {}
-}
+// ── Free trial: free MINUTES from the Telegram bot (1.10.7) ─────────────────
+// An unlicensed computer gets N free minutes of audio (owner setting, 20) from
+// our Telegram bot: "Try 20 minutes free" asks /api/trial/request for a
+// one-time link, the person presses START in the bot, and this panel notices
+// by itself. Each free job is charged in seconds when the engine starts; the
+// engine's ticket says how many seconds of this job the free minutes cover
+// (the rest of a longer video needs a license). The server decides
+// everything; no server, no free caption (a license works offline).
+let TRIAL_MIN = null;        // { status, seconds_left, seconds_total, minutes }
+let TRIAL_WAIT = 0;          // when the bot link was opened (waiting for START)
+let TRIAL_POLL = null;
+let TRIAL_CHARGED_RUN = null; // run id of a charged free job (refund if it fails)
+let TRIAL_CUT = null;         // seconds the free minutes covered, when less than the job
 function trialRemaining() {
-  return Math.max(0, TRIAL_ALLOWED - getTrialUsed());
+  return TRIAL_MIN && TRIAL_MIN.status === 'active' ? Math.max(0, TRIAL_MIN.seconds_left || 0) : 0;
+}
+function trialMinutes() { return (TRIAL_MIN && TRIAL_MIN.minutes) || 20; }
+function fmtMinSec(s) {
+  s = Math.max(0, Math.round(Number(s) || 0));
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+function setTrialState(data) {
+  if (!data || data.mode !== 'minutes') return;
+  TRIAL_MIN = {
+    status: data.status, minutes: data.minutes || 20,
+    seconds_left: data.seconds_left || 0, seconds_total: data.seconds_total || 0,
+  };
+}
+// Free captions are counted per computer too: the fingerprint goes along.
+function trialHostParam() {
+  const hf = hostFingerprint();
+  return hf ? '&hf=' + encodeURIComponent(hf) : '';
 }
 
 let trialSyncPromise = null;
@@ -1020,15 +1041,12 @@ async function refreshTrialFromServer() {
   if (trialSyncPromise) return trialSyncPromise;
   trialSyncPromise = (async () => {
     try {
-      const data = await apiGet('/api/trial?mid=' + encodeURIComponent(MACHINE_ID) + trialHostParam(), TRIAL_SYNC_TIMEOUT_MS);
-      if (data && typeof data.used === 'number') {
-        setTrialUsed(data.used);
+      const data = await apiGet('/api/trial?v=2&mid=' + encodeURIComponent(MACHINE_ID) + trialHostParam(), TRIAL_SYNC_TIMEOUT_MS);
+      if (data && data.mode === 'minutes') {
+        setTrialState(data);
         updateLicenseUI();
       }
-    } catch (e) {
-      // Offline/localStorage fallback remains available; the post-transcription
-      // charge is still required before an unlicensed result can be placed.
-    }
+    } catch (e) {}
     return trialRemaining();
   })();
   try {
@@ -1038,16 +1056,24 @@ async function refreshTrialFromServer() {
   }
 }
 // Shared license/trial gate for EVERY transcription entry point (run() and
-// runFile()). Fail-closed: unlicensed users may only transcribe while free
-// trial credits remain; licensed users always pass.
+// runFile()): licensed, or free minutes left. Otherwise say what to do.
 function assertCanRun() {
-  if (!LICENSED && trialRemaining() <= 0) {
-    track('blocked_trial');
-    log('Your free trial (2 transcriptions) is used up.');
-    log('Enter your license key in the License section and click Activate to continue.');
-    return false;
+  if (LICENSED || trialRemaining() > 0) return true;
+  track('blocked_trial');
+  const st = TRIAL_MIN ? TRIAL_MIN.status : null;
+  if (!st) {
+    log('Connect to the internet for the free trial (a license works offline).');
+  } else if (st === 'none') {
+    log('Get your ' + trialMinutes() + ' free minutes in Telegram first — the button above the license.');
+    const box = document.getElementById('freeMinBox');
+    if (box && typeof box.scrollIntoView === 'function') { try { box.scrollIntoView({ block: 'center' }); } catch (e) {} }
+  } else if (st === 'pending') {
+    log('Your free-minutes request is being checked — we will tell you in Telegram.');
+  } else {
+    log('Your free minutes are used up.');
+    log('Buy a license (below) to keep making captions.');
   }
-  return true;
+  return false;
 }
 function newRunId() {
   try {
@@ -1056,82 +1082,111 @@ function newRunId() {
   return 'run-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
 }
 
-// Called once when an unlicensed user produces a transcription result. Counts
-// toward the free-trial limit even if the user later discards the review;
-// licensed users are unaffected.
-// Uses server-side tracking (D1) with localStorage fallback for offline.
-// Free captions are counted per computer too (1.10.4): a new Machine ID on
-// the same computer gets none once its two are used.
-function trialHostParam() {
-  const hf = hostFingerprint();
-  return hf ? '&hf=' + encodeURIComponent(hf) : '';
+// Charge free minutes for one job of `seconds` of audio. The answer carries
+// the engine's ticket and how many seconds it allows (≤ asked, ≤ left).
+async function consumeTrialCredit(runId, seconds) {
+  if (LICENSED) return { allowed: true, licensed: true };
+  const chargeRunId = runId || activeRunId || newRunId();
+  const body = {
+    mid: MACHINE_ID, run_id: chargeRunId, hf: hostFingerprint() || undefined,
+    seconds: Math.max(1, Math.ceil(Number(seconds) || 1)),
+  };
+  let r = await apiPost('/api/trial/use', body);
+  if (r && r.pending) {
+    // The same run is still being booked by an earlier request: ask once more.
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    r = await apiPost('/api/trial/use', body);
+  }
+  if (!r || r.mode !== 'minutes') return { allowed: false, charged: false, offline: !r };
+  setTrialState(r);
+  if (r.charged) {
+    log('Free trial: ' + fmtMinSec(r.seconds) + ' of free minutes for this job, ' + fmtMinSec(r.seconds_left) + ' left.');
+  }
+  return {
+    allowed: !!r.charged, charged: !!r.charged, ticket: r.ticket, seconds: r.seconds,
+    remaining: r.seconds_left, run: chargeRunId, reason: r.reason,
+  };
+}
+// A free job that failed or was cancelled gives its minutes back (the server
+// allows this twice per trial).
+async function refundTrialRun() {
+  const run = TRIAL_CHARGED_RUN;
+  TRIAL_CHARGED_RUN = null;
+  if (!run || LICENSED) return;
+  const r = await apiPost('/api/trial/refund', { mid: MACHINE_ID, run_id: run });
+  if (r && r.mode === 'minutes') {
+    setTrialState(r);
+    if (r.refunded) log('The free minutes of the stopped job were given back.');
+    updateLicenseUI();
+  }
+}
+// Seconds of audio in a 16 kHz mono 16-bit WAV (what extractToWav writes).
+function wavSeconds(p) {
+  try { return Math.max(1, (fs.statSync(p).size - 44) / 32000); } catch (e) { return 1; }
 }
 
-async function consumeTrialCredit(runId) {
-  if (LICENSED) return { allowed: true, licensed: true };
-
-  // Try server-side increment first. The run ID makes retries idempotent.
-  const chargeRunId = runId || activeRunId || newRunId();
-  const serverResult = await apiPost('/api/trial/use', { mid: MACHINE_ID, run_id: chargeRunId, hf: hostFingerprint() || undefined });
-  // A duplicate request can arrive while the original Worker invocation still
-  // holds its D1 lease. Do not mistake that pending response for a completed
-  // zero-credit charge (or fall through to the local counter). Give the owner a
-  // short reconciliation window; if it is still pending, the server lease will
-  // finish or be reclaimed safely on a later retry.
-  if (serverResult && serverResult.pending) {
-    log('Trial charge is still being finalized; reconciling with the server…');
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    const retry = await apiPost('/api/trial/use', { mid: MACHINE_ID, run_id: chargeRunId, hf: hostFingerprint() || undefined });
-    if (retry && !retry.pending && typeof retry.used === 'number') {
-      const charged = retry.charged === undefined
-        ? retry.used < TRIAL_ALLOWED
-        : retry.charged === true;
-      setTrialUsed(retry.used);
-      const retryLeft = retry.remaining;
-      log('Free trial: ' + retry.used + '/' + TRIAL_ALLOWED + ' used, ' + retryLeft + ' left.');
-      return { allowed: charged, charged, used: retry.used, remaining: retryLeft, pending: false, ticket: retry.ticket };
+// "Try 20 minutes free" → the bot. The panel then checks every few seconds
+// (and when it gets focus back) until the minutes are there.
+function openExternal(url) {
+  try { window.__adobe_cep__ && window.cep.util.openURLInDefaultBrowser(url); }
+  catch (err) { window.open(url, '_blank'); }
+}
+async function startFreeMinutes() {
+  track('trial_link');
+  const status = document.getElementById('freeMinWait');
+  const r = await apiPost('/api/trial/request', { mid: MACHINE_ID, hf: hostFingerprint() || undefined });
+  if (!r || r.mode !== 'minutes') {
+    if (status) { status.textContent = L('Cannot reach the server — check the internet and try again.'); status.style.display = ''; }
+    return;
+  }
+  setTrialState(r);
+  if (r.link) {
+    openExternal(r.link);
+    TRIAL_WAIT = Date.now();
+    startTrialPoll();
+  }
+  updateLicenseUI();
+}
+function startTrialPoll() {
+  if (TRIAL_POLL) return;
+  TRIAL_POLL = setInterval(async () => {
+    if (LICENSED || !TRIAL_WAIT || Date.now() - TRIAL_WAIT > 15 * 60 * 1000) {
+      clearInterval(TRIAL_POLL); TRIAL_POLL = null; TRIAL_WAIT = 0; updateLicenseUI();
+      return;
     }
-    log('The server will reconcile this trial charge; local state was not advanced.');
-    return { allowed: false, charged: false, pending: true };
-  }
-  if (serverResult && typeof serverResult.used === 'number') {
-    // New Workers return an explicit `charged` bit. The fallback inference keeps
-    // older local Worker deployments usable for a first credit, but an explicit
-    // false (cap reached, flood-blocked, or conflicting run ID) never places.
-    const charged = serverResult.charged === undefined
-      ? serverResult.used < TRIAL_ALLOWED
-      : serverResult.charged === true;
-    setTrialUsed(serverResult.used);
-    const left = serverResult.remaining;
-    if (left > 0) {
-      log('Free trial: ' + serverResult.used + '/' + TRIAL_ALLOWED + ' used, ' + left + ' left.');
-    } else {
-      log('Free trial used up (' + TRIAL_ALLOWED + '/' + TRIAL_ALLOWED + '). Enter a license key to continue.');
+    await refreshTrialFromServer();
+    if (TRIAL_MIN && TRIAL_MIN.status !== 'none') {
+      clearInterval(TRIAL_POLL); TRIAL_POLL = null; TRIAL_WAIT = 0;
+      if (TRIAL_MIN.status === 'active') {
+        log('✓ ' + fmtMinSec(TRIAL_MIN.seconds_left) + ' free minutes are ready — press Generate.');
+      }
+      updateLicenseUI();
     }
-    return { allowed: charged, charged, used: serverResult.used, remaining: left, pending: false, ticket: serverResult.ticket };
+  }, 4000);
+}
+function renderFreeMinBox() {
+  const box = document.getElementById('freeMinBox');
+  if (!box) return;
+  const st = !LICENSED && TRIAL_MIN ? TRIAL_MIN.status : null;
+  box.style.display = (st === 'none' || st === 'pending') ? '' : 'none';
+  const title = document.getElementById('freeMinTitle');
+  if (title) title.textContent = L('Try ' + trialMinutes() + ' minutes free');
+  const btn = document.getElementById('freeMinBtn');
+  const wait = document.getElementById('freeMinWait');
+  if (btn) btn.style.display = st === 'pending' ? 'none' : '';
+  if (wait) {
+    const msg = st === 'pending' ? 'Your request is being checked — we will tell you in Telegram.'
+      : (TRIAL_WAIT ? 'Waiting for Telegram — press START there, then come back. This updates by itself.' : '');
+    wait.textContent = msg ? L(msg) : '';
+    wait.style.display = msg ? '' : 'none';
   }
-
-  // Fallback: local-only (offline or API unreachable).
-  // KNOWN LIMITATION: this counter lives in localStorage, so a user who is
-  // offline (or who clears the panel's localStorage) can reset the trial and
-  // keep transcribing without a key. We accept this deliberately: the product
-  // is fully offline by design, so we cannot hard-require the server. If trial
-  // abuse becomes a problem, gate the 2nd+ use on a successful /api/trial/use
-  // round-trip instead of falling through here. See README "Known limitations".
-  const before = getTrialUsed();
-  if (before >= TRIAL_ALLOWED) {
-    log('Free trial is already exhausted; no caption placement was allowed.');
-    return { allowed: false, charged: false, used: before, remaining: 0, offline: true };
+}
+function initFreeMinutes() {
+  const b = document.getElementById('freeMinBtn');
+  if (b) b.addEventListener('click', (e) => { if (e && e.preventDefault) e.preventDefault(); startFreeMinutes(); });
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('focus', () => { if (TRIAL_WAIT && !LICENSED) refreshTrialFromServer(); });
   }
-  setTrialUsed(before + 1);
-  const used = getTrialUsed();
-  const left = trialRemaining();
-  if (left > 0) {
-    log('Free trial: ' + used + '/' + TRIAL_ALLOWED + ' used, ' + left + ' left.');
-  } else {
-    log('Free trial used up (' + TRIAL_ALLOWED + '/' + TRIAL_ALLOWED + '). Enter a license key to continue.');
-  }
-  return { allowed: true, charged: true, used, remaining: left, offline: true };
 }
 
 function updateLicenseUI() {
@@ -1182,14 +1237,21 @@ function updateLicenseUI() {
     const licNoteU = document.getElementById('licensedNote');
     if (licNoteU) licNoteU.style.display = 'none';
     const rem = trialRemaining();
+    const st = TRIAL_MIN ? TRIAL_MIN.status : null;
     if (rem > 0) {
-      // Free trial: allow running, but the Generate button is enabled.
+      // Free minutes left: Generate works.
       if (banner) banner.style.display = 'none';
       if (licStatus) {
-        licStatus.textContent = L('Trial: ' + rem + ' free transcription' + (rem === 1 ? '' : 's') + ' left');
+        licStatus.textContent = L('Free trial: ' + fmtMinSec(rem) + ' minutes left');
         licStatus.style.color = 'var(--warn)';
         licStatus.style.display = '';
       }
+      if (runBtn) runBtn.disabled = MODEL_MISSING;
+    } else if (!st || st === 'none' || st === 'pending') {
+      // No free minutes yet (or the server not reached): the free-minutes box
+      // above says what to do; Generate explains it too.
+      if (banner) banner.style.display = 'none';
+      if (licStatus) licStatus.style.display = 'none';
       if (runBtn) runBtn.disabled = MODEL_MISSING;
     } else {
       // Trial used up: make the path to purchase unmistakable.
@@ -1207,6 +1269,7 @@ function updateLicenseUI() {
   }
   const footPrice = document.getElementById('footPrice');
   if (footPrice) footPrice.style.display = LICENSED ? 'none' : '';
+  renderFreeMinBox();
   LICENSED_REFRESH = false;
 }
 
@@ -1387,15 +1450,13 @@ async function activateLicense() {
   assessLicense().then(() => {
     updateLicenseUI();
     revalidateLicenseOnline();
+    // A stored lease that turned out invalid: show the free-minutes state too.
+    if (!LICENSED) refreshTrialFromServer();
   });
 
-  // Sync server-side trial count on load (best effort — silently ignore if offline)
+  // Free minutes left (best effort — offline the free-minutes box waits).
   const storedLicense = getLicense();
-  if (!storedLicense || !storedLicense.token) {
-    apiGet('/api/trial?mid=' + MACHINE_ID + trialHostParam()).then((data) => {
-      if (data && typeof data.used === 'number') setTrialUsed(data.used);
-    });
-  }
+  if (!storedLicense || !storedLicense.token) refreshTrialFromServer();
   if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
     window.addEventListener('focus', () => revalidateLicenseOnline());
   }
@@ -2419,7 +2480,7 @@ async function transcribe(sourcePath, outSrt, range, offset) {
     // keeps a progress journal next to it (<work>.part.json). If the run is
     // interrupted (power cut, sleep, crash, Cancel) the next run of the same
     // video continues where it stopped instead of starting again.
-    const auth = await engineAuth();
+    const auth = await engineAuth(wavSeconds(wav));
     const work = resumeWorkPath(key);
     livePoll = startLivePoll(work);
     const r = await warmSend(Object.assign({
@@ -2463,18 +2524,21 @@ async function transcribe(sourcePath, outSrt, range, offset) {
 // used to be charged when the review opened); a retry of the same run reuses
 // the same ticket. Free captions need internet once, to get the ticket.
 let ENGINE_AUTH = null;     // { run, auth } for the current run
-async function engineAuth() {
+async function engineAuth(seconds) {
   if (ENGINE_AUTH && ENGINE_AUTH.run === activeRunId) return ENGINE_AUTH.auth;
   const stored = getLicense();
   let auth;
   if (LICENSED && stored && stored.token) {
     auth = { lease: stored.token };
   } else {
-    const r = await consumeTrialCredit(activeRunId);
-    if (!r || !r.allowed) throw new Error('trial used up');
+    // Free minutes (1.10.7): charged in seconds of this job's audio.
+    const r = await consumeTrialCredit(activeRunId, seconds);
+    if (!r || !r.allowed) throw new Error(r && r.offline ? 'free caption needs internet' : 'trial used up');
     if (!r.ticket) throw new Error('free caption needs internet');
     reviewTrialCharged = true;
-    if (!r.licensed && r.charged) TRIAL_CARD_DUE = { remaining: r.remaining };
+    TRIAL_CHARGED_RUN = r.run;
+    TRIAL_CUT = (seconds && r.seconds < Math.ceil(seconds) - 1) ? r.seconds : null;
+    if (!r.licensed && r.charged) TRIAL_CARD_DUE = { remaining: r.remaining, cut: TRIAL_CUT };
     auth = { ticket: r.ticket };
   }
   ENGINE_AUTH = { run: activeRunId, auth };
@@ -2489,7 +2553,7 @@ function authArgs(auth) {
 // function and nothing ever invoked. Progress now flows the same way as on the
 // warm path — parsed off the child's stderr — so the dead parameter is gone.
 async function transcribeOneShot(sourcePath, outSrt, range, offset, wav) {
-  const auth = await engineAuth();
+  const auth = await engineAuth(wavSeconds(wav));
   return new Promise((resolve, reject) => {
     const pyArgs = [SCRIPT, wav, outSrt].concat(pyFlags(), authArgs(auth));
     if (offset && offset !== 0) pyArgs.push('--offset', String(offset));
@@ -2562,7 +2626,7 @@ async function transcribeBatch(items, outSrt, onProgress) {
       const req = Object.assign({
         batch: misses.map((it) => ({ wav: it.wav, offset: it.offset, name: it.name || '' })),
         out_srt: outSrt
-      }, await engineAuth());
+      }, await engineAuth(misses.reduce((s, it) => s + wavSeconds(it.wav), 0)));
       if (onProgress) req.onProgress = onProgress;
       const r = await warmSend(Object.assign(req, warmStyle()));
       warmTouch();
@@ -2601,7 +2665,7 @@ async function transcribeBatch(items, outSrt, onProgress) {
 
 // Original multi-clip one-shot fallback (one process, one model load).
 async function transcribeBatchOneShot(items, outSrt, onProgress) {
-  const auth = await engineAuth();
+  const auth = await engineAuth(items.reduce((s, it) => s + wavSeconds(it.wav), 0));
   const reqPath = path.join(os.tmpdir(), 'amharic_batch_' + Date.now() + '.json');
   try {
     fs.writeFileSync(reqPath, JSON.stringify(items.map((it) => ({
@@ -2804,23 +2868,9 @@ async function openReview(outSrt, label, startSeconds, opts) {
   // A transcription consumes a trial credit when it is produced, not only
   // when the user chooses to place it. This prevents unlimited discard/retry
   // loops. Licensed users are unaffected.
-  if (!reviewTrialCharged) {
-    const trial = await consumeTrialCredit(activeRunId || newRunId());
-    if (!trial || !trial.allowed) {
-      removeTempCaptionArtifact(outSrt);
-      if (lastSrtPath === outSrt) lastSrtPath = null;
-      log('Trial credit was not confirmed. The transcription was not placed; activate a license or retry when the server is available.');
-      setStatus('err', 'trial credit required');
-      updateLicenseUI();
-      return false;
-    }
-    reviewTrialCharged = true;
-    if (!trial.licensed && trial.charged) TRIAL_CARD_DUE = { remaining: trial.remaining };
-  }
-  if (!LICENSED && !reviewTrialCharged) {
-    log('Placement blocked because no trial credit was charged.');
-    return false;
-  }
+  // Free minutes are charged when the engine starts (engineAuth); a result
+  // from the cache was charged when it was made. Nothing more to charge.
+  reviewTrialCharged = true;
   REVIEW = {
     outSrt, label: label || 'captions', startSeconds: startSeconds || 0,
   };
@@ -3063,14 +3113,22 @@ function showTrialCardIfDue() {
   const card = $('trialCard');
   if (!card) return;
   const last = !(due.remaining > 0);
-  card.classList.toggle('tc-left', !last);
-  card.classList.toggle('tc-last', last);
+  const cut = !!due.cut;
+  card.classList.toggle('tc-left', !last && !cut);
+  card.classList.toggle('tc-last', last && !cut);
+  card.classList.toggle('tc-cut', cut);
+  const lt = $('tcLeftText');
+  if (lt) lt.textContent = L('You have ' + fmtMinSec(due.remaining) + ' free minutes left.');
+  const ct = $('tcCutText');
+  if (ct && cut) ct.textContent = L('Your free minutes covered the first ' + fmtMinSec(due.cut) + ' of this video.');
+  const buyFirst = last || cut;
   // The main action first: the group while a free caption is left, Buy after.
-  $('tcGroup').className = 'btn ' + (last ? 'btn-neutral' : 'btn-primary');
-  $('tcBuy').className = 'btn ' + (last ? 'btn-primary' : 'btn-neutral');
+  $('tcGroup').className = 'btn ' + (buyFirst ? 'btn-neutral' : 'btn-primary');
+  $('tcBuy').className = 'btn ' + (buyFirst ? 'btn-primary' : 'btn-neutral');
   card.classList.add('show');
-  log(last ? 'Free trial finished — showing the next-step card (buy / group).'
-           : 'Free caption done — showing the next-step card (group).');
+  log(cut ? 'Free minutes covered part of this video — showing the next-step card (buy).'
+    : last ? 'Free trial finished — showing the next-step card (buy / group).'
+      : 'Free caption done — showing the next-step card (group).');
 }
 function hideTrialCard() {
   const card = $('trialCard');
@@ -4017,6 +4075,8 @@ async function run() {
       removeTempCaptionArtifact(lastSrtPath);
       lastSrtPath = null;
     }
+    if (TRIAL_CHARGED_RUN && (cancelRequested || runFailed)) refundTrialRun();
+    else TRIAL_CHARGED_RUN = null;
     runInProgress = false;
     setBusy(false);
     if (!cancelRequested && !runFailed) setProgress(0, '');
@@ -4040,9 +4100,13 @@ function humanError(raw) {
   if (workerDllError || t.includes('dll load failed')) {
     return 'Your antivirus or an incomplete install blocked part of the transcription engine. Add the extension folder to your antivirus exclusions, then reinstall and restart Premiere.';
   }
-  if (t.includes('trial used up')) return 'Your free captions are used up. Activate your license key to continue.';
-  if (t.includes('free caption needs internet')) return 'Connect to the internet once for a free caption (your license key works offline).';
-  if (t.includes('license required')) return 'This computer has no active license. Activate your license key (or connect to the internet for a free caption).';
+  if (t.includes('trial used up')) {
+    return TRIAL_MIN && TRIAL_MIN.status === 'none'
+      ? 'Get your free minutes in Telegram first (the button above the license).'
+      : 'Your free minutes are used up. Buy a license to keep making captions.';
+  }
+  if (t.includes('free caption needs internet')) return 'Connect to the internet for the free trial (a license works offline).';
+  if (t.includes('license required')) return 'This computer has no active license. Activate your license key (or connect to the internet for the free trial).';
   if (t.includes('audio too short')) return 'That clip is too short to transcribe.';
   if (t.includes('no speech')) return 'No speech found in that audio.';
   if (t.includes('audio-bearing')) return 'No transcribable clips in that range.';
@@ -4344,6 +4408,8 @@ async function runFile(filePath, fileName) {
       removeTempCaptionArtifact(lastSrtPath);
       lastSrtPath = null;
     }
+    if (TRIAL_CHARGED_RUN && (cancelRequested || runFailed)) refundTrialRun();
+    else TRIAL_CHARGED_RUN = null;
     runInProgress = false;
     setBusy(false);
     if (!cancelRequested && !runFailed) setProgress(0, '');

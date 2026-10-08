@@ -23,8 +23,8 @@ const openPanel = {
     en: "Window → Extensions → Amharic Captions Pro. The first time, press “Download the Amharic model” once (about 610 MB; it continues where it stopped if your internet drops).",
   },
   check: {
-    am: "ከመክፈልዎ በፊት 2 ነጻ ካፕሽን ይሰራሉ። ለመግዛት በፓነሉ ላይ «ፈቃድ ይግዙ» ይጫኑ።",
-    en: "Two free captions work before you pay. To buy, press “Buy a license” in the panel.",
+    am: "ከመክፈልዎ በፊት 20 ደቂቃ በነጻ ይሞክሩ — በፓነሉ ላይ «በቴሌግራም ይቀበሉ» ይጫኑ። ለመግዛት «ፈቃድ ይግዙ» ይጫኑ።",
+    en: "Try 20 minutes free before you pay — press “Get them in Telegram” in the panel. To buy, press “Buy a license”.",
   },
 };
 

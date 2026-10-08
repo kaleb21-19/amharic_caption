@@ -30,7 +30,7 @@ export default function LegalPage() {
             <strong>ማሳሰቢያ፦ ከታች ያሉት ሙሉ ውሎች በእንግሊዝኛ ናቸው፤ የሚጸናውም የእንግሊዝኛው ቅጂ ነው። ዋና ዋና ነጥቦቹ በአጭሩ፦</strong>
             <ul>
               <li>አንድ ጊዜ {PRICE_AM} ይከፍላሉ። ፈቃዱ ለአንድ ኮምፒውተር ነው፤ ወርሃዊ ክፍያ ወይም እድሳት የለውም።</li>
-              <li>እያንዳንዱ አዲስ ኮምፒውተር ከመግዛቱ በፊት 2 ነጻ ካፕሽን ያገኛል።</li>
+              <li>ከመግዛትዎ በፊት በቴሌግራም ቦታችን 20 ደቂቃ ነጻ ሙከራ ይቀበላሉ (አንድ ጊዜ ለአንድ የቴሌግራም መለያና ለአንድ ኮምፒውተር)።</li>
               <li>ቪዲዮዎ፣ ድምፅዎና ካፕሽኖችዎ ከኮምፒውተርዎ አይወጡም። ወደ ሰርቨራችን የሚላከው ለፈቃድና ለነጻ ሙከራው የሚያስፈልግ ትንሽ መረጃ (የማሽን መለያ፣ ቁልፍ፣ የፕሮግራሙ ስሪት) ብቻ ነው።</li>
               <li>ቁልፉን ማጋራት፣ እንደገና መሸጥ ወይም በብዙ ኮምፒውተሮች ላይ መጠቀም አይፈቀድም።</li>
               <li>ካፕሽኖቹ ረቂቅ ናቸው፤ ከማተምዎ በፊት መገምገምና ማስተካከል የእርስዎ ኃላፊነት ነው።</li>
@@ -73,10 +73,13 @@ export default function LegalPage() {
 
           <h3>3. Free trial</h3>
           <p>
-            Every new machine may run up to 2 free transcriptions (2 captions)
-            before a license key is required, so you can test the Software on
-            your own Premiere Pro before paying. The trial requires no card and
-            no account.
+            Before buying you may get free minutes of transcription (20
+            minutes unless we announce otherwise) from our Telegram bot, so you
+            can test the Software on your own videos. One free trial per
+            Telegram account and per computer; minutes are counted by the
+            length of the audio, and a longer video is transcribed only up to
+            the minutes left. We may pause or change the free trial, and refuse
+            it where we see abuse. No card is needed.
           </p>
 
           <h3>4. Restrictions</h3>
@@ -169,9 +172,9 @@ export default function LegalPage() {
               user name, home folder and operating system — the name itself is
               never sent). It lets the server tell one buyer whose internet
               address changes from a license copied to other computers. Since
-              1.10.4 the same code is sent with free-trial requests, so the two
-              free captions belong to the computer and do not come back when
-              the Machine ID file is deleted.
+              1.10.4 the same code is sent with free-trial requests, so free
+              trials belong to the computer and do not come back when the
+              Machine ID file is deleted.
             </li>
             <li>
               <strong>Usage beacon.</strong> When the panel opens, it may send
@@ -192,10 +195,14 @@ export default function LegalPage() {
               people get stuck so it can be fixed.
             </li>
             <li>
-              <strong>Free-trial usage.</strong> The number of free
-              transcriptions used on your installation is synced with the
-              license server so the trial limit is enforced. Trial counters may
-              be retained as pseudonymous abuse-prevention records.
+              <strong>Free trial (1.10.7+).</strong> When you take the free
+              minutes in our Telegram bot, your Telegram account (its numeric
+              ID and @username or first name) is linked to your Machine ID and
+              computer fingerprint, so each account and computer gets one
+              trial; we may send you one message when the minutes are used up.
+              Each free job reports the length of its audio in seconds (never
+              the audio itself). Trial records may be retained as pseudonymous
+              abuse-prevention records.
             </li>
           </ul>
 

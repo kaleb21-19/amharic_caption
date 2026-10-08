@@ -455,8 +455,8 @@ function heroText(first = '', offer = null) {
     '<i>Welcome to Amharic Captions Pro</i>\n\n' +
     '💯 ሙሉ በሙሉ <b>በኮምፒውተርዎ ላይ</b> ይሰራል — ቪዲዮዎ ወደ ኢንተርኔት አይላክም።\n' +
     '<i>Runs 100% on your computer — your video is never uploaded.</i>\n\n' +
-    '🎁 <b>2 ካፕሽን በነጻ</b> ይሞክሩ — ከወደዱት በኋላ ብቻ ይክፈሉ።\n' +
-    '<i>Try 2 captions free — pay only if you like it.</i>\n\n' +
+    '🎁 <b>20 ደቂቃ በነጻ</b> ይሞክሩ — ከወደዱት በኋላ ብቻ ይክፈሉ።\n' +
+    '<i>Try 20 minutes free — pay only if you like it.</i>\n\n' +
     `💰 <s>ETB 3,500</s> → <b>${PRICE}</b> — አንድ ጊዜ ብቻ ይከፍላሉ።\n` +
     '<i>One payment. No subscription.</i>' + invited
   );
@@ -506,7 +506,7 @@ function payText(offer = null) {
 
 const payKeyboard = (fromPanel = false) => [
   [{ text: '✅ ከፍያለሁ — ስክሪንሾት ልላክ · I’ve paid', callback_data: 'pay:proof' }],
-  ...(fromPanel ? [] : [[{ text: '🎁 መጀመሪያ በነጻ ልሞክር · Try 2 free', url: `${SITE_URL}/install` }]]),
+  ...(fromPanel ? [] : [[{ text: '🎁 መጀመሪያ በነጻ ልሞክር · Try free', url: `${SITE_URL}/install` }]]),
 ];
 
 const MENU = 'ሰላም! 👋 ከታች ይምረጡ / Choose below:';
@@ -2616,8 +2616,8 @@ const GROUP_FAQ = {
     '<i>One payment, no monthly fee, free updates.</i>\n\n' +
     `🏦 ክፍያ በ @AmharicCaptionsBot ብቻ — ለ <b>${ACCT_NAME}</b>።\n` +
     `<i>Pay only through @AmharicCaptionsBot, to ${ACCT_NAME}.</i>`,
-  trial: () => '🎁 ፓነሉን ይጫኑ — <b>2 ካፕሽን በነጻ</b> ይሰራሉ፤ ክፍያም ምዝገባም አያስፈልግም።\n' +
-    '<i>Install the panel and make 2 captions free — no payment, no sign-up.</i>',
+  trial: () => '🎁 ፓነሉን ይጫኑ — <b>20 ደቂቃ በነጻ</b> ይሞክሩ (በፕሮግራሙ ውስጥ «በቴሌግራም ይቀበሉ»)፤ ክፍያ አያስፈልግም።\n' +
+    '<i>Install the panel and try 20 minutes free (press “Get them in Telegram” in it) — no payment.</i>',
   install: (chatId) => '📲 <b>①</b> ያውርዱ · <i>download</i>  <b>②</b> Premiere / After Effects ይዝጉ፣ <b>Install</b> ን ያስኪዱ · <i>close them, run Install</i>\n' +
     '<b>③</b> Premiere ይክፈቱ → <b>Window → Extensions → Amharic Captions Pro</b>\n' +
     '✂️ CapCut / DaVinci፦ ዴስክቶፕ ላይ <b>Make Amharic Captions</b> ን ይክፈቱ · <i>open Make Amharic Captions on your desktop</i>\n\n' +
@@ -2866,8 +2866,8 @@ async function postWeeklyJobsDigest() {
     `<i>${n} video editing jobs from ${ch} job channels, posted as they appeared.</i>\n\n` +
     'አዳዲሶቹ በደቂቃዎች ውስጥ ይለጠፋሉ። ኤዲተር ጓደኛዎን ይጋብዙ!\n' +
     '<i>New ones appear within minutes. Know an editor? Share it.</i>\n\n' +
-    '🎬 ለቪዲዮዎችዎ የአማርኛ ካፕሽን? <b>Amharic Captions Pro</b> — 2 ካፕሽን በነጻ፣ ያለ ኢንተርኔት። @AmharicCaptionsBot\n' +
-    '<i>Amharic captions for your videos? Amharic Captions Pro — 2 free, works offline.</i>';
+    '🎬 ለቪዲዮዎችዎ የአማርኛ ካፕሽን? <b>Amharic Captions Pro</b> — 20 ደቂቃ በነጻ፣ ያለ ኢንተርኔት። @AmharicCaptionsBot\n' +
+    '<i>Amharic captions for your videos? Amharic Captions Pro — 20 minutes free, works offline.</i>';
   const kb = [[{ text: '💼 ስራዎቹን ይመልከቱ · See the jobs', url: jobsUrl }],
               [{ text: '📣 ለጓደኛ ያጋሩ · Share with a friend', url: share }]];
   await safeSend(tg(TOKEN, 'sendMessage', { chat_id: SUPPORT_GROUP, text, parse_mode: 'HTML', disable_web_page_preview: true, reply_markup: { inline_keyboard: kb } }));
@@ -3118,8 +3118,8 @@ const FAQ = {
   trial: {
     btn: '🎁 በነጻ መሞከር እችላለሁ? · Free trial',
     text: () => '🎁 <b>በነጻ መሞከር / Free trial</b>\n\n' +
-      'ፓነሉን ይጫኑ — <b>2 ካፕሽን በነጻ</b> ይሰራሉ፤ ክፍያም ምዝገባም አያስፈልግም። ከወደዱት በኋላ ብቻ ይክፈሉ።\n' +
-      '<i>Install the panel and make 2 captions free — no payment, no sign-up. Pay only if you like it.</i>',
+      'ፓነሉን ይጫኑ — <b>20 ደቂቃ በነጻ</b> ይሞክሩ (በፕሮግራሙ ውስጥ «በቴሌግራም ይቀበሉ» ይጫኑ)፤ ክፍያ አያስፈልግም። ከወደዱት በኋላ ብቻ ይክፈሉ።\n' +
+      '<i>Install the panel and try 20 minutes free (press “Get them in Telegram” in it) — no payment. Pay only if you like it.</i>',
     kb: () => [[INSTALL_BTN]],
   },
   need: {
@@ -3179,8 +3179,8 @@ const FAQ = {
       '<i>The CapCut phone app cannot import .srt files.</i>\n\n' +
       '💻 ኮምፒውተር ካለዎት፦ በ«Make Amharic Captions» ካፕሽኖችን ይሥራሉ፤ ከዚያ በኮምፒውተሩ ላይ በCapCut ያስገቡ (Text → Captions → Import)።\n' +
       '<i>If you have a computer: make the captions in “Make Amharic Captions”, then use CapCut on the computer (Text → Captions → Import).</i>\n\n' +
-      '🎁 በነጻ ይሞክሩ፦ <b>2 ካፕሽን በነጻ</b> — መጫን ብቻ ይበቃል።\n' +
-      '<i>Try 2 captions free — tap Install to start.</i>',
+      '🎁 በነጻ ይሞክሩ፦ <b>20 ደቂቃ በነጻ</b> — ይጫኑ፣ ከዚያ በፕሮግራሙ ውስጥ «በቴሌግራም ይቀበሉ» ይጫኑ።\n' +
+      '<i>Try 20 minutes free — install, then press “Get them in Telegram” in the program.</i>',
     kb: () => [[INSTALL_BTN]],
   },
 };
@@ -3301,10 +3301,10 @@ async function nudgeQuietBuyers() {
     const res = await sendText(uid,
       '👋 ቀደም ብለው የክፍያ ገጹን ከፍተው ነበር — ጥያቄ አለዎት? መልሶቹ ከታች ናቸው።\n' +
       '<i>You opened the payment page earlier — any questions? The answers are below.</i>\n\n' +
-      '🎁 መጀመሪያ <b>2 ካፕሽን በነጻ</b> መሞከር ይችላሉ።\n<i>You can try 2 captions free first.</i>\n\n' +
+      '🎁 መጀመሪያ <b>20 ደቂቃ በነጻ</b> መሞከር ይችላሉ።\n<i>You can try 20 minutes free first.</i>\n\n' +
       '📸 ከፍለው ከሆነ ስክሪንሾቱን እዚሁ ብቻ ይላኩ።\n<i>Already paid? Just send the screenshot here.</i>',
       [[FAQ_BTN], [{ text: '💳 የባንክ አካውንቶች · Bank accounts', callback_data: 'menu:pay' }],
-       [{ text: '🎁 በነጻ ልሞክር · Try 2 free', url: `${SITE_URL}/install` }], [SUPPORT_BTN]]);
+       [{ text: '🎁 በነጻ ልሞክር · Try free', url: `${SITE_URL}/install` }], [SUPPORT_BTN]]);
     if (res && res.ok) { sent++; try { await addFunnel(uid, 'nudge'); } catch (e) { /* stats only */ } }
   }
   if (sent) log('info', 'buyer_nudges_sent', { sent });
@@ -4815,7 +4815,7 @@ async function adminSales(chatId, messageId) {
 const EVENT_NAMES = new Set([
   'open', 'model_needed', 'model_dl_start', 'model_dl_ok', 'model_dl_fail',
   'run_click', 'blocked_model', 'blocked_trial', 'blocked_runtime', 'run_ok', 'placed',
-  'buy_click', 'activate_ok', 'activate_fail',
+  'buy_click', 'activate_ok', 'activate_fail', 'trial_link',
   'err_av_blocked', 'err_too_short', 'err_no_speech', 'err_no_clips', 'err_no_clip', 'err_no_media',
   'err_media_unreadable', 'err_disk_full', 'err_engine', 'err_runtime', 'err_license', 'err_other',
 ]);
@@ -4876,6 +4876,7 @@ async function adminUsage(chatId, messageId, days = 7) {
     (errs.length ? '❌ Errors:\n' + errs.join('\n') + '\n' : '') +
     `✅ Captions made: <b>${c('run_ok')}</b> (${pct(c('run_click'), c('run_ok'))} of pressed)\n` +
     `🎬 Placed / saved: ${c('placed')}\n` +
+    `🎁 Pressed “Try free”: ${c('trial_link')}\n` +
     `💳 Pressed Buy: ${c('buy_click')} · 🔑 Activated: ${c('activate_ok')}` +
     (c('activate_fail') ? ` · activation failed: ${c('activate_fail')}` : '') + '\n\n' +
     `<i>Outside Ethiopia (mostly our test machines): opened ${otherOpen}.</i>`;

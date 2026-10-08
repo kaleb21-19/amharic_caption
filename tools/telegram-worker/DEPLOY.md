@@ -662,6 +662,28 @@ To turn it on:
    **Delete messages** and **Manage topics** (Manage topics lets it post the welcome
    in the closed Announcements topic). Nothing else is needed.
 
+## Free trial = 20 free minutes from the bot (migration 0027, panel 1.10.7)
+
+Order: `npm.cmd run migrate` (creates trial_requests / trial_grants /
+trial_runs), then `npm.cmd run deploy`, THEN merge the 1.10.7 release.
+
+- The panel's "Try 20 minutes free" asks `/api/trial/request` for a one-time
+  link `t_<nonce>`; START in the bot links that computer to the Telegram
+  account and gives the minutes. One trial per Telegram account and per
+  computer. Automatic, except: more than 10 links from one internet address in
+  a day, or more than 15 new trials in an hour → you get an Approve / Refuse
+  card.
+- Each free job is charged in seconds (`/api/trial/use` with `seconds`); the
+  engine ticket (t2) carries the seconds and the engine stops there. A failed
+  job gives its seconds back (twice per trial at most).
+- When the minutes run out the person gets one message with Buy. A daily
+  summary arrives after 18:00 Ethiopian time.
+- 🎁 Trial users: names, minutes used, ➕ minutes, ⛔ block / ↩ unblock,
+  − 5 / + 5 minutes for new trials, ⏸ turn free trials off.
+- Panels before 1.10.7 (2 free captions of any length, no Telegram) keep
+  working only until 1.10.7 is the published GitHub release; then they show
+  "used up". Override with the setting `trial_legacy` (1 = keep, 0 = stop now).
+
 ## Jobs: public channel + weekly digest (no migration)
 
 - **Public jobs channel (optional):** create a public channel (e.g. `@EthioEditingJobs`),
