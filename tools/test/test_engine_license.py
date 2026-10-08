@@ -14,6 +14,8 @@ home folder (the real license / machine files are never touched):
   * a lease for another computer, or with a broken signature -> refused
   * a trial ticket for this computer and run, not expired -> allowed
   * expired / other computer / tampered / lease-shaped tickets -> refused
+  * (1.10.6) the engine's own functions — what someone calls after loading
+    it from Python — refuse until a check passes; permission ends with the job
 
 No model needed (permission is checked before any audio is read).
 
@@ -120,6 +122,58 @@ check("running the engine directly without a license -> exit 3, 'license require
 r = subprocess.run([sys.executable, os.path.join(REPO, "ethio_srt.py"), "x.wav", "x.srt", "--lease", keys["lease"]],
                    capture_output=True, text=True, env=dict(os.environ, AMH_MACHINE_HOME=HOME))
 check("a lease signed by anyone but the real server -> refused on the command line", r.returncode == 3)
+
+# The model itself (1.10.6): loading the engine from Python and calling its
+# functions directly — skipping every front door above — is refused too.
+import io  # noqa: E402
+import numpy as np  # noqa: E402
+
+print("\nthe model itself refuses without permission (1.10.6)")
+eng = object.__new__(E._CT2Engine)            # no model needed: refused first
+eng.prefetch, eng.glyphs = None, {}
+tch = object.__new__(E._TorchEngine)
+wav = np.zeros(16000 * 3, dtype=np.float32)
+
+
+def refused(fn):
+    try:
+        fn()
+        return False
+    except E.LicenseRequired:
+        return True
+    except Exception as e:
+        print("        (raised %s: %s)" % (type(e).__name__, e))
+        return False
+
+
+E.end_permit()
+check("the terminal recipe (load engine, call _run_file) -> refused",
+      refused(lambda: E._run_file(eng, wav, "grouped", 3, 42, 0.0, None)))
+check("engine.transcribe -> refused", refused(lambda: eng.transcribe(wav)))
+check("one window (_transcribe_one) -> refused", refused(lambda: eng._transcribe_one(wav)))
+check("the model step (_encode) -> refused", refused(lambda: eng._encode(wav)))
+check("the text step (_align) -> refused", refused(lambda: eng._align(wav, None)))
+check("dev torch engine -> refused", refused(lambda: tch._transcribe_one(wav)))
+check("a failed check gives no permission", not allowed(lease=keys["leaseOther"]) and refused(E._need_permit))
+check("a lease for this computer gives permission", allowed(lease=keys["lease"]) and not refused(E._need_permit))
+check("a failed check after a good one takes it back",
+      not allowed(ticket=keys["expired"]) and refused(E._need_permit))
+allowed(ticket=keys["ticket"])
+E.end_permit()
+check("permission ends with the job (end_permit)", refused(E._need_permit))
+
+# the warm worker: permission lasts one request
+orig_in, orig_load = sys.stdin, E.load_pipeline
+E.load_pipeline = lambda: eng
+sys.stdin = io.StringIO(json.dumps({"id": 1, "wav": "nope.wav", "lease": keys["lease"]}) + "\n")
+out = io.StringIO()
+orig_out, sys.stdout = sys.stdout, out
+try:
+    E.run_server()
+finally:
+    sys.stdin, sys.stdout, E.load_pipeline = orig_in, orig_out, orig_load
+check("warm worker: a licensed request's permission ends with it",
+      '"audio file not found' in out.getvalue() and refused(E._need_permit))
 
 import shutil  # noqa: E402
 shutil.rmtree(HOME, ignore_errors=True)

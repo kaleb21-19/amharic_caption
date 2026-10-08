@@ -6,12 +6,13 @@ engine_cli.py — run a runtime's engine for TESTS, the way `ethio_srt.py
     python tools/test/engine_cli.py <runtime dir> <audio> <out.srt> [--words]
                                     [--group N] [--max-chars N] [--offset S]
 
-Since 1.10.3 the engine's command line refuses to run without a license or a
-trial ticket for the computer (ethio_srt.require_license) — on CI machines
-there is neither. Test harnesses (run_engine.sh, the accuracy gate) call the
-engine's own transcription function through this file instead, exactly what
-the warm worker runs once permission is given. Lives in tools/test/, never in
-a package. Works with a runtime that has ethio_srt.py or the compiled .pyc.
+Since 1.10.3 the engine refuses to run without a license or a trial ticket
+for the computer (ethio_srt.require_license) — on CI machines there is
+neither. Test harnesses (run_engine.sh, the accuracy gate) run it through this
+file, which stands in for the license check in this process only and then
+asks for permission like a real job (since 1.10.6 the model itself checks).
+Lives in tools/test/, never in a package. Works with a runtime that has
+ethio_srt.py or the compiled .pyc.
 """
 import os
 import sys
@@ -39,6 +40,9 @@ def main(argv):
         i += 1
     sys.path.insert(0, os.path.abspath(rt))
     import ethio_srt as es
+    import amh_license
+    amh_license.engine_auth = lambda lease=None, ticket=None: (True, "test")
+    es.require_license()
     wav = es.read_wav(audio)
     engine = es.load_pipeline()
     _text, cues = es._run_file(engine, wav, mode, group, max_chars, offset, out)

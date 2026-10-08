@@ -34,6 +34,10 @@ sys.path.insert(0, REPO)
 sys.path.insert(0, os.path.join(REPO, "tools", "test"))
 import ethio_srt as es  # noqa: E402
 import wer as W  # noqa: E402
+import amh_license  # noqa: E402
+
+amh_license.engine_auth = lambda lease=None, ticket=None: (True, "test")
+es.require_license()   # tests only: the model checks permission (1.10.6)
 
 TAG = re.compile(r"\[[A-Z]{3}\]")
 engine = es.load_pipeline()

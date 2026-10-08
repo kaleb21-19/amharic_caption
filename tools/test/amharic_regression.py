@@ -36,6 +36,9 @@ if not os.path.exists(_vad_copy):
 
 try:
     import ethio_srt as es
+    import amh_license
+    amh_license.engine_auth = lambda lease=None, ticket=None: (True, "test")
+    es.require_license()   # tests only: the model checks permission (1.10.6)
 
     def srt_text(cues):
         out, idx = [], 0

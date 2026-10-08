@@ -227,6 +227,7 @@ class _CT2Engine:
     def _encode(self, wav):
         """Mel features -> model -> CTC logits (1, T', vocab). Thread-safe:
         the parallel-window workers call it side by side."""
+        _need_permit()
         ctranslate2 = _load_ct2()
         feats = self.mel(wav)  # (1, T', 160)
         out = self.model.encode(ctranslate2.StorageView.from_array(feats))
@@ -236,6 +237,7 @@ class _CT2Engine:
         return logits
 
     def _transcribe_one(self, wav):
+        _need_permit()
         # Logits a parallel worker already computed for this piece (taken
         # FIRST so a scheduled piece is always collected, even when silent).
         ready = self.prefetch.take(wav) if self.prefetch is not None else None
@@ -260,6 +262,7 @@ class _CT2Engine:
         return self._align(wav, self._encode(wav))
 
     def _align(self, wav, logits):
+        _need_permit()
         T = logits.shape[1]
         frame_dur = (len(wav) / 16000) / T
         if self._masked:
@@ -366,6 +369,7 @@ class _TorchEngine:
         return _windowed_transcribe(self, wav)
 
     def _transcribe_one(self, wav):
+        _need_permit()
         if _preflight_audio(wav):
             return "", [], 1.0 / 16000.0
         inputs = self.processor(wav, sampling_rate=16000, return_tensors="pt")
@@ -1660,6 +1664,8 @@ def run_server():
                 handle_server_one(engine, req, rid, out)
         except Exception as e:
             emit(out, {"id": rid, "ok": False, "error": str(e)})
+        finally:
+            end_permit()
 
 
 def emit(out, obj):
@@ -1674,11 +1680,31 @@ def emit(out, obj):
 # caption. Before this, running this file directly — or a panel edited to
 # skip its license check — gave free captions. (The SRT maker checks with the
 # server itself before it hands over a file.)
+#
+# The model itself refuses to run without that permission (1.10.6): the
+# engine's transcription functions check the permit the last successful
+# require_license gave. Before, the front doors checked but the inside did
+# not — loading the engine from Python (which ships with the program) and
+# calling its functions directly made captions without a license.
 class LicenseRequired(Exception):
     pass
 
 
+_PERMIT = {"ok": False}
+
+
+def _need_permit():
+    if not _PERMIT["ok"]:
+        raise LicenseRequired("license required: no license or free-caption ticket for this job")
+
+
+def end_permit():
+    """The job is over: the next one must be allowed again."""
+    _PERMIT["ok"] = False
+
+
 def require_license(lease=None, ticket=None):
+    _PERMIT["ok"] = False
     try:
         import amh_license
     except Exception:
@@ -1686,6 +1712,7 @@ def require_license(lease=None, ticket=None):
     ok, why = amh_license.engine_auth(lease, ticket)
     if not ok:
         raise LicenseRequired("license required: " + why)
+    _PERMIT["ok"] = True
 
 
 def handle_server_one(engine, req, rid, out):

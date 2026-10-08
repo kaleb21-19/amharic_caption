@@ -224,6 +224,11 @@ customer — top manual priority.*
   so in Amharic if offline). Without a license, running ethio_srt.py by hand exits 3
   "license required", and a panel edited to think it is licensed shows "ይህ ኮምፒውተር
   ፈቃድ የለውም…" instead of captions (tools/test/test_engine_license.py).
+- Engine inside (1.10.6+): loading the engine from the bundled Python and calling its
+  functions directly (_run_file, transcribe) is refused with "license required" too;
+  the SRT maker charges a free caption BEFORE making it (no ticket from the server ->
+  no caption). Test tools that drive the engine stand in for the license check in
+  their own process (tools/test/engine_cli.py).
 - Review while it works (1.10.0+, licensed, speaker marks off): a video over 5
   minutes opens the review after the first captions (~20-30 s); new ones are
   added every few seconds. While you type in a caption nothing is redrawn; the
