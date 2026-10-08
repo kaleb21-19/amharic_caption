@@ -5163,20 +5163,14 @@ async function adminTrials(chatId, messageId, offset = 0) {
     `   ├ Bought: ${tot ? tot.bought : 0}\n` +
     `   └ Waiting for your OK: ${tot ? tot.pend : 0}\n\n` +
     (lines.length ? lines.join('\n') : '<i>No one yet — people show up here when they take their free minutes in the bot.</i>') +
-    '\n\n<i>Tap a name to message them. Times are Ethiopian time.</i>';
+    '\n\n<i>Tap a button below for a person\'s card (every free job, ➕ minutes, block). Tap a name above to message them. Times are Ethiopian time.</i>';
   const kb = [];
-  for (const r of rows) {
-    const nm = String(r.name || r.uid).slice(0, 14);
-    if (r.status === 'pending') {
-      kb.push([{ text: `✅ ${nm}`, callback_data: 'admin:tgok:' + r.machine_id }, { text: '❌ Refuse', callback_data: 'admin:tgno:' + r.machine_id }]);
-    } else if (!r.bought) {
-      kb.push([
-        { text: `➕${terms.minutes} min · ${nm}`, callback_data: 'admin:tgadd:' + r.machine_id },
-        r.status === 'blocked' || r.status === 'refused'
-          ? { text: '↩ Unblock', callback_data: 'admin:tgunb:' + r.machine_id }
-          : { text: '⛔ Block', callback_data: 'admin:tgblk:' + r.machine_id },
-      ]);
-    }
+  // One button per person: their card (every free job, and the actions).
+  for (let i = 0; i < rows.length; i += 2) {
+    kb.push(rows.slice(i, i + 2).map((r) => ({
+      text: `${r.status === 'pending' ? '⏳' : '👤'} ${String(r.name || r.uid).slice(0, 16)}`,
+      callback_data: 'admin:tgcard:' + r.machine_id,
+    })));
   }
   if (offset + TRIALS_PAGE < total) kb.push([{ text: '⬇ Load more', callback_data: `admin:trials:${offset + TRIALS_PAGE}` }]);
   kb.push([
@@ -5246,7 +5240,77 @@ async function adminTrialAction(chatId, messageId, cbId, fromUid, act, arg) {
   } else { await answerCb(cbId, ''); return; }
   await audit(fromUid, 'trial_' + act, mid);
   await answerCb(cbId, act === 'tgadd' ? `+${terms.minutes} min` : act === 'tgblk' ? 'Blocked' : 'Unblocked');
-  await adminTrials(chatId, messageId, 0);
+  await adminTrialCard(chatId, messageId, mid);
+}
+
+// One person's free trial: who, minutes, every free job (newest first), and
+// the actions — each asks "Are you sure?" first (a mis-tap once gave a
+// stranger extra minutes and a message saying so).
+const TRIAL_JOBS_SHOWN = 25;
+async function adminTrialCard(chatId, messageId, mid) {
+  const g = await trialGrant(mid);
+  const back = [{ text: '⬅ Trial users', callback_data: 'admin:trials' }];
+  if (!g) {
+    const t = '🎁 Not found — this computer has no free trial.';
+    if (messageId) await editText(chatId, messageId, t, [back]); else await sendText(chatId, t, [back]);
+    return;
+  }
+  const terms = trialTerms(await getSettings());
+  const lic = await DB.prepare('SELECT revoked FROM customers WHERE machine_id = ?').bind(mid).first();
+  const bought = !!(lic && !lic.revoked);
+  const runs = (await DB.prepare(
+    'SELECT created_at, seconds, refunded FROM trial_runs WHERE machine_id = ? AND seconds > 0 ORDER BY created_at DESC LIMIT ?'
+  ).bind(mid, TRIAL_JOBS_SHOWN).all()).results || [];
+  const tot = await DB.prepare(
+    'SELECT COUNT(*) AS n, MAX(created_at) AS last FROM trial_runs WHERE machine_id = ? AND seconds > 0').bind(mid).first();
+  const left = Math.max(0, g.seconds_total - g.seconds_used);
+  const state = bought ? '💰 bought a license'
+    : g.status === 'pending' ? '⏳ waiting for your OK'
+      : g.status === 'blocked' ? '⛔ blocked'
+        : g.status === 'refused' ? '❌ refused'
+          : left <= 0 ? '✅ used all free minutes' : '🟢 has free minutes';
+  const jobs = runs.map((r) => `   ${eatTs(r.created_at)} · ${fmtMin(r.seconds)}${r.refunded ? ' · ↩ given back (failed)' : ''}`);
+  const text =
+    `👤 <b><a href="tg://user?id=${esc(g.uid)}">${esc(g.name || g.uid)}</a></b>\n` +
+    `💻 <code>${esc(mid)}</code>\n\n` +
+    `Status: ${state}\n` +
+    `⏱ Used <b>${fmtMin(g.seconds_used)}</b> of ${fmtMin(g.seconds_total)} · left ${fmtMin(left)}\n` +
+    `🎬 Free jobs: <b>${tot ? tot.n : 0}</b>` + (tot && tot.last ? ` · last ${eatTs(tot.last)}` : '') + '\n' +
+    `📅 Started: ${eatTs(g.created_at)}` + (g.refunds ? ` · failed jobs given back: ${g.refunds}` : '') + '\n\n' +
+    (jobs.length ? `<b>Jobs</b> (newest first, Ethiopian time · audio length):\n${jobs.join('\n')}` +
+      (tot && tot.n > runs.length ? `\n   … and ${tot.n - runs.length} older` : '')
+      : '<i>No free job yet.</i>') +
+    '\n\n<i>Tap the name to message them.</i>';
+  const kb = [];
+  if (g.status === 'pending') {
+    kb.push([{ text: '✅ Approve', callback_data: 'admin:tgok:' + mid }, { text: '❌ Refuse', callback_data: 'admin:tgno:' + mid }]);
+  } else if (!bought) {
+    kb.push([
+      { text: `➕ ${terms.minutes} min`, callback_data: 'admin:tgq:tgadd:' + mid },
+      g.status === 'blocked' || g.status === 'refused'
+        ? { text: '↩ Unblock', callback_data: 'admin:tgq:tgunb:' + mid }
+        : { text: '⛔ Block', callback_data: 'admin:tgq:tgblk:' + mid },
+    ]);
+  }
+  kb.push(back);
+  if (messageId) await editText(chatId, messageId, text, kb); else await sendText(chatId, text, kb);
+}
+
+// "Are you sure?" before ➕ minutes / block / unblock.
+async function adminTrialConfirm(chatId, messageId, act, mid) {
+  const g = isValidMid(mid) ? await trialGrant(mid) : null;
+  if (!g || !['tgadd', 'tgblk', 'tgunb'].includes(act)) { await adminTrialCard(chatId, messageId, mid); return; }
+  const terms = trialTerms(await getSettings());
+  const who = esc(g.name || g.uid);
+  const q = act === 'tgadd'
+    ? `➕ Give <b>${who}</b> ${terms.minutes} more free minutes?\n\n<i>They get a message: “+${terms.minutes} free minutes were added”.</i>`
+    : act === 'tgblk'
+      ? `⛔ Block <b>${who}</b>?\n\n<i>Their free minutes stop working (they are not told).</i>`
+      : `↩ Unblock <b>${who}</b>?\n\n<i>Their free minutes work again.</i>`;
+  await editText(chatId, messageId, q, [[
+    { text: '✅ Yes', callback_data: `admin:${act}:${mid}` },
+    { text: '✖ No', callback_data: 'admin:tgcard:' + mid },
+  ]]);
 }
 
 // Every sale ever recorded, for bookkeeping: order | date | Machine ID | ETB | status.
@@ -5789,6 +5853,8 @@ async function handleCallback(cb) {
     else if (['tgok', 'tgno', 'tgblk', 'tgunb', 'tgadd', 'tmin', 'ttoggle'].includes(action)) {
       await adminTrialAction(chatId, messageId, cbId, fromUid, action, parts[2]);
     }
+    else if (action === 'tgcard') { await answerCb(cbId, ''); await adminTrialCard(chatId, messageId, String(parts[2] || '').toLowerCase()); }
+    else if (action === 'tgq') { await answerCb(cbId, ''); await adminTrialConfirm(chatId, messageId, parts[2], String(parts[3] || '').toLowerCase()); }
     else if (action === 'export') await adminExport(chatId, messageId, cbId);
     else if (action === 'broadcast') {
       await kvPut('bcast:await:' + fromUid, '1', 900);
