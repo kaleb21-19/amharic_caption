@@ -2,7 +2,7 @@
 
 > **Working on this repo (AI or human)? Read [AGENTS.md](AGENTS.md) first** — the flow, release rules and safety rules everyone follows. How we test: [TESTING.md](TESTING.md).
 
-Local Amharic speech-to-text captions for Adobe Premiere Pro. Transcription runs entirely on-device; no footage, audio, or transcript is uploaded. A connection is needed for first activation, trial sync, and optional online license checks.
+Local Amharic speech-to-text captions for Adobe Premiere Pro. Transcription runs entirely on-device; no footage, audio, or transcript is uploaded. A connection is needed for first activation, for each free trial caption, and for optional online license checks.
 
 ## Pricing
 
@@ -19,7 +19,7 @@ Local Amharic speech-to-text captions for Adobe Premiere Pro. Transcription runs
 - **No Adobe app?** The installer also adds a **Make Amharic Captions** desktop
   shortcut: drag any video/audio onto it and an `.srt` appears next to the file,
   for CapCut, DaVinci Resolve, older Premiere, YouTube, etc. Same license key and
-  the same 2 free transcriptions as the panel (trials need internet here).
+  the same 2 free transcriptions as the panel (free trials need internet).
 - Windows 10/11 or macOS (Apple Silicon or Intel). No internet needed at runtime
   once licensed.
 
@@ -35,6 +35,8 @@ Pay **ETB 2,500** by bank transfer to **KALEB TEGEGEN** — CBE 1000504159977 ·
 
 > **Free trial:** every new machine gets **2 free transcriptions** before a
 > license key is required, so buyers can try it on their own Premiere first.
+> Each free caption needs the internet once, to fetch its server-signed
+> ticket; licensed machines run fully offline.
 
 ### Known limitations
 
@@ -48,13 +50,12 @@ Pay **ETB 2,500** by bank transfer to **KALEB TEGEGEN** — CBE 1000504159977 ·
   lease can be honored without a network connection. Revocation and key-spread
   enforcement take effect when the panel next contacts the license server; a
   fully offline client cannot provide an immediate kill switch.
-- **Trial is best-effort offline.** The 2-use trial counter is stored locally
-  and synchronized/charged authoritatively when the server is reachable; a
-  denied or unfinished charge blocks placement. Because the panel must work
-  fully offline, a user who is offline — or who clears the panel's
-  `localStorage` — can still reset the local fallback counter. We accept this
-  trade-off over breaking offline use; the online gate and its limitations are
-  documented in `TESTING.md`.
+- **Free captions need internet; licensed use does not.** The trial is counted
+  per computer on the license server, and each free caption carries a
+  server-signed ticket that the engine verifies before transcribing. An
+  offline or unlicensed client gets no free caption — clearing local state no
+  longer grants credits — while a licensed machine keeps working fully offline
+  on its signed lease. Details and tests: `TESTING.md`.
 - **Batch is per-clip resilient.** If one clip in a work-area run can't be
   decoded or transcribed, it is skipped (logged + counted) instead of aborting
   the whole run. A skipped count is reported when the batch finishes.
