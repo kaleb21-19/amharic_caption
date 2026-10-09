@@ -83,8 +83,11 @@ case "$OS" in
   MINGW*|MSYS*|CYGWIN*)
     TARGET="win-x64"
     PBS_VARIANT="x86_64-pc-windows-msvc"
-    FFURL_BASE="${AMH_FFURL_WIN_X64:-https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-24-14-14/ffmpeg-n8.1.3-win64-gpl-8.1.zip}"
-    FF_SHA256="${AMH_FFSHA_WIN_X64:-7a7895e2e3b04e0b15f145dd349372451c88ff389bdbcdfd85a1992a10bb361a}"
+    # A versioned release that stays up (BtbN deletes its dated autobuilds after
+    # a few weeks: the pinned 2026-09-24 one vanished and every Windows build
+    # failed). Checksum = GitHub's published sha256 for this asset.
+    FFURL_BASE="${AMH_FFURL_WIN_X64:-https://github.com/GyanD/codexffmpeg/releases/download/8.1.2/ffmpeg-8.1.2-essentials_build.zip}"
+    FF_SHA256="${AMH_FFSHA_WIN_X64:-db580001caa24ac104c8cb856cd113a87b0a443f7bdf47d8c12b1d740584a2ec}"
     PY_SHA256_DEFAULT="f91242b07e318d2540f9da71162b92d494c39745abde9b994d7d906756453fc9"
     FF_EXPECT_ARCH="x86_64"
     FFNAME="ffmpeg.exe";;
