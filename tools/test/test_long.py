@@ -267,5 +267,78 @@ except ValueError as e:
     raised = str(e).startswith("audio too short")
 check("a worker error reaches the caller like before (audio too short)", raised)
 
+# ---- Work Area / Whole edit while it works (1.10.9) ------------------------
+# A "live" batch writes its captions as it goes (after every clip and every
+# window of a long clip) and keeps a journal: a stopped run continues.
+import io  # noqa: E402
+import soundfile as sf  # noqa: E402
+import amh_license  # noqa: E402
+amh_license.engine_auth = lambda lease=None, ticket=None: (True, "test")
+
+
+class BatchStub(StubEngine):
+    prefetch = None
+
+    def transcribe(self, w):
+        return E._windowed_transcribe(self, w)
+
+
+bdir = tempfile.mkdtemp()
+rng2 = np.random.default_rng(7)
+paths = []
+for i, secs in enumerate((215, 30)):
+    pth = os.path.join(bdir, "c%d.wav" % i)
+    sf.write(pth, (rng2.standard_normal(secs * 16000) * 0.05).astype(np.float32), 16000)
+    paths.append(pth)
+breq = {"batch": [{"wav": paths[0], "offset": 0.0}, {"wav": paths[1], "offset": 220.0}],
+        "mode": "grouped", "group": 0, "max_chars": 42, "live": True}
+os.environ["AMH_LONG_SECS"] = "60"
+bout = os.path.join(bdir, "seq.srt")
+writes = []
+real_write = E.write_srt
+E.write_srt = lambda p_, c_, o_: (writes.append(len(c_)), real_write(p_, c_, o_))[1]
+be = BatchStub()
+E.handle_server_batch(be, dict(breq, out_srt=bout), 1, io.StringIO())
+E.write_srt = real_write
+full_calls = be.calls
+check("live batch: captions written after every window and clip", len(writes) >= 3)
+check("live batch: the partial file only grows", writes == sorted(writes))
+check("live batch: journal removed when done", not os.path.isfile(bout + ".part.json"))
+final = open(bout, encoding="utf-8").read()
+
+# stopped after 3 windows -> the next run continues
+bout2 = os.path.join(bdir, "seq2.srt")
+real_win = E._win_cues
+count = {"n": 0}
+
+
+def stop_after_3(*a, **k):
+    count["n"] += 1
+    if count["n"] > 3:
+        raise KeyboardInterrupt("power cut")
+    return real_win(*a, **k)
+
+
+E._win_cues = stop_after_3
+try:
+    E.handle_server_batch(BatchStub(), dict(breq, out_srt=bout2), 2, io.StringIO())
+except KeyboardInterrupt:
+    pass
+E._win_cues = real_win
+E.end_permit()
+check("stopped run keeps its journal", os.path.isfile(bout2 + ".part.json"))
+be2 = BatchStub()
+E.handle_server_batch(be2, dict(breq, out_srt=bout2), 3, io.StringIO())
+check("resumed run does only what was left (%d of %d)" % (be2.calls, full_calls), be2.calls == full_calls - 3)
+check("resumed result is the same as an uninterrupted run", open(bout2, encoding="utf-8").read() == final)
+# without "live": as before (one write at the end, no journal)
+writes.clear()
+E.write_srt = lambda p_, c_, o_: (writes.append(len(c_)), real_write(p_, c_, o_))[1]
+E.handle_server_batch(BatchStub(), dict(breq, live=False, out_srt=os.path.join(bdir, "plain.srt")), 4, io.StringIO())
+E.write_srt = real_write
+check("not live: written once at the end", len(writes) == 1)
+del os.environ["AMH_LONG_SECS"]
+E.end_permit()
+
 print("\nALL PASS" if fails == 0 else f"\n{fails} FAILED")
 sys.exit(1 if fails else 0)

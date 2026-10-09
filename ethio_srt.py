@@ -1774,6 +1774,52 @@ def handle_server_one(engine, req, rid, out):
     emit(out, res)
 
 
+# ── Work Area / Whole edit while it works (1.10.9) ───────────────────────────
+# A batch request with "live": true (the panel sends it for long runs) writes
+# its captions as it goes — after every clip, and after every window of a
+# long clip — into out_srt, in the order they are made, with a resume journal
+# next to it (<out_srt>.part.json). The review opens with the first captions,
+# and a run stopped by sleep, a power cut or Cancel continues where it stopped
+# (finished clips, and the finished windows of the clip in progress, are kept
+# when their audio is the same).
+def _cue_row(c):
+    return [c[0], c[1], c[2], list(_cue_doubt(c))]
+
+
+def _cue_from_row(r):
+    return Cue(r[0], r[1], r[2], tuple(r[3]) if len(r) > 3 and r[3] else ())
+
+
+def _batch_long_clip(engine, wav, mode, group_size, max_chars, fp, state, flush):
+    """One long clip of a live batch, window by window (as _run_long does for
+    a single clip); flush(cues_so_far) after each window."""
+    wins = _plan_windows(wav, _window_target_samples())
+    total = len(wins)
+    cur = state.get("cur") or {}
+    if cur.get("fp") == fp and cur.get("total") == total and 0 <= int(cur.get("done", 0)) <= total:
+        done = int(cur.get("done", 0))
+        cues = [_cue_from_row(r) for r in cur.get("cues", [])]
+        texts = list(cur.get("texts", []))
+        if done:
+            print("[info] resuming a long clip: %d/%d windows already done" % (done, total), file=sys.stderr)
+    else:
+        done, cues, texts = 0, [], []
+    _emit_progress(done, total)
+    _schedule(engine, [wav[st:en] for st, en in wins[done:]])
+    for k in range(done, total):
+        st, en = wins[k]
+        text, wcues = _win_cues(engine, wav, st, en, mode, group_size, max_chars)
+        if text:
+            texts.append(text)
+        cues.extend(wcues)
+        _emit_progress(k + 1, total)
+        state["cur"] = {"fp": fp, "total": total, "done": k + 1,
+                        "cues": [_cue_row(c) for c in cues], "texts": texts}
+        flush(cues)
+    state.pop("cur", None)
+    return " ".join(texts), cues
+
+
 def handle_server_batch(engine, req, rid, out):
     require_license(req.get("lease"), req.get("ticket"))
     batch = req["batch"]
@@ -1787,6 +1833,32 @@ def handle_server_batch(engine, req, rid, out):
     ahead = _ClipsAhead(engine, [it.get("wav") for it in batch])
     budget = permit_samples_left()
     cut_at = None
+    live = bool(req.get("live")) and bool(out_srt)
+    jpath = (out_srt + ".part.json") if live else None
+    state = {}
+    if jpath and os.path.isfile(jpath):
+        try:
+            with open(jpath, "r", encoding="utf-8") as f:
+                state = json.load(f)
+            if state.get("n") != total or not isinstance(state.get("clips"), dict):
+                state = {}
+        except Exception:
+            state = {}
+    state["n"] = total
+    state.setdefault("clips", {})
+    long_samples = int(float(os.environ.get("AMH_LONG_SECS", "300")) * 16000)
+
+    def flush(cur_cues=None, cur_off=0.0):
+        rows = list(all_cues)
+        for c in cur_cues or []:
+            rows.append(Cue(c[0], c[1] + cur_off, c[2] + cur_off, _cue_doubt(c)))
+        try:
+            write_srt(out_srt, rows, 0.0)          # partial, fully valid SRT
+            with open(jpath, "w", encoding="utf-8") as f:
+                json.dump(state, f)
+        except Exception:
+            pass
+
     with keep_awake():
         for n, item in enumerate(batch, start=1):
             if budget is not None and budget <= 0:
@@ -1811,11 +1883,23 @@ def handle_server_batch(engine, req, rid, out):
                     budget -= len(wav)
                     if cut is not None:
                         cut_at = off + cut
-                text, spans, frame_dur = engine.transcribe(wav)
-                cues = make_cues(mode, group, spans, frame_dur, text, engine.glyphs,
-                                 max_chars=max_chars, wav=wav)
-                if speakers:
+                fp = _audio_fp(wav) if live else None
+                saved = state["clips"].get(str(n)) if live else None
+                if saved and saved.get("fp") == fp:
+                    text = saved.get("text", "")
+                    cues = [_cue_from_row(r) for r in saved.get("cues", [])]
+                    print("[info] clip %d/%d already done (resumed)" % (n, total), file=sys.stderr)
+                elif live and len(wav) > long_samples:
+                    text, cues = _batch_long_clip(engine, wav, mode, group, max_chars, fp, state,
+                                                  lambda cc, _o=off: flush(cc, _o))
+                else:
+                    text, spans, frame_dur = engine.transcribe(wav)
+                    cues = make_cues(mode, group, spans, frame_dur, text, engine.glyphs,
+                                     max_chars=max_chars, wav=wav)
+                if speakers and not (saved and saved.get("fp") == fp):
                     cues = _maybe_diarize(cues, wav)
+                if live:
+                    state["clips"][str(n)] = {"fp": fp, "text": text, "cues": [_cue_row(c) for c in cues]}
             except Exception as e:
                 _clear_prefetch(engine)
                 skipped += 1
@@ -1825,7 +1909,14 @@ def handle_server_batch(engine, req, rid, out):
             all_text.append(text)
             for c in cues:
                 all_cues.append(Cue(c[0], c[1] + off, c[2] + off, _cue_doubt(c)))
+            if live:
+                flush()
     _clear_prefetch(engine)
+    if jpath:
+        try:
+            os.remove(jpath)
+        except Exception:
+            pass
     if out_srt:
         idx = write_srt(out_srt, all_cues, 0.0)
     else:
