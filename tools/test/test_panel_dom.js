@@ -231,7 +231,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.10.8');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.10.9');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1449,6 +1449,45 @@ await t('10c. review while it is still working: opens early, waits while typing,
     assert.strictEqual(p.evalVm('startLivePoll("x")'), null, 'speaker marks: at the end as before');
     p.evalVm('SPEAKERS = false; LIVE_WANTED = null;');
     assert.strictEqual(p.evalVm('startLivePoll("x")'), null, 'only the runs that ask for it');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); p.close(); }
+});
+
+await t('10c2. Work Area / Whole edit while it works: long runs go live into a resumable work file (1.10.9)', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_blive_'));
+  const sent = [];
+  const cue3 = '1\n00:00:01,000 --> 00:00:02,000\nአንድ\n\n2\n00:03:21,000 --> 00:03:22,000\nሁለት\n';
+  const p = loadPanel({ hooks: {
+    warmStart: () => true,
+    warmSend: async (req) => { sent.push(req); fs.writeFileSync(req.out_srt, cue3); return { text: '' }; },
+  } });
+  // 16 kHz mono 16-bit WAVs of a given length (only their size matters here)
+  const wav = (name, secs) => { const f = path.join(dir, name); fs.writeFileSync(f, Buffer.alloc(44 + secs * 32000)); return f; };
+  try {
+    p.evalVm('LICENSED = true; SPEAKERS = false; cancelRequested = false; setInterval = () => 77; clearInterval = () => {};');
+    const out = path.join(dir, 'seq.srt');
+    p.evalVm('LIVE_WANTED = { outSrt: ' + JSON.stringify(out) + ', label: "sequence" };');
+    const items = JSON.stringify([{ wav: wav('a.wav', 200), offset: 0, name: 'a' }, { wav: wav('b.wav', 200), offset: 200, name: 'b' }]);
+    const r = await p.evalVm('transcribeBatch(' + items + ', ' + JSON.stringify(out) + ')');
+    const req = sent[0];
+    assert.strictEqual(req.live, true, '6:40 of audio, licensed -> the engine writes as it goes');
+    assert.ok(/amh_work_b[0-9a-f]{23}\.srt$/.test(req.out_srt), 'into a work file named after the clips: ' + req.out_srt);
+    assert.notStrictEqual(req.out_srt, out);
+    assert.ok(fs.existsSync(out) && !fs.existsSync(req.out_srt), 'the work file becomes the result');
+    assert.strictEqual(r.cues.length, 2);
+    // same clips again -> the same work file (its journal resumes a stopped run)
+    await p.evalVm('transcribeBatch(' + items + ', ' + JSON.stringify(out) + ')');
+    assert.strictEqual(sent[1].out_srt, req.out_srt, 'same edit -> same work file');
+
+    // short runs, trial users and speaker marks: as before
+    const short = JSON.stringify([{ wav: wav('c.wav', 100), offset: 0, name: 'c' }]);
+    await p.evalVm('transcribeBatch(' + short + ', ' + JSON.stringify(out) + ')');
+    assert.ok(!sent[2].live && sent[2].out_srt === out, 'under 5 minutes: straight to the result');
+    p.evalVm('SPEAKERS = true;');
+    await p.evalVm('transcribeBatch(' + items + ', ' + JSON.stringify(out) + ')');
+    assert.ok(!sent[3].live, 'speaker marks: at the end as before');
+    p.evalVm('SPEAKERS = false; LICENSED = false;');
+    await p.evalVm('transcribeBatch(' + items + ', ' + JSON.stringify(out) + ')');
+    assert.ok(!sent[4].live, 'free trial: at the end as before');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); p.close(); }
 });
 

@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.10.8';
+const APP_VERSION = '1.10.9';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -2436,6 +2436,15 @@ function extractToWav(sourcePath, range) {
   });
 }
 
+// A Work Area / Whole edit run's work file is named after its clips and
+// caption style, so running the same edit again finds its resume journal.
+const LIVE_MIN_SECS = 300;
+function batchWorkKey(items) {
+  const h = crypto.createHash('sha1');
+  for (const it of items) h.update((it.sourcePath ? clipCacheKey(it) : String(it.wav)) + '|');
+  return h.digest('hex').slice(0, 23);
+}
+
 function resumeWorkPath(key) {
   return path.join(os.tmpdir(), 'amh_work_' + String(key).slice(0, 24) + '.srt');
 }
@@ -2623,13 +2632,30 @@ async function transcribeBatch(items, outSrt, onProgress) {
   let transcript = '';
   try {
     if (warmStart()) {
+      // Work Area / Whole edit while it works (1.10.9): a long run (over 5
+      // minutes of audio, nothing from the cache, no overlapping clips) is
+      // written as it goes into a work file named after these clips, with a
+      // resume journal next to it — the review opens with the first captions
+      // and a run stopped by sleep or a power cut continues next time.
+      const secs = misses.reduce((s, it) => s + wavSeconds(it.wav), 0);
+      const live = misses.length === items.length && !ambiguous.size &&
+        secs > LIVE_MIN_SECS && liveReviewAllowed();
+      const work = live ? resumeWorkPath('b' + batchWorkKey(misses)) : outSrt;
       const req = Object.assign({
         batch: misses.map((it) => ({ wav: it.wav, offset: it.offset, name: it.name || '' })),
-        out_srt: outSrt
-      }, await engineAuth(misses.reduce((s, it) => s + wavSeconds(it.wav), 0)));
+        out_srt: work
+      }, await engineAuth(secs));
+      if (live) req.live = true;
       if (onProgress) req.onProgress = onProgress;
-      const r = await warmSend(Object.assign(req, warmStyle()));
+      const livePoll = live ? startLivePoll(work) : null;
+      let r;
+      try {
+        r = await warmSend(Object.assign(req, warmStyle()));
+      } finally {
+        if (livePoll) clearInterval(livePoll);
+      }
       warmTouch();
+      if (live) finishWork(work, outSrt);
       if (r && r.skipped) {
         log('Note: skipped ' + r.skipped + ' clip(s) that could not be transcribed.');
       }
@@ -2644,10 +2670,17 @@ async function transcribeBatch(items, outSrt, onProgress) {
       transcript = one.transcript;
     }
   } catch (e) {
+    // Stopped with a live review open: keep what is written (the next run
+    // continues from the work file's journal).
+    const stopLive = async () => {
+      if (!REVIEW_LIVE) return;
+      if (LIVE_OPENING) { try { await LIVE_OPENING; } catch (x) {} }
+      finishLiveReview(null, false);
+    };
     // Same as the single-clip path: a pending cancel must not respawn work.
-    if (cancelRequested) throw new Error('Cancelled');
-    if (e && e.message === 'Cancelled') throw e;
-    if (!e || !WARM_TRANSPORT_ERRS.has(e.message)) throw e;
+    if (cancelRequested) { await stopLive(); throw new Error('Cancelled'); }
+    if (e && e.message === 'Cancelled') { await stopLive(); throw e; }
+    if (!e || !WARM_TRANSPORT_ERRS.has(e.message)) { await stopLive(); throw e; }
     const one = await transcribeBatchOneShot(misses, outSrt, onProgress);
     byItem = one.byItem;
     transcript = one.transcript;
@@ -4298,6 +4331,7 @@ async function runWorkArea() {
 
     log('Transcribing ' + batchItems.length + ' clip(s) in one pass…');
     const batchStart = Date.now();
+    LIVE_WANTED = { outSrt, label: 'sequence' };
     const r = await transcribeBatch(batchItems, outSrt, (msgOrN, total, name) => {
       // Warm-worker callback passes {at, of, name}; one-shot passes (n, total, name).
       const done = typeof msgOrN === 'object' ? msgOrN.at : msgOrN;
@@ -4313,9 +4347,10 @@ async function runWorkArea() {
         (label && label.trim() ? ' (' + path.basename(label) + ')' : ''));
     });
 
+    LIVE_WANTED = null;
     if (!r.cues.length) log('No speech detected in these clips — nothing to place.');
     log('Done — ' + r.cues.length + ' captions written.');
-    await openReview(outSrt, 'sequence', 0, {});
+    await showRunResult(outSrt, 'sequence', r);
   } finally {
     // Always remove every temporary WAV, including failures and cancellation.
     for (const it of items) {
@@ -4323,6 +4358,7 @@ async function runWorkArea() {
     }
     // Temporary WAVs are gone; do not retain audio paths after this block.
     clearWindowProgress();
+    LIVE_WANTED = null;
   }
 }
 
