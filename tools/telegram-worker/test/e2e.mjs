@@ -794,8 +794,8 @@ console.log('\n:: scenario 1g — every buyer message speaks Amharic; /help answ
   OUTBOUND.length = 0;
   await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { text: '/buy' }));
   const buy = OUTBOUND.filter((o) => o.method === 'sendMessage').at(-1);
-  assert.ok(JSON.stringify(buy.body.reply_markup).includes('pay:proof'),
-    '/buy opens the payment screen directly');
+  assert.ok(JSON.stringify(buy.body.reply_markup).includes('plan:forever') && buy.body.text.includes('Choose a plan'),
+    '/buy opens the plan menu directly');
 
   ok('confused-buyer paths all answer in Amharic; /help and /buy work');
 }
@@ -2457,7 +2457,7 @@ console.log('\n:: scenario 23 — simple buying: no Machine ID for the customer'
   OUTBOUND.length = 0;
   await say(P, `/start m_${PMID}_${NONCE}`);
   let t = lastTo(P);
-  assert.ok(t.body.text.includes('computer is connected') && t.body.text.includes('ETB 2,500') && t.body.text.includes('send the payment screenshot'), 'connected + price + send-the-screenshot');
+  assert.ok(t.body.text.includes('computer is connected') && t.body.text.includes('ETB 2,500') && t.body.text.includes('After paying you send the screenshot'), 'connected + price + send-the-screenshot');
   assert.ok(!t.body.text.includes('Machine ID') && !kbOf(t).includes('Try free'), 'no Machine ID talk; no trial button for someone who has the panel');
   assert.equal((await apiJ('/api/license', { mid: PMID, nonce: NONCE })).status, 'none', 'nothing before paying');
   await photo(P, 'AgAC-panel');
@@ -2485,7 +2485,8 @@ console.log('\n:: scenario 23 — simple buying: no Machine ID for the customer'
   OUTBOUND.length = 0;
   await say(F, '/start');
   await tap(F, 'menu:pay');
-  assert.ok(lastTo(F).body.text.includes('send the payment screenshot right here'), 'pay screen says: send the screenshot here');
+  await tap(F, 'plan:forever');
+  assert.ok(lastTo(F).body.text.includes('Send the payment screenshot here'), 'pay screen says: send the screenshot here');
   await photo(F, 'AgAC-phone');
   o = row(env, 'SELECT * FROM orders WHERE uid=?', F);
   assert.ok(o && /^code-[a-z2-9]{8}$/.test(o.machine_id), 'phone order books WITHOUT a Machine ID: ' + (o && o.machine_id));
@@ -3742,8 +3743,11 @@ console.log('\n:: 1.10.12 plans: 1 month · 2 months · Forever, renewal, upgrad
   assert.ok(t.body.text.includes('ETB 2,500') && kbOf(t).includes('plan:m1') && kbOf(t).includes('plan:m2'), 'Forever shown first, 1 and 2 months one tap away');
   await tap(B, 'plan:m1');
   t = lastTo(B);
-  assert.ok(t.body.text.includes('ETB 500') && t.body.text.includes('30 days from approval'), '1 month: ETB 500, 30 days');
-  assert.ok(kbOf(t).includes('plan:forever') && kbOf(t).includes('plan:m2') && kbOf(t).includes('pay:proof'), 'can switch back; can pay');
+  assert.ok(t.body.text.includes('ETB 500') && t.body.text.includes('30 days from confirmation'), '1 month: ETB 500, 30 days');
+  assert.ok(kbOf(t).includes('plan:menu') && kbOf(t).includes('pay:proof'), 'can change the plan; can pay');
+  await tap(B, 'plan:menu');
+  assert.ok(lastTo(B).body.text.includes('Choose a plan'), 'Change plan -> back to the plan menu');
+  await tap(B, 'plan:m1');
   let n = OUTBOUND.length;
   await photo(B, 'AgAC-plan-m1');
   let o = row(env, 'SELECT * FROM orders WHERE uid=? ORDER BY id DESC LIMIT 1', B);
