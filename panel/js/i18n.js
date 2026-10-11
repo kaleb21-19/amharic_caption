@@ -173,6 +173,12 @@ const AM_TEXT = {
   'This computer has no active license. Activate your license key (or connect to the internet for the free trial).': 'ይህ ኮምፒውተር ፈቃድ የለውም። የፈቃድ ቁልፍዎን ያስገቡ (ወይም ለነጻ ሙከራ ኢንተርኔት ያገናኙ)።',
   'Cannot reach the server — check the internet and try again.': 'ሰርቨሩን ማግኘት አልተቻለም — ኢንተርኔትዎን ፈትሸው እንደገና ይሞክሩ።',
   'Your request is being checked — we will tell you in Telegram.': 'ጥያቄዎ እየተረጋገጠ ነው — በቴሌግራም እንነግርዎታለን።',
+  'Your captions start by themselves when it is ready.': 'ሲጨርስ ካፕሽኑ በራሱ ይጀምራል።',
+  'Try now': 'አሁን ሞክር',
+  'Connecting…': 'በመገናኘት ላይ…',
+  '✓ Model ready — starting your captions.': '✓ ሞዴሉ ዝግጁ ነው — ካፕሽኑ እየጀመረ ነው።',
+  'Press Generate (or "Download the Amharic model" at the top). It is a': '«ካፕሽን ፍጠር»ን ይጫኑ (ወይም ከላይ «የአማርኛ ሞዴሉን አውርድ»)። ይህ',
+  'one-time download; if the connection drops it continues where it stopped.': 'አንድ ጊዜ ብቻ የሚወርድ ነው፤ ኢንተርኔት ቢቋረጥ ካቆመበት ይቀጥላል።',
   'Tap the button below — our Telegram bot opens.': 'ከታች ያለውን ቁልፍ ይጫኑ — የኛ የቴሌግራም ቦት ይከፈታል።',
   'Press START in Telegram.': 'በቴሌግራም START ይጫኑ።',
   'Come back here — your captions start by themselves.': 'ወደዚህ ይመለሱ — ካፕሽኑ በራሱ ይጀምራል።',
@@ -312,6 +318,11 @@ const AM_TEXT = {
 
 // Parameterised English → Amharic ($1.. are the regex groups).
 const AM_PATTERNS = [
+  [/^First the Amharic model is downloaded \((\d+) MB, one time only\)\.$/, 'መጀመሪያ የአማርኛ ሞዴሉ ይወርዳል ($1 MB፣ አንድ ጊዜ ብቻ)።'],
+  [/^Internet connection lost at (\d+) \/ (\d+) MB — trying again in (\d+) s\. Nothing downloaded is lost\.$/,
+    'ኢንተርኔት ተቋርጧል ($1 / $2 MB) — በ$3 ሰከንድ ውስጥ እንደገና ይሞከራል። የወረደው አይጠፋም።'],
+  [/^Downloading… (\d+) \/ (\d+) MB · about (\d+) min left$/, 'በማውረድ ላይ… $1 / $2 MB · ወደ $3 ደቂቃ ቀርቷል'],
+  [/^Downloading… (\d+) \/ (\d+) MB · less than 2 min left$/, 'በማውረድ ላይ… $1 / $2 MB · ከ2 ደቂቃ ያነሰ ቀርቷል'],
   [/^🎁 First, get your (\d+) free minutes$/, '🎁 መጀመሪያ $1 ነጻ ደቂቃዎችዎን ይውሰዱ'],
   [/^🎁 Get (\d+) free minutes — 1 tap$/, '🎁 $1 ነጻ ደቂቃ ያግኙ — 1 ንክኪ'],
   [/^Trial: (\d+) free transcriptions? left$/, 'ሙከራ፦ $1 ነጻ ሙከራ ቀርቷል'],

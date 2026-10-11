@@ -231,7 +231,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.10.16');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.10.18');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1955,7 +1955,7 @@ await t('14b. editing shortcuts (Ctrl/Cmd + C V X A Z Y, + Shift) stay in the pa
   }
 });
 
-await t('15. lite package: model missing -> download card, Generate blocked, finish unblocks', async () => {
+await t('15. lite package: model missing -> download card; Generate starts the download; retries by itself; finish runs the job', async () => {
   // Reshape the placeholder runtime into a lite one for this test only.
   const rt = path.join(REPO, 'runtime');
   const bundled = path.join(rt, 'model');
@@ -1978,20 +1978,42 @@ await t('15. lite package: model missing -> download card, Generate blocked, fin
       await flush(10);
       assert.strictEqual(p.evalVm('MODEL_MISSING'), true);
       assert.strictEqual(p.els('statusText').textContent, 'model needed');
-      assert.strictEqual(p.els('runBtn').disabled, true, 'Generate blocked even with trial credit');
+      assert.strictEqual(p.els('runBtn').disabled, false, 'Generate stays pressable (it explains and starts the download)');
       assert.strictEqual(p.els('modelCard').style.display, 'block', 'download card shown');
       has(p.els('modelBtn').textContent, 'Download the Amharic model (0 MB)');
       assert.strictEqual(p.evalVm('MODEL_DIR'), path.join(home, man.id), 'download target is the shared folder');
 
-      // Pressing the button starts the downloader; with no sources (and a
-      // placeholder python) it ends in the resumable "failed" state.
-      p.els('modelBtn').fire('click');
-      for (let i = 0; i < 100 && p.els('modelCard').getAttribute('data-state') === 'running'; i++) await flush(50);
+      // Generate with the model missing: the download starts by itself and the
+      // job is remembered. With no sources (and a placeholder python) the
+      // download fails -> it is retried by itself after a wait.
+      p.evalVm('globalThis.__timers = []; setTimeout = (fn, ms) => { __timers.push([fn, ms]); return __timers.length; }; ' +
+        'clearTimeout = () => {}; setInterval = () => 0; clearInterval = () => {}; globalThis.__jobs = 0;');
+      assert.strictEqual(p.evalVm('modelReadyForRun(() => { __jobs++; })'), false);
+      has(p.els('logBox').textContent, 'Your captions start by themselves when it is ready.');
+      assert.ok(p.evalVm('!!modelChild') || p.els('modelCard').getAttribute('data-state') !== 'idle', 'download started by Generate');
+      for (let i = 0; i < 100 && p.evalVm('!!modelChild'); i++) await flush(50);
+      // (The placeholder python cannot even start here; a real dropped
+      // connection ends the downloader with an error -> scheduleModelRetry.)
+      p.evalVm('MODEL_RETRY.n = 0; __timers.length = 0; scheduleModelRetry();');
+      assert.strictEqual(p.els('modelCard').getAttribute('data-state'), 'retrying', 'a failed download waits, then tries again');
+      has(p.els('modelLabel').textContent, 'trying again in');
+      has(p.els('modelLabel').textContent, 'Nothing downloaded is lost');
+      assert.strictEqual(p.evalVm('__timers.filter((t) => t[1] === 10000).length'), 1, 'first retry after 10 s');
+      // Each failed try waits longer; after the last it asks for a tap.
+      p.evalVm('MODEL_RETRY.n = MODEL_RETRY_S.length;');
+      p.evalVm('scheduleModelRetry()');
       assert.strictEqual(p.els('modelCard').getAttribute('data-state'), 'failed');
       has(p.els('modelBtn').textContent, 'Resume download');
 
-      // A finished download unblocks Generate without reopening the panel.
+      // Time left while downloading.
+      p.evalVm('MODEL_SPEED = { t: Date.now() - 10000, bytes: 0, bps: 0 };');
+      assert.strictEqual(p.evalVm('modelTimeLeft(5)'), '', 'too slow to say (5 bytes in 10 s)');
+
+      // A finished download starts the job that was asked for, once.
       p.evalVm("modelDownloadFinished(" + JSON.stringify(path.join(home, man.id)) + ")");
+      assert.strictEqual(p.evalVm('__jobs'), 1, 'the captions start by themselves');
+      has(p.els('logBox').textContent, 'Model ready — starting your captions');
+      assert.strictEqual(p.evalVm('MODEL_RESUME'), null);
       assert.strictEqual(p.evalVm('MODEL_MISSING'), false);
       assert.strictEqual(p.els('runBtn').disabled, false, 'Generate enabled after download');
       assert.strictEqual(p.els('statusText').textContent, 'ready');
