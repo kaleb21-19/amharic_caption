@@ -3682,6 +3682,35 @@ console.log('\n:: free captions per computer: a new Machine ID on the same compu
   ok('free captions: two per computer — deleting the machine file does not give new ones; other computers unaffected');
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: 1.10.11 problem report from the program');
+{
+  const { env } = fresh();
+  const MID = 'feed0000beef1111';
+  env.DB.prepare("INSERT INTO trial_grants (machine_id, uid, name, seconds_total, seconds_used) VALUES (?, '972000001', '@reporter', 1200, 0)").bind(MID).run();
+  const send = (body, ip = '196.188.50.1') => api(env, '/api/report', { method: 'POST', body, headers: { 'CF-Connecting-IP': ip } });
+  let n = OUTBOUND.length;
+  let r = await send({
+    mid: MID, v: '1.10.11', host: 'APP', sys: { platform: 'win32', release: '10.0.26200', arch: 'x64', ram_gb: 3.9, free_gb: 0.4, cpus: 4 },
+    licensed: false, trial: 'active 20:00 left', step: 'err_memory', error: 'worker exited <b>boom</b>',
+    tail: ['MemoryError: bad_alloc'], log: ['Transcribing…', 'ERROR: worker exited'],
+  });
+  assert.equal(r.status, 200);
+  const msgOut = OUTBOUND.slice(n).find((x) => String(x.body.chat_id) === String(ADMIN_ID) && /Problem report/.test(x.body.text || ''));
+  assert.ok(msgOut, 'the owner gets the report');
+  const t = msgOut.body.text;
+  assert.ok(t.includes(MID) && t.includes('v1.10.11') && t.includes('RAM 3.9 GB (free 0.4)') && t.includes('4 CPU'), 'version + system');
+  assert.ok(t.includes('@reporter') && t.includes('err_memory') && t.includes('MemoryError: bad_alloc') && t.includes('ERROR: worker exited'), 'who, the error, engine lines, log');
+  assert.ok(t.includes('&lt;b&gt;boom&lt;/b&gt;') && !t.includes('<b>boom'), 'everything the program sent is escaped');
+  assert.ok(JSON.stringify(msgOut.body.reply_markup).includes('admin:tgcard:' + MID), 'button to their trial card');
+  r = await send({ mid: 'not-a-mid' });
+  assert.equal(r.status, 400);
+  for (let i = 0; i < 3; i++) await send({ mid: MID }, '196.188.50.' + (10 + i));
+  r = await send({ mid: MID }, '196.188.50.20');
+  assert.equal(r.status, 429, 'a few reports per computer per day');
+  ok('problem report: the owner gets error + engine lines + log + system (escaped), trial-card button, limited per computer');
+}
+
 // Across EVERY scenario: nothing may be silently refused by Telegram (a refused
 // call is a screen the user never sees). Only the recovered photo→file case.
 {

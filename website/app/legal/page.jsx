@@ -204,6 +204,15 @@ export default function LegalPage() {
               the audio itself). Trial records may be retained as pseudonymous
               abuse-prevention records.
             </li>
+            <li>
+              <strong>Problem report (1.10.11+).</strong> Only when you press
+              “Send problem report” after a failed run, the program sends the
+              error, the last lines of its log (your home folder, license keys
+              and tickets removed), the program version, your operating system,
+              memory and processor count, and your Machine ID to our server,
+              which forwards it to us so we can fix the problem. No video,
+              audio or captions are sent, and the report is not stored.
+            </li>
           </ul>
 
           <h3>What is stored and where</h3>

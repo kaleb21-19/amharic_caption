@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.10.10';
+const APP_VERSION = '1.10.11';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -371,9 +371,22 @@ function track(step) {
   } catch (e) {}
 }
 // The error TYPE behind a failed run (the same buckets as humanError()).
+// What the engine said last (stderr), for the error type and the problem
+// report: a crash's reason is often only there, not in the error itself.
+let WORKER_TAIL = [];
+function noteEngineLine(line) {
+  WORKER_TAIL.push(String(line).slice(0, 300));
+  if (WORKER_TAIL.length > 40) WORKER_TAIL.shift();
+}
+const MEMORY_RE = /memoryerror|bad_alloc|out of memory|not enough memory|cannot allocate|insufficient memory|paging file is too small/i;
+const BLOCKED_RE = /access is denied|permissionerror|\[winerror 5\]|operation not permitted|winerror 225|virus/i;
 function errorStep(raw) {
   const t = String(raw || '').toLowerCase();
+  const tail = WORKER_TAIL.join('\n');
   if (workerDllError || t.includes('dll load failed')) return 'err_av_blocked';
+  if (MEMORY_RE.test(t) || MEMORY_RE.test(tail)) return 'err_memory';
+  if (BLOCKED_RE.test(t) || BLOCKED_RE.test(tail)) return 'err_av_blocked';
+  if (t.includes('worker timeout')) return 'err_engine_hang';
   if (t.includes('audio too short')) return 'err_too_short';
   if (t.includes('no speech')) return 'err_no_speech';
   if (t.includes('audio-bearing')) return 'err_no_clips';
@@ -381,10 +394,10 @@ function errorStep(raw) {
   if (t.includes('source path') || t.includes('no media file')) return 'err_no_media';
   if (t.includes('ffmpeg')) return 'err_media_unreadable';
   if (t.includes('enospc') || t.includes('no space')) return 'err_disk_full';
+  if (t.includes('license required') || t.includes('trial used up') || t.includes('needs internet')) return 'err_license';
   if (t.includes('python failed') || t.includes('worker')) return 'err_engine';
   if (t.includes('runtime')) return 'err_runtime';
   if (t.includes('cancel')) return '';
-  if (t.includes('license required') || t.includes('trial used up') || t.includes('needs internet')) return 'err_license';
   return 'err_other';
 }
 setTimeout(() => track('open'), 1200);
@@ -799,6 +812,7 @@ function startBuyPoll() {
 }
 
 function initBuy() {
+  initReport();
   initTrialCard();
   initFreeMinutes();
   const b = document.getElementById('buyBtn');
@@ -1807,6 +1821,8 @@ function setSuccess(text) {
 }
 function setBusy(busy) {
   if (busy) {
+    showReportOffer(false);
+    WORKER_TAIL = [];
     setStatus('busy', 'working…');
   } else {
     // Keep a freshly-confirmed success pill ("✓ Captions on timeline") instead
@@ -2130,6 +2146,7 @@ function warmStart() {
       if (!t) return;
       if (consumeProgressLine(t)) return;
       noteWorkerStderr(t);
+      noteEngineLine(t);
       log('[worker] ' + t);
     });
   });
@@ -2589,6 +2606,7 @@ async function transcribeOneShot(sourcePath, outSrt, range, offset, wav) {
             const t = raw.trim();
             if (!t || consumeProgressLine(t)) return;
             noteWorkerStderr(t);
+            noteEngineLine(t);
           });
         });
       }
@@ -4130,6 +4148,16 @@ let runStartInProgress = false;
 // text is still written to the Log for support; this is the one line they see.
 function humanError(raw) {
   const t = String(raw || '').toLowerCase();
+  const kind = errorStep(raw);
+  if (kind === 'err_memory') {
+    return 'Your computer ran out of memory. Close other programs (Chrome, other editors), then try again.';
+  }
+  if (kind === 'err_av_blocked' && !workerDllError && !t.includes('dll load failed')) {
+    return 'Windows or an antivirus blocked the transcription engine. Allow Amharic Captions in your antivirus, then try again.';
+  }
+  if (kind === 'err_engine_hang') {
+    return 'The transcription engine stopped responding. Close other programs, plug in the charger, and try again.';
+  }
   if (workerDllError || t.includes('dll load failed')) {
     return 'Your antivirus or an incomplete install blocked part of the transcription engine. Add the extension folder to your antivirus exclusions, then reinstall and restart Premiere.';
   }
@@ -4166,6 +4194,76 @@ function failRun(raw) {
   setStatus('err', 'failed');
   // progLabel is an aria-live region, so this is announced as well as shown.
   setProgress(0, msg + ' See “Details for support” below.');
+  LAST_FAIL = { raw: String(raw || ''), step: step || '', at: Date.now() };
+  showReportOffer(true);
+}
+
+// ── Problem report (1.10.11) ────────────────────────────────────────────────
+// After a failed run: "📨 Send problem report". Only on that tap, the error,
+// the engine's last lines, the end of the Log (home folder and keys/tickets
+// removed), the version, the system (Windows/macOS, memory, processors) and
+// the Machine ID go to our bot, which forwards them to the owner — the cause
+// of a failure on a customer's computer was otherwise invisible. Never any
+// video, audio or captions.
+let LAST_FAIL = null;
+function showReportOffer(on) {
+  const box = document.getElementById('reportBox');
+  if (!box) return;
+  box.style.display = on ? '' : 'none';
+  const st = document.getElementById('reportStatus');
+  if (st && on) { st.textContent = ''; st.style.display = 'none'; }
+  const b = document.getElementById('reportBtn');
+  if (b && on) b.disabled = false;
+}
+function scrubReport(s) {
+  let out = String(s == null ? '' : s);
+  try {
+    const home = os.homedir();
+    if (home) out = out.split(home).join('~');
+  } catch (e) {}
+  return out
+    .replace(/AMH-[0-9A-Za-z-]{8,}/g, 'AMH-…')
+    .replace(/\b[vt][12]\.[0-9A-Za-z._:-]{20,}/g, '[ticket]')
+    .replace(/[A-Z2-9]{4}-[A-Z2-9]{4}\b/g, '[code]');
+}
+function buildReport() {
+  const logLines = String((document.getElementById('logBox') || {}).textContent || '').split('\n').slice(-60);
+  let sys = {};
+  try {
+    sys = {
+      platform: process.platform, release: os.release(), arch: process.arch,
+      ram_gb: Math.round(os.totalmem() / 1e8) / 10, free_gb: Math.round(os.freemem() / 1e8) / 10,
+      cpus: (os.cpus() || []).length,
+    };
+  } catch (e) {}
+  return {
+    mid: MACHINE_ID, v: APP_VERSION, host: TRACK_HOST, sys,
+    licensed: !!LICENSED,
+    trial: TRIAL_MIN ? (TRIAL_MIN.status + ' ' + fmtMinSec(TRIAL_MIN.seconds_left) + ' left') : '',
+    step: LAST_FAIL ? LAST_FAIL.step : '',
+    error: scrubReport(LAST_FAIL ? LAST_FAIL.raw : '').slice(0, 500),
+    tail: WORKER_TAIL.slice(-20).map(scrubReport),
+    log: logLines.map(scrubReport),
+  };
+}
+async function sendReport() {
+  const b = document.getElementById('reportBtn');
+  const st = document.getElementById('reportStatus');
+  if (b) b.disabled = true;
+  const r = await apiPost('/api/report', buildReport());
+  track('report_sent');
+  if (st) {
+    st.textContent = L(r && r.ok
+      ? 'Sent — thank you. We will look at it and reply in Telegram.'
+      : 'Could not send — check the internet and try again, or send a screenshot of the Log to @AmharicCaptionsBot.');
+    st.style.display = '';
+  }
+  if (b && !(r && r.ok)) b.disabled = false;
+}
+function initReport() {
+  showReportOffer(false);
+  const b = document.getElementById('reportBtn');
+  if (b) b.addEventListener('click', (e) => { if (e && e.preventDefault) e.preventDefault(); sendReport(); });
 }
 
 async function runSelectedClip() {
