@@ -231,7 +231,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.10.12');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.10.13');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1561,6 +1561,27 @@ await t('10f3. 💡 Ideas: write, send (with an optional @username), thanked; em
     p.els('feedbackCancel').fire('click');
     assert.ok(!p.els('feedbackCard').classList.contains('show'), 'closes');
   } finally { p.close(); }
+});
+
+await t('10f4. the engine dies -> the backup engine still gets the audio (it is not deleted too early)', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_fb_'));
+  const p = loadPanel({ hooks: {
+    warmStart: () => true,
+    warmSend: async () => { throw new Error('worker exited'); },     // e.g. out of memory while loading
+  } });
+  try {
+    await flush(5);
+    const src = path.join(REPO, 'tools', 'test', 'fixtures', 'short1.wav');
+    const wav = path.join(dir, 'amharic_warm_test.wav');
+    p.evalVm('extractToWav = async () => { require("fs").writeFileSync(' + JSON.stringify(wav) + ', "RIFF"); return ' + JSON.stringify(wav) + '; };' +
+      'globalThis.__seen = null;' +
+      'transcribeOneShot = async (s, o, r, off, w) => { await new Promise((res) => setTimeout(res, 30)); globalThis.__seen = require("fs").existsSync(w);' +
+      '  require("fs").writeFileSync(o, ""); return { outSrt: o, cues: [], transcript: "" }; };' +
+      'LICENSED = true; cancelRequested = false;');
+    await p.evalVm('transcribe(' + JSON.stringify(src) + ', ' + JSON.stringify(path.join(dir, 'out.srt')) + ', null, 0)');
+    assert.strictEqual(p.evalVm('globalThis.__seen'), true, 'the backup engine found the audio file');
+    assert.strictEqual(fs.existsSync(wav), false, 'and it is removed afterwards');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); p.close(); }
 });
 
 await t('10d. anonymous step counts: once a day per step, nothing personal, error types', async () => {
