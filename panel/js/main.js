@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.10.11';
+const APP_VERSION = '1.10.12';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -812,6 +812,7 @@ function startBuyPoll() {
 }
 
 function initBuy() {
+  initFeedback();
   initReport();
   initTrialCard();
   initFreeMinutes();
@@ -954,6 +955,11 @@ function canonicalPanelKey(value) {
 let LICENSED = false;
 let LICENSED_REFRESH = false;
 let LICENSE_NOTE = '';
+// A key that ends on YYYYMMDD works until the day before.
+function lastLicenseDay(exp) {
+  const d = new Date(Date.UTC(+exp.slice(0, 4), +exp.slice(4, 6) - 1, +exp.slice(6, 8)) - 86400000);
+  return d.toISOString().slice(0, 10);
+}
 
 // Signed leases are mandatory. Legacy `{valid, serverValidated, activated}`
 // objects are intentionally rejected because every field is user-controlled.
@@ -969,7 +975,9 @@ async function assessLicense() {
   const v = await verifyLicenseToken(stored.token, LICENSE_TOKEN_PUBKEY_PEM, MACHINE_ID);
   if (v.ok) {
     LICENSED = true;
-    LICENSE_NOTE = 'Licensed' + (v.expiry && v.expiry !== '00000000' ? ' (expires ' + v.expiry + ')' : '');
+    // A 1- or 2-month plan (1.10.12): show the last day it works.
+    LICENSE_NOTE = (v.expiry && /^\d{8}$/.test(v.expiry) && v.expiry !== '00000000')
+      ? 'Licensed until ' + lastLicenseDay(v.expiry) : 'Licensed';
     return;
   }
   // Definitive signature/shape failures clear the lease. A transient WebCrypto
@@ -1219,7 +1227,7 @@ function updateLicenseUI() {
       licStatus.textContent = L(LICENSE_NOTE || 'Licensed');
       licStatus.style.color = 'var(--ok)';
       // The thank-you note already says it; only a dated key needs this line.
-      licStatus.style.display = /expires/.test(LICENSE_NOTE || '') ? '' : 'none';
+      licStatus.style.display = /until/.test(LICENSE_NOTE || '') ? '' : 'none';
     }
     if (runBtn) runBtn.disabled = MODEL_MISSING;
     if (licInput) licInput.style.display = 'none';
@@ -4260,6 +4268,54 @@ async function sendReport() {
   }
   if (b && !(r && r.ok)) b.disabled = false;
 }
+// ── Feedback (1.10.12) ──────────────────────────────────────────────────────
+// "💡 Ideas" in the footer: a short message (and, if they like, their
+// Telegram @username) goes to the owner's bot with the Machine ID, version
+// and whether this computer is licensed or on the free trial. Nothing else.
+function openFeedback(on) {
+  const card = document.getElementById('feedbackCard');
+  if (!card) return;
+  card.classList.toggle('show', !!on);
+  const st = document.getElementById('feedbackStatus');
+  if (st && on) { st.textContent = ''; st.style.display = 'none'; }
+  const send = document.getElementById('feedbackSend');
+  if (send && on) send.disabled = false;
+}
+async function sendFeedback() {
+  const box = document.getElementById('feedbackText');
+  const tgBox = document.getElementById('feedbackTg');
+  const st = document.getElementById('feedbackStatus');
+  const send = document.getElementById('feedbackSend');
+  const text = String((box && box.value) || '').trim();
+  const say = (m) => { if (st) { st.textContent = L(m); st.style.display = ''; } };
+  if (text.length < 3) { say('Write a few words first.'); return; }
+  const tg = String((tgBox && tgBox.value) || '').trim().replace(/^(?:https?:\/\/)?t\.me\//i, '').replace(/^@?/, '@');
+  if (send) send.disabled = true;
+  const r = await apiPost('/api/feedback', {
+    mid: MACHINE_ID, v: APP_VERSION, host: TRACK_HOST, text: text.slice(0, 1500),
+    tg: /^@[A-Za-z0-9_]{4,32}$/.test(tg) ? tg : '',
+    licensed: !!LICENSED,
+    trial: TRIAL_MIN ? (TRIAL_MIN.status + ' ' + fmtMinSec(TRIAL_MIN.seconds_left) + ' left') : '',
+  });
+  track('feedback_sent');
+  if (r && r.ok) {
+    if (box) box.value = '';
+    say('Thank you! We read every message.');
+  } else {
+    if (send) send.disabled = false;
+    say('Could not send — check the internet and try again.');
+  }
+}
+function initFeedback() {
+  openFeedback(false);
+  const link = document.getElementById('feedbackLink');
+  if (link) link.addEventListener('click', (e) => { if (e && e.preventDefault) e.preventDefault(); openFeedback(true); });
+  const send = document.getElementById('feedbackSend');
+  if (send) send.addEventListener('click', (e) => { if (e && e.preventDefault) e.preventDefault(); sendFeedback(); });
+  const close = document.getElementById('feedbackCancel');
+  if (close) close.addEventListener('click', (e) => { if (e && e.preventDefault) e.preventDefault(); openFeedback(false); });
+}
+
 function initReport() {
   showReportOffer(false);
   const b = document.getElementById('reportBtn');

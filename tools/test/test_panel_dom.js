@@ -231,7 +231,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.10.11');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.10.12');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1534,6 +1534,35 @@ await t('10f2. a failed run: error types, and "Send problem report" (scrubbed, o
   } finally { p.close(); }
 });
 
+await t('10f3. 💡 Ideas: write, send (with an optional @username), thanked; empty refused', async () => {
+  const sent = [];
+  const p = loadPanel({ fetch: trialServer({ more: (u, init) => {
+    if (u.includes('/api/feedback')) { sent.push(JSON.parse(init.body)); return { ok: true, json: async () => ({ ok: true }) }; }
+    return null;
+  } }) });
+  try {
+    await flush(10);
+    assert.ok(!p.els('feedbackCard').classList.contains('show'), 'closed at start');
+    p.els('feedbackLink').fire('click');
+    assert.ok(p.els('feedbackCard').classList.contains('show'), 'opens');
+    p.els('feedbackSend').fire('click');
+    await flush(5);
+    assert.strictEqual(sent.length, 0, 'nothing sent without text');
+    assert.ok(/Write a few words/.test(p.els('feedbackStatus').textContent));
+    p.els('feedbackText').value = 'Please add DaVinci direct import';
+    p.els('feedbackTg').value = 't.me/my_name';
+    p.els('feedbackSend').fire('click');
+    await flush(10);
+    assert.strictEqual(sent.length, 1);
+    assert.strictEqual(sent[0].text, 'Please add DaVinci direct import');
+    assert.strictEqual(sent[0].tg, '@my_name', 'a t.me link becomes @username');
+    assert.strictEqual(sent[0].mid, p.mid);
+    assert.ok(/Thank you/.test(p.els('feedbackStatus').textContent) && p.els('feedbackText').value === '', 'thanked; the box is cleared');
+    p.els('feedbackCancel').fire('click');
+    assert.ok(!p.els('feedbackCard').classList.contains('show'), 'closes');
+  } finally { p.close(); }
+});
+
 await t('10d. anonymous step counts: once a day per step, nothing personal, error types', async () => {
   const sent = [];
   const p = loadPanel({ fetch: async (url, o) => {
@@ -1676,7 +1705,8 @@ await t('17. polish: Amharic errors/progress, compact idle UI, simple license st
     p.evalVm("LICENSED = true; LICENSE_NOTE = 'Licensed'; updateLicenseUI()");
     assert.strictEqual(p.els('footPrice').style.display, 'none', 'no price shown to payers');
     assert.strictEqual(p.els('licenseStatus').style.display, 'none');
-    p.evalVm("LICENSE_NOTE = 'Licensed (expires 20271231)'; updateLicenseUI()");
+    p.evalVm("LICENSE_NOTE = 'Licensed until ' + lastLicenseDay('20271231'); updateLicenseUI()");
+    assert.strictEqual(p.els('licenseStatus').textContent, 'ፈቃድ አለው — እስከ 2027-12-30', 'a plan shows its last day (Amharic)');
     assert.strictEqual(p.els('licenseStatus').style.display, '', 'dated keys still show their date');
   } finally { p.close(); }
 

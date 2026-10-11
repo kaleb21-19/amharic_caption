@@ -42,6 +42,9 @@ WHAT THE SOFTWARE DOES SEND
   memory and processor count, and your Machine ID to our server, which
   forwards it to us so we can fix the problem. No video, audio or captions;
   the report is not stored.
+* Feedback (1.10.12+): a message sent with "Ideas" goes to us with your
+  Machine ID, version, licensed / free-trial state and the Telegram username
+  you typed (optional), so we can reply. Not stored on our server.
 
 WHAT IS STORED AND WHERE
 License data lives on Cloudflare's platform (Workers + D1): Machine ID,

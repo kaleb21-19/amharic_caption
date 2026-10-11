@@ -97,6 +97,7 @@ class D1 {
     this.db.exec(readFileSync(new URL('../migrations/0025_events_daily.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0026_trial_hosts.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0027_trial_minutes.sql', import.meta.url), 'utf8'));
+    this.db.exec(readFileSync(new URL('../migrations/0028_plans.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0022_jobs_d1.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0023_group_members.sql', import.meta.url), 'utf8'));
     this.db.exec("ALTER TABLE customers ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0"); // migration 0008
@@ -3709,6 +3710,130 @@ console.log('\n:: 1.10.11 problem report from the program');
   r = await send({ mid: MID }, '196.188.50.20');
   assert.equal(r.status, 429, 'a few reports per computer per day');
   ok('problem report: the owner gets error + engine lines + log + system (escaped), trial-card button, limited per computer');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: 1.10.12 plans: 1 month · 2 months · Forever, renewal, upgrade, reminders');
+{
+  const { env } = fresh();
+  const A = Number(ADMIN_ID);
+  const B = '973000001';
+  const MID = '3f9a1c7e5b20d846';
+  const say = (uid, text) => post(env, msg(Number(uid), { id: Number(uid), username: 'u' + uid, first_name: 'Abel' }, { text }));
+  const tap = (uid, data) => cb(env, { id: Number(uid), username: 'u' + uid }, data, { chatId: Number(uid) });
+  const photo = (uid, id) => post(env, msg(Number(uid), { id: Number(uid), username: 'u' + uid }, { photo: [{ file_id: id }] }));
+  const toUid = (uid) => OUTBOUND.filter((x) => x.id && ['sendMessage', 'editMessageText', 'editMessageCaption'].includes(x.method) && String(x.body.chat_id) === String(uid));
+  const lastTo = (uid) => toUid(uid).at(-1);
+  const kbOf = (m) => JSON.stringify((m && m.body.reply_markup) || {});
+  const approveLatest = async () => {
+    const o = row(env, 'SELECT * FROM orders WHERE uid=? ORDER BY id DESC LIMIT 1', B);
+    await cb(env, { id: A }, `approve:${o.id}`);
+    return row(env, 'SELECT * FROM orders WHERE id=?', o.id);
+  };
+  const ymd = (d) => d.toISOString().slice(0, 10).replace(/-/g, '');
+  const eat = new Date(Date.now() + 3 * 3600 * 1000);
+  const today = new Date(Date.UTC(eat.getUTCFullYear(), eat.getUTCMonth(), eat.getUTCDate()));
+  const plusDays = (base, n) => ymd(new Date(base.getTime() + n * 86400000));
+  const fromYmd = (e) => new Date(Date.UTC(+e.slice(0, 4), +e.slice(4, 6) - 1, +e.slice(6, 8)));
+
+  // 1 month from the panel's Buy
+  await say(B, `/start m_${MID}_Nonce1234567890`);
+  let t = lastTo(B);
+  assert.ok(t.body.text.includes('ETB 2,500') && kbOf(t).includes('plan:m1') && kbOf(t).includes('plan:m2'), 'Forever shown first, 1 and 2 months one tap away');
+  await tap(B, 'plan:m1');
+  t = lastTo(B);
+  assert.ok(t.body.text.includes('ETB 500') && t.body.text.includes('30 days from approval'), '1 month: ETB 500, 30 days');
+  assert.ok(kbOf(t).includes('plan:forever') && kbOf(t).includes('plan:m2') && kbOf(t).includes('pay:proof'), 'can switch back; can pay');
+  let n = OUTBOUND.length;
+  await photo(B, 'AgAC-plan-m1');
+  let o = row(env, 'SELECT * FROM orders WHERE uid=? ORDER BY id DESC LIMIT 1', B);
+  assert.ok(o.plan === 'm1' && o.amount_etb === 500 && o.machine_id === MID, 'order: 1 month, ETB 500');
+  const card = OUTBOUND.slice(n).find((x) => x.method === 'sendPhoto' && String(x.body.chat_id) === String(A));
+  assert.ok(card && card.body.caption.includes('Plan: <b>1 ወር / 1 month</b>') && card.body.caption.includes('ETB 500'), 'owner sees the plan and the amount to expect');
+  o = await approveLatest();
+  const exp1 = plusDays(today, 30);
+  let c = row(env, 'SELECT * FROM customers WHERE machine_id=?', MID);
+  assert.equal(c.expiry, exp1, 'the key ends 30 days after approval');
+  assert.equal(c.key, keyFor(MID, exp1), 'and carries that end date');
+  assert.equal(row(env, 'SELECT plan, amount_etb FROM sales WHERE order_id=?', o.id).plan, 'm1');
+  const again = await cb(env, { id: A }, `approve:${o.id}`);
+  assert.equal(row(env, 'SELECT expiry FROM customers WHERE machine_id=?', MID).expiry, exp1, 'a repeated Approve never extends twice');
+  ok('plans: 1 month from the panel → ETB 500 → key that ends in 30 days (once)');
+
+  // renewal: 2 months added to the current end
+  await say(B, `/start m_${MID}_Nonce1234567891`);
+  assert.ok(!lastTo(B).body.text.includes('already has a license'), 'a timed license can renew');
+  await tap(B, 'plan:m2');
+  assert.ok(lastTo(B).body.text.includes('ETB 900'));
+  await photo(B, 'AgAC-plan-m2');
+  o = await approveLatest();
+  const exp2 = plusDays(fromYmd(exp1), 60);
+  c = row(env, 'SELECT * FROM customers WHERE machine_id=?', MID);
+  assert.ok(o.plan === 'm2' && o.amount_etb === 900 && c.expiry === exp2 && c.key === keyFor(MID, exp2), 'renewal adds 60 days to the current end');
+  ok('plans: renewing adds to the current end date');
+
+  // reminder 3 days before the end: once, with Renew / Forever
+  env.DB.prepare('UPDATE customers SET expiry=?, key=? WHERE machine_id=?').bind(plusDays(today, 2), keyFor(MID, plusDays(today, 2)), MID).run();
+  n = OUTBOUND.length;
+  await worker.scheduled({ cron: '0 */6 * * *' }, env);
+  let rem = OUTBOUND.slice(n).filter((x) => String(x.body.chat_id) === B && /Your license ends on/.test(x.body.text || ''));
+  assert.equal(rem.length, 1, 'one reminder');
+  assert.ok(kbOf(rem[0]).includes('renew:m1:' + MID) && kbOf(rem[0]).includes('renew:forever:' + MID) && rem[0].body.text.includes(ymd(new Date(today.getTime() + 86400000)).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3')), 'Renew / Forever buttons, the last day');
+  n = OUTBOUND.length;
+  await worker.scheduled({ cron: '0 */6 * * *' }, env);
+  assert.equal(OUTBOUND.slice(n).filter((x) => String(x.body.chat_id) === B && /license ends/.test(x.body.text || '')).length, 0, 'never twice');
+  // only the license's own account can use Renew
+  await tap('973000099', 'renew:m1:' + MID);
+  assert.ok(lastTo('973000099').body.text.includes('not bought with this Telegram account'));
+  ok('plans: one reminder 3 days before the end, Renew / Forever buttons, only for the owner of that license');
+
+  // upgrade to Forever: what was paid for the timed plans is deducted
+  await tap(B, 'renew:forever:' + MID);
+  t = lastTo(B);
+  assert.ok(t.body.text.includes('ETB 1,100') && t.body.text.includes('already paid is deducted'), 'Forever after 500 + 900 → ETB 1,100');
+  await photo(B, 'AgAC-plan-up');
+  o = await approveLatest();
+  c = row(env, 'SELECT * FROM customers WHERE machine_id=?', MID);
+  assert.ok(o.plan === 'forever' && o.amount_etb === 1100 && c.expiry === '00000000' && c.key === keyFor(MID), 'upgrade: ETB 1,100, a forever key');
+  // Forever: no second sale on this computer
+  await say(B, `/start m_${MID}_Nonce1234567892`);
+  assert.ok(lastTo(B).body.text.includes('already has a license'), 'Forever: no more purchases for this computer');
+  ok('plans: upgrade to Forever pays only the difference; then the computer is licensed for good');
+
+  // from the phone: 2 months → an activation code that carries the end date
+  const F = '973000002';
+  await say(F, '/start');
+  await tap(F, 'menu:pay');
+  await tap(F, 'plan:m2');
+  await photo(F, 'AgAC-plan-phone');
+  const of = row(env, 'SELECT * FROM orders WHERE uid=? ORDER BY id DESC LIMIT 1', F);
+  await cb(env, { id: A }, `approve:${of.id}`);
+  const code = row(env, 'SELECT * FROM activation_codes WHERE order_id=?', of.id);
+  assert.ok(of.plan === 'm2' && of.amount_etb === 900 && code && code.expiry === plusDays(today, 60), 'phone order: 2 months, the code ends in 60 days');
+  ok('plans: a phone buyer gets an activation code for the plan they paid');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: 1.10.12 feedback from the program');
+{
+  const { env } = fresh();
+  const MID = 'aa11bb22cc33dd44';
+  env.DB.prepare("INSERT INTO trial_grants (machine_id, uid, name, seconds_total, seconds_used) VALUES (?, '974000001', '@idea_person', 1200, 60)").bind(MID).run();
+  const send = (body, ip = '196.188.60.1') => api(env, '/api/feedback', { method: 'POST', body, headers: { 'CF-Connecting-IP': ip } });
+  let n = OUTBOUND.length;
+  let r = await send({ mid: MID, v: '1.10.12', host: 'APP', text: 'ለDaVinci ቀጥታ <ቢገባ> ጥሩ ነበር', tg: '@written_tg', licensed: false, trial: 'active 19:00 left' });
+  assert.equal(r.status, 200);
+  const m = OUTBOUND.slice(n).find((x) => String(x.body.chat_id) === String(ADMIN_ID) && /Feedback/.test(x.body.text || ''));
+  assert.ok(m, 'the owner gets it');
+  assert.ok(m.body.text.includes('ለDaVinci ቀጥታ &lt;ቢገባ&gt; ጥሩ ነበር'), 'the message, escaped');
+  assert.ok(m.body.text.includes('tg://user?id=974000001') && m.body.text.includes('@written_tg') && m.body.text.includes('active 19:00 left'), 'who (tap to reply), what they typed, trial state');
+  assert.ok(JSON.stringify(m.body.reply_markup).includes('admin:tgcard:' + MID));
+  r = await send({ mid: MID, text: 'a' });
+  assert.equal(r.status, 400, 'empty / too short refused');
+  for (let i = 0; i < 5; i++) await send({ mid: MID, text: 'more ideas ' + i }, '196.188.60.' + (10 + i));
+  r = await send({ mid: MID, text: 'one too many' }, '196.188.60.30');
+  assert.equal(r.status, 429, 'a few per computer per day');
+  ok('feedback: the owner gets the message (escaped), who sent it (tap to reply), trial card button; limited');
 }
 
 // Across EVERY scenario: nothing may be silently refused by Telegram (a refused
