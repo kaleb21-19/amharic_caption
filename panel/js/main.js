@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.10.12';
+const APP_VERSION = '1.10.13';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -2508,7 +2508,7 @@ async function transcribe(sourcePath, outSrt, range, offset) {
   try {
     if (!warmStart()) {
       // Server unavailable → one-shot process.
-      return transcribeOneShot(sourcePath, outSrt, range, offset, wav);
+      return await transcribeOneShot(sourcePath, outSrt, range, offset, wav);
     }
     // The engine writes to a work file named after THIS video + settings and
     // keeps a progress journal next to it (<work>.part.json). If the run is
@@ -2538,7 +2538,7 @@ async function transcribe(sourcePath, outSrt, range, offset) {
     if (e && e.message === 'Cancelled') throw e;
     if (!e || !WARM_TRANSPORT_ERRS.has(e.message)) throw e;
     // One-shot fallback (worker missing or failed this request).
-    return transcribeOneShot(sourcePath, outSrt, range, offset, wav);
+    return await transcribeOneShot(sourcePath, outSrt, range, offset, wav);
   } finally {
     if (livePoll) clearInterval(livePoll);
     // Stopped before the end with a live review open: keep what is written.

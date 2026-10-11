@@ -146,6 +146,45 @@ def _load_torch():
     return torch, AutoProcessor, AutoModelForCTC
 
 
+# Below this much free memory the engine loads one lane, not parallel ones.
+_LOW_MEMORY_GB = float(os.environ.get("AMH_LOW_MEMORY_GB", "3"))
+
+
+def _free_memory_gb():
+    """Available physical memory in GB (Windows / macOS / Linux); None if unknown."""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            class _MS(ctypes.Structure):
+                _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                            ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                            ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                            ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                            ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+            ms = _MS()
+            ms.dwLength = ctypes.sizeof(_MS)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(ms)):
+                return ms.ullAvailPhys / 1e9
+            return None
+        if sys.platform == "darwin":
+            import subprocess
+            out = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=5).stdout
+            page = 4096
+            m = re.search(r"page size of (\d+)", out)
+            if m:
+                page = int(m.group(1))
+            free = 0
+            for key in ("Pages free", "Pages inactive", "Pages speculative"):
+                m = re.search(key + r":\s+(\d+)", out)
+                if m:
+                    free += int(m.group(1))
+            return free * page / 1e9
+        return os.sysconf("SC_AVPHYS_PAGES") * os.sysconf("SC_PAGE_SIZE") / 1e9
+    except Exception:
+        return None
+
+
 def load_pipeline():
     """Return an engine handler object with a `.transcribe(wav)` method."""
     if _use_ct2():
@@ -189,11 +228,30 @@ class _CT2Engine:
         self.blank_id = int(meta.get("blank_id", 408))
         threads = max(1, int(_THREADS))
         self.workers = _workers_for(threads)
-        self.model = ctranslate2.models.Wav2Vec2Bert(
-            model_dir, device="cpu", compute_type="int8",
-            inter_threads=self.workers,
-            intra_threads=max(1, threads // self.workers),
-        )
+        # Parallel windows need more memory. A laptop with Premiere open had
+        # 1.7 GB free and the model failed to load ("mkl_malloc: failed to
+        # allocate memory"): with little free memory use one lane, and if
+        # loading still runs out of memory, try again with one lane.
+        free_gb = _free_memory_gb()
+        if self.workers > 1 and free_gb is not None and free_gb < _LOW_MEMORY_GB:
+            print("[info] %.1f GB free memory: one lane" % free_gb, file=sys.stderr, flush=True)
+            self.workers = 1
+        try:
+            self.model = ctranslate2.models.Wav2Vec2Bert(
+                model_dir, device="cpu", compute_type="int8",
+                inter_threads=self.workers,
+                intra_threads=max(1, threads // self.workers),
+            )
+        except (RuntimeError, MemoryError) as e:
+            if self.workers == 1 or not re.search(r"alloc|memory", str(e), re.I):
+                raise
+            print("[info] not enough memory for %d lanes (%s): one lane" % (self.workers, e),
+                  file=sys.stderr, flush=True)
+            self.workers = 1
+            self.model = ctranslate2.models.Wav2Vec2Bert(
+                model_dir, device="cpu", compute_type="int8",
+                inter_threads=1, intra_threads=threads,
+            )
         self.prefetch = _Prefetch(self, self.workers) if self.workers > 1 else None
         self.mel = MelExtractor(model_dir)
         # lm_head projection (1024 hidden -> vocab logits): CT2's encode()
