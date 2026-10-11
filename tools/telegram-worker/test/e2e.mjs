@@ -1408,9 +1408,22 @@ console.log('\n:: scenario 12 — broadcast, /setexpiry, reply-keyboard hint');
   await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: '/start' }));
   const home = OUTBOUND.filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === String(ADMIN_ID)).at(-1);
   const homeKb = JSON.stringify(home.body.reply_markup);
-  assert.ok(home.body.text.includes('Dashboard') && home.body.text.includes('Find a customer'), 'admin /start = dashboard');
-  assert.ok(homeKb.includes('admin:broadcast') && homeKb.includes('admin:export'), 'with every admin button');
-  ok('admin /start opens the one admin dashboard');
+  assert.ok(home.body.text.includes('Dashboard') && home.body.text.includes('Needs you') && home.body.text.includes('Last 30 days'), 'admin /start = dashboard');
+  for (const sec of ['orders', 'people', 'reports', 'market', 'settings']) assert.ok(homeKb.includes('admin:sec:' + sec), 'section ' + sec);
+  assert.ok(homeKb.includes('admin:findask'), 'Find customer on the home screen');
+  // Every old screen is still one tap below a section.
+  const below = [];
+  for (const sec of ['orders', 'people', 'reports', 'market', 'settings']) {
+    OUTBOUND.length = 0;
+    await cb(env, { id: Number(ADMIN_ID) }, 'admin:sec:' + sec);
+    below.push(JSON.stringify(OUTBOUND.map((x) => x.body.reply_markup)));
+  }
+  for (const d of ['admin:queue', 'admin:history', 'admin:trials', 'admin:group', 'admin:export', 'admin:sales', 'admin:usage:7',
+    'admin:audit', 'admin:broadcast', 'admin:partners', 'admin:ref', 'admin:jobs-toggle', 'admin:help']) {
+    assert.ok(below.some((k) => k.includes('"' + d + '"')), 'reachable: ' + d);
+  }
+  assert.ok(below.every((k) => k.includes('admin:panel')), 'every section has ◀ Admin home');
+  ok('admin /start opens a short dashboard; every screen is one tap below a section');
 
   // The Machine ID prompt must use an INLINE keyboard, never a reply keyboard.
   // A reply keyboard pins itself to the bottom of the chat until something
@@ -1664,8 +1677,8 @@ console.log('\n:: scenario 17 — referral programme (owner-controlled, OFF by d
   assert.ok(!kbOf(lastTo(REFERRER)).includes('ref:invite'), 'OFF: no invite button');
   await say(REFERRER, '/invite');
   assert.ok(lastTo(REFERRER).body.text.includes('paused'), 'OFF: /invite says paused');
-  await say(ADMIN_ID, '/start');
-  assert.ok(kbOf(lastTo(ADMIN_ID)).includes('Referrals · ⚪ OFF'), 'dashboard shows OFF');
+  await tap(ADMIN_ID, 'admin:sec:market');
+  assert.ok(kbOf(lastTo(ADMIN_ID)).includes('Referrals · ⚪ OFF'), 'dashboard (Marketing) shows OFF');
   ok('referrals: OFF by default — no button, /invite paused, dashboard shows OFF');
 
   // 2. The owner switches it ON; buyers get a personal link; others do not.
@@ -2353,7 +2366,9 @@ console.log('\n:: scenario 22 — the whole admin page, tapped on the REAL cards
 
   // 3. Dashboard, Requests, History, Details — every screen shows something.
   let s = await sayA('/start');
-  assert.ok(textOf(s).includes('Admin · Dashboard') && kbOf(s).includes('Requests (2)'), 'dashboard: Requests (2)');
+  assert.ok(textOf(s).includes('Admin · Dashboard') && kbOf(s).includes('Orders (2)') && textOf(s).includes('2</b> orders waiting'), 'dashboard: Orders (2)');
+  s = await tapA('admin:sec:orders');
+  assert.ok(kbOf(s).includes('Waiting (2)') && kbOf(s).includes('admin:queue') && kbOf(s).includes('admin:history'), 'Orders section');
   s = await tapA('admin:queue');
   assert.equal(s.filter((x) => kbOf([x]).includes('approve:')).length, 2, 'Requests: both cards, with buttons');
   assert.ok(s.some((x) => x.method === 'sendDocument') && s.some((x) => x.method === 'sendPhoto'), 'file card + photo card');
@@ -2686,11 +2701,15 @@ console.log('\n:: scenario 25 — support: find, move a license to a new compute
   const oldKey = row(env, 'SELECT key FROM customers WHERE machine_id=?', OLD).key;
   assert.equal((await validate(OLD, oldKey, '203.0.113.1')).valid, true, 'old computer works before the move');
 
-  // 1. Dashboard: Find a customer, Partners and Commands are one tap away.
+  // 1. Dashboard: Find a customer is on the home screen; Partners (Marketing)
+  //    and Commands (Settings) are one section down.
   OUTBOUND.length = 0;
   await say(A, '/start');
-  const dash = lastTo(A);
-  for (const want of ['admin:findask', 'admin:partners', 'admin:help']) assert.ok(kbOf(dash).includes(want), 'dashboard has ' + want);
+  assert.ok(kbOf(lastTo(A)).includes('admin:findask'), 'dashboard has admin:findask');
+  await tap(A, 'admin:sec:market');
+  assert.ok(kbOf(lastTo(A)).includes('admin:partners'), 'Marketing has admin:partners');
+  await tap(A, 'admin:sec:settings');
+  assert.ok(kbOf(lastTo(A)).includes('admin:help'), 'Settings has admin:help');
   await tap(A, 'admin:findask');
   assert.ok(lastTo(A).body.text.includes('Send me their Machine ID'), 'find asks for the Machine ID');
   await say(A, OLD.toUpperCase());
@@ -3247,7 +3266,7 @@ console.log('\n:: editing jobs feed');
   assert.equal(jobPosts(n).length, 0);
 
   // The owner turns it on from the dashboard.
-  await cb(env, { id: Number(ADMIN_ID) }, 'admin:panel');
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:sec:settings');
   assert.ok(JSON.stringify(OUTBOUND).includes('Jobs feed · ⚪ OFF'));
   await cb(env, { id: Number(ADMIN_ID) }, 'admin:jobs-toggle');
   assert.equal(row(env, "SELECT value FROM settings WHERE key='jobs_feed'").value, '1');
