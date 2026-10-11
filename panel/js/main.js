@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.10.16';
+const APP_VERSION = '1.10.17';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -1323,7 +1323,7 @@ function updateLicenseUI() {
       // The thank-you note already says it; only a dated key needs this line.
       licStatus.style.display = /until/.test(LICENSE_NOTE || '') ? '' : 'none';
     }
-    if (runBtn) runBtn.disabled = MODEL_MISSING;
+    if (runBtn) runBtn.disabled = false;
     if (licInput) licInput.style.display = 'none';
     if (licBtn) licBtn.style.display = 'none';
     const keyField = document.getElementById('licenseKeyField');
@@ -1362,13 +1362,13 @@ function updateLicenseUI() {
         licStatus.style.color = 'var(--warn)';
         licStatus.style.display = '';
       }
-      if (runBtn) runBtn.disabled = MODEL_MISSING;
+      if (runBtn) runBtn.disabled = false;
     } else if (!st || st === 'none' || st === 'pending') {
       // No free minutes yet (or the server not reached): the free-minutes box
       // above says what to do; Generate explains it too.
       if (banner) banner.style.display = 'none';
       if (licStatus) licStatus.style.display = 'none';
-      if (runBtn) runBtn.disabled = MODEL_MISSING;
+      if (runBtn) runBtn.disabled = false;
     } else {
       // Trial used up: make the path to purchase unmistakable.
       if (banner) banner.style.display = 'block';
@@ -4173,7 +4173,7 @@ async function run() {
     log('Reinstall the correct platform build and restart Premiere.');
     return;
   }
-  if (!modelReadyForRun()) return;
+  if (!modelReadyForRun(() => run())) return;
   runStartInProgress = true;
   try { await refreshTrialFromServer(); }
   finally { runStartInProgress = false; }
@@ -4651,7 +4651,7 @@ async function runFile(filePath, fileName) {
     log('Reinstall the correct platform build and restart Premiere.');
     return;
   }
-  if (!modelReadyForRun()) return;
+  if (!modelReadyForRun(() => runFile(filePath, fileName))) return;
   runStartInProgress = true;
   try { await refreshTrialFromServer(); }
   finally { runStartInProgress = false; }
@@ -4706,16 +4706,64 @@ async function runFile(filePath, fileName) {
 // Runs runtime/amh_model.py download, which resumes a partial file, verifies
 // every file's SHA-256 and only then marks the model complete. Pause kills the
 // child; the partial file stays, so Resume continues from the same byte.
+//
+// 1.10.17: of 25 computers that needed the model in two days, 6 never started
+// the download (Generate was greyed out with no word why) and 2 stopped when
+// the internet dropped (the download then waited for a tap). Now Generate
+// always answers: it starts the download and the captions follow by
+// themselves; a dropped connection is retried by itself (it keeps every byte);
+// the card shows the time left.
 let modelChild = null;
-function modelReadyForRun() {
+let MODEL_RESUME = null;       // the job to start when the model is ready
+let MODEL_RETRY = { n: 0, timer: null, tick: null, at: 0 };
+const MODEL_RETRY_S = [10, 20, 30, 60, 60, 120, 120, 300, 300, 300];
+let MODEL_SPEED = { t: 0, bytes: 0, bps: 0 };
+function modelReadyForRun(resume) {
   if (!MODEL_MISSING) return true;
   track('blocked_model');
-  log('The Amharic model has not been downloaded yet.');
-  log('Use "Download the Amharic model" at the top of the panel first.');
+  if (resume) MODEL_RESUME = resume;
+  log('First the Amharic model is downloaded (' + mb(MODEL_TOTAL_BYTES) + ' MB, one time only).');
+  log('Your captions start by themselves when it is ready.');
   setStatus('err', 'model needed');
+  if (!modelChild) {
+    if (MODEL_UI.state === 'retrying') retryModelNow();
+    else startModelDownload();
+  }
   const card = $('modelCard');
   if (card && typeof card.scrollIntoView === 'function') { try { card.scrollIntoView({ block: 'center' }); } catch (e) {} }
   return false;
+}
+function clearModelRetry() {
+  if (MODEL_RETRY.timer) clearTimeout(MODEL_RETRY.timer);
+  if (MODEL_RETRY.tick) clearInterval(MODEL_RETRY.tick);
+  MODEL_RETRY.timer = null; MODEL_RETRY.tick = null;
+}
+function retryModelNow() {
+  clearModelRetry();
+  if (MODEL_MISSING && !modelChild) startModelDownload();
+}
+// The connection dropped: try again by itself, later and later. Every byte
+// already downloaded is kept (amh_model.py resumes with HTTP Range).
+function scheduleModelRetry() {
+  clearModelRetry();
+  if (MODEL_RETRY.n >= MODEL_RETRY_S.length) { modelUi('failed'); return; }
+  const wait = MODEL_RETRY_S[MODEL_RETRY.n++];
+  MODEL_RETRY.at = Date.now() + wait * 1000;
+  modelUi('retrying');
+  MODEL_RETRY.tick = setInterval(() => { if (MODEL_UI.state === 'retrying') setModelUi('retrying', MODEL_UI.done); }, 1000);
+  MODEL_RETRY.timer = setTimeout(retryModelNow, wait * 1000);
+}
+function modelTimeLeft(done) {
+  const now = Date.now();
+  if (!MODEL_SPEED.t || done < MODEL_SPEED.bytes) { MODEL_SPEED = { t: now, bytes: done, bps: MODEL_SPEED.bps }; return ''; }
+  const dt = (now - MODEL_SPEED.t) / 1000;
+  if (dt >= 3) {
+    const bps = (done - MODEL_SPEED.bytes) / dt;
+    MODEL_SPEED = { t: now, bytes: done, bps: MODEL_SPEED.bps ? MODEL_SPEED.bps * 0.7 + bps * 0.3 : bps };
+  }
+  if (!MODEL_SPEED.bps || MODEL_SPEED.bps < 1000) return '';
+  const left = Math.max(0, MODEL_TOTAL_BYTES - done) / MODEL_SPEED.bps;
+  return left >= 90 ? ' · about ' + Math.round(left / 60) + ' min left' : ' · less than 2 min left';
 }
 function mb(n) { return Math.round(n / 1e6); }
 function setModelUi(state, done) {
@@ -4731,7 +4779,13 @@ function setModelUi(state, done) {
   } else if (state === 'running') {
     btn.textContent = L('Pause');
     btn.disabled = false;
-    if (label) label.textContent = L('Downloading… ' + mb(done || 0) + ' / ' + mb(MODEL_TOTAL_BYTES) + ' MB');
+    if (label) label.textContent = L('Downloading… ' + mb(done || 0) + ' / ' + mb(MODEL_TOTAL_BYTES) + ' MB' + modelTimeLeft(done || 0));
+  } else if (state === 'retrying') {
+    const s = Math.max(0, Math.ceil((MODEL_RETRY.at - Date.now()) / 1000));
+    btn.textContent = L('Try now');
+    btn.disabled = false;
+    if (label) label.textContent = L('Internet connection lost at ' + mb(done || 0) + ' / ' + mb(MODEL_TOTAL_BYTES) +
+      ' MB — trying again in ' + s + ' s. Nothing downloaded is lost.');
   } else if (state === 'paused') {
     btn.textContent = L('Resume download');
     btn.disabled = false;
@@ -4740,6 +4794,10 @@ function setModelUi(state, done) {
     btn.textContent = L('Resume download');
     btn.disabled = false;
     if (label) label.textContent = L('Download stopped. Check your internet and press Resume; it continues where it stopped.');
+  } else if (state === 'waiting') {
+    btn.textContent = L('Pause');
+    btn.disabled = false;
+    if (label) label.textContent = L('Connecting…');
   } else if (state === 'done') {
     btn.textContent = L('✓ Model ready');
     btn.disabled = true;
@@ -4763,13 +4821,22 @@ function modelDownloadFinished(dir) {
   setStatus('ready', 'ready');
   renderHealthList();
   updateLicenseUI();
+  clearModelRetry();
+  const resume = MODEL_RESUME;
+  MODEL_RESUME = null;
+  if (resume && !runInProgress && !runStartInProgress) {
+    log('✓ Model ready — starting your captions.');
+    resume();
+  }
 }
 function startModelDownload() {
   if (modelChild) return;
   const script = runtimePath('amh_model.py');
   if (!fs.existsSync(script)) { log('ERROR: amh_model.py is missing from the runtime. Reinstall.'); return; }
-  modelUi('running');
-  track('model_dl_start');
+  clearModelRetry();
+  MODEL_SPEED = { t: 0, bytes: 0, bps: 0 };
+  modelUi('waiting');
+  if (!MODEL_RETRY.n) track('model_dl_start');
   log('Downloading the Amharic model…');
   let out = '';
   let child;
@@ -4788,7 +4855,15 @@ function startModelDownload() {
       const line = out.slice(0, nl).trim();
       out = out.slice(nl + 1);
       const m = /^\[dl\] (\d+) (\d+)$/.exec(line);
-      if (m) { if (MODEL_UI.state === 'running') modelUi('running', Number(m[1])); continue; }
+      if (m) {
+        const got = Number(m[1]);
+        if (MODEL_UI.state === 'waiting' || MODEL_UI.state === 'running') {
+          // Bytes are flowing again: the next drop starts the waits over.
+          if (got > MODEL_UI.done && MODEL_UI.state === 'running') MODEL_RETRY.n = 0;
+          modelUi('running', got);
+        }
+        continue;
+      }
       if (line.charAt(0) === '{') {
         try {
           const r = JSON.parse(line);
@@ -4803,8 +4878,8 @@ function startModelDownload() {
     modelChild = null;
     if (child.__result) { modelDownloadFinished(child.__result.dir); return; }
     if (child.__paused) { modelUi('paused'); return; }
-    modelUi('failed');
-    track('model_dl_fail');
+    if (MODEL_RETRY.n === 0) track('model_dl_fail');
+    scheduleModelRetry();
   });
   child.on('error', () => { modelChild = null; modelUi('failed'); track('model_dl_fail'); });
 }
@@ -4816,11 +4891,17 @@ function initModelDownload() {
   btn.addEventListener('click', () => {
     if (modelChild) {
       modelChild.__paused = true;
+      clearModelRetry();
       try { modelChild.kill(); } catch (e) {}
       return;
     }
-    startModelDownload();
+    MODEL_RETRY.n = 0;
+    retryModelNow();
   });
+  // Internet back: do not wait for the timer.
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('online', () => { if (MODEL_UI.state === 'retrying') retryModelNow(); });
+  }
   modelUi('idle', 0);
   if (typeof i18nOnChange === 'function') i18nOnChange(() => setModelUi(MODEL_UI.state, MODEL_UI.done));
 }
@@ -4950,9 +5031,8 @@ function setup() {
     log('com.amharic.captions folder. Then restart Premiere.');
   } else if (MODEL_MISSING && fs.existsSync(PYTHON) && fs.existsSync(FFMPEG)) {
     setStatus('err', 'model needed');
-    $('runBtn').disabled = true;
     log('The Amharic model is not on this computer yet (' + Math.round(MODEL_TOTAL_BYTES / 1e6) + ' MB).');
-    log('Use "Download the Amharic model" at the top of the panel. It is a');
+    log('Press Generate (or "Download the Amharic model" at the top). It is a');
     log('one-time download; if the connection drops it continues where it stopped.');
   } else if (!fs.existsSync(PYTHON) || !fs.existsSync(FFMPEG) || !fs.existsSync(MODEL_DIR)) {
     setStatus('err', 'runtime incomplete');
