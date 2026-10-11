@@ -156,7 +156,7 @@ export default function LegalPage() {
 
           <h3>What transcription never does</h3>
           <p>
-            All speech recognition, language correction, speaker labeling and
+            All speech recognition, language correction and
             caption placement happen entirely on your own computer. Your audio,
             video, footage, transcripts, project files and captions{" "}
             <strong>never leave your machine</strong> and are never uploaded to

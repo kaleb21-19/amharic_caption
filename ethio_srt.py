@@ -1434,28 +1434,6 @@ def _glyphs_of(engine):
     return engine.glyphs
 
 
-def _maybe_diarize(cues, wav):
-    """Best-effort 2-speaker labels ("[S1] "/"[S2] " prefixes). Never raises:
-    returns cues unchanged if the model/package is missing or the clip is not
-    clearly two speakers (see amh_diarize.py)."""
-    if not cues:
-        return cues
-    try:
-        import amh_diarize
-    except Exception as e:
-        print("[info] speaker labelling unavailable: %s" % e, file=sys.stderr)
-        return cues
-    if not amh_diarize.available():
-        print("[info] speaker labelling requested but no embedding model found",
-              file=sys.stderr)
-        return cues
-    labelled = amh_diarize.label_cues(cues, wav)
-    # Speaker prefixes rebuild the tuples: keep each cue's doubtful words.
-    if len(labelled) == len(cues):
-        labelled = [Cue(l[0], l[1], l[2], _cue_doubt(c)) for l, c in zip(labelled, cues)]
-    return labelled
-
-
 # --------------------------------------------------------------------------
 # long jobs: keep the computer awake, say when it runs on battery
 # --------------------------------------------------------------------------
@@ -1527,6 +1505,8 @@ def _power_notice(seconds):
             pass
 
 
+# `speakers` (and --speakers / "speakers" in a request) is accepted and ignored:
+# speaker marks were removed in 1.10.14, and older callers must keep working.
 def _run_file(engine, wav, mode, group_size, max_chars, offset, out_srt=None,
               speakers=False):
     glyphs = engine.glyphs
@@ -1545,8 +1525,6 @@ def _run_file(engine, wav, mode, group_size, max_chars, offset, out_srt=None,
                 cues = make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=max_chars, wav=wav)
         finally:
             _clear_prefetch(engine)
-        if speakers:
-            cues = _maybe_diarize(cues, wav)
     return text, cues
 
 
@@ -1608,7 +1586,7 @@ def _run_long(engine, wav, mode, group_size, max_chars, offset, out_srt):
 def main():
     if len(sys.argv) < 2:
         print("Usage: python ethio_srt.py <audio.wav|mp3|m4a> [out.srt] [--words] "
-              "[--group NUM] [--speakers] "
+              "[--group NUM] "
               "[--batch requests.json out.srt] [--server]")
         sys.exit(1)
 
@@ -1697,10 +1675,10 @@ def main():
 # and serves requests over a line-delimited JSON protocol on stdin/stdout:
 #
 #   in : {"id":1,"wav":"clip.wav","out_srt":"clip.srt","mode":"words",
-#         "group":0,"max_chars":42,"offset":2.5,"speakers":false}
+#         "group":0,"max_chars":42,"offset":2.5}
 #   out: {"id":1,"ok":true,"text":"...","cues":23,"transcript":"..."}
 #   batch: {"id":2,"batch":[{"wav":...,"offset":...},...],"out_srt":"...",
-#           "mode":"grouped","group":3,"max_chars":42,"speakers":true}
+#           "mode":"grouped","group":3,"max_chars":42}
 #          emits one {"id":2,"type":"prog","at":N,"of":M,"name":...} per clip
 #          then the {"id":2,"ok":true,...} result line.
 def run_server():
@@ -1954,8 +1932,6 @@ def handle_server_batch(engine, req, rid, out):
                     text, spans, frame_dur = engine.transcribe(wav)
                     cues = make_cues(mode, group, spans, frame_dur, text, engine.glyphs,
                                      max_chars=max_chars, wav=wav)
-                if speakers and not (saved and saved.get("fp") == fp):
-                    cues = _maybe_diarize(cues, wav)
                 if live:
                     state["clips"][str(n)] = {"fp": fp, "text": text, "cues": [_cue_row(c) for c in cues]}
             except Exception as e:
@@ -2059,8 +2035,6 @@ def run_batch():
                 text, spans, frame_dur = engine.transcribe(wav)
                 cues = make_cues(mode, group_size, spans, frame_dur, text, glyphs,
                                  max_chars=max_chars, wav=wav)
-                if speakers:
-                    cues = _maybe_diarize(cues, wav)
             except Exception as e:
                 _clear_prefetch(engine)
                 skipped += 1

@@ -145,7 +145,7 @@ if [[ "$DEGRADED" -eq 0 ]]; then
   for f in \
     "$REQUIRED_MODEL" runtime/bin/ffmpeg runtime/python/bin/python3 \
     runtime/amh_lm.py runtime/amh_lm.json.gz runtime/amh_vad.py \
-    runtime/silero_vad.onnx runtime/amh_diarize.py runtime/speaker_embed.onnx; do
+    runtime/silero_vad.onnx; do
     if [[ ! -f "$SRC/$f" ]]; then
       echo "  [ERROR] Required package file is missing: $f"
       log "ERROR(6): source package missing $f"
@@ -342,7 +342,7 @@ if [[ "$DEGRADED" -eq 0 ]]; then
   for f in \
     "$REQUIRED_MODEL" runtime/bin/ffmpeg runtime/python/bin/python3 \
     runtime/amh_lm.py runtime/amh_lm.json.gz runtime/amh_vad.py \
-    runtime/silero_vad.onnx runtime/amh_diarize.py runtime/speaker_embed.onnx; do
+    runtime/silero_vad.onnx; do
     if [[ ! -f "$DEST/$f" ]]; then
       echo "  [ERROR] Required runtime file is missing after install: $f"
       log "ERROR(8): installed copy missing $f"

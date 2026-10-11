@@ -69,12 +69,8 @@ Pay **ETB 2,500** by bank transfer to **KALEB TEGEGEN** — CBE 1000504159977 ·
   need to be started again.
 - **Punctuation is rule-based.** Sentence (`።`) and clause (`፣`) marks are placed
   at detected pauses; the recognizer itself does not predict punctuation.
-- **Speaker labels are opt-in and best-effort.** The "Label speakers (2)" toggle
-  tags interview captions `[S1]`/`[S2]` using a small on-device speaker model
-  (offline, no torch). It leaves captions unchanged when the clip isn't clearly
-  two speakers, so it never makes an unlabelled result worse.
-- **Review exports three formats.** The review screen can export SRT, VTT (with
-  `<v>` speaker tags) and a plain-text transcript to a folder you choose.
+- **Review exports three formats.** The review screen can export SRT, VTT and a
+  plain-text transcript to a folder you choose.
 
 ### Install (Windows)
 
@@ -182,15 +178,12 @@ and Telegram (ordering/support).
 
 ## Credits
 
-This product bundles two third-party open models, unmodified except for
-format conversion, redistributed here under their CC BY 4.0 terms:
+This product bundles a third-party open model, unmodified except for
+format conversion, redistributed here under its CC BY 4.0 terms:
 
 - **Acoustic model** — [`badrex/Ethio-ASR-amharic`](https://huggingface.co/badrex/Ethio-ASR-amharic)
   by badrex (Hugging Face). Converted to CTranslate2 int8 for offline CPU
   inference; weights unchanged. License: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
-- **Speaker-embedding model** — TitaNet-Small by NVIDIA (NeMo), via the
-  [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) project, used for the
-  opt-in 2-speaker labeling feature. License: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
 The same credits are shown in-app under the panel's **Credits** link.
 

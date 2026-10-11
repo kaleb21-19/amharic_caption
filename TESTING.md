@@ -66,7 +66,6 @@ point `AMH_MODEL_DIR` there for the tests that need the model.
 | `node tools/test/test_app_shim.js` | `node_shim.js`: Windows + macOS path rules, fs errors, hashes, execFile / spawn events and errors, dialogs, the proxy | 1 s |
 | `"$PY" tools/test/test_background.py` | background-voice filter (synthetic audio) | 1 s |
 | `"$PY" tools/test/test_long.py` | long-audio windows, resume after a crash, punctuation | 1 s |
-| `"$PY" tools/test/test_diarize.py` | 2-speaker clustering (model part skipped without sherpa-onnx) | 1 s |
 | `"$PY" ctc_beam.py` | beam decoder self-check | 8 s |
 | `"$PY" amh_decode.py` | word-aware decoder: beam + word list, forced alignment | 1 s |
 | `"$PY" amh_correct.py` | number / spelling corrections | 1 s |

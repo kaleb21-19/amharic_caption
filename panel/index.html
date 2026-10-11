@@ -473,11 +473,6 @@
   }
   .row-menu button.tool:hover:not(:disabled) { background: var(--bg-hover); }
   .row-menu button.tool:disabled { opacity: .35; cursor: not-allowed; }
-  .review-row .spk {
-    height: 18px; border: 0; border-radius: var(--radius-sm); font-size: 10px; font-weight: 700;
-    cursor: pointer; background: var(--accent-soft); color: var(--accent);
-  }
-  .review-row .spk.s2 { background: var(--warn-soft); color: var(--warn); }
   .support-mid { margin: 6px 0 8px; }
   /* The caption text box and, behind it, an identical copy of the text in
      which only the unsure words are marked — the orange sits under the word. */
@@ -680,12 +675,6 @@
           <button id="fmtV" data-fmt="v" data-i18n="opt.fmtV">📱 Vertical · TikTok</button>
         </div>
       </div>
-      <div class="field">
-        <label class="field-label" for="speakersToggle" style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-          <input type="checkbox" id="speakersToggle" style="width:auto;margin:0;">
-          <span data-i18n="opt.speakers">Mark speaker changes (2 people) — for interviews</span>
-        </label>
-      </div>
 
     </div>
 
@@ -794,7 +783,7 @@
   </div>
 
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.10.13</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span></span>
+    <span>v<span id="panelVersion">1.10.14</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span></span>
     <span style="display:flex;gap:10px;align-items:center;">
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
       <a href="#" id="supportLink" title="Get help in Telegram" data-i18n="foot.help" data-i18n-title="foot.helpTitle">💬 Help</a>

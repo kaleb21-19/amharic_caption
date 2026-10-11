@@ -26,15 +26,14 @@ Exit codes: `0` = all passed, `1` = one or more failed.
 | ffmpeg.exe presence | `runtime\bin\ffmpeg.exe` |
 | ffmpeg runs | `ffmpeg -version` |
 | model.bin / model_meta.json / vocab.json / config.json | `runtime\model\` |
-| speaker_embed.onnx, silero_vad.onnx, amh_lm.json.gz | `runtime\` |
+| silero_vad.onnx, amh_lm.json.gz | `runtime\` |
 | `import numpy, soundfile, ctranslate2` | bundled python |
 | `import onnxruntime` (VAD) | bundled python |
-| `import sherpa_onnx` (diarization) | bundled python |
 | model + mel load | `ctranslate2.models.Wav2Vec2Bert(pcx, compute_type=int8)` + `MelExtractor`, vocab size asserted |
 
 ## Why these build numbers
 
-- ctranslate2 4.8.1 · numpy 2.4.6 · soundfile · onnxruntime 1.19.2 · sherpa_onnx
+- ctranslate2 4.8.1 · numpy 2.4.6 · soundfile · onnxruntime 1.19.2
   — these are the exact wheels packaged in `com.amharic.captions/runtime/python/site-packages`,
   so the check reflects production, not a dev venv.
 - The model load uses the **same** `Wav2Vec2Bert(..., device='cpu',

@@ -34,7 +34,6 @@ LICENSE_FALLBACK = {
     "pycparser": "BSD-3-Clause",
     "packaging": "Apache-2.0 OR BSD-2-Clause",
     "typing_extensions": "PSF-2.0",
-    "sherpa_onnx": "Apache-2.0",
 }
 
 # Non-pip components copied into the runtime by build.sh. Each is only listed
@@ -42,10 +41,6 @@ LICENSE_FALLBACK = {
 BUNDLED = [
     ("model/", "hohe-asr-amharic (speech recognition weights, CTranslate2 int8)",
      "https://huggingface.co/snapwre/hohe-asr-amharic"),
-    ("speaker_embed.onnx",
-     "NVIDIA NeMo TitaNet-Small (speaker embeddings) — NVIDIA NeMo is "
-     "Apache-2.0; redistributed as the ONNX export published by sherpa-onnx",
-     "https://github.com/k2-fsa/sherpa-onnx/releases/tag/speaker-recongition-models"),
     ("silero_vad.onnx", "Silero VAD (voice activity detection) — MIT",
      "https://github.com/snakers4/silero-vad"),
     ("amh_lm.json.gz", "Amharic word-frequency language model, built from public Amharic text",

@@ -19,7 +19,7 @@
 #
 set -euo pipefail
 # Release builds are strict by default. Set ALLOW_DEGRADED=1 only for a local
-# diagnostic archive; a customer build must not silently lose diarization, LM,
+# diagnostic archive; a customer build must not silently lose the LM,
 # VAD, or the production model.
 ALLOW_DEGRADED="${ALLOW_DEGRADED:-0}"
 # LITE=1 leaves the model out of the zip; it is downloaded once on first use
@@ -65,17 +65,6 @@ cp "$ROOT/amh_license.py" "$RT/amh_license.py"
 cp "$ROOT/amh_standalone.py" "$RT/amh_standalone.py"
 echo "  [ok] amh_standalone.py + amh_license.py (standalone SRT maker)"
 
-# 2-speaker diarization (interview labels). Pure-python engine + a small ONNX
-# speaker-embedding model; runs on the bundled onnxruntime (no torch). Optional:
-# if the model is missing the panel's "Label speakers" toggle is a no-op.
-if [[ -f "$ROOT/tools/embed/nemo_en_titanet_small.onnx" ]]; then
-  cp "$ROOT/amh_diarize.py" "$RT/amh_diarize.py"
-  cp "$ROOT/tools/embed/nemo_en_titanet_small.onnx" "$RT/speaker_embed.onnx"
-  echo "  [ok] amh_diarize.py + speaker_embed.onnx"
-else
-  if [[ "$ALLOW_DEGRADED" != "1" ]]; then echo "  [FAIL] speaker embedding model missing"; exit 1; fi
-  echo "  [warn] tools/embed/nemo_en_titanet_small.onnx missing — speaker labels disabled"
-fi
 
 # Amharic word-LM (glue-word resegmentation after decoding). The model file is
 # built offline by tools/build_lm.py. Optional: if missing, word-LM is skipped.
@@ -192,7 +181,6 @@ rm -f  "$PYP"/DLLs/_test*.pyd "$PYP"/DLLs/_ctypes_test.pyd 2>/dev/null || true
 SITE="$LIBROOT/site-packages"
 rm -rf "$SITE"/sympy "$SITE"/sympy-*.dist-info "$SITE"/mpmath "$SITE"/mpmath-*.dist-info "$SITE"/isympy.py "$SITE"/__pycache__/isympy.* "$PYP/share/man"
 find "$SITE" -depth -type d \( -name tests -o -name testdata \) -exec rm -rf {} + 2>/dev/null || true
-rm -f  "$SITE"/sherpa_onnx/lib/*.lib 2>/dev/null || true
 echo "  [ok] python trimmed ($(du -sh "$RT/python" | cut -f1))"
 
 # ---- 1c. ship the license-relevant modules compiled, not readable ---------
