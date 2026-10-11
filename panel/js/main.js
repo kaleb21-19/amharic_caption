@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.10.15';
+const APP_VERSION = '1.10.16';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -1077,18 +1077,104 @@ async function refreshTrialFromServer() {
     trialSyncPromise = null;
   }
 }
+// Generate pressed without free minutes (1.10.16). 12 of 21 people who
+// pressed Generate in two days stopped here: the old answer was one line in
+// the Log. Now a card under Generate says exactly what to do, with one big
+// button, and the job that was asked for starts by itself when the free
+// minutes arrive.
+let TRIAL_GATE = null;       // null | 'none' | 'pending' | 'offline'
+let GATE_RESUME = null;      // the run to start when the minutes arrive
+function showTrialGate(kind, resume) {
+  TRIAL_GATE = kind;
+  if (resume) GATE_RESUME = resume;
+  renderTrialGate();
+  renderFreeMinBox();
+  const g = document.getElementById('trialGate');
+  if (g && typeof g.scrollIntoView === 'function') { try { g.scrollIntoView({ block: 'center' }); } catch (e) {} }
+}
+function hideTrialGate() {
+  TRIAL_GATE = null;
+  GATE_RESUME = null;
+  renderTrialGate();
+  renderFreeMinBox();
+}
+function renderTrialGate() {
+  const g = document.getElementById('trialGate');
+  if (!g) return;
+  const kind = LICENSED ? null : TRIAL_GATE;
+  g.style.display = kind ? '' : 'none';
+  if (!kind) return;
+  const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text ? L(text) : ''; };
+  const mins = trialMinutes();
+  const body = document.getElementById('trialGateBody');
+  const btn = document.getElementById('trialGateBtn');
+  const wait = document.getElementById('trialGateWait');
+  if (body) body.textContent = '';
+  const lines = (arr) => {
+    if (!body) return;
+    const ol = document.createElement('ol');
+    for (const t of arr) { const li = document.createElement('li'); li.textContent = L(t); ol.appendChild(li); }
+    body.appendChild(ol);
+  };
+  if (kind === 'none') {
+    set('trialGateTitle', '🎁 First, get your ' + mins + ' free minutes');
+    lines(['Tap the button below — our Telegram bot opens.',
+           'Press START in Telegram.',
+           'Come back here — your captions start by themselves.']);
+    if (btn) { btn.style.display = ''; btn.textContent = L('🎁 Get ' + mins + ' free minutes — 1 tap'); }
+    const msg = TRIAL_WAIT ? 'Waiting for Telegram… press START there. Your captions start by themselves.' : '';
+    if (wait) { wait.textContent = msg ? L(msg) : ''; wait.style.display = msg ? '' : 'none'; }
+    set('trialGateKey', 'Free, no payment. Already have a license key? Enter it below.');
+  } else if (kind === 'pending') {
+    set('trialGateTitle', '⏳ Your free minutes are being checked');
+    lines(['We check a few requests by hand. You will get a message in Telegram.',
+           'Then press Generate again.']);
+    if (btn) btn.style.display = 'none';
+    if (wait) wait.style.display = 'none';
+    set('trialGateKey', 'Already have a license key? Enter it below.');
+  } else {
+    set('trialGateTitle', '📶 Cannot reach our server');
+    lines(['The free minutes need the internet (a license works offline).',
+           'Check the internet, then tap Try again.']);
+    if (btn) { btn.style.display = ''; btn.textContent = L('↻ Try again'); }
+    if (wait) wait.style.display = 'none';
+    set('trialGateKey', 'Already have a license key? Enter it below.');
+  }
+}
+async function onTrialGateButton() {
+  if (TRIAL_GATE === 'offline') {
+    const resume = GATE_RESUME;
+    hideTrialGate();
+    if (resume) resume();
+    return;
+  }
+  await startFreeMinutes();
+  renderTrialGate();
+}
+// The minutes are here: close the card and start the job that was asked for.
+function resumeAfterTrial() {
+  const resume = GATE_RESUME;
+  const was = TRIAL_GATE;
+  hideTrialGate();
+  if (was && resume && !LICENSED && trialRemaining() > 0 && !runInProgress && !runStartInProgress) {
+    log('✓ Free minutes received — starting your captions.');
+    resume();
+  }
+}
+
 // Shared license/trial gate for EVERY transcription entry point (run() and
 // runFile()): licensed, or free minutes left. Otherwise say what to do.
-function assertCanRun() {
-  if (LICENSED || trialRemaining() > 0) return true;
+function assertCanRun(resume) {
+  if (LICENSED || trialRemaining() > 0) { hideTrialGate(); return true; }
   track('blocked_trial');
   const st = TRIAL_MIN ? TRIAL_MIN.status : null;
+  if (st === 'none') showTrialGate('none', resume);
+  else if (st === 'pending') showTrialGate('pending', null);
+  else if (!st) showTrialGate('offline', resume);
   if (!st) {
     log('Connect to the internet for the free trial (a license works offline).');
   } else if (st === 'none') {
-    log('Get your ' + trialMinutes() + ' free minutes in Telegram first — the button above the license.');
-    const box = document.getElementById('freeMinBox');
-    if (box && typeof box.scrollIntoView === 'function') { try { box.scrollIntoView({ block: 'center' }); } catch (e) {} }
+    log('Get your ' + trialMinutes() + ' free minutes in Telegram first — the button under Generate.');
   } else if (st === 'pending') {
     log('Your free-minutes request is being checked — we will tell you in Telegram.');
   } else {
@@ -1179,10 +1265,14 @@ function startTrialPoll() {
     await refreshTrialFromServer();
     if (TRIAL_MIN && TRIAL_MIN.status !== 'none') {
       clearInterval(TRIAL_POLL); TRIAL_POLL = null; TRIAL_WAIT = 0;
-      if (TRIAL_MIN.status === 'active') {
-        log('✓ ' + fmtMinSec(TRIAL_MIN.seconds_left) + ' free minutes are ready — press Generate.');
-      }
       updateLicenseUI();
+      if (TRIAL_MIN.status === 'active') {
+        if (GATE_RESUME) resumeAfterTrial();
+        else log('✓ ' + fmtMinSec(TRIAL_MIN.seconds_left) + ' free minutes are ready — press Generate.');
+      } else if (TRIAL_GATE) {
+        TRIAL_GATE = TRIAL_MIN.status === 'pending' ? 'pending' : null;
+        renderTrialGate();
+      }
     }
   }, 4000);
 }
@@ -1190,7 +1280,7 @@ function renderFreeMinBox() {
   const box = document.getElementById('freeMinBox');
   if (!box) return;
   const st = !LICENSED && TRIAL_MIN ? TRIAL_MIN.status : null;
-  box.style.display = (st === 'none' || st === 'pending') ? '' : 'none';
+  box.style.display = (st === 'none' || st === 'pending') && !TRIAL_GATE ? '' : 'none';
   const title = document.getElementById('freeMinTitle');
   if (title) title.textContent = L('Try ' + trialMinutes() + ' minutes free');
   const btn = document.getElementById('freeMinBtn');
@@ -1206,6 +1296,10 @@ function renderFreeMinBox() {
 function initFreeMinutes() {
   const b = document.getElementById('freeMinBtn');
   if (b) b.addEventListener('click', (e) => { if (e && e.preventDefault) e.preventDefault(); startFreeMinutes(); });
+  const gb = document.getElementById('trialGateBtn');
+  if (gb) gb.addEventListener('click', (e) => { if (e && e.preventDefault) e.preventDefault(); onTrialGateButton(); });
+  const gc = document.getElementById('trialGateClose');
+  if (gc) gc.addEventListener('click', () => { hideTrialGate(); updateLicenseUI(); });
   if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
     window.addEventListener('focus', () => { if (TRIAL_WAIT && !LICENSED) refreshTrialFromServer(); });
   }
@@ -1291,6 +1385,7 @@ function updateLicenseUI() {
   }
   const footPrice = document.getElementById('footPrice');
   if (footPrice) footPrice.style.display = LICENSED ? 'none' : '';
+  renderTrialGate();
   renderFreeMinBox();
   LICENSED_REFRESH = false;
 }
@@ -4083,7 +4178,7 @@ async function run() {
   try { await refreshTrialFromServer(); }
   finally { runStartInProgress = false; }
   if (cancelRequested) return;
-  if (!assertCanRun()) return;
+  if (!assertCanRun(() => run())) return;
   runInProgress = true;
   setBusy(true);
   try {
@@ -4561,7 +4656,7 @@ async function runFile(filePath, fileName) {
   try { await refreshTrialFromServer(); }
   finally { runStartInProgress = false; }
   if (cancelRequested) return;
-  if (!assertCanRun()) return;
+  if (!assertCanRun(() => runFile(filePath, fileName))) return;
   runInProgress = true;
   setBusy(true);
   setProgress(0, '');
