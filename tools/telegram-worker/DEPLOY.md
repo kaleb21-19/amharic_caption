@@ -662,6 +662,23 @@ To turn it on:
    **Delete messages** and **Manage topics** (Manage topics lets it post the welcome
    in the closed Announcements topic). Nothing else is needed.
 
+## Plans: 1 month · 2 months · Forever (migration 0028, 1.10.12)
+
+Order: `npm.cmd run migrate` (adds orders.plan, sales.plan,
+customers.renew_nudged), then `npm.cmd run deploy`, then merge.
+
+- The pay screen shows Forever (ETB 2,500, discounts as before) with buttons
+  for 1 month (ETB 500) and 2 months (ETB 900). The order card says the plan
+  and the amount to expect.
+- Approving a 1/2-month order issues a key that ends 30/60 days after that
+  approval; a renewal adds to the current end. Forever after a monthly plan
+  costs ETB 2,500 minus the monthly plans paid (at least ETB 500).
+- Partners/referrals: Forever as before; 1 month earns ETB 100, 2 months
+  ETB 150, with no buyer discount.
+- Reminders: 3 days before the end and on the day it ends, one message each
+  with Renew / Forever buttons (only the buying Telegram account can use them).
+- Prices and days: PLANS in src/worker.js.
+
 ## Free trial = 20 free minutes from the bot (migration 0027, panel 1.10.7)
 
 Order: `npm.cmd run migrate` (creates trial_requests / trial_grants /

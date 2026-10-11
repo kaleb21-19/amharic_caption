@@ -457,8 +457,8 @@ function heroText(first = '', offer = null) {
     '<i>Runs 100% on your computer — your video is never uploaded.</i>\n\n' +
     '🎁 <b>20 ደቂቃ በነጻ</b> ይሞክሩ — ከወደዱት በኋላ ብቻ ይክፈሉ።\n' +
     '<i>Try 20 minutes free — pay only if you like it.</i>\n\n' +
-    `💰 <s>ETB 3,500</s> → <b>${PRICE}</b> — አንድ ጊዜ ብቻ ይከፍላሉ።\n` +
-    '<i>One payment. No subscription.</i>' + invited
+    `💰 <b>${PRICE}</b> ለዘለቄታው — ወይም 1 ወር ETB ${money(PLANS.m1.etb)} · 2 ወር ETB ${money(PLANS.m2.etb)}።\n` +
+    `<i>${PRICE} forever — or 1 month ETB ${money(PLANS.m1.etb)} · 2 months ETB ${money(PLANS.m2.etb)}.</i>` + invited
   );
 }
 // One button per row on purpose: Amharic labels are longer than their English
@@ -480,18 +480,84 @@ const heroKeyboard = (invite = false) => [
 // Amharic first, English under it. This is the screen where someone parts with
 // ETB 2,500, and it was English-only — the panel and the website both speak
 // Amharic, but the one moment that involves their money did not.
-function payText(offer = null) {
+// ── plans (1.10.12): 1 month · 2 months · Forever ───────────────────────────
+// Forever stays the main offer (ETB 2,500, partner/referral discounts apply
+// to it only). 1 and 2 months give a cheap first step; their key ends N days
+// after approval (a renewal adds to the current end). Forever after a timed
+// plan costs what is left: the timed plans already paid are deducted (never
+// below ETB 500). Partners earn a smaller reward on the short plans.
+const PLANS = {
+  m1: { days: 30, etb: 500, reward: 100, am: '1 ወር', en: '1 month' },
+  m2: { days: 60, etb: 900, reward: 150, am: '2 ወር', en: '2 months' },
+};
+const planLabel = (p) => (PLANS[p] ? `${PLANS[p].am} / ${PLANS[p].en}` : 'ለዘለቄታው / Forever');
+const ymd = (d) => d.toISOString().slice(0, 10).replace(/-/g, '');
+const ymdDash = (e) => `${String(e).slice(0, 4)}-${String(e).slice(4, 6)}-${String(e).slice(6, 8)}`;
+function todayEatDate() {
+  const d = new Date(Date.now() + 3 * 3600 * 1000);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+const parseYmd = (e) => new Date(Date.UTC(+String(e).slice(0, 4), +String(e).slice(4, 6) - 1, +String(e).slice(6, 8)));
+// End of a timed license (the key stops working ON that date): `days` from
+// today, or from the current end if that is still ahead (renewal).
+function planExpiry(days, currentExpiry) {
+  let start = todayEatDate();
+  const cur = String(currentExpiry || '');
+  if (/^\d{8}$/.test(cur) && cur !== '00000000') {
+    const c = parseYmd(cur);
+    if (c > start) start = c;
+  }
+  return ymd(new Date(start.getTime() + days * 86400000));
+}
+// The last day a key with this expiry works.
+const lastDay = (e) => ymdDash(ymd(new Date(parseYmd(e).getTime() - 86400000)));
+async function currentLicense(mid) {
+  if (!mid) return null;
+  try { return await DB.prepare('SELECT key, expiry, revoked, uid FROM customers WHERE machine_id = ?').bind(mid).first(); }
+  catch (e) { return null; }
+}
+const isTimedLicense = (c) => !!(c && c.key && !c.revoked && c.expiry && c.expiry !== '00000000');
+async function upgradePrice(mid) {
+  let paid = 0;
+  try {
+    const r = await DB.prepare(
+      "SELECT COALESCE(SUM(amount_etb), 0) AS s FROM sales WHERE machine_id = ? AND status = 'sold' AND plan IN ('m1', 'm2')"
+    ).bind(mid).first();
+    paid = r ? r.s : 0;
+  } catch (e) { /* 0028 not applied */ }
+  return Math.max(PRICE_ETB - paid, 500);
+}
+async function getPlan(uid) { const p = await kvGet('plan:' + uid); return PLANS[p] ? p : 'forever'; }
+async function setPlan(uid, plan) {
+  if (PLANS[plan]) await kvPut('plan:' + uid, plan, 3 * 86400);
+  else await kvDel('plan:' + uid);
+}
+// What this buyer pays for `plan` (renewal / upgrade aware when the computer is known).
+async function planPrice(plan, offer, mid) {
+  if (PLANS[plan]) return PLANS[plan].etb;
+  if (isTimedLicense(await currentLicense(mid))) return upgradePrice(mid);
+  return offer ? offer.price : PRICE_ETB;
+}
+
+function payText(offer = null, plan = 'forever', price = null) {
   // Deliberately short. This screen exists so the buyer can do ONE thing: send
   // money to one of three accounts. The previous version ran 18 lines and 587
   // characters on a phone — price, accounts, a two-line key promise in both
   // languages, a three-line scam warning and a "tap below" instruction the
   // button already gives. Everything that is not the amount, the accounts or
   // the one risk that costs them money has been cut.
-  const priceLines = offer && offer.discount > 0
-    ? `💰 <b>ETB ${money(offer.price)}</b> · የጓደኛ ቅናሽ / friend discount\n` +
-      `<s>${PRICE}</s> — መደበኛ ዋጋ / regular price\n\n`
-    : `💰 <b>${PRICE}</b> · አንድ ጊዜ ብቻ / one-time\n` +
-      `<s>ETB 3,500</s> — መግቢያ ዋጋ / launch price\n\n`;
+  const p = PLANS[plan];
+  const priceLines = p
+    ? `💰 <b>ETB ${money(p.etb)}</b> · ${p.am} / ${p.en}\n` +
+      `<i>ከተረጋገጠበት ቀን ጀምሮ ${p.days} ቀን · ${p.days} days from approval</i>\n\n`
+    : (price != null && price < PRICE_ETB && !(offer && offer.discount > 0 && price === offer.price))
+      ? `💰 <b>ETB ${money(price)}</b> · ለዘለቄታው / Forever\n` +
+        '<i>የከፈሉት ተቀንሷል · what you already paid is deducted</i>\n\n'
+      : offer && offer.discount > 0
+        ? `💰 <b>ETB ${money(offer.price)}</b> · የጓደኛ ቅናሽ / friend discount\n` +
+          `<s>${PRICE}</s> — መደበኛ ዋጋ / regular price\n\n`
+        : `💰 <b>${PRICE}</b> · ለዘለቄታው — አንድ ጊዜ ብቻ / forever, one-time\n` +
+          `<i>ወይም 1 ወር ETB ${money(PLANS.m1.etb)} · 2 ወር ETB ${money(PLANS.m2.etb)} — ከታች ይምረጡ / or 1 month · 2 months below</i>\n\n`;
   return (
     priceLines +
     `🏦 <b>${ACCT_NAME}</b> — ባንክ ዝውውር / bank transfer\n` +
@@ -504,8 +570,12 @@ function payText(offer = null) {
   );
 }
 
-const payKeyboard = (fromPanel = false) => [
+const payKeyboard = (fromPanel = false, plan = 'forever') => [
   [{ text: '✅ ከፍያለሁ — ስክሪንሾት ልላክ · I’ve paid', callback_data: 'pay:proof' }],
+  ['m1', 'm2', 'forever'].filter((p) => p !== plan).map((p) => ({
+    text: PLANS[p] ? `${PLANS[p].am} · ETB ${money(PLANS[p].etb)}` : '⭐ ለዘለቄታው · Forever',
+    callback_data: 'plan:' + p,
+  })),
   ...(fromPanel ? [] : [[{ text: '🎁 መጀመሪያ በነጻ ልሞክር · Try free', url: `${SITE_URL}/install` }]]),
 ];
 
@@ -2288,6 +2358,7 @@ async function handleMessage(msg, env) {
 
   // generic buy-flow commands
   if (['/buy', '/buy@amhariccaptionsbot'].includes(lower)) {
+    await setPlan(uid, 'forever');
     const offer = await referralOffer(uid);
     await quoteOffer(uid, offer);
     await sendText(chatId, payText(offer), payKeyboard());
@@ -2612,8 +2683,8 @@ function groupWelcomeNew(names, chatId) {
 }
 
 const GROUP_FAQ = {
-  price: () => `💰 <b>${PRICE}</b> — አንድ ጊዜ ብቻ፣ ወርሃዊ ክፍያ የለም። ዝማኔዎች በነጻ።\n` +
-    '<i>One payment, no monthly fee, free updates.</i>\n\n' +
+  price: () => `💰 <b>${PRICE}</b> ለዘለቄታው (አንድ ጊዜ ብቻ) — ወይም 1 ወር ETB ${money(PLANS.m1.etb)} · 2 ወር ETB ${money(PLANS.m2.etb)}። ዝማኔዎች በነጻ።\n` +
+    `<i>${PRICE} forever (one payment) — or 1 month ETB ${money(PLANS.m1.etb)} · 2 months ETB ${money(PLANS.m2.etb)}. Free updates.</i>\n\n` +
     `🏦 ክፍያ በ @AmharicCaptionsBot ብቻ — ለ <b>${ACCT_NAME}</b>።\n` +
     `<i>Pay only through @AmharicCaptionsBot, to ${ACCT_NAME}.</i>`,
   trial: () => '🎁 ፓነሉን ይጫኑ — <b>20 ደቂቃ በነጻ</b> ይሞክሩ (በፕሮግራሙ ውስጥ «በቴሌግራም ይቀበሉ»)፤ ክፍያ አያስፈልግም።\n' +
@@ -3109,8 +3180,11 @@ async function homeScreen(uid, first = '', offer = null) {
 const FAQ = {
   price: {
     btn: '💰 ዋጋው ስንት ነው? · Price',
-    text: () => `💰 <b>ዋጋ / Price</b>\n\n<b>${PRICE}</b> — አንድ ጊዜ ብቻ፣ ወርሃዊ ክፍያ የለም። (<s>ETB 3,500</s> — የመግቢያ ዋጋ)\n` +
-      '<i>One payment — no monthly fee (launch price).</i>\n\n' +
+    text: () => `💰 <b>ዋጋ / Price</b>\n\n` +
+      `• <b>ለዘለቄታው — ${PRICE}</b> (አንድ ጊዜ ብቻ) ⭐\n` +
+      `• 1 ወር — ETB ${money(PLANS.m1.etb)}\n• 2 ወር — ETB ${money(PLANS.m2.etb)}\n` +
+      `<i>Forever ${PRICE} (one payment) · 1 month ETB ${money(PLANS.m1.etb)} · 2 months ETB ${money(PLANS.m2.etb)}. ` +
+      'Later go Forever and what you paid is deducted.</i>\n\n' +
       '✅ ለአንድ ኮምፒውተር · ዝማኔዎች በነጻ\n<i>For one computer · updates are free.</i>\n\n' +
       '🏦 ክፍያ በባንክ ዝውውር (CBE፣ አቢሲኒያ፣ ዘመን) — «ክፍያ» ይንኩ።\n<i>Bank transfer (CBE, Abyssinia, Zemen) — tap Pay.</i>',
     kb: () => [[{ text: '💳 ክፍያ · Pay', callback_data: 'menu:pay' }]],
@@ -3450,8 +3524,8 @@ const midLabel = (mid) => (isCodePlaceholder(mid) ? '📱 phone order (activatio
 
 // The Machine ID is known (panel Buy button, or typed): straight to paying.
 async function startPanelPurchase(uid, chatId, mid, nonce) {
-  const have = await DB.prepare('SELECT revoked FROM customers WHERE machine_id=?').bind(mid).first();
-  if (have && !have.revoked) {
+  const have = await currentLicense(mid);
+  if (have && !have.revoked && !isTimedLicense(have)) {
     await setFsm(uid, null);
     await sendText(chatId,
       '🔑 <b>ይህ ኮምፒውተር ቀድሞውኑ ፈቃድ አለው።</b>\n<i>This computer already has a license.</i>\n\n' +
@@ -3484,11 +3558,13 @@ async function startPanelPurchase(uid, chatId, mid, nonce) {
   const prior = await getFsm(uid);
   await setFsm(uid, { step: 'photo', mid, nonce: nonce || (prior && prior.mid === mid ? prior.nonce : null), photo_key: null, hint: 1 });
   await addFunnel(uid, nonce ? 'panel_buy' : 'mid_sent');
+  await setPlan(uid, 'forever');
   const offer = await referralOffer(uid, mid);
-  await quoteOffer(uid, offer);
+  const price = await planPrice('forever', offer, mid);
+  if (offer && price === offer.price) await quoteOffer(uid, offer);
   await sendText(chatId,
     '🖥 <b>ኮምፒውተርዎ ተገናኝቷል ✅</b> — ምንም መጻፍ አያስፈልግም።\n<i>Your computer is connected — nothing to type.</i>\n\n' +
-    payText(offer), payKeyboard(true));
+    payText(offer, 'forever', price), payKeyboard(true, 'forever'));
 }
 
 // ── payment-screenshot fraud signals ────────────────────────────────────────
@@ -3628,7 +3704,9 @@ async function completeProof(uid, chatId, uname, privateChat) {
 async function placeOrder(uid, chatId, uname, privateChat, s) {
   if (!s || !s.photo_key) return;
   const mid = s.mid && isValidMid(s.mid) && !suspiciousMid(s.mid) ? String(s.mid).toLowerCase() : null;
-  if (mid && (await findKey(mid))) {
+  const plan = await getPlan(uid);
+  const curLic = mid ? await currentLicense(mid) : null;
+  if (mid && curLic && curLic.key && !curLic.revoked && !isTimedLicense(curLic)) {
     await setFsm(uid, null);
     await sendText(chatId,
       `🔑 ይህ ኮምፒውተር (<code>${mid}</code>) ቀድሞውኑ ቁልፍ አለው — ሁለተኛ ጊዜ አይክፈሉ።\n` +
@@ -3673,8 +3751,14 @@ async function placeOrder(uid, chatId, uname, privateChat, s) {
   // Referral terms are locked onto the order now (price, discount, reward), so
   // changing the amounts or switching the programme off later never changes an
   // order in flight.
-  const offer = await orderOffer(uid, mid);
-  let amountEtb = PRICE_ETB;
+  // Plans (1.10.12): a short plan has its own price and partner reward (no
+  // discount); Forever after a short plan costs what is left (no discount).
+  const upgrade = !PLANS[plan] && isTimedLicense(curLic);
+  let offer = upgrade ? null : await orderOffer(uid, mid);
+  if (offer && PLANS[plan]) {
+    offer = Object.assign({}, offer, { discount: 0, reward: PLANS[plan].reward, price: PLANS[plan].etb });
+  }
+  let amountEtb = PLANS[plan] ? PLANS[plan].etb : upgrade ? await upgradePrice(mid) : PRICE_ETB;
   if (offer) {
     try {
       await DB.prepare(
@@ -3684,7 +3768,12 @@ async function placeOrder(uid, chatId, uname, privateChat, s) {
     } catch (e) {
       log('error', 'referral_order_tag_failed', { orderId, err: String((e && e.message) || e) });
     }
+  } else if (amountEtb !== PRICE_ETB) {
+    await DB.prepare('UPDATE orders SET amount_etb=? WHERE id=?').bind(amountEtb, orderId).run();
   }
+  try { await DB.prepare('UPDATE orders SET plan=? WHERE id=?').bind(plan, orderId).run(); }
+  catch (e) { log('error', 'order_plan_failed', { orderId, err: String((e && e.message) || e) }); }
+  await setPlan(uid, 'forever');
 
   await setFsm(uid, null);
   await kvDel('pending:count');
@@ -3721,6 +3810,7 @@ async function placeOrder(uid, chatId, uname, privateChat, s) {
         ? `Machine ID: <code>${esc(mid)}</code>${s.nonce ? ' · 🖥 from the panel (activates itself)' : ''}\n`
         : '📱 <b>Paid from the phone</b> — no Machine ID; approving sends an activation code.\n') +
       `User: @${esc(uname)} (id ${esc(uid)})\nSource: ${privateChat ? 'DM' : 'Group'}\n` +
+      `📦 Plan: <b>${esc(planLabel(plan))}</b>${upgrade ? ' (upgrade — timed plans already paid are deducted)' : ''}\n` +
       (offer ? `👥 <b>Referred${offer.partner ? ` via partner ${esc(offer.partner)}` : ''}</b> — expect <b>ETB ${money(amountEtb)}</b> (discount ${money(offer.discount)})\n` : '') +
       (flag ? `\n${esc(flag)}\n` : '') + '\n' +
       `✔ Check your bank app shows <b>ETB ${money(amountEtb)}</b> received, then Approve or Decline:`;
@@ -5096,9 +5186,43 @@ async function nudgeTrialDone(mid) {
   if (!r || !r.meta || r.meta.changes < 1) return;
   await sendText(g.uid,
     '🎬 <b>ነጻ ደቂቃዎችዎን ተጠቅመዋል።</b>\n' +
-    `ውጤቱ ከወደዱት ፈቃዱ አንድ ጊዜ ብቻ ይከፈላል — ETB ${money(PRICE_ETB)}፣ ለዘለቄታው።\n` +
-    `<i>You have used your free minutes. If you liked the result, the license is one payment — ETB ${money(PRICE_ETB)}, forever.</i>`,
+    `ውጤቱ ከወደዱት፦ 1 ወር ETB ${money(PLANS.m1.etb)} · 2 ወር ETB ${money(PLANS.m2.etb)} · ለዘለቄታው ETB ${money(PRICE_ETB)}።\n` +
+    `<i>You have used your free minutes. If you liked the result: 1 month ETB ${money(PLANS.m1.etb)} · 2 months ETB ${money(PLANS.m2.etb)} · forever ETB ${money(PRICE_ETB)}.</i>`,
     trialBuyKb());
+}
+
+// 3 days before a timed license ends, and on the day it ends: one message
+// each, with Renew / Forever buttons (6-hourly cron).
+async function remindRenewals() {
+  try {
+    const today = ymd(todayEatDate());
+    const soon = ymd(new Date(todayEatDate().getTime() + 3 * 86400000));
+    const old = ymd(new Date(todayEatDate().getTime() - 14 * 86400000));
+    const { results } = await DB.prepare(
+      "SELECT machine_id, uid, expiry, renew_nudged FROM customers WHERE revoked = 0 AND expiry != '00000000' " +
+      "AND expiry <= ? AND expiry >= ? AND uid IS NOT NULL AND uid != '' LIMIT 25"
+    ).bind(soon, old).all();
+    for (const r of results || []) {
+      const ended = r.expiry <= today;
+      const tag = (ended ? 'post:' : 'pre:') + r.expiry;
+      if (r.renew_nudged === tag) continue;
+      const done = await DB.prepare('UPDATE customers SET renew_nudged = ? WHERE machine_id = ? AND (renew_nudged IS NULL OR renew_nudged != ?)')
+        .bind(tag, r.machine_id, tag).run();
+      if (!done || !done.meta || done.meta.changes < 1) continue;
+      const up = await upgradePrice(r.machine_id);
+      await sendText(r.uid,
+        (ended
+          ? '⌛ <b>ፈቃድዎ አብቅቷል።</b>\n<i>Your license has ended.</i>\n\n'
+          : `⏳ <b>ፈቃድዎ ${lastDay(r.expiry)} ያበቃል።</b>\n<i>Your license ends on ${lastDay(r.expiry)}.</i>\n\n`) +
+        'ለመቀጠል ያድሱ — ወይም ለዘለቄታው ይውሰዱ፤ የከፈሉት ይቀነሳል።\n' +
+        '<i>Renew to keep going — or go Forever; what you paid is deducted.</i>',
+        [
+          [{ text: `🔁 1 ወር · ETB ${money(PLANS.m1.etb)}`, callback_data: `renew:m1:${r.machine_id}` },
+           { text: `2 ወር · ETB ${money(PLANS.m2.etb)}`, callback_data: `renew:m2:${r.machine_id}` }],
+          [{ text: `⭐ ለዘለቄታው · Forever · ETB ${money(up)}`, callback_data: `renew:forever:${r.machine_id}` }],
+        ]);
+    }
+  } catch (e) { log('warn', 'renew_reminders_failed', { err: String((e && e.message) || e) }); }
 }
 
 // Once a day (6-hourly cron, after 18:00 Ethiopian time): a short summary.
@@ -5357,6 +5481,14 @@ async function approve(chatId, messageId, orderId, cbId) {
     : await DB.prepare('SELECT key, expiry FROM customers WHERE machine_id=?').bind(o.machine_id).first();
   let key = customer && customer.key;
   let issuedNow = false;
+  // Plans (1.10.12): a short plan's key ends N days after THIS approval (or
+  // after the current end — a renewal). Fixed on the order at the first
+  // approval, so a retry never extends it twice.
+  let expiry = String(o.expiry || '00000000');
+  if (o.status !== 'approved' && PLANS[o.plan]) {
+    expiry = planExpiry(PLANS[o.plan].days, customer && customer.expiry);
+    await DB.prepare('UPDATE orders SET expiry=? WHERE id=?').bind(expiry, o.id).run();
+  }
 
   // A completed delivery is idempotent: a duplicate Telegram callback must not
   // send a second copy of the key. Failed deliveries remain retryable.
@@ -5365,9 +5497,9 @@ async function approve(chatId, messageId, orderId, cbId) {
     return;
   }
 
-  if (!codeOrder && (!customer || !key)) {
+  if (!codeOrder && (!customer || !key || String(customer.expiry || '00000000') !== expiry)) {
     try {
-      key = await keyFor(o.machine_id, o.expiry);
+      key = await keyFor(o.machine_id, expiry);
     } catch (e) {
       log('error', 'key_generation_failed', { orderId, err: String(e && e.message || e) });
       await answerCb(cbId, 'Could not generate key; order remains pending.');
@@ -5401,7 +5533,7 @@ async function approve(chatId, messageId, orderId, cbId) {
     try {
       await DB.prepare(
         'INSERT OR IGNORE INTO activation_codes (code, order_id, uid, expiry) VALUES (?, ?, ?, ?)'
-      ).bind(key, o.id, o.uid || '', o.expiry || '00000000').run();
+      ).bind(key, o.id, o.uid || '', expiry).run();
       await DB.prepare('UPDATE activation_codes SET revoked=0 WHERE code=?').bind(key).run();
     } catch (e) {
       log('error', 'activation_code_failed', { orderId, err: String((e && e.message) || e) });
@@ -5418,7 +5550,9 @@ async function approve(chatId, messageId, orderId, cbId) {
       VALUES (?,?,?,?, 'sold', ?) ON CONFLICT(machine_id) DO UPDATE SET
         key=excluded.key, name=excluded.name, expiry=excluded.expiry,
         status='sold', uid=excluded.uid`)
-      .bind(o.machine_id, '@' + (o.username || 'anon'), o.expiry, key, o.uid || '').run();
+      .bind(o.machine_id, '@' + (o.username || 'anon'), expiry, key, o.uid || '').run();
+    try { await DB.prepare('UPDATE customers SET renew_nudged=NULL WHERE machine_id=?').bind(o.machine_id).run(); }
+    catch (e) { /* 0028 not applied */ }
     await DB.prepare(
       `UPDATE orders SET key_issued_at=COALESCE(key_issued_at, datetime('now')),
        delivery_status=CASE WHEN delivery_status='delivered' THEN 'delivered' ELSE 'pending' END
@@ -5431,6 +5565,8 @@ async function approve(chatId, messageId, orderId, cbId) {
   await DB.prepare(
     "INSERT OR IGNORE INTO sales (order_id, machine_id, amount_etb, status) VALUES (?, ?, ?, 'sold')"
   ).bind(o.id, o.machine_id, o.amount_etb > 0 ? o.amount_etb : PRICE_ETB).run();
+  try { await DB.prepare('UPDATE sales SET plan=? WHERE order_id=?').bind(o.plan || 'forever', o.id).run(); }
+  catch (e) { /* 0028 not applied */ }
 
   // Referred order: one reward for the referrer (terms locked on the order).
   let rewardNew = false;
@@ -5469,7 +5605,7 @@ async function approve(chatId, messageId, orderId, cbId) {
   const delivery = codeOrder
     ? await sendText(o.uid, activationCodeMessage(key),
       [[{ text: '📲 አጫጫን · Install guide', url: `${SITE_URL}/install` }]])
-    : await sendText(o.uid, keyDeliveryMessage(key, o.expiry, 'private', !!o.nonce));
+    : await sendText(o.uid, keyDeliveryMessage(key, expiry, 'private', !!o.nonce));
   const delivered = !!(delivery && delivery.ok);
   await DB.prepare(
     delivered
@@ -5665,6 +5801,39 @@ async function handleCallback(cb) {
     return;
   }
 
+  // Plans (1.10.12): switch the plan on the pay screen; Renew / Forever from
+  // a reminder (only the license's own Telegram account).
+  if (data.startsWith('plan:') || data.startsWith('renew:')) {
+    if (!isPrivateChat(chatId, fromUid)) { await answerCb(cbId, '🔒 በግል ቻት ይቀጥሉ · Continue in a private chat'); return; }
+    await answerCb(cbId, '');
+    const parts = data.split(':');
+    const plan = PLANS[parts[1]] ? parts[1] : 'forever';
+    let known = await getFsm(fromUid);
+    if (parts[0] === 'renew') {
+      const rmid = String(parts[2] || '').toLowerCase();
+      const cur = isValidMid(rmid) ? await currentLicense(rmid) : null;
+      if (!cur || String(cur.uid) !== String(fromUid)) {
+        await sendText(chatId, '⚠️ ይህ ፈቃድ በዚህ የቴሌግራም መለያ አልተገዛም — ይጻፉልን።\n<i>This license was not bought with this Telegram account — message us.</i>',
+          [[{ text: '💬 ድጋፍ · Support', url: SUPPORT_URL }]]);
+        return;
+      }
+      await setFsm(fromUid, { step: 'photo', mid: rmid, nonce: null, hint: 1 });
+      known = await getFsm(fromUid);
+    } else if (!(known && known.step === 'payout')) {
+      await setFsm(fromUid, { step: 'photo', mid: known && known.mid, nonce: known && known.nonce, hint: 1 });
+    }
+    await setPlan(fromUid, plan);
+    const mid = known && known.mid;
+    const offer = plan === 'forever' ? await referralOffer(fromUid, mid) : null;
+    const price = await planPrice(plan, offer, mid);
+    if (offer && price === offer.price) await quoteOffer(fromUid, offer);
+    const pt = payText(offer, plan, price);
+    const kb = payKeyboard(!!(known && known.nonce), plan);
+    const r = parts[0] === 'plan' ? await editText(chatId, messageId, pt, kb) : null;
+    if (!r || !r.ok) await sendText(chatId, pt, kb);
+    return;
+  }
+
   if (data.startsWith('menu:')) {
     await answerCb(cbId, '');
     const kind = data.split(':')[1];
@@ -5676,9 +5845,11 @@ async function handleCallback(cb) {
       if (isPrivateChat(chatId, fromUid) && !(known && known.step === 'payout')) {
         await setFsm(fromUid, { step: 'photo', mid: known && known.mid, nonce: known && known.nonce, hint: 1 });
       }
+      await setPlan(fromUid, 'forever');
       const payOffer = await referralOffer(fromUid, known && known.mid);
-      await quoteOffer(fromUid, payOffer);
-      const pt = payText(payOffer);
+      const payPrice = await planPrice('forever', payOffer, known && known.mid);
+      if (payOffer && payPrice === payOffer.price) await quoteOffer(fromUid, payOffer);
+      const pt = payText(payOffer, 'forever', payPrice);
       const kb = payKeyboard(!!(known && known.nonce));
       const r = await editText(chatId, messageId, pt, kb);
       // Same fallback as showMenu: an edit that fails must not leave the buyer
@@ -6914,6 +7085,7 @@ export default {
     try { await postWeeklyJobsDigest(); } catch (e) { log('error', 'jobs_digest_failed', { err: String((e && e.message) || e) }); }
     await nudgeQuietBuyers();
     await trialDigest();
+    await remindRenewals();
     await pruneOld();
     await remindReferralPayouts();
     await sendMonthlyPartnerReports();

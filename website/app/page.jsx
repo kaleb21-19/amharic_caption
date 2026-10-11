@@ -82,7 +82,7 @@ const buySteps = [
     },
   },
   {
-    t: { am: `${PRICE_AM} በባንክ ያስተላልፉ`, en: `Transfer ${PRICE} by bank` },
+    t: { am: "ፕላን ይምረጡና በባንክ ያስተላልፉ", en: "Choose a plan and transfer by bank" },
     c: {
       am: `ለ ${ACCT_NAME} (CBE፣ አቢሲኒያ ወይም ዘመን ባንክ) ያስተላልፉ፣ የደረሰኙን ስክሪንሾት ለቦቱ ይላኩ።`,
       en: `Pay ${ACCT_NAME} (CBE, Abyssinia or Zemen) and send the receipt screenshot to the bot.`,
@@ -209,8 +209,8 @@ export default function HomePage() {
 
               <p className="hero-note">
                 <Tx
-                  am="መጀመሪያ 2 ካፕሽን በነጻ ይሞክሩ · አንድ ጊዜ ብቻ ይከፍላሉ · ወርሃዊ ክፍያ የለም"
-                  en="Try 2 captions free first · One-time payment · No subscription"
+                  am="መጀመሪያ 20 ደቂቃ በነጻ ይሞክሩ · በወር ከ500 ብር · ወይም አንድ ጊዜ ለዘለቄታው"
+                  en="Try 20 minutes free first · From ETB 500 a month · Or pay once, forever"
                 />
               </p>
             </div>
@@ -357,7 +357,7 @@ export default function HomePage() {
           <Reveal>
             <div className="section-head center">
               <p className="eyebrow"><Tx am="ዋጋ" en="Pricing" /></p>
-              <h2><Tx am="አንድ ጊዜ ይክፈሉ፣ የእርስዎ ነው።" en="Pay once. Yours to keep." /></h2>
+              <h2><Tx am="አንድ ጊዜ ይክፈሉ — ወይም በወር ይጀምሩ።" en="Pay once — or start monthly." /></h2>
             </div>
           </Reveal>
 
@@ -378,6 +378,13 @@ export default function HomePage() {
                 <li><Tx am="በአማርኛ ወይም በእንግሊዝኛ" en="In Amharic or English" /></li>
                 <li><Tx am="በቴሌግራም ድጋፍ — ከሰሩት ሰዎች በቀጥታ" en="Support on Telegram from the people who built it" /></li>
               </ul>
+
+              <p className="price-plans" style={{ margin: "14px 0 16px", lineHeight: 1.6, fontSize: "0.95em" }}>
+                <Tx
+                  am={<>ወይም በወር ይጀምሩ፦ <strong>1 ወር 500 ብር</strong> · <strong>2 ወር 900 ብር</strong>። በኋላ ለዘለቄታው ሲገዙ የከፈሉት ይቀነሳል።</>}
+                  en={<>Or start monthly: <strong>1 month ETB 500</strong> · <strong>2 months ETB 900</strong>. Go Forever later and what you paid is deducted.</>}
+                />
+              </p>
 
               <a className="btn btn-primary btn-lg btn-block" href={BOT_URL} target="_blank" rel="noopener">
                 <Tx am="ቁልፍዎን በቴሌግራም ያግኙ" en="Get your key on Telegram" />

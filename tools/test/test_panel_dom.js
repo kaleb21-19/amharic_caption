@@ -231,7 +231,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.10.11');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.10.12');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1676,7 +1676,8 @@ await t('17. polish: Amharic errors/progress, compact idle UI, simple license st
     p.evalVm("LICENSED = true; LICENSE_NOTE = 'Licensed'; updateLicenseUI()");
     assert.strictEqual(p.els('footPrice').style.display, 'none', 'no price shown to payers');
     assert.strictEqual(p.els('licenseStatus').style.display, 'none');
-    p.evalVm("LICENSE_NOTE = 'Licensed (expires 20271231)'; updateLicenseUI()");
+    p.evalVm("LICENSE_NOTE = 'Licensed until ' + lastLicenseDay('20271231'); updateLicenseUI()");
+    assert.strictEqual(p.els('licenseStatus').textContent, 'ፈቃድ አለው — እስከ 2027-12-30', 'a plan shows its last day (Amharic)');
     assert.strictEqual(p.els('licenseStatus').style.display, '', 'dated keys still show their date');
   } finally { p.close(); }
 

@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.10.11';
+const APP_VERSION = '1.10.12';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -954,6 +954,11 @@ function canonicalPanelKey(value) {
 let LICENSED = false;
 let LICENSED_REFRESH = false;
 let LICENSE_NOTE = '';
+// A key that ends on YYYYMMDD works until the day before.
+function lastLicenseDay(exp) {
+  const d = new Date(Date.UTC(+exp.slice(0, 4), +exp.slice(4, 6) - 1, +exp.slice(6, 8)) - 86400000);
+  return d.toISOString().slice(0, 10);
+}
 
 // Signed leases are mandatory. Legacy `{valid, serverValidated, activated}`
 // objects are intentionally rejected because every field is user-controlled.
@@ -969,7 +974,9 @@ async function assessLicense() {
   const v = await verifyLicenseToken(stored.token, LICENSE_TOKEN_PUBKEY_PEM, MACHINE_ID);
   if (v.ok) {
     LICENSED = true;
-    LICENSE_NOTE = 'Licensed' + (v.expiry && v.expiry !== '00000000' ? ' (expires ' + v.expiry + ')' : '');
+    // A 1- or 2-month plan (1.10.12): show the last day it works.
+    LICENSE_NOTE = (v.expiry && /^\d{8}$/.test(v.expiry) && v.expiry !== '00000000')
+      ? 'Licensed until ' + lastLicenseDay(v.expiry) : 'Licensed';
     return;
   }
   // Definitive signature/shape failures clear the lease. A transient WebCrypto
@@ -1219,7 +1226,7 @@ function updateLicenseUI() {
       licStatus.textContent = L(LICENSE_NOTE || 'Licensed');
       licStatus.style.color = 'var(--ok)';
       // The thank-you note already says it; only a dated key needs this line.
-      licStatus.style.display = /expires/.test(LICENSE_NOTE || '') ? '' : 'none';
+      licStatus.style.display = /until/.test(LICENSE_NOTE || '') ? '' : 'none';
     }
     if (runBtn) runBtn.disabled = MODEL_MISSING;
     if (licInput) licInput.style.display = 'none';

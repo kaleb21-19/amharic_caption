@@ -35,7 +35,7 @@ export default function MobileBuyBar() {
       <div className="buybar-inner">
         <div className="buybar-text">
           <strong><Tx am={PRICE_AM} en={PRICE} /></strong>
-          <span><Tx am="አንድ ጊዜ ብቻ · መጀመሪያ 20 ደቂቃ በነጻ" en="one-time · 20 minutes free first" /></span>
+          <span><Tx am="ወይም በወር 500 ብር · 20 ደቂቃ በነጻ" en="or ETB 500 a month · 20 min free" /></span>
         </div>
         <a
           className="btn btn-primary"
