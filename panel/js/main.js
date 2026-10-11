@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.10.13';
+const APP_VERSION = '1.10.14';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -671,7 +671,7 @@ function hideOnboarding() {
 function healthChecks() {
   let runtime = false, python = false, ffmpeg = false, model = false;
   try {
-    const features = !!RUNTIME && (isDegradedRuntime(RUNTIME) || ['amh_lm.py', 'amh_lm.json.gz', 'amh_vad.py', 'silero_vad.onnx', 'amh_diarize.py', 'speaker_embed.onnx']
+    const features = !!RUNTIME && (isDegradedRuntime(RUNTIME) || ['amh_lm.py', 'amh_lm.json.gz', 'amh_vad.py', 'silero_vad.onnx']
       .every((f) => fs.existsSync(path.join(RUNTIME, f))));
     runtime = !!RUNTIME && fs.existsSync(PYTHON) && fs.existsSync(FFMPEG) && fs.existsSync(MODEL_DIR) && features;
     python = !!RUNTIME && fs.existsSync(PYTHON);
@@ -1663,9 +1663,7 @@ function runtimeComplete(base) {
     fs.existsSync(path.join(base, 'amh_lm.py')) &&
     fs.existsSync(path.join(base, 'amh_lm.json.gz')) &&
     fs.existsSync(path.join(base, 'amh_vad.py')) &&
-    fs.existsSync(path.join(base, 'silero_vad.onnx')) &&
-    fs.existsSync(path.join(base, 'amh_diarize.py')) &&
-    fs.existsSync(path.join(base, 'speaker_embed.onnx'))
+    fs.existsSync(path.join(base, 'silero_vad.onnx'))
   );
   return modelOk && binOk && pyOk && featureOk;
 }
@@ -1953,7 +1951,6 @@ let GROUP_SIZE = 3;
 const FORMAT_CHARS = { h: 42, v: 22 };
 let FORMAT = 'h';
 let MAX_CHARS = FORMAT_CHARS.h;
-let SPEAKERS = false;
 let cancelRequested = false;
 let lastSrtPath = null;
 let lastCues = [];
@@ -1982,7 +1979,6 @@ function applySettings() {
   // Old settings stored a raw number; 25 or fewer meant short captions.
   FORMAT = s.format === 'v' || s.format === 'h' ? s.format : ((s.chars && s.chars <= 25) ? 'v' : 'h');
   MAX_CHARS = FORMAT_CHARS[FORMAT];
-  SPEAKERS = !!s.speakers;
   document.querySelectorAll('#srcSeg button').forEach((b) => {
     b.classList.toggle('active', b.dataset.src === SOURCE);
   });
@@ -1993,7 +1989,6 @@ function applySettings() {
   document.querySelectorAll('#fmtSeg button').forEach((b) => {
     b.classList.toggle('active', b.dataset.fmt === FORMAT);
   });
-  $('speakersToggle').checked = SPEAKERS;
 }
 
 // ----------------------------------------------------------------- SRT
@@ -2070,13 +2065,12 @@ function pyFlags() {
   if (CAP === 'words') f.push('--words');
   else f.push('--group', String(GROUP_SIZE));
   f.push('--max-chars', String(MAX_CHARS));
-  if (SPEAKERS) f.push('--speakers');
   return f;
 }
 
 const WARM_TRANSPORT_ERRS = new Set(['worker error', 'worker exited', 'worker write failed']);
 
-// A native extension (numpy, ctranslate2, onnxruntime, sherpa_onnx) that cannot
+// A native extension (numpy, ctranslate2, onnxruntime) that cannot
 // load its compiled DLL crashes the worker at import time with this signature.
 // In the field the cause is almost always a security app (antivirus) that
 // quarantined or deleted an engine file, a download that was not fully
@@ -2305,7 +2299,7 @@ function cacheKey(sourcePath, range, offset) {
     h.update(':' + String(range.sourceIn || 0));
     h.update(':' + String(range.duration || 0));
   }
-  h.update(':' + CAP + ':' + GROUP_SIZE + ':' + MAX_CHARS + ':' + (SPEAKERS ? 1 : 0));
+  h.update(':' + CAP + ':' + GROUP_SIZE + ':' + MAX_CHARS);
   h.update(':' + engineHash() + ':' + MODEL_DIR);
   h.update(':' + String(offset || 0));
   try {
@@ -2434,8 +2428,7 @@ async function cacheStore(key, srt, transcript, cues) {
 function warmStyle() {
   return { mode: CAP === 'words' ? 'words' : 'grouped',
            group: CAP === 'grouped' ? GROUP_SIZE : 0,
-           max_chars: MAX_CHARS,
-           speakers: SPEAKERS };
+           max_chars: MAX_CHARS };
 }
 
 // Extract a trimmed source segment to 16k mono wav.
@@ -2976,15 +2969,14 @@ async function openReview(outSrt, label, startSeconds, opts) {
 // wait until the editor leaves the text box. "Place on timeline" / "Save
 // SRT" stay locked until everything is done.
 // Only for licensed users (a trial credit is charged when the review opens,
-// which must never happen for a run that then fails) and without speaker
-// marks (that pass rewrites every caption at the very end).
+// which must never happen for a run that then fails).
 let LIVE_WANTED = null;      // { outSrt, label } — set by the run that may go live
 let REVIEW_LIVE = null;      // { seen, pending } while a live review is open
 let LIVE_OPENING = null;     // the live review's openReview() while it runs
 const LIVE_POLL_MS = 2000;
 
 function liveReviewAllowed() {
-  return !!(LIVE_WANTED && LICENSED && !SPEAKERS);
+  return !!(LIVE_WANTED && LICENSED);
 }
 
 function startLivePoll(work) {
@@ -3211,7 +3203,6 @@ function renderReview() {
   list.textContent = '';
   const ts = (sec) => fmtReviewTs(sec);
 
-  const reviewHasSpeakers = reviewCues.some((c) => c && c.speaker);
   let shown = 0;
   for (let i = 0; i < reviewCues.length; i++) {
     const cue = reviewCues[i];
@@ -3227,18 +3218,6 @@ function renderReview() {
     tOut.className = 't'; tOut.value = ts(cue.end); tOut.title = L('End (m:ss.cc)');
     timeBox.appendChild(tIn);
     timeBox.appendChild(tOut);
-    // Speaker (interviews): which person says this caption. Tap to switch
-    // when voice detection guessed wrong — the "– " marks follow it.
-    if (reviewHasSpeakers) {
-      const spk = document.createElement('button');
-      spk.type = 'button';
-      const n = cue.speaker === 'S2' ? 2 : 1;
-      spk.className = 'spk s' + n;
-      spk.textContent = '🗣 ' + n;
-      spk.title = L('Speaker ' + n + ' — tap to switch');
-      spk.addEventListener('click', () => { cue.speaker = n === 1 ? 'S2' : 'S1'; renderReview(); });
-      timeBox.appendChild(spk);
-    }
 
     // Split, join and delete are one click, always visible (Premiere hides
     // its own in an overflow menu on a narrow panel and editors cannot find
@@ -3551,12 +3530,6 @@ function addReviewCue(i) {
   return at;
 }
 
-// After a run with "Label speakers" on, say what it found — it used to
-// change nothing visible on a one-person video and looked broken.
-const SPEAKER_NOTES = {
-  two: '2 speakers found — each change is marked with “–”',
-  one: 'One voice only — no speaker marks added',
-};
 // The doubtful words still present in a cue's (possibly edited) text.
 function cueDoubts(cue) {
   const t = String((cue && cue.text) || '');
@@ -3579,11 +3552,9 @@ function fitReviewBoxes() {
   for (let k = 0; k < all.length; k++) fitReviewBox(all[k]);
 }
 function updateReviewCount() {
-  const note = SPEAKER_NOTES[speakerSummary(reviewCues, SPEAKERS)];
   const toCheck = reviewCues.filter((c) => cueDoubts(c).length).length;
   $('reviewCount').textContent = L(reviewCues.length + ' caption' + (reviewCues.length === 1 ? '' : 's')) +
-    (toCheck ? ' · ⚠ ' + L(toCheck + ' to check') : '') +
-    (note ? ' · ' + L(note) : '');
+    (toCheck ? ' · ⚠ ' + L(toCheck + ' to check') : '');
 }
 
 function writeReviewSrt(outDir) {
@@ -4780,10 +4751,6 @@ function setup() {
       saveSettings({ format: FORMAT, chars: MAX_CHARS });
     });
   });
-  $('speakersToggle').addEventListener('change', (e) => {
-    SPEAKERS = !!e.target.checked;
-    saveSettings({ speakers: SPEAKERS });
-  });
 
   $('runBtn').addEventListener('click', run);
   $('cancelBtn').addEventListener('click', () => {
@@ -4829,9 +4796,6 @@ function setup() {
     log('Model page: https://huggingface.co/snapwre/hohe-asr-amharic');
     log('Converted to CTranslate2 int8 for offline CPU inference; no other changes.');
     log('');
-    log('Speaker-embedding model: TitaNet-Small by NVIDIA (NeMo), distributed via');
-    log('the sherpa-onnx project. License: CC BY 4.0.');
-    log('');
     log('Voice activity detection: Silero VAD (https://github.com/snakers4/silero-vad).');
     log('License: MIT.');
     log('');
@@ -4841,7 +4805,7 @@ function setup() {
     log('corresponding source code ship in the "legal" folder of the installed extension.');
     log('');
     log('Runtime: CPython (PSF-2.0) with CTranslate2 (MIT), NumPy (BSD-3-Clause),');
-    log('onnxruntime (MIT), sherpa-onnx (Apache-2.0) and soundfile (BSD-3-Clause).');
+    log('onnxruntime (MIT) and soundfile (BSD-3-Clause).');
     log('Panel: Adobe CSInterface.js (BSD-3-Clause), json2 (Public Domain).');
     log('');
     log('Full per-component attribution: legal/THIRD-PARTY-NOTICES.md');

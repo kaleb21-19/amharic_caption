@@ -168,7 +168,7 @@ if "!DEGRADED!"=="0" (
         call :FAIL 6 "This archive is incomplete because its Python runtime is missing. Do not install it; download the archive again."
         exit /b 6
     )
-    for %%F in (amh_lm.py amh_lm.json.gz amh_vad.py silero_vad.onnx amh_diarize.py speaker_embed.onnx) do (
+    for %%F in (amh_lm.py amh_lm.json.gz amh_vad.py silero_vad.onnx) do (
         if not exist "%SRC%\runtime\%%F" (
             >> "%LOG%" echo ERROR 6: source package missing %%F
             call :FAIL 6 "This archive is incomplete because a required caption feature is missing. Do not install it; download the archive again."
@@ -515,7 +515,7 @@ if exist "%SRC%\runtime\bin\ffmpeg.exe" (
 )
 
 if "!DEGRADED!"=="0" (
-    for %%F in (amh_lm.py amh_lm.json.gz amh_vad.py silero_vad.onnx amh_diarize.py speaker_embed.onnx) do (
+    for %%F in (amh_lm.py amh_lm.json.gz amh_vad.py silero_vad.onnx) do (
         if not exist "%SRC%\runtime\%%F" (
             color 0E
             echo [FAIL] Package is missing runtime\%%F.

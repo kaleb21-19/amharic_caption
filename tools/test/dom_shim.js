@@ -165,7 +165,7 @@ const KNOWN = [
   'srcSeg', 'srcClip', 'srcWork', 'srcWhole',
   'choose', 'fileInput', 'picked',
   // style
-  'capSeg', 'capWords', 'capGroup', 'groupSize', 'fmtSeg', 'fmtH', 'fmtV', 'speakersToggle',
+  'capSeg', 'capWords', 'capGroup', 'groupSize', 'fmtSeg', 'fmtH', 'fmtV',
   'runBtn', 'cancelBtn', 'progBar', 'progLabel', 'progWrap', 'progTrack',
   // panel polish: collapsible option field, footer price, review labels
   'groupSizeField', 'fmtField', 'footPrice', 'reviewSub', 'healthTitle',
@@ -207,7 +207,7 @@ function makeDocument(tagFor) {
   const stamp = {
     srcClip: ['button', 'clip'], srcWork: ['button', 'work'], srcWhole: ['button', 'whole'],
     capWords: ['button', 'words'], capGroup: ['button', 'grouped'],
-    groupSize: ['input', null], fmtH: ['button', null], fmtV: ['button', null], speakersToggle: ['input', null],
+    groupSize: ['input', null], fmtH: ['button', null], fmtV: ['button', null],
     fileInput: ['input', null], burnFileInput: ['input', null],
     licenseInput: ['input', null],
     runBtn: ['button', null], cancelBtn: ['button', null], choose: ['button', null],

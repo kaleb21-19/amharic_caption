@@ -120,17 +120,6 @@ Copy-Item "$ROOT\amh_license.py" (Join-Path $BNAME "runtime\amh_license.py")
 Copy-Item "$ROOT\amh_standalone.py" (Join-Path $BNAME "runtime\amh_standalone.py")
 Copy-Item "$ROOT\amh_model.py" (Join-Path $BNAME "runtime\amh_model.py")
 
-# 2-speaker diarization (interview labels). Omitted only if the model file
-# hasn't been fetched (bash tools/embed/fetch_model.sh) - verified by
-# verify_win.cmd.
-if (Test-Path "$ROOT\tools\embed\nemo_en_titanet_small.onnx") {
-    Copy-Item "$ROOT\amh_diarize.py" (Join-Path $BNAME "runtime\amh_diarize.py")
-    Copy-Item "$ROOT\tools\embed\nemo_en_titanet_small.onnx" (Join-Path $BNAME "runtime\speaker_embed.onnx")
-    Write-Host "  [ok] amh_diarize.py + speaker_embed.onnx"
-} else {
-    if (-not $AllowDegraded) { Write-Host "  [FAIL] speaker embedding model missing (use -AllowDegraded only for a non-release build)"; exit 1 }
-    Write-Host "  [warn] tools\embed\nemo_en_titanet_small.onnx missing - speaker labels disabled"
-}
 
 # Amharic word-LM (glue-word resegmentation). Built offline by tools/build_lm.py.
 if (Test-Path "$ROOT\tools\lm\amh_lm.json.gz") {
@@ -164,8 +153,7 @@ Copy-Item (Join-Path $PYDIR "*") (Join-Path $BNAME "runtime\python") -Recurse
 # Mirrors tools/build.sh step 1b, plus Windows/pip extras that are never
 # imported at runtime:
 #   include/ libs/ Scripts/   headers, import libs, console shims (Scripts\
-#                             also held duplicate onnxruntime/sherpa DLLs;
-#                             sherpa_onnx\lib\ carries the ones it loads)
+#                             also held duplicate onnxruntime DLLs)
 #   tcl/, tkinter, idlelib, turtle*, ensurepip, venv, lib2to3, pydoc_data, test
 #   _test*.pyd                CPython's own C test modules
 #   sympy, mpmath             onnxruntime install deps, unused for inference
@@ -193,7 +181,6 @@ Get-ChildItem $SITE -Directory -Recurse -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -in @('tests', 'testdata') } |
     Sort-Object { $_.FullName.Length } -Descending |
     ForEach-Object { if (Test-Path $_.FullName) { Remove-Item -Recurse -Force $_.FullName } }
-Get-ChildItem (Join-Path $SITE "sherpa_onnx\lib") -Filter *.lib -ErrorAction SilentlyContinue | Remove-Item -Force
 Write-Host "  [ok] python trimmed"
 
 # ship the license-relevant modules compiled, not readable (with the BUNDLED

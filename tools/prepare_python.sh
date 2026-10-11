@@ -7,7 +7,7 @@
 #   1. detects the current machine's target (mac-arm64 | mac-x64 | win-x64)
 #   2. downloads a RELOCATABLE CPython (python-build-standalone) for that target
 #   3. pip-installs the tiny ML runtime: ctranslate2 + numpy + soundfile +
-#      onnxruntime + sherpa-onnx (~120MB)
+#      onnxruntime (~100MB)
 #   4. prunes pip/setuptools so they don't ship in the bundle
 #   5. fetches a STATIC ffmpeg for that target
 #   6. verifies the key imports load
@@ -153,13 +153,12 @@ PY_DEPS=(
   "cffi==1.17.1"
   "pycparser==2.22"
   "onnxruntime==1.20.1"
-  "sherpa-onnx==1.13.8"
   # desktop app window (app/amh_app.py): Edge WebView2 on Windows, WebKit on macOS
   "pywebview==6.2.1"
 )
 
 # ---- 3. install the tiny ML runtime ---------------------------------------
-echo "  [step] installing deps (ctranslate2 + numpy + soundfile + onnxruntime + sherpa-onnx, ~120MB)"
+echo "  [step] installing deps (ctranslate2 + numpy + soundfile + onnxruntime, ~100MB)"
 if [[ "$TARGET" == "win-x64" && "$ON_WINDOWS" == "0" ]]; then
   # Cross-staging from a non-Windows host: we cannot execute python.exe, so
   # fetch the win_amd64 wheels and unpack them straight into site-packages.
@@ -224,7 +223,7 @@ if [[ ! -f "$FF" ]]; then
   # Authenticity, not just integrity. The CRC above only proves the download
   # was not truncated; it cannot detect upstream replacing the binary. Where a
   # hash is pinned, a changed upstream fails the build loudly instead of
-  # silently shipping a different ffmpeg. Same pattern as embed/fetch_model.sh.
+  # silently shipping a different ffmpeg.
   if [[ -n "$FF_SHA256" ]]; then
     if command -v shasum >/dev/null 2>&1; then
       FF_GOT="$(shasum -a 256 "$TMP/ff.zip" | awk '{print $1}')"
@@ -351,7 +350,7 @@ if [[ "$TARGET" == "win-x64" && "$ON_WINDOWS" == "0" ]]; then
 else
   echo "  [step] verifying imports"
   PY="$(cd "$(dirname "$PY")" && pwd)/$(basename "$PY")"
-  "$PY" -c "import ctranslate2, numpy, soundfile, onnxruntime, sherpa_onnx; print('      core imports OK')"
+  "$PY" -c "import ctranslate2, numpy, soundfile, onnxruntime; print('      core imports OK')"
 fi
 echo
 echo "== prepared $TARGET =="

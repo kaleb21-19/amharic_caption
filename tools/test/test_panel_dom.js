@@ -59,7 +59,7 @@ function detectRuntime() {
     const modelOk = fs.existsSync(path.join(base,'model','model_meta.json')) || fs.existsSync(path.join(base,'ethio-asr','config.json'));
     const binOk   = fs.existsSync(path.join(base,'bin','ffmpeg'))   || fs.existsSync(path.join(base,'bin','ffmpeg.exe'));
     const pyOk    = fs.existsSync(path.join(base,'python','bin','python3')) || fs.existsSync(path.join(base,'python','python.exe'));
-    const featureOk = ['amh_lm.py','amh_lm.json.gz','amh_vad.py','silero_vad.onnx','amh_diarize.py','speaker_embed.onnx']
+    const featureOk = ['amh_lm.py','amh_lm.json.gz','amh_vad.py','silero_vad.onnx']
       .every((f) => fs.existsSync(path.join(base, f)));
     return modelOk && binOk && pyOk && featureOk;
   };
@@ -93,7 +93,7 @@ function cacheKeyFor(src, opts) {
   const h = crypto.createHash('sha1');
   h.update(src);
   if (opts.range) { h.update(':' + String(opts.range.sourceIn||0)); h.update(':' + String(opts.range.duration||0)); }
-  h.update(':' + (opts.cap||'words') + ':' + (opts.group||3) + ':' + (opts.chars||42) + ':' + (opts.speakers?1:0));
+  h.update(':' + (opts.cap||'words') + ':' + (opts.group||3) + ':' + (opts.chars||42));
   h.update(':' + engineHashFor() + ':' + MODEL_DIR);
   h.update(':' + String(opts.offset||0));
   try { const st = fs.statSync(src); h.update(':' + st.size + ':' + Math.floor(st.mtimeMs)); } catch (e) {}
@@ -231,7 +231,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.10.13');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.10.14');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -252,7 +252,6 @@ await t('2. settings: defaults, live toggles, persistence across reload', async 
     assert.strictEqual(p.els('capWords').classList.contains('active'), true);
     assert.strictEqual(p.els('capGroup').classList.contains('active'), false);
     assert.strictEqual(p.els('groupSize').disabled, true, 'groupSize disabled in words mode');
-    assert.strictEqual(p.els('speakersToggle').checked, false);
     assert.strictEqual(p.els('srcClip').classList.contains('active'), true);
 
     p.els('capGroup').fire('click');
@@ -261,8 +260,6 @@ await t('2. settings: defaults, live toggles, persistence across reload', async 
     assert.strictEqual(p.els('groupSize').disabled, false);
     assert.strictEqual(JSON.parse(storage.getItem('amh.settings')||'{}').cap, 'grouped');
 
-    p.els('speakersToggle').checked = true;
-    p.els('speakersToggle').fire('change');
     p.els('srcWork').fire('click');
     p.els('groupSize').value = '5';
     p.els('groupSize').fire('input');
@@ -270,7 +267,7 @@ await t('2. settings: defaults, live toggles, persistence across reload', async 
     p.els('fmtV').fire('click');
     assert.ok(p.els('fmtV').classList.contains('active') && !p.els('fmtH').classList.contains('active'), 'vertical selected');
     const s = JSON.parse(storage.getItem('amh.settings')||'{}');
-    assert.strictEqual(s.speakers, true);
+    assert.strictEqual(s.speakers, undefined, 'no speaker setting any more');
     assert.strictEqual(s.source, 'work');
     assert.strictEqual(s.group, 5);
     assert.strictEqual(s.format, 'v', 'video shape saved');
@@ -282,7 +279,6 @@ await t('2. settings: defaults, live toggles, persistence across reload', async 
     const p2 = loadPanel({ storage, machineHome: homeDir, folderDialog: () => ({err:1}) });
     try {
       assert.strictEqual(p2.els('capGroup').classList.contains('active'), true, 'cap grouped remembered');
-      assert.strictEqual(p2.els('speakersToggle').checked, true, 'speakers remembered');
       assert.strictEqual(p2.els('groupSize').disabled, false, 'syncStyleControls on reload');
       assert.strictEqual(p2.els('srcWork').classList.contains('active'), true, 'source remembered');
       assert.strictEqual(p2.els('fmtV').classList.contains('active'), true, 'video shape remembered');
@@ -477,22 +473,17 @@ await t('3.7 simple buying: Buy link carries a secret, the panel activates itsel
   } finally { q.close(); }
 });
 
-await t('3.8 review: speaker marks show per caption and a tap switches the speaker', async () => {
+await t('3.8 review: no speaker marks (removed in 1.10.14), even for old speaker-tagged captions', async () => {
   const p = loadPanel();
   try {
-    p.evalVm('reviewTrialCharged = true; SPEAKERS = true; lastCues = [' +
-      '{start:0,end:1,text:"a",speaker:"S1"},{start:1,end:2,text:"b",speaker:"S2"},{start:2,end:3,text:"c",speaker:"S1"}];');
+    assert.ok(!/speakersToggle/.test(fs.readFileSync(path.join(REPO, 'panel', 'index.html'), 'utf8')), 'no speaker option');
+    p.evalVm('reviewTrialCharged = true; lastCues = [' +
+      '{start:0,end:1,text:"a",speaker:"S1"},{start:1,end:2,text:"b",speaker:"S2"}];');
     await p.evalVm('openReview("x.srt", "t", 0, {})');
-    const rows = p.els('reviewList').children;
-    const chip = (i) => rows[i].children[0].children[2];
-    assert.ok(chip(0) && /1/.test(chip(0).textContent) && /2/.test(chip(1).textContent), 'chips show 1 / 2');
-    chip(2).fire('click', { preventDefault() {} });
-    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(reviewCues.map((c) => c.speaker))')), ['S1', 'S2', 'S2'], 'tap switched caption 3 to speaker 2');
-    has(p.els('reviewCount').textContent, '2 speakers found', 'speaker note');
-    // Without speakers there are no marks at all.
-    p.evalVm('lastCues = [{start:0,end:1,text:"a"}];');
-    await p.evalVm('openReview("y.srt", "t", 0, {})');
-    assert.strictEqual(p.els('reviewList').children[0].children[0].children.length, 2, 'no mark without speakers');
+    assert.strictEqual(p.els('reviewList').children[0].children[0].children.length, 2, 'only the two time boxes');
+    assert.ok(!/speaker/i.test(p.els('reviewCount').textContent), 'no speaker note');
+    assert.ok(!/--speakers/.test(p.evalVm('pyFlags().join(" ")')), 'engine never asked for speakers');
+    assert.strictEqual(p.evalVm('"speakers" in warmStyle()'), false, 'warm worker never asked for speakers');
   } finally { p.close(); }
 });
 
@@ -1391,7 +1382,7 @@ await t('10c. review while it is still working: opens early, waits while typing,
   try {
     const work = path.join(dir, 'work.srt');
     const out = path.join(dir, 'out.srt');
-    p.evalVm('LICENSED = true; SPEAKERS = false; cancelRequested = false; reviewTrialCharged = false;' +
+    p.evalVm('LICENSED = true; cancelRequested = false; reviewTrialCharged = false;' +
       'setInterval = (fn) => { __tick = fn; return 77; };' +
       'LIVE_WANTED = { outSrt: ' + JSON.stringify(out) + ', label: "clip" };' +
       '__poll = startLivePoll(' + JSON.stringify(work) + ');');
@@ -1442,12 +1433,10 @@ await t('10c. review while it is still working: opens early, waits while typing,
     p.evalVm('finishLiveReview(null, false)');
 
     // not for trial users (a free caption must not be charged for a run that
-    // may still fail) and not with speaker marks (rewritten at the end)
+    // may still fail)
     p.evalVm('LICENSED = false; cancelRequested = false;');
     assert.strictEqual(p.evalVm('startLivePoll("x")'), null, 'trial: the review opens at the end as before');
-    p.evalVm('LICENSED = true; SPEAKERS = true;');
-    assert.strictEqual(p.evalVm('startLivePoll("x")'), null, 'speaker marks: at the end as before');
-    p.evalVm('SPEAKERS = false; LIVE_WANTED = null;');
+    p.evalVm('LICENSED = true; LIVE_WANTED = null;');
     assert.strictEqual(p.evalVm('startLivePoll("x")'), null, 'only the runs that ask for it');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); p.close(); }
 });
@@ -1463,7 +1452,7 @@ await t('10c2. Work Area / Whole edit while it works: long runs go live into a r
   // 16 kHz mono 16-bit WAVs of a given length (only their size matters here)
   const wav = (name, secs) => { const f = path.join(dir, name); fs.writeFileSync(f, Buffer.alloc(44 + secs * 32000)); return f; };
   try {
-    p.evalVm('LICENSED = true; SPEAKERS = false; cancelRequested = false; setInterval = () => 77; clearInterval = () => {};');
+    p.evalVm('LICENSED = true; cancelRequested = false; setInterval = () => 77; clearInterval = () => {};');
     const out = path.join(dir, 'seq.srt');
     p.evalVm('LIVE_WANTED = { outSrt: ' + JSON.stringify(out) + ', label: "sequence" };');
     const items = JSON.stringify([{ wav: wav('a.wav', 200), offset: 0, name: 'a' }, { wav: wav('b.wav', 200), offset: 200, name: 'b' }]);
@@ -1478,16 +1467,13 @@ await t('10c2. Work Area / Whole edit while it works: long runs go live into a r
     await p.evalVm('transcribeBatch(' + items + ', ' + JSON.stringify(out) + ')');
     assert.strictEqual(sent[1].out_srt, req.out_srt, 'same edit -> same work file');
 
-    // short runs, trial users and speaker marks: as before
+    // short runs and trial users: as before
     const short = JSON.stringify([{ wav: wav('c.wav', 100), offset: 0, name: 'c' }]);
     await p.evalVm('transcribeBatch(' + short + ', ' + JSON.stringify(out) + ')');
     assert.ok(!sent[2].live && sent[2].out_srt === out, 'under 5 minutes: straight to the result');
-    p.evalVm('SPEAKERS = true;');
+    p.evalVm('LICENSED = false;');
     await p.evalVm('transcribeBatch(' + items + ', ' + JSON.stringify(out) + ')');
-    assert.ok(!sent[3].live, 'speaker marks: at the end as before');
-    p.evalVm('SPEAKERS = false; LICENSED = false;');
-    await p.evalVm('transcribeBatch(' + items + ', ' + JSON.stringify(out) + ')');
-    assert.ok(!sent[4].live, 'free trial: at the end as before');
+    assert.ok(!sent[3].live, 'free trial: at the end as before');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); p.close(); }
 });
 

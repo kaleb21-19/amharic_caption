@@ -5,7 +5,7 @@ Drag one or more video/audio files onto "Make Amharic Captions" (the desktop
 shortcut Install.cmd creates) and an .srt appears next to each file, ready to
 import into CapCut, DaVinci Resolve, older Premiere, YouTube, etc.
 
-  python amh_standalone.py <file> [<file> ...] [--karaoke] [--speakers]
+  python amh_standalone.py <file> [<file> ...] [--karaoke]
 
 Licensing is shared with the panel (amh_license.py): a licensed machine runs
 freely; otherwise each file uses free trial minutes (from the Telegram bot),

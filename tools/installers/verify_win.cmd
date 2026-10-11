@@ -39,7 +39,6 @@ if "%LITE_NOMODEL%"=="1" (
   call :check "config.json present"     exist "%MD%\config.json"
 )
 if "%DEGRADED%"=="0" (
-  call :check "speaker_embed.onnx present"    exist "%RT%\speaker_embed.onnx"
   call :check "silero_vad.onnx present"       exist "%RT%\silero_vad.onnx"
   call :check "amh_lm.json.gz present"       exist "%RT%\amh_lm.json.gz"
 ) else (
@@ -48,7 +47,6 @@ if "%DEGRADED%"=="0" (
 
 if "%FAIL%"=="0" call :check "ctranslate2, numpy, soundfile imports" pyimport
 if "%FAIL%"=="0" if "%DEGRADED%"=="0" call :check "onnxruntime VAD import" pyimportort
-if "%FAIL%"=="0" if "%DEGRADED%"=="0" call :check "sherpa_onnx diarization import" pyimportsherpa
 if "%FAIL%"=="0" if "%LITE_NOMODEL%"=="0" call :check "CTranslate2 model loads + warm" pymodel
 if "%FAIL%"=="0" call :check "ffmpeg runs - version" ffmpeg
 
@@ -104,18 +102,6 @@ exit /b 0
     if errorlevel 1 (
       echo   [FAIL] %name%
       "%PY%" -E -c "import onnxruntime"
-      set /a FAIL+=1
-    ) else (
-      echo   [PASS] %name%
-      set /a PASS+=1
-    )
-    exit /b 0
-  )
-  if "%kind%"=="pyimportsherpa" (
-    "%PY%" -E -c "import sherpa_onnx; print('sherpa_onnx', sherpa_onnx.__version__)" >nul 2>&1
-    if errorlevel 1 (
-      echo   [FAIL] %name%
-      "%PY%" -E -c "import sherpa_onnx"
       set /a FAIL+=1
     ) else (
       echo   [PASS] %name%

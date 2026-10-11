@@ -101,7 +101,7 @@ jobs:
   # ---- 1.6. automated test gate ---------------------------------------------
   # Runs the fast, dependency-light suites that previously only ran by hand
   # (TESTING.md §8#2/#8#3/§9): panel unit + DOM tests, the engine self-checks,
-  # long-audio/diarization/mel-edge-case units, and the Worker's HMAC/license/
+  # long-audio/mel-edge-case units, and the Worker's HMAC/license/
   # trial e2e harness. None of these need the full assembled runtime (ffmpeg +
   # relocatable python), so this stays cheap and fast. It is a REQUIRED gate
   # for the draft release, together with the real-golden accuracy gate.
@@ -162,8 +162,8 @@ jobs:
           set -euo pipefail
           mkdir -p runtime/bin runtime/python/bin runtime/model
           cp ethio_srt.py ctc_beam.py amh_correct.py amh_decode.py amh_vad.py amh_lm.py amh_lm.json.gz runtime/
-          cp amh_diarize.py amh_model.py runtime/
-          touch runtime/silero_vad.onnx runtime/speaker_embed.onnx runtime/model/model_meta.json
+          cp amh_model.py runtime/
+          touch runtime/silero_vad.onnx runtime/model/model_meta.json
           ln -s "$(command -v python3)" runtime/python/bin/python3
           touch runtime/bin/ffmpeg && chmod +x runtime/bin/ffmpeg
 
@@ -215,9 +215,6 @@ jobs:
 
       - name: Engine refuses to work without a license or trial ticket (1.10.3)
         run: python tools/test/test_engine_license.py
-
-      - name: Diarization — pure clustering/labelling (no model)
-        run: python tools/test/test_diarize.py
 
       - name: Mel extractor edge cases (ultra-short audio)
         run: python tools/test/test_mel_short.py
@@ -366,9 +363,6 @@ jobs:
           mkdir -p tools/stage
           tar -xzf model-artifact/model-ct2-int8.tar.gz -C tools/stage
 
-      - name: Fetch speaker-embedding model
-        run: bash tools/embed/fetch_model.sh
-
       - name: Prepare runtime (python + ffmpeg)
         run: bash tools/prepare_python.sh
 
@@ -434,9 +428,6 @@ jobs:
           mkdir -p tools/stage
           tar -xzf model-artifact/model-ct2-int8.tar.gz -C tools/stage
 
-      - name: Fetch speaker-embedding model
-        run: bash tools/embed/fetch_model.sh
-
       - name: Prepare runtime (python + ffmpeg)
         run: bash tools/prepare_python.sh
 
@@ -500,10 +491,6 @@ jobs:
           fi
           mkdir -p tools/stage
           tar -xzf model-artifact/model-ct2-int8.tar.gz -C tools/stage
-
-      - name: Fetch speaker-embedding model
-        shell: bash
-        run: bash tools/embed/fetch_model.sh
 
       - name: Prepare runtime (python + ffmpeg)
         shell: bash
