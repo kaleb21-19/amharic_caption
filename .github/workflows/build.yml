@@ -176,6 +176,9 @@ jobs:
       - name: Premiere caption placement tests (re-placing must not stack tracks)
         run: node tools/test/test_host_captions.js
 
+      - name: Premiere Work Area / Whole Edit clip reading (nested sequences, clear reasons)
+        run: node tools/test/test_host_workarea.js
+
       - name: Installer script syntax (cmd.exe parse traps)
         run: python3 tools/test/test_cmd_syntax.py
 

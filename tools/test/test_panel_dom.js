@@ -231,7 +231,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.10.14');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.10.15');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1839,6 +1839,32 @@ await t('14c. an empty or "EvalScript error." answer is explained by a host prob
     const r = await q.evalVm("evalScript('amharic_getSequenceInfo(false)')");
     assert.strictEqual(r.error, 'No result from After Effects (the host did not answer a test either)');
   } finally { q.close(); }
+});
+
+await t('14d. Work Area finds nothing: the message says why and what to do (1.10.15)', async () => {
+  // Customer report: "no clips" (err_no_clips) and nothing to act on.
+  const cases = [
+    [{ ok: true, inPoint: 0, outPoint: 20, clips: [], unsupported: [], noMedia: 0, outside: { count: 2, first: 65, last: 3725 } },
+     /^The Work Area bar is not over your clips \(they are at 1:05–1:02:05\)\. Drag the Work Area bar over them, or choose Whole Edit\./,
+     /አሞሌውን ወደ ክሊፖቹ ይጎትቱት/],
+    [{ ok: true, inPoint: 0, outPoint: 1e12, clips: [], unsupported: [{ name: 'a', reason: 'speed/retime mapping' }], noMedia: 0 },
+     /^These clips have a speed change/, /ፍጥነቱን 100% ያድርጉ/],
+    [{ ok: true, inPoint: 0, outPoint: 1e12, clips: [], unsupported: [], noMedia: 3 },
+     /^These clips have no media file/, /የሚዲያ ፋይል የላቸውም/],
+    [{ ok: true, inPoint: 0, outPoint: 1e12, clips: [], unsupported: [], noMedia: 0 },
+     /^There are no clips on this timeline/, /ምንም ክሊፕ የለም/],
+  ];
+  for (const [info, en, am] of cases) {
+    const p = loadPanel({ csiRaw: (jsx) => /getSequenceInfo/.test(jsx) ? JSON.stringify(info) : '{"ok":true}' });
+    try {
+      await flush(5);
+      await p.evalVm('runWorkArea().catch((e) => failRun(e.message))');
+      assert.match(p.evalVm('PROGRESS_EN'), en);
+      assert.strictEqual(p.evalVm('LAST_FAIL.step'), 'err_no_clips', 'still counted as err_no_clips');
+      p.evalVm('AMH_LANG = "am"');
+      assert.match(p.evalVm('T(PROGRESS_EN)'), am, 'Amharic text');
+    } finally { p.close(); }
+  }
 });
 
 await t('14b. editing shortcuts (Ctrl/Cmd + C V X A Z Y, + Shift) stay in the panel, in AE and Premiere', async () => {

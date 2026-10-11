@@ -421,13 +421,66 @@ function amharic_getSequenceInfo(all) {
         if (outP === null || isNaN(outP) || outP <= inP) { outP = 1e12; }
 
         var filterByWorkArea = !(all === true);
+        var lo = filterByWorkArea ? inP : -1e12;
+        var hi = filterByWorkArea ? outP : 1e12;
+        var found = amhCollectClips(seq, 0, lo, hi, 0, toSec);
+        var clips = found.clips;
+        clips.sort(function (a, b) { return a.timelineStart - b.timelineStart; });
 
-        var clips = [];
-        var unsupported = [];
-        var seen = {};
+        // Nothing to caption: say WHY, so the panel can tell the editor what
+        // to do instead of "no clips" (customer report, 1.10.15).
+        var result = { inPoint: inP, outPoint: outP, clips: clips, unsupported: found.unsupported,
+                       noMedia: found.noMedia };
+        if (!clips.length && filterByWorkArea) {
+            var everything = amhCollectClips(seq, 0, -1e12, 1e12, 0, toSec);
+            if (everything.clips.length) {
+                var first = 1e12, last = 0;
+                for (var i = 0; i < everything.clips.length; i++) {
+                    first = Math.min(first, everything.clips[i].timelineStart);
+                    last = Math.max(last, everything.clips[i].timelineEnd);
+                }
+                result.outside = { count: everything.clips.length, first: first, last: last };
+            }
+        }
+        return amhOk(result);
+    });
+}
+
+// Is this ProjectItem a sequence (a nested sequence or multicam on the
+// timeline)? Returns that Sequence, or null.
+function amhNestedSequence(item) {
+    if (!item) { return null; }
+    var isSeq = false;
+    try { isSeq = typeof item.isSequence === "function" && !!item.isSequence(); } catch (e) {}
+    if (!isSeq) { return null; }
+    try {
+        var all = app.project.sequences;
+        for (var i = 0; i < all.numSequences; i++) {
+            var s = all[i];
+            try {
+                if (s && s.projectItem && (s.projectItem === item ||
+                        (item.nodeId && s.projectItem.nodeId === item.nodeId))) { return s; }
+            } catch (e) {}
+        }
+    } catch (e) {}
+    return null;
+}
+
+/**
+ * Every clip of `seq` with a media file, in OUTER timeline seconds.
+ * shift: inner time + shift = outer time. Only [lo, hi] (outer time) is
+ * used. A nested sequence (a sequence used as a clip) is opened and its own
+ * clips are taken, up to 4 levels deep - before 1.10.15 a nested sequence
+ * had no media path and was silently skipped, so an edit made of nested
+ * sequences gave "no clips".
+ */
+function amhCollectClips(seq, shift, lo, hi, depth, toSec) {
+    var out = { clips: [], unsupported: [], noMedia: 0 };
+    var seen = {};
+    var walk = function (sq, sh, a, b, d) {
         var collections = [];
-        try { collections.push(seq.videoTracks); } catch (e) {}
-        try { collections.push(seq.audioTracks); } catch (e) {}
+        try { collections.push(sq.videoTracks); } catch (e) {}
+        try { collections.push(sq.audioTracks); } catch (e) {}
         for (var k = 0; k < collections.length; k++) {
             try {
                 for (var t = 0; t < collections[k].numTracks; t++) {
@@ -436,7 +489,6 @@ function amharic_getSequenceInfo(all) {
                         for (var c = 0; c < track.clips.numItems; c++) {
                             var clip = track.clips[c];
                             if (!clip || !clip.projectItem) { continue; }
-                            var src = amhMediaPath(clip.projectItem);
                             var tlStart = toSec(clip.start);
                             var tlEnd = toSec(clip.end);
                             var timelineDuration = toSec(clip.duration);
@@ -445,7 +497,6 @@ function amharic_getSequenceInfo(all) {
                             }
                             if (tlStart === null || tlEnd === null || !(tlEnd > tlStart)) { continue; }
                             timelineDuration = tlEnd - tlStart;
-                            if (!src) { continue; }
 
                             var sIn = toSec(clip.inPoint);
                             var sOut = toSec(clip.outPoint);
@@ -464,28 +515,36 @@ function amharic_getSequenceInfo(all) {
                                 }
                             } catch (e) {}
 
+                            var oStart = tlStart + sh, oEnd = tlEnd + sh;
+                            var segStart = Math.max(oStart, a);
+                            var segEnd = Math.min(oEnd, b);
+                            if (!(segEnd > segStart)) { continue; }
+
+                            var nested = amhNestedSequence(clip.projectItem);
+                            var src = nested ? null : amhMediaPath(clip.projectItem);
+                            if (!nested && !src) { out.noMedia++; continue; }
+
                             // A source duration that differs from the timeline
                             // duration means a speed change/retime. We cannot
                             // map source seconds to timeline seconds correctly
                             // from these fields, so skip it explicitly rather
                             // than placing captions at the wrong times.
                             if (reverse || Math.abs(sourceDuration - timelineDuration) > 0.05) {
-                                unsupported.push({
+                                out.unsupported.push({
                                     name: clip.projectItem.name,
                                     reason: reverse ? "reverse playback" : "speed/retime mapping"
                                 });
                                 continue;
                             }
 
-                            var segStart = tlStart;
-                            var segEnd = tlEnd;
-                            if (filterByWorkArea) {
-                                segStart = Math.max(tlStart, inP);
-                                segEnd = Math.min(tlEnd, outP);
+                            if (nested) {
+                                // Inner time x shows at outer time oStart + (x - sIn).
+                                if (d < 4 && nested !== sq) { walk(nested, oStart - sIn, segStart, segEnd, d + 1); }
+                                else { out.noMedia++; }
+                                continue;
                             }
-                            if (!(segEnd > segStart)) { continue; }
 
-                            var clippedSourceIn = sIn + (segStart - tlStart);
+                            var clippedSourceIn = sIn + (segStart - oStart);
                             var clippedDuration = segEnd - segStart;
                             // Linked video/audio instances share this key. A
                             // different trim at the same timeline position is
@@ -494,7 +553,7 @@ function amharic_getSequenceInfo(all) {
                                 clippedSourceIn.toFixed(3) + "|" + clippedDuration.toFixed(3);
                             if (seen[key]) { continue; }
                             seen[key] = true;
-                            clips.push({
+                            out.clips.push({
                                 name: clip.projectItem.name,
                                 sourcePath: src,
                                 sourceIn: clippedSourceIn,
@@ -507,10 +566,9 @@ function amharic_getSequenceInfo(all) {
                 }
             } catch (e) {}
         }
-        clips.sort(function (a, b) { return a.timelineStart - b.timelineStart; });
-
-        return amhOk({ inPoint: inP, outPoint: outP, clips: clips, unsupported: unsupported });
-    });
+    };
+    walk(seq, shift, lo, hi, depth);
+    return out;
 }
 
 /**
