@@ -8,6 +8,13 @@ on:
     # ci/build-*: the full build + Mac gate on a branch, never published
     # (publish-ready runs on the protected main branch only).
     branches: [main, 'ci/build-*']
+    # A merge that only changes the bot or the website ships nothing in the
+    # zips: building would only fail at "release tag already points at another
+    # commit" for the unchanged panel version. The bot deploys with
+    # `npm run deploy`; the website has its own host.
+    paths-ignore:
+      - 'tools/telegram-worker/**'
+      - 'website/**'
   workflow_dispatch:
 
 concurrency:
