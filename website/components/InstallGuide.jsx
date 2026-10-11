@@ -209,9 +209,9 @@ const downloads = [
   // One button per computer: the small Lite build. The Amharic model downloads
   // once inside the app (resumes if the connection drops). Full packages are a
   // single text link below the cards, for offline / USB installs.
-  { os: "win", kicker: "Windows", name: "Windows 10 / 11", note: "~175 MB", href: DL_WIN_LITE },
-  { os: "mac", kicker: "macOS · Apple Silicon", name: "M1 / M2 / M3 / M4", note: "~200 MB", href: DL_MAC_ARM_LITE },
-  { os: "mac", kicker: "macOS · Intel", name: "Intel Mac", note: "~200 MB", href: DL_MAC_X64_LITE },
+  { os: "win", kicker: "Windows", name: "Windows 10 / 11", note: "~110 MB", href: DL_WIN_LITE },
+  { os: "mac", kicker: "macOS · Apple Silicon", name: "M1 / M2 / M3 / M4", note: "~160 MB", href: DL_MAC_ARM_LITE },
+  { os: "mac", kicker: "macOS · Intel", name: "Intel Mac", note: "~180 MB", href: DL_MAC_X64_LITE },
 ];
 
 function detectOS() {
@@ -282,7 +282,7 @@ export default function InstallGuide() {
             <Tx am="ያለ ኢንተርኔት ወይም በUSB ፍላሽ ነው የሚጭኑት? ሙሉ ፓኬጆች፦" en="Installing offline or from a USB stick? Full packages:" />{" "}
             <a href={DL_WIN}>Windows</a> · <a href={DL_MAC_ARM}>Mac Apple Silicon</a> ·{" "}
             <a href={DL_MAC_X64}>Mac Intel</a>{" "}
-            <Tx am="(እያንዳንዳቸው 700 MB ገደማ)።" en="(about 700 MB each)." />
+            <Tx am="(እያንዳንዳቸው 650–720 MB ገደማ)።" en="(about 650–720 MB each)." />
           </p>
         </div>
       </section>
