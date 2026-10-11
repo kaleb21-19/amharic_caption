@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.10.17';
+const APP_VERSION = '1.10.18';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -485,33 +485,8 @@ function initUpdateBanner() {
   setTimeout(checkForUpdate, 1500);
 }
 
-// ── Host theme detection (Premiere dark/light) ──────────────────────────────
-function hostTheme() {
-  try {
-    const env = JSON.parse(window.__adobe_cep__.getHostEnvironment());
-    const bg = env.appSkinInfo && env.appSkinInfo.appBackgroundColor;
-    if (bg && typeof bg.red === 'number') {
-      // 0..255; bright background => light theme, dark => dark theme.
-      const lum = (bg.red + bg.green + bg.blue) / 3;
-      return lum > 140 ? 'light' : 'dark';
-    }
-  } catch (e) {}
-  return null;
-}
-
-function applyTheme() {
-  const t = hostTheme();
-  if (t) document.documentElement.setAttribute('data-theme', t);
-}
-// Inline-applied ASAP so there's no dark->light flash when CEP starts up.
-applyTheme();
-
-// Stay in sync when the user toggles Premiere's brightness.
-try {
-  if (window.__adobe_cep__ && window.__adobe_cep__.addEventListener) {
-    window.__adobe_cep__.addEventListener('com.adobe.csxs.events.ThemeColorChanged', applyTheme);
-  }
-} catch (e) {}
+// Dark only (1.10.18): no light theme, whatever the host's brightness.
+document.documentElement.setAttribute('data-theme', 'dark');
 
 // ── Editing shortcuts stay in the panel ──────────────────────────────────────
 // Unless a CEP panel registers interest, the host app takes Ctrl/Cmd + C, V,

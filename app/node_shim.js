@@ -267,9 +267,8 @@
 
   // ── Adobe CEP stand-in ──────────────────────────────────────────────────
   function skin() {
-    const dark = !(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
-    const v = dark ? 35 : 235;
-    return { appBackgroundColor: { red: v, green: v, blue: v } };
+    // The panel is dark only (1.10.18); report a dark host either way.
+    return { appBackgroundColor: { red: 35, green: 35, blue: 35 } };
   }
   window.__adobe_cep__ = {
     getHostEnvironment: () => JSON.stringify({ appName: 'APP', appVersion: '1', appSkinInfo: skin() }),
