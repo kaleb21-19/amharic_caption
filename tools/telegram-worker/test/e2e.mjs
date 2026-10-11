@@ -410,7 +410,8 @@ console.log('\n:: scenario 1 — happy path, full sale, DM only');
   // buyer status message edited to approved
   const edited = OUTBOUND.filter((x) => x.method === 'editMessageText' && String(x.body.chat_id) === BUYER).find((x) => (x.body.text || '').includes('Order approved'));
   assert.ok(edited, 'buyer status edited to Approved');
-  assert.ok(edited.body.text.includes('ትዕዛዝዎ ተረጋግጧል'), 'approved status is in Amharic too');
+  assert.ok(edited.body.text.includes('ተረጋግጧል') && edited.body.text.includes('ደረሰኙና'), 'approved status is in Amharic too, points to the receipt');
+  assert.ok(dm.body.text.includes('Receipt') && dm.body.text.includes('Valid until') && dm.body.text.includes('Forever'), 'the key comes with a receipt');
   // The panel is Amharic by default: its button reads «አግብር», not "Activate".
   assert.ok(dm.body.text.includes('«አግብር»') && dm.body.text.includes('«የፈቃድ ቁልፍ»'),
     "key message uses the panel's own Amharic labels");
@@ -980,7 +981,7 @@ console.log('\n:: scenario 6 — reject path');
   // were watching still said "Pending".
   const buyerMsg = OUTBOUND.filter((x) => x.method === 'sendMessage'
     && String(x.body.chat_id) === BUYER
-    && (x.body.text || '').includes('could not verify'));
+    && (x.body.text || '').includes('could not confirm'));
   assert.ok(buyerMsg.length, 'buyer is told the proof was not verified');
   const kb = JSON.stringify(buyerMsg[buyerMsg.length - 1].body.reply_markup || {});
   assert.ok(kb.includes('pay:proof'), 'declined buyer gets a Try again button');
@@ -991,7 +992,7 @@ console.log('\n:: scenario 6 — reject path');
   // and the pending status they were watching is resolved, not left hanging
   const edited = OUTBOUND.filter((x) => x.method === 'editMessageText'
     && String(x.body.chat_id) === BUYER
-    && (x.body.text || '').includes('Declined'));
+    && (x.body.text || '').includes('Order declined'));
   assert.ok(edited.length, 'the live status message is updated to Declined');
   // re-declining an already-declined order is a no-op
   res = await cb(env, { id: Number(ADMIN_ID) }, `rej:amount:${o.id}`);
@@ -1302,7 +1303,7 @@ console.log('\n:: scenario 12 — broadcast, /setexpiry, reply-keyboard hint');
   assert.equal(r.status, 200);
   const cust = row(env, 'SELECT * FROM customers WHERE machine_id=?', 'bbbbbbbb');
   assert.equal(cust.expiry, '20270101');
-  const dm2 = OUTBOUND.filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === '900000002').find((x) => (x.body.text || '').includes('Expires: 20270101'));
+  const dm2 = OUTBOUND.filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === '900000002').find((x) => (x.body.text || '').includes('Valid until: <b>2026-12-31</b>'));
   assert.ok(dm2, 'key DM shows custom expiry');
   ok('/setexpiry embeds a custom expiry in the key');
 

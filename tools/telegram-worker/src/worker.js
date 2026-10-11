@@ -447,18 +447,21 @@ function entitiesToHtml(text, entities) {
 function heroText(first = '', offer = null) {
   const name = first ? `${esc(first)}, ` : '';
   const invited = offer && offer.discount > 0
-    ? `\n\n🎁 <b>በጓደኛዎ ግብዣ</b> ፈቃዱን በ <b>ETB ${money(offer.price)}</b> ያገኛሉ (<s>${PRICE}</s>)።\n` +
-      `<i>Invited by a friend: your license is ETB ${money(offer.price)} instead of ${PRICE}.</i>`
+    ? `\n\n🎁 <b>በጓደኛዎ ግብዣ</b> ለዘለቄታው ፈቃድ <b>ETB ${money(offer.price)}</b> ብቻ (<s>${PRICE}</s>)።\n` +
+      `<i>Invited by a friend: the Forever license is ETB ${money(offer.price)} instead of ${PRICE}.</i>`
     : '';
   return (
-    `${name}ወደ <b>አማርኛ ካፕሽን ፕሮ</b> እንኳን በደህና መጡ 👋\n` +
+    `👋 ${name}<b>እንኳን ወደ አማርኛ ካፕሽን ፕሮ በደህና መጡ</b>\n` +
     '<i>Welcome to Amharic Captions Pro</i>\n\n' +
-    '💯 ሙሉ በሙሉ <b>በኮምፒውተርዎ ላይ</b> ይሰራል — ቪዲዮዎ ወደ ኢንተርኔት አይላክም።\n' +
-    '<i>Runs 100% on your computer — your video is never uploaded.</i>\n\n' +
-    '🎁 <b>20 ደቂቃ በነጻ</b> ይሞክሩ — ከወደዱት በኋላ ብቻ ይክፈሉ።\n' +
-    '<i>Try 20 minutes free — pay only if you like it.</i>\n\n' +
-    `💰 <b>${PRICE}</b> ለዘለቄታው — ወይም 1 ወር ETB ${money(PLANS.m1.etb)} · 2 ወር ETB ${money(PLANS.m2.etb)}።\n` +
-    `<i>${PRICE} forever — or 1 month ETB ${money(PLANS.m1.etb)} · 2 months ETB ${money(PLANS.m2.etb)}.</i>` + invited
+    '🎬 የአማርኛ ቪዲዮዎን ካፕሽን በደቂቃዎች — ለ Premiere Pro፣ After Effects፣ CapCut እና DaVinci Resolve።\n' +
+    '<i>Amharic captions for your videos in minutes — Premiere Pro, After Effects, CapCut and DaVinci Resolve.</i>\n\n' +
+    '✅ በኮምፒውተርዎ ላይ ይሰራል — ቪዲዮዎ የትም አይላክም\n' +
+    '✅ ከተጫነ በኋላ ያለ ኢንተርኔት ይሰራል\n' +
+    '✅ ከማስቀመጥዎ በፊት ካፕሽኑን ያስተካክሉ\n' +
+    '<i>Runs on your computer (nothing is uploaded) · works offline · review before you place</i>\n\n' +
+    '🎁 <b>20 ደቂቃ በነጻ ይሞክሩ</b> — ክፍያ አያስፈልግም\n' +
+    `💳 <b>ከ ETB ${money(PLANS.m1.etb)} ጀምሮ</b> · ለዘለቄታው ${PRICE}\n` +
+    `<i>Try 20 minutes free · plans from ETB ${money(PLANS.m1.etb)} · Forever ${PRICE}</i>` + invited
   );
 }
 // One button per row on purpose: Amharic labels are longer than their English
@@ -466,11 +469,11 @@ function heroText(first = '', offer = null) {
 // `invite` adds the referral button (programme ON and the user is a buyer).
 const FAQ_BTN = { text: '❓ ጥያቄዎች · Questions', callback_data: 'faq:home' };
 const heroKeyboard = (invite = false) => [
-  [{ text: '💳 ክፍያ · Pay', callback_data: 'menu:pay' }],
+  [{ text: '🎁 በነጻ ይሞክሩ — አውርድ · Try free (Install guide)', url: `${SITE_URL}/install` }],
+  [{ text: '💳 ፈቃድ ይግዙ · Buy a license', callback_data: 'menu:pay' }],
   [FAQ_BTN],
   [{ text: '🔑 ቁልፌ · My Key', callback_data: 'menu:mykey' }],
   ...(invite ? [[{ text: '🎁 ጓደኛ ይጋብዙ · Invite friends', callback_data: 'ref:invite' }]] : []),
-  [{ text: '📲 አጫጫን · Install guide', url: `${SITE_URL}/install` }],
   [{ text: '💬 ድጋፍ · Support', url: SUPPORT_INVITE }],
 ];
 
@@ -3811,15 +3814,18 @@ async function placeOrder(uid, chatId, uname, privateChat, s) {
     ? '🖥 ሲረጋገጥ <b>ፓነሉ በራሱ ይነቃል</b> — ምንም መለጠፍ አያስፈልግም።\n' +
       '<i>Once confirmed, the panel on your computer activates by itself — nothing to paste.</i>'
     : mid
-      ? '🔑 ሲረጋገጥ ቁልፍዎ እዚሁ ይደርሳል።\n<i>Once confirmed, your key arrives right here.</i>'
-      : '🔑 ሲረጋገጥ <b>አጭር የማግበሪያ ኮድ</b> እዚሁ ይደርስዎታል።\n' +
-        '<i>Once confirmed, you get a short activation code right here.</i>\n\n' +
+      ? '🔑 ሲረጋገጥ ደረሰኝና ቁልፍዎ እዚሁ ይደርሳል።\n<i>Once confirmed, your receipt and key arrive right here.</i>'
+      : '🔑 ሲረጋገጥ ደረሰኝና <b>አጭር የማግበሪያ ኮድ</b> እዚሁ ይደርስዎታል።\n' +
+        '<i>Once confirmed, your receipt and a short activation code arrive right here.</i>\n\n' +
         '📲 እስከዚያው መተግበሪያውን ይጫኑ (ከታች «አጫጫን»)።\n<i>Meanwhile, install the app (Install guide below).</i>';
   const statusText =
-    '✅ <b>ደርሶናል! / Received!</b>\n\n' +
-    `💵 ETB ${money(amountEtb)} · ⏳ በተራ / in line: <b>#${pos}</b>\n\n` +
+    '📥 <b>ክፍያዎ ደርሶናል · Received</b>\n\n' +
+    `🧾 ትዕዛዝ / Order: <b>#${orderId}</b>\n` +
+    `📦 ፕላን / Plan: <b>${planLabel(plan)}</b>\n` +
+    `💰 መጠን / Amount: <b>ETB ${money(amountEtb)}</b>\n` +
+    `⏳ ሁኔታ / Status: <b>በማረጋገጥ ላይ · being checked</b> — በተራ / in line: <b>#${pos}</b>\n\n` +
     next + '\n\n' +
-    '⏱ አብዛኛውን ጊዜ በጥቂት ሰዓታት ውስጥ (በኢትዮጵያ የስራ ሰዓት)።\n<i>Usually within a few hours (Ethiopian working hours).</i>\n' +
+    '⏱ ብዙ ጊዜ በጥቂት ሰዓታት ውስጥ እናረጋግጣለን (በኢትዮጵያ የስራ ሰዓት)።\n<i>We usually confirm within a few hours (Ethiopian working hours).</i>\n' +
     '🔄 የተሳሳተ ስክሪንሾት ከሆነ ትክክለኛውን ብቻ ይላኩ።\n<i>Wrong screenshot? Just send the right one.</i>';
   const r = await sendText(chatId, statusText,
     mid ? null : [[{ text: '📲 አጫጫን · Install guide', url: `${SITE_URL}/install` }]]);
@@ -3850,20 +3856,38 @@ async function adminList() {
 
 // ── show my key ─────────────────────────────────────────────────────────────
 // Paid from the phone: a short code, typed once into the panel.
-function activationCodeMessage(code) {
+// The receipt at the top of the license message (1.10.13): order, date,
+// plan, amount paid and until when it works.
+function receiptBlock(r) {
+  if (!r) return '';
+  const exp = String(r.expiry || '00000000');
+  const until = exp === '00000000' ? 'ለዘለቄታው · Forever' : `${lastDay(exp)}`;
   return (
-    '✅ <b>ክፍያዎ ተረጋግጧል!</b>\n<i>Payment confirmed!</i>\n\n' +
+    '🧾 <b>ደረሰኝ · Receipt</b>\n' +
+    `ትዕዛዝ / Order: <b>#${esc(r.id)}</b>\n` +
+    `ቀን / Date: ${esc(ymdDash(ymd(todayEatDate())))}\n` +
+    `ፕላን / Plan: <b>${planLabel(r.plan)}</b>\n` +
+    `የተከፈለ / Paid: <b>ETB ${money(r.amount || PRICE_ETB)}</b> → ${esc(ACCT_NAME)}\n` +
+    `የሚሰራው እስከ / Valid until: <b>${until}</b>\n\n`
+  );
+}
+
+function activationCodeMessage(code, receipt = null) {
+  return (
+    '✅ <b>ክፍያዎ ተረጋግጧል · Payment confirmed</b>\n\n' +
+    receiptBlock(receipt) +
     '🔑 የማግበሪያ ኮድዎ / Your activation code:\n' +
     `<code>${esc(code)}</code>\n\n` +
     '<b>①</b> አማርኛ ካፕሽን ፕሮን ይጫኑ (ከታች «አጫጫን») · <i>install the app (Install guide below)</i>\n' +
     '<b>②</b> ፓነሉን (Premiere / After Effects) ወይም <b>Make Amharic Captions</b> ን (CapCut / DaVinci) ይክፈቱ፣ ኮዱን <b>«የፈቃድ ቁልፍ»</b> ላይ ይጻፉ · <i>open the panel or Make Amharic Captions and type the code into “License key”</i>\n' +
     '<b>③</b> <b>«አግብር»</b> ይጫኑ — ተጠናቋል! · <i>press Activate — done!</i>\n\n' +
-    '🖥 ኮዱ ለአንድ ኮምፒውተር ብቻ ነው። <i>One code = one computer.</i>\n' +
-    'እናመሰግናለን! 🙏 ችግር ካጋጠመዎት ይጻፉልን። <i>Thank you — message us if anything goes wrong.</i>'
+    '🖥 ኮዱ ለአንድ ኮምፒውተር ብቻ ነው። <i>One code = one computer.</i>\n\n' +
+    '💬 ጥያቄ ካለ እዚሁ ይጻፉልን። <i>Questions? Just write here.</i>\n' +
+    '🙏 አማርኛ ካፕሽን ፕሮን ስለመረጡ እናመሰግናለን! <i>Thank you for choosing Amharic Captions Pro!</i>'
   );
 }
 
-function keyDeliveryMessage(key, expiry, chatType, selfActivating = false) {
+function keyDeliveryMessage(key, expiry, chatType, selfActivating = false, receipt = null) {
   expiry = String(expiry || '00000000');
   if (chatType !== 'private') {
     return '🔒 ቁልፍዎ የሚላከው በግል ቻት ብቻ ነው።\n' +
@@ -3873,19 +3897,22 @@ function keyDeliveryMessage(key, expiry, chatType, selfActivating = false) {
     // Bought with the panel's Buy button: the panel turns itself on. The key
     // is here only as a fallback.
     return [
-      '✅ <b>ክፍያዎ ተረጋግጧል!</b>', '<i>Payment confirmed!</i>', '',
+      '✅ <b>ክፍያዎ ተረጋግጧል · Payment confirmed</b>', '',
+      receiptBlock(receipt) +
       '🖥 <b>ፓነሉ በራሱ ይነቃል</b> — ክፍት ከሆነ በአንድ ደቂቃ ውስጥ፣ ካልሆነ ሲከፍቱት።',
       '<i>Your panel activates by itself — within a minute if it is open, otherwise the next time you open it.</i>', '',
       'ካልነቃ ብቻ ይህን ቁልፍ ይንኩ (ይቀዳል)፣ በፓነሉ «የፈቃድ ቁልፍ» ላይ ይለጥፉና «አግብር» ይጫኑ፦',
       '<i>Only if it does not: tap this key to copy it, paste it into “License key” and press Activate:</i>',
       `<code>${esc(key)}</code>`, '',
-      'እናመሰግናለን! 🙏 <i>Thank you!</i>',
+      '💬 ጥያቄ ካለ እዚሁ ይጻፉልን። <i>Questions? Just write here.</i>',
+      '🙏 አማርኛ ካፕሽን ፕሮን ስለመረጡ እናመሰግናለን! <i>Thank you for choosing Amharic Captions Pro!</i>',
     ].join('\n');
   }
   const lines = [
-    '✅ <b>ክፍያዎ ተረጋግጧል — ቁልፍዎ ደርሷል!</b>',
-    '<i>Payment confirmed — your license key is ready.</i>',
-    '', `<code>${esc(key)}</code>`, '',
+    '✅ <b>ክፍያዎ ተረጋግጧል · Payment confirmed</b>',
+    '<i>Your license key is ready.</i>', '',
+    receiptBlock(receipt) + '🔑 <b>ፈቃድ ቁልፍ · License key</b>',
+    `<code>${esc(key)}</code>`, '',
     '<b>①</b> ቁልፉን ይንኩት — ይቀዳል · <i>tap the key to copy it</i>',
     '<b>②</b> ፓነሉን ይክፈቱ (Premiere ወይም After Effects)፣ ከግርጌ <b>«የፈቃድ ቁልፍ»</b> ላይ ይለጥፉ · <i>open the panel and paste it into “License key” at the bottom</i>',
     '<b>③</b> <b>«አግብር»</b> ይጫኑ · <i>press Activate</i>',
@@ -3893,8 +3920,9 @@ function keyDeliveryMessage(key, expiry, chatType, selfActivating = false) {
     '✂️ <b>CapCut / DaVinci</b>፦ በ «Make Amharic Captions» ውስጥም «የፈቃድ ቁልፍ» ላይ ይለጥፉ።',
     '<i>CapCut / DaVinci: paste it into “License key” in Make Amharic Captions too.</i>',
   ];
-  if (expiry !== '00000000') lines.push('', `⏰ የሚያበቃበት / Expires: ${esc(expiry)}`);
-  lines.push('', 'እናመሰግናለን! 🙏 ችግር ካጋጠመዎት ይጻፉልን።\n<i>Thank you — message us if anything goes wrong.</i>');
+  if (expiry !== '00000000' && !receipt) lines.push('', `⏰ የሚሰራው እስከ / Valid until: ${esc(lastDay(expiry))}`);
+  lines.push('', '💬 ጥያቄ ካለ እዚሁ ይጻፉልን። <i>Questions? Just write here.</i>',
+    '🙏 አማርኛ ካፕሽን ፕሮን ስለመረጡ እናመሰግናለን! <i>Thank you for choosing Amharic Captions Pro!</i>');
   return lines.join('\n');
 }
 
@@ -5628,9 +5656,10 @@ async function approve(chatId, messageId, orderId, cbId) {
     'UPDATE orders SET delivery_attempts=COALESCE(delivery_attempts, 0)+1 WHERE id=?'
   ).bind(orderId).run();
   const delivery = codeOrder
-    ? await sendText(o.uid, activationCodeMessage(key),
+    ? await sendText(o.uid, activationCodeMessage(key, { id: o.id, plan: o.plan, amount: o.amount_etb, expiry }),
       [[{ text: '📲 አጫጫን · Install guide', url: `${SITE_URL}/install` }]])
-    : await sendText(o.uid, keyDeliveryMessage(key, expiry, 'private', !!o.nonce));
+    : await sendText(o.uid, keyDeliveryMessage(key, expiry, 'private', !!o.nonce,
+      { id: o.id, plan: o.plan, amount: o.amount_etb, expiry }));
   const delivered = !!(delivery && delivery.ok);
   await DB.prepare(
     delivered
@@ -5644,9 +5673,10 @@ async function approve(chatId, messageId, orderId, cbId) {
     : { am: 'ቁልፍዎ', en: 'your key' };
   if (buyerStatusMsg) {
     await editText(o.chat_id || o.uid, buyerStatusMsg, delivered
-      ? (`✅ <b>ትዕዛዝዎ ተረጋግጧል — ${what.am} ከታች ባለው መልዕክት ነው።</b>\n` +
-         `<i>Order approved — ${what.en} is in the message below.</i>` +
-         (codeOrder ? '' : `\n\n🖥 <code>${esc(o.machine_id)}</code>`))
+      ? (`✅ <b>ተረጋግጧል · Order approved</b>\n\n` +
+         `🧾 #${o.id} · ${planLabel(o.plan)} · ETB ${money(o.amount_etb || PRICE_ETB)}\n` +
+         `⬇️ ደረሰኙና ${what.am} ከታች ባለው መልዕክት ናቸው።\n` +
+         `<i>Your receipt and ${what.en} are in the message below.</i>`)
       : (`⚠️ <b>ትዕዛዝዎ ተረጋግጧል፣ ግን ${what.am}ን መላክ አልተሳካም።</b> በቅርቡ እንደገና እንልካለን።\n` +
          `<i>Order approved, but sending ${what.en} failed. We will send it again shortly.</i>`));
   }
@@ -5759,8 +5789,8 @@ async function reject(chatId, messageId, orderId, cbId, reasonKey) {
   // status that never resolves, and a refusal underneath it.
   if (o.status_msg_id) {
     await editText(o.chat_id || o.uid, o.status_msg_id,
-      '🔴 <b>ትዕዛዝ አልተሳካም / Order declined</b>\n\n' +
-      '🔴 <b>ሁኔታ / Status: Declined</b>');
+      `🔴 <b>ትዕዛዝ #${o.id} አልተረጋገጠም · Order declined</b>\n\n` +
+      '⬇️ ምክንያቱና ምን ማድረግ እንዳለብዎ ከታች ነው።\n<i>The reason and what to do are in the message below.</i>');
   }
   // And it was a dead end: no reason, no way to retry, no way to reach a human
   // — at the single worst moment in the product, where someone believes they
@@ -5768,11 +5798,12 @@ async function reject(chatId, messageId, orderId, cbId, reasonKey) {
   if (o.chat_id) {
     const reason = REJECT_REASONS[reasonKey] || REJECT_REASONS.other;
     await sendText(o.chat_id,
-      '❌ <b>የክፍያ ማረጋገጫው አልተረጋገጠም</b>\n' +
-      '<i>We could not verify your payment proof. No key was sent.</i>\n\n' +
-      '<b>ምክንያት / Reason</b>\n' + reason.buyer + '\n\n' +
-      'ችግሩን አስተካክለው እንደገና መሞከር ይችላሉ።\n' +
-      '<i>Fix that and try again — or message us if you are stuck.</i>',
+      '⚠️ <b>ክፍያዎን ማረጋገጥ አልቻልንም · We could not confirm your payment</b>\n' +
+      `🧾 ትዕዛዝ / Order: <b>#${o.id}</b> · ETB ${money(o.amount_etb || PRICE_ETB)}\n\n` +
+      '<b>ምክንያት · Reason</b>\n' + reason.buyer + '\n\n' +
+      '<b>ምን ያድርጉ · What to do</b>\n' +
+      '• ትክክለኛውን ስክሪንሾት እዚሁ ይላኩ — ትዕዛዙ እንደገና ይታያል።\n<i>  Send the correct screenshot here — the order is checked again.</i>\n' +
+      '• ከፍለው ስህተት መስሎ ከታየዎት ይጻፉልን — እናስተካክላለን።\n<i>  Paid and think this is a mistake? Message us — we will sort it out.</i>',
       [[{ text: '🔄 እንደገና ልሞክር · Try again', callback_data: 'pay:proof' }],
        [{ text: '💬 ድጋፍ · Contact support', url: SUPPORT_URL }]]);
   }
