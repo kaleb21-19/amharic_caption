@@ -238,6 +238,17 @@ def t_fixed_port():
     amh_app.PORT = PORT
     assert got == want, "first FREE preferred port is used (%d busy, wanted %d, got %d)" % (taken, want, got)
     assert amh_app.APP_PORTS and all(1024 < p < 65536 for p in amh_app.APP_PORTS)
+    # Another app ALREADY SERVING the preferred port (a second Windows user on
+    # the same PC): this one must not share it, it moves to the next port.
+    free = socket.socket(); free.bind(("127.0.0.1", 0)); p1 = free.getsockname()[1]; free.close()
+    free = socket.socket(); free.bind(("127.0.0.1", 0)); p2 = free.getsockname()[1]; free.close()
+    other = amh_app.start_server(os.path.join(REPO, "panel"), EXT, ports=(p1,))
+    assert amh_app.PORT == p1
+    mine = amh_app.start_server(os.path.join(REPO, "panel"), EXT, ports=(p1, p2))
+    got2 = amh_app.PORT
+    mine.shutdown(); mine.server_close(); other.shutdown(); other.server_close()
+    amh_app.PORT = PORT
+    assert got2 == p2, "a port another app is serving is never shared (wanted %d, got %d)" % (p2, got2)
 
 
 def t_media():

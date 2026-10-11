@@ -32,6 +32,7 @@ import mimetypes
 import os
 import secrets
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -572,6 +573,21 @@ class Handler(BaseHTTPRequestHandler):
 APP_PORTS = (47321, 47322, 47323)
 
 
+class _OwnPortServer(ThreadingHTTPServer):
+    """The app's server must own its port. Python's HTTP server sets
+    SO_REUSEADDR, which on Windows lets a SECOND server bind a port that is
+    already listening — with two Windows users on one PC both apps sat on the
+    same port and one window talked to the OTHER account's app (wrong
+    version, nothing clickable). Exclusive binding makes the second app move
+    on to the next port instead."""
+    allow_reuse_address = not IS_WIN
+
+    def server_bind(self):
+        if IS_WIN and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
 def start_server(ui_dir, ext_dir, files=(), ports=APP_PORTS):
     """Serve the panel on 127.0.0.1 (the first free port of `ports`, else a
     random one). Returns the server (also used by tools/test/test_app.py,
@@ -583,7 +599,7 @@ def start_server(ui_dir, ext_dir, files=(), ports=APP_PORTS):
     srv = None
     for port in tuple(ports) + (0,):
         try:
-            srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+            srv = _OwnPortServer(("127.0.0.1", port), Handler)
             break
         except OSError:
             continue
