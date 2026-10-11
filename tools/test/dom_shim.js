@@ -180,7 +180,9 @@ const KNOWN = [
   'revUndo', 'revMemory', 'memoryPanel',
   // next-step card after a free caption
   'trialCard', 'tcGroup', 'tcBuy', 'tcLater', 'tcLeftText', 'tcCutText',
-  'freeMinBox', 'freeMinTitle', 'freeMinBtn', 'freeMinWait', 'reportBox', 'reportBtn', 'reportStatus',
+  'freeMinBox', 'freeMinTitle', 'freeMinBtn', 'freeMinWait',
+  'trialGate', 'trialGateClose', 'trialGateTitle', 'trialGateBody', 'trialGateBtn', 'trialGateWait', 'trialGateKey',
+  'reportBox', 'reportBtn', 'reportStatus',
   'feedbackLink', 'feedbackCard', 'feedbackText', 'feedbackTg', 'feedbackSend', 'feedbackCancel', 'feedbackStatus',
   // logs
   'logDisc', 'logWrap', 'logBox',
