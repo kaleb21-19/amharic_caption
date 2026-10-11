@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.10.14';
+const APP_VERSION = '1.10.15';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -4149,7 +4149,7 @@ function humanError(raw) {
   if (t.includes('license required')) return 'This computer has no active license. Activate your license key (or connect to the internet for the free trial).';
   if (t.includes('audio too short')) return 'That clip is too short to transcribe.';
   if (t.includes('no speech')) return 'No speech found in that audio.';
-  if (t.includes('audio-bearing')) return 'No transcribable clips in that range.';
+  if (t.includes('audio-bearing')) return NO_CLIPS_HELP || 'No transcribable clips in that range.';
   if (t.includes('no clip found') || t.includes('no selected clip') || t.includes('select a clip')) {
     return 'Select a clip on the timeline (or put the playhead on it), then try again.';
   }
@@ -4349,7 +4349,33 @@ async function runSelectedClip() {
   await showRunResult(outSrt, cleanName, r);
 }
 
+// Why Work Area / Whole Edit found nothing, in words the editor can act on
+// (customer report, 1.10.15: "no clips" alone did not say what to do).
+let NO_CLIPS_HELP = '';
+function fmtClipTime(sec) {
+  const s = Math.max(0, Math.floor(Number(sec) || 0));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : String(m)) + ':' + String(r).padStart(2, '0');
+}
+function noClipsHelp(info, unsupportedCount) {
+  if (info && info.outside && info.outside.count) {
+    return 'The Work Area bar is not over your clips (they are at ' + fmtClipTime(info.outside.first) +
+      '–' + fmtClipTime(info.outside.last) + '). Drag the Work Area bar over them, or choose Whole Edit.';
+  }
+  if (unsupportedCount) {
+    return 'These clips have a speed change or play in reverse, so captions cannot follow them. ' +
+      'Set the speed to 100% (right-click › Speed/Duration), or export the audio and caption that file.';
+  }
+  if (info && info.noMedia) {
+    return 'These clips have no media file (titles, graphics, adjustment layers). ' +
+      'Put the video or audio with the speech on the timeline, then try again.';
+  }
+  return IS_AE ? 'There are no video or audio layers in this composition.'
+               : 'There are no clips on this timeline. Open the sequence with your video, then try again.';
+}
+
 async function runWorkArea() {
+  NO_CLIPS_HELP = '';
   log('Reading your edit area…');
   const info = await getSequenceInfo(SOURCE === 'whole');
   if (!info.ok || !info.clips) throw new Error(info.error || 'No sequence info.');
@@ -4360,6 +4386,8 @@ async function runWorkArea() {
   }
   const clips = (info.clips || []).filter((c) => !c.unsupported);
   if (clips.length === 0) {
+    NO_CLIPS_HELP = noClipsHelp(info, unsupported.length);
+    log('Nothing to transcribe: ' + NO_CLIPS_HELP);
     throw new Error('No audio-bearing clips with a resolvable source in this range.');
   }
   // Whole-edit mode: ignore the work-area bounds (transcribe every clip).

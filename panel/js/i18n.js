@@ -147,6 +147,13 @@ const AM_TEXT = {
   'That clip is too short to transcribe.': 'ክሊፑ ወደ ጽሑፍ ለመቀየር በጣም አጭር ነው።',
   'No speech found in that audio.': 'በድምፁ ውስጥ ንግግር አልተገኘም።',
   'No transcribable clips in that range.': 'በዚህ ክፍል ውስጥ ወደ ጽሑፍ የሚቀየር ክሊፕ የለም።',
+  'These clips have a speed change or play in reverse, so captions cannot follow them. Set the speed to 100% (right-click › Speed/Duration), or export the audio and caption that file.':
+    'የእነዚህ ክሊፖች ፍጥነት ተቀይሯል ወይም ወደ ኋላ ይጫወታሉ፤ ካፕሽኑ ሊከተላቸው አይችልም። ፍጥነቱን 100% ያድርጉ (Right-click › Speed/Duration)፣ ወይም ድምፁን Export አድርገው ያንን ፋይል ካፕሽን ያድርጉ።',
+  'These clips have no media file (titles, graphics, adjustment layers). Put the video or audio with the speech on the timeline, then try again.':
+    'እነዚህ ክሊፖች የሚዲያ ፋይል የላቸውም (ርዕስ፣ ግራፊክስ፣ Adjustment Layer)። ንግግሩ ያለበትን ቪዲዮ ወይም ድምፅ ታይምላይኑ ላይ ያድርጉ፣ ከዚያ እንደገና ይሞክሩ።',
+  'There are no clips on this timeline. Open the sequence with your video, then try again.':
+    'በዚህ ታይምላይን ላይ ምንም ክሊፕ የለም። ቪዲዮዎ ያለበትን Sequence ይክፈቱ፣ ከዚያ እንደገና ይሞክሩ።',
+  'There are no video or audio layers in this composition.': 'በዚህ ኮምፖዚሽን ውስጥ ምንም ቪዲዮ ወይም ድምፅ የለም።',
   'Select a clip on the timeline (or put the playhead on it), then try again.':
     'በታይምላይኑ ላይ ክሊፕ ይምረጡ (ወይም ጠቋሚውን በላዩ ላይ ያድርጉ)፣ ከዚያ እንደገና ይሞክሩ።',
   'That item has no media file — try a regular video or audio clip.':
@@ -313,6 +320,8 @@ const AM_PATTERNS = [
       .replace(/ · 🔌 plug in the charger to go faster/, ' · 🔌 ቻርጀር ይሰኩ — ይፈጥናል');
     return 'ወደ ጽሑፍ በመቀየር ላይ ' + a + '/' + b + rest;
   }],
+  [/^The Work Area bar is not over your clips \(they are at ([\d:]+)–([\d:]+)\)\. Drag the Work Area bar over them, or choose Whole Edit\.$/,
+    'የWork Area አሞሌው ክሊፖችዎ ላይ አይደለም (ክሊፖችዎ $1–$2 ላይ ናቸው)። አሞሌውን ወደ ክሊፖቹ ይጎትቱት፣ ወይም «ሙሉ ኤዲት»ን ይምረጡ።'],
   [/^(.+) See “Details for support” below\.$/, function (m, inner) {
     return T(inner) + ' ዝርዝሩ ከታች «ለድጋፍ ዝርዝር መረጃ» ውስጥ አለ።';
   }],

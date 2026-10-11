@@ -148,7 +148,7 @@ Full details and timings: `TESTING.md` §A2.
 | You touched | Run |
 |---|---|
 | `panel/js/*`, `panel/index.html` | `node tools/test/test_panel.js` · `node tools/test/test_panel_dom.js` (needs a placeholder `runtime/` — TESTING.md; not an installed Lite runtime) · `node panel/test/host-safety.test.mjs` · `node panel/test/machine-id.test.mjs` |
-| `panel/jsx/*` | `node tools/test/test_host_captions.js` · `node tools/test/test_host_ae.js` |
+| `panel/jsx/*` | `node tools/test/test_host_captions.js` · `node tools/test/test_host_workarea.js` · `node tools/test/test_host_ae.js` |
 | `app/*` | `python tools/test/test_app.py` · `node tools/test/test_app_shim.js` · `python3 tools/test/mac_smoke.py --app-from app` (uses the installed product; opens a window briefly) |
 | engine `*.py`, decoding, corrections | the self-checks (`ctc_beam.py`, `amh_decode.py`, `amh_correct.py`, `amh_lm.py`), `test_long.py`, `test_background.py`, **`amharic_regression.py`** (~6 min, must say `AMHARIC UNCHANGED`), and WER on FLEURS/WAXAL for any accuracy claim |
 | `amh_standalone.py`, `amh_license.py` | `tools/test/test_standalone.py` (needs model + ffmpeg) |
