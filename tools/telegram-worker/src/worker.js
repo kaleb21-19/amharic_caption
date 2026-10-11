@@ -210,8 +210,8 @@ function accountLines() {
     .filter(Boolean)
     .map((part) => {
       const m = /^(.*?)\s+([0-9][0-9\s-]*)$/.exec(part);
-      return m ? `   <b>${m[1].trim()}</b>  <code>${m[2].replace(/[\s-]/g, '')}</code>`
-               : `   <code>${part}</code>`;
+      return m ? `🏦 <b>${m[1].trim()}</b> · <code>${m[2].replace(/[\s-]/g, '')}</code>`
+               : `🏦 <code>${part}</code>`;
     })
     .join('\n');
 }
@@ -539,44 +539,68 @@ async function planPrice(plan, offer, mid) {
   return offer ? offer.price : PRICE_ETB;
 }
 
-function payText(offer = null, plan = 'forever', price = null) {
-  // Deliberately short. This screen exists so the buyer can do ONE thing: send
-  // money to one of three accounts. The previous version ran 18 lines and 587
-  // characters on a phone — price, accounts, a two-line key promise in both
-  // languages, a three-line scam warning and a "tap below" instruction the
-  // button already gives. Everything that is not the amount, the accounts or
-  // the one risk that costs them money has been cut.
-  const p = PLANS[plan];
-  const priceLines = p
-    ? `💰 <b>ETB ${money(p.etb)}</b> · ${p.am} / ${p.en}\n` +
-      `<i>ከተረጋገጠበት ቀን ጀምሮ ${p.days} ቀን · ${p.days} days from approval</i>\n\n`
-    : (price != null && price < PRICE_ETB && !(offer && offer.discount > 0 && price === offer.price))
-      ? `💰 <b>ETB ${money(price)}</b> · ለዘለቄታው / Forever\n` +
-        '<i>የከፈሉት ተቀንሷል · what you already paid is deducted</i>\n\n'
-      : offer && offer.discount > 0
-        ? `💰 <b>ETB ${money(offer.price)}</b> · የጓደኛ ቅናሽ / friend discount\n` +
-          `<s>${PRICE}</s> — መደበኛ ዋጋ / regular price\n\n`
-        : `💰 <b>${PRICE}</b> · ለዘለቄታው — አንድ ጊዜ ብቻ / forever, one-time\n` +
-          `<i>ወይም 1 ወር ETB ${money(PLANS.m1.etb)} · 2 ወር ETB ${money(PLANS.m2.etb)} — ከታች ይምረጡ / or 1 month · 2 months below</i>\n\n`;
+// ── paying (1.10.13): 1) choose a plan, 2) the order: amount, accounts, steps ─
+// The first screen is the plan menu (every plan is the full program); the
+// second is one clear order: what, how much, who to pay, and the two steps.
+// A screenshot sent at any point books the order (Forever if no plan chosen).
+function planMenuText(offer = null, foreverPrice = null) {
+  const fp = foreverPrice != null ? foreverPrice : (offer && offer.discount > 0 ? offer.price : PRICE_ETB);
+  const foreverNote = fp < PRICE_ETB
+    ? (offer && offer.discount > 0 && fp === offer.price
+      ? ` <s>ETB ${money(PRICE_ETB)}</s> · የጓደኛ ቅናሽ / friend discount`
+      : ' · የከፈሉት ተቀንሷል / what you paid is deducted')
+    : '';
   return (
-    priceLines +
-    `🏦 <b>${ACCT_NAME}</b> — ባንክ ዝውውር / bank transfer\n` +
-    'ቁጥሩን ለመቅዳት ይንኩት / tap a number to copy:\n' +
-    accountLines() + '\n\n' +
-    '📸 <b>ከከፈሉ በኋላ የክፍያውን ስክሪንሾት እዚሁ ይላኩ — ያ ብቻ ነው።</b>\n' +
-    '<i>After paying, send the payment screenshot right here — that is all.</i>\n\n' +
-    `⚠️ <b>${ACCT_NAME}</b> ብቻ ይክፈሉ — ሌላ ስም ወይም አካውንት ቢጠየቁ እኛ አይደለንም።\n` +
-    '<i>Pay only this name. Anyone asking for a different account is not us.</i>'
+    '💳 <b>ፈቃድ ይግዙ · Buy a license</b>\n\n' +
+    'ፕላን ይምረጡ — ሁሉም ፕላኖች ሙሉ ፕሮግራሙን ይሰጣሉ።\n' +
+    '<i>Choose a plan — every plan is the full program: unlimited captions, Premiere, After Effects, CapCut and DaVinci.</i>\n\n' +
+    `⭐ <b>ለዘለቄታው · Forever — ETB ${money(fp)}</b>${foreverNote}\n` +
+    '      አንድ ጊዜ ብቻ ይከፍላሉ · <i>one payment, yours for good</i>\n\n' +
+    `📅 <b>2 ወር · 2 months — ETB ${money(PLANS.m2.etb)}</b>\n` +
+    `📅 <b>1 ወር · 1 month — ETB ${money(PLANS.m1.etb)}</b>\n` +
+    '      <i>በራሳቸው አይታደሱም · they never renew or charge by themselves</i>\n\n' +
+    '🔒 ከከፈሉ በኋላ ስክሪንሾቱን ይልካሉ — ካረጋገጥን በኋላ ፈቃዱ እዚሁ ይደርሳል።\n' +
+    '<i>After paying you send the screenshot; your license arrives here once we confirm.</i>'
+  );
+}
+const planMenuKeyboard = (fromPanel = false, foreverPrice = PRICE_ETB) => [
+  [{ text: `⭐ ለዘለቄታው · Forever — ETB ${money(foreverPrice)}`, callback_data: 'plan:forever' }],
+  [{ text: `2 ወር · ETB ${money(PLANS.m2.etb)}`, callback_data: 'plan:m2' },
+   { text: `1 ወር · ETB ${money(PLANS.m1.etb)}`, callback_data: 'plan:m1' }],
+  ...(fromPanel ? [] : [[{ text: '🎁 መጀመሪያ በነጻ ልሞክር · Try free first', url: `${SITE_URL}/install` }]]),
+];
+
+function payText(offer = null, plan = 'forever', price = null) {
+  const p = PLANS[plan];
+  const amount = p ? p.etb : (price != null ? price : (offer && offer.discount > 0 ? offer.price : PRICE_ETB));
+  const term = p
+    ? `📅 ${p.days} ቀን — ካረጋገጥን ቀን ጀምሮ · <i>${p.days} days from confirmation</i>\n`
+    : '♾ ለዘለቄታው · <i>forever, one payment</i>\n';
+  const note = !p && amount < PRICE_ETB
+    ? (offer && offer.discount > 0 && amount === offer.price
+      ? `🎁 የጓደኛ ቅናሽ · <i>friend discount</i> (<s>ETB ${money(PRICE_ETB)}</s>)\n`
+      : '🔁 የከፈሉት ተቀንሷል · <i>what you already paid is deducted</i>\n')
+    : '';
+  return (
+    '🧾 <b>ትዕዛዝዎ · Your order</b>\n\n' +
+    `📦 ፕላን / Plan: <b>${planLabel(plan)}</b>\n` +
+    `💰 የሚከፈለው / Amount: <b>ETB ${money(amount)}</b>\n` +
+    term + note + '\n' +
+    `<b>1️⃣ ይክፈሉ · Pay</b> — ለ <b>${ACCT_NAME}</b> (በባንክ ዝውውር / bank transfer)\n` +
+    accountLines() + '\n' +
+    '<i>ቁጥሩን ለመቅዳት ይንኩት · tap a number to copy it</i>\n\n' +
+    '<b>2️⃣ የክፍያውን ስክሪንሾት እዚሁ ይላኩ · Send the payment screenshot here</b>\n' +
+    '<i>ካረጋገጥን በኋላ ፈቃድዎ እዚሁ ይደርሳል — ብዙ ጊዜ በጥቂት ሰዓታት ውስጥ።\n' +
+    'Your license arrives here once we confirm — usually within a few hours.</i>\n\n' +
+    `⚠️ ለ <b>${ACCT_NAME}</b> ብቻ ይክፈሉ — ሌላ ስም ወይም አካውንት ቢጠየቁ እኛ አይደለንም።\n` +
+    '<i>Pay only this name. Anyone asking for another name or account is not us.</i>'
   );
 }
 
 const payKeyboard = (fromPanel = false, plan = 'forever') => [
-  [{ text: '✅ ከፍያለሁ — ስክሪንሾት ልላክ · I’ve paid', callback_data: 'pay:proof' }],
-  ['m1', 'm2', 'forever'].filter((p) => p !== plan).map((p) => ({
-    text: PLANS[p] ? `${PLANS[p].am} · ETB ${money(PLANS[p].etb)}` : '⭐ ለዘለቄታው · Forever',
-    callback_data: 'plan:' + p,
-  })),
-  ...(fromPanel ? [] : [[{ text: '🎁 መጀመሪያ በነጻ ልሞክር · Try free', url: `${SITE_URL}/install` }]]),
+  [{ text: '📸 ከፍያለሁ — ስክሪንሾት ልላክ · I’ve paid', callback_data: 'pay:proof' }],
+  [{ text: '🔄 ፕላን ቀይር · Change plan', callback_data: 'plan:menu' }],
+  ...(fromPanel ? [] : [[{ text: '🎁 መጀመሪያ በነጻ ልሞክር · Try free first', url: `${SITE_URL}/install` }]]),
 ];
 
 const MENU = 'ሰላም! 👋 ከታች ይምረጡ / Choose below:';
@@ -2361,7 +2385,7 @@ async function handleMessage(msg, env) {
     await setPlan(uid, 'forever');
     const offer = await referralOffer(uid);
     await quoteOffer(uid, offer);
-    await sendText(chatId, payText(offer), payKeyboard());
+    await sendText(chatId, planMenuText(offer), planMenuKeyboard(false, offer ? offer.price : PRICE_ETB));
     return;
   }
 
@@ -3564,7 +3588,7 @@ async function startPanelPurchase(uid, chatId, mid, nonce) {
   if (offer && price === offer.price) await quoteOffer(uid, offer);
   await sendText(chatId,
     '🖥 <b>ኮምፒውተርዎ ተገናኝቷል ✅</b> — ምንም መጻፍ አያስፈልግም።\n<i>Your computer is connected — nothing to type.</i>\n\n' +
-    payText(offer, 'forever', price), payKeyboard(true, 'forever'));
+    planMenuText(offer, price), planMenuKeyboard(true, price));
 }
 
 // ── payment-screenshot fraud signals ────────────────────────────────────────
@@ -5810,6 +5834,16 @@ async function handleCallback(cb) {
     const parts = data.split(':');
     const plan = PLANS[parts[1]] ? parts[1] : 'forever';
     let known = await getFsm(fromUid);
+    if (data === 'plan:menu') {
+      const mm = known && known.mid;
+      const off = await referralOffer(fromUid, mm);
+      const fp = await planPrice('forever', off, mm);
+      const mt = planMenuText(off, fp);
+      const mk = planMenuKeyboard(!!(known && known.nonce), fp);
+      const rr = await editText(chatId, messageId, mt, mk);
+      if (!rr || !rr.ok) await sendText(chatId, mt, mk);
+      return;
+    }
     if (parts[0] === 'renew') {
       const rmid = String(parts[2] || '').toLowerCase();
       const cur = isValidMid(rmid) ? await currentLicense(rmid) : null;
@@ -5850,8 +5884,8 @@ async function handleCallback(cb) {
       const payOffer = await referralOffer(fromUid, known && known.mid);
       const payPrice = await planPrice('forever', payOffer, known && known.mid);
       if (payOffer && payPrice === payOffer.price) await quoteOffer(fromUid, payOffer);
-      const pt = payText(payOffer, 'forever', payPrice);
-      const kb = payKeyboard(!!(known && known.nonce));
+      const pt = planMenuText(payOffer, payPrice);
+      const kb = planMenuKeyboard(!!(known && known.nonce), payPrice);
       const r = await editText(chatId, messageId, pt, kb);
       // Same fallback as showMenu: an edit that fails must not leave the buyer
       // staring at an unchanged screen after tapping Pay.
