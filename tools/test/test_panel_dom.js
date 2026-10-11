@@ -231,7 +231,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.10.10');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.10.11');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1489,6 +1489,49 @@ await t('10c2. Work Area / Whole edit while it works: long runs go live into a r
     await p.evalVm('transcribeBatch(' + items + ', ' + JSON.stringify(out) + ')');
     assert.ok(!sent[4].live, 'free trial: at the end as before');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); p.close(); }
+});
+
+await t('10f2. a failed run: error types, and "Send problem report" (scrubbed, only on tap)', async () => {
+  const sent = [];
+  const p = loadPanel({ fetch: trialServer({ more: (u, init) => {
+    if (u.includes('/api/report')) { sent.push(JSON.parse(init.body)); return { ok: true, json: async () => ({ ok: true }) }; }
+    return null;
+  } }) });
+  try {
+    await flush(10);
+    // error types (anonymous counts) from the error and the engine's last lines
+    assert.strictEqual(p.evalVm('errorStep("worker exited")'), 'err_engine');
+    p.evalVm('WORKER_TAIL = ["Traceback ...", "MemoryError"];');
+    assert.strictEqual(p.evalVm('errorStep("worker exited")'), 'err_memory', 'out of memory, from the engine lines');
+    assert.ok(/ran out of memory/.test(p.evalVm('humanError("worker exited")')), 'said in plain words');
+    p.evalVm('WORKER_TAIL = ["PermissionError: [WinError 5] Access is denied"];');
+    assert.strictEqual(p.evalVm('errorStep("Python failed: x")'), 'err_av_blocked');
+    p.evalVm('WORKER_TAIL = [];');
+    assert.strictEqual(p.evalVm('errorStep("worker timeout")'), 'err_engine_hang');
+    assert.strictEqual(p.evalVm('errorStep("Python failed: Command failed ... license required: x")'), 'err_license', 'a license refusal is not an engine crash');
+
+    // the offer appears only after a failure, sends only on tap
+    assert.strictEqual(p.els('reportBox').style.display, 'none');
+    const home = p.evalVm('os.homedir()');
+    p.evalVm('log(' + JSON.stringify('Opening ' + home + '\\video.mp4 key AMH-1a2b-3c4d-5e6f-7a8b ticket t2.abc.run-1.999.60.' + '0'.repeat(40)) + ');' +
+      'WORKER_TAIL = ["MemoryError"]; failRun("worker exited");');
+    assert.strictEqual(p.els('reportBox').style.display, '', 'offer shown after the failure');
+    assert.strictEqual(sent.length, 0, 'nothing sent without a tap');
+    p.els('reportBtn').fire('click');
+    await flush(10);
+    assert.strictEqual(sent.length, 1);
+    const rep = sent[0];
+    assert.strictEqual(rep.mid, p.mid);
+    assert.strictEqual(rep.step, 'err_memory');
+    assert.ok(rep.sys && rep.sys.cpus > 0 && rep.sys.ram_gb > 0, 'system: memory, processors');
+    const all = JSON.stringify(rep);
+    assert.ok(!all.includes(home.replace(/\\/g, '\\\\')) && all.includes('~'), 'home folder removed');
+    assert.ok(!all.includes('AMH-1a2b') && !all.includes('t2.abc'), 'keys and tickets removed');
+    assert.ok(/Sent — thank you/.test(p.els('reportStatus').textContent), 'thanked');
+    // a new run hides it again
+    p.evalVm('setBusy(true); setBusy(false);');
+    assert.strictEqual(p.els('reportBox').style.display, 'none');
+  } finally { p.close(); }
 });
 
 await t('10d. anonymous step counts: once a day per step, nothing personal, error types', async () => {

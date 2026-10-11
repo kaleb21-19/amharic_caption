@@ -4818,11 +4818,13 @@ const EVENT_NAMES = new Set([
   'buy_click', 'activate_ok', 'activate_fail', 'trial_link',
   'err_av_blocked', 'err_too_short', 'err_no_speech', 'err_no_clips', 'err_no_clip', 'err_no_media',
   'err_media_unreadable', 'err_disk_full', 'err_engine', 'err_runtime', 'err_license', 'err_other',
+  'err_memory', 'err_engine_hang', 'report_sent',
 ]);
 const ERROR_LABELS = {
   err_no_clip: 'no clip selected', err_no_clips: 'no clips in range', err_no_media: 'item has no media file',
   err_media_unreadable: 'media file unreadable', err_no_speech: 'no speech found', err_too_short: 'clip too short',
-  err_engine: 'engine stopped', err_runtime: 'runtime missing', err_av_blocked: 'antivirus blocked',
+  err_engine: 'engine stopped', err_runtime: 'runtime missing', err_av_blocked: 'antivirus / Windows blocked',
+  err_memory: 'out of memory', err_engine_hang: 'engine stopped responding',
   err_disk_full: 'disk full', err_license: 'no license / free captions used up', err_other: 'other',
 };
 
@@ -4877,6 +4879,7 @@ async function adminUsage(chatId, messageId, days = 7) {
     `✅ Captions made: <b>${c('run_ok')}</b> (${pct(c('run_click'), c('run_ok'))} of pressed)\n` +
     `🎬 Placed / saved: ${c('placed')}\n` +
     `🎁 Pressed “Try free”: ${c('trial_link')}\n` +
+    (c('report_sent') ? `📨 Problem reports sent: ${c('report_sent')}\n` : '') +
     `💳 Pressed Buy: ${c('buy_click')} · 🔑 Activated: ${c('activate_ok')}` +
     (c('activate_fail') ? ` · activation failed: ${c('activate_fail')}` : '') + '\n\n' +
     `<i>Outside Ethiopia (mostly our test machines): opened ${otherOpen}.</i>`;
@@ -6304,6 +6307,45 @@ export default {
     if (request.method === 'GET' && url.pathname === '/api/latest') {
       const out = await latestRelease();
       return out ? json(out) : json({ error: 'unavailable' }, 503);
+    }
+
+    // POST /api/report — "Send problem report" after a failed run (1.10.11):
+    // the program's error, the engine's last lines and the end of its Log
+    // (home folder, keys and tickets already removed by the program), version
+    // and system, forwarded to the owner. Nothing is stored. Only when the
+    // person presses the button; limited per address and per computer.
+    if (request.method === 'POST' && url.pathname === '/api/report') {
+      let b;
+      try { b = await request.json(); } catch { return json({ error: 'bad json' }, 400); }
+      const mid = String((b && b.mid) || '').trim().toLowerCase();
+      if (!isValidMid(mid)) return json({ error: 'bad mid' }, 400);
+      if (await rlHit('rl:ip:' + clientIp() + ':report', 6, 3600) || await rlHit('rl:mid:' + mid + ':report', 4, 86400)) {
+        return json({ error: 'throttled' }, 429);
+      }
+      const clip = (x, n) => String(x == null ? '' : x).slice(0, n);
+      const lines = (x, n) => (Array.isArray(x) ? x : []).slice(-n).map((l) => clip(l, 300));
+      const sys = (b && typeof b.sys === 'object' && b.sys) || {};
+      const g = await trialGrant(mid);
+      const head =
+        '🆘 <b>Problem report</b> (sent from the program)\n\n' +
+        `💻 <code>${esc(mid)}</code> · v${esc(clip(b.v, 12))} · ${esc(clip(b.host, 8))} · ` +
+        `${esc(clip(sys.platform, 10))} ${esc(clip(sys.release, 20))} ${esc(clip(sys.arch, 8))}\n` +
+        `🧠 RAM ${esc(clip(sys.ram_gb, 6))} GB (free ${esc(clip(sys.free_gb, 6))}) · ${esc(clip(sys.cpus, 4))} CPU\n` +
+        `🎫 ${b.licensed ? 'licensed' : 'free trial: ' + esc(clip(b.trial, 40))}` +
+        (g ? ` · 👤 <a href="tg://user?id=${esc(g.uid)}">${esc(g.name || g.uid)}</a>` : '') + '\n' +
+        `❌ <b>${esc(clip(b.step, 30) || 'error')}</b>: ${esc(clip(b.error, 500))}`;
+      const tail = lines(b.tail, 20).join('\n');
+      const logTxt = lines(b.log, 60).join('\n');
+      let body = (tail ? '\n\n<b>Engine said</b>\n<pre>' + esc(tail.slice(-1400)) + '</pre>' : '') +
+        (logTxt ? '\n\n<b>Log (end)</b>\n<pre>' + esc(logTxt.slice(-(3400 - Math.min(tail.length, 1400)))) + '</pre>' : '');
+      if (head.length + body.length > 4000) body = body.slice(body.length - (4000 - head.length));
+      const kb = g ? [[{ text: '👤 Trial card', callback_data: 'admin:tgcard:' + mid }]] : null;
+      for (const adm of adminUids()) {
+        const r = await sendText(adm, head + body, kb);
+        if (!r || !r.ok) await sendText(adm, head, kb);     // a broken <pre> never hides the report
+      }
+      log('info', 'problem_report', { mid, step: clip(b.step, 30), v: clip(b.v, 12) });
+      return json({ ok: true });
     }
 
     // POST /api/trial/request {mid, hf} → the free-minutes state, plus a

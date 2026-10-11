@@ -1,5 +1,5 @@
 PRIVACY POLICY — Amharic Captions Pro
-Version 1.6 · Effective 2026-10-08
+Version 1.7 · Effective 2026-10-11
 
 WHAT TRANSCRIPTION NEVER DOES
 All speech recognition, correction, speaker labeling and caption placement
@@ -36,6 +36,12 @@ WHAT THE SOFTWARE DOES SEND
   free job reports the length of its audio in seconds (never the audio).
   Trial records may be retained as pseudonymous abuse-prevention records;
   request deletion where applicable.
+* Problem report (1.10.11+): only when you press "Send problem report" after
+  a failed run, the program sends the error, the last lines of its log (home
+  folder, license keys and tickets removed), version, operating system,
+  memory and processor count, and your Machine ID to our server, which
+  forwards it to us so we can fix the problem. No video, audio or captions;
+  the report is not stored.
 
 WHAT IS STORED AND WHERE
 License data lives on Cloudflare's platform (Workers + D1): Machine ID,

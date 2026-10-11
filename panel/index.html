@@ -690,6 +690,12 @@
         <span id="progLabel" aria-live="polite"></span>
         <button id="cancelBtn" title="Stop this transcription" data-i18n="run.cancel" data-i18n-title="run.cancelTitle">Cancel</button>
       </div>
+      <!-- After a failed run (1.10.11): one tap sends the error + Log to us. -->
+      <div id="reportBox" style="display:none;margin-top:8px;">
+        <button type="button" id="reportBtn" class="btn btn-neutral" style="width:100%;" data-i18n="rep.button">📨 Send problem report</button>
+        <div class="hint" style="margin-top:4px;" data-i18n="rep.hint">Sends the error and the Log to us so we can fix it — no video, audio or captions.</div>
+        <div class="hint" id="reportStatus" style="display:none;margin-top:4px;font-weight:600;"></div>
+      </div>
     </div>
 
     <div id="trialBanner"
@@ -773,7 +779,7 @@
   </div>
 
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.10.10</span><span id="footPrice"> · <span data-i18n="foot.license">License ETB 2,500 one-time</span></span></span>
+    <span>v<span id="panelVersion">1.10.11</span><span id="footPrice"> · <span data-i18n="foot.license">License ETB 2,500 one-time</span></span></span>
     <span style="display:flex;gap:10px;align-items:center;">
       <a href="#" id="supportLink" title="Get help in Telegram" data-i18n="foot.help" data-i18n-title="foot.helpTitle">💬 Help</a>
       <a href="#" id="credits" title="Version and credits" data-i18n="foot.credits" data-i18n-title="foot.creditsTitle">About</a>
