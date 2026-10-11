@@ -3813,6 +3813,29 @@ console.log('\n:: 1.10.12 plans: 1 month · 2 months · Forever, renewal, upgrad
   ok('plans: a phone buyer gets an activation code for the plan they paid');
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: 1.10.12 feedback from the program');
+{
+  const { env } = fresh();
+  const MID = 'aa11bb22cc33dd44';
+  env.DB.prepare("INSERT INTO trial_grants (machine_id, uid, name, seconds_total, seconds_used) VALUES (?, '974000001', '@idea_person', 1200, 60)").bind(MID).run();
+  const send = (body, ip = '196.188.60.1') => api(env, '/api/feedback', { method: 'POST', body, headers: { 'CF-Connecting-IP': ip } });
+  let n = OUTBOUND.length;
+  let r = await send({ mid: MID, v: '1.10.12', host: 'APP', text: 'ለDaVinci ቀጥታ <ቢገባ> ጥሩ ነበር', tg: '@written_tg', licensed: false, trial: 'active 19:00 left' });
+  assert.equal(r.status, 200);
+  const m = OUTBOUND.slice(n).find((x) => String(x.body.chat_id) === String(ADMIN_ID) && /Feedback/.test(x.body.text || ''));
+  assert.ok(m, 'the owner gets it');
+  assert.ok(m.body.text.includes('ለDaVinci ቀጥታ &lt;ቢገባ&gt; ጥሩ ነበር'), 'the message, escaped');
+  assert.ok(m.body.text.includes('tg://user?id=974000001') && m.body.text.includes('@written_tg') && m.body.text.includes('active 19:00 left'), 'who (tap to reply), what they typed, trial state');
+  assert.ok(JSON.stringify(m.body.reply_markup).includes('admin:tgcard:' + MID));
+  r = await send({ mid: MID, text: 'a' });
+  assert.equal(r.status, 400, 'empty / too short refused');
+  for (let i = 0; i < 5; i++) await send({ mid: MID, text: 'more ideas ' + i }, '196.188.60.' + (10 + i));
+  r = await send({ mid: MID, text: 'one too many' }, '196.188.60.30');
+  assert.equal(r.status, 429, 'a few per computer per day');
+  ok('feedback: the owner gets the message (escaped), who sent it (tap to reply), trial card button; limited');
+}
+
 // Across EVERY scenario: nothing may be silently refused by Telegram (a refused
 // call is a screen the user never sees). Only the recovered photo→file case.
 {

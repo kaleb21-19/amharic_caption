@@ -218,6 +218,13 @@ export default function LegalPage() {
               which forwards it to us so we can fix the problem. No video,
               audio or captions are sent, and the report is not stored.
             </li>
+            <li>
+              <strong>Feedback (1.10.12+).</strong> When you send a message with
+              “💡 Ideas”, it goes to us with your Machine ID, the program
+              version, whether you are licensed or on the free trial, and the
+              Telegram username you typed (optional), so we can reply. It is
+              not stored on our server.
+            </li>
           </ul>
 
           <h3>What is stored and where</h3>

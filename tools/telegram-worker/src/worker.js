@@ -4908,7 +4908,7 @@ const EVENT_NAMES = new Set([
   'buy_click', 'activate_ok', 'activate_fail', 'trial_link',
   'err_av_blocked', 'err_too_short', 'err_no_speech', 'err_no_clips', 'err_no_clip', 'err_no_media',
   'err_media_unreadable', 'err_disk_full', 'err_engine', 'err_runtime', 'err_license', 'err_other',
-  'err_memory', 'err_engine_hang', 'report_sent',
+  'err_memory', 'err_engine_hang', 'report_sent', 'feedback_sent',
 ]);
 const ERROR_LABELS = {
   err_no_clip: 'no clip selected', err_no_clips: 'no clips in range', err_no_media: 'item has no media file',
@@ -4970,6 +4970,7 @@ async function adminUsage(chatId, messageId, days = 7) {
     `🎬 Placed / saved: ${c('placed')}\n` +
     `🎁 Pressed “Try free”: ${c('trial_link')}\n` +
     (c('report_sent') ? `📨 Problem reports sent: ${c('report_sent')}\n` : '') +
+    (c('feedback_sent') ? `💡 Feedback sent: ${c('feedback_sent')}\n` : '') +
     `💳 Pressed Buy: ${c('buy_click')} · 🔑 Activated: ${c('activate_ok')}` +
     (c('activate_fail') ? ` · activation failed: ${c('activate_fail')}` : '') + '\n\n' +
     `<i>Outside Ethiopia (mostly our test machines): opened ${otherOpen}.</i>`;
@@ -6478,6 +6479,42 @@ export default {
     if (request.method === 'GET' && url.pathname === '/api/latest') {
       const out = await latestRelease();
       return out ? json(out) : json({ error: 'unavailable' }, 503);
+    }
+
+    // POST /api/feedback — "💡 Ideas" in the program (1.10.12): a short
+    // message, forwarded to the owner with who it is (Machine ID, licensed /
+    // trial, the Telegram account if we know it or they typed it). Not stored.
+    if (request.method === 'POST' && url.pathname === '/api/feedback') {
+      let b;
+      try { b = await request.json(); } catch { return json({ error: 'bad json' }, 400); }
+      const mid = String((b && b.mid) || '').trim().toLowerCase();
+      const text = String((b && b.text) || '').trim().slice(0, 1500);
+      if (!isValidMid(mid) || text.length < 3) return json({ error: 'bad request' }, 400);
+      if (await rlHit('rl:ip:' + clientIp() + ':feedback', 10, 3600) || await rlHit('rl:mid:' + mid + ':feedback', 6, 86400)) {
+        return json({ error: 'throttled' }, 429);
+      }
+      const clip = (x, n) => String(x == null ? '' : x).slice(0, n);
+      const tg = /^@[A-Za-z0-9_]{4,32}$/.test(String(b.tg || '')) ? String(b.tg) : '';
+      const g = await trialGrant(mid);
+      const cust = await DB.prepare('SELECT uid, name FROM customers WHERE machine_id = ? AND revoked = 0').bind(mid).first();
+      const known = (cust && cust.uid) ? { uid: cust.uid, name: cust.name } : (g ? { uid: g.uid, name: g.name } : null);
+      const who = [
+        known ? `👤 <a href="tg://user?id=${esc(known.uid)}">${esc(known.name || known.uid)}</a> (tap to reply)` : '',
+        tg ? `✍️ wrote: ${esc(tg)}` : '',
+      ].filter(Boolean).join(' · ') || '👤 unknown — no Telegram given';
+      const msgText =
+        '💡 <b>Feedback</b> (from the program)\n\n' +
+        `<blockquote>${esc(text)}</blockquote>\n\n` +
+        `${who}\n` +
+        `💻 <code>${esc(mid)}</code> · v${esc(clip(b.v, 12))} · ${esc(clip(b.host, 8))} · ` +
+        (b.licensed ? '💰 licensed' : `🎁 ${esc(clip(b.trial, 40)) || 'no license'}`);
+      const kb = g ? [[{ text: '👤 Trial card', callback_data: 'admin:tgcard:' + mid }]] : null;
+      for (const adm of adminUids()) {
+        const r = await sendText(adm, msgText, kb);
+        if (!r || !r.ok) await sendText(adm, '💡 Feedback: ' + esc(text) + '\n' + who, kb);
+      }
+      log('info', 'feedback', { mid, len: text.length });
+      return json({ ok: true });
     }
 
     // POST /api/report — "Send problem report" after a failed run (1.10.11):

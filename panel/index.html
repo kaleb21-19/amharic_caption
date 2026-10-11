@@ -380,6 +380,20 @@
   #trialCard .btn { width: 100%; }
   #trialCard [data-tc] { display: none; }
   #trialCard.tc-left [data-tc="left"], #trialCard.tc-last [data-tc="last"], #trialCard.tc-cut [data-tc="cut"] { display: inline; }
+  /* Feedback (1.10.12): a short message straight to the owner's bot. */
+  #feedbackCard {
+    position: fixed; inset: 0; z-index: 121;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, .55); padding: 16px;
+  }
+  #feedbackCard.show { display: flex; }
+  #feedbackCard .tc-box { text-align: left; }
+  #feedbackCard textarea, #feedbackCard input {
+    width: 100%; box-sizing: border-box; background: var(--bg-field); color: var(--text-primary);
+    border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; font: inherit; font-size: 12px;
+  }
+  #feedbackCard textarea { min-height: 110px; resize: vertical; }
+  #feedbackCard .btn { width: 100%; }
   #freeMinBox { margin-bottom: 8px; padding: 10px 12px; border: 1px solid var(--accent, #3b82f6); border-radius: var(--radius); font-size: 11px; line-height: 1.45; }
   #freeMinBox .fm-title { font-weight: 700; font-size: 12.5px; margin-bottom: 3px; }
   #freeMinBox .btn { width: 100%; margin-top: 7px; }
@@ -782,10 +796,24 @@
   <div class="panel-footer">
     <span>v<span id="panelVersion">1.10.12</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span></span>
     <span style="display:flex;gap:10px;align-items:center;">
+      <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
       <a href="#" id="supportLink" title="Get help in Telegram" data-i18n="foot.help" data-i18n-title="foot.helpTitle">💬 Help</a>
       <a href="#" id="credits" title="Version and credits" data-i18n="foot.credits" data-i18n-title="foot.creditsTitle">About</a>
       <a href="#" id="legalLink" title="License, privacy &amp; refund terms" data-i18n="foot.terms" data-i18n-title="foot.termsTitle">Terms</a>
     </span>
+  </div>
+
+  <!-- Feedback (1.10.12): ideas, problems, questions -> the owner's bot -->
+  <div id="feedbackCard" role="dialog" aria-modal="true" aria-labelledby="fbTitle">
+    <div class="tc-box">
+      <div class="tc-title" id="fbTitle" data-i18n="fb.title">💡 Tell us what you think</div>
+      <div class="tc-sub" data-i18n="fb.sub">An idea, a problem or a question — it goes straight to the people who build Amharic Captions.</div>
+      <textarea id="feedbackText" maxlength="1500" placeholder="Write here…" data-i18n-placeholder="fb.placeholder"></textarea>
+      <input id="feedbackTg" maxlength="40" placeholder="Your Telegram @username (optional, so we can reply)" data-i18n-placeholder="fb.tg">
+      <button type="button" id="feedbackSend" class="btn btn-primary" data-i18n="fb.send">Send</button>
+      <div class="tc-sub" id="feedbackStatus" style="display:none;font-weight:600;"></div>
+      <button type="button" id="feedbackCancel" class="tc-later" data-i18n="fb.close">Close</button>
+    </div>
   </div>
 
   <!-- Review & edit overlay: shown between transcription and placement -->
