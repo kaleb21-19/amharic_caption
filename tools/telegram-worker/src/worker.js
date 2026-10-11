@@ -4063,46 +4063,105 @@ async function adminGroup(chatId, messageId, cbId) {
   await sendText(chatId, lines, back);
 }
 
+// The admin home: what needs the owner now, today's and the month's numbers,
+// and six sections. Everything else lives one tap down (adminSection), so
+// the home screen stays short.
 async function adminPanel(chatId, messageId) {
   await pruneOld();
   const pend = await pendingCount();
-  const todayRow = await DB.prepare(
-    "SELECT COALESCE(SUM(CASE WHEN status='approved' THEN 1 ELSE 0 END),0) AS ap, " +
-    "COALESCE(SUM(CASE WHEN status='rejected' THEN 1 ELSE 0 END),0) AS rj, " +
-    "COALESCE(SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END),0) AS pd " +
-    "FROM orders WHERE date(created_at, '+3 hours')=date('now', '+3 hours')").first();
-  const sold30 = await DB.prepare(
-    "SELECT COUNT(*) AS n, COALESCE(SUM(amount_etb), 0) AS revenue " +
-    "FROM sales WHERE status='sold' AND sold_at >= datetime('now','-30 days')"
-  ).first();
-  const soldCount = sold30 ? sold30.n : 0;
-  const revenue = sold30 ? sold30.revenue : 0;
-  const refOn = refTerms(await getSettings()).on;
+  const one = async (sql) => {
+    try { return (await DB.prepare(sql).first()) || {}; } catch (e) { return {}; }
+  };
+  const today = "date(%s, '+3 hours')=date('now', '+3 hours')";
+  const sToday = await one("SELECT COUNT(*) AS n, COALESCE(SUM(amount_etb),0) AS etb FROM sales " +
+    "WHERE status='sold' AND " + today.replace('%s', 'sold_at'));
+  const s30 = await one("SELECT COUNT(*) AS n, COALESCE(SUM(amount_etb),0) AS etb FROM sales " +
+    "WHERE status='sold' AND sold_at >= datetime('now','-30 days')");
+  const tToday = await one("SELECT COUNT(*) AS n FROM trial_grants WHERE " + today.replace('%s', 'created_at'));
+  const t30 = await one("SELECT COUNT(*) AS n FROM trial_grants WHERE created_at >= datetime('now','-30 days')");
+  const tPend = await one("SELECT COUNT(*) AS n FROM trial_grants WHERE status='pending'");
+  const oToday = await one("SELECT COALESCE(SUM(CASE WHEN status='approved' THEN 1 ELSE 0 END),0) AS ap, " +
+    "COALESCE(SUM(CASE WHEN status='rejected' THEN 1 ELSE 0 END),0) AS rj FROM orders WHERE " +
+    today.replace('%s', 'created_at'));
+  const trialWait = Number(tPend.n || 0);
+  const now = new Date(Date.now() + 3 * 3600 * 1000);
+  const when = now.toISOString().slice(0, 10) + ' · ' + now.toISOString().slice(11, 16);
+
+  const needs = [];
+  if (pend) needs.push(`📥 <b>${pend}</b> order${pend === 1 ? '' : 's'} waiting for you`);
+  if (trialWait) needs.push(`🎁 <b>${trialWait}</b> free-minutes request${trialWait === 1 ? '' : 's'} to check`);
+  let security;
+  if (!ADMIN_PIN) security = '⚠️ <b>No admin PIN</b> — set one: <code>npx wrangler secret put AMH_ADMIN_PIN</code>';
+  else security = (await adminUnlocked(chatId)) ? '🔓 PIN on · unlocked' : '🔒 PIN on · locked — /unlock PIN for money &amp; exports';
 
   const text =
-    `🛠 <b>Admin · Dashboard</b>\n\n` +
-    `📥 <b>New requests:</b> ${pend}\n` +
-    `   ├ ✅ Approved today: ${todayRow.ap}\n` +
-    `   ├ ❌ Declined today: ${todayRow.rj}\n` +
-    `   └ ⏳ Pending today:  ${todayRow.pd}\n\n` +
-    `💵 <b>Revenue (30d):</b> ${soldCount} sale(s) = <b>ETB ${money(revenue)}</b>\n\n` +
-    `🔍 Support: tap <b>Find a customer</b> and send their Machine ID — move, revoke or restore from there.\n` +
-    (ADMIN_PIN
-      ? `🔐 Security: PIN on · ${(await adminUnlocked(chatId)) ? '🔓 unlocked' : '🔒 locked — /unlock PIN for money &amp; exports'}`
-      : '⚠️ <b>Security: no admin PIN.</b> Anyone in your Telegram could broadcast or export keys. ' +
-        'Set one: <code>npx wrangler secret put AMH_ADMIN_PIN</code>');
+    `🛠 <b>Admin · Dashboard</b>\n<i>${when} (Addis Ababa)</i>\n\n` +
+    `<b>Needs you</b>\n` +
+    (needs.length ? needs.map((x) => '• ' + x).join('\n') : '✅ Nothing waiting') + `\n\n` +
+    `<b>Today</b>\n` +
+    `💵 ${sToday.n || 0} sale${Number(sToday.n) === 1 ? '' : 's'} · ETB ${money(sToday.etb || 0)}\n` +
+    `🎁 ${tToday.n || 0} new free user${Number(tToday.n) === 1 ? '' : 's'}\n` +
+    `📦 ${oToday.ap || 0} approved · ${oToday.rj || 0} declined\n\n` +
+    `<b>Last 30 days</b>\n` +
+    `💵 ${s30.n || 0} sale${Number(s30.n) === 1 ? '' : 's'} · <b>ETB ${money(s30.etb || 0)}</b>\n` +
+    `🎁 ${t30.n || 0} free user${Number(t30.n) === 1 ? '' : 's'}\n\n` +
+    security;
   const kb = [
-    [{ text: `📥 Requests (${pend})`, callback_data: 'admin:queue' }],
-    [{ text: '🧾 History (30 days)', callback_data: 'admin:history' }],
-    [{ text: '📈 Sales & funnel', callback_data: 'admin:sales' }, { text: '🎁 Trial users', callback_data: 'admin:trials' }],
-    [{ text: '🧭 In the program (before buying)', callback_data: 'admin:usage:7' }],
-    [{ text: '📣 Broadcast', callback_data: 'admin:broadcast' }, { text: '📤 Export customers', callback_data: 'admin:export' }],
-    [{ text: '🔍 Find a customer', callback_data: 'admin:findask' }, { text: '🤝 Partners', callback_data: 'admin:partners' }],
-    [{ text: `🎁 Referrals · ${refOn ? '🟢 ON' : '⚪ OFF'}`, callback_data: 'admin:ref' }],
-    [{ text: `💼 Jobs feed · ${(await jobsEnabled()) ? '🟢 ON' : '⚪ OFF'}`, callback_data: 'admin:jobs-toggle' }],
-    [{ text: '👥 Group members', callback_data: 'admin:group' }],
-    [{ text: '🔐 Audit log', callback_data: 'admin:audit' }, { text: '📖 Commands', callback_data: 'admin:help' }],
+    [{ text: pend ? `📥 Orders (${pend})` : '📥 Orders', callback_data: 'admin:sec:orders' },
+     { text: '🔍 Find customer', callback_data: 'admin:findask' }],
+    [{ text: trialWait ? `👥 Customers (${trialWait})` : '👥 Customers', callback_data: 'admin:sec:people' },
+     { text: '📈 Reports', callback_data: 'admin:sec:reports' }],
+    [{ text: '📣 Marketing', callback_data: 'admin:sec:market' },
+     { text: '⚙️ Settings', callback_data: 'admin:sec:settings' }],
+    [{ text: '🔄 Refresh', callback_data: 'admin:panel' }],
   ];
+  if (messageId) await editText(chatId, messageId, text, kb);
+  else await sendText(chatId, text, kb);
+}
+
+// One section of the admin home: a short title, one line per item, buttons.
+async function adminSection(chatId, messageId, name) {
+  const home = [{ text: '◀ Admin home', callback_data: 'admin:panel' }];
+  let text, kb;
+  if (name === 'orders') {
+    const pend = await pendingCount();
+    text = '📥 <b>Orders</b>\n\n' +
+      `• <b>Waiting</b> — ${pend ? pend + ' to approve or decline' : 'nothing waiting'}\n` +
+      '• <b>History</b> — every order of the last 30 days, open one to see it';
+    kb = [[{ text: pend ? `📥 Waiting (${pend})` : '📥 Waiting', callback_data: 'admin:queue' },
+           { text: '🧾 History', callback_data: 'admin:history' }], home];
+  } else if (name === 'people') {
+    text = '👥 <b>Customers</b>\n\n' +
+      '• <b>Find</b> — by Machine ID: move, revoke or restore a license\n' +
+      '• <b>Free-minutes users</b> — who tried, minutes used, approve or block\n' +
+      '• <b>Group members</b> — the Telegram group\n' +
+      '• <b>Export</b> — all customers as a file (PIN)';
+    kb = [[{ text: '🔍 Find customer', callback_data: 'admin:findask' }, { text: '🎁 Free-minutes users', callback_data: 'admin:trials' }],
+          [{ text: '👥 Group members', callback_data: 'admin:group' }, { text: '📤 Export', callback_data: 'admin:export' }], home];
+  } else if (name === 'reports') {
+    text = '📈 <b>Reports</b>\n\n' +
+      '• <b>Sales &amp; funnel</b> — sales, plans, from trial to buyer\n' +
+      '• <b>In the program</b> — what people do before they buy, and failures\n' +
+      '• <b>Audit log</b> — every money, export and license action';
+    kb = [[{ text: '📈 Sales & funnel', callback_data: 'admin:sales' }, { text: '🧭 In the program', callback_data: 'admin:usage:7' }],
+          [{ text: '🔐 Audit log', callback_data: 'admin:audit' }], home];
+  } else if (name === 'market') {
+    const refOn = refTerms(await getSettings()).on;
+    text = '📣 <b>Marketing</b>\n\n' +
+      '• <b>Broadcast</b> — one message to every buyer (preview first)\n' +
+      '• <b>Partners</b> — their links, sales and payouts\n' +
+      `• <b>Referrals</b> — customers bring customers · ${refOn ? '🟢 ON' : '⚪ OFF'}`;
+    kb = [[{ text: '📣 Broadcast', callback_data: 'admin:broadcast' }, { text: '🤝 Partners', callback_data: 'admin:partners' }],
+          [{ text: `🎁 Referrals · ${refOn ? '🟢 ON' : '⚪ OFF'}`, callback_data: 'admin:ref' }], home];
+  } else {
+    const jobsOn = await jobsEnabled();
+    text = '⚙️ <b>Settings</b>\n\n' +
+      `• <b>Jobs feed</b> — editing jobs posted in the group · ${jobsOn ? '🟢 ON' : '⚪ OFF'}\n` +
+      `• <b>Security</b> — ${ADMIN_PIN ? 'PIN on' : '⚠️ no PIN set'}\n` +
+      '• <b>Commands</b> — everything you can type';
+    kb = [[{ text: `💼 Jobs feed · ${jobsOn ? '🟢 ON' : '⚪ OFF'}`, callback_data: 'admin:jobs-toggle' }],
+          [{ text: '📖 Commands', callback_data: 'admin:help' }], home];
+  }
   if (messageId) await editText(chatId, messageId, text, kb);
   else await sendText(chatId, text, kb);
 }
@@ -6045,6 +6104,7 @@ async function handleCallback(cb) {
       await audit(fromUid, action, parts.slice(2).join(':'));
     }
     if (action === 'panel') await adminPanel(chatId, messageId);
+    else if (action === 'sec') { await answerCb(cbId, ''); await adminSection(chatId, messageId, String(parts[2] || '')); }
     else if (action === 'audit') await adminAudit(chatId);
     else if (action === 'queue' || action === 'pending') await adminQueue(chatId, messageId, cbId, 0);
     else if (action === 'queuep') await adminQueue(chatId, messageId, cbId, parseInt(parts[2] || '0', 10));
@@ -6116,7 +6176,7 @@ async function handleCallback(cb) {
       } else {
         await setSetting('jobs_feed', on ? '0' : '1');
         await answerCb(cbId, on ? '⚪ Jobs feed OFF' : '🟢 Jobs feed ON');
-        await adminPanel(chatId, messageId);
+        await adminSection(chatId, messageId, 'settings');
       }
     }
     else if (action === 'topics-close') await adminTopicsGeneral(chatId, cbId, fromUid, true);
