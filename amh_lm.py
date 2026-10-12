@@ -29,13 +29,16 @@ import re
 
 _LOGZERO = -float("inf")
 _IS_ETHIOPIC = re.compile(r"^[\u1200-\u137f]+$")
+# Afaan Oromo (1.10.20): Qubee letters and the apostrophe (ta'uu), lower case.
+_IS_QUBEE = re.compile(r"^[a-z']+$")
 
 
 class AmharicLM:
     """Word-LM rescoring used after CTC decoding (glue-word splitter)."""
 
-    def __init__(self, lm_path=None):
+    def __init__(self, lm_path=None, word_re=None):
         self._path = lm_path or self._default_path()
+        self._word_re = word_re or _IS_ETHIOPIC
         self._loaded = False
         self._ok = False
         self.unigram = {}
@@ -47,6 +50,8 @@ class AmharicLM:
         self.boundary_cost = 1.0    # small per-boundary penalty (avoid 3+ parts)
         self.max_word_len = 14
         self.max_run_len = 24       # don't try to split very long tokens
+        self.min_part_len = 2       # Oromo: 3 (endings like -dha / -tti are not words)
+        self.endings = set()        # Oromo: pieces that are word endings, never split off
 
     # -- loading ------------------------------------------------ ----------
     @staticmethod
@@ -68,11 +73,16 @@ class AmharicLM:
             self.min_margin = float(data.get("min_margin", 4.0))
             self.min_part_count = int(data.get("min_part_count", 5))
             self.boundary_cost = float(data.get("boundary_cost", 1.0))
+            self.max_word_len = int(data.get("max_word_len", self.max_word_len))
+            self.max_run_len = int(data.get("max_run_len", self.max_run_len))
+            self.min_part_len = int(data.get("min_part_len", self.min_part_len))
+            self.endings = set(data.get("endings", ()))
             # 2026-09-29, 935 clips: a split must beat the joined word by 20
             # nats (was 4). FLEURS WER -0.7, WAXAL -0.6, CV unchanged; 30
             # was better still on FLEURS/WAXAL but worse on CV.
-            self.min_margin = max(self.min_margin,
-                                  float(os.environ.get("AMH_LM_MARGIN", "20")))
+            if "min_margin" not in data or self._word_re is _IS_ETHIOPIC:
+                self.min_margin = max(self.min_margin,
+                                      float(os.environ.get("AMH_LM_MARGIN", "20")))
             self._ok = True
         except Exception:
             self.unigram = {}
@@ -116,7 +126,9 @@ class AmharicLM:
             lo = max(0, i - self.max_word_len)
             for j in range(lo, i - 1):
                 w = tok[j:i]
-                if len(w) < 2 or not self._is_known(w):
+                if len(w) < self.min_part_len or not self._is_known(w):
+                    continue
+                if j > 0 and w in self.endings:
                     continue
                 if self._count(w) is not None and self._count(w) < self.min_part_count:
                     continue
@@ -142,11 +154,17 @@ class AmharicLM:
         """Try to split a single OOV token. Returns list of parts or [token]."""
         if not self._ensure() or not word:
             return [word]
+        if self._word_re is _IS_QUBEE:
+            # Oromo words can end in . , ? : split the letters, keep the mark.
+            core = word.rstrip(".,!?;:")
+            if core != word and core:
+                parts = self.split_word(core, left=left, right=right)
+                return parts[:-1] + [parts[-1] + word[len(core):]]
         if self._is_known(word):
             return [word]
         # never guess on tokens containing non-Ethiopic chars (digits, Latin,
         # mixed): those are usually numbers, brands or ids, not glued words.
-        if not _IS_ETHIOPIC.match(word):
+        if not self._word_re.match(word):
             return [word]
         if len(word) < 4 or len(word) > self.max_run_len:
             return [word]
@@ -189,6 +207,21 @@ def get_default_lm():
     if _DEFAULT_LM is None:
         _DEFAULT_LM = AmharicLM()
     return _DEFAULT_LM
+
+
+# Other languages: their own word list next to this file (optional; without
+# it nothing is split). Built by tools/build_lm_orm.py.
+_LANG_LMS = {"orm": ("orm_lm.json.gz", _IS_QUBEE)}
+_LMS = {}
+
+
+def get_lm(lang="amh"):
+    if lang == "amh" or lang not in _LANG_LMS:
+        return get_default_lm()
+    if lang not in _LMS:
+        name, word_re = _LANG_LMS[lang]
+        _LMS[lang] = AmharicLM(os.path.join(os.path.dirname(os.path.abspath(__file__)), name), word_re)
+    return _LMS[lang]
 
 
 if __name__ == "__main__":

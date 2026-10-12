@@ -45,6 +45,9 @@ BUNDLED = [
      "https://github.com/snakers4/silero-vad"),
     ("amh_lm.json.gz", "Amharic word-frequency language model, built from public Amharic text",
      "https://github.com/geezorg/data"),
+    ("orm_lm.json.gz", "Afaan Oromo word list, built from the transcriptions of Google WAXAL "
+     "(google/WaxalNLP orm_asr train split) — CC-BY-4.0",
+     "https://huggingface.co/datasets/google/WaxalNLP"),
 ]
 
 # Shipped inside the panel itself (not the runtime).

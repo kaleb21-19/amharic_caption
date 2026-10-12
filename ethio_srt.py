@@ -672,7 +672,7 @@ def ctc_align(logits, blank_id, frame_dur, text):
     return spans, frame_dur
 
 
-def _lm_split_words(words, word_units):
+def _lm_split_words(words, word_units, lang="amh"):
     """Word-LM resegmentation of the decoded word stream (see amh_lm.py).
 
     Only rescues OOV glued tokens (e.g. "አሀይድጠብቁኝ" -> two words) where the
@@ -682,8 +682,8 @@ def _lm_split_words(words, word_units):
     if os.environ.get("AMH_LM", "1") != "1":
         return words
     try:
-        from amh_lm import get_default_lm
-        lm = get_default_lm()
+        from amh_lm import get_lm
+        lm = get_lm(lang)
         if not lm.available():
             return words
     except Exception:
@@ -744,7 +744,8 @@ def get_words(spans, frame_dur, glyphs):
         words.append((cur, cur_start, units[-1][2]))
         word_units.append(cur_u + [])
     if _LANG != "amh":
-        return words           # the split uses the Amharic word list
+        # Afaan Oromo: its own word list (orm_lm.json.gz), the same rules.
+        return _lm_split_words(words, word_units, lang=_LANG)
     return _lm_split_words(words, word_units)
 
 
@@ -908,10 +909,49 @@ def _split_glued_punct(words):
     return out
 
 
+# A word whose letters average below this confidence is noise the model
+# turned into letters (music, an outro, a breath): "a auma aaa." at the end
+# of a video. Real Oromo words in the first tests averaged 0.85 or more.
+PLAIN_DROP_CONF = float(os.environ.get("AMH_PLAIN_DROP", "0.5"))
+
+
+def _drop_unsure_words(words, units):
+    import bisect
+    if not units:
+        return words
+    starts = [u[0] for u in units]
+    out = []
+    for w in words:
+        ws, we = w[1], w[2]
+        i = max(0, bisect.bisect_left(starts, ws) - 1)
+        tot = n = 0
+        while i < len(units) and units[i][0] < we:
+            if units[i][1] > ws:
+                tot += units[i][2]
+                n += 1
+            i += 1
+        if n and tot / n < PLAIN_DROP_CONF:
+            continue
+        out.append(w)
+    return out
+
+
+def _cap_word_ends(words):
+    """The last word before a silence (often the last of the video) used to
+    last until the next sound - up to the end of the file - so its caption
+    stayed on screen seconds after the person stopped talking."""
+    out = []
+    for w in words:
+        txt, ws, we = w[0], w[1], w[2]
+        most = ws + 0.3 + 0.12 * len(txt)
+        out.append((txt, ws, min(we, most)) + tuple(w[3:]))
+    return out
+
+
 def _make_cues_plain(mode, group_size, words, units, frame_dur, glyphs, max_chars):
     """Captions for a non-Amharic language: the same grouping, timing and
     doubt marks, none of the Amharic spelling / number / punctuation passes."""
-    words = _split_glued_punct(words)
+    words = _cap_word_ends(_drop_unsure_words(_split_glued_punct(words), units))
     if mode == "words":
         cues = group_word_cues(words, max_chars=max_chars)
     elif mode == "grouped" and group_size > 0:

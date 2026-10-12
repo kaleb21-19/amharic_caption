@@ -78,6 +78,11 @@ else
   if [[ "$ALLOW_DEGRADED" != "1" ]]; then echo "  [FAIL] Amharic word-LM missing"; exit 1; fi
   echo "  [warn] tools/lm/amh_lm.json.gz missing — word-LM disabled"
 fi
+# Afaan Oromo word list (splits words the model glued). Optional.
+if [[ -f "$ROOT/tools/lm/orm_lm.json.gz" ]]; then
+  cp "$ROOT/tools/lm/orm_lm.json.gz" "$RT/orm_lm.json.gz"
+  echo "  [ok] orm_lm.json.gz"
+fi
 
 # Silero VAD (onnx) — speech-gap detector that skips music-only regions before
 # the CT2 encode. Optional: if missing, ethio_srt.py degrades to whole-clip.
