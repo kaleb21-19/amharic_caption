@@ -131,7 +131,7 @@
       if (btn) btn.disabled = true;
       try {
         const vout = uniquePath(APP.path.dirname(out), base + ' (' + STYLE_NAMES[STYLE] + ')', '.mp4');
-        await renderStyled({ cues: styleCues(cues), style: STYLE, mode: 'burn', video: src, out: vout, tag: !LICENSED },
+        await renderStyled({ cues: styleCues(cues), style: STYLE, opts: styleOpts(STYLE), mode: 'burn', video: src, out: vout, tag: !LICENSED },
           (x) => { if (btn) btn.textContent = '⏳ ' + tx('ቪዲዮውን በመስራት ላይ… ', 'Making the video… ') + Math.round(x * 100) + '%'; });
         styled = vout;
         log(tx('ካፕሽኑ የተጻፈበት ቪዲዮ፦ ', 'Video with the captions: ') + vout);

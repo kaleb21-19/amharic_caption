@@ -19,10 +19,16 @@ const coll = (arr, n) => new Proxy(arr, { get: (t, p) => (p === n ? t.length : t
 const T = (s) => ({ seconds: s });
 
 function makeTrack(clips) {
-  const list = clips.map(([s, e]) => ({ start: T(s), end: T(e) }));
+  const list = [];
+  const mk = (s, e, name) => {
+    const c = { start: T(s), end: T(e), projectItem: { name: name || 'video.mp4' },
+                remove() { list.splice(list.indexOf(c), 1); } };
+    return c;
+  };
+  clips.forEach(([s, e, name]) => list.push(mk(s, e, name)));
   const placed = [];
   return { list, placed, clips: coll(list, 'numItems'),
-           overwriteClip(item, at) { placed.push([item.name, at]); list.push({ start: T(at), end: T(at + 5) }); return true; } };
+           overwriteClip(item, at) { placed.push([item.name, at]); list.push(mk(at, at + 5, item.name)); return true; } };
 }
 function makePremiere(trackClips, opts) {
   opts = opts || {};
@@ -107,6 +113,24 @@ test('missing file / refused import: clear errors', () => {
   assert.match(r.error, /not found/);
   r = place(makePremiere([[[0, 60]], []], { refuse: true }), 0, 5);
   assert.match(r.error, /refused/);
+});
+
+test('placing again replaces our earlier layer for the same captions, nothing else', () => {
+  const old = 'amhstyle_interview__karaoke_111.mov';
+  const pp = makePremiere([[[0, 60]], [[0, 30, old], [40, 50, 'amhstyle_interview__pop_9.mov']], [[5, 8, 'title.mov']]]);
+  const r = pp.call('amh_placeOverlay(' + JSON.stringify(JSON.stringify({ path: tmp, startSeconds: 0, duration: 30,
+    replacePrefix: 'amhstyle_interview__' })) + ')');
+  assert.ok(r.ok && r.placed, JSON.stringify(r));
+  assert.strictEqual(r.replaced, 1, 'the old layer in this range is removed');
+  assert.ok(!pp.vt[1].list.some((c) => c.projectItem.name === old));
+  assert.ok(pp.vt[1].list.some((c) => /pop_9/.test(c.projectItem.name)), 'a styled layer outside the range stays');
+  assert.ok(pp.vt[2].list.some((c) => c.projectItem.name === 'title.mov'), 'the title stays');
+  assert.strictEqual(r.track, 4, 'still above the title on V3');
+  // a prefix that is not ours removes nothing
+  const qq = makePremiere([[[0, 60]], [[0, 30, 'video2.mp4']]]);
+  const r2 = qq.call('amh_placeOverlay(' + JSON.stringify(JSON.stringify({ path: tmp, startSeconds: 0, duration: 30, replacePrefix: 'video' })) + ')');
+  assert.strictEqual(r2.replaced, 0);
+  assert.strictEqual(qq.vt[1].list.length, 1);
 });
 
 console.log('\nALL PASS  (' + passed + ' tests)');

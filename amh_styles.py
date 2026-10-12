@@ -115,22 +115,88 @@ def _header(width, height, style_line):
             "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n") % (width, height, style_line)
 
 
-def build(words, style, width, height, font=FONT):
+SIZES = {"s": 0.8, "m": 1.0, "l": 1.2, "xl": 1.45}
+POSITIONS = ("bottom", "middle", "top", "safe")
+NO_BOX = ("highlight", "neon", "retro", "clean")
+
+
+def _ass_color(hexrgb, default):
+    """'#RRGGBB' -> ASS '&H00BBGGRR' (default when missing or not a colour)."""
+    m = re.match(r"^#?([0-9a-fA-F]{6})$", str(hexrgb or ""))
+    if not m:
+        return default
+    v = m.group(1).upper()
+    return "&H00%s%s%s" % (v[4:6], v[2:4], v[0:2])
+
+
+def options(opts):
+    """Clean customize options: colour (the highlight), text, size s/m/l/xl,
+    pos bottom/middle/top/safe, words 1-5 (0 = the style's own), box."""
+    o = opts or {}
+    words = o.get("words")
+    try:
+        words = int(words)
+    except (TypeError, ValueError):
+        words = 0
+    return {
+        "color": _ass_color(o.get("color"), None),
+        "text": _ass_color(o.get("text"), None),
+        "size": o.get("size") if o.get("size") in SIZES else "m",
+        "pos": o.get("pos") if o.get("pos") in POSITIONS else "bottom",
+        "words": words if 1 <= words <= 5 else 0,
+        "box": bool(o.get("box")),
+    }
+
+
+def _apply_layout(script, style, width, height, o):
+    """Position and box on the finished script (style lines + \\pos tags)."""
+    h = float(height)
+    portrait = height > width
+    pos = o["pos"]
+    out = []
+    for line in script.split("\n"):
+        if line.startswith("Style: "):
+            f = line[7:].split(",")
+            # f: 0 Name,1 Font,2 Size,3 Prim,4 Sec,5 Outline,6 Back,7 Bold,8 It,9 Und,10 Strike,
+            #    11 ScX,12 ScY,13 Spacing,14 Angle,15 BorderStyle,16 Outline,17 Shadow,18 Align,
+            #    19 ML,20 MR,21 MV,22 Enc
+            if pos == "middle":
+                f[18], f[21] = "5", "0"
+            elif pos == "top":
+                f[18], f[21] = "8", str(round(h * 0.08))
+            elif pos == "safe":
+                f[18], f[21] = "2", str(round(h * (0.30 if portrait else 0.16)))
+            if o["box"] and style not in NO_BOX:
+                size = float(f[2])
+                f[15], f[5], f[16], f[17] = "3", "&H40000000", "%.1f" % (size * 0.28), "0"
+            line = "Style: " + ",".join(f)
+        elif line.startswith("Dialogue") and "\\pos(" in line and pos != "bottom":
+            y = {"middle": 0.50, "top": 0.18, "safe": 0.62 if portrait else 0.70}[pos]
+            line = re.sub(r"\\pos\((\d+),\d+\)", lambda m: "\\pos(%s,%d)" % (m.group(1), round(h * y)), line, count=1)
+        out.append(line)
+    return "\n".join(out)
+
+
+def build(words, style, width, height, font=FONT, opts=None):
     """The ASS script for `words` [(text, start, end)] in `style`, for a
-    frame of width x height (sizes scale with the frame)."""
+    frame of width x height (sizes scale with the frame), customized by
+    `opts` (see options())."""
     if style not in STYLES:
         raise ValueError("unknown style: %s" % style)
+    o = options(opts)
+    K = SIZES[o["size"]]
+    NW = o["words"]
     words = [(_clean(w[0]), float(w[1]), float(w[2])) for w in words if _clean(w[0])]
     h = float(height)
     portrait = height > width
     lines = []
     if style in ("karaoke", "fill"):
-        size = round(h * (0.050 if portrait else 0.060))
+        size = round(K * h * (0.050 if portrait else 0.060))
         mv = round(h * (0.24 if portrait else 0.10))
         st = "Style: S,%s,%d,%s,%s,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,%.1f,%.1f,2,%d,%d,%d,1" % (
             font, size, YELLOW if style == "fill" else WHITE, WHITE, size * 0.09, size * 0.04,
             round(width * 0.06), round(width * 0.06), mv)
-        groups = _phrases(words, 3)
+        groups = _phrases(words, NW or 3)
         for g, (s, e) in zip(groups, _spans(groups)):
             intro = "{\\fad(120,90)}"
             if style == "fill":
@@ -160,12 +226,12 @@ def build(words, style, width, height, font=FONT):
     elif style == "highlight":
         # The spoken word: black letters on a yellow box. The box is the word's
         # own thick outline, so the line never moves when it changes.
-        size = round(h * (0.050 if portrait else 0.060))
+        size = round(K * h * (0.050 if portrait else 0.060))
         mv = round(h * (0.24 if portrait else 0.10))
         bord = size * 0.09
         st = "Style: S,%s,%d,%s,%s,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,%.1f,%.1f,2,%d,%d,%d,1" % (
             font, size, WHITE, WHITE, bord, size * 0.04, round(width * 0.06), round(width * 0.06), mv)
-        groups = _phrases(words, 3)
+        groups = _phrases(words, NW or 3)
         for g, (s0, e) in zip(groups, _spans(groups)):
             for i, w in enumerate(g):
                 ws = s0 if i == 0 else w[1]
@@ -179,11 +245,11 @@ def build(words, style, width, height, font=FONT):
     elif style == "reveal":
         # The whole phrase is laid out from the start (so it never moves);
         # each word fades in when it is spoken.
-        size = round(h * (0.050 if portrait else 0.060))
+        size = round(K * h * (0.050 if portrait else 0.060))
         mv = round(h * (0.24 if portrait else 0.10))
         st = "Style: S,%s,%d,%s,%s,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,%.1f,%.1f,2,%d,%d,%d,1" % (
             font, size, WHITE, WHITE, size * 0.09, size * 0.04, round(width * 0.06), round(width * 0.06), mv)
-        groups = _phrases(words, 3)
+        groups = _phrases(words, NW or 3)
         for g, (s0, e) in zip(groups, _spans(groups)):
             parts = []
             for w in g:
@@ -191,17 +257,17 @@ def build(words, style, width, height, font=FONT):
                 parts.append("{\\alpha&HFF&\\t(%d,%d,\\alpha&H00&)}%s" % (t, t + 140, w[0]))
             lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,{\\fad(0,90)}%s" % (_ts(s0), _ts(e), " ".join(parts)))
     elif style == "word":
-        size = round(h * (0.085 if portrait else 0.095))
+        size = round(K * h * (0.085 if portrait else 0.095))
         st = "Style: S,%s,%d,%s,%s,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,%.1f,%.1f,5,%d,%d,0,1" % (
             font, size, WHITE, WHITE, size * 0.10, size * 0.05, round(width * 0.05), round(width * 0.05))
-        groups = _phrases(words, 1)
+        groups = _phrases(words, NW or 1)
         for k, (g, (s0, e)) in enumerate(zip(groups, _spans(groups))):
             col = YELLOW if k % 3 == 2 else WHITE
             anim = ("{\\1c%s&\\pos(%d,%d)\\fscx86\\fscy86\\t(0,160,0.6,\\fscx106\\fscy106)"
                     "\\t(160,260,1.3,\\fscx100\\fscy100)}") % (col, width // 2, round(h * (0.62 if portrait else 0.75)))
             lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (_ts(s0), _ts(e), anim, g[0][0]))
     elif style == "neon":
-        size = round(h * (0.054 if portrait else 0.064))
+        size = round(K * h * (0.054 if portrait else 0.064))
         mv = round(h * (0.24 if portrait else 0.10))
         m = (round(width * 0.06), round(width * 0.06), mv)
         st = "\n".join([
@@ -210,18 +276,18 @@ def build(words, style, width, height, font=FONT):
             "Style: S,%s,%d,&H00FFFFFF,&H00FFFFFF,&H00FFF8D0,&H00000000,-1,0,0,0,100,100,0,0,1,%.1f,0,2,%d,%d,%d,1" % ((font, size, size * 0.015) + m),
         ])
         flick = "\\alpha&HFF&\\t(0,40,\\alpha&H20&)\\t(40,80,\\alpha&HA0&)\\t(80,150,\\alpha&H00&)"
-        groups = _phrases(words, 3)
+        groups = _phrases(words, NW or 3)
         for g, (s0, e) in zip(groups, _spans(groups)):
             txt = " ".join(w[0] for w in g)
             lines.append("Dialogue: 0,%s,%s,H,,0,0,0,,{%s\\blur16\\fad(0,140)}%s" % (_ts(s0), _ts(e), flick.replace("H20", "H70").replace("H00&)", "H60&)"), txt))
             lines.append("Dialogue: 1,%s,%s,G,,0,0,0,,{%s\\blur5\\fad(0,140)}%s" % (_ts(s0), _ts(e), flick, txt))
             lines.append("Dialogue: 2,%s,%s,S,,0,0,0,,{%s\\blur0.6\\fad(0,140)}%s" % (_ts(s0), _ts(e), flick, txt))
     elif style == "habesha":
-        size = round(h * (0.060 if portrait else 0.070))
+        size = round(K * h * (0.060 if portrait else 0.070))
         mv = round(h * (0.26 if portrait else 0.11))
         st = "Style: S,%s,%d,%s,%s,&H00141414,&H80000000,-1,0,0,0,100,100,0,0,1,%.1f,%.1f,2,%d,%d,%d,1" % (
             font, size, WHITE, WHITE, size * 0.11, size * 0.05, round(width * 0.05), round(width * 0.05), mv)
-        groups = _phrases(words, 2)
+        groups = _phrases(words, NW or 2)
         cols = (GREEN, YELLOW, RED)
         n = 0
         for g, (s0, e) in zip(groups, _spans(groups)):
@@ -232,11 +298,11 @@ def build(words, style, width, height, font=FONT):
             anim = "{\\fad(90,70)\\fscx88\\fscy88\\t(0,180,0.6,\\fscx102\\fscy102)\\t(180,260,\\fscx100\\fscy100)}"
             lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (_ts(s0), _ts(e), anim, " ".join(parts)))
     elif style == "bold":
-        size = round(h * (0.058 if portrait else 0.068))
+        size = round(K * h * (0.058 if portrait else 0.068))
         mv = round(h * (0.25 if portrait else 0.11))
         st = "Style: S,%s,%d,%s,%s,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,%.1f,%.1f,2,%d,%d,%d,1" % (
             font, size, WHITE, WHITE, size * 0.15, size * 0.09, round(width * 0.05), round(width * 0.05), mv)
-        groups = _phrases(words, 3)
+        groups = _phrases(words, NW or 3)
         for g, (s0, e) in zip(groups, _spans(groups)):
             for i, w in enumerate(g):
                 ws = s0 if i == 0 else w[1]
@@ -247,11 +313,11 @@ def build(words, style, width, height, font=FONT):
                 intro = "{\\fad(100,0)\\fscx90\\fscy90\\t(0,170,0.6,\\fscx100\\fscy100)}" if i == 0 else ""
                 lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (_ts(ws), _ts(we), intro, txt))
     elif style == "podcast":
-        size = round(h * (0.040 if portrait else 0.050))
+        size = round(K * h * (0.040 if portrait else 0.050))
         mv = round(h * (0.14 if portrait else 0.08))
         st = "Style: S,%s,%d,%s,%s,&H00000000,&H90000000,-1,0,0,0,100,100,0,0,1,%.1f,%.1f,2,%d,%d,%d,1" % (
             font, size, "&H00E6E6E6", WHITE, size * 0.08, size * 0.05, round(width * 0.08), round(width * 0.08), mv)
-        groups = _phrases(words, 7)
+        groups = _phrases(words, NW or 7)
         for g, (s0, e) in zip(groups, _spans(groups)):
             half = (len(g) + 1) // 2
             for i, w in enumerate(g):
@@ -263,11 +329,11 @@ def build(words, style, width, height, font=FONT):
                 txt = " ".join(cells[:half]) + ("\\N" + " ".join(cells[half:]) if len(g) > half else "")
                 lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (_ts(ws), _ts(we), "{\\fad(150,0)}" if i == 0 else "", txt))
     elif style == "typewriter":
-        size = round(h * (0.046 if portrait else 0.056))
+        size = round(K * h * (0.046 if portrait else 0.056))
         mv = round(h * (0.24 if portrait else 0.10))
         st = "Style: S,%s,%d,%s,%s,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,%.1f,%.1f,2,%d,%d,%d,1" % (
             font, size, WHITE, WHITE, size * 0.08, size * 0.04, round(width * 0.06), round(width * 0.06), mv)
-        groups = _phrases(words, 4)
+        groups = _phrases(words, NW or 4)
         for g, (s0, e) in zip(groups, _spans(groups)):
             parts = []
             for w in g:
@@ -277,11 +343,11 @@ def build(words, style, width, height, font=FONT):
                                      for k, ch in enumerate(w[0])))
             lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,{\\fad(0,100)}%s" % (_ts(s0), _ts(e), " ".join(parts)))
     elif style == "impact":
-        size = round(h * (0.070 if portrait else 0.082))
+        size = round(K * h * (0.070 if portrait else 0.082))
         mv = round(h * (0.27 if portrait else 0.12))
         st = "Style: S,%s,%d,%s,%s,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,%.1f,%.1f,2,%d,%d,%d,1" % (
             font, size, WHITE, WHITE, size * 0.12, size * 0.07, round(width * 0.05), round(width * 0.05), mv)
-        groups = _phrases(words, 2)
+        groups = _phrases(words, NW or 2)
         for k, (g, (s0, e)) in enumerate(zip(groups, _spans(groups))):
             tilt = -6 if k % 2 == 0 else 6
             col = YELLOW if k % 2 else WHITE
@@ -289,42 +355,49 @@ def build(words, style, width, height, font=FONT):
                     "\\t(140,230,\\fscx100\\fscy100)}") % (col, tilt)
             lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (_ts(s0), _ts(e), anim, " ".join(w[0] for w in g)))
     elif style == "retro":
-        size = round(h * (0.060 if portrait else 0.070))
+        size = round(K * h * (0.060 if portrait else 0.070))
         mv = round(h * (0.25 if portrait else 0.11))
         st = "Style: S,%s,%d,&H00F2F7FF,&H00F2F7FF,&H00202020,&H00335CD6,-1,0,0,0,100,100,1,0,1,%.1f,%.1f,2,%d,%d,%d,1" % (
             font, size, size * 0.06, size * 0.13, round(width * 0.05), round(width * 0.05), mv)
-        groups = _phrases(words, 2)
+        groups = _phrases(words, NW or 2)
         for g, (s0, e) in zip(groups, _spans(groups)):
             anim = "{\\fad(110,90)\\yshad0\\xshad0\\t(0,200,0.6,\\xshad%.1f\\yshad%.1f)}" % (size * 0.10, size * 0.10)
             lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (_ts(s0), _ts(e), anim, " ".join(w[0] for w in g)))
     elif style == "cinema":
-        size = round(h * (0.034 if portrait else 0.042))
+        size = round(K * h * (0.034 if portrait else 0.042))
         mv = round(h * (0.12 if portrait else 0.07))
         st = "Style: S,%s,%d,&H00F0F0F0,&H00F0F0F0,&H00000000,&H96000000,0,0,0,0,100,100,2.5,0,1,%.1f,%.1f,2,%d,%d,%d,1" % (
             font, size, size * 0.04, size * 0.08, round(width * 0.10), round(width * 0.10), mv)
-        groups = _phrases(words, 6)
+        groups = _phrases(words, NW or 6)
         for g, (s0, e) in zip(groups, _spans(groups)):
             lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,{\\fad(260,220)\\blur0.8}%s" % (_ts(s0), _ts(e), " ".join(w[0] for w in g)))
     elif style == "pop":
-        size = round(h * (0.072 if portrait else 0.085))
+        size = round(K * h * (0.072 if portrait else 0.085))
         mv = round(h * (0.28 if portrait else 0.12))
         st = "Style: S,%s,%d,%s,%s,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,%.1f,%.1f,2,%d,%d,%d,1" % (
             font, size, WHITE, WHITE, size * 0.10, size * 0.05, round(width * 0.05), round(width * 0.05), mv)
-        groups = _phrases(words, 2)
+        groups = _phrases(words, NW or 2)
         for k, (g, (s, e)) in enumerate(zip(groups, _spans(groups))):
             col = WHITE if k % 2 == 0 else YELLOW
             anim = ("{\\1c%s&\\fad(90,70)\\fscx78\\fscy78\\t(0,200,0.6,\\fscx104\\fscy104)"
                     "\\t(200,300,1.4,\\fscx100\\fscy100)}") % col
             lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (_ts(s), _ts(e), anim, " ".join(w[0] for w in g)))
     else:  # clean
-        size = round(h * (0.042 if portrait else 0.050))
+        size = round(K * h * (0.042 if portrait else 0.050))
         mv = round(h * (0.16 if portrait else 0.07))
         st = "Style: S,%s,%d,%s,%s,&H50000000,&H50000000,0,0,0,0,100,100,0,0,3,%.1f,0,2,%d,%d,%d,1" % (
             font, size, WHITE, WHITE, size * 0.30, round(width * 0.07), round(width * 0.07), mv)
-        groups = _phrases(words, 5)
+        groups = _phrases(words, NW or 5)
         for g, (s, e) in zip(groups, _spans(groups)):
             lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,{\\fad(140,120)}%s" % (_ts(s), _ts(e), " ".join(w[0] for w in g)))
-    return _header(width, height, st) + "\n".join(_smooth_fades(lines)) + "\n"
+    script = _header(width, height, st) + "\n".join(_smooth_fades(lines)) + "\n"
+    # colours: the highlight (yellow / green / cyan in the styles) and the text
+    if o["color"] and style != "habesha":
+        for c in (YELLOW, LIME, CYAN):
+            script = script.replace(c, o["color"])
+    if o["text"]:
+        script = script.replace(WHITE, o["text"])
+    return _apply_layout(script, style, width, height, o)
 
 
 _FAD = re.compile(r"\\fad\((\d+),(\d+)\)")
@@ -395,9 +468,17 @@ def render(job, progress=None):
         dur = float(job.get("duration") or (words[-1][2] if words else 0))
     else:
         t0, dur, words = plan(job["cues"])
+    if mode == "preview":
+        # A few seconds of the first captions, small, on a neutral background:
+        # an animated picture the panel can show while the editor customizes.
+        words = [x for x in words if x[1] < PREVIEW_SECS]
+        dur = min(PREVIEW_SECS + 0.4, (words[-1][2] + 0.5) if words else 0)
+        scale = PREVIEW_PX / float(max(w, h))
+        w, h = max(2, int(w * scale) // 2 * 2), max(2, int(h * scale) // 2 * 2)
+        fps = 15
     if not words:
         raise ValueError("no captions to style")
-    script = build(words, style, w, h)
+    script = build(words, style, w, h, opts=job.get("opts"))
     if job.get("tag"):
         script += _tag_line(w, h, 0, dur) + "\n"
     tmp = tempfile.mkdtemp(prefix="amh_style_")
@@ -413,6 +494,14 @@ def render(job, progress=None):
             cmd = [job["ffmpeg"], "-y", "-v", "error", "-i", os.path.abspath(job["video"]),
                    "-vf", "subtitles=c.ass:fontsdir=fonts", "-c:v", "libx264", "-preset", "veryfast",
                    "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart"]
+        elif mode == "preview":
+            bg = "gradients=s=%dx%d:c0=0x2a3646:c1=0x0b1110:x0=0:y0=0:x1=%d:y1=%d:speed=0:r=%d:d=%.3f" % (w, h, w, h, fps, dur)
+            webp = _has_encoder(job["ffmpeg"], "libwebp_anim")
+            cmd = [job["ffmpeg"], "-y", "-v", "error", "-f", "lavfi", "-i", bg,
+                   "-vf", "subtitles=c.ass:fontsdir=fonts" + ("" if webp else ",split[a][b];[a]palettegen=max_colors=96[p];[b][p]paletteuse")]
+            cmd += (["-c:v", "libwebp_anim", "-loop", "0", "-quality", "72", "-compression_level", "3", "-f", "webp"] if webp
+                    else ["-loop", "0", "-f", "gif"])
+            out = os.path.splitext(out)[0] + (".webp" if webp else ".gif")
         else:
             cmd = [job["ffmpeg"], "-y", "-v", "error", "-f", "lavfi",
                    "-i", "color=c=black@0.0:s=%dx%d:r=%s:d=%.3f,format=rgba" % (w, h, ("%.5f" % fps).rstrip("0").rstrip("."), dur),
@@ -432,6 +521,20 @@ def render(job, progress=None):
         return {"t0": round(t0, 3), "duration": round(dur, 3), "out": out}
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+PREVIEW_SECS = 4.5      # the preview shows the first seconds of captions
+PREVIEW_PX = 360        # its long side, in pixels
+
+
+def _has_encoder(ffmpeg, name):
+    import subprocess
+    try:
+        out = subprocess.run([ffmpeg, "-hide_banner", "-encoders"], capture_output=True, timeout=20,
+                             universal_newlines=True, encoding="utf-8", errors="replace").stdout
+        return (" %s " % name) in out
+    except Exception:
+        return False
 
 
 def probe(ffmpeg, video):
