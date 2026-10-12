@@ -231,7 +231,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.10.18');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.10.19');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1498,10 +1498,10 @@ await t('10c. review while it is still working: opens early, waits while typing,
     assert.strictEqual(p.evalVm('reviewOpen'), false);
     p.evalVm('finishLiveReview(null, false)');
 
-    // not for trial users (a free caption must not be charged for a run that
-    // may still fail)
-    p.evalVm('LICENSED = false; cancelRequested = false;');
-    assert.strictEqual(p.evalVm('startLivePoll("x")'), null, 'trial: the review opens at the end as before');
+    // free minutes too (1.10.19): they are charged when the engine starts,
+    // not when the review opens
+    p.evalVm('LICENSED = false; cancelRequested = false; LIVE_WANTED = { outSrt: "y", label: "y" };');
+    assert.strictEqual(p.evalVm('liveReviewAllowed()'), true, 'free minutes: the review opens early too');
     p.evalVm('LICENSED = true; LIVE_WANTED = null;');
     assert.strictEqual(p.evalVm('startLivePoll("x")'), null, 'only the runs that ask for it');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); p.close(); }
@@ -1533,13 +1533,13 @@ await t('10c2. Work Area / Whole edit while it works: long runs go live into a r
     await p.evalVm('transcribeBatch(' + items + ', ' + JSON.stringify(out) + ')');
     assert.strictEqual(sent[1].out_srt, req.out_srt, 'same edit -> same work file');
 
-    // short runs and trial users: as before
+    // short runs: as before; free minutes: live too (1.10.19)
     const short = JSON.stringify([{ wav: wav('c.wav', 100), offset: 0, name: 'c' }]);
     await p.evalVm('transcribeBatch(' + short + ', ' + JSON.stringify(out) + ')');
     assert.ok(!sent[2].live && sent[2].out_srt === out, 'under 5 minutes: straight to the result');
     p.evalVm('LICENSED = false;');
     await p.evalVm('transcribeBatch(' + items + ', ' + JSON.stringify(out) + ')');
-    assert.ok(!sent[3].live, 'free trial: at the end as before');
+    assert.ok(sent[3].live, 'free minutes: the engine writes as it goes too');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); p.close(); }
 });
 

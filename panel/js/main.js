@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.10.18';
+const APP_VERSION = '1.10.19';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3038,15 +3038,16 @@ async function openReview(outSrt, label, startSeconds, opts) {
 // the start while the rest is being written. Never while typing: new rows
 // wait until the editor leaves the text box. "Place on timeline" / "Save
 // SRT" stay locked until everything is done.
-// Only for licensed users (a trial credit is charged when the review opens,
-// which must never happen for a run that then fails).
+// Licensed users and free minutes alike (1.10.19): free minutes are charged
+// when the engine starts (engineAuth), never when the review opens, and a run
+// that fails or is stopped gives them back as before.
 let LIVE_WANTED = null;      // { outSrt, label } — set by the run that may go live
 let REVIEW_LIVE = null;      // { seen, pending } while a live review is open
 let LIVE_OPENING = null;     // the live review's openReview() while it runs
 const LIVE_POLL_MS = 2000;
 
 function liveReviewAllowed() {
-  return !!(LIVE_WANTED && LICENSED);
+  return !!LIVE_WANTED;
 }
 
 function startLivePoll(work) {
