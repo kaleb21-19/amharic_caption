@@ -5149,8 +5149,15 @@ const TRIAL_FLOOD_HOUR = 15;
 const TRIAL_REFUNDS = 2;
 function trialTerms(s) {
   const n = parseInt(s.trial_free_minutes, 10);
-  return { on: s.trial_enabled !== '0', minutes: Number.isFinite(n) ? Math.min(Math.max(n, 1), 600) : 20 };
+  const d = parseInt(s.trial_days, 10);
+  return { on: s.trial_enabled !== '0', minutes: Number.isFinite(n) ? Math.min(Math.max(n, 1), 600) : 20,
+           days: Number.isFinite(d) ? Math.min(Math.max(d, 1), 365) : 7 };
 }
+// Free minutes are valid for a limited time (1.10.20, default 7 days): a
+// reason to try now, not "someday". expires_at is UTC "YYYY-MM-DD HH:MM:SS".
+const sqlNow = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
+const trialExpired = (g) => !!(g && g.expires_at && g.expires_at <= sqlNow());
+const eatDay = (s) => new Date(Date.parse(String(s).replace(' ', 'T') + 'Z') + 3 * 3600 * 1000).toISOString().slice(0, 10);
 const fmtMin = (secs) => {
   const s = Math.max(0, Math.round(Number(secs) || 0));
   return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
@@ -5166,9 +5173,11 @@ async function trialMinutesState(mid) {
   if (lic && !lic.revoked) return { mode: 'minutes', status: 'licensed', minutes: terms.minutes };
   const g = await trialGrant(mid);
   if (!g) return { mode: 'minutes', status: terms.on ? 'none' : 'off', minutes: terms.minutes, seconds_total: 0, seconds_left: 0 };
+  const expired = g.status === 'active' && trialExpired(g);
   return {
-    mode: 'minutes', status: g.status, minutes: terms.minutes,
-    seconds_total: g.seconds_total, seconds_left: Math.max(0, g.seconds_total - g.seconds_used),
+    mode: 'minutes', status: expired ? 'expired' : g.status, minutes: terms.minutes,
+    seconds_total: g.seconds_total, seconds_left: expired ? 0 : Math.max(0, g.seconds_total - g.seconds_used),
+    expires: g.expires_at ? eatDay(g.expires_at) : undefined,
   };
 }
 function verAtLeast(v, min) {
@@ -5192,10 +5201,14 @@ const trialBuyKb = () => [
   [{ text: '💳 ይግዙ · Buy', callback_data: 'menu:pay' }],
   [{ text: '💬 ድጋፍ · Support', url: SUPPORT_URL }],
 ];
-function trialReadyText(minutes) {
+function trialReadyText(minutes, until) {
+  const valid = until
+    ? `📅 እስከ <b>${until}</b> ድረስ ይጠቀሙባቸው።\n<i>Use them by <b>${until}</b> (7 days).</i>\n\n`
+    : '';
   return `✅ <b>${minutes} ደቂቃ ነጻ ሙከራ ተዘጋጅቷል!</b>\n` +
     'ወደ ፕሮግራሙ ይመለሱ — በራሱ ይዘመናል — ከዚያ ካፕሽን ይፍጠሩ።\n' +
     `<i>${minutes} free minutes are ready! Go back to the program — it updates by itself — and make your captions.</i>\n\n` +
+    valid +
     '💡 በማንኛውም ቪዲዮ ይጠቀሙባቸው፤ ደቂቃዎቹ ሲያልቁ ቀሪው ፈቃድ ይፈልጋል።\n' +
     '<i>Use them on any videos; when they run out, the rest needs a license.</i>';
 }
@@ -5210,6 +5223,7 @@ function trialStatusText(g) {
     return '⛔ <b>ለዚህ ኮምፒውተር ነጻ ደቂቃዎች አልተሰጡም።</b>\n<i>Free minutes are not available for this computer.</i>';
   }
   if (left <= 0) return '🎬 <b>ነጻ ደቂቃዎችዎን ተጠቅመዋል።</b>\n<i>You have used your free minutes.</i>';
+  if (trialExpired(g)) return '⌛ <b>የነጻ ሙከራ ሳምንትዎ አብቅቷል።</b>\n<i>Your free week has ended.</i>';
   return `🎁 <b>ቀሪ ነጻ ደቂቃዎች፦ ${fmtMin(left)}</b>\n<i>Free minutes left: ${fmtMin(left)} — go back to the program and make your captions.</i>`;
 }
 
@@ -5265,8 +5279,10 @@ async function startTrialGrant(uid, chatId, nonce, who) {
     : (hour && hour.n >= TRIAL_FLOOD_HOUR ? `${hour.n} new trials in the last hour` : '');
   try {
     await DB.prepare(
-      'INSERT INTO trial_grants (machine_id, uid, name, hf, seconds_total, status) VALUES (?, ?, ?, ?, ?, ?)'
-    ).bind(mid, String(uid), String(who || '').slice(0, 64), req.hf || null, terms.minutes * 60, why ? 'pending' : 'active').run();
+      'INSERT INTO trial_grants (machine_id, uid, name, hf, seconds_total, status, expires_at) ' +
+      "VALUES (?, ?, ?, ?, ?, ?, CASE WHEN ? = 'active' THEN datetime('now', ?) ELSE NULL END)"
+    ).bind(mid, String(uid), String(who || '').slice(0, 64), req.hf || null, terms.minutes * 60, why ? 'pending' : 'active',
+      why ? 'pending' : 'active', '+' + terms.days + ' days').run();
   } catch (e) {
     // Two taps at once, or the same account/computer in a race: one row wins.
     await sendText(chatId, TRIAL_COMPUTER_USED, trialBuyKb());
@@ -5287,7 +5303,8 @@ async function startTrialGrant(uid, chatId, nonce, who) {
     }
     return;
   }
-  await sendText(chatId, trialReadyText(terms.minutes));
+  const made = await trialGrant(mid);
+  await sendText(chatId, trialReadyText(terms.minutes, made && made.expires_at ? eatDay(made.expires_at) : ''));
 }
 
 // The free minutes ran out: one friendly message with the Buy button.
@@ -5301,6 +5318,39 @@ async function nudgeTrialDone(mid) {
     `ውጤቱ ከወደዱት፦ 1 ወር ETB ${money(PLANS.m1.etb)} · 2 ወር ETB ${money(PLANS.m2.etb)} · ለዘለቄታው ETB ${money(PRICE_ETB)}።\n` +
     `<i>You have used your free minutes. If you liked the result: 1 month ETB ${money(PLANS.m1.etb)} · 2 months ETB ${money(PLANS.m2.etb)} · forever ETB ${money(PRICE_ETB)}.</i>`,
     trialBuyKb());
+}
+
+// Free week (1.10.20): 2 days before it ends, if minutes are left, one
+// reminder to use them; when it ends with minutes left, one message with the
+// plans. Each once (expiry_nudged 1 / 2), 6-hourly cron.
+async function remindTrialWeek() {
+  try {
+    const { results } = await DB.prepare(
+      "SELECT machine_id, uid, seconds_total, seconds_used, expires_at, expiry_nudged FROM trial_grants " +
+      "WHERE status = 'active' AND expires_at IS NOT NULL AND seconds_used < seconds_total AND expiry_nudged < 2 " +
+      "AND expires_at <= datetime('now', '+2 days') AND expires_at >= datetime('now', '-3 days') LIMIT 25").all();
+    for (const g of results || []) {
+      const ended = trialExpired(g);
+      if (!ended && g.expiry_nudged >= 1) continue;
+      const tag = ended ? 2 : 1;
+      const done = await DB.prepare('UPDATE trial_grants SET expiry_nudged = ? WHERE machine_id = ? AND expiry_nudged < ?')
+        .bind(tag, g.machine_id, tag).run();
+      if (!done || !done.meta || done.meta.changes < 1) continue;
+      const left = fmtMin(g.seconds_total - g.seconds_used);
+      if (ended) {
+        await sendText(g.uid,
+          '⌛ <b>የነጻ ሙከራ ሳምንትዎ አብቅቷል።</b>\n' +
+          `ካፕሽኖቹ ከወደዱት፦ 1 ወር ETB ${money(PLANS.m1.etb)} · 2 ወር ETB ${money(PLANS.m2.etb)} · ለዘለቄታው ETB ${money(PRICE_ETB)}።\n` +
+          `<i>Your free week has ended. If you liked the captions: 1 month ETB ${money(PLANS.m1.etb)} · 2 months ETB ${money(PLANS.m2.etb)} · forever ETB ${money(PRICE_ETB)}.</i>`,
+          trialBuyKb());
+      } else {
+        await sendText(g.uid,
+          `⏳ <b>${left} ነጻ ደቂቃዎች ቀርተውዎታል</b> — እስከ <b>${eatDay(g.expires_at)}</b> ይጠቀሙባቸው።\n` +
+          `<i>You still have <b>${left}</b> free minutes — use them by <b>${eatDay(g.expires_at)}</b>.</i>\n\n` +
+          '💡 ማንኛውንም ቪዲዮ ይክፈቱ፣ «ካፕሽን ፍጠር»ን ይጫኑ።\n<i>Open any video and press Generate.</i>');
+      }
+    }
+  } catch (e) { log('warn', 'trial_week_reminders_failed', { err: String((e && e.message) || e) }); }
 }
 
 // 3 days before a timed license ends, and on the day it ends: one message
@@ -5451,8 +5501,10 @@ async function adminTrialAction(chatId, messageId, cbId, fromUid, act, arg) {
   if (act === 'tgok' || act === 'tgno') {
     if (g.status !== 'pending') { await answerCb(cbId, 'Already decided: ' + g.status); return; }
     if (act === 'tgok') {
-      await upd("UPDATE trial_grants SET status = 'active', updated_at = datetime('now') WHERE machine_id = ?", mid);
-      await sendText(g.uid, trialReadyText(Math.round(g.seconds_total / 60)));
+      await upd("UPDATE trial_grants SET status = 'active', expires_at = datetime('now', ?), updated_at = datetime('now') WHERE machine_id = ?",
+        '+' + terms.days + ' days', mid);
+      const ok = await trialGrant(mid);
+      await sendText(g.uid, trialReadyText(Math.round(g.seconds_total / 60), ok && ok.expires_at ? eatDay(ok.expires_at) : ''));
     } else {
       await upd("UPDATE trial_grants SET status = 'refused', updated_at = datetime('now') WHERE machine_id = ?", mid);
       await sendText(g.uid,
@@ -5472,8 +5524,10 @@ async function adminTrialAction(chatId, messageId, cbId, fromUid, act, arg) {
     await upd("UPDATE trial_grants SET status = 'active', updated_at = datetime('now') WHERE machine_id = ?", mid);
   } else if (act === 'tgadd') {
     await upd(
-      "UPDATE trial_grants SET seconds_total = seconds_total + ?, nudged = 0, status = CASE WHEN status = 'active' THEN 'active' ELSE status END, updated_at = datetime('now') WHERE machine_id = ?",
-      terms.minutes * 60, mid);
+      "UPDATE trial_grants SET seconds_total = seconds_total + ?, nudged = 0, expiry_nudged = 0, " +
+      "expires_at = CASE WHEN expires_at IS NULL OR expires_at < datetime('now', ?) THEN datetime('now', ?) ELSE expires_at END, " +
+      "status = CASE WHEN status = 'active' THEN 'active' ELSE status END, updated_at = datetime('now') WHERE machine_id = ?",
+      terms.minutes * 60, '+' + terms.days + ' days', '+' + terms.days + ' days', mid);
     await sendText(g.uid,
       `🎁 <b>+${terms.minutes} ነጻ ደቂቃዎች ተጨምረዋል!</b>\n<i>+${terms.minutes} free minutes were added — go back to the program.</i>`);
   } else { await answerCb(cbId, ''); return; }
@@ -5514,6 +5568,7 @@ async function adminTrialCard(chatId, messageId, mid) {
     `💻 <code>${esc(mid)}</code>\n\n` +
     `Status: ${state}\n` +
     `⏱ Used <b>${fmtMin(g.seconds_used)}</b> of ${fmtMin(g.seconds_total)} · left ${fmtMin(left)}\n` +
+    (g.expires_at ? `📅 ${trialExpired(g) ? 'Week ended' : 'Valid until'} <b>${eatDay(g.expires_at)}</b>\n` : '') +
     `🎬 Free jobs: <b>${tot ? tot.n : 0}</b>` + (tot && tot.last ? ` · last ${eatTs(tot.last)}` : '') + '\n' +
     `📅 Started: ${eatTs(g.created_at)}` + (g.refunds ? ` · failed jobs given back: ${g.refunds}` : '') + '\n\n' +
     (jobs.length ? `<b>Jobs</b> (newest first, Ethiopian time · audio length):\n${jobs.join('\n')}` +
@@ -6786,14 +6841,15 @@ export default {
         };
         const g = await trialGrant(mid);
         const left = g ? Math.max(0, g.seconds_total - g.seconds_used) : 0;
-        if (!g || g.status !== 'active' || left <= 0) {
-          const reason = !g ? 'need_telegram' : g.status !== 'active' ? g.status : 'minutes_used';
+        if (!g || g.status !== 'active' || left <= 0 || trialExpired(g)) {
+          const reason = !g ? 'need_telegram' : g.status !== 'active' ? g.status : trialExpired(g) ? 'expired' : 'minutes_used';
           return finish(Object.assign(await trialMinutesState(mid), { charged: false, reason }));
         }
         const give = Math.min(asked, left);
         const credit = await DB.prepare(
           "UPDATE trial_grants SET seconds_used = seconds_used + ?, updated_at = datetime('now') " +
-          "WHERE machine_id = ? AND status = 'active' AND seconds_total - seconds_used >= ?").bind(give, mid, give).run();
+          "WHERE machine_id = ? AND status = 'active' AND seconds_total - seconds_used >= ? " +
+          "AND (expires_at IS NULL OR expires_at > datetime('now'))").bind(give, mid, give).run();
         if (!credit || !credit.meta || credit.meta.changes < 1) {
           return finish(Object.assign(await trialMinutesState(mid), { charged: false, reason: 'minutes_used' }));
         }
@@ -7248,6 +7304,7 @@ export default {
     await nudgeQuietBuyers();
     await trialDigest();
     await remindRenewals();
+    await remindTrialWeek();
     await pruneOld();
     await remindReferralPayouts();
     await sendMonthlyPartnerReports();

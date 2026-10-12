@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.10.19';
+const APP_VERSION = '1.10.20';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -1024,6 +1024,7 @@ function setTrialState(data) {
   TRIAL_MIN = {
     status: data.status, minutes: data.minutes || 20,
     seconds_left: data.seconds_left || 0, seconds_total: data.seconds_total || 0,
+    expires: /^\d{4}-\d{2}-\d{2}$/.test(String(data.expires || '')) ? data.expires : '',
   };
 }
 // Free captions are counted per computer too: the fingerprint goes along.
@@ -1152,6 +1153,9 @@ function assertCanRun(resume) {
     log('Get your ' + trialMinutes() + ' free minutes in Telegram first — the button under Generate.');
   } else if (st === 'pending') {
     log('Your free-minutes request is being checked — we will tell you in Telegram.');
+  } else if (st === 'expired') {
+    log('Your free week has ended.');
+    log('Buy a license (below) to keep making captions.');
   } else {
     log('Your free minutes are used up.');
     log('Buy a license (below) to keep making captions.');
@@ -1333,7 +1337,8 @@ function updateLicenseUI() {
       // Free minutes left: Generate works.
       if (banner) banner.style.display = 'none';
       if (licStatus) {
-        licStatus.textContent = L('Free trial: ' + fmtMinSec(rem) + ' minutes left');
+        licStatus.textContent = L('Free trial: ' + fmtMinSec(rem) + ' minutes left') +
+          (TRIAL_MIN.expires ? ' · ' + L('until ' + TRIAL_MIN.expires) : '');
         licStatus.style.color = 'var(--warn)';
         licStatus.style.display = '';
       }
@@ -4214,7 +4219,9 @@ function humanError(raw) {
   if (t.includes('trial used up')) {
     return TRIAL_MIN && TRIAL_MIN.status === 'none'
       ? 'Get your free minutes in Telegram first (the button above the license).'
-      : 'Your free minutes are used up. Buy a license to keep making captions.';
+      : TRIAL_MIN && TRIAL_MIN.status === 'expired'
+        ? 'Your free week has ended. Buy a license to keep making captions.'
+        : 'Your free minutes are used up. Buy a license to keep making captions.';
   }
   if (t.includes('free caption needs internet')) return 'Connect to the internet for the free trial (a license works offline).';
   if (t.includes('license required')) return 'This computer has no active license. Activate your license key (or connect to the internet for the free trial).';
