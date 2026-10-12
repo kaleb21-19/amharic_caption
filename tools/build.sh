@@ -133,6 +133,11 @@ if [[ -f "$MODEL_SRC/model.bin" ]]; then   # degraded fp16/fp32 builds have none
     --out "$RT/model_manifest.json"
 fi
 cp "$ROOT/amh_model.py" "$RT/amh_model.py"
+# Caption styles (1.11): the style drawer + the Amharic fonts it uses (OFL).
+cp "$ROOT/amh_styles.py" "$RT/amh_styles.py"
+mkdir -p "$RT/fonts"
+cp "$ROOT"/tools/fonts/*.ttf "$ROOT/tools/fonts/OFL.txt" "$RT/fonts/"
+echo "  [ok] amh_styles.py + fonts (Noto Sans Ethiopic, OFL)"
 
 # ffmpeg
 FF="${STAGE}/${TARGET}/${FFSUFFIX}"

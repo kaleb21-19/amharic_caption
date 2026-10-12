@@ -45,6 +45,9 @@ BUNDLED = [
      "https://github.com/snakers4/silero-vad"),
     ("amh_lm.json.gz", "Amharic word-frequency language model, built from public Amharic text",
      "https://github.com/geezorg/data"),
+    ("fonts/NotoSansEthiopic-Bold.ttf", "Noto Sans Ethiopic (caption styles) — SIL Open Font License 1.1, "
+     "Copyright 2022 The Noto Project Authors; the full license is in runtime/fonts/OFL.txt",
+     "https://github.com/notofonts/ethiopic"),
 ]
 
 # Shipped inside the panel itself (not the runtime).

@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.10.20';
+const APP_VERSION = '1.11.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -2054,6 +2054,7 @@ function applySettings() {
   // Old settings stored a raw number; 25 or fewer meant short captions.
   FORMAT = s.format === 'v' || s.format === 'h' ? s.format : ((s.chars && s.chars <= 25) ? 'v' : 'h');
   MAX_CHARS = FORMAT_CHARS[FORMAT];
+  STYLE = STYLE_LIST.indexOf(s.style) >= 0 ? s.style : 'plain';
   document.querySelectorAll('#srcSeg button').forEach((b) => {
     b.classList.toggle('active', b.dataset.src === SOURCE);
   });
@@ -3643,6 +3644,142 @@ function writeReviewSrt(outDir) {
   return dest;
 }
 
+// ── Caption styles (1.11) ───────────────────────────────────────────────────
+// Plain = the host's own captions (Premiere caption track / AE text layer),
+// editable there. A style is drawn by our ffmpeg into a transparent video
+// layer (amh_styles.py, Noto Sans Ethiopic) that goes on an empty video track
+// above the footage. If anything fails, the plain captions are placed
+// instead, so the editor never ends up with nothing. The strip only shows
+// when this computer's ffmpeg can draw them (libass).
+const STYLE_LIST = ['plain', 'karaoke', 'fill', 'highlight', 'bold', 'podcast', 'reveal', 'typewriter',
+  'pop', 'word', 'impact', 'neon', 'retro', 'habesha', 'cinema', 'clean'];
+const STYLE_NAMES = {
+  plain: 'Plain', karaoke: 'Karaoke', fill: 'Fill', highlight: 'Highlight', bold: 'Bold', podcast: 'Podcast',
+  reveal: 'Reveal', typewriter: 'Typewriter', pop: 'Pop', word: 'Word', impact: 'Impact', neon: 'Neon',
+  retro: 'Retro', habesha: 'Habesha', cinema: 'Cinema', clean: 'Clean',
+};
+let STYLE = 'plain';
+let STYLE_OK = false;
+function styleFilesHere() {
+  try {
+    return !!(RUNTIME && FFMPEG && fs.existsSync(runtimePath('amh_styles.py')) && fs.existsSync(runtimePath('fonts')));
+  } catch (e) { return false; }
+}
+function checkStyles() {
+  if (!styleFilesHere()) { STYLE_OK = false; renderStyleStrip(); return Promise.resolve(false); }
+  return new Promise((resolve) => {
+    try {
+      execFile(FFMPEG, ['-hide_banner', '-filters'], { timeout: 20000, windowsHide: true }, (err, stdout) => {
+        STYLE_OK = !err && / subtitles /.test(String(stdout || ''));
+        renderStyleStrip();
+        resolve(STYLE_OK);
+      });
+    } catch (e) { STYLE_OK = false; renderStyleStrip(); resolve(false); }
+  });
+}
+function styleNote() {
+  if (STYLE === 'plain') {
+    return IS_APP_MODE() ? 'Plain: the .srt file only — style it in your editor.'
+      : 'Plain: ' + HOST_NAME + '\'s own captions — you can edit and restyle them there.';
+  }
+  const what = IS_APP_MODE() ? 'Saves the video with these captions drawn in, next to your video.'
+    : 'Drawn as a video layer on an empty track above your video.';
+  return LICENSED ? what : what + ' Free version: a small "Amharic Captions Pro" tag is added — a license removes it.';
+}
+function IS_APP_MODE() { return typeof window !== 'undefined' && !!window.__amhApp; }
+function renderStyleStrip() {
+  const strip = $('styleStrip');
+  const chips = $('styleChips');
+  if (!strip || !chips) return;
+  strip.style.display = STYLE_OK ? '' : 'none';
+  if (!STYLE_OK) return;
+  if (!chips.children.length) {
+    STYLE_LIST.forEach((id) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'style-chip';
+      b.dataset.style = id;
+      b.title = STYLE_NAMES[id];
+      const img = document.createElement('img');
+      img.src = 'img/styles/' + id + '.jpg';
+      img.alt = '';
+      const name = document.createElement('span');
+      name.textContent = STYLE_NAMES[id];
+      b.appendChild(img);
+      b.appendChild(name);
+      b.addEventListener('click', () => {
+        STYLE = id;
+        saveSettings({ style: id });
+        renderStyleStrip();
+      });
+      chips.appendChild(b);
+    });
+  }
+  for (const b of Array.from(chips.children)) {
+    const on = b.dataset.style === STYLE;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+  const note = $('styleNote');
+  if (note) note.textContent = L(styleNote());
+}
+function styleCues(cues) {
+  return (cues || []).filter((c) => (c.text || '').trim()).map((c) => [String(c.text).replace(/\s+/g, ' ').trim(), c.start, c.end]);
+}
+// Runs runtime/amh_styles.py render: "[style] 0.42" progress lines, then one
+// JSON line {ok, out, t0, duration}.
+function renderStyled(job, onProgress) {
+  return new Promise((resolve, reject) => {
+    const jobPath = path.join(os.tmpdir(), 'amh_style_job_' + Date.now() + '_' + Math.floor(Math.random() * 1e5) + '.json');
+    const drop = () => { try { fs.unlinkSync(jobPath); } catch (e) {} };
+    let child;
+    try {
+      fs.writeFileSync(jobPath, JSON.stringify(Object.assign({ ffmpeg: FFMPEG, fonts: runtimePath('fonts') }, job)),
+        { encoding: 'utf8', mode: 0o600 });
+      child = spawn(PYTHON, ['-E', '-s', runtimePath('amh_styles.py'), 'render', jobPath], { env: AMH_ENV, windowsHide: true });
+    } catch (e) { drop(); reject(e); return; }
+    activeChild = child;
+    let out = '';
+    let result = null;
+    child.stdout.on('data', (buf) => {
+      out += buf.toString('utf8');
+      let nl;
+      while ((nl = out.indexOf('\n')) >= 0) {
+        const line = out.slice(0, nl).trim();
+        out = out.slice(nl + 1);
+        const m = /^\[style\] ([\d.]+)$/.exec(line);
+        if (m) { if (onProgress) onProgress(Number(m[1])); continue; }
+        if (line.charAt(0) === '{') { try { result = JSON.parse(line); } catch (e) {} }
+      }
+    });
+    child.stderr.on('data', () => {});
+    child.on('close', () => {
+      if (activeChild === child) activeChild = null;
+      drop();
+      if (result && result.ok) resolve(result);
+      else reject(new Error((result && result.error) || 'the styled captions could not be drawn'));
+    });
+    child.on('error', (e) => { if (activeChild === child) activeChild = null; drop(); reject(e); });
+  });
+}
+// Premiere / After Effects: render the transparent layer at the sequence's
+// size and rate, then put it above the footage.
+async function placeStyled(cues, label, startSeconds) {
+  const fr = await evalScript('amharic_getFrame()');
+  if (!fr || !fr.ok) throw new Error((fr && fr.error) || 'could not read the sequence frame size');
+  const btn = $('reviewPlace');
+  if (btn && btn.dataset.styleLabel === undefined) btn.dataset.styleLabel = btn.textContent;
+  const show = (x) => { if (btn) btn.textContent = '⏳ ' + L('Styling captions…') + ' ' + Math.round(Math.max(0, Math.min(1, x)) * 100) + '%'; };
+  show(0);
+  const out = path.join(ensureCaptionsDir(), safeFileName(label || 'captions') + '_' + STYLE + '_' + Date.now() + '.mov');
+  const r = await renderStyled({ cues: styleCues(cues), style: STYLE, width: fr.width, height: fr.height, fps: fr.fps,
+    out, mode: 'overlay', tag: !LICENSED }, show);
+  const args = escJson({ path: r.out, startSeconds: (startSeconds || 0) + (r.t0 || 0), duration: r.duration || 0 });
+  const pl = await evalScript('amh_placeOverlay(' + escJson(args) + ')', 60000);
+  if (!pl || !pl.ok || pl.placed !== true) throw new Error((pl && pl.error) || HOST_NAME + ' did not confirm the styled captions');
+  return { file: r.out, track: pl.track, addedTrack: pl.addedTrack };
+}
+
 async function placeReview() {
   if (!reviewOpen || !REVIEW || reviewPlacing || REVIEW_LIVE) return;
   if (!LICENSED && !reviewTrialCharged) {
@@ -3666,6 +3803,20 @@ async function placeReview() {
     removeTempCaptionArtifact(originalReviewSrt);
     REVIEW.outSrt = dest;
     lastSrtPath = dest;
+    if (STYLE !== 'plain' && STYLE_OK) {
+      log('Placing your captions in the "' + STYLE_NAMES[STYLE] + '" style (' + reviewCues.length + ')…');
+      try {
+        const st = await placeStyled(reviewCues, REVIEW.label || 'captions', REVIEW.startSeconds);
+        log('✓ Styled captions on track V' + st.track + (st.addedTrack ? ' (a new track)' : '') + ': ' + st.file);
+        if (!LICENSED) log('Free version: a small "Amharic Captions Pro" tag is in the corner — a license removes it.');
+        setSuccess('✓ Styled captions on timeline');
+        track('placed');
+        closeReview(true);
+        return;
+      } catch (e) {
+        log('The style could not be used (' + (e && e.message ? e.message : String(e)) + ') — placing plain captions instead.');
+      }
+    }
     log('Placing your edited captions (' + reviewCues.length + ')…');
     const placed = await finishImport(dest, REVIEW.label || 'captions', REVIEW.startSeconds);
     if (!placed) return; // keep the review and edits open for recovery
@@ -3678,7 +3829,13 @@ async function placeReview() {
     log('ERROR: placement failed: ' + (e && e.message ? e.message : String(e)));
   } finally {
     reviewPlacing = false;
-    if (placeBtn) placeBtn.disabled = false;
+    if (placeBtn) {
+      placeBtn.disabled = false;
+      if (placeBtn.dataset.styleLabel !== undefined) {
+        placeBtn.textContent = placeBtn.dataset.styleLabel;
+        delete placeBtn.dataset.styleLabel;
+      }
+    }
     if (discardBtn) discardBtn.disabled = false;
   }
 }
@@ -4891,6 +5048,7 @@ function initModelDownload() {
 
 function setup() {
   applySettings();
+  checkStyles();
 
   // Words-per-caption and Video shape only matter in Grouped mode: karaoke is
   // one word per caption, which always fits either shape. Hidden otherwise,
@@ -4982,6 +5140,9 @@ function setup() {
     log('License: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/).');
     log('Model page: https://huggingface.co/snapwre/hohe-asr-amharic');
     log('Converted to CTranslate2 int8 for offline CPU inference; no other changes.');
+    log('');
+    log('Caption styles font: Noto Sans Ethiopic, SIL Open Font License 1.1');
+    log('(https://github.com/notofonts/ethiopic).');
     log('');
     log('Voice activity detection: Silero VAD (https://github.com/snakers4/silero-vad).');
     log('License: MIT.');

@@ -101,8 +101,9 @@
     return p;
   }
 
-  function saveSrt() {
-    if (!reviewOpen) return;
+  let saving = false;
+  async function saveSrt() {
+    if (!reviewOpen || saving) return;
     if (typeof REVIEW_LIVE !== 'undefined' && REVIEW_LIVE) return;   // still writing
     const cues = (reviewCues || []).filter((c) => (c.text || '').trim().length > 0);
     if (!cues.length) { log(tx('የሚቀመጥ ካፕሽን የለም።', 'Nothing to save yet.')); return; }
@@ -120,8 +121,30 @@
     lastSaved = out;
     if (typeof track === 'function') track('placed');
     log(tx('ተቀምጧል፦ ', 'Saved: ') + out);
+    // 1.11: with a caption style, also the video with the captions drawn in,
+    // next to the .srt. A failure keeps the .srt and says so.
+    let styled = null;
+    if (typeof STYLE !== 'undefined' && STYLE !== 'plain' && STYLE_OK && src) {
+      const btn = $('reviewPlace');
+      const label = btn ? btn.textContent : '';
+      saving = true;
+      if (btn) btn.disabled = true;
+      try {
+        const vout = uniquePath(APP.path.dirname(out), base + ' (' + STYLE_NAMES[STYLE] + ')', '.mp4');
+        await renderStyled({ cues: styleCues(cues), style: STYLE, mode: 'burn', video: src, out: vout, tag: !LICENSED },
+          (x) => { if (btn) btn.textContent = '⏳ ' + tx('ቪዲዮውን በመስራት ላይ… ', 'Making the video… ') + Math.round(x * 100) + '%'; });
+        styled = vout;
+        log(tx('ካፕሽኑ የተጻፈበት ቪዲዮ፦ ', 'Video with the captions: ') + vout);
+      } catch (e) {
+        log(tx('ስታይል ያለው ቪዲዮ አልተሰራም (', 'The styled video could not be made (') + (e && e.message ? e.message : String(e)) +
+          tx(') — የ .srt ፋይሉ ተቀምጧል።', ') — the .srt file is saved.'));
+      } finally {
+        saving = false;
+        if (btn) { btn.disabled = false; btn.textContent = label; }
+      }
+    }
     closeReview(true);
-    showDone(out, cues.length);
+    showDone(out, cues.length, styled);
     // With an editor on this computer the card's "Open in …" button is the
     // next step; without one, show the file in its folder straight away.
     const here = editorsHere();
@@ -184,7 +207,7 @@
     note.className = 'app-editor-note ' + (opened ? 'ok' : 'warn');
   }
 
-  function showDone(file, n) {
+  function showDone(file, n, styledVideo) {
     const here = editorsHere();
     let last = null;
     try { last = localStorage.getItem(LAST_EDITOR); } catch (e) {}
@@ -193,6 +216,8 @@
     done.innerHTML =
       '<div class="app-done-head">✅ ' + tx('ካፕሽኑ ተቀምጧል', 'Captions saved') + ' · ' + n + '</div>' +
       '<div class="app-done-file"></div>' +
+      (styledVideo ? '<div class="app-done-video">🎬 <span class="app-done-vname"></span> ' +
+        '<button class="btn btn-primary" id="appRevealVideo">' + tx('ቪዲዮውን አሳይ', 'Show the video') + '</button></div>' : '') +
       '<div class="app-done-actions">' +
       '<button class="btn btn-neutral" id="appReveal">📂 ' + tx('ፎልደሩን ክፈት', 'Show in folder') + '</button>' +
       '<button class="btn btn-neutral" id="appCopy">📋 ' + tx('ቦታውን ቅዳ', 'Copy location') + '</button>' +
@@ -210,6 +235,10 @@
           '<div class="app-editor-note"></div>' +
         '</div>').join('');
     done.querySelector('.app-done-file').textContent = APP.path.basename(file);
+    if (styledVideo) {
+      done.querySelector('.app-done-vname').textContent = APP.path.basename(styledVideo);
+      done.querySelector('#appRevealVideo').addEventListener('click', () => { try { APP.call('reveal', [styledVideo]); } catch (e) {} });
+    }
     done.querySelector('#appReveal').addEventListener('click', () => { try { APP.call('reveal', [file]); } catch (e) {} });
     const copyBtn = done.querySelector('#appCopy');
     copyBtn.addEventListener('click', () => {

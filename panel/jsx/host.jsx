@@ -572,6 +572,104 @@ function amhCollectClips(seq, shift, lo, hi, depth, toSec) {
 }
 
 /**
+ * Styled captions (1.11): the frame size and frame rate of the active
+ * sequence, so the transparent caption layer is rendered to match it.
+ */
+function amharic_getFrame() {
+    return amhGuard(function () {
+        if (!app || !app.project) { return amhErr("No project is open."); }
+        var seq = app.project.activeSequence;
+        if (!seq) { return amhErr("No active sequence. Open one first."); }
+        var w = 0, h = 0, fps = 0;
+        try { w = Number(seq.frameSizeHorizontal); h = Number(seq.frameSizeVertical); } catch (e) {}
+        try {
+            var st = seq.getSettings();
+            if (st) {
+                if (!w || !h) { w = Number(st.videoFrameWidth); h = Number(st.videoFrameHeight); }
+                var fr = st.videoFrameRate;
+                var secs = fr ? Number(fr.seconds) : 0;
+                if (secs > 0) { fps = 1 / secs; }
+            }
+        } catch (e) {}
+        if (!(fps > 0)) {
+            try {
+                var tb = Number(seq.timebase);
+                if (tb > 0) { fps = AMH_TICKS_PER_SECOND / tb; }
+            } catch (e) {}
+        }
+        if (!(w > 0 && h > 0)) { return amhErr("Could not read the sequence frame size."); }
+        if (!(fps > 0)) { fps = 30; }
+        return amhOk({ width: w, height: h, fps: fps });
+    });
+}
+
+// A video track with nothing on it between start and end (seconds).
+function amhTrackFree(track, start, end) {
+    try {
+        for (var c = 0; c < track.clips.numItems; c++) {
+            var cl = track.clips[c];
+            var s = Number(cl.start.seconds), e = Number(cl.end.seconds);
+            if (s < end && e > start) { return false; }
+        }
+    } catch (err) { return false; }
+    return true;
+}
+
+/**
+ * Put the transparent styled-caption video (args.path) on the timeline at
+ * args.startSeconds, on the first empty video track ABOVE every track that
+ * has something in that time range (a new track is added when there is none).
+ */
+function amh_placeOverlay(argsJSON) {
+    return amhGuard(function () {
+        var args = JSON.parse(argsJSON);
+        var seq = app.project.activeSequence;
+        if (!seq) { return amhErr("No active sequence. Open one first."); }
+        var f = new File(args.path);
+        if (!f.exists) { return amhErr("Styled caption file not found: " + args.path); }
+        var start = Number(args.startSeconds || 0);
+        var end = start + Number(args.duration || 0);
+        var bin = amhFindOrCreateBin(AMH_CAPTION_BIN);
+        var fileName = String(args.path).replace(/\\/g, "/").split("/").pop();
+        var ok = app.project.importFiles([args.path], true, bin, false);
+        if (!ok) { return amhErr("Premiere refused to import the styled caption file."); }
+        var item = null;
+        for (var i = bin.children.numItems - 1; i >= 0; i--) {
+            var ch = bin.children[i];
+            if (ch && String(ch.name) === fileName) { item = ch; break; }
+        }
+        if (!item) { return amhErr("The styled caption file was imported but could not be found in the bin."); }
+
+        var tracks = seq.videoTracks;
+        var top = -1;
+        for (var t = 0; t < tracks.numTracks; t++) {
+            if (!amhTrackFree(tracks[t], start, end)) { top = t; }
+        }
+        var target = -1;
+        for (var u = top + 1; u < tracks.numTracks; u++) {
+            if (amhTrackFree(tracks[u], start, end)) { target = u; break; }
+        }
+        var added = false;
+        if (target < 0) {
+            try {
+                app.enableQE();
+                qe.project.getActiveSequence().addTracks(1, tracks.numTracks, 0);
+                added = true;
+            } catch (e) {}
+            tracks = seq.videoTracks;
+            if (added && tracks.numTracks > 0 && amhTrackFree(tracks[tracks.numTracks - 1], start, end)) {
+                target = tracks.numTracks - 1;
+            }
+        }
+        if (target < 0) {
+            return amhErr("No empty video track above your video. Add one video track (right-click the track headers > Add Track), then press Place again.");
+        }
+        tracks[target].overwriteClip(item, start);
+        return amhOk({ placed: true, track: target + 1, addedTrack: added, itemName: String(item.name) });
+    });
+}
+
+/**
  * Move the playhead of the active sequence to a given time (seconds).
  * Used by the review step so a click on a caption jumps the timeline there.
  */

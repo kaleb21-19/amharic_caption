@@ -22,6 +22,8 @@ html.amh-app body { background: var(--bg-panel); }
 .app-done { border-color: var(--ok); }
 .app-done-head { font-weight: 600; font-size: var(--font-m); color: var(--text-primary); margin-bottom: 4px; }
 .app-done-file { font-size: var(--font-s); color: var(--text-secondary); word-break: break-all; margin-bottom: 8px; }
+.app-done-video { display: flex; align-items: center; gap: 8px; font-size: var(--font-s); color: var(--text-primary); word-break: break-all; margin-bottom: 8px; }
+.app-done-video .btn { flex: 0 0 auto; }
 .app-done .btn { margin-bottom: 8px; }
 .app-steps { font-size: var(--font-s); color: var(--text-secondary); line-height: 1.5; margin-top: 6px; }
 .app-steps b { color: var(--text-primary); }

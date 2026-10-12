@@ -127,6 +127,7 @@ const AM_STATIC = {
   'rev.place.ae':     '✓ ወደ ኮምፖዚሽኑ ጨምር',
   'rev.sub.ae':       'ጽሑፍና ሰዓቱን ያስተካክሉ፣ ከዚያ ወደ ኮምፖዚሽኑ ይጨምሩ',
   'rev.place':        '✓ በታይምላይን ላይ አስቀምጥ',
+  'style.title':      '🎨 የካፕሽን ስታይል',
 };
 
 // ── dynamic text from main.js / core.js (keyed by the English string) ───────
@@ -175,6 +176,12 @@ const AM_TEXT = {
   'Your request is being checked — we will tell you in Telegram.': 'ጥያቄዎ እየተረጋገጠ ነው — በቴሌግራም እንነግርዎታለን።',
   'Your captions start by themselves when it is ready.': 'ሲጨርስ ካፕሽኑ በራሱ ይጀምራል።',
   'Try now': 'አሁን ሞክር',
+  'Styling captions…': 'ካፕሽኑን በማስዋብ ላይ…',
+  'Plain: the .srt file only — style it in your editor.': 'መደበኛ፦ .srt ፋይል ብቻ — በኤዲተርዎ ያስውቡት።',
+  'Saves the video with these captions drawn in, next to your video.': 'ካፕሽኑ የተጻፈበትን ቪዲዮ ከቪዲዮዎ አጠገብ ያስቀምጣል።',
+  'Drawn as a video layer on an empty track above your video.': 'ከቪዲዮዎ በላይ ባለ ባዶ ትራክ ላይ እንደ ቪዲዮ ንብርብር ይቀመጣል።',
+  'Saves the video with these captions drawn in, next to your video. Free version: a small "Amharic Captions Pro" tag is added — a license removes it.': 'ካፕሽኑ የተጻፈበትን ቪዲዮ ከቪዲዮዎ አጠገብ ያስቀምጣል። በነጻ ስሪቱ ትንሽ «Amharic Captions Pro» ምልክት ይጨመራል — ፈቃድ ሲገዙ ይጠፋል።',
+  'Drawn as a video layer on an empty track above your video. Free version: a small "Amharic Captions Pro" tag is added — a license removes it.': 'ከቪዲዮዎ በላይ ባለ ባዶ ትራክ ላይ እንደ ቪዲዮ ንብርብር ይቀመጣል። በነጻ ስሪቱ ትንሽ «Amharic Captions Pro» ምልክት ይጨመራል — ፈቃድ ሲገዙ ይጠፋል።',
   'Your free week has ended.': 'የነጻ ሙከራ ሳምንትዎ አብቅቷል።',
   'Your free week has ended. Buy a license to keep making captions.': 'የነጻ ሙከራ ሳምንትዎ አብቅቷል። ካፕሽን መስራት ለመቀጠል ፈቃድ ይግዙ።',
   'Connecting…': 'በመገናኘት ላይ…',
@@ -320,6 +327,8 @@ const AM_TEXT = {
 
 // Parameterised English → Amharic ($1.. are the regex groups).
 const AM_PATTERNS = [
+  [/^Plain: (.+)'s own captions — you can edit and restyle them there\.$/, 'መደበኛ፦ የ$1 የራሱ ካፕሽን — እዚያው ማስተካከልና ማስዋብ ይችላሉ።'],
+  [/^⏳ (.+) (\d+)%$/, function (m, a, n) { return '⏳ ' + T(a) + ' ' + n + '%'; }],
   [/^until (\d{4}-\d{2}-\d{2})$/, 'እስከ $1'],
   [/^First the Amharic model is downloaded \((\d+) MB, one time only\)\.$/, 'መጀመሪያ የአማርኛ ሞዴሉ ይወርዳል ($1 MB፣ አንድ ጊዜ ብቻ)።'],
   [/^Internet connection lost at (\d+) \/ (\d+) MB — trying again in (\d+) s\. Nothing downloaded is lost\.$/,

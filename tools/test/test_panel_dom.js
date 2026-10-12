@@ -231,7 +231,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.10.20');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.11.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -849,6 +849,82 @@ await t('4e. free week (1.10.20): the panel shows until when, and says when the 
     assert.strictEqual(p.evalVm('humanError("trial used up")'), 'Your free week has ended. Buy a license to keep making captions.');
     p.evalVm('AMH_LANG = "am"; setTrialState({ mode: "minutes", status: "active", minutes: 30, seconds_total: 1800, seconds_left: 1500, expires: "2026-10-19" }); updateLicenseUI();');
     has(p.els('licenseStatus').textContent, 'እስከ 2026-10-19');
+  } finally { p.close(); }
+});
+
+await t('4f. caption styles (1.11): strip, choice remembered, styled layer placed above, plain captions if anything fails', async () => {
+  const evalLog = [];
+  const answers = (jsx) => {
+    if (/amharic_getFrame\(/.test(jsx)) return JSON.stringify({ ok: true, width: 1080, height: 1920, fps: 29.97 });
+    if (/amh_placeOverlay\(/.test(jsx)) return JSON.stringify({ ok: true, placed: true, track: 3, addedTrack: false });
+    if (/amh_importCaptions\(/.test(jsx)) return JSON.stringify({ ok: true, placed: true, captionItemName: 'plain.srt' });
+    return '{"ok":true}';
+  };
+  const storage = makeLocalStorage();
+  const p = loadPanel({ storage, evalLog, csiRaw: answers });
+  const calls = (re) => evalLog.filter((j) => re.test(j));
+  const open = async (start) => {
+    p.evalVm('reviewTrialCharged = true; lastCues = [{start:0.5,end:1.2,text:"ሰላም እንዴት"},{start:1.3,end:2.0,text:"ናችሁ"}];');
+    await p.evalVm('openReview("x.srt", "clip", ' + start + ', {})');
+  };
+  try {
+    await flush(10);
+    assert.strictEqual(p.els('styleStrip').style.display, 'none', 'hidden when this ffmpeg cannot draw styles');
+    p.evalVm('STYLE_OK = true; renderStyleStrip();');
+    assert.strictEqual(p.els('styleStrip').style.display, '', 'shown when it can');
+    const chips = p.els('styleChips').children;
+    assert.strictEqual(chips.length, 16, 'Plain + 15 styles');
+    assert.strictEqual(chips[0].dataset.style, 'plain');
+    assert.ok(chips[0].classList.contains('active'), 'Plain is the default');
+    assert.match(p.els('styleNote').textContent, /own captions/);
+    const kar = Array.from(chips).find((b) => b.dataset.style === 'karaoke');
+    kar.fire('click');
+    assert.strictEqual(p.evalVm('STYLE'), 'karaoke');
+    assert.ok(kar.classList.contains('active') && !chips[0].classList.contains('active'));
+    assert.strictEqual(JSON.parse(storage.getItem('amh.settings')).style, 'karaoke', 'the choice is remembered');
+    assert.match(p.els('styleNote').textContent, /video layer/);
+
+    // styled place: render at the sequence size/rate, then on a track above
+    p.evalVm('LICENSED = true; globalThis.__jobs = []; renderStyled = async (job, prog) => { __jobs.push(job); prog(0.5); ' +
+      'return { ok: true, out: "C:/caps/x_karaoke.mov", t0: 0.25, duration: 2.35 }; };');
+    await open(12.5);
+    await p.evalVm('placeReview()');
+    const job = JSON.parse(p.evalVm('JSON.stringify(__jobs[0])'));
+    assert.deepStrictEqual([job.style, job.width, job.height, job.fps, job.mode, job.tag], ['karaoke', 1080, 1920, 29.97, 'overlay', false]);
+    assert.deepStrictEqual(job.cues, [['ሰላም እንዴት', 0.5, 1.2], ['ናችሁ', 1.3, 2.0]]);
+    const ov = calls(/amh_placeOverlay\(/)[0];
+    const args = JSON.parse(JSON.parse(/amh_placeOverlay\((.*)\)/.exec(ov)[1]));
+    assert.deepStrictEqual(args, { path: 'C:/caps/x_karaoke.mov', startSeconds: 12.75, duration: 2.35 }, 'placed at the clip start + the layer start');
+    assert.strictEqual(calls(/amh_importCaptions\(/).length, 0, 'no plain caption track as well');
+    assert.strictEqual(p.evalVm('reviewOpen'), false, 'done');
+    has(p.els('logBox').textContent, 'Styled captions on track V3');
+
+    // free version: the tag
+    p.evalVm('LICENSED = false; __jobs = [];');
+    await open(0);
+    await p.evalVm('placeReview()');
+    assert.strictEqual(p.evalVm('__jobs[0].tag'), true, 'free version adds the tag');
+
+    // the style fails: the plain captions are placed instead; the button reads normally again
+    p.evalVm('LICENSED = true; renderStyled = async () => { throw new Error("ffmpeg exploded"); };');
+    await open(0);
+    const label = p.evalVm('$("reviewPlace").textContent');
+    await p.evalVm('placeReview()');
+    assert.strictEqual(calls(/amh_importCaptions\(/).length, 1, 'plain captions placed instead');
+    has(p.els('logBox').textContent, 'placing plain captions instead');
+    assert.strictEqual(p.evalVm('reviewOpen'), false);
+    assert.strictEqual(p.evalVm('$("reviewPlace").textContent'), label, 'button text restored');
+
+    // Plain: only the host captions; a remembered style without ffmpeg support is not used
+    p.evalVm('STYLE = "plain"; renderStyled = async () => { throw new Error("must not run"); };');
+    await open(0);
+    await p.evalVm('placeReview()');
+    assert.strictEqual(calls(/amh_importCaptions\(/).length, 2);
+    p.evalVm('STYLE = "neon"; STYLE_OK = false;');
+    await open(0);
+    await p.evalVm('placeReview()');
+    assert.strictEqual(calls(/amh_importCaptions\(/).length, 3, 'no ffmpeg support -> plain');
+    assert.strictEqual(calls(/amh_placeOverlay\(/).length, 2);
   } finally { p.close(); }
 });
 

@@ -299,6 +299,38 @@ function amhAeStyle(td, comp, fontList) {
     return used;
 }
 
+/**
+ * Styled captions (1.11) in After Effects: the active comp's size and rate.
+ */
+function amharic_getFrame() {
+    return amhGuard(function () {
+        var comp = amhAeComp();
+        if (!comp) { return amhAeNoComp(); }
+        return amhOk({ width: comp.width, height: comp.height, fps: comp.frameRate });
+    });
+}
+
+/** The transparent styled-caption video as the top layer of the active comp. */
+function amh_placeOverlay(argsJSON) {
+    return amhGuard(function () {
+        var args = JSON.parse(argsJSON);
+        var comp = amhAeComp();
+        if (!comp) { return amhAeNoComp(); }
+        var f = new File(args.path);
+        if (!f.exists) { return amhErr("Styled caption file not found: " + args.path); }
+        app.beginUndoGroup("Amharic styled captions");
+        try {
+            var item = app.project.importFile(new ImportOptions(f));
+            var layer = comp.layers.add(item);
+            layer.startTime = Number(args.startSeconds || 0);
+            layer.moveToBeginning();
+            return amhOk({ placed: true, track: 1, addedTrack: false, itemName: String(item.name) });
+        } finally {
+            app.endUndoGroup();
+        }
+    });
+}
+
 function amh_importCaptions(argsJSON) {
     return amhGuard(function () {
         var args = JSON.parse(argsJSON);
