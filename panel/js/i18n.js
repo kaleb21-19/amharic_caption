@@ -175,6 +175,8 @@ const AM_TEXT = {
   'Your request is being checked — we will tell you in Telegram.': 'ጥያቄዎ እየተረጋገጠ ነው — በቴሌግራም እንነግርዎታለን።',
   'Your captions start by themselves when it is ready.': 'ሲጨርስ ካፕሽኑ በራሱ ይጀምራል።',
   'Try now': 'አሁን ሞክር',
+  'Your free week has ended.': 'የነጻ ሙከራ ሳምንትዎ አብቅቷል።',
+  'Your free week has ended. Buy a license to keep making captions.': 'የነጻ ሙከራ ሳምንትዎ አብቅቷል። ካፕሽን መስራት ለመቀጠል ፈቃድ ይግዙ።',
   'Connecting…': 'በመገናኘት ላይ…',
   '✓ Model ready — starting your captions.': '✓ ሞዴሉ ዝግጁ ነው — ካፕሽኑ እየጀመረ ነው።',
   'Press Generate (or "Download the Amharic model" at the top). It is a': '«ካፕሽን ፍጠር»ን ይጫኑ (ወይም ከላይ «የአማርኛ ሞዴሉን አውርድ»)። ይህ',
@@ -318,6 +320,7 @@ const AM_TEXT = {
 
 // Parameterised English → Amharic ($1.. are the regex groups).
 const AM_PATTERNS = [
+  [/^until (\d{4}-\d{2}-\d{2})$/, 'እስከ $1'],
   [/^First the Amharic model is downloaded \((\d+) MB, one time only\)\.$/, 'መጀመሪያ የአማርኛ ሞዴሉ ይወርዳል ($1 MB፣ አንድ ጊዜ ብቻ)።'],
   [/^Internet connection lost at (\d+) \/ (\d+) MB — trying again in (\d+) s\. Nothing downloaded is lost\.$/,
     'ኢንተርኔት ተቋርጧል ($1 / $2 MB) — በ$3 ሰከንድ ውስጥ እንደገና ይሞከራል። የወረደው አይጠፋም።'],

@@ -231,7 +231,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.10.19');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.10.20');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -831,6 +831,24 @@ await t('4d. Generate without free minutes: a clear card under Generate, one tap
     // A license hides the card.
     p.evalVm('showTrialGate("none", null); LICENSED = true; updateLicenseUI();');
     assert.strictEqual(p.els('trialGate').style.display, 'none', 'licensed: no card');
+  } finally { p.close(); }
+});
+
+await t('4e. free week (1.10.20): the panel shows until when, and says when the week has ended', async () => {
+  const p = loadPanel({});
+  try {
+    await flush(5);
+    p.evalVm('LICENSED = false; setTrialState({ mode: "minutes", status: "active", minutes: 30, seconds_total: 1800, seconds_left: 1500, expires: "2026-10-19" }); updateLicenseUI();');
+    assert.strictEqual(p.els('licenseStatus').textContent, 'Free trial: 25:00 minutes left · until 2026-10-19');
+    p.evalVm('setTrialState({ mode: "minutes", status: "active", minutes: 30, seconds_total: 1800, seconds_left: 1500, expires: "<b>x" }); updateLicenseUI();');
+    assert.strictEqual(p.els('licenseStatus').textContent, 'Free trial: 25:00 minutes left', 'only a real date is shown');
+    p.evalVm('setTrialState({ mode: "minutes", status: "expired", minutes: 30, seconds_total: 1800, seconds_left: 0, expires: "2026-10-19" }); updateLicenseUI();');
+    assert.strictEqual(p.evalVm('assertCanRun()'), false);
+    has(p.els('logBox').textContent, 'Your free week has ended.');
+    assert.strictEqual(p.els('trialBanner').style.display, 'block', 'the buy banner shows');
+    assert.strictEqual(p.evalVm('humanError("trial used up")'), 'Your free week has ended. Buy a license to keep making captions.');
+    p.evalVm('AMH_LANG = "am"; setTrialState({ mode: "minutes", status: "active", minutes: 30, seconds_total: 1800, seconds_left: 1500, expires: "2026-10-19" }); updateLicenseUI();');
+    has(p.els('licenseStatus').textContent, 'እስከ 2026-10-19');
   } finally { p.close(); }
 });
 

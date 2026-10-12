@@ -98,6 +98,7 @@ class D1 {
     this.db.exec(readFileSync(new URL('../migrations/0026_trial_hosts.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0027_trial_minutes.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0028_plans.sql', import.meta.url), 'utf8'));
+    this.db.exec(readFileSync(new URL('../migrations/0029_trial_week.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0022_jobs_d1.sql', import.meta.url), 'utf8'));
     this.db.exec(readFileSync(new URL('../migrations/0023_group_members.sql', import.meta.url), 'utf8'));
     this.db.exec("ALTER TABLE customers ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0"); // migration 0008
@@ -3148,6 +3149,43 @@ console.log('\n:: 1.10.7 free minutes via Telegram');
   assert.equal(j.charged, false);
   assert.equal(j.reason, 'minutes_used');
   ok('free minutes: Telegram link gives 20 min, charged in seconds, signed t2 ticket, idempotent, refund once, follow-up when used up');
+
+  // 1.10.20: the free minutes are valid for 7 days
+  const UW = 971000009;
+  const MIDW = '3f9a1c7e5b20d847';
+  j = await reqLink(MIDW, 'a1b2c3d9', { 'CF-Connecting-IP': '196.188.40.3' });
+  n = OUTBOUND.length;
+  await post(env, msg(UW, { id: UW, username: 'tester3' }, { text: '/start t_' + j.nonce }));
+  const gW = row(env, 'SELECT expires_at FROM trial_grants WHERE machine_id=?', MIDW);
+  const days = (Date.parse(gW.expires_at.replace(' ', 'T') + 'Z') - Date.now()) / 86400000;
+  assert.ok(days > 6.9 && days < 7.1, 'valid for 7 days: ' + gW.expires_at);
+  assert.ok(said(n, UW).includes('Use them by') && said(n, UW).includes('(7 days)'), 'the bot says until when');
+  j = await state(MIDW);
+  assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(j.expires), 'the panel gets the last day: ' + j.expires);
+  assert.equal(await use(MIDW, 'run-week-000001', 60).then((x) => x.charged), true, 'usable during the week');
+  // 1 day before the end, minutes left: one reminder
+  env.DB.prepare("UPDATE trial_grants SET expires_at = datetime('now', '+1 day') WHERE machine_id = ?").bind(MIDW).run();
+  n = OUTBOUND.length;
+  await worker.scheduled({ cron: '0 */6 * * *' }, env);
+  await worker.scheduled({ cron: '0 */6 * * *' }, env);
+  assert.equal(OUTBOUND.slice(n).filter((x) => String(x.body.chat_id) === String(UW) && /free minutes — use them by/.test(x.body.text || '')).length, 1, 'one "use them" reminder');
+  // the week ends: nothing more is charged; one message with the plans
+  env.DB.prepare("UPDATE trial_grants SET expires_at = datetime('now', '-1 hour') WHERE machine_id = ?").bind(MIDW).run();
+  j = await state(MIDW);
+  assert.equal(j.status, 'expired');
+  assert.equal(j.seconds_left, 0);
+  j = await use(MIDW, 'run-week-000002', 60);
+  assert.equal(j.charged, false);
+  assert.equal(j.reason, 'expired');
+  n = OUTBOUND.length;
+  await worker.scheduled({ cron: '0 */6 * * *' }, env);
+  await worker.scheduled({ cron: '0 */6 * * *' }, env);
+  assert.equal(OUTBOUND.slice(n).filter((x) => String(x.body.chat_id) === String(UW) && /Your free week has ended/.test(x.body.text || '')).length, 1, 'one "week ended" message');
+  // the owner's +minutes gives a fresh week
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:tgadd:' + MIDW);
+  j = await state(MIDW);
+  assert.equal(j.status, 'active', 'active again after +minutes');
+  ok('free minutes: valid 7 days — the bot says until when, one reminder, nothing charged after, one "week ended" message, +minutes = a fresh week');
 
   // one per Telegram account, one per computer
   const MID2 = '1111222233334444';
