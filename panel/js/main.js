@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.12.0';
+const APP_VERSION = '1.12.1';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3798,12 +3798,13 @@ const STYLE_WORDS = [0, 1, 2, 3, 4, 5];
 let STYLE_FRAME = null;          // { width, height } of the sequence / video
 let PREVIEW_TIMER = null;
 let PREVIEW_SEQ = 0;
+const HEX_COLOR = /^#[0-9A-Fa-f]{6}$/;
 function styleOpts(style) {
   const all = loadSettings().styleOpts || {};
   const o = all[style || STYLE] || {};
   return {
-    color: STYLE_COLORS.indexOf(o.color) > 0 ? o.color : '',
-    text: TEXT_COLORS.indexOf(o.text) > 0 ? o.text : '',
+    color: HEX_COLOR.test(o.color || '') ? o.color.toUpperCase() : '',
+    text: HEX_COLOR.test(o.text || '') ? o.text.toUpperCase() : '',
     size: STYLE_SIZES.indexOf(o.size) >= 0 ? o.size : 'm',
     pos: STYLE_POS.indexOf(o.pos) >= 0 ? o.pos : 'bottom',
     words: STYLE_WORDS.indexOf(Number(o.words)) >= 0 ? Number(o.words) : 0,
@@ -3828,34 +3829,87 @@ function resetStyleOpts() {
   renderStyleCustom();
   schedulePreview();
 }
-function seg(parent, items, current, label, onPick) {
+// Dark check mark on a light colour, white on a dark one.
+function inkFor(hex) {
+  if (!HEX_COLOR.test(hex || '')) return '#ffffff';
+  const n = parseInt(hex.slice(1), 16);
+  const lum = 0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
+  return lum > 150 ? '#111111' : '#ffffff';
+}
+function scRow(parent, label) {
   const row = document.createElement('div');
   row.className = 'sc-row';
   const l = document.createElement('span');
   l.className = 'sc-label';
   l.textContent = L(label);
   row.appendChild(l);
+  parent.appendChild(row);
+  return row;
+}
+// Round swatches (✓ on the chosen one), "Auto" = the style's own colour,
+// and a rainbow swatch that opens the full colour picker (any brand colour).
+function colorRow(parent, label, presets, current, key) {
+  const row = scRow(parent, label);
   const box = document.createElement('span');
-  box.className = 'sc-seg';
-  items.forEach(([value, text, swatch]) => {
+  box.className = 'sc-swatches';
+  const add = (value, cls, title) => {
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = 'sc-opt' + (swatch !== undefined ? ' sc-swatch' : '');
+    b.className = 'sc-sw' + (cls ? ' ' + cls : '');
+    b.dataset.value = value;
+    b.title = title;
+    b.setAttribute('aria-label', title);
+    if (value && cls !== 'custom') b.style.background = value;
+    b.classList.toggle('active', value === current && (cls !== 'custom' || presets.indexOf(current) < 0));
+    b.style.setProperty('--sw-ink', inkFor(value));
+    box.appendChild(b);
+    return b;
+  };
+  presets.forEach((c) => {
+    const b = add(c, c ? '' : 'auto', c ? c : L('Style colour'));
+    b.addEventListener('click', () => setStyleOpt(key, c));
+  });
+  const own = current && presets.indexOf(current) < 0 ? current : '';
+  const custom = add(own || '#custom', 'custom', L('Any colour…'));
+  if (own) { custom.style.background = own; custom.classList.add('picked'); custom.classList.add('active'); }
+  const input = document.createElement('input');
+  input.type = 'color';
+  input.className = 'sc-color-input';
+  input.value = own || current || '#FFE500';
+  input.tabIndex = -1;
+  input.addEventListener('change', () => setStyleOpt(key, String(input.value).toUpperCase()));
+  custom.addEventListener('click', () => { try { input.click(); } catch (e) {} });
+  box.appendChild(input);
+  row.appendChild(box);
+}
+function segRow(parent, label, items, current, key) {
+  const row = scRow(parent, label);
+  const box = document.createElement('span');
+  box.className = 'sc-seg';
+  items.forEach(([value, text]) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'sc-opt';
+    b.textContent = text;
+    b.dataset.value = String(value);
     b.classList.toggle('active', value === current);
     b.setAttribute('aria-pressed', value === current ? 'true' : 'false');
-    if (swatch !== undefined) {
-      b.style.background = swatch || 'transparent';
-      b.title = text;
-      if (!swatch) b.textContent = 'A';
-    } else {
-      b.textContent = text;
-    }
-    b.dataset.value = String(value);
-    b.addEventListener('click', () => onPick(value));
+    b.addEventListener('click', () => setStyleOpt(key, value));
     box.appendChild(b);
   });
   row.appendChild(box);
-  parent.appendChild(row);
+}
+function switchRow(parent, label, on, key) {
+  const row = scRow(parent, label);
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'sc-switch';
+  b.dataset.value = on ? 'true' : 'false';
+  b.setAttribute('role', 'switch');
+  b.setAttribute('aria-checked', on ? 'true' : 'false');
+  b.classList.toggle('on', on);
+  b.addEventListener('click', () => setStyleOpt(key, !on));
+  row.appendChild(b);
 }
 function renderStyleCustom() {
   const wrap = $('styleCustom');
@@ -3881,19 +3935,24 @@ function renderStyleCustom() {
   if (!open) return;
   const o = styleOpts(STYLE);
   opts.textContent = '';
-  seg(opts, STYLE_COLORS.map((c) => [c, c ? c : L('Style colour'), c]), o.color, 'Colour', (v) => setStyleOpt('color', v));
-  seg(opts, TEXT_COLORS.map((c) => [c, c ? c : L('Style colour'), c]), o.text, 'Text', (v) => setStyleOpt('text', v));
-  seg(opts, [['s', 'S'], ['m', 'M'], ['l', 'L'], ['xl', 'XL']], o.size, 'Size', (v) => setStyleOpt('size', v));
-  seg(opts, [['bottom', L('Bottom')], ['middle', L('Middle')], ['top', L('Top')], ['safe', 'TikTok']], o.pos,
-    'Position', (v) => setStyleOpt('pos', v));
-  seg(opts, [[0, L('Auto')], [1, '1'], [2, '2'], [3, '3'], [4, '4'], [5, '5']], o.words, 'Words', (v) => setStyleOpt('words', v));
-  seg(opts, [[false, L('Off')], [true, L('On')]], o.box, 'Box', (v) => setStyleOpt('box', v));
+  colorRow(opts, 'Colour', STYLE_COLORS, o.color, 'color');
+  colorRow(opts, 'Text', TEXT_COLORS, o.text, 'text');
+  segRow(opts, 'Size', [['s', 'S'], ['m', 'M'], ['l', 'L'], ['xl', 'XL']], o.size, 'size');
+  segRow(opts, 'Position', [['bottom', L('Bottom')], ['middle', L('Middle')], ['top', L('Top')], ['safe', 'TikTok']], o.pos, 'pos');
+  segRow(opts, 'Words', [[0, L('Auto')], [1, '1'], [2, '2'], [3, '3'], [4, '4'], [5, '5']], o.words, 'words');
+  switchRow(opts, 'Box', o.box, 'box');
   const reset = document.createElement('button');
   reset.type = 'button';
   reset.className = 'sc-reset';
-  reset.textContent = L('Reset');
+  reset.textContent = '↺ ' + L('Reset');
   reset.addEventListener('click', resetStyleOpts);
   opts.appendChild(reset);
+}
+// The preview picture as base64: the desktop app reads binary files through
+// its own bridge (its readFileSync is text-only).
+function fileBase64(p) {
+  if (typeof fs.readBase64 === 'function') return fs.readBase64(p);
+  return fs.readFileSync(p).toString('base64');
 }
 function previewFrame() {
   if (STYLE_FRAME && STYLE_FRAME.width && STYLE_FRAME.height) return STYLE_FRAME;
@@ -3926,9 +3985,9 @@ async function renderPreview() {
     const r = await renderStyled({ cues, style: STYLE, opts: styleOpts(STYLE), width: fr.width, height: fr.height,
       mode: 'preview', out: path.join(os.tmpdir(), 'amh_style_preview_' + Date.now()), tag: !LICENSED });
     if (seq !== PREVIEW_SEQ) return;              // a newer preview is on its way
-    const bytes = fs.readFileSync(r.out);
+    const b64 = fileBase64(r.out);
     try { fs.unlinkSync(r.out); } catch (e) {}
-    img.src = 'data:image/' + (/\.gif$/i.test(r.out) ? 'gif' : 'webp') + ';base64,' + bytes.toString('base64');
+    img.src = 'data:image/' + (/\.gif$/i.test(r.out) ? 'gif' : 'webp') + ';base64,' + b64;
     img.style.display = '';
     if (note) note.style.display = 'none';
   } catch (e) {

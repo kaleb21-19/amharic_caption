@@ -280,6 +280,15 @@ def copy_text(text):
 def sync_op(op, a):
     if op == "existsSync":
         return os.path.exists(a[0])
+    if op == "readBase64":
+        # Small pictures only (the caption-style preview): the page cannot
+        # read binary files through readFileSync, which is text.
+        p = a[0]
+        if not p.lower().endswith((".webp", ".gif", ".png", ".jpg")) or os.path.getsize(p) > 5 * 1024 * 1024:
+            raise ValueError("not a small picture")
+        import base64
+        with open(p, "rb") as f:
+            return base64.b64encode(f.read()).decode("ascii")
     if op == "readFileSync":
         with open(a[0], "r", encoding="utf-8", errors="replace", newline="") as f:
             return f.read()

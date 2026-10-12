@@ -524,7 +524,7 @@ def render(job, progress=None):
 
 
 PREVIEW_SECS = 4.5      # the preview shows the first seconds of captions
-PREVIEW_PX = 360        # its long side, in pixels
+PREVIEW_PX = 480        # its long side, in pixels
 
 
 def _has_encoder(ffmpeg, name):

@@ -373,6 +373,21 @@ t("fs: Amharic round-trip, stat, copy/rename/readdir/unlink, ENOENT, hashes like
 t("spawn: stdout, stderr, stdin (Amharic) and exit code arrive in order", t_spawn)
 t("spawn: kill stops a running child", t_kill)
 t("spawn: timeout kills a hung child", t_timeout)
+def t_base64():
+    # the caption-style preview is a binary picture: read as base64, pictures only
+    import base64
+    pic = os.path.join(WORK, "prev.webp")
+    raw = bytes(range(256)) * 4
+    with open(pic, "wb") as f:
+        f.write(raw)
+    assert base64.b64decode(sync("readBase64", pic)["result"]) == raw, "binary picture read intact"
+    txt = os.path.join(WORK, "notes.txt")
+    with open(txt, "w") as f:
+        f.write("x")
+    assert "err" in sync("readBase64", txt), "only pictures"
+
+
+t("readBase64: the style preview picture arrives intact; only small pictures", t_base64)
 t("spawn: env and cwd are passed to the child", t_env)
 t("proxy: license-server calls only, status + body passed through, token required", t_proxy)
 t("fixed port: the first free preferred port, so saved settings survive a restart", t_fixed_port)

@@ -179,6 +179,7 @@ const AM_TEXT = {
   'Styling captions…': 'ካፕሽኑን በማስዋብ ላይ…',
   'Colour': 'ቀለም',
   'Customize': 'አስተካክል',
+  'Any colour…': 'ሌላ ቀለም…',
   'Text': 'ጽሑፍ',
   'Size': 'መጠን',
   'Position': 'ቦታ',
