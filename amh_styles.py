@@ -385,6 +385,9 @@ def render(job, progress=None):
     import subprocess
     import tempfile
     style, mode = job["style"], job.get("mode", "overlay")
+    if mode == "burn" and not (job.get("width") and job.get("height")):
+        pw, ph, pdur = probe(job["ffmpeg"], job["video"])
+        job = dict(job, width=pw, height=ph, duration=job.get("duration") or pdur)
     w, h = int(job["width"]), int(job["height"])
     fps = float(job.get("fps") or 30)
     if mode == "burn":
@@ -429,6 +432,24 @@ def render(job, progress=None):
         return {"t0": round(t0, 3), "duration": round(dur, 3), "out": out}
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def probe(ffmpeg, video):
+    """(width, height, seconds) of a video, read from ffmpeg's own report
+    (the bundled runtime has no ffprobe). Rotated phone videos report the
+    turned size."""
+    import subprocess
+    err = subprocess.run([ffmpeg, "-hide_banner", "-i", video], capture_output=True, universal_newlines=True,
+                         encoding="utf-8", errors="replace").stderr
+    m = re.search(r"Stream #[^\n]*Video:[^\n]*?(\d{2,5})x(\d{2,5})", err)
+    if not m:
+        raise RuntimeError("could not read the video size")
+    w, h = int(m.group(1)), int(m.group(2))
+    if re.search(r"rotate\s*:\s*-?(90|270)|rotation of -?(90|270)", err):
+        w, h = h, w
+    d = re.search(r"Duration: (\d+):(\d+):([\d.]+)", err)
+    secs = int(d.group(1)) * 3600 + int(d.group(2)) * 60 + float(d.group(3)) if d else 0.0
+    return w, h, secs
 
 
 def supported(ffmpeg):

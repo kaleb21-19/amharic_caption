@@ -186,6 +186,14 @@ jobs:
       - name: Premiere Work Area / Whole Edit clip reading (nested sequences, clear reasons)
         run: node tools/test/test_host_workarea.js
 
+      - name: Caption styles — layer placement in Premiere / After Effects (1.11)
+        run: node tools/test/test_host_overlay.js
+
+      - name: Caption styles — every style, smoothness rules, real drawing with ffmpeg (1.11)
+        run: |
+          if command -v ffmpeg >/dev/null; then export AMH_FFMPEG="$(command -v ffmpeg)"; fi
+          python tools/test/test_styles.py
+
       - name: Installer script syntax (cmd.exe parse traps)
         run: python3 tools/test/test_cmd_syntax.py
 
@@ -581,6 +589,13 @@ jobs:
 
       - name: App server on this Mac (open in CapCut / DaVinci, clipboard)
         run: python3 tools/test/test_app.py
+
+      - name: Caption styles on this Mac (the bundled ffmpeg draws them, or the panel hides them)
+        run: |
+          EXT="$HOME/Library/Application Support/Adobe/CEP/extensions/com.amharic.captions"
+          OK=$("$EXT/runtime/python/bin/python3" -E -s "$EXT/runtime/amh_styles.py" supported "$EXT/runtime/bin/ffmpeg")
+          echo "styles: $OK" | tee -a "$GITHUB_STEP_SUMMARY"
+          AMH_FFMPEG="$EXT/runtime/bin/ffmpeg" "$EXT/runtime/python/bin/python3" -E -s tools/test/test_styles.py
 
       - name: Engine on this Mac (keep awake while working, long-audio windows)
         run: |

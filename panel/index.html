@@ -6,7 +6,7 @@
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://amharic-captions-bot.amhcaps.workers.dev; img-src 'self' data:; object-src 'none'; base-uri 'none'">
 <style>
-  /* Dark only (1.10.20): the panel looks the same in every Premiere,
+  /* Dark only (1.11.0): the panel looks the same in every Premiere,
      After Effects and desktop-app theme. */
   :root {
     color-scheme: dark;
@@ -499,6 +499,17 @@
   .memory-panel .mem-del:hover { background: var(--err-soft); color: var(--err); }
   .memory-panel .mem-all { margin-top: 6px; border: 0; background: transparent; color: var(--err); cursor: pointer; padding: 2px 0; font-size: var(--font-s); }
   .review-empty { padding: 18px 8px; text-align: center; color: var(--text-disabled); font-size: var(--font-m); }
+  .style-strip { flex: 0 0 auto; margin-top: 8px; }
+  .style-head { display: flex; align-items: baseline; gap: 8px; font-size: var(--font-s); color: var(--text-secondary); margin-bottom: 5px; }
+  .style-head .style-title { font-weight: 700; color: var(--text-primary); white-space: nowrap; }
+  .style-note { flex: 1; min-width: 0; line-height: 1.35; }
+  .style-chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+  .style-chip { flex: 0 0 auto; width: 88px; padding: 3px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--bg-card); color: var(--text-secondary); cursor: pointer; display: flex; flex-direction: column;
+    gap: 3px; align-items: stretch; font-size: 10px; font-family: inherit; }
+  .style-chip img { width: 100%; height: 41px; object-fit: cover; border-radius: 3px; display: block; }
+  .style-chip:hover { border-color: var(--accent-hover); }
+  .style-chip.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; color: var(--text-primary); font-weight: 700; }
   .review-foot { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: stretch; }
   .review-foot .btn { flex: 1 1 45%; min-width: 0; white-space: normal; }
   .review-foot #reviewAdd { flex: 0 0 auto; }
@@ -672,7 +683,7 @@
         <div class="hint" style="margin-top:4px;" data-i18n="rep.hint">Sends the error and the Log to us so we can fix it — no video, audio or captions.</div>
         <div class="hint" id="reportStatus" style="display:none;margin-top:4px;font-weight:600;"></div>
       </div>
-      <!-- 1.10.20: Generate pressed without free minutes. One clear step, and
+      <!-- 1.11.0: Generate pressed without free minutes. One clear step, and
            the captions start by themselves when the minutes arrive. -->
       <div id="trialGate" style="display:none;" role="alert">
         <button type="button" class="tg-close" id="trialGateClose" aria-label="Close">✕</button>
@@ -766,7 +777,7 @@
   </div>
 
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.10.20</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span></span>
+    <span>v<span id="panelVersion">1.11.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span></span>
     <span style="display:flex;gap:10px;align-items:center;">
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
       <a href="#" id="supportLink" title="Get help in Telegram" data-i18n="foot.help" data-i18n-title="foot.helpTitle">💬 Help</a>
@@ -801,6 +812,11 @@
     </div>
     <div class="memory-panel" id="memoryPanel" style="display:none;"></div>
     <div id="reviewList"></div>
+    <!-- 1.11: caption styles (shown only when this computer's ffmpeg can draw them) -->
+    <div class="style-strip" id="styleStrip" style="display:none;">
+      <div class="style-head"><span class="style-title" data-i18n="style.title">🎨 Caption style</span><span class="style-note" id="styleNote"></span></div>
+      <div class="style-chips" id="styleChips" role="group" aria-label="Caption style"></div>
+    </div>
     <div class="review-foot">
       <button id="reviewAdd" class="btn btn-neutral" data-i18n="rev.add">+ Add caption</button>
       <button id="reviewExport" class="btn btn-neutral" title="Save SRT, VTT and TXT to a folder you choose" data-i18n="rev.export" data-i18n-title="rev.exportTitle">Save subtitle files</button>

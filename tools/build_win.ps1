@@ -119,6 +119,10 @@ Copy-Item "$ROOT\amh_decode.py" (Join-Path $BNAME "runtime\amh_decode.py")
 Copy-Item "$ROOT\amh_license.py" (Join-Path $BNAME "runtime\amh_license.py")
 Copy-Item "$ROOT\amh_standalone.py" (Join-Path $BNAME "runtime\amh_standalone.py")
 Copy-Item "$ROOT\amh_model.py" (Join-Path $BNAME "runtime\amh_model.py")
+# Caption styles (1.11): the style drawer + the Amharic fonts it uses (OFL).
+Copy-Item "$ROOT\amh_styles.py" (Join-Path $BNAME "runtime\amh_styles.py")
+New-Item -ItemType Directory -Force (Join-Path $BNAME "runtime\fonts") | Out-Null
+Copy-Item "$ROOT\tools\fonts\*.ttf", "$ROOT\tools\fonts\OFL.txt" (Join-Path $BNAME "runtime\fonts")
 
 
 # Amharic word-LM (glue-word resegmentation). Built offline by tools/build_lm.py.
