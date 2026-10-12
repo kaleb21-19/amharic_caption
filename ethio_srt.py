@@ -885,9 +885,33 @@ def drop_background_words(words, wav, sr=16000):
     return out
 
 
+_GLUED_PUNCT = re.compile(r"(?<=[^\W\d_])([.,!?;:]+)(?=[^\W\d_])")
+
+
+def _split_glued_punct(words):
+    """The multilingual model writes a full stop or comma with no space after
+    it ("arabsitu.tokuma"). Split such a word in two after the mark; the time
+    is shared by the number of letters."""
+    out = []
+    for w in words:
+        txt, s, e = w[0], w[1], w[2]
+        if not _GLUED_PUNCT.search(txt):
+            out.append(w)
+            continue
+        parts = [x for x in _GLUED_PUNCT.sub(r"\g<1> ", txt).split(" ") if x]
+        total = sum(len(x) for x in parts) or 1
+        t = s
+        for i, part in enumerate(parts):
+            end = e if i == len(parts) - 1 else t + (e - s) * len(part) / total
+            out.append((part, t, end) + tuple(w[3:]))
+            t = end
+    return out
+
+
 def _make_cues_plain(mode, group_size, words, units, frame_dur, glyphs, max_chars):
     """Captions for a non-Amharic language: the same grouping, timing and
     doubt marks, none of the Amharic spelling / number / punctuation passes."""
+    words = _split_glued_punct(words)
     if mode == "words":
         cues = group_word_cues(words, max_chars=max_chars)
     elif mode == "grouped" and group_size > 0:

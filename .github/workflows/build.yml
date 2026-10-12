@@ -226,6 +226,9 @@ jobs:
       - name: Engine refuses to work without a license or trial ticket (1.10.3)
         run: python tools/test/test_engine_license.py
 
+      - name: Afaan Oromo text clean-up (language tag, glued punctuation)
+        run: python tools/test/test_oromo_text.py
+
       - name: Mel extractor edge cases (ultra-short audio)
         run: python tools/test/test_mel_short.py
 
