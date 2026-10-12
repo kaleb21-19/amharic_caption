@@ -135,6 +135,9 @@ MODEL_DIR = _find_model()
 # word splitting, Ethiopic punctuation) are skipped. Amharic is unchanged.
 LANGS = ("amh", "orm")
 _LANG = "amh"          # the language of the transcription running now
+# Word-aware decoding weights for Afaan Oromo (see amh_decode.py).
+_ORM_ALPHA = float(os.environ.get("AMH_ORM_ALPHA", "0.6"))
+_ORM_GAMMA = float(os.environ.get("AMH_ORM_GAMMA", "-3.5"))
 
 
 def _find_model_for(lang):
@@ -409,8 +412,20 @@ class _CT2Engine:
         #                    boundaries (default 0 = disabled; the LM isn't
         #                    even loaded unless this is > 0). Requires beam.
         if getattr(self, "lang", "amh") != "amh":
-            # Oromo: plain greedy — the beam's and the word decoder's word
-            # lists are Amharic.
+            # Oromo: the word-aware decoder with the Oromo word list
+            # (orm_lm.json.gz); greedy when the list is missing or AMH_ORM_DECODE=greedy.
+            dec = None
+            if os.environ.get("AMH_ORM_DECODE", "lm") != "greedy":
+                try:
+                    from amh_decode import decode as _word_decode
+                    dec = _word_decode(logits, self.blank_id, self.glyphs, self._skip_ids, self._space_ids,
+                                       lang=self.lang, alpha=_ORM_ALPHA, gamma=_ORM_GAMMA)
+                except Exception:
+                    dec = None
+            if dec is not None:
+                toks, spans = dec
+                text = "".join(" " if t in self._space_ids else self.glyphs.get(t, "") for t in toks)
+                return " ".join(text.split()), _spans_with_conf(spans, logits), frame_dur
             argmax = np.argmax(logits[0], axis=-1).tolist()
             spans, _ = ctc_align(logits, self.blank_id, frame_dur, None)
             return self._decode(argmax), _spans_with_conf(spans, logits), frame_dur

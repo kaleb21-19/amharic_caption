@@ -74,9 +74,21 @@ class _WordLM:
         return alpha * max(0.0, self.logp(prev, w) - self.oov) + gamma
 
 
-def get_lm():
-    """The word LM (loaded once per process), or None if it is missing."""
+_LANG_LM = {}
+
+
+def get_lm(lang="amh"):
+    """The word LM (loaded once per process), or None if it is missing.
+    Afaan Oromo (1.10.20) uses its own list, orm_lm.json.gz."""
     global _LM
+    if lang != "amh":
+        if lang not in _LANG_LM:
+            path = os.path.join(os.path.dirname(os.path.abspath(__file__)), lang + "_lm.json.gz")
+            try:
+                _LANG_LM[lang] = _WordLM(path)
+            except Exception:
+                _LANG_LM[lang] = False
+        return _LANG_LM[lang] or None
     if _LM is None:
         path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "amh_lm.json.gz")
         try:
@@ -260,15 +272,16 @@ def keep_greedy_breaks(lp, toks, spans, blank, glyphs, space, lm):
     return out
 
 
-def decode(logits, blank, glyphs, skip_ids, space_ids):
+def decode(logits, blank, glyphs, skip_ids, space_ids, lang="amh", alpha=None, gamma=None):
     """(token ids, spans) for the word-aware decode, or None to use greedy."""
     if os.environ.get("AMH_DECODE", "lm") == "greedy":
         return None
-    lm = get_lm()
+    lm = get_lm(lang)
     if lm is None:
         return None
     lp = log_softmax(np.asarray(logits, dtype=np.float32)[0])
-    toks = beam_decode(lp, blank, glyphs, skip_ids, space_ids, lm)
+    toks = beam_decode(lp, blank, glyphs, skip_ids, space_ids, lm,
+                       alpha=ALPHA if alpha is None else alpha, gamma=GAMMA if gamma is None else gamma)
     spans = forced_align(lp, toks, blank)
     if spans is None:
         return None
