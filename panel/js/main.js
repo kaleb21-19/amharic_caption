@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.12.1';
+const APP_VERSION = '1.13.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3689,40 +3689,122 @@ function styleNote() {
   return LICENSED ? what : what + ' Free version: a small "Amharic Captions Pro" tag is added — a license removes it.';
 }
 function IS_APP_MODE() { return typeof window !== 'undefined' && !!window.__amhApp; }
+// ── My styles (1.13) ─────────────────────────────────────────────────────────
+// A customized look saved under a name ("My channel", "Client X"): its own
+// button in the strip, one click to use it again. Kept on this computer.
+const MY_MAX = 20;
+function myStyles() {
+  const l = loadSettings().myStyles;
+  if (!Array.isArray(l)) return [];
+  return l.filter((x) => x && typeof x.name === 'string' && x.name.trim() && STYLE_LIST.indexOf(x.style) > 0 && x.id)
+    .slice(0, MY_MAX);
+}
+function sameLook(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+function activeMyStyle() {
+  const cur = styleOpts(STYLE);
+  return myStyles().find((x) => x.style === STYLE && sameLook(styleOpts(null, x.opts), cur)) || null;
+}
+function saveMyStyle(name) {
+  name = String(name || '').replace(/\s+/g, ' ').trim().slice(0, 24);
+  if (!name || STYLE === 'plain') return false;
+  const list = myStyles().filter((x) => x.name.toLowerCase() !== name.toLowerCase());
+  if (list.length >= MY_MAX) list.shift();
+  list.push({ id: 'm' + Date.now().toString(36), name, style: STYLE, opts: styleOpts(STYLE) });
+  saveSettings({ myStyles: list });
+  renderStyleStrip();
+  const note = $('styleNote');
+  if (note) note.textContent = '★ ' + L('Saved as') + ' "' + name + '"';
+  return true;
+}
+function applyMyStyle(id) {
+  const m = myStyles().find((x) => x.id === id);
+  if (!m) return;
+  const all = loadSettings().styleOpts || {};
+  all[m.style] = styleOpts(null, m.opts);
+  STYLE = m.style;
+  saveSettings({ style: m.style, styleOpts: all });
+  renderStyleStrip();
+  schedulePreview();
+}
+function deleteMyStyle(id) {
+  saveSettings({ myStyles: myStyles().filter((x) => x.id !== id) });
+  renderStyleStrip();
+}
+function styleChip(id, label, img, onClick) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'style-chip';
+  b.title = label;
+  const pic = document.createElement('img');
+  pic.src = 'img/styles/' + img + '.jpg';
+  pic.alt = '';
+  const name = document.createElement('span');
+  name.textContent = label;
+  b.appendChild(pic);
+  b.appendChild(name);
+  b.addEventListener('click', onClick);
+  return b;
+}
 function renderStyleStrip() {
   const strip = $('styleStrip');
   const chips = $('styleChips');
   if (!strip || !chips) return;
   strip.style.display = STYLE_OK ? '' : 'none';
   if (!STYLE_OK) return;
-  if (!chips.children.length) {
-    STYLE_LIST.forEach((id) => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'style-chip';
-      b.dataset.style = id;
-      b.title = STYLE_NAMES[id];
-      const img = document.createElement('img');
-      img.src = 'img/styles/' + id + '.jpg';
-      img.alt = '';
-      const name = document.createElement('span');
-      name.textContent = STYLE_NAMES[id];
-      b.appendChild(img);
-      b.appendChild(name);
-      b.addEventListener('click', () => {
-        STYLE = id;
-        saveSettings({ style: id });
-        renderStyleStrip();
-        schedulePreview();
-      });
-      chips.appendChild(b);
-    });
+  const mine = activeMyStyle();
+  const list = myStyles();
+  // Rebuilt only when the saved looks change: rebuilding on every click
+  // would also jump the strip back to the start after scrolling to a style.
+  const sig = JSON.stringify(list.map((m) => [m.id, m.name, m.style, m.opts && m.opts.color]));
+  if (chips.dataset.sig === sig && chips.children.length) {
+    for (const b of Array.from(chips.children)) {
+      const on = b.dataset.my ? !!mine && mine.id === b.dataset.my : b.dataset.style === STYLE && !mine;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    const n0 = $('styleNote');
+    if (n0) n0.textContent = L(styleNote());
+    renderStyleCustom();
+    return;
   }
-  for (const b of Array.from(chips.children)) {
-    const on = b.dataset.style === STYLE;
+  chips.dataset.sig = sig;
+  chips.textContent = '';
+  const builtIn = (id) => {
+    const b = styleChip(id, STYLE_NAMES[id], id, () => {
+      STYLE = id;
+      saveSettings({ style: id });
+      renderStyleStrip();
+      schedulePreview();
+    });
+    b.dataset.style = id;
+    const on = id === STYLE && !mine;
     b.classList.toggle('active', on);
     b.setAttribute('aria-pressed', on ? 'true' : 'false');
-  }
+    chips.appendChild(b);
+  };
+  builtIn('plain');
+  list.forEach((m) => {
+    const b = styleChip(m.id, m.name, m.style, () => applyMyStyle(m.id));
+    b.classList.add('mine');
+    b.dataset.style = m.style;
+    b.dataset.my = m.id;
+    if (m.opts && m.opts.color) b.style.setProperty('--my-color', m.opts.color);
+    const on = !!mine && mine.id === m.id;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    const star = document.createElement('i');
+    star.className = 'my-star';
+    star.textContent = '★';
+    b.appendChild(star);
+    const del = document.createElement('i');
+    del.className = 'my-del';
+    del.textContent = '✕';
+    del.title = L('Delete');
+    del.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); deleteMyStyle(m.id); });
+    b.appendChild(del);
+    chips.appendChild(b);
+  });
+  STYLE_LIST.slice(1).forEach(builtIn);
   const note = $('styleNote');
   if (note) note.textContent = L(styleNote());
   renderStyleCustom();
@@ -3799,9 +3881,9 @@ let STYLE_FRAME = null;          // { width, height } of the sequence / video
 let PREVIEW_TIMER = null;
 let PREVIEW_SEQ = 0;
 const HEX_COLOR = /^#[0-9A-Fa-f]{6}$/;
-function styleOpts(style) {
-  const all = loadSettings().styleOpts || {};
-  const o = all[style || STYLE] || {};
+function styleOpts(style, raw) {
+  const all = raw ? null : (loadSettings().styleOpts || {});
+  const o = raw || all[style || STYLE] || {};
   return {
     color: HEX_COLOR.test(o.color || '') ? o.color.toUpperCase() : '',
     text: HEX_COLOR.test(o.text || '') ? o.text.toUpperCase() : '',
@@ -3941,12 +4023,31 @@ function renderStyleCustom() {
   segRow(opts, 'Position', [['bottom', L('Bottom')], ['middle', L('Middle')], ['top', L('Top')], ['safe', 'TikTok']], o.pos, 'pos');
   segRow(opts, 'Words', [[0, L('Auto')], [1, '1'], [2, '2'], [3, '3'], [4, '4'], [5, '5']], o.words, 'words');
   switchRow(opts, 'Box', o.box, 'box');
+  const foot = document.createElement('div');
+  foot.className = 'sc-foot';
   const reset = document.createElement('button');
   reset.type = 'button';
   reset.className = 'sc-reset';
   reset.textContent = '↺ ' + L('Reset');
   reset.addEventListener('click', resetStyleOpts);
-  opts.appendChild(reset);
+  foot.appendChild(reset);
+  const name = document.createElement('input');
+  name.type = 'text';
+  name.className = 'sc-name';
+  name.id = 'myStyleName';
+  name.maxLength = 24;
+  name.placeholder = L('Name, e.g. My channel');
+  const save = document.createElement('button');
+  save.type = 'button';
+  save.className = 'sc-save';
+  save.id = 'myStyleSave';
+  save.textContent = '★ ' + L('Save as My style');
+  const doSave = () => { if (saveMyStyle(name.value)) name.value = ''; else if (name.focus) name.focus(); };
+  save.addEventListener('click', doSave);
+  name.addEventListener('keydown', (e) => { if (e && e.key === 'Enter') { if (e.preventDefault) e.preventDefault(); doSave(); } });
+  foot.appendChild(name);
+  foot.appendChild(save);
+  opts.appendChild(foot);
 }
 // The preview picture as base64: the desktop app reads binary files through
 // its own bridge (its readFileSync is text-only).

@@ -231,7 +231,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.12.1');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.13.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -989,7 +989,7 @@ await t('4g. customize (1.12): colour, size, position, words, box remembered per
     // another style keeps its own look
     assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(styleOpts("neon"))')).size, 'm');
     // reset
-    const reset = Array.from(p.els('styleOpts').children).find((b) => b.className === 'sc-reset');
+    const reset = Array.from(p.els('styleOpts').children).find((b) => b.className === 'sc-foot').children.find((b) => b.className === 'sc-reset');
     reset.fire('click');
     assert.strictEqual(JSON.parse(storage.getItem('amh.settings')).styleOpts.bold, undefined, 'reset forgets the look');
     // a broken preview never blocks placing
@@ -997,6 +997,60 @@ await t('4g. customize (1.12): colour, size, position, words, box remembered per
     await p.evalVm('renderPreview()');
     has(p.els('stylePreviewNote').textContent, 'No preview');
   } finally { try { fs.unlinkSync(prev); } catch (e) {} p.close(); }
+});
+
+await t('4h. My styles (1.13): save a look under a name, one click to use it again, delete', async () => {
+  const storage = makeLocalStorage();
+  const p = loadPanel({ storage });
+  try {
+    await flush(10);
+    p.evalVm('STYLE_OK = true; renderPreview = async () => {}; saveSettings({ styleCustomOpen: true });');
+    p.evalVm('STYLE = "bold"; setStyleOpt("color", "#FF3B30"); setStyleOpt("size", "xl");');
+    p.evalVm('renderStyleStrip();');
+    const foot = Array.from(p.els('styleOpts').children).find((c) => c.className === 'sc-foot');
+    const nameBox = foot.children.find((c) => c.className === 'sc-name');
+    nameBox.value = '  Ethio   Channel  ';
+    foot.children.find((c) => c.className === 'sc-save').fire('click');
+    let saved = JSON.parse(storage.getItem('amh.settings')).myStyles;
+    assert.strictEqual(saved.length, 1);
+    assert.deepStrictEqual([saved[0].name, saved[0].style, saved[0].opts.color, saved[0].opts.size], ['Ethio Channel', 'bold', '#FF3B30', 'xl']);
+    const chips = () => Array.from(p.els('styleChips').children);
+    const mine = () => chips().filter((b) => b.dataset.my);
+    assert.strictEqual(chips()[0].dataset.style, 'plain', 'Plain first');
+    assert.strictEqual(chips()[1].dataset.my, saved[0].id, 'then My styles');
+    assert.strictEqual(chips().length, 17, 'Plain + 1 saved + 15 styles: ' + chips().map((b) => b.dataset.my ? 'MY' : b.dataset.style).join(','));
+    assert.ok(mine()[0].classList.contains('active'), 'the saved look is the one in use');
+    assert.ok(!chips().find((b) => b.dataset.style === 'bold' && !b.dataset.my).classList.contains('active'));
+    // change the look: the saved one is no longer "in use"; one click brings it back
+    p.evalVm('STYLE = "neon"; renderStyleStrip();');
+    p.evalVm('setStyleOpt("color", "#2F80ED");');
+    assert.ok(!mine()[0].classList.contains('active'));
+    mine()[0].fire('click');
+    assert.strictEqual(p.evalVm('STYLE'), 'bold');
+    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(styleOpts("bold"))')).color, '#FF3B30', 'the look comes back');
+    assert.ok(mine()[0].classList.contains('active'));
+    // same name again replaces; an empty name saves nothing; Plain cannot be saved
+    p.evalVm('setStyleOpt("size", "s"); saveMyStyle("ethio channel");');
+    saved = JSON.parse(storage.getItem('amh.settings')).myStyles;
+    assert.strictEqual(saved.length, 1, 'same name replaces');
+    assert.strictEqual(saved[0].opts.size, 's');
+    assert.strictEqual(p.evalVm('saveMyStyle("   ")'), false);
+    p.evalVm('STYLE = "plain";');
+    assert.strictEqual(p.evalVm('saveMyStyle("x")'), false);
+    // at most 20, the oldest goes
+    p.evalVm('STYLE = "pop"; for (let i = 0; i < 25; i++) saveMyStyle("Look " + i);');
+    saved = JSON.parse(storage.getItem('amh.settings')).myStyles;
+    assert.strictEqual(saved.length, 20);
+    assert.strictEqual(saved[19].name, 'Look 24');
+    // delete with the small x
+    const before = mine().length;
+    const x = mine()[0].children.find((c) => c.className === 'my-del');
+    x.fire('click', { stopPropagation() {} });
+    assert.strictEqual(mine().length, before - 1);
+    // bad stored data is ignored
+    storage.setItem('amh.settings', JSON.stringify({ myStyles: [{ id: 'z', name: '', style: 'bold' }, { id: 'y', name: 'X', style: 'nope' }, 7] }));
+    assert.strictEqual(p.evalVm('myStyles().length'), 0);
+  } finally { p.close(); }
 });
 
 await t('5. review: cache-hit transcribe -> edit -> export (speaker tags) -> nudge -> add -> discard', async () => {
