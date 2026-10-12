@@ -231,7 +231,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.12.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.12.1');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -971,13 +971,21 @@ await t('4g. customize (1.12): colour, size, position, words, box remembered per
     pick(2, 'xl');
     pick(3, 'safe');
     pick(4, '2');
-    pick(5, 'true');
+    rows[5].children[1].fire('click');                       // Box switch on
     await settle();
     const saved = JSON.parse(storage.getItem('amh.settings')).styleOpts.bold;
     assert.deepStrictEqual(saved, { color: '#FF3B30', text: '', size: 'xl', pos: 'safe', words: 2, box: true }, 'remembered for this style');
     j = last();
     assert.deepStrictEqual(j.opts, saved, 'the preview follows every change');
     assert.ok(Array.from(p.els('styleOpts').children[2].children[1].children).find((b) => b.dataset.value === 'xl').classList.contains('active'));
+    // any colour from the picker (brand colours)
+    const picker = Array.from(rows[0].children[1].children).find((x) => x.type === 'color');
+    picker.value = '#123abc';
+    picker.fire('change');
+    assert.strictEqual(JSON.parse(storage.getItem('amh.settings')).styleOpts.bold.color, '#123ABC', 'any colour is kept');
+    const own = Array.from(p.els('styleOpts').children[0].children[1].children).find((x) => x.dataset && x.dataset.value === '#123ABC');
+    assert.ok(own && own.classList.contains('active'), 'the picked colour shows as chosen');
+    p.evalVm('setStyleOpt("color", "#FF3B30")');
     // another style keeps its own look
     assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(styleOpts("neon"))')).size, 'm');
     // reset

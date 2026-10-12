@@ -134,6 +134,8 @@
   const fs = {
     existsSync: (p) => { try { return call('existsSync', [String(p)]); } catch (e) { return false; } },
     readFileSync: (p) => call('readFileSync', [String(p)]),
+    // binary pictures (the caption-style preview) come back as base64
+    readBase64: (p) => call('readBase64', [String(p)]),
     writeFileSync: (p, d, o) => { call('writeFileSync', [String(p), String(d), typeof o === 'string' ? { encoding: o } : (o || null)]); },
     unlinkSync: (p) => { call('unlinkSync', [String(p)]); },
     statSync: (p) => {
