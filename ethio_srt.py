@@ -936,22 +936,10 @@ def _drop_unsure_words(words, units):
     return out
 
 
-def _cap_word_ends(words):
-    """The last word before a silence (often the last of the video) used to
-    last until the next sound - up to the end of the file - so its caption
-    stayed on screen seconds after the person stopped talking."""
-    out = []
-    for w in words:
-        txt, ws, we = w[0], w[1], w[2]
-        most = ws + 0.3 + 0.12 * len(txt)
-        out.append((txt, ws, min(we, most)) + tuple(w[3:]))
-    return out
-
-
 def _make_cues_plain(mode, group_size, words, units, frame_dur, glyphs, max_chars):
     """Captions for a non-Amharic language: the same grouping, timing and
     doubt marks, none of the Amharic spelling / number / punctuation passes."""
-    words = _cap_word_ends(_drop_unsure_words(_split_glued_punct(words), units))
+    words = _drop_unsure_words(_split_glued_punct(words), units)
     if mode == "words":
         cues = group_word_cues(words, max_chars=max_chars)
     elif mode == "grouped" and group_size > 0:
@@ -1164,7 +1152,10 @@ def _plan_windows(wav, target):
     if n <= target:
         return [(0, n)]
     bounds = [0]
-    segs = _vad_segments(wav)  # [(start_s, end_s), ...] in original timeline
+    # Afaan Oromo: cut by sound level only. The speech detector's cuts fell
+    # inside sung or fast words on real Oromo videos ("oromoon" lost "or");
+    # the Oromo speaker who reviewed them preferred these.
+    segs = _vad_segments(wav) if _LANG == "amh" else []  # [(start_s, end_s), ...]
     if segs:
         cur = 0
         prev_end = 0
