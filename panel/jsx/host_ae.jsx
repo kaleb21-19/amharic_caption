@@ -320,11 +320,24 @@ function amh_placeOverlay(argsJSON) {
         if (!f.exists) { return amhErr("Styled caption file not found: " + args.path); }
         app.beginUndoGroup("Amharic styled captions");
         try {
+            // Placing again replaces our earlier styled layer for the same captions.
+            var removed = 0;
+            var pre = String(args.replacePrefix || "");
+            if (pre.length > 9 && pre.indexOf("amhstyle_") === 0) {
+                for (var i = comp.numLayers; i >= 1; i--) {
+                    var ly = comp.layer(i);
+                    var nm = "";
+                    try { nm = String(ly.source && ly.source.name || ""); } catch (e) {}
+                    if (nm.indexOf(pre) === 0) {
+                        try { ly.remove(); removed++; } catch (e) {}
+                    }
+                }
+            }
             var item = app.project.importFile(new ImportOptions(f));
             var layer = comp.layers.add(item);
             layer.startTime = Number(args.startSeconds || 0);
             layer.moveToBeginning();
-            return amhOk({ placed: true, track: 1, addedTrack: false, itemName: String(item.name) });
+            return amhOk({ placed: true, track: 1, addedTrack: false, replaced: removed, itemName: String(item.name) });
         } finally {
             app.endUndoGroup();
         }

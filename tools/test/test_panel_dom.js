@@ -231,7 +231,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.11.1');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.12.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -894,7 +894,9 @@ await t('4f. caption styles (1.11): strip, choice remembered, styled layer place
     assert.deepStrictEqual(job.cues, [['ሰላም እንዴት', 0.5, 1.2], ['ናችሁ', 1.3, 2.0]]);
     const ov = calls(/amh_placeOverlay\(/)[0];
     const args = JSON.parse(JSON.parse(/amh_placeOverlay\((.*)\)/.exec(ov)[1]));
-    assert.deepStrictEqual(args, { path: 'C:/caps/x_karaoke.mov', startSeconds: 12.75, duration: 2.35 }, 'placed at the clip start + the layer start');
+    assert.deepStrictEqual(args, { path: 'C:/caps/x_karaoke.mov', startSeconds: 12.75, duration: 2.35, replacePrefix: 'amhstyle_clip__' },
+      'placed at the clip start + the layer start; placing again replaces the earlier layer of these captions');
+    assert.deepStrictEqual(job.opts, { color: '', text: '', size: 'm', pos: 'bottom', words: 0, box: false }, 'default look');
     assert.strictEqual(calls(/amh_importCaptions\(/).length, 0, 'no plain caption track as well');
     assert.strictEqual(p.evalVm('reviewOpen'), false, 'done');
     has(p.els('logBox').textContent, 'Styled captions on track V3');
@@ -926,6 +928,67 @@ await t('4f. caption styles (1.11): strip, choice remembered, styled layer place
     assert.strictEqual(calls(/amh_importCaptions\(/).length, 3, 'no ffmpeg support -> plain');
     assert.strictEqual(calls(/amh_placeOverlay\(/).length, 2);
   } finally { p.close(); }
+});
+
+await t('4g. customize (1.12): colour, size, position, words, box remembered per style; live preview of these captions', async () => {
+  const storage = makeLocalStorage();
+  const p = loadPanel({ storage, csiRaw: (jsx) => /amharic_getFrame\(/.test(jsx)
+    ? JSON.stringify({ ok: true, width: 1080, height: 1920, fps: 25 }) : '{"ok":true}' });
+  const prev = path.join(os.tmpdir(), 'amh_test_preview_' + Date.now() + '.webp');
+  try {
+    await flush(10);
+    p.evalVm('STYLE_OK = true; LICENSED = true; globalThis.__prevJobs = [];');
+    const settle = () => new Promise((r) => setTimeout(r, 450));
+    p.evalVm('renderStyled = async (job) => { __prevJobs.push(job); require("fs").writeFileSync(' + JSON.stringify(prev) +
+      ', Buffer.from("RIFFxxxxWEBP")); return { ok: true, out: ' + JSON.stringify(prev) + ' }; };');
+    // Plain: no customize panel
+    p.evalVm('STYLE = "plain"; renderStyleStrip();');
+    assert.strictEqual(p.els('styleCustom').style.display, 'none');
+    assert.strictEqual(p.els('styleCustomToggle').style.display, 'none', 'no Customize for Plain');
+    // a style: the panel shows, the preview is made from these captions at the sequence size
+    p.evalVm('reviewTrialCharged = true; lastCues = [{start:0.5,end:1.2,text:"ሰላም እንዴት"},{start:1.3,end:2.0,text:"ናችሁ"}];');
+    p.evalVm('STYLE = "bold";');
+    await p.evalVm('openReview("x.srt", "clip", 0, {})');
+    await settle();
+    assert.strictEqual(p.els('styleCustom').style.display, 'none', 'closed until Customize is pressed');
+    assert.strictEqual(p.els('styleCustomToggle').style.display, '');
+    assert.strictEqual(p.evalVm('__prevJobs.length'), 0, 'no preview work while closed');
+    p.els('styleCustomToggle').fire('click');
+    await settle();
+    assert.strictEqual(p.els('styleCustom').style.display, '');
+    assert.strictEqual(JSON.parse(storage.getItem('amh.settings')).styleCustomOpen, true, 'open state remembered');
+    const last = () => JSON.parse(p.evalVm('JSON.stringify(__prevJobs[__prevJobs.length - 1])'));
+    assert.ok(p.evalVm('__prevJobs.length') >= 1, 'a preview was made when Customize opened');
+    let j = last();
+    assert.deepStrictEqual([j.mode, j.style, j.width, j.height], ['preview', 'bold', 1080, 1920]);
+    assert.deepStrictEqual(j.cues, [['ሰላም እንዴት', 0.5, 1.2], ['ናችሁ', 1.3, 2.0]]);
+    assert.ok(/^data:image\/webp;base64,/.test(p.els('stylePreview').src), 'the preview is shown as an image');
+    assert.ok(!fs.existsSync(prev), 'the preview file is cleaned up');
+    // pick: red highlight, XL, TikTok safe, 2 words, box
+    const rows = p.els('styleOpts').children;
+    const pick = (row, value) => Array.from(rows[row].children[1].children).find((b) => b.dataset.value === value).fire('click');
+    pick(0, '#FF3B30');
+    pick(2, 'xl');
+    pick(3, 'safe');
+    pick(4, '2');
+    pick(5, 'true');
+    await settle();
+    const saved = JSON.parse(storage.getItem('amh.settings')).styleOpts.bold;
+    assert.deepStrictEqual(saved, { color: '#FF3B30', text: '', size: 'xl', pos: 'safe', words: 2, box: true }, 'remembered for this style');
+    j = last();
+    assert.deepStrictEqual(j.opts, saved, 'the preview follows every change');
+    assert.ok(Array.from(p.els('styleOpts').children[2].children[1].children).find((b) => b.dataset.value === 'xl').classList.contains('active'));
+    // another style keeps its own look
+    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(styleOpts("neon"))')).size, 'm');
+    // reset
+    const reset = Array.from(p.els('styleOpts').children).find((b) => b.className === 'sc-reset');
+    reset.fire('click');
+    assert.strictEqual(JSON.parse(storage.getItem('amh.settings')).styleOpts.bold, undefined, 'reset forgets the look');
+    // a broken preview never blocks placing
+    p.evalVm('renderStyled = async () => { throw new Error("x"); };');
+    await p.evalVm('renderPreview()');
+    has(p.els('stylePreviewNote').textContent, 'No preview');
+  } finally { try { fs.unlinkSync(prev); } catch (e) {} p.close(); }
 });
 
 await t('5. review: cache-hit transcribe -> edit -> export (speaker tags) -> nudge -> add -> discard', async () => {

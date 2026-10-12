@@ -83,6 +83,27 @@ t0, dur, sw = A.plan([("ሰላም", 10.0, 10.5), ("ነህ", 12.0, 12.4)])
 check(abs(t0 - 9.75) < 1e-9 and abs(dur - (12.4 - 9.75 + 0.6)) < 1e-9 and abs(sw[0][1] - 0.25) < 1e-9,
       "overlay starts just before the first caption and ends just after the last")
 
+# customize options (1.12)
+t0 = A.build(W, "karaoke", 1080, 1920)
+check(A.build(W, "karaoke", 1080, 1920, opts={}) == t0 and A.build(W, "karaoke", 1080, 1920, opts=None) == t0,
+      "no options = exactly the style as before")
+t = A.build(W, "karaoke", 1080, 1920, opts={"color": "#FF3B30", "text": "#000000"})
+check("&H00303BFF" in t and A.YELLOW not in t and "&H00000000," in t, "highlight and text colours applied")
+sz = lambda tt: float([l for l in tt.splitlines() if l.startswith("Style:")][0].split(",")[2])
+check(abs(sz(A.build(W, "bold", 1080, 1920, opts={"size": "xl"})) / sz(A.build(W, "bold", 1080, 1920)) - 1.45) < 0.02, "size XL = 1.45x")
+st = lambda tt: [l for l in tt.splitlines() if l.startswith("Style:")][0].split(",")
+check(st(A.build(W, "pop", 1080, 1920, opts={"pos": "top"}))[18] == "8", "top position")
+check(st(A.build(W, "pop", 1080, 1920, opts={"pos": "middle"}))[18] == "5", "middle position")
+check(int(st(A.build(W, "pop", 1080, 1920, opts={"pos": "safe"}))[21]) >= 0.29 * 1920, "TikTok-safe keeps clear of the bottom 30%")
+check("\pos(540,960)" in A.build(W, "word", 1080, 1920, opts={"pos": "middle"}), "the one-word style moves too")
+ev = lambda tt: len([l for l in tt.splitlines() if l.startswith("Dialogue")])
+check(ev(A.build(W, "pop", 1080, 1920, opts={"words": 1})) == 5 and ev(A.build(W, "pop", 1080, 1920, opts={"words": 5})) == 2,
+      "words per line")
+check(st(A.build(W, "karaoke", 1080, 1920, opts={"box": True}))[15] == "3" and
+      st(A.build(W, "neon", 1080, 1920, opts={"box": True}))[15] == "1", "box on (not for styles that are their own box/glow)")
+o = A.options({"color": "red", "size": "huge", "pos": "left", "words": 9, "box": 1})
+check(o == {"color": None, "text": None, "size": "m", "pos": "bottom", "words": 0, "box": True}, "bad options fall back safely")
+
 # real drawing (needs an ffmpeg with libass; skipped otherwise)
 ff = os.environ.get("AMH_FFMPEG") or shutil.which("ffmpeg")
 if ff and A.supported(ff):
@@ -104,6 +125,10 @@ if ff and A.supported(ff):
         r2 = A.render({"cues": [("ሰላም", 0.5, 2.0)], "style": "bold", "width": 320, "height": 568, "mode": "burn",
                        "video": vid, "duration": 3, "out": os.path.join(tmp, "b.mp4"), "ffmpeg": ff, "fonts": fonts})
         check(os.path.getsize(r2["out"]) > 1000, "burn: the video with the captions drawn in")
+        r3 = A.render({"cues": [("ሰላም እንዴት ነህ", 0.5, 2.0)], "style": "bold", "opts": {"color": "#FF3B30", "size": "l"},
+                       "width": 1080, "height": 1920, "mode": "preview", "out": os.path.join(tmp, "p"), "ffmpeg": ff, "fonts": fonts})
+        check(r3["out"].endswith((".webp", ".gif")) and 200 < os.path.getsize(r3["out"]) < 400000,
+              "preview: a small animated picture (%s, %d bytes)" % (os.path.basename(r3["out"]), os.path.getsize(r3["out"])))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 else:

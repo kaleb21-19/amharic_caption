@@ -640,6 +640,30 @@ function amh_placeOverlay(argsJSON) {
         }
         if (!item) { return amhErr("The styled caption file was imported but could not be found in the bin."); }
 
+        // Placing again (after an edit) replaces: our earlier styled layer for
+        // the same captions (its file name starts with args.replacePrefix)
+        // in this time range is taken off the timeline first. Nothing else is
+        // ever touched.
+        var removed = 0;
+        var pre = String(args.replacePrefix || "");
+        if (pre.length > 9 && pre.indexOf("amhstyle_") === 0) {
+            var vts = seq.videoTracks;
+            for (var r = 0; r < vts.numTracks; r++) {
+                try {
+                    for (var k = vts[r].clips.numItems - 1; k >= 0; k--) {
+                        var cl = vts[r].clips[k];
+                        var nm = "";
+                        try { nm = String(cl.projectItem.name || ""); } catch (e) {}
+                        if (nm.indexOf(pre) !== 0) { continue; }
+                        var cs = Number(cl.start.seconds), ce = Number(cl.end.seconds);
+                        if (cs < end + 0.5 && ce > start - 0.5) {
+                            try { cl.remove(false, false); removed++; } catch (e) {}
+                        }
+                    }
+                } catch (e) {}
+            }
+        }
+
         var tracks = seq.videoTracks;
         var top = -1;
         for (var t = 0; t < tracks.numTracks; t++) {
@@ -665,7 +689,7 @@ function amh_placeOverlay(argsJSON) {
             return amhErr("No empty video track above your video. Add one video track (right-click the track headers > Add Track), then press Place again.");
         }
         tracks[target].overwriteClip(item, start);
-        return amhOk({ placed: true, track: target + 1, addedTrack: added, itemName: String(item.name) });
+        return amhOk({ placed: true, track: target + 1, addedTrack: added, replaced: removed, itemName: String(item.name) });
     });
 }
 

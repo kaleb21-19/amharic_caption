@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.11.1';
+const APP_VERSION = '1.12.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3031,6 +3031,8 @@ async function openReview(outSrt, label, startSeconds, opts) {
   renderReview();
   $('review').classList.add('show');
   fitReviewBoxes();   // heights can only be measured once the overlay shows
+  renderStyleStrip();
+  loadStyleFrame().then(schedulePreview, schedulePreview);
   if (!opts.live) log('Review your captions below — edit, then click "Place on timeline".');
   track('run_ok');
   return true;
@@ -3711,6 +3713,7 @@ function renderStyleStrip() {
         STYLE = id;
         saveSettings({ style: id });
         renderStyleStrip();
+        schedulePreview();
       });
       chips.appendChild(b);
     });
@@ -3722,6 +3725,7 @@ function renderStyleStrip() {
   }
   const note = $('styleNote');
   if (note) note.textContent = L(styleNote());
+  renderStyleCustom();
 }
 function styleCues(cues) {
   return (cues || []).filter((c) => (c.text || '').trim()).map((c) => [String(c.text).replace(/\s+/g, ' ').trim(), c.start, c.end]);
@@ -3771,13 +3775,166 @@ async function placeStyled(cues, label, startSeconds) {
   if (btn && btn.dataset.styleLabel === undefined) btn.dataset.styleLabel = btn.textContent;
   const show = (x) => { if (btn) btn.textContent = '⏳ ' + L('Styling captions…') + ' ' + Math.round(Math.max(0, Math.min(1, x)) * 100) + '%'; };
   show(0);
-  const out = path.join(ensureCaptionsDir(), safeFileName(label || 'captions') + '_' + STYLE + '_' + Date.now() + '.mov');
-  const r = await renderStyled({ cues: styleCues(cues), style: STYLE, width: fr.width, height: fr.height, fps: fr.fps,
-    out, mode: 'overlay', tag: !LICENSED }, show);
-  const args = escJson({ path: r.out, startSeconds: (startSeconds || 0) + (r.t0 || 0), duration: r.duration || 0 });
+  const prefix = 'amhstyle_' + safeFileName(label || 'captions') + '__';
+  const out = path.join(ensureCaptionsDir(), prefix + STYLE + '_' + Date.now() + '.mov');
+  const r = await renderStyled({ cues: styleCues(cues), style: STYLE, opts: styleOpts(STYLE), width: fr.width, height: fr.height,
+    fps: fr.fps, out, mode: 'overlay', tag: !LICENSED }, show);
+  const args = escJson({ path: r.out, startSeconds: (startSeconds || 0) + (r.t0 || 0), duration: r.duration || 0,
+    replacePrefix: prefix });
   const pl = await evalScript('amh_placeOverlay(' + escJson(args) + ')', 60000);
   if (!pl || !pl.ok || pl.placed !== true) throw new Error((pl && pl.error) || HOST_NAME + ' did not confirm the styled captions');
-  return { file: r.out, track: pl.track, addedTrack: pl.addedTrack };
+  return { file: r.out, track: pl.track, addedTrack: pl.addedTrack, replaced: pl.replaced || 0 };
+}
+
+// ── Customize + live preview (1.12) ──────────────────────────────────────────
+// Per style: highlight colour, text colour, size, position (incl. TikTok-safe),
+// words per line, box. Remembered per style. The preview is a few seconds of
+// THIS video's first captions, drawn by the same code that places them.
+const STYLE_COLORS = ['', '#FFE500', '#39FF14', '#FF3B30', '#2F80ED', '#FF2D95', '#FF9500', '#FFFFFF'];
+const TEXT_COLORS = ['', '#FFFFFF', '#000000', '#FFE500'];
+const STYLE_SIZES = ['s', 'm', 'l', 'xl'];
+const STYLE_POS = ['bottom', 'middle', 'top', 'safe'];
+const STYLE_WORDS = [0, 1, 2, 3, 4, 5];
+let STYLE_FRAME = null;          // { width, height } of the sequence / video
+let PREVIEW_TIMER = null;
+let PREVIEW_SEQ = 0;
+function styleOpts(style) {
+  const all = loadSettings().styleOpts || {};
+  const o = all[style || STYLE] || {};
+  return {
+    color: STYLE_COLORS.indexOf(o.color) > 0 ? o.color : '',
+    text: TEXT_COLORS.indexOf(o.text) > 0 ? o.text : '',
+    size: STYLE_SIZES.indexOf(o.size) >= 0 ? o.size : 'm',
+    pos: STYLE_POS.indexOf(o.pos) >= 0 ? o.pos : 'bottom',
+    words: STYLE_WORDS.indexOf(Number(o.words)) >= 0 ? Number(o.words) : 0,
+    box: !!o.box,
+  };
+}
+function setStyleOpt(key, value) {
+  const s = loadSettings();
+  const all = s.styleOpts || {};
+  const o = styleOpts(STYLE);
+  o[key] = value;
+  all[STYLE] = o;
+  saveSettings({ styleOpts: all });
+  renderStyleCustom();
+  schedulePreview();
+}
+function resetStyleOpts() {
+  const s = loadSettings();
+  const all = s.styleOpts || {};
+  delete all[STYLE];
+  saveSettings({ styleOpts: all });
+  renderStyleCustom();
+  schedulePreview();
+}
+function seg(parent, items, current, label, onPick) {
+  const row = document.createElement('div');
+  row.className = 'sc-row';
+  const l = document.createElement('span');
+  l.className = 'sc-label';
+  l.textContent = L(label);
+  row.appendChild(l);
+  const box = document.createElement('span');
+  box.className = 'sc-seg';
+  items.forEach(([value, text, swatch]) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'sc-opt' + (swatch !== undefined ? ' sc-swatch' : '');
+    b.classList.toggle('active', value === current);
+    b.setAttribute('aria-pressed', value === current ? 'true' : 'false');
+    if (swatch !== undefined) {
+      b.style.background = swatch || 'transparent';
+      b.title = text;
+      if (!swatch) b.textContent = 'A';
+    } else {
+      b.textContent = text;
+    }
+    b.dataset.value = String(value);
+    b.addEventListener('click', () => onPick(value));
+    box.appendChild(b);
+  });
+  row.appendChild(box);
+  parent.appendChild(row);
+}
+function renderStyleCustom() {
+  const wrap = $('styleCustom');
+  const opts = $('styleOpts');
+  if (!wrap || !opts) return;
+  const styled = STYLE_OK && STYLE !== 'plain';
+  const open = styled && loadSettings().styleCustomOpen === true;
+  const tog = $('styleCustomToggle');
+  if (tog) {
+    tog.style.display = styled ? '' : 'none';
+    tog.textContent = (open ? '▾ ' : '⚙ ') + L('Customize');
+    tog.classList.toggle('open', open);
+    if (!tog.dataset.wired) {
+      tog.dataset.wired = '1';
+      tog.addEventListener('click', () => {
+        saveSettings({ styleCustomOpen: loadSettings().styleCustomOpen !== true });
+        renderStyleCustom();
+        schedulePreview();
+      });
+    }
+  }
+  wrap.style.display = open ? '' : 'none';
+  if (!open) return;
+  const o = styleOpts(STYLE);
+  opts.textContent = '';
+  seg(opts, STYLE_COLORS.map((c) => [c, c ? c : L('Style colour'), c]), o.color, 'Colour', (v) => setStyleOpt('color', v));
+  seg(opts, TEXT_COLORS.map((c) => [c, c ? c : L('Style colour'), c]), o.text, 'Text', (v) => setStyleOpt('text', v));
+  seg(opts, [['s', 'S'], ['m', 'M'], ['l', 'L'], ['xl', 'XL']], o.size, 'Size', (v) => setStyleOpt('size', v));
+  seg(opts, [['bottom', L('Bottom')], ['middle', L('Middle')], ['top', L('Top')], ['safe', 'TikTok']], o.pos,
+    'Position', (v) => setStyleOpt('pos', v));
+  seg(opts, [[0, L('Auto')], [1, '1'], [2, '2'], [3, '3'], [4, '4'], [5, '5']], o.words, 'Words', (v) => setStyleOpt('words', v));
+  seg(opts, [[false, L('Off')], [true, L('On')]], o.box, 'Box', (v) => setStyleOpt('box', v));
+  const reset = document.createElement('button');
+  reset.type = 'button';
+  reset.className = 'sc-reset';
+  reset.textContent = L('Reset');
+  reset.addEventListener('click', resetStyleOpts);
+  opts.appendChild(reset);
+}
+function previewFrame() {
+  if (STYLE_FRAME && STYLE_FRAME.width && STYLE_FRAME.height) return STYLE_FRAME;
+  return FORMAT === 'v' ? { width: 1080, height: 1920 } : { width: 1920, height: 1080 };
+}
+// Asked once per review (the sequence can change between reviews).
+async function loadStyleFrame() {
+  STYLE_FRAME = null;
+  if (IS_APP_MODE() || !STYLE_OK) return;
+  try {
+    const fr = await evalScript('amharic_getFrame()');
+    if (fr && fr.ok && fr.width > 0 && fr.height > 0) STYLE_FRAME = { width: fr.width, height: fr.height };
+  } catch (e) {}
+}
+function schedulePreview() {
+  if (PREVIEW_TIMER) clearTimeout(PREVIEW_TIMER);
+  PREVIEW_TIMER = setTimeout(renderPreview, 300);
+}
+async function renderPreview() {
+  PREVIEW_TIMER = null;
+  const img = $('stylePreview');
+  const note = $('stylePreviewNote');
+  if (!img || !STYLE_OK || STYLE === 'plain' || !reviewOpen || loadSettings().styleCustomOpen !== true) return;
+  const cues = styleCues(reviewCues);
+  if (!cues.length) return;
+  const seq = ++PREVIEW_SEQ;
+  if (note) { note.textContent = L('Making the preview…'); note.style.display = ''; }
+  const fr = previewFrame();
+  try {
+    const r = await renderStyled({ cues, style: STYLE, opts: styleOpts(STYLE), width: fr.width, height: fr.height,
+      mode: 'preview', out: path.join(os.tmpdir(), 'amh_style_preview_' + Date.now()), tag: !LICENSED });
+    if (seq !== PREVIEW_SEQ) return;              // a newer preview is on its way
+    const bytes = fs.readFileSync(r.out);
+    try { fs.unlinkSync(r.out); } catch (e) {}
+    img.src = 'data:image/' + (/\.gif$/i.test(r.out) ? 'gif' : 'webp') + ';base64,' + bytes.toString('base64');
+    img.style.display = '';
+    if (note) note.style.display = 'none';
+  } catch (e) {
+    if (seq !== PREVIEW_SEQ) return;
+    if (note) { note.textContent = L('No preview — the captions are still placed in this style.'); note.style.display = ''; }
+  }
 }
 
 async function placeReview() {
@@ -3807,7 +3964,8 @@ async function placeReview() {
       log('Placing your captions in the "' + STYLE_NAMES[STYLE] + '" style (' + reviewCues.length + ')…');
       try {
         const st = await placeStyled(reviewCues, REVIEW.label || 'captions', REVIEW.startSeconds);
-        log('✓ Styled captions on track V' + st.track + (st.addedTrack ? ' (a new track)' : '') + ': ' + st.file);
+        log('✓ Styled captions on track V' + st.track + (st.addedTrack ? ' (a new track)' : '') +
+          (st.replaced ? ' — replaced the earlier styled captions' : '') + ': ' + st.file);
         if (!LICENSED) log('Free version: a small "Amharic Captions Pro" tag is in the corner — a license removes it.');
         setSuccess('✓ Styled captions on timeline');
         track('placed');
