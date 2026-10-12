@@ -31,6 +31,7 @@ Pure stdlib. Usage (tests / tools):
   python amh_styles.py words.json style out.ass WIDTH HEIGHT
 """
 import json
+import os
 import re
 import sys
 
@@ -351,7 +352,110 @@ def _smooth_fades(lines):
     return out
 
 
+TAG_TEXT = "Amharic Captions Pro"
+
+
+def _tag_line(width, height, start, end):
+    """The free version's small tag in the top corner (paid: none)."""
+    size = max(12, round(min(width, height) * 0.028))
+    return ("Dialogue: 5,%s,%s,S,,0,0,0,,{\\an9\\pos(%d,%d)\\fs%d\\bord%.1f\\shad0\\1c&H00FFFFFF&\\3c&H00000000&"
+            "\\alpha&H30&\\fn%s}%s") % (_ts(start), _ts(end), width - round(width * 0.03), round(height * 0.03),
+                                       size, size * 0.08, FONT, TAG_TEXT)
+
+
+def plan(cues):
+    """(t0, duration, words shifted to t0): the overlay covers only the
+    captions (from a moment before the first to a moment after the last)."""
+    words = words_from_cues(cues)
+    if not words:
+        return 0.0, 0.0, []
+    t0 = max(0.0, words[0][1] - 0.25)
+    dur = words[-1][2] - t0 + 0.6
+    return t0, dur, [(w[0], w[1] - t0, w[2] - t0) for w in words]
+
+
+def render(job, progress=None):
+    """Render styled captions with ffmpeg. job: {cues, style, width, height,
+    fps, out, ffmpeg, fonts, mode: "overlay" | "burn", video, tag}.
+    overlay: a transparent QuickTime Animation .mov covering the captions only;
+    returns {t0, duration}. burn: the video with the captions drawn in (MP4).
+    The ASS script and the fonts sit in a temp folder that ffmpeg runs in, so
+    no Windows path ever has to be escaped inside the filter."""
+    import shutil
+    import subprocess
+    import tempfile
+    style, mode = job["style"], job.get("mode", "overlay")
+    w, h = int(job["width"]), int(job["height"])
+    fps = float(job.get("fps") or 30)
+    if mode == "burn":
+        t0, words = 0.0, words_from_cues(job["cues"])
+        dur = float(job.get("duration") or (words[-1][2] if words else 0))
+    else:
+        t0, dur, words = plan(job["cues"])
+    if not words:
+        raise ValueError("no captions to style")
+    script = build(words, style, w, h)
+    if job.get("tag"):
+        script += _tag_line(w, h, 0, dur) + "\n"
+    tmp = tempfile.mkdtemp(prefix="amh_style_")
+    try:
+        with open(os.path.join(tmp, "c.ass"), "w", encoding="utf-8") as f:
+            f.write(script)
+        os.makedirs(os.path.join(tmp, "fonts"))
+        for name in os.listdir(job["fonts"]):
+            if name.lower().endswith((".ttf", ".otf")):
+                shutil.copy(os.path.join(job["fonts"], name), os.path.join(tmp, "fonts", name))
+        out = os.path.abspath(job["out"])
+        if mode == "burn":
+            cmd = [job["ffmpeg"], "-y", "-v", "error", "-i", os.path.abspath(job["video"]),
+                   "-vf", "subtitles=c.ass:fontsdir=fonts", "-c:v", "libx264", "-preset", "veryfast",
+                   "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart"]
+        else:
+            cmd = [job["ffmpeg"], "-y", "-v", "error", "-f", "lavfi",
+                   "-i", "color=c=black@0.0:s=%dx%d:r=%s:d=%.3f,format=rgba" % (w, h, ("%.5f" % fps).rstrip("0").rstrip("."), dur),
+                   "-vf", "subtitles=c.ass:fontsdir=fonts:alpha=1", "-c:v", "qtrle", "-pix_fmt", "argb"]
+        cmd += ["-progress", "pipe:1", "-nostats", out]
+        proc = subprocess.Popen(cmd, cwd=tmp, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                universal_newlines=True, encoding="utf-8", errors="replace")
+        for line in proc.stdout:
+            if line.startswith("out_time_us=") and progress and dur > 0:
+                try:
+                    progress(min(0.99, int(line.split("=")[1]) / 1e6 / dur))
+                except ValueError:
+                    pass
+        err = proc.stderr.read()
+        if proc.wait() != 0 or not os.path.exists(out):
+            raise RuntimeError("ffmpeg could not draw the styled captions: " + err.strip()[-300:])
+        return {"t0": round(t0, 3), "duration": round(dur, 3), "out": out}
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def supported(ffmpeg):
+    """True when this ffmpeg can draw ASS captions (libass)."""
+    import subprocess
+    try:
+        out = subprocess.run([ffmpeg, "-hide_banner", "-filters"], capture_output=True, timeout=20,
+                             universal_newlines=True, encoding="utf-8", errors="replace").stdout
+        return " subtitles " in out
+    except Exception:
+        return False
+
+
 if __name__ == "__main__":
+    # python amh_styles.py render job.json  -> "[style] <0..1>" lines, then one JSON line
+    if len(sys.argv) == 3 and sys.argv[1] == "render":
+        try:
+            job = json.load(open(sys.argv[2], encoding="utf-8"))
+            res = render(job, lambda x: print("[style] %.3f" % x, flush=True))
+            print(json.dumps(dict(res, ok=True)), flush=True)
+            sys.exit(0)
+        except Exception as e:
+            print(json.dumps({"ok": False, "error": str(e)}), flush=True)
+            sys.exit(1)
+    if len(sys.argv) == 3 and sys.argv[1] == "supported":
+        print(json.dumps({"ok": supported(sys.argv[2])}))
+        sys.exit(0)
     if len(sys.argv) == 6:
         ws = [tuple(w) for w in json.load(open(sys.argv[1], encoding="utf-8"))]
         with open(sys.argv[3], "w", encoding="utf-8") as f:
