@@ -216,7 +216,7 @@
     done.innerHTML =
       '<div class="app-done-head">✅ ' + tx('ካፕሽኑ ተቀምጧል', 'Captions saved') + ' · ' + n + '</div>' +
       '<div class="app-done-file"></div>' +
-      (styledVideo ? '<div class="app-done-video">🎬 <span class="app-done-vname"></span> ' +
+      (styledVideo ? '<div class="app-done-video"><div class="app-done-vline">🎬 <span class="app-done-vname"></span></div>' +
         '<button class="btn btn-primary" id="appRevealVideo">' + tx('ቪዲዮውን አሳይ', 'Show the video') + '</button></div>' : '') +
       '<div class="app-done-actions">' +
       '<button class="btn btn-neutral" id="appReveal">📂 ' + tx('ፎልደሩን ክፈት', 'Show in folder') + '</button>' +
