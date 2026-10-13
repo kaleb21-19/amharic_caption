@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.13.0';
+const APP_VERSION = '1.14.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3877,6 +3877,8 @@ const TEXT_COLORS = ['', '#FFFFFF', '#000000', '#FFE500'];
 const STYLE_SIZES = ['s', 'm', 'l', 'xl'];
 const STYLE_POS = ['bottom', 'middle', 'top', 'safe'];
 const STYLE_WORDS = [0, 1, 2, 3, 4, 5];
+// The Amharic fonts in runtime/fonts (amh_styles.FONTS ids), all OFL.
+const STYLE_FONTS = [['sans', 'Modern'], ['menbere', 'Rounded'], ['serif', 'Classic'], ['abyssinica', 'Traditional']];
 let STYLE_FRAME = null;          // { width, height } of the sequence / video
 let PREVIEW_TIMER = null;
 let PREVIEW_SEQ = 0;
@@ -3891,6 +3893,7 @@ function styleOpts(style, raw) {
     pos: STYLE_POS.indexOf(o.pos) >= 0 ? o.pos : 'bottom',
     words: STYLE_WORDS.indexOf(Number(o.words)) >= 0 ? Number(o.words) : 0,
     box: !!o.box,
+    font: STYLE_FONTS.some((f) => f[0] === o.font) ? o.font : 'sans',
   };
 }
 function setStyleOpt(key, value) {
@@ -4019,6 +4022,7 @@ function renderStyleCustom() {
   opts.textContent = '';
   colorRow(opts, 'Colour', STYLE_COLORS, o.color, 'color');
   colorRow(opts, 'Text', TEXT_COLORS, o.text, 'text');
+  segRow(opts, 'Font', STYLE_FONTS.map(([id, name]) => [id, L(name)]), o.font, 'font');
   segRow(opts, 'Size', [['s', 'S'], ['m', 'M'], ['l', 'L'], ['xl', 'XL']], o.size, 'size');
   segRow(opts, 'Position', [['bottom', L('Bottom')], ['middle', L('Middle')], ['top', L('Top')], ['safe', 'TikTok']], o.pos, 'pos');
   segRow(opts, 'Words', [[0, L('Auto')], [1, '1'], [2, '2'], [3, '3'], [4, '4'], [5, '5']], o.words, 'words');
@@ -5459,8 +5463,9 @@ function setup() {
     log('Model page: https://huggingface.co/snapwre/hohe-asr-amharic');
     log('Converted to CTranslate2 int8 for offline CPU inference; no other changes.');
     log('');
-    log('Caption styles font: Noto Sans Ethiopic, SIL Open Font License 1.1');
-    log('(https://github.com/notofonts/ethiopic).');
+    log('Caption styles fonts, all SIL Open Font License 1.1:');
+    log('Noto Sans Ethiopic and Noto Serif Ethiopic (https://github.com/notofonts/ethiopic),');
+    log('Menbere (https://github.com/SorkinType/Menbere), Abyssinica SIL (https://software.sil.org/abyssinica/).');
     log('');
     log('Voice activity detection: Silero VAD (https://github.com/snakers4/silero-vad).');
     log('License: MIT.');
