@@ -147,6 +147,8 @@ const AM_TEXT = {
   // failure messages shown under Generate (main.js humanError)
   'That clip is too short to transcribe.': 'ክሊፑ ወደ ጽሑፍ ለመቀየር በጣም አጭር ነው።',
   'No speech found in that audio.': 'በድምፁ ውስጥ ንግግር አልተገኘም።',
+  'This clip has no sound. Select the clip with the voice (usually on an audio track, A1), then try again.':
+    'ይህ ክሊፕ ድምፅ የለውም። ድምፁ ያለበትን ክሊፕ ይምረጡ (ብዙ ጊዜ በኦዲዮ ትራክ ላይ፣ A1)፣ ከዚያ እንደገና ይሞክሩ።',
   'No transcribable clips in that range.': 'በዚህ ክፍል ውስጥ ወደ ጽሑፍ የሚቀየር ክሊፕ የለም።',
   'These clips have a speed change or play in reverse, so captions cannot follow them. Set the speed to 100% (right-click › Speed/Duration), or export the audio and caption that file.':
     'የእነዚህ ክሊፖች ፍጥነት ተቀይሯል ወይም ወደ ኋላ ይጫወታሉ፤ ካፕሽኑ ሊከተላቸው አይችልም። ፍጥነቱን 100% ያድርጉ (Right-click › Speed/Duration)፣ ወይም ድምፁን Export አድርገው ያንን ፋይል ካፕሽን ያድርጉ።',

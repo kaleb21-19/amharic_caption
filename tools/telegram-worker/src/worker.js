@@ -5018,12 +5018,12 @@ const EVENT_NAMES = new Set([
   'run_click', 'blocked_model', 'blocked_trial', 'blocked_runtime', 'run_ok', 'placed',
   'buy_click', 'activate_ok', 'activate_fail', 'trial_link',
   'err_av_blocked', 'err_too_short', 'err_no_speech', 'err_no_clips', 'err_no_clip', 'err_no_media',
-  'err_media_unreadable', 'err_disk_full', 'err_engine', 'err_runtime', 'err_license', 'err_other',
+  'err_media_unreadable', 'err_no_audio', 'err_disk_full', 'err_engine', 'err_runtime', 'err_license', 'err_other',
   'err_memory', 'err_engine_hang', 'report_sent', 'feedback_sent',
 ]);
 const ERROR_LABELS = {
   err_no_clip: 'no clip selected', err_no_clips: 'no clips in range', err_no_media: 'item has no media file',
-  err_media_unreadable: 'media file unreadable', err_no_speech: 'no speech found', err_too_short: 'clip too short',
+  err_media_unreadable: 'media file unreadable', err_no_audio: 'clip has no sound', err_no_speech: 'no speech found', err_too_short: 'clip too short',
   err_engine: 'engine stopped', err_runtime: 'runtime missing', err_av_blocked: 'antivirus / Windows blocked',
   err_memory: 'out of memory', err_engine_hang: 'engine stopped responding',
   err_disk_full: 'disk full', err_license: 'no license / free captions used up', err_other: 'other',

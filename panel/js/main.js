@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.16.1';
+const APP_VERSION = '1.16.2';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -379,6 +379,8 @@ function noteEngineLine(line) {
   if (WORKER_TAIL.length > 40) WORKER_TAIL.shift();
 }
 const MEMORY_RE = /memoryerror|bad_alloc|out of memory|not enough memory|cannot allocate|insufficient memory|paging file is too small/i;
+// ffmpeg found no sound in the file (a stock video without audio)
+const NO_AUDIO_RE = /does not contain any stream|matches no streams|no audio stream|contains no audio/i;
 const BLOCKED_RE = /access is denied|permissionerror|\[winerror 5\]|operation not permitted|winerror 225|virus/i;
 function errorStep(raw) {
   const t = String(raw || '').toLowerCase();
@@ -392,6 +394,7 @@ function errorStep(raw) {
   if (t.includes('audio-bearing')) return 'err_no_clips';
   if (t.includes('no clip found') || t.includes('no selected clip') || t.includes('select a clip')) return 'err_no_clip';
   if (t.includes('source path') || t.includes('no media file')) return 'err_no_media';
+  if (NO_AUDIO_RE.test(t)) return 'err_no_audio';
   if (t.includes('ffmpeg')) return 'err_media_unreadable';
   if (t.includes('enospc') || t.includes('no space')) return 'err_disk_full';
   if (t.includes('license required') || t.includes('trial used up') || t.includes('needs internet')) return 'err_license';
@@ -4731,6 +4734,9 @@ function humanError(raw) {
   }
   if (t.includes('source path') || t.includes('no media file')) {
     return 'That item has no media file — try a regular video or audio clip.';
+  }
+  if (NO_AUDIO_RE.test(t)) {
+    return 'This clip has no sound. Select the clip with the voice (usually on an audio track, A1), then try again.';
   }
   if (t.includes('ffmpeg')) return 'Could not read that media file.';
   if (t.includes('enospc') || t.includes('no space')) return 'Your disk is full.';
