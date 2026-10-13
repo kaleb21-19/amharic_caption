@@ -381,6 +381,7 @@
     position: fixed; inset: 0; z-index: 110;
     display: none; flex-direction: column;
     background: var(--bg-panel); padding: 12px 14px;
+    overflow-y: auto;   /* last resort on a very short panel: everything scrolls */
   }
   #review.show { display: flex; }
   .review-head { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; flex-wrap: wrap; row-gap: 6px; }
@@ -390,7 +391,7 @@
   .review-actions .btn { width: auto; padding: 4px 9px; font-size: var(--font-s); }
   .review-count { margin-left: auto; font-size: var(--font-s); color: var(--text-secondary); white-space: nowrap; }
   #reviewList {
-    flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px;
+    flex: 1 1 120px; min-height: 72px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px;
     border: 1px solid var(--border); border-radius: var(--radius);
     background: var(--bg-elev); padding: 6px;
   }
@@ -512,12 +513,28 @@
   .style-chip img { width: 100%; height: 41px; object-fit: cover; border-radius: 3px; display: block; }
   .style-chip:hover { border-color: var(--accent-hover); }
   .style-chip.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; color: var(--text-primary); font-weight: 700; }
-  .style-custom { margin-top: 8px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-elev); }
+  /* On a small screen Customize scrolls inside its own box (the preview stays
+     pinned on top): the captions and Place on timeline always stay in view. */
+  .style-custom { max-height: calc(100vh - 340px); min-height: 150px; overflow-y: auto; margin-top: 8px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-elev); }
   .sc-stage { position: relative; display: flex; align-items: center; justify-content: center; min-height: 46px; margin-bottom: 8px;
     border-radius: 6px; overflow: hidden; background: radial-gradient(120% 90% at 30% 20%, #253244 0%, #0b1110 70%); }
   .sc-stage img { display: block; width: 100%; max-height: 120px; object-fit: contain; }
   .sc-pnote { position: absolute; inset: auto 0 8px 0; text-align: center; font-size: 10px; color: var(--text-secondary); }
   .sc-opts { display: flex; flex-direction: column; gap: 7px; }
+  .sc-stage { position: sticky; top: -8px; z-index: 1; }
+  /* very short screens (small laptops, a short panel): everything a bit tighter */
+  @media (max-height: 520px) {
+    #review { padding: 8px 10px; }
+    .review-head { margin-bottom: 6px; }
+    #reviewList { min-height: 56px; }
+    .style-chip img { height: 30px; }
+    .style-custom { max-height: calc(100vh - 270px); min-height: 110px; }
+    .sc-stage img { max-height: 64px; }
+    .review-foot { margin-top: 6px; }
+  }
+  .style-custom::-webkit-scrollbar, #reviewList::-webkit-scrollbar, #review::-webkit-scrollbar { width: 6px; }
+  .style-custom::-webkit-scrollbar-track, #reviewList::-webkit-scrollbar-track, #review::-webkit-scrollbar-track { background: transparent; }
+  .style-custom::-webkit-scrollbar-thumb, #reviewList::-webkit-scrollbar-thumb, #review::-webkit-scrollbar-thumb { background: #2d3a33; border-radius: 4px; }
   .sc-row { display: flex; align-items: center; gap: 8px; min-height: 22px; }
   .sc-label { flex: 0 0 56px; font-size: 9.5px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .05em; }
   .sc-swatches { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
