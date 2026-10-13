@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.15.0';
+const APP_VERSION = '1.16.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3653,10 +3653,12 @@ function writeReviewSrt(outDir) {
 // above the footage. If anything fails, the plain captions are placed
 // instead, so the editor never ends up with nothing. The strip only shows
 // when this computer's ffmpeg can draw them (libass).
-const STYLE_LIST = ['plain', 'karaoke', 'fill', 'highlight', 'bold', 'podcast', 'reveal', 'typewriter',
+const STYLE_LIST = ['plain', 'glide', 'spotlight', 'bounce', 'karaoke', 'fill', 'highlight', 'bold', 'podcast', 'reveal', 'typewriter',
   'pop', 'word', 'impact', 'neon', 'retro', 'habesha', 'cinema', 'clean'];
+// the newest looks get a small NEW mark on their button
+const STYLE_NEW = ['glide', 'spotlight', 'bounce'];
 const STYLE_NAMES = {
-  plain: 'Plain', karaoke: 'Karaoke', fill: 'Fill', highlight: 'Highlight', bold: 'Bold', podcast: 'Podcast',
+  plain: 'Plain', glide: 'Glide', spotlight: 'Spotlight', bounce: 'Bounce', karaoke: 'Karaoke', fill: 'Fill', highlight: 'Highlight', bold: 'Bold', podcast: 'Podcast',
   reveal: 'Reveal', typewriter: 'Typewriter', pop: 'Pop', word: 'Word', impact: 'Impact', neon: 'Neon',
   retro: 'Retro', habesha: 'Habesha', cinema: 'Cinema', clean: 'Clean',
 };
@@ -3780,6 +3782,12 @@ function renderStyleStrip() {
       schedulePreview();
     });
     b.dataset.style = id;
+    if (STYLE_NEW.indexOf(id) >= 0) {
+      const tag = document.createElement('i');
+      tag.className = 'style-new';
+      tag.textContent = L('NEW');
+      b.appendChild(tag);
+    }
     const on = id === STYLE && !mine;
     b.classList.toggle('active', on);
     b.setAttribute('aria-pressed', on ? 'true' : 'false');

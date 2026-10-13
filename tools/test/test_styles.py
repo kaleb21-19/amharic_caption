@@ -115,13 +115,37 @@ for st in A.STYLES:
         t = A.build(W, st, 1080, 1920, opts={"anim": an})
         ev_lines = [l for l in t.splitlines() if l.startswith("Dialogue")]
         ok = not any(c in t for c in (chr(2), chr(3), chr(4))) and all(l.count("{") == l.count("}") for l in ev_lines)
-        if an == "auto":
+        if an == "auto" and st not in A.SELF_PLACED:
             ok = ok and "\\org(" not in t
         if an in ("slide", "drop"):
             ok = ok and "\\org(" in t and "\\frz0" in t
         if an == "none":
             ok = ok and "\\t(" not in ev_lines[0].split("}")[0]
         check(ok, "%s + %s animation: clean script" % (st, an))
+# modern styles (1.16): every word placed by us from the font metrics
+m = A._metrics()
+check(all("%s|1" % fam in m and "%s|0" % fam in m for fam in A.FONTS.values()), "letter widths shipped for every font")
+check(abs(A._text_w(" ", "Noto Sans Ethiopic", 100) - 19.10) < 0.05 and A._text_w("ሰላም", "Noto Sans Ethiopic", 100) > 100,
+      "widths in pixels (font units / (winAscent + winDescent))")
+for pos in ("bottom", "middle", "top", "safe"):
+    for (w, h) in ((1080, 1920), (1920, 1080)):
+        for st in A.SELF_PLACED:
+            t = A.build(W, st, w, h, opts={"pos": pos, "size": "xl", "words": 5})
+            xy = [(int(a), int(b)) for a, b in re.findall(r"\\pos\((\d+),(\d+)\)", t)]
+            ok = bool(xy) and all(0 < x < w and 0 < y < h for x, y in xy)
+            if pos == "safe" and h > w:
+                ok = ok and max(y for _, y in xy) < h * 0.72
+            if pos == "top":
+                ok = ok and max(y for _, y in xy) < h * 0.5
+            check(ok, "%s %s %dx%d: every word inside the frame" % (st, pos, w, h))
+long = [("ኢትዮጵያውያንንናንንናንንንን", 0.0, 1.0)]
+t = A.build(long, "glide", 1080, 1920, opts={"size": "xl"})
+size = float([l for l in t.splitlines() if l.startswith("Style: S,")][0].split(",")[2])
+check(A._text_w(long[0][0], "Noto Sans Ethiopic", size) <= 1080 * 0.86 + 1, "a very long word still fits: the text gets smaller")
+t = A.build(W, "glide", 1080, 1920, opts={"color": "#FF3B30"})
+check("&H00303BFF" in t and A.VIOLET not in t, "the colour option paints the glide pill")
+t = A.build(W, "spotlight", 1080, 1920, opts={"color": "#FF3B30"})
+check("&H00303BFF" in t and A.SPOT not in t, "the colour option tints the spoken word in spotlight")
 FONT_FILES = {"sans": "NotoSansEthiopic", "menbere": "Menbere", "serif": "NotoSerifEthiopic", "abyssinica": "AbyssinicaSIL"}
 shipped = os.listdir(os.path.join(REPO, "tools", "fonts"))
 check(set(FONT_FILES) == set(A.FONTS) and all(FONT_FILES[f] + "-Regular.ttf" in shipped for f in A.FONTS),
@@ -180,6 +204,61 @@ if ff and A.supported(ff):
         check(up and down and abs(up[-1] - base[-1]) < 0.05 and abs(down[-1] - base[-1]) < 0.05, "slide up / down end where the style puts the text")
         check(all(b <= a + 0.1 for a, b in zip(up, up[1:])) and up[0] - up[-1] >= 4, "slide up only rises, no jump (%s)" % up[:12])
         check(all(b >= a - 0.1 for a, b in zip(down, down[1:])) and down[-1] - down[0] >= 4, "slide down only falls, no jump (%s)" % down[:12])
+        # modern styles: words placed by us land exactly where libass would
+        # put them in one line (same letters, same pixels)
+        def alpha(script, w_, h_, at="0.5"):
+            d = tempfile.mkdtemp()
+            shutil.copytree(fonts, os.path.join(d, "fonts"))
+            with open(os.path.join(d, "c.ass"), "w", encoding="utf-8") as fh:
+                fh.write(script + "\n")
+            raw = subprocess.run([ff, "-v", "error", "-f", "lavfi", "-i", "color=c=black@0:s=%dx%d:d=2:r=50,format=rgba" % (w_, h_),
+                                  "-vf", "subtitles=c.ass:fontsdir=fonts:alpha=1,alphaextract", "-ss", at, "-frames:v", "1",
+                                  "-f", "rawvideo", "-pix_fmt", "gray", "-"], capture_output=True, cwd=d).stdout
+            shutil.rmtree(d, ignore_errors=True)
+            return raw
+        phrase = ["ሰላም", "እንዴት", "ናችሁ"]
+        for fam in A.FONTS.values():
+            sty = "Style: S,%s,90,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1" % fam
+            one = A._header(800, 300, sty) + "Dialogue: 0,0:00:00.00,0:00:01.00,S,,0,0,0,,{\\pos(400,150)}" + " ".join(phrase)
+            wsz = [A._text_w(x, fam, 90) for x in phrase]
+            spw = A._text_w(" ", fam, 90)
+            x = 400 - (sum(wsz) + spw * 2) / 2
+            parts = A._header(800, 300, sty)
+            for word, tw in zip(phrase, wsz):
+                parts += "Dialogue: 0,0:00:00.00,0:00:01.00,S,,0,0,0,,{\\pos(%.2f,150)}%s\n" % (x + tw / 2, word)
+                x += tw + spw
+            a, b = alpha(one, 800, 300), alpha(parts, 800, 300)
+            ca = [sum(a[y * 800 + c] for y in range(300)) for c in range(800)]
+            cb = [sum(b[y * 800 + c] for y in range(300)) for c in range(800)]
+            diff = sum(abs(u - v) for u, v in zip(ca, cb)) / float(sum(ca))
+            check(diff < 0.03, "%s: words placed by us match libass's own line (%.2f%% apart)" % (fam, diff * 100))
+
+        # glide: even room around the word inside the pill, and the pill glides
+        # (eased, straight, no jump) and lands exactly on the next word
+        ww = [("ሰላም", 0.0, 0.5), ("እንዴት", 0.5, 1.0), ("ናችሁ", 1.0, 1.6)]
+        g = A.build(ww, "glide", 540, 960)
+
+        def layer(script, n, keep=None):
+            return "\n".join(l for l in script.splitlines() if not l.startswith("Dialogue") or
+                             (l.startswith("Dialogue: %d," % n) and (keep is None or keep in l)))
+
+        def bbox(raw, w_, h_):
+            ys = [y for y in range(h_) if max(raw[y * w_:(y + 1) * w_]) > 128]
+            xs = [x for x in range(w_) if any(raw[y * w_ + x] > 128 for y in range(ys[0], ys[-1] + 1))]
+            return xs[0], ys[0], xs[-1], ys[-1]
+        nob = layer(g, 2, "እንዴት").replace("\\fad(120,90)}", "\\bord0\\shad0}")
+        tb = bbox(alpha(nob, 540, 960, "0.8"), 540, 960)
+        pb = bbox(alpha(layer(g, 1), 540, 960, "0.8"), 540, 960)
+        pads = (tb[1] - pb[1], pb[3] - tb[3], tb[0] - pb[0], pb[2] - tb[2])
+        check(min(pads) >= 8 and abs(pads[0] - pads[1]) <= 4 and abs(pads[2] - pads[3]) <= 3,
+              "glide: the word sits in the middle of its pill (top, bottom, left, right: %s)" % (pads,))
+        lefts = []
+        for k in range(24, 40):
+            raw = alpha(layer(g, 1), 540, 960, "%.2f" % (k / 50.0))
+            lefts.append(bbox(raw, 540, 960)[0])
+        steps = [b - a for a, b in zip(lefts, lefts[1:])]
+        check(all(s_ >= 0 for s_ in steps) and max(steps) <= 0.35 * (lefts[-1] - lefts[0]) and lefts[-1] == pb[0],
+              "glide: the pill slides to the next word smoothly and stops exactly on it (%s)" % lefts)
         # each font really draws (libass falls back to one font when a name is
         # not found, and then every frame would be the same)
         frames = {}

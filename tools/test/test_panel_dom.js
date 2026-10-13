@@ -231,7 +231,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.15.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.16.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -873,7 +873,7 @@ await t('4f. caption styles (1.11): strip, choice remembered, styled layer place
     p.evalVm('STYLE_OK = true; renderStyleStrip();');
     assert.strictEqual(p.els('styleStrip').style.display, '', 'shown when it can');
     const chips = p.els('styleChips').children;
-    assert.strictEqual(chips.length, 16, 'Plain + 15 styles');
+    assert.strictEqual(chips.length, 19, 'Plain + 18 styles');
     assert.strictEqual(chips[0].dataset.style, 'plain');
     assert.ok(chips[0].classList.contains('active'), 'Plain is the default');
     assert.match(p.els('styleNote').textContent, /own captions/);
@@ -1026,7 +1026,11 @@ await t('4h. My styles (1.13): save a look under a name, one click to use it aga
     const mine = () => chips().filter((b) => b.dataset.my);
     assert.strictEqual(chips()[0].dataset.style, 'plain', 'Plain first');
     assert.strictEqual(chips()[1].dataset.my, saved[0].id, 'then My styles');
-    assert.strictEqual(chips().length, 17, 'Plain + 1 saved + 15 styles: ' + chips().map((b) => b.dataset.my ? 'MY' : b.dataset.style).join(','));
+    assert.strictEqual(chips().length, 20, 'Plain + 1 saved + 18 styles: ' + chips().map((b) => b.dataset.my ? 'MY' : b.dataset.style).join(','));
+    // the modern styles (1.16) come first after the saved looks, marked NEW
+    assert.deepStrictEqual(chips().slice(2, 5).map((b) => b.dataset.style), ['glide', 'spotlight', 'bounce']);
+    const isNew = (b) => b.children.some((c) => c.className === 'style-new');
+    assert.ok(chips().slice(2, 5).every(isNew) && !chips().slice(5).some(isNew), 'only the new styles carry the NEW mark');
     assert.ok(mine()[0].classList.contains('active'), 'the saved look is the one in use');
     assert.ok(!chips().find((b) => b.dataset.style === 'bold' && !b.dataset.my).classList.contains('active'));
     // change the look: the saved one is no longer "in use"; one click brings it back

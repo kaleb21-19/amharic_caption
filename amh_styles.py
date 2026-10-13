@@ -10,7 +10,15 @@ Smoothness rules, learned from the first prototype (the owner found it jumpy):
     words sideways every time the highlight moved) - only its colour fades;
   * animations last 150-300 ms with easing, never 3 frames.
 
+The modern styles (glide, spotlight, bounce) place every word themselves
+(fonts/metrics.json has each letter's width exactly as libass draws it), so
+a highlight can glide from word to word and a word can grow without pushing
+the others.
+
 Styles:
+  glide    a rounded colour pill glides smoothly behind the spoken word
+  spotlight the phrase is dimmed; the spoken word lights up and grows a little
+  bounce   words spring up one by one as they are spoken
   karaoke  3 words, the spoken word turns yellow (soft colour fade)
   fill     3 words, a smooth left-to-right colour sweep as they are spoken
   pop      1-2 big words that grow in with an ease-out, white / yellow
@@ -36,7 +44,7 @@ import math
 import re
 import sys
 
-STYLES = ("karaoke", "fill", "highlight", "bold", "podcast", "reveal", "typewriter", "pop", "word", "impact",
+STYLES = ("glide", "spotlight", "bounce", "karaoke", "fill", "highlight", "bold", "podcast", "reveal", "typewriter", "pop", "word", "impact",
           "neon", "retro", "habesha", "cinema", "clean")
 YELLOW = "&H0000E5FF"
 BLACK = "&H00000000"
@@ -45,6 +53,8 @@ RED = "&H004A44F0"
 CYAN = "&H00FFF04D"
 LIME = "&H0014FF39"
 WHITE = "&H00FFFFFF"
+VIOLET = "&H00ED3A7C"   # glide's pill (#7C3AED)
+SPOT = "&H00FFFFFE"     # spotlight's spoken word (white; the colour option tints it)
 GAP_HOLD = 0.6     # a pause shorter than this keeps the phrase on screen
 MIN_SHOW = 0.45    # a phrase shows at least this long
 FONT = "Noto Sans Ethiopic"
@@ -62,6 +72,11 @@ def _ts(t):
     t = max(0.0, float(t))
     cs = int(round(t * 100))
     return "%d:%02d:%02d.%02d" % (cs // 360000, cs // 6000 % 60, cs // 100 % 60, cs % 100)
+
+
+def _secs(ts):
+    h, m, s = ts.split(":")
+    return int(h) * 3600 + int(m) * 60 + float(s)
 
 
 def _clean(text):
@@ -126,7 +141,8 @@ def _header(width, height, style_line):
 
 SIZES = {"s": 0.8, "m": 1.0, "l": 1.2, "xl": 1.45}
 POSITIONS = ("bottom", "middle", "top", "safe")
-NO_BOX = ("highlight", "neon", "retro", "clean")
+NO_BOX = ("highlight", "neon", "retro", "clean", "glide", "spotlight", "bounce")
+SELF_PLACED = ("glide", "spotlight", "bounce")
 # Entrance animations (Customize): "auto" = the style's own.
 ANIMS = ("auto", "none", "fade", "slide", "drop", "pop", "zoom", "blur")
 
@@ -184,7 +200,7 @@ def _apply_layout(script, style, width, height, o):
                 size = float(f[2])
                 f[15], f[5], f[16], f[17] = "3", "&H40000000", "%.1f" % (size * 0.28), "0"
             line = "Style: " + ",".join(f)
-        elif line.startswith("Dialogue") and "\\pos(" in line and pos != "bottom":
+        elif line.startswith("Dialogue") and "\\pos(" in line and pos != "bottom" and style not in SELF_PLACED:
             y = {"middle": 0.50, "top": 0.18, "safe": 0.62 if portrait else 0.70}[pos]
             line = re.sub(r"\\pos\((\d+),\d+\)", lambda m: "\\pos(%s,%d)" % (m.group(1), round(h * y)), line, count=1)
         out.append(line)
@@ -398,6 +414,8 @@ def build(words, style, width, height, font=FONT, opts=None):
             anim = ("{\\1c%s&\\fad(90,70)\\fscx78\\fscy78\\t(0,200,0.6,\\fscx104\\fscy104)"
                     "\\t(200,300,1.4,\\fscx100\\fscy100)}") % col
             lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (_ts(s), _ts(e), IN + anim, " ".join(w[0] for w in g)))
+    elif style in SELF_PLACED:
+        lines, st = _modern(words, style, width, height, font, K, NW, o)
     else:  # clean
         size = round(K * h * (0.042 if portrait else 0.050))
         mv = round(h * (0.16 if portrait else 0.07))
@@ -410,7 +428,7 @@ def build(words, style, width, height, font=FONT, opts=None):
     script = _header(width, height, st) + "\n".join(_smooth_fades(lines)) + "\n"
     # colours: the highlight (yellow / green / cyan in the styles) and the text
     if o["color"] and style != "habesha":
-        for c in (YELLOW, LIME, CYAN):
+        for c in (YELLOW, LIME, CYAN, VIOLET, SPOT):
             script = script.replace(c, o["color"])
     if o["text"]:
         script = script.replace(WHITE, o["text"])
@@ -474,7 +492,7 @@ def _entrances(lines, anim, st, width, height):
         b = re.match(r"\{([^}]*)\}", text)
         block, rest = (b.group(1), text[b.end():]) if b else ("", text)
         fo = _FAD.search(block)
-        fade_out = int(fo.group(2)) if fo and not m else 0
+        fade_out = int(fo.group(2)) if fo else 0
         bl = re.search(r"\\blur([\d.]+)", block)
         base = float(bl.group(1)) if bl else 0.0
         # the style's own entrance goes, but its end look stays (neon's soft
@@ -486,7 +504,12 @@ def _entrances(lines, anim, st, width, height):
             tags += "\\fad(%d,%d)" % (fade_in, fade_out)
         elif off < fade_in:
             a0 = round(255 * (1 - off / float(fade_in)))
-            tags += "\\fade(%d,0,0,0,%d,%d,%d)" % (a0, fade_in - off, fade_in - off, fade_in - off)
+            p = head.split(",")
+            dur = int(round((_secs(p[2]) - _secs(p[1])) * 1000))
+            tags += "\\fade(%d,0,%d,0,%d,%d,%d)" % (a0, 255 if fade_out else 0, fade_in - off,
+                                                   dur - fade_out if fade_out else fade_in - off, dur if fade_out else fade_in - off)
+        elif fade_out:
+            tags += "\\fad(0,%d)" % fade_out
         if off < total:
             tags += start
             for t1, t2, acc, end in steps:
@@ -520,6 +543,222 @@ def _smooth_fades(lines):
         out.append(_FAD.sub(lambda m: "\\fad(%d,%d)" % (int(m.group(1)) if fin else 0, int(m.group(2)) if fout else 0),
                             line, count=1))
     return out
+
+
+# ── modern styles: every word placed by us ──────────────────────────────────
+_METRICS = {}
+
+
+def _metrics():
+    """Letter widths of the shipped fonts (runtime/fonts or tools/fonts)."""
+    if "faces" not in _METRICS:
+        here = os.path.dirname(os.path.abspath(__file__))
+        faces = {}
+        for d in (os.path.join(here, "fonts"), os.path.join(here, "tools", "fonts")):
+            f = os.path.join(d, "metrics.json")
+            if os.path.isfile(f):
+                with open(f, encoding="utf-8") as fh:
+                    faces = json.load(fh)
+                break
+        _METRICS["faces"] = faces
+    return _METRICS["faces"]
+
+
+def _face(font, bold=True):
+    m = _metrics()
+    return m.get("%s|%d" % (font, 1 if bold else 0)) or m.get("%s|0" % font)
+
+
+def _text_w(text, font, size, bold=True):
+    """Width in pixels of `text` at ASS font size `size`, as libass draws it."""
+    f = _face(font, bold)
+    if not f:
+        return len(text) * size * 0.52             # no metrics: a fair guess
+    adv, fb = f["adv"], f["fallback"]
+    return sum(adv.get(str(ord(ch)), fb) for ch in text) * size / float(f["em"])
+
+
+def _ink_offset(font, size, bold=True):
+    """How far below the line box centre the middle of Ethiopic letters is."""
+    f = _face(font, bold)
+    if not f:
+        return size * 0.08
+    em = float(f["em"])
+    return ((f["ascent"] - (f["ink_top"] + f["ink_bottom"]) / 2.0) / em - 0.5) * size
+
+
+def _place(words, font, size, width, height, o, bottom_frac, gap=0.28):
+    """Centre x, centre y and width of every word of a phrase: rows no wider
+    than 86% of the frame, the block placed like the other styles."""
+    max_w = width * 0.86
+    sp = _text_w(" ", font, size) + size * gap * 0.25
+    ws = [_text_w(w, font, size) for w in words]
+    rows, cur, cw = [], [], 0.0
+    for i, w in enumerate(ws):
+        need = w if not cur else cw + sp + w
+        if cur and need > max_w:
+            rows.append(cur)
+            cur, cw = [i], w
+        else:
+            cur.append(i)
+            cw = need
+    if cur:
+        rows.append(cur)
+    row_h = size * 1.18
+    block_h = row_h * len(rows)
+    h = float(height)
+    portrait = height > width
+    if o["pos"] == "middle":
+        top = h / 2 - block_h / 2
+    elif o["pos"] == "top":
+        top = h * 0.08
+    elif o["pos"] == "safe":
+        top = h - h * (0.30 if portrait else 0.16) - block_h
+    else:
+        top = h - h * bottom_frac - block_h
+    out = [None] * len(words)
+    for r, row in enumerate(rows):
+        total = sum(ws[i] for i in row) + sp * (len(row) - 1)
+        x = width / 2.0 - total / 2
+        cy = top + row_h * r + row_h / 2
+        for i in row:
+            out[i] = (x + ws[i] / 2, cy, ws[i])
+            x += ws[i] + sp
+    return out
+
+
+def _pill(w, h, r):
+    """A rounded rectangle w x h (corner radius r) as an ASS drawing."""
+    r = min(r, w / 2.0, h / 2.0)
+    c = r * 0.4477                                   # bezier circle constant (1 - 0.5523)
+    f = lambda v: ("%.1f" % v).rstrip("0").rstrip(".")
+    return ("m %s 0 l %s 0 b %s 0 %s %s %s %s l %s %s b %s %s %s %s %s %s l %s %s b %s %s 0 %s 0 %s "
+            "l 0 %s b 0 %s %s 0 %s 0") % (
+        f(r), f(w - r), f(w - c), f(w), f(c), f(w), f(r), f(w), f(h - r), f(w), f(h - c), f(w - c), f(h), f(w - r), f(h),
+        f(r), f(h), f(c), f(h), f(h - c), f(h - r), f(r), f(c), f(c), f(r))
+
+
+def _glide_tags(x0, y0, x1, y1, dur, big):
+    """Move a line from (x0, y0) to where it is drawn (x1, y1) with an ease-out.
+    libass \\move cannot ease, so the line turns a tiny angle around a far
+    point on the perpendicular bisector: that moves it along an almost
+    straight path, and \\t eases the turn."""
+    dx, dy = x0 - x1, y0 - y1
+    d = math.hypot(dx, dy)
+    if d < 0.5:
+        return ""
+    R = 60.0 * big
+    mx, my = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+    ux, uy = -dy / d, dx / d                          # perpendicular to the move
+    ox, oy = mx + ux * R, my + uy * R
+    # angle that takes the drawn point (x1, y1) to the start (x0, y0)
+    a1 = math.atan2(y1 - oy, x1 - ox)
+    a0 = math.atan2(y0 - oy, x0 - ox)
+    ang = -math.degrees(a0 - a1)                      # screen y points down: ASS \frz is counter-clockwise
+    # ease-in-out: speeds up gently, then settles (two halves of the turn)
+    half = dur // 2
+    return "\\org(%d,%d)\\frz%.4f\\t(0,%d,2,\\frz%.4f)\\t(%d,%d,0.5,\\frz0)" % (
+        round(ox), round(oy), ang, half, ang / 2, half, dur)
+
+
+def _modern(words, style, width, height, font, K, NW, o):
+    """glide / spotlight / bounce. Returns (dialogue lines, style lines)."""
+    h = float(height)
+    portrait = height > width
+    big = max(width, height)
+    size = round(K * h * ((0.056 if style != "spotlight" else 0.054) if portrait else (0.066 if style != "spotlight" else 0.062)))
+    # one long word must still fit the frame: then everything gets smaller
+    widest = max([_text_w(w[0], font, size) for w in words] + [1])
+    if widest > width * 0.86:
+        size = max(8, int(size * width * 0.86 / widest))
+    bottom = 0.24 if portrait else 0.10
+    bord = size * 0.075
+    st = "\n".join([
+        "Style: S,%s,%d,%s,%s,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,%.1f,%.1f,5,0,0,0,1" % (
+            font, size, WHITE, WHITE, bord, size * 0.045),
+        "Style: P,%s,%d,%s,%s,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1" % (font, size, VIOLET, VIOLET),
+    ])
+    lines = []
+    groups = _phrases(words, NW or {"glide": 3, "spotlight": 4, "bounce": 3}[style])
+    slide_in = o.get("anim") in ("slide", "drop")
+    for g, (s0, e) in zip(groups, _spans(groups)):
+        # word gaps: the pill needs room around its word; a growing word too
+        places = _place([w[0] for w in g], font, size, width, height, o, bottom,
+                        gap={"glide": 0.9, "spotlight": 0.45, "bounce": 0.28}[style])
+        if style == "glide":
+            ink = _ink_offset(font, size) - size * 0.025   # (measured: tall letters sit a little higher)
+            ph = size * 1.06                                 # room for the letters and their outline
+            padx = size * 0.26
+            soft = "" if o.get("anim") == "blur" else "\\blur0.6"     # (blur-in sets its own)
+            for i, w in enumerate(g):
+                ws = s0 if i == 0 else w[1]
+                we = g[i + 1][1] if i + 1 < len(g) else e
+                if we <= ws:
+                    continue
+                cx, cy, tw = places[i]
+                pw = tw + 2 * padx
+                x, y = cx - pw / 2, cy + ink - ph / 2
+                if i == 0:
+                    # its own grow-in only with the style's own entrance
+                    move = "\\fscx82\\fscy82\\t(0,180,0.5,\\fscx100\\fscy100)" if o.get("anim") == "auto" else ""
+                    # the last piece of the pill fades out with the words
+                    first = "{\\an7\\pos(%d,%d)\\fad(120,%d)}" % (round(x), round(y), 90 if i == len(g) - 1 else 0)
+                    lines.append("Dialogue: 1,%s,%s,P,,0,0,0,,%s%s{\\bord0\\shad0%s%s\\p1}%s" % (
+                        _ts(ws), _ts(we), IN, first, soft, move, _pill(pw, ph, ph * 0.32)))
+                    continue
+                px, py, pw0 = places[i - 1]
+                x0, y0 = px - (pw0 + 2 * padx) / 2, py + ink - ph / 2
+                dur = max(60, min(220, int((we - ws) * 1000 * 0.6)))
+                s_from = 100.0 * (pw0 + 2 * padx) / pw
+                scale = "\\fscx%.1f\\t(0,%d,2,\\fscx%.1f)\\t(%d,%d,0.5,\\fscx100)" % (
+                    s_from, dur // 2, (s_from + 100) / 2, dur // 2, dur)
+                if slide_in and ws - s0 < 0.32:
+                    # the whole phrase is still sliding in (that turn is taken):
+                    # a straight move for the pill
+                    glide = "\\move(%d,%d,%d,%d,0,%d)" % (round(x0), round(y0), round(x), round(y), dur)
+                    pos = ""
+                else:
+                    glide = _glide_tags(x0, y0, x, y, dur, big)
+                    pos = "\\pos(%d,%d)" % (round(x), round(y))
+                lines.append("Dialogue: 1,%s,%s,P,,0,0,0,,%s{\\an7%s%s}{\\bord0\\shad0%s%s%s\\p1}%s" % (
+                    _ts(ws), _ts(we), _cont(ws - s0), pos, "\\fad(0,90)" if i == len(g) - 1 else "",
+                    soft, glide, scale, _pill(pw, ph, ph * 0.32)))
+            for i, w in enumerate(g):
+                cx, cy, tw = places[i]
+                lines.append("Dialogue: 2,%s,%s,S,,0,0,0,,%s{\\an5\\pos(%d,%d)\\fad(120,90)}%s" % (
+                    _ts(s0), _ts(e), IN, round(cx), round(cy), w[0]))
+        elif style == "spotlight":
+            for i, w in enumerate(g):
+                cx, cy, tw = places[i]
+                a = max(0, int(round((w[1] - s0) * 1000)))
+                b = max(a + 60, int(round((w[2] - s0) * 1000)))
+                lit = ("{\\alpha&H99&\\1c%s&\\t(%d,%d,0.6,\\alpha&H00&\\1c%s&\\fscx112\\fscy112)"
+                       "\\t(%d,%d,1.4,\\alpha&H40&\\1c%s&\\fscx100\\fscy100)}") % (
+                    WHITE, max(0, a - 40), a + 110, SPOT, b, b + 160, WHITE)
+                lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s{\\an5\\pos(%d,%d)\\fad(140,110)}%s%s" % (
+                    _ts(s0), _ts(e), IN, round(cx), round(cy), lit, w[0]))
+        else:  # bounce
+            lift = size * 0.45
+            for i, w in enumerate(g):
+                cx, cy, tw = places[i]
+                ws = s0 if i == 0 else max(s0, w[1] - 0.04)
+                if ws >= e:
+                    continue
+                spoken = max(0, int(round((w[2] - ws) * 1000)))
+                col = "{\\1c%s&\\t(%d,%d,\\1c%s&)}" % (YELLOW, spoken, spoken + 140, WHITE)
+                # spring: up from below, a little past the line, settle (the
+                # first word's spring is the phrase entrance, so it sits in the
+                # first block where a chosen entrance replaces it)
+                ang = math.degrees(math.atan(lift / (20.0 * width)))
+                spring = ("\\org(%d,%d)\\frz%.4f\\fscx86\\fscy86\\t(0,170,0.5,\\frz%.4f\\fscx104\\fscy104)"
+                          "\\t(170,280,1.3,\\frz0\\fscx100\\fscy100)") % (-20 * width, round(cy), -ang, ang * 0.14)
+                if i == 0:
+                    lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s{\\an5\\pos(%d,%d)\\fad(90,90)%s}%s%s" % (
+                        _ts(ws), _ts(e), IN, round(cx), round(cy), spring, col, w[0]))
+                    continue
+                lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,{\\an5\\pos(%d,%d)\\fad(90,90)}{%s}%s%s" % (
+                    _ts(ws), _ts(e), round(cx), round(cy), spring, col, w[0]))
+    return lines, st
 
 
 TAG_TEXT = "Amharic Captions Pro"
