@@ -1045,6 +1045,7 @@ await t('4h. My styles (1.13): save a look under a name, one click to use it aga
     saved = JSON.parse(storage.getItem('amh.settings')).myStyles;
     assert.strictEqual(saved.length, 20);
     assert.strictEqual(saved[19].name, 'Look 24');
+    assert.strictEqual(new Set(saved.map((m) => m.id)).size, 20, 'every saved look has its own id (even saved in the same millisecond)');
     // delete with the small x
     const before = mine().length;
     const x = mine()[0].children.find((c) => c.className === 'my-del');
