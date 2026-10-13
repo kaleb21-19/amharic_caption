@@ -3709,7 +3709,10 @@ function saveMyStyle(name) {
   if (!name || STYLE === 'plain') return false;
   const list = myStyles().filter((x) => x.name.toLowerCase() !== name.toLowerCase());
   if (list.length >= MY_MAX) list.shift();
-  list.push({ id: 'm' + Date.now().toString(36), name, style: STYLE, opts: styleOpts(STYLE) });
+  // unique even for two saves in the same millisecond (same id = ✕ deleted both)
+  let id = 'm' + Date.now().toString(36);
+  for (let n = 1; list.some((x) => x.id === id); n++) id = 'm' + Date.now().toString(36) + '_' + n;
+  list.push({ id, name, style: STYLE, opts: styleOpts(STYLE) });
   saveSettings({ myStyles: list });
   renderStyleStrip();
   const note = $('styleNote');
