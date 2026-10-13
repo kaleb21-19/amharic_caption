@@ -47,6 +47,14 @@ WHITE = "&H00FFFFFF"
 GAP_HOLD = 0.6     # a pause shorter than this keeps the phrase on screen
 MIN_SHOW = 0.45    # a phrase shows at least this long
 FONT = "Noto Sans Ethiopic"
+# Amharic fonts shipped in runtime/fonts (all SIL Open Font License):
+# id -> family name inside the font files.
+FONTS = {
+    "sans": "Noto Sans Ethiopic",     # clean, modern (default)
+    "menbere": "Menbere",             # rounded, friendly
+    "serif": "Noto Serif Ethiopic",   # classic, for documentaries / news
+    "abyssinica": "Abyssinica SIL",   # traditional book letters
+}
 
 
 def _ts(t):
@@ -131,7 +139,8 @@ def _ass_color(hexrgb, default):
 
 def options(opts):
     """Clean customize options: colour (the highlight), text, size s/m/l/xl,
-    pos bottom/middle/top/safe, words 1-5 (0 = the style's own), box."""
+    pos bottom/middle/top/safe, words 1-5 (0 = the style's own), box,
+    font (an id of FONTS)."""
     o = opts or {}
     words = o.get("words")
     try:
@@ -145,6 +154,7 @@ def options(opts):
         "pos": o.get("pos") if o.get("pos") in POSITIONS else "bottom",
         "words": words if 1 <= words <= 5 else 0,
         "box": bool(o.get("box")),
+        "font": o.get("font") if o.get("font") in FONTS else "sans",
     }
 
 
@@ -184,6 +194,8 @@ def build(words, style, width, height, font=FONT, opts=None):
     if style not in STYLES:
         raise ValueError("unknown style: %s" % style)
     o = options(opts)
+    if font == FONT:
+        font = FONTS[o["font"]]
     K = SIZES[o["size"]]
     NW = o["words"]
     words = [(_clean(w[0]), float(w[1]), float(w[2])) for w in words if _clean(w[0])]

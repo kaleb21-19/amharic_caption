@@ -102,7 +102,18 @@ check(ev(A.build(W, "pop", 1080, 1920, opts={"words": 1})) == 5 and ev(A.build(W
 check(st(A.build(W, "karaoke", 1080, 1920, opts={"box": True}))[15] == "3" and
       st(A.build(W, "neon", 1080, 1920, opts={"box": True}))[15] == "1", "box on (not for styles that are their own box/glow)")
 o = A.options({"color": "red", "size": "huge", "pos": "left", "words": 9, "box": 1})
-check(o == {"color": None, "text": None, "size": "m", "pos": "bottom", "words": 0, "box": True}, "bad options fall back safely")
+check(o == {"color": None, "text": None, "size": "m", "pos": "bottom", "words": 0, "box": True, "font": "sans"},
+      "bad options fall back safely")
+check(A.options({"font": "comic"})["font"] == "sans", "unknown font -> the default")
+for fid, fam in A.FONTS.items():
+    t = A.build(W, "bold", 1080, 1920, opts={"font": fid})
+    check(all(l.split(",")[1] == fam for l in t.splitlines() if l.startswith("Style: ")), "font %s -> %s in every style line" % (fid, fam))
+FONT_FILES = {"sans": "NotoSansEthiopic", "menbere": "Menbere", "serif": "NotoSerifEthiopic", "abyssinica": "AbyssinicaSIL"}
+shipped = os.listdir(os.path.join(REPO, "tools", "fonts"))
+check(set(FONT_FILES) == set(A.FONTS) and all(FONT_FILES[f] + "-Regular.ttf" in shipped for f in A.FONTS),
+      "every font is shipped in tools/fonts")
+check(all(n in shipped for n in ("OFL.txt", "OFL-Menbere.txt", "OFL-NotoSerifEthiopic.txt", "OFL-AbyssinicaSIL.txt")),
+      "every font's license is shipped")
 
 # real drawing (needs an ffmpeg with libass; skipped otherwise)
 ff = os.environ.get("AMH_FFMPEG") or shutil.which("ffmpeg")
@@ -129,6 +140,16 @@ if ff and A.supported(ff):
                        "width": 1080, "height": 1920, "mode": "preview", "out": os.path.join(tmp, "p"), "ffmpeg": ff, "fonts": fonts})
         check(r3["out"].endswith((".webp", ".gif")) and 200 < os.path.getsize(r3["out"]) < 400000,
               "preview: a small animated picture (%s, %d bytes)" % (os.path.basename(r3["out"]), os.path.getsize(r3["out"])))
+        # each font really draws (libass falls back to one font when a name is
+        # not found, and then every frame would be the same)
+        frames = {}
+        for fid in A.FONTS:
+            r4 = A.render({"cues": [("ሰላም እንዴት ነህ", 0.2, 2.0)], "style": "bold", "opts": {"font": fid}, "width": 480,
+                           "height": 270, "fps": 25, "out": os.path.join(tmp, "f_" + fid + ".mov"), "ffmpeg": ff, "fonts": fonts})
+            frames[fid] = subprocess.run([ff, "-v", "error", "-ss", "1.0", "-i", r4["out"], "-frames:v", "1", "-vf", "alphaextract",
+                                          "-f", "rawvideo", "-pix_fmt", "gray", "-"], capture_output=True).stdout
+        check(all(sum(1 for b in v if b > 200) > 100 for v in frames.values()) and len(set(frames.values())) == len(frames),
+              "every font draws, and each one looks different")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 else:

@@ -48,6 +48,17 @@ BUNDLED = [
     ("fonts/NotoSansEthiopic-Bold.ttf", "Noto Sans Ethiopic (caption styles) — SIL Open Font License 1.1, "
      "Copyright 2022 The Noto Project Authors; the full license is in runtime/fonts/OFL.txt",
      "https://github.com/notofonts/ethiopic"),
+    ("fonts/NotoSerifEthiopic-Bold.ttf", "Noto Serif Ethiopic (caption styles) — SIL Open Font License 1.1, "
+     "Copyright 2022 The Noto Project Authors; static weights made from the variable font, "
+     "the full license is in runtime/fonts/OFL-NotoSerifEthiopic.txt",
+     "https://github.com/notofonts/ethiopic"),
+    ("fonts/Menbere-Bold.ttf", "Menbere (caption styles) — SIL Open Font License 1.1, "
+     "Copyright 2022 The Menbere Project Authors; static weights made from the variable font, "
+     "the full license is in runtime/fonts/OFL-Menbere.txt",
+     "https://github.com/SorkinType/Menbere"),
+    ("fonts/AbyssinicaSIL-Regular.ttf", "Abyssinica SIL (caption styles), unmodified — SIL Open Font License 1.1, "
+     "Copyright (c) 2000-2024 SIL Global; the full license is in runtime/fonts/OFL-AbyssinicaSIL.txt",
+     "https://software.sil.org/abyssinica/"),
 ]
 
 # Shipped inside the panel itself (not the runtime).
