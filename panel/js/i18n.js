@@ -195,6 +195,7 @@ const AM_TEXT = {
   'Classic': 'ክላሲክ',
   'Traditional': 'ባህላዊ',
   'Animation': 'አገባብ',
+  'NEW': 'አዲስ',
   'None': 'የለም',
   '↑ Slide': '↑ ከታች',
   '↓ Slide': '↓ ከላይ',
