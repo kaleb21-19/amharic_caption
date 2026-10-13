@@ -102,12 +102,26 @@ check(ev(A.build(W, "pop", 1080, 1920, opts={"words": 1})) == 5 and ev(A.build(W
 check(st(A.build(W, "karaoke", 1080, 1920, opts={"box": True}))[15] == "3" and
       st(A.build(W, "neon", 1080, 1920, opts={"box": True}))[15] == "1", "box on (not for styles that are their own box/glow)")
 o = A.options({"color": "red", "size": "huge", "pos": "left", "words": 9, "box": 1})
-check(o == {"color": None, "text": None, "size": "m", "pos": "bottom", "words": 0, "box": True, "font": "sans"},
+check(o == {"color": None, "text": None, "size": "m", "pos": "bottom", "words": 0, "box": True, "font": "sans", "anim": "auto"},
       "bad options fall back safely")
 check(A.options({"font": "comic"})["font"] == "sans", "unknown font -> the default")
 for fid, fam in A.FONTS.items():
     t = A.build(W, "bold", 1080, 1920, opts={"font": fid})
     check(all(l.split(",")[1] == fam for l in t.splitlines() if l.startswith("Style: ")), "font %s -> %s in every style line" % (fid, fam))
+# entrance animations: every style x every animation is a clean script
+check(A.options({"anim": "spin"})["anim"] == "auto", "unknown animation -> the style's own")
+for st in A.STYLES:
+    for an in A.ANIMS:
+        t = A.build(W, st, 1080, 1920, opts={"anim": an})
+        ev_lines = [l for l in t.splitlines() if l.startswith("Dialogue")]
+        ok = not any(c in t for c in (chr(2), chr(3), chr(4))) and all(l.count("{") == l.count("}") for l in ev_lines)
+        if an == "auto":
+            ok = ok and "\\org(" not in t
+        if an in ("slide", "drop"):
+            ok = ok and "\\org(" in t and "\\frz0" in t
+        if an == "none":
+            ok = ok and "\\t(" not in ev_lines[0].split("}")[0]
+        check(ok, "%s + %s animation: clean script" % (st, an))
 FONT_FILES = {"sans": "NotoSansEthiopic", "menbere": "Menbere", "serif": "NotoSerifEthiopic", "abyssinica": "AbyssinicaSIL"}
 shipped = os.listdir(os.path.join(REPO, "tools", "fonts"))
 check(set(FONT_FILES) == set(A.FONTS) and all(FONT_FILES[f] + "-Regular.ttf" in shipped for f in A.FONTS),
@@ -140,6 +154,32 @@ if ff and A.supported(ff):
                        "width": 1080, "height": 1920, "mode": "preview", "out": os.path.join(tmp, "p"), "ffmpeg": ff, "fonts": fonts})
         check(r3["out"].endswith((".webp", ".gif")) and 200 < os.path.getsize(r3["out"]) < 400000,
               "preview: a small animated picture (%s, %d bytes)" % (os.path.basename(r3["out"]), os.path.getsize(r3["out"])))
+        # entrances: the text moves the right way with no jump (fast words, so
+        # the word-by-word redraws start while the entrance still runs) and
+        # ends exactly where the style puts it
+        fast = [("ሰላም", 0.30, 0.42), ("እንዴት", 0.42, 0.54), ("ናችሁ", 0.54, 0.66), ("ዛሬ", 0.66, 1.4)]
+
+        def tops(an):
+            r5 = A.render({"cues": fast, "style": "karaoke", "opts": {"anim": an, "words": 4}, "width": 360, "height": 640,
+                           "fps": 50, "out": os.path.join(tmp, "a_" + an + ".mov"), "ffmpeg": ff, "fonts": fonts})
+            raw = subprocess.run([ff, "-v", "error", "-i", r5["out"], "-vf", "alphaextract", "-f", "rawvideo",
+                                  "-pix_fmt", "gray", "-"], capture_output=True).stdout
+            n, out = 360 * 640, []
+            frames = [raw[k * n:(k + 1) * n] for k in range(len(raw) // n)]
+            ink = [sum(1 for b in f if b > 128) for f in frames]
+            for f, c in zip(frames, ink):
+                # only frames where the fade-in is done (a half-faded first
+                # frame shows just parts of the letters)
+                if c > 0.8 * max(ink):
+                    # the ink-weighted centre (sub-pixel; the top edge flickers
+                    # by a pixel with anti-aliasing)
+                    rows = [sum(f[y * 360:(y + 1) * 360]) for y in range(640)]
+                    out.append(round(sum(y * v for y, v in enumerate(rows)) / float(sum(rows)), 2))
+            return out
+        base, up, down = tops("auto"), tops("slide"), tops("drop")
+        check(up and down and abs(up[-1] - base[-1]) < 0.05 and abs(down[-1] - base[-1]) < 0.05, "slide up / down end where the style puts the text")
+        check(all(b <= a + 0.1 for a, b in zip(up, up[1:])) and up[0] - up[-1] >= 4, "slide up only rises, no jump (%s)" % up[:12])
+        check(all(b >= a - 0.1 for a, b in zip(down, down[1:])) and down[-1] - down[0] >= 4, "slide down only falls, no jump (%s)" % down[:12])
         # each font really draws (libass falls back to one font when a name is
         # not found, and then every frame would be the same)
         frames = {}

@@ -32,6 +32,7 @@ Pure stdlib. Usage (tests / tools):
 """
 import json
 import os
+import math
 import re
 import sys
 
@@ -126,6 +127,8 @@ def _header(width, height, style_line):
 SIZES = {"s": 0.8, "m": 1.0, "l": 1.2, "xl": 1.45}
 POSITIONS = ("bottom", "middle", "top", "safe")
 NO_BOX = ("highlight", "neon", "retro", "clean")
+# Entrance animations (Customize): "auto" = the style's own.
+ANIMS = ("auto", "none", "fade", "slide", "drop", "pop", "zoom", "blur")
 
 
 def _ass_color(hexrgb, default):
@@ -140,7 +143,7 @@ def _ass_color(hexrgb, default):
 def options(opts):
     """Clean customize options: colour (the highlight), text, size s/m/l/xl,
     pos bottom/middle/top/safe, words 1-5 (0 = the style's own), box,
-    font (an id of FONTS)."""
+    font (an id of FONTS), anim (an entrance of ANIMS)."""
     o = opts or {}
     words = o.get("words")
     try:
@@ -155,6 +158,7 @@ def options(opts):
         "words": words if 1 <= words <= 5 else 0,
         "box": bool(o.get("box")),
         "font": o.get("font") if o.get("font") in FONTS else "sans",
+        "anim": o.get("anim") if o.get("anim") in ANIMS else "auto",
     }
 
 
@@ -221,7 +225,7 @@ def build(words, style, width, height, font=FONT, opts=None):
                         parts.append("{\\k%d}" % round(lead * 100))
                     parts.append("{\\kf%d}%s " % (max(1, round((w[2] - w[1]) * 100)), w[0]))
                     t = w[2]
-                lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (_ts(s), _ts(e), intro, "".join(parts).strip()))
+                lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (_ts(s), _ts(e), IN + intro, "".join(parts).strip()))
                 continue
             # karaoke: the same line redrawn per word with only a colour fade on
             # the spoken word - positions never move
@@ -234,7 +238,7 @@ def build(words, style, width, height, font=FONT, opts=None):
                     ("{\\1c%s&\\t(0,120,\\1c%s&)}%s{\\1c%s&}" % (WHITE, YELLOW, x[0], WHITE)) if j == i else x[0]
                     for j, x in enumerate(g))
                 lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (
-                    _ts(ws), _ts(we), intro if i == 0 else "", txt))
+                    _ts(ws), _ts(we), (IN + intro) if i == 0 else _cont(ws - s), txt))
     elif style == "highlight":
         # The spoken word: black letters on a yellow box. The box is the word's
         # own thick outline, so the line never moves when it changes.
@@ -253,7 +257,7 @@ def build(words, style, width, height, font=FONT, opts=None):
                 on = "{\\1c%s&\\3c%s&\\bord%.1f\\shad0}%s{\\r}" % (BLACK, YELLOW, size * 0.22, "%s")
                 txt = " ".join((on % x[0]) if j == i else x[0] for j, x in enumerate(g))
                 lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (
-                    _ts(ws), _ts(we), "{\\fad(120,0)}" if i == 0 else "", txt))
+                    _ts(ws), _ts(we), (IN + "{\\fad(120,0)}") if i == 0 else _cont(ws - s0), txt))
     elif style == "reveal":
         # The whole phrase is laid out from the start (so it never moves);
         # each word fades in when it is spoken.
@@ -267,7 +271,7 @@ def build(words, style, width, height, font=FONT, opts=None):
             for w in g:
                 t = max(0, int(round((w[1] - s0) * 1000)))
                 parts.append("{\\alpha&HFF&\\t(%d,%d,\\alpha&H00&)}%s" % (t, t + 140, w[0]))
-            lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,{\\fad(0,90)}%s" % (_ts(s0), _ts(e), " ".join(parts)))
+            lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s{\\fad(0,90)}%s" % (_ts(s0), _ts(e), IN, " ".join(parts)))
     elif style == "word":
         size = round(K * h * (0.085 if portrait else 0.095))
         st = "Style: S,%s,%d,%s,%s,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,%.1f,%.1f,5,%d,%d,0,1" % (
@@ -277,7 +281,7 @@ def build(words, style, width, height, font=FONT, opts=None):
             col = YELLOW if k % 3 == 2 else WHITE
             anim = ("{\\1c%s&\\pos(%d,%d)\\fscx86\\fscy86\\t(0,160,0.6,\\fscx106\\fscy106)"
                     "\\t(160,260,1.3,\\fscx100\\fscy100)}") % (col, width // 2, round(h * (0.62 if portrait else 0.75)))
-            lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (_ts(s0), _ts(e), anim, g[0][0]))
+            lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (_ts(s0), _ts(e), IN + anim, g[0][0]))
     elif style == "neon":
         size = round(K * h * (0.054 if portrait else 0.064))
         mv = round(h * (0.24 if portrait else 0.10))
@@ -291,9 +295,9 @@ def build(words, style, width, height, font=FONT, opts=None):
         groups = _phrases(words, NW or 3)
         for g, (s0, e) in zip(groups, _spans(groups)):
             txt = " ".join(w[0] for w in g)
-            lines.append("Dialogue: 0,%s,%s,H,,0,0,0,,{%s\\blur16\\fad(0,140)}%s" % (_ts(s0), _ts(e), flick.replace("H20", "H70").replace("H00&)", "H60&)"), txt))
-            lines.append("Dialogue: 1,%s,%s,G,,0,0,0,,{%s\\blur5\\fad(0,140)}%s" % (_ts(s0), _ts(e), flick, txt))
-            lines.append("Dialogue: 2,%s,%s,S,,0,0,0,,{%s\\blur0.6\\fad(0,140)}%s" % (_ts(s0), _ts(e), flick, txt))
+            lines.append("Dialogue: 0,%s,%s,H,,0,0,0,,\x02{%s\\blur16\\fad(0,140)}%s" % (_ts(s0), _ts(e), flick.replace("H20", "H70").replace("H00&)", "H60&)"), txt))
+            lines.append("Dialogue: 1,%s,%s,G,,0,0,0,,\x02{%s\\blur5\\fad(0,140)}%s" % (_ts(s0), _ts(e), flick, txt))
+            lines.append("Dialogue: 2,%s,%s,S,,0,0,0,,\x02{%s\\blur0.6\\fad(0,140)}%s" % (_ts(s0), _ts(e), flick, txt))
     elif style == "habesha":
         size = round(K * h * (0.060 if portrait else 0.070))
         mv = round(h * (0.26 if portrait else 0.11))
@@ -308,7 +312,7 @@ def build(words, style, width, height, font=FONT, opts=None):
                 parts.append("{\\1c%s&}%s" % (cols[n % 3], w[0]))
                 n += 1
             anim = "{\\fad(90,70)\\fscx88\\fscy88\\t(0,180,0.6,\\fscx102\\fscy102)\\t(180,260,\\fscx100\\fscy100)}"
-            lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (_ts(s0), _ts(e), anim, " ".join(parts)))
+            lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (_ts(s0), _ts(e), IN + anim, " ".join(parts)))
     elif style == "bold":
         size = round(K * h * (0.058 if portrait else 0.068))
         mv = round(h * (0.25 if portrait else 0.11))
@@ -323,7 +327,7 @@ def build(words, style, width, height, font=FONT, opts=None):
                     continue
                 txt = " ".join(("{\\1c%s&}%s{\\1c%s&}" % (LIME, x[0], WHITE)) if j == i else x[0] for j, x in enumerate(g))
                 intro = "{\\fad(100,0)\\fscx90\\fscy90\\t(0,170,0.6,\\fscx100\\fscy100)}" if i == 0 else ""
-                lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (_ts(ws), _ts(we), intro, txt))
+                lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (_ts(ws), _ts(we), (IN + intro) if i == 0 else _cont(ws - s0), txt))
     elif style == "podcast":
         size = round(K * h * (0.040 if portrait else 0.050))
         mv = round(h * (0.14 if portrait else 0.08))
@@ -339,7 +343,7 @@ def build(words, style, width, height, font=FONT, opts=None):
                     continue
                 cells = [("{\\1c%s&}%s{\\1c&H00E6E6E6&}" % (YELLOW, x[0])) if j == i else x[0] for j, x in enumerate(g)]
                 txt = " ".join(cells[:half]) + ("\\N" + " ".join(cells[half:]) if len(g) > half else "")
-                lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (_ts(ws), _ts(we), "{\\fad(150,0)}" if i == 0 else "", txt))
+                lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (_ts(ws), _ts(we), (IN + "{\\fad(150,0)}") if i == 0 else _cont(ws - s0), txt))
     elif style == "typewriter":
         size = round(K * h * (0.046 if portrait else 0.056))
         mv = round(h * (0.24 if portrait else 0.10))
@@ -353,7 +357,7 @@ def build(words, style, width, height, font=FONT, opts=None):
                 step = max(25, int(round((w[2] - w[1]) * 1000 / max(1, len(w[0])))))
                 parts.append("".join("{\\alpha&HFF&\\t(%d,%d,\\alpha&H00&)}%s" % (t0 + k * step, t0 + k * step + 30, ch)
                                      for k, ch in enumerate(w[0])))
-            lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,{\\fad(0,100)}%s" % (_ts(s0), _ts(e), " ".join(parts)))
+            lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,\x02{\\fad(0,100)}%s" % (_ts(s0), _ts(e), " ".join(parts)))
     elif style == "impact":
         size = round(K * h * (0.070 if portrait else 0.082))
         mv = round(h * (0.27 if portrait else 0.12))
@@ -365,7 +369,7 @@ def build(words, style, width, height, font=FONT, opts=None):
             col = YELLOW if k % 2 else WHITE
             anim = ("{\\1c%s&\\fad(60,70)\\frz%d\\fscx125\\fscy125\\t(0,140,0.5,\\frz0\\fscx97\\fscy97)"
                     "\\t(140,230,\\fscx100\\fscy100)}") % (col, tilt)
-            lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (_ts(s0), _ts(e), anim, " ".join(w[0] for w in g)))
+            lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (_ts(s0), _ts(e), IN + anim, " ".join(w[0] for w in g)))
     elif style == "retro":
         size = round(K * h * (0.060 if portrait else 0.070))
         mv = round(h * (0.25 if portrait else 0.11))
@@ -374,7 +378,7 @@ def build(words, style, width, height, font=FONT, opts=None):
         groups = _phrases(words, NW or 2)
         for g, (s0, e) in zip(groups, _spans(groups)):
             anim = "{\\fad(110,90)\\yshad0\\xshad0\\t(0,200,0.6,\\xshad%.1f\\yshad%.1f)}" % (size * 0.10, size * 0.10)
-            lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (_ts(s0), _ts(e), anim, " ".join(w[0] for w in g)))
+            lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (_ts(s0), _ts(e), IN + anim, " ".join(w[0] for w in g)))
     elif style == "cinema":
         size = round(K * h * (0.034 if portrait else 0.042))
         mv = round(h * (0.12 if portrait else 0.07))
@@ -382,7 +386,7 @@ def build(words, style, width, height, font=FONT, opts=None):
             font, size, size * 0.04, size * 0.08, round(width * 0.10), round(width * 0.10), mv)
         groups = _phrases(words, NW or 6)
         for g, (s0, e) in zip(groups, _spans(groups)):
-            lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,{\\fad(260,220)\\blur0.8}%s" % (_ts(s0), _ts(e), " ".join(w[0] for w in g)))
+            lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,\x02{\\fad(260,220)\\blur0.8}%s" % (_ts(s0), _ts(e), " ".join(w[0] for w in g)))
     elif style == "pop":
         size = round(K * h * (0.072 if portrait else 0.085))
         mv = round(h * (0.28 if portrait else 0.12))
@@ -393,7 +397,7 @@ def build(words, style, width, height, font=FONT, opts=None):
             col = WHITE if k % 2 == 0 else YELLOW
             anim = ("{\\1c%s&\\fad(90,70)\\fscx78\\fscy78\\t(0,200,0.6,\\fscx104\\fscy104)"
                     "\\t(200,300,1.4,\\fscx100\\fscy100)}") % col
-            lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (_ts(s), _ts(e), anim, " ".join(w[0] for w in g)))
+            lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (_ts(s), _ts(e), IN + anim, " ".join(w[0] for w in g)))
     else:  # clean
         size = round(K * h * (0.042 if portrait else 0.050))
         mv = round(h * (0.16 if portrait else 0.07))
@@ -401,7 +405,8 @@ def build(words, style, width, height, font=FONT, opts=None):
             font, size, WHITE, WHITE, size * 0.30, round(width * 0.07), round(width * 0.07), mv)
         groups = _phrases(words, NW or 5)
         for g, (s, e) in zip(groups, _spans(groups)):
-            lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,{\\fad(140,120)}%s" % (_ts(s), _ts(e), " ".join(w[0] for w in g)))
+            lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,\x02{\\fad(140,120)}%s" % (_ts(s), _ts(e), " ".join(w[0] for w in g)))
+    lines = _entrances(lines, o["anim"], st, width, height)
     script = _header(width, height, st) + "\n".join(_smooth_fades(lines)) + "\n"
     # colours: the highlight (yellow / green / cyan in the styles) and the text
     if o["color"] and style != "habesha":
@@ -413,6 +418,86 @@ def build(words, style, width, height, font=FONT, opts=None):
 
 
 _FAD = re.compile(r"\\fad\((\d+),(\d+)\)")
+
+IN = "\x02"                    # marks the line where a phrase appears
+_CONT = re.compile("\x03(\\d+)\x04")
+
+
+def _cont(secs):
+    """Marks a redraw of a phrase that appeared `secs` ago (word-by-word
+    styles draw the same phrase again for every word)."""
+    return "\x03%d\x04" % max(0, int(round(secs * 1000)))
+
+
+def _anim_spec(anim, size, width, height):
+    """(fade-in ms, start tags, [(t1, t2, accel, end tags)]) of an entrance.
+    Slides ease out: the text turns a tiny angle around a point far to the
+    left, so it moves straight up/down (libass \\move cannot ease)."""
+    if anim == "fade":
+        return 220, "", []
+    if anim in ("slide", "drop"):
+        ang = math.degrees(math.atan(size * 0.8 / (20.0 * width)))
+        org = "\\org(%d,%d)" % (-20 * width, height // 2)
+        # +angle turns counter-clockwise around a point on the left: up
+        return 170, "%s\\frz%.4f" % (org, -ang if anim == "slide" else ang), [(0, 300, 0.45, "\\frz0")]
+    if anim == "pop":
+        return 90, "\\fscx70\\fscy70", [(0, 190, 0.6, "\\fscx106\\fscy106"), (190, 290, 1.4, "\\fscx100\\fscy100")]
+    if anim == "zoom":
+        return 170, "\\fscx135\\fscy135", [(0, 320, 0.45, "\\fscx100\\fscy100")]
+    if anim == "blur":
+        return 200, "\\blur%s", [(0, 340, 0.6, "\\blur%s")]
+    return 0, "", []                                   # none: just appears
+
+
+_OWN_IN = re.compile(r"\\t\([^)]*\)|\\fad\(\d+,\d+\)|\\fsc[xy][\d.]+|\\frz-?[\d.]+|\\[xy]shad-?[\d.]+|\\alpha&H[0-9A-Fa-f]+&")
+
+
+def _entrances(lines, anim, st, width, height):
+    """Replace each phrase's own entrance with the chosen one ("auto" keeps
+    the style's). Redraws of a phrase (word-by-word styles) continue the same
+    animation from where it is, so nothing jumps when the next word lights."""
+    out = []
+    size = float(st.split("\n")[0][7:].split(",")[2])
+    fade_in, start, steps = _anim_spec(anim, size, width, height)
+    total = max([fade_in] + [t2 for _, t2, _, _ in steps])
+    for line in lines:
+        head, text = line.split(",,0,0,0,,", 1)
+        m = _CONT.match(text)
+        if not text.startswith(IN) and not m:
+            out.append(line)
+            continue
+        off = int(m.group(1)) if m else 0
+        text = text[m.end():] if m else text[1:]
+        if anim == "auto":
+            out.append(head + ",,0,0,0,," + text)
+            continue
+        b = re.match(r"\{([^}]*)\}", text)
+        block, rest = (b.group(1), text[b.end():]) if b else ("", text)
+        fo = _FAD.search(block)
+        fade_out = int(fo.group(2)) if fo and not m else 0
+        bl = re.search(r"\\blur([\d.]+)", block)
+        base = float(bl.group(1)) if bl else 0.0
+        # the style's own entrance goes, but its end look stays (neon's soft
+        # halo, retro's shadow): the end values of its \t become plain tags
+        finals = "".join(t[t.index("\\", 1):-1] for t in re.findall(r"\\t\([^)]*\)", block) if "\\" in t[1:])
+        block = re.sub(r"\\blur[\d.]+", "", _OWN_IN.sub("", block) + finals)
+        tags = ""
+        if off == 0:
+            tags += "\\fad(%d,%d)" % (fade_in, fade_out)
+        elif off < fade_in:
+            a0 = round(255 * (1 - off / float(fade_in)))
+            tags += "\\fade(%d,0,0,0,%d,%d,%d)" % (a0, fade_in - off, fade_in - off, fade_in - off)
+        if off < total:
+            tags += start
+            for t1, t2, acc, end in steps:
+                tags += "\\t(%d,%d,%s,%s)" % (t1 - off, t2 - off, acc, end)
+        if anim == "blur":
+            tags = tags.replace("\\blur%s", "\\blur%g" % (base + 10), 1).replace("\\blur%s", "\\blur%g" % base, 1) \
+                if off < total else tags + ("\\blur%g" % base if base else "")
+        elif base:
+            tags += "\\blur%g" % base
+        out.append(head + ",,0,0,0,," + ("{" + block + tags + "}" if block + tags else "") + rest)
+    return out
 
 
 def _smooth_fades(lines):

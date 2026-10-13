@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.14.1';
+const APP_VERSION = '1.15.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3881,6 +3881,9 @@ const STYLE_SIZES = ['s', 'm', 'l', 'xl'];
 const STYLE_POS = ['bottom', 'middle', 'top', 'safe'];
 const STYLE_WORDS = [0, 1, 2, 3, 4, 5];
 // The Amharic fonts in runtime/fonts (amh_styles.FONTS ids), all OFL.
+// Entrance animations (amh_styles.ANIMS); Auto = the style's own.
+const STYLE_ANIMS = [['auto', 'Auto'], ['none', 'None'], ['fade', 'Fade'], ['slide', '↑ Slide'], ['drop', '↓ Slide'],
+  ['pop', 'Pop'], ['zoom', 'Zoom'], ['blur', 'Blur']];
 const STYLE_FONTS = [['sans', 'Modern'], ['menbere', 'Rounded'], ['serif', 'Classic'], ['abyssinica', 'Traditional']];
 let STYLE_FRAME = null;          // { width, height } of the sequence / video
 let PREVIEW_TIMER = null;
@@ -3897,6 +3900,7 @@ function styleOpts(style, raw) {
     words: STYLE_WORDS.indexOf(Number(o.words)) >= 0 ? Number(o.words) : 0,
     box: !!o.box,
     font: STYLE_FONTS.some((f) => f[0] === o.font) ? o.font : 'sans',
+    anim: STYLE_ANIMS.some((a) => a[0] === o.anim) ? o.anim : 'auto',
   };
 }
 function setStyleOpt(key, value) {
@@ -3970,10 +3974,10 @@ function colorRow(parent, label, presets, current, key) {
   box.appendChild(input);
   row.appendChild(box);
 }
-function segRow(parent, label, items, current, key) {
+function segRow(parent, label, items, current, key, pills) {
   const row = scRow(parent, label);
   const box = document.createElement('span');
-  box.className = 'sc-seg';
+  box.className = pills ? 'sc-seg pills' : 'sc-seg';
   items.forEach(([value, text]) => {
     const b = document.createElement('button');
     b.type = 'button';
@@ -4025,6 +4029,7 @@ function renderStyleCustom() {
   opts.textContent = '';
   colorRow(opts, 'Colour', STYLE_COLORS, o.color, 'color');
   colorRow(opts, 'Text', TEXT_COLORS, o.text, 'text');
+  segRow(opts, 'Animation', STYLE_ANIMS.map(([id, name]) => [id, L(name)]), o.anim, 'anim', true);
   segRow(opts, 'Font', STYLE_FONTS.map(([id, name]) => [id, L(name)]), o.font, 'font');
   segRow(opts, 'Size', [['s', 'S'], ['m', 'M'], ['l', 'L'], ['xl', 'XL']], o.size, 'size');
   segRow(opts, 'Position', [['bottom', L('Bottom')], ['middle', L('Middle')], ['top', L('Top')], ['safe', 'TikTok']], o.pos, 'pos');
