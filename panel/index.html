@@ -513,9 +513,9 @@
   .style-chip:hover { border-color: var(--accent-hover); }
   .style-chip.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; color: var(--text-primary); font-weight: 700; }
   .style-custom { margin-top: 8px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-elev); }
-  .sc-stage { position: relative; display: flex; align-items: center; justify-content: center; height: 210px; margin-bottom: 8px;
+  .sc-stage { position: relative; display: flex; align-items: center; justify-content: center; min-height: 46px; margin-bottom: 8px;
     border-radius: 6px; overflow: hidden; background: radial-gradient(120% 90% at 30% 20%, #253244 0%, #0b1110 70%); }
-  .sc-stage img { display: block; max-width: 100%; max-height: 210px; border-radius: 4px; box-shadow: 0 6px 24px rgba(0,0,0,.45); }
+  .sc-stage img { display: block; width: 100%; max-height: 120px; object-fit: contain; }
   .sc-pnote { position: absolute; inset: auto 0 8px 0; text-align: center; font-size: 10px; color: var(--text-secondary); }
   .sc-opts { display: flex; flex-direction: column; gap: 7px; }
   .sc-row { display: flex; align-items: center; gap: 8px; min-height: 22px; }

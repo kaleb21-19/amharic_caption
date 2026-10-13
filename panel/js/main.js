@@ -3031,6 +3031,7 @@ async function openReview(outSrt, label, startSeconds, opts) {
   renderReview();
   $('review').classList.add('show');
   fitReviewBoxes();   // heights can only be measured once the overlay shows
+  STYLE_CUSTOM_OPEN = false;      // closed again for every caption
   renderStyleStrip();
   loadStyleFrame().then(schedulePreview, schedulePreview);
   if (!opts.live) log('Review your captions below — edit, then click "Place on timeline".');
@@ -3664,6 +3665,8 @@ const STYLE_NAMES = {
 };
 let STYLE = 'plain';
 let STYLE_OK = false;
+// Customize starts closed for every caption: it opens only when pressed.
+let STYLE_CUSTOM_OPEN = false;
 function styleFilesHere() {
   try {
     return !!(RUNTIME && FFMPEG && fs.existsSync(runtimePath('amh_styles.py')) && fs.existsSync(runtimePath('fonts')));
@@ -4016,7 +4019,7 @@ function renderStyleCustom() {
   const opts = $('styleOpts');
   if (!wrap || !opts) return;
   const styled = STYLE_OK && STYLE !== 'plain';
-  const open = styled && loadSettings().styleCustomOpen === true;
+  const open = styled && STYLE_CUSTOM_OPEN;
   const tog = $('styleCustomToggle');
   if (tog) {
     tog.style.display = styled ? '' : 'none';
@@ -4025,7 +4028,7 @@ function renderStyleCustom() {
     if (!tog.dataset.wired) {
       tog.dataset.wired = '1';
       tog.addEventListener('click', () => {
-        saveSettings({ styleCustomOpen: loadSettings().styleCustomOpen !== true });
+        STYLE_CUSTOM_OPEN = !STYLE_CUSTOM_OPEN;
         renderStyleCustom();
         schedulePreview();
       });
@@ -4096,7 +4099,7 @@ async function renderPreview() {
   PREVIEW_TIMER = null;
   const img = $('stylePreview');
   const note = $('stylePreviewNote');
-  if (!img || !STYLE_OK || STYLE === 'plain' || !reviewOpen || loadSettings().styleCustomOpen !== true) return;
+  if (!img || !STYLE_OK || STYLE === 'plain' || !reviewOpen || !STYLE_CUSTOM_OPEN) return;
   const cues = styleCues(reviewCues);
   if (!cues.length) return;
   const seq = ++PREVIEW_SEQ;

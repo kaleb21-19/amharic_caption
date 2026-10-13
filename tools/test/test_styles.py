@@ -178,6 +178,13 @@ if ff and A.supported(ff):
                        "width": 1080, "height": 1920, "mode": "preview", "out": os.path.join(tmp, "p"), "ffmpeg": ff, "fonts": fonts})
         check(r3["out"].endswith((".webp", ".gif")) and 200 < os.path.getsize(r3["out"]) < 400000,
               "preview: a small animated picture (%s, %d bytes)" % (os.path.basename(r3["out"]), os.path.getsize(r3["out"])))
+        # the preview is only the strip where the captions are (wide and short)
+        head = open(r3["out"], "rb").read(30)
+        if r3["out"].endswith(".gif"):
+            pw_, ph_ = int.from_bytes(head[6:8], "little"), int.from_bytes(head[8:10], "little")
+        else:
+            pw_, ph_ = 1 + int.from_bytes(head[24:27], "little"), 1 + int.from_bytes(head[27:30], "little")
+        check(pw_ == A.PREVIEW_PX and ph_ <= pw_ * 0.4, "preview: the caption strip only, %dx%d" % (pw_, ph_))
         # entrances: the text moves the right way with no jump (fast words, so
         # the word-by-word redraws start while the entrance still runs) and
         # ends exactly where the style puts it
