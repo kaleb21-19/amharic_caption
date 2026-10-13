@@ -533,6 +533,9 @@
   .sc-opt { height: 22px; padding: 0 9px; border: 0; border-right: 1px solid var(--border); background: var(--bg-card);
     color: var(--text-secondary); font-size: 10px; cursor: pointer; font-family: inherit; transition: background .12s; }
   .sc-opt:last-child { border-right: 0; }
+  .sc-seg.pills { display: flex; flex-wrap: wrap; gap: 4px; border: 0; border-radius: 0; overflow: visible; }
+  .sc-seg.pills .sc-opt { border: 1px solid var(--border); border-radius: 11px; padding: 0 10px; }
+  .sc-seg.pills .sc-opt.active { border-color: var(--accent); }
   .sc-opt:hover { background: var(--bg-hover); color: var(--text-primary); }
   .sc-opt.active { background: var(--accent); color: #06110c; font-weight: 700; }
   .sc-switch { position: relative; width: 34px; height: 18px; padding: 0; border: 0; border-radius: 9px; background: var(--border); cursor: pointer; transition: background .15s; }
@@ -824,7 +827,7 @@
   </div>
 
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.14.1</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span></span>
+    <span>v<span id="panelVersion">1.15.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span></span>
     <span style="display:flex;gap:10px;align-items:center;">
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
       <a href="#" id="supportLink" title="Get help in Telegram" data-i18n="foot.help" data-i18n-title="foot.helpTitle">💬 Help</a>

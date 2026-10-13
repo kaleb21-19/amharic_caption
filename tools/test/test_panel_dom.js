@@ -231,7 +231,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.14.1');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.15.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -896,7 +896,7 @@ await t('4f. caption styles (1.11): strip, choice remembered, styled layer place
     const args = JSON.parse(JSON.parse(/amh_placeOverlay\((.*)\)/.exec(ov)[1]));
     assert.deepStrictEqual(args, { path: 'C:/caps/x_karaoke.mov', startSeconds: 12.75, duration: 2.35, replacePrefix: 'amhstyle_clip__' },
       'placed at the clip start + the layer start; placing again replaces the earlier layer of these captions');
-    assert.deepStrictEqual(job.opts, { color: '', text: '', size: 'm', pos: 'bottom', words: 0, box: false, font: 'sans' }, 'default look');
+    assert.deepStrictEqual(job.opts, { color: '', text: '', size: 'm', pos: 'bottom', words: 0, box: false, font: 'sans', anim: 'auto' }, 'default look');
     assert.strictEqual(calls(/amh_importCaptions\(/).length, 0, 'no plain caption track as well');
     assert.strictEqual(p.evalVm('reviewOpen'), false, 'done');
     has(p.els('logBox').textContent, 'Styled captions on track V3');
@@ -964,22 +964,26 @@ await t('4g. customize (1.12): colour, size, position, words, box remembered per
     assert.deepStrictEqual(j.cues, [['ሰላም እንዴት', 0.5, 1.2], ['ናችሁ', 1.3, 2.0]]);
     assert.ok(/^data:image\/webp;base64,/.test(p.els('stylePreview').src), 'the preview is shown as an image');
     assert.ok(!fs.existsSync(prev), 'the preview file is cleaned up');
-    // pick: red highlight, the Classic (serif) font, XL, TikTok safe, 2 words, box
+    // pick: red highlight, slide-up entrance, the Classic (serif) font, XL, TikTok safe, 2 words, box
     const rows = p.els('styleOpts').children;
     const pick = (row, value) => Array.from(rows[row].children[1].children).find((b) => b.dataset.value === value).fire('click');
-    assert.deepStrictEqual(Array.from(rows[2].children[1].children).map((b) => b.dataset.value), ['sans', 'menbere', 'serif', 'abyssinica']);
+    assert.deepStrictEqual(Array.from(rows[2].children[1].children).map((b) => b.dataset.value),
+      ['auto', 'none', 'fade', 'slide', 'drop', 'pop', 'zoom', 'blur']);
+    assert.ok(rows[2].children[1].className === 'sc-seg pills', 'animations wrap as pills');
+    assert.deepStrictEqual(Array.from(rows[3].children[1].children).map((b) => b.dataset.value), ['sans', 'menbere', 'serif', 'abyssinica']);
     pick(0, '#FF3B30');
-    pick(2, 'serif');
-    pick(3, 'xl');
-    pick(4, 'safe');
-    pick(5, '2');
-    rows[6].children[1].fire('click');                       // Box switch on
+    pick(2, 'slide');
+    pick(3, 'serif');
+    pick(4, 'xl');
+    pick(5, 'safe');
+    pick(6, '2');
+    rows[7].children[1].fire('click');                       // Box switch on
     await settle();
     const saved = JSON.parse(storage.getItem('amh.settings')).styleOpts.bold;
-    assert.deepStrictEqual(saved, { color: '#FF3B30', text: '', size: 'xl', pos: 'safe', words: 2, box: true, font: 'serif' }, 'remembered for this style');
+    assert.deepStrictEqual(saved, { color: '#FF3B30', text: '', size: 'xl', pos: 'safe', words: 2, box: true, font: 'serif', anim: 'slide' }, 'remembered for this style');
     j = last();
     assert.deepStrictEqual(j.opts, saved, 'the preview follows every change');
-    assert.ok(Array.from(p.els('styleOpts').children[3].children[1].children).find((b) => b.dataset.value === 'xl').classList.contains('active'));
+    assert.ok(Array.from(p.els('styleOpts').children[4].children[1].children).find((b) => b.dataset.value === 'xl').classList.contains('active'));
     // any colour from the picker (brand colours)
     const picker = Array.from(rows[0].children[1].children).find((x) => x.type === 'color');
     picker.value = '#123abc';
@@ -991,6 +995,7 @@ await t('4g. customize (1.12): colour, size, position, words, box remembered per
     // another style keeps its own look
     assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(styleOpts("neon"))')).size, 'm');
     assert.strictEqual(JSON.parse(p.evalVm('JSON.stringify(styleOpts(null, { font: "comic" }))')).font, 'sans', 'unknown font -> default');
+    assert.strictEqual(JSON.parse(p.evalVm('JSON.stringify(styleOpts(null, { anim: "spin" }))')).anim, 'auto', 'unknown animation -> the style own');
     // reset
     const reset = Array.from(p.els('styleOpts').children).find((b) => b.className === 'sc-foot').children.find((b) => b.className === 'sc-reset');
     reset.fire('click');
