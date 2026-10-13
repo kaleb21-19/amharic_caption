@@ -186,6 +186,9 @@ jobs:
       - name: Premiere Work Area / Whole Edit clip reading (nested sequences, clear reasons)
         run: node tools/test/test_host_workarea.js
 
+      - name: Premiere clip choice — the voice on an audio track beats a silent video (1.16.2)
+        run: node tools/test/test_host_pick.js
+
       - name: Caption styles — layer placement in Premiere / After Effects (1.11)
         run: node tools/test/test_host_overlay.js
 

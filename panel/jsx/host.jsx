@@ -257,8 +257,10 @@ function amharic_getSelectedClip() {
         var picked = null;
         var pickedVia = "";
         var collections = [];
-        try { collections.push(seq.videoTracks); } catch (e) {}
+        // Audio tracks first: they carry the voice. A stock video with no
+        // sound on V1 and the voice on A1 must give the voice (1.16.2).
         try { collections.push(seq.audioTracks); } catch (e) {}
+        try { collections.push(seq.videoTracks); } catch (e) {}
 
         // Pass 1: explicit selection only.
         var findSelected = function () {

@@ -231,7 +231,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.16.1');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.16.2');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1891,10 +1891,14 @@ await t('10d. anonymous step counts: once a day per step, nothing personal, erro
     assert.strictEqual(body.v, p.evalVm('APP_VERSION'));
     const cases = [
       ['No selected clip.', 'err_no_clip'], ['ffmpeg failed: x', 'err_media_unreadable'],
+      // a stock video without sound (problem report 1.16.1, @Aymen_Beck)
+      ['ffmpeg failed: Command failed: ffmpeg -i x.mp4 -vn x.wav\n[out#0/wav @ 0] Output file does not contain any stream', 'err_no_audio'],
       ['Python failed: worker exited', 'err_engine'], ['ENOSPC: no space left', 'err_disk_full'],
       ['Cancelled', ''], ['something odd', 'err_other'],
     ];
     for (const [raw, want] of cases) assert.strictEqual(p.evalVm('errorStep(' + JSON.stringify(raw) + ')'), want, raw);
+    assert.match(p.evalVm('humanError(' + JSON.stringify(cases[2][0]) + ')'), /has no sound\. Select the clip with the voice/,
+      'a clip without sound says so (not "could not read")');
   } finally { p.close(); }
 });
 
