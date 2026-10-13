@@ -956,7 +956,7 @@ await t('4g. customize (1.12): colour, size, position, words, box remembered per
     p.els('styleCustomToggle').fire('click');
     await settle();
     assert.strictEqual(p.els('styleCustom').style.display, '');
-    assert.strictEqual(JSON.parse(storage.getItem('amh.settings')).styleCustomOpen, true, 'open state remembered');
+    assert.strictEqual((JSON.parse(storage.getItem('amh.settings') || '{}')).styleCustomOpen, undefined, 'the open state is not kept');
     const last = () => JSON.parse(p.evalVm('JSON.stringify(__prevJobs[__prevJobs.length - 1])'));
     assert.ok(p.evalVm('__prevJobs.length') >= 1, 'a preview was made when Customize opened');
     let j = last();
@@ -1000,6 +1000,11 @@ await t('4g. customize (1.12): colour, size, position, words, box remembered per
     const reset = Array.from(p.els('styleOpts').children).find((b) => b.className === 'sc-foot').children.find((b) => b.className === 'sc-reset');
     reset.fire('click');
     assert.strictEqual(JSON.parse(storage.getItem('amh.settings')).styleOpts.bold, undefined, 'reset forgets the look');
+    // the next caption starts with Customize closed again
+    await p.evalVm('openReview("x.srt", "clip", 0, {})');
+    await settle();
+    assert.strictEqual(p.els('styleCustom').style.display, 'none', 'closed again for the next caption');
+    p.els('styleCustomToggle').fire('click');
     // a broken preview never blocks placing
     p.evalVm('renderStyled = async () => { throw new Error("x"); };');
     await p.evalVm('renderPreview()');
@@ -1012,7 +1017,7 @@ await t('4h. My styles (1.13): save a look under a name, one click to use it aga
   const p = loadPanel({ storage });
   try {
     await flush(10);
-    p.evalVm('STYLE_OK = true; renderPreview = async () => {}; saveSettings({ styleCustomOpen: true });');
+    p.evalVm('STYLE_OK = true; renderPreview = async () => {}; STYLE_CUSTOM_OPEN = true;');
     p.evalVm('STYLE = "bold"; setStyleOpt("color", "#FF3B30"); setStyleOpt("size", "xl");');
     p.evalVm('renderStyleStrip();');
     const foot = Array.from(p.els('styleOpts').children).find((c) => c.className === 'sc-foot');

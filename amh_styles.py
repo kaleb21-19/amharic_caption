@@ -783,6 +783,52 @@ def plan(cues):
     return t0, dur, [(w[0], w[1] - t0, w[2] - t0) for w in words]
 
 
+def _caption_band(ffmpeg, tmp, w, h, dur):
+    """The preview shows only the strip of the frame where the captions are
+    (wide and short), so it is small in the panel and the words are big.
+    A quick pass draws the captions alone to find that strip (any style, any
+    position); returns ffmpeg's crop for it, or "" to keep the whole frame."""
+    import subprocess
+    try:
+        raw = subprocess.run([ffmpeg, "-v", "error", "-f", "lavfi", "-i",
+                              "color=c=black@0.0:s=%dx%d:r=8:d=%.3f,format=rgba" % (w, h, dur),
+                              "-vf", "subtitles=band.ass:fontsdir=fonts:alpha=1,alphaextract",
+                              "-f", "rawvideo", "-pix_fmt", "gray", "-"], cwd=tmp, capture_output=True, timeout=60).stdout
+    except Exception:
+        return ""
+    n = w * h
+    rows = [False] * h
+    cols = bytearray(w)
+    for k in range(len(raw) // n):
+        f = raw[k * n:(k + 1) * n]
+        for y in range(h):
+            line = f[y * w:(y + 1) * w]
+            if max(line) > 40:
+                rows[y] = True
+                for x in range(w):
+                    if line[x] > 40:
+                        cols[x] = 1
+    ink = [y for y in range(h) if rows[y]]
+    if not ink:
+        return ""
+    xs = [x for x in range(w) if cols[x]]
+    # a 3:1 box around the captions, drawn back at the full preview width. The
+    # zoom is fixed per frame shape (landscape captions are small, so they are
+    # zoomed more) - it grows only when the captions would not fit - so the
+    # Size option still shows in the preview.
+    pad = round(min(w, h) * 0.05)
+    bw = max(xs[-1] - xs[0] + 2 * pad, (ink[-1] - ink[0] + 2 * pad) * 3, w * (1.0 if h > w else 0.45))
+    bw = min(w, bw)
+    bh = round(bw / 3.0)
+    if bh >= h * 0.9:
+        return ""
+    bw, bh = int(bw) // 2 * 2, int(bh) // 2 * 2
+    x0 = int(min(max(0, (xs[0] + xs[-1]) / 2.0 - bw / 2.0), w - bw)) // 2 * 2
+    y0 = int(min(max(0, (ink[0] + ink[-1]) / 2.0 - bh / 2.0), h - bh)) // 2 * 2
+    out_h = int(round(w / 3.0)) // 2 * 2
+    return ",crop=%d:%d:%d:%d,scale=%d:%d:flags=lanczos" % (bw, bh, x0, y0, w, out_h)
+
+
 def render(job, progress=None):
     """Render styled captions with ffmpeg. job: {cues, style, width, height,
     fps, out, ffmpeg, fonts, mode: "overlay" | "burn", video, tag}.
@@ -809,18 +855,21 @@ def render(job, progress=None):
         # an animated picture the panel can show while the editor customizes.
         words = [x for x in words if x[1] < PREVIEW_SECS]
         dur = min(PREVIEW_SECS + 0.4, (words[-1][2] + 0.5) if words else 0)
-        scale = PREVIEW_PX / float(max(w, h))
+        scale = PREVIEW_PX / float(w)          # the full width: only the caption strip is kept
         w, h = max(2, int(w * scale) // 2 * 2), max(2, int(h * scale) // 2 * 2)
         fps = 15
     if not words:
         raise ValueError("no captions to style")
     script = build(words, style, w, h, opts=job.get("opts"))
+    captions_only = script
     if job.get("tag"):
         script += _tag_line(w, h, 0, dur) + "\n"
     tmp = tempfile.mkdtemp(prefix="amh_style_")
     try:
         with open(os.path.join(tmp, "c.ass"), "w", encoding="utf-8") as f:
             f.write(script)
+        with open(os.path.join(tmp, "band.ass"), "w", encoding="utf-8") as f:
+            f.write(captions_only)          # the preview strip is found without the free tag
         os.makedirs(os.path.join(tmp, "fonts"))
         for name in os.listdir(job["fonts"]):
             if name.lower().endswith((".ttf", ".otf")):
@@ -834,7 +883,8 @@ def render(job, progress=None):
             bg = "gradients=s=%dx%d:c0=0x2a3646:c1=0x0b1110:x0=0:y0=0:x1=%d:y1=%d:speed=0:r=%d:d=%.3f" % (w, h, w, h, fps, dur)
             webp = _has_encoder(job["ffmpeg"], "libwebp_anim")
             cmd = [job["ffmpeg"], "-y", "-v", "error", "-f", "lavfi", "-i", bg,
-                   "-vf", "subtitles=c.ass:fontsdir=fonts" + ("" if webp else ",split[a][b];[a]palettegen=max_colors=96[p];[b][p]paletteuse")]
+                   "-vf", "subtitles=c.ass:fontsdir=fonts" + _caption_band(job["ffmpeg"], tmp, w, h, dur) +
+                   ("" if webp else ",split[a][b];[a]palettegen=max_colors=96[p];[b][p]paletteuse")]
             cmd += (["-c:v", "libwebp_anim", "-loop", "0", "-quality", "72", "-compression_level", "3", "-f", "webp"] if webp
                     else ["-loop", "0", "-f", "gif"])
             out = os.path.splitext(out)[0] + (".webp" if webp else ".gif")
