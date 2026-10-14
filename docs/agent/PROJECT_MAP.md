@@ -24,6 +24,11 @@ the same PR that moves or renames the code. Keep this file under ~120 lines.
 - `panel/js/main.js` :: `function initWhatsNew` — the "What's new" card, once per version, never on a first install
 - `panel/js/main.js` :: `function updateUrl` — where the banner's "Download" goes (the website's #download section)
 - `panel/js/main.js` :: `function onUpdateCheck` — footer "Check for updates" (forces a lookup, answers in the footer)
+- `panel/js/main.js` :: `function loadClients` — the per-client word lists (`~/.amharic_captions_clients.json`, this computer only, 0600)
+- `panel/js/main.js` :: `function renderClientPanel` — the 👤 picker: choose/add a client, its words, import/export
+- `panel/js/main.js` :: `function setActiveClient` — the client of this project (auto from the project's own name, never guessed from the last one)
+- `panel/js/main.js` :: `function applyClientWords` — a client's words into the captions as ONE undo step (out: `unapplyClientWords`)
+- `panel/js/main.js` :: `function memoryRuleFor` — which store a green word came from (🧠 machine or 👤 client)
 - `panel/js/i18n.js` :: `'NEW'` — Amharic UI strings (key = the English text)
 - `panel/index.html` :: `id="review"` — markup + all panel CSS (dark only)
 - `panel/CSXS/manifest.xml` :: `ExtensionBundleVersion` — version (bump with tools/agent/bump.py)
@@ -70,6 +75,7 @@ the same PR that moves or renames the code. Keep this file under ~120 lines.
 
 ## Tests (run what you touched — tools/agent/test.py does it for you)
 - `tools/test/test_panel_dom.js` :: `4g. customize` — panel UI (needs a runtime/ junction)
+- `tools/test/test_panel_dom.js` :: `3.12 review: 👤 client words` — per-client list: beats the 🧠 rule, never in the memory, import/export
 - `tools/test/test_styles.py` :: `glide: the pill slides` — styles (real ffmpeg if AMH_FFMPEG)
 - `tools/test/test_trial_texts.py` :: `ALL PASS` — the free trial is promised with ONE number everywhere (website, guide, panel, bot profile)
 - `tools/test/test_host_pick.js` :: `nothing selected` — which clip is used

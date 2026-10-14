@@ -7,6 +7,7 @@ new; merge duplicates; keep < 80 lines.
 - "release tag vX already points at ..." -> X was published by an earlier merge. New branch from origin/main + `python tools/agent/bump.py <next>`. Check first: `python tools/agent/release_state.py`.
 - New `ci/build-*` branches do NOT start build-zips (paths-ignore) -> force-push the work to the existing `ci/build-1.10.20` branch to get a full Windows+Mac build.
 - A merge without a version bump ends red at "Stage verified packages" -> expected, harmless.
+- A new version that ships in the zip ALSO needs a `WHATS_NEW['<version>']` entry (panel/js/main.js) -> without it the card shows nothing and test_panel_dom 16d fails; keep the banner's "ፈቃድዎ እንደቀድሞው ይቀጥላል" wording (test 16 pins it).
 - GitHub API without login is rate-limited -> poll at most every 150 s.
 
 ## Shell / files (Windows)
@@ -16,6 +17,7 @@ new; merge duplicates; keep < 80 lines.
 - Long scratch paths break the bundled Python (MAX_PATH) -> work under a short `%TEMP%\...` folder.
 - `.cmd` files stay CRLF; `.command` / `.sh` stay LF. Never put `)` inside an `if (...)` echo in .cmd.
 - Next.js build inside a worktree needs its own `node_modules`: a junction fails under Turbopack ("symlink ... points out of the filesystem root") -> build with `npx.cmd next build --webpack`, then delete `.next` and remove the junction with `cmd /c rmdir` (never `Remove-Item -Recurse` on a junction — it empties the target).
+- `tools/agent/test.py all` runs the versions suite with `bash` -> in plain PowerShell this dies with "CreateProcess ... FileNotFoundError"; prepend Git's bin: `$env:PATH = "C:\Program Files\Git\bin;" + $env:PATH`.
 
 ## Tests
 - `test_panel_dom.js` needs `runtime/` -> `tools/agent/test.py panel` makes a junction to the main clone's runtime and removes ONLY the junction. Never delete the main clone's `runtime/` folder.

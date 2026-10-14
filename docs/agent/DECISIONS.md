@@ -14,6 +14,7 @@ Add a line (with the date) when the owner decides something. Keep < 60 lines.
 - Nothing persistent above the caption list; hints hide after use.
 - Update experience (2026-10-14): a "What's new" card on the first open after a version change — once per version, never on a first install; ✕ closes it, and "Try it" goes to the review's style strip (before the review exists the card itself says what to do first for a few seconds); the update banner says what the update brings + that the license stays and opens the website's download section (not the new-user install steps); the footer has a pressable "Check for updates".
 - Customize starts closed for every caption (2026-10-13). Preview = caption strip only.
+- Per-client word lists (2026-10-15): one 👤 list per client, in a local file on the editor's computer only (never uploaded). A client's words apply only in that client's videos — the client is auto-picked from the project's own file name, never guessed from the last-used one (so one client's spelling cannot land in another client's video). A client rule beats the machine 🧠 rule for the same word; client fixes never enter the machine memory. Lists can be exported/imported as .txt or .json to share.
 - Fonts must be free for commercial use (OFL). Abyssinica SIL ships unmodified (Reserved Font Name).
 - Never ship third-party videos or faces (thumbnails, demos, promo videos): neutral backgrounds.
 
