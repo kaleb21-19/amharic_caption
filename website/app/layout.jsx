@@ -55,7 +55,7 @@ export const metadata = {
   metadataBase: new URL(SITE_URL),
   title: "Amharic Captions Pro — የአማርኛ ካፕሽን ለPremiere፣ After Effects፣ CapCut እና DaVinci | 100% Offline",
   description:
-    "የአማርኛ ካፕሽን በደቂቃዎች — ለPremiere Pro፣ After Effects፣ CapCut እና DaVinci Resolve፣ ያለ ኢንተርኔት። Amharic captions for Premiere Pro, After Effects, CapCut and DaVinci Resolve, made on your computer. No uploads, no internet needed. One-time ETB 2,500. 2 free captions to try.",
+    "የአማርኛ ካፕሽን በደቂቃዎች — ለPremiere Pro፣ After Effects፣ CapCut እና DaVinci Resolve፣ ያለ ኢንተርኔት። Amharic captions for Premiere Pro, After Effects, CapCut and DaVinci Resolve, made on your computer. No uploads, no internet needed. From ETB 500 a month, or ETB 2,500 once. 30 minutes free to try.",
   openGraph: {
     title: "Amharic Captions Pro — Amharic subtitles for Premiere, After Effects, CapCut & DaVinci",
     description:

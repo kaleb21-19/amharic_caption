@@ -29,4 +29,4 @@ new; merge duplicates; keep < 80 lines.
 - libass fakes bold on variable fonts -> ship static Regular/Bold files.
 - CEP CSP allows `img-src 'self' data:` only -> show generated images as data: URIs.
 - The desktop app bridge `readFileSync` is text-only -> use `readBase64` for images.
-- worker.js bot texts hardcoded "20 minutes" instead of reading the live `trial_free_minutes` setting -> when a setting changes, grep the literal old value across worker.js AND website/*.jsx, do not assume one fix covers every copy.
+- One changed setting = one stale text somewhere. A customer-visible number lives in worker.js, website/*.jsx, the in-zip tools/installers/START HERE.html AND the bot's hand-set profile (DEPLOY.md `/setdescription`, `/setabouttext`) -> grep the literal old value in all four and update the bot profile by hand. tools/telegram/bot.py is DECOMMISSIONED (DEPLOY.md) - never "fix" its texts.

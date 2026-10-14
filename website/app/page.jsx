@@ -68,7 +68,7 @@ const editors = [
 
 const buySteps = [
   {
-    t: { am: "ይጫኑና 2 ካፕሽን በነጻ ይሞክሩ", en: "Install and try 2 captions free" },
+    t: { am: "ይጫኑና 30 ደቂቃ በነጻ ይሞክሩ", en: "Install and try 30 minutes free" },
     c: {
       am: "ከመክፈልዎ በፊት በራስዎ ቪዲዮ እንደሚሰራ ያረጋግጡ።",
       en: "Make sure it works on your own footage before you pay anything.",

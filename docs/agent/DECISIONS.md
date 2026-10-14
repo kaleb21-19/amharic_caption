@@ -8,6 +8,9 @@ Add a line (with the date) when the owner decides something. Keep < 60 lines.
 - Afaan Oromo is NOT released (tested 2026-10, friend: not accurate). Branch feature/oromo is parked.
 - Other languages only as an optional download, measured first, Amharic untouched.
 - No find & replace / search box in the review. Fix a word -> "Change all (N)" / "Always fix".
+- Speaker marks were removed on purpose in 1.10.14 (owner request). Do not re-add without asking.
+- No next/previous navigation buttons in the review (owner rejected; the orange marks are enough).
+- Amharic TTS: free models (e.g. MMS) are non-commercial — do not ship them. A sample clip must be the owner's own recording.
 - Nothing persistent above the caption list; hints hide after use.
 - Customize starts closed for every caption (2026-10-13). Preview = caption strip only.
 - Fonts must be free for commercial use (OFL). Abyssinica SIL ships unmodified (Reserved Font Name).

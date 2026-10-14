@@ -33,9 +33,9 @@ Pay **ETB 2,500** by bank transfer to **KALEB TEGEGEN** — CBE 1000504159977 ·
 4. Send payment by bank transfer to **KALEB TEGEGEN** (CBE 1000504159977 · Abyssinia 402393939 · Zemen 1031111343277015), then send your **Machine ID** + payment screenshot to get your license key
 5. Paste the key into the panel → **Activate** → done. One key per licensed installation; do not share the identity or license files.
 
-> **Free trial (1.10.7+):** **20 free minutes** of audio, given by the Telegram
-> bot (one per Telegram account and per computer) — the panel's "Try 20 minutes
-> free" button opens it. A longer video is captioned up to the minutes left.
+> **Free trial (1.10.7+):** **free minutes** of audio, given by the Telegram
+> bot (one per Telegram account and per computer) — the panel's free-minutes
+> box opens it (the number is the server's live setting). A longer video is captioned up to the minutes left.
 
 ### Known limitations
 

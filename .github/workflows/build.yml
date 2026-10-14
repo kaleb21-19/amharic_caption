@@ -204,6 +204,9 @@ jobs:
       - name: Installer script syntax (cmd.exe parse traps)
         run: python3 tools/test/test_cmd_syntax.py
 
+      - name: The free-trial promise is one number everywhere
+        run: python3 tools/test/test_trial_texts.py
+
       - name: Desktop app server (CapCut / DaVinci app, no window)
         run: python3 tools/test/test_app.py
 

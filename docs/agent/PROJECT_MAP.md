@@ -67,6 +67,7 @@ the same PR that moves or renames the code. Keep this file under ~120 lines.
 ## Tests (run what you touched — tools/agent/test.py does it for you)
 - `tools/test/test_panel_dom.js` :: `4g. customize` — panel UI (needs a runtime/ junction)
 - `tools/test/test_styles.py` :: `glide: the pill slides` — styles (real ffmpeg if AMH_FFMPEG)
+- `tools/test/test_trial_texts.py` :: `ALL PASS` — the free trial is promised with ONE number everywhere (website, guide, panel, bot profile)
 - `tools/test/test_host_pick.js` :: `nothing selected` — which clip is used
 - `tools/test/test_host_overlay.js` :: — styled layer placement
 - `tools/test/test_app.py` :: — desktop app bridge

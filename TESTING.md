@@ -62,6 +62,7 @@ point `AMH_MODEL_DIR` there for the tests that need the model.
 | `node panel/test/machine-id.test.mjs` | Machine ID: stable, 16-hex, legacy 8-hex still read | 1 s |
 | `node panel/test/host-safety.test.mjs` | Premiere host script safety regressions | 1 s |
 | `"$PY" tools/test/test_cmd_syntax.py` | every `.cmd` we ship parses in cmd.exe (the 1.8.9/1.8.10 installer crash) | <1 s |
+| `"$PY" tools/test/test_trial_texts.py` | the free trial is promised with ONE number everywhere (website, in-zip guide, panel, bot profile); no legacy "2 captions free" / "20 minutes free" text left; the panel builds the title from the live number | <1 s |
 | `"$PY" tools/test/test_app.py` | desktop app server without a window: refuses foreign Host / missing token / cross-site / CORS / traversal; file calls like Node (Amharic, ENOENT); spawn output, stdin, exit code, kill, timeout; license-server proxy; CapCut / DaVinci found, nothing else can be opened, Amharic path copied to the clipboard | 3 s |
 | `node tools/test/test_app_shim.js` | `node_shim.js`: Windows + macOS path rules, fs errors, hashes, execFile / spawn events and errors, dialogs, the proxy | 1 s |
 | `"$PY" tools/test/test_background.py` | background-voice filter (synthetic audio) | 1 s |
@@ -228,8 +229,9 @@ customer — top manual priority.*
   the SRT maker charges a free caption BEFORE making it (no ticket from the server ->
   no caption). Test tools that drive the engine stand in for the license check in
   their own process (tools/test/engine_cli.py).
-- Free minutes (1.10.7+): an unlicensed panel shows "🎁 Try 20 minutes free" → the
-  bot opens (t_<link>) → START → the panel shows "Free trial: 20:00 minutes left"
+- Free minutes (1.10.7+): an unlicensed panel shows "🎁 Try … minutes free" (the
+  live number from the owner setting, trial_free_minutes) → the
+  bot opens (t_<link>) → START → the panel shows "Free trial: 30:00 minutes left"
   by itself within a few seconds. Each job is charged in seconds of audio when the
   engine starts; a video longer than the minutes left is captioned only up to them
   and the card says "the rest needs a license". A second Telegram account on the
@@ -260,7 +262,7 @@ customer — top manual priority.*
   also with an Amharic file name. "📋 Copy location" copies it too; the editor
   used last is listed first. With no editor installed the folder opens right
   after saving (as before).
-- Free trial (2 captions), Buy, activation box (long key or XXXX-XXXX code), EN/አማ.
+- Free minutes from the bot (the live number, not 2 captions — that was 1.10.6 and older), Buy, activation box (long key or XXXX-XXXX code), EN/አማ.
 - Review video preview (1.9.4+): the video sits above the list with the current
   caption drawn on it; click a caption → the video jumps there and the row is
   highlighted; typing updates the text on the video at once; while playing the
@@ -279,7 +281,7 @@ customer — top manual priority.*
 
 | # | Scenario | Expected |
 |---|---|---|
-| 1 | Fresh install | 2 free captions (server-counted per Machine ID) |
+| 1 | Fresh install | Free minutes from the bot (live setting, server-counted per Machine ID); before 1.10.7: 2 free captions |
 | 2 | Trials used | Generate blocked, Buy / Machine ID shown |
 | 3 | Panel **Buy** → pay → screenshot → admin approves | panel activates itself (no pasting) |
 | 4 | Phone buyer (no Machine ID) | bot gives an activation code; typed once in the panel or SRT maker → licensed; the code then belongs to that computer |
@@ -1219,9 +1221,9 @@ non-overlapping and sorted.
 
 | # | Scenario | Expected |
 |---|----------|----------|
-| 1 | Fresh install, no key | Get Machine ID; 2 free trials allowed, Generate enabled |
-| 2 | After 1 trial | Enabled, "1 free transcription left" |
-| 3 | After 2 trials | Generate disabled, purchase banner shown |
+| 1 | Fresh install, no key | Get Machine ID; the free-minutes box (live number) → Telegram gives the minutes; Generate enabled |
+| 2 | Free minutes left | Enabled, "You have MM:SS free minutes left." |
+| 3 | Free minutes used up | Generate disabled, purchase banner shown |
 | 4 | Enter **valid** key | Activated; machine ID + key hidden; Generate enabled |
 | 5 | Enter wrong-length key | "Invalid key length", no crash |
 | 6 | Enter key for **different** machine | "Key is for a different machine" |

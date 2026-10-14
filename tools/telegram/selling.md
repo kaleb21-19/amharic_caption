@@ -17,9 +17,9 @@ the group, post offers, and handle buyers — copy-paste ready.
 
 > ለPremiere Pro የአማርኛ ካፕሽን አውቶማቲክ መስሪያ ሶፍትዌር ግሩፕ።
 > Automatic Amharic captions (subtitles) for Premiere Pro. On-device, offline,
-> one-time price.
+> pay once, or by the month.
 >
-> 💰 ዋጋ: **ETB 2,500** (one-time, per licensed installation)
+> 💰 ዋጋ: **ETB 2,500** አንድ ጊዜ · ወይም **በወር ETB 500** (per licensed installation)
 > 🏦 የሚከፈለው: ባንክ ዝውውር → **KALEB TEGEGEN** (CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015)
 > 🖥 Windows & Mac
 >
@@ -40,8 +40,8 @@ the group, post offers, and handle buyers — copy-paste ready.
 > **1.** የሶፍትዌሩን ፓነል ይክፈቱና "Your Machine ID" የሚለውን ቁጥር ይቅዱ
 > (Copy the Machine ID shown in the panel's License section).
 >
-> **2.** **ETB 2,500** በባንክ ዝውውር ወደ **KALEB TEGEGEN** (CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015) ይላኩ
-> (Send ETB 2,500 by bank transfer to KALEB TEGEGEN — CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015).
+> **2.** **ETB 2,500** (ወይም **በወር ETB 500**) በባንክ ዝውውር ወደ **KALEB TEGEGEN** (CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015) ይላኩ
+> (Send ETB 2,500 — or ETB 500 for one month — by bank transfer to KALEB TEGEGEN - CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015).
 >
 > **3.** የዝውውር ማረጋገጫ (screenshot) እና Machine ID በዚህ ግሩፕ ወይም በግል
 > መልእክት ይላኩ (Send the payment screenshot + your Machine ID here or in DM).
@@ -49,8 +49,8 @@ the group, post offers, and handle buyers — copy-paste ready.
 > **4.** ሊሰንስ ኬይ (license key) ወደ እርስዎ ይላካል። በፓነሉ License field ውስጥ
 > ተጭነው "Activate" ይጫኑ (You'll receive your key; paste it and press Activate).
 >
-> ✅ ሁሉም ሰው ከመግዛቱ በፊት **2 ነጻ** ካፕሽን የመስራት ዕድል አለው።
-> (Everyone gets **2 free** caption runs before buying.)
+> ✅ ሁሉም ሰው ከመግዛቱ በፊት **30 ደቂቃ በነጻ** የመሞከር ዕድል አለው።
+> (Everyone gets **30 minutes free** before buying — from the Telegram bot.)
 
 ---
 
@@ -61,17 +61,17 @@ the group, post offers, and handle buyers — copy-paste ready.
 > ይህ ሶፍትዌር Premiere Pro ላይ ቪዲዮዎን በነጻ የአማርኛ ንዑስ ርዕስ (subtitle/caption)
 > ያስቀምጥልዎታል — በኮምፒውተርዎ ላይ ብቻ ይሰራል (offline, on-device)።
 >
-> 💰 **ETB 2,500** (one-time) · 🏦 Bank transfer **KALEB TEGEGEN** (CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015) · 🖥 Windows & Mac
+> 💰 **ETB 2,500** (one-time) or **ETB 500** a month · 🏦 Bank transfer **KALEB TEGEGEN** (CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015) · 🖥 Windows & Mac
 >
-> 🔍 ለመግዛት እና ለ2 ነጻ trial → pinned message ይመልከቱ 👇
+> 🔍 ለመግዛት እና ለ30 ደቂቃ በነጻ ሙከራ → pinned message ይመልከቱ 👇
 
 ---
 
 ## 4. FAQ (save as a pinned "FAQ" message or post)
 
 **ከመግዛት በፊት እንዴት መሞከር እችላለሁ?**
-Every new user can run **2 free** transcriptions. Open the panel → Generate
-Captions → see the result, then buy if you like it.
+Every new user gets **30 minutes free** (from the Telegram bot). Open the panel
+→ Generate Captions → see the result, then buy if you like it.
 
 **ሊሰንስ ኬይ ለብዙ ኮምፒውተር ይሰራል?**
 No. Each key is file-bound to one licensed installation. It is not a hardware
