@@ -37,8 +37,10 @@ with the brief in §10 and reviews the reports. Other AIs do one task each.
 
 Amharic Captions Pro turns Amharic speech in a video into editable captions,
 **fully offline** on the editor's computer. Sold to Ethiopian video editors:
-ETB 2,500 one-time, bank transfer, through a Telegram bot; 2 free captions per
-computer. Windows + macOS (Apple silicon and Intel).
+Forever ETB 2,500 (or 1 month ETB 500 / 2 months ETB 900), bank transfer, through a
+Telegram bot; free trial 30 minutes for 7 days from the bot. Animated caption
+styles (`amh_styles.py`, 19 styles, 4 fonts, 8 animations). Live facts:
+`python tools/agent/facts.py`. Windows + macOS (Apple silicon and Intel).
 
 | Part | What it is | Where |
 |---|---|---|
@@ -229,3 +231,22 @@ Owner to do: <merge link, deploy commands, customer message to send>
 - [ ] Version bumped iff the zip changes; no other open PR uses that version.
 - [ ] `TESTING.md` updated if how-to-test changed; this file updated if the flow changed.
 - [ ] PR opened with the template filled; report sent.
+
+---
+
+## 12. Agent toolbox and project notes (save tokens, stay correct)
+
+Use these instead of reading big files or doing steps by hand:
+
+| Command | Does |
+|---|---|
+| `python tools/agent/facts.py [--online]` | version, prices, styles, fonts, animations, latest migration (+ public release) — read from the code, never stale |
+| `python tools/agent/test.py <panel\|host\|styles\|app\|bot\|versions\|all>` | runs the suites, prints only failures + one line each (makes and removes the runtime junction itself) |
+| `python tools/agent/bump.py X.Y.Z` | version in all 5 places; refuses an old or already-published number |
+| `python tools/agent/release_state.py` | is main's version published? which merged commits are in no release? |
+| `python tools/agent/map_check.py` | `docs/agent/PROJECT_MAP.md` still matches the code: FRESH / STALE |
+
+Project notes (short, kept true by whoever works — update them in the same PR):
+`docs/agent/PROJECT_MAP.md` (where code is), `docs/agent/DECISIONS.md` (owner decisions),
+`docs/agent/GOTCHAS.md` (lessons learned), `docs/agent/CHANGELOG.md` (one line per task).
+OpenCode agents: `.opencode/agents/selam.md` (developer) and `selam-review.md` (read-only reviewer).
