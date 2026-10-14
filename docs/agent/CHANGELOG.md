@@ -3,6 +3,7 @@
 One dated line per task the agent finished: what changed, version, PR.
 Older than ~3 months: summarize into one line per month.
 
+- 2026-10-14 — Claude side: CLAUDE.md start/end routine, .claude/agents/selam.md (Haiku, read-only Q&A), skills amh-problem-report / amh-release / amh-customer-message. No version.
 - 2026-10-14 — Selam agent created: PROJECT_MAP / DECISIONS / GOTCHAS, tools/agent scripts (facts, map_check, bump, release_state, test). No version.
 - 2026-10-13 — 1.16.2: clip without sound -> audio tracks first + clear message (err_no_audio).
 - 2026-10-13 — 1.16.1: preview = caption strip, Customize closed by default, review fits small screens.
