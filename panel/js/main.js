@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.16.4';
+const APP_VERSION = '1.16.5';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -405,17 +405,44 @@ function errorStep(raw) {
 }
 setTimeout(() => track('open'), 1200);
 
+// ── What's new (once per release) ───────────────────────────────────────────
+// One entry per release: what an editor who updates actually gets. This list is
+// the ONLY place to edit for a new version — the first open after a version
+// change shows the card once (never again, never on a first install), and the
+// update banner takes its one short line from the newest entry here. A panel
+// cannot know what a release newer than itself contains, so `banner` must also
+// stay true of any later update. Amharic first, then English.
+const WHATS_NEW = {
+  '1.16.5': {
+    banner: {
+      am: 'አዲስ ስታይሎች፣ ፎንቶችና አገባቦች ይዞ ይመጣል — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: 'Comes with new styles, fonts and animations — your license stays the same.',
+    },
+    items: [
+      { am: 'አዲስ ስታይሎች፦ Glide · Spotlight · Bounce', en: 'New styles: Glide · Spotlight · Bounce' },
+      { am: '4 የካፕሽን ፊደሎች፦ ዘመናዊ · ክብ · ክላሲክ · ባህላዊ', en: '4 caption fonts: Modern · Rounded · Classic · Traditional' },
+      { am: '8 አገባቦች፦ Fade · Slide · Pop · Zoom · Blur …', en: '8 animations: Fade · Slide · Pop · Zoom · Blur …' },
+      { am: '«የኔ ስታይል» — የራስዎን ገጽታ አስቀምጠው በአንድ ንክኪ ይጠቀሙ', en: 'My styles — save your own look and reuse it in one tap' },
+      { am: 'ትንሽና ፈጣን ቅድመ እይታ — የካፕሽን ስላይስ ብቻ', en: 'A smaller, faster preview — just the caption strip' },
+    ],
+  },
+};
+const WHATSNEW_KEY = 'amh.whatsnew.seen';          // version whose news was shown
+
 // ── Update-available notice ──────────────────────────────────────────────────
 // Asks our Worker (GET /api/latest, one cached GitHub lookup for everyone) at
 // most once a day and remembers the answer, so the banner survives restarts
 // and offline days. ✕ snoozes it for 3 days for that version only; a newer
-// release shows again at once. The button only ever opens our own website.
+// release shows again at once. The button only ever opens our own website —
+// an owner who updates lands on its download section, not on the new-user
+// install steps (the footer's "Check for updates" forces a lookup).
 const UPDATE_LATEST_KEY = 'amh.update.latest';     // {version, url}
 const UPDATE_CHECKED_KEY = 'amh.update.checked';   // epoch ms of last lookup
 const UPDATE_SNOOZE_KEY = 'amh.update.snooze';     // {version, until}
 const UPDATE_EVERY_MS = 24 * 60 * 60 * 1000;
 const UPDATE_SNOOZE_MS = 3 * 24 * 60 * 60 * 1000;
 const UPDATE_SITE = 'https://amharic-caption-pro.vercel.app/';
+const UPDATE_PAGE = UPDATE_SITE + 'install/#download';
 
 function versionNewer(a, b) {           // true when version a > version b
   const pa = String(a).split('.').map(Number);
@@ -428,30 +455,50 @@ function versionNewer(a, b) {           // true when version a > version b
 }
 function readJson(key) { try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { return null; } }
 
+// The one short line the banner shows: what an update brings. It comes from the
+// newest entry in WHATS_NEW (see the note above the list); null when the list is
+// empty, and then the banner says the version only.
+function newestWhatsNewBanner() {
+  let best = null;
+  Object.keys(WHATS_NEW).forEach((v) => { if (!best || versionNewer(v, best)) best = v; });
+  return best ? WHATS_NEW[best].banner : null;
+}
+function wnText(pair) {          // the panel language (Amharic by default)
+  return (typeof i18nGetLang === 'function' && i18nGetLang() === 'am') ? pair.am : pair.en;
+}
+
 function renderUpdateBanner() {
   const banner = document.getElementById('updateBanner');
   if (!banner) return;
   const latest = readJson(UPDATE_LATEST_KEY);
   const snooze = readJson(UPDATE_SNOOZE_KEY);
-  const show = !!(latest && /^\d+\.\d+\.\d+$/.test(latest.version) &&
+  const newer = !!(latest && /^\d+\.\d+\.\d+$/.test(latest.version) &&
     versionNewer(latest.version, APP_VERSION) &&
     !(snooze && snooze.version === latest.version && Date.now() < snooze.until));
-  banner.style.display = show ? 'flex' : 'none';
-  if (show) {
-    const txt = document.getElementById('updateText');
-    if (txt) txt.textContent = L('Version ' + latest.version + ' is available.');
+  banner.style.display = newer ? 'flex' : 'none';
+  const txt = document.getElementById('updateText');
+  if (txt && newer) {
+    const news = newestWhatsNewBanner();
+    txt.textContent = L('Version ' + latest.version + ' is available.') +
+      (news ? ' ' + wnText(news) : '');
   }
+  const go = document.getElementById('updateGo');
+  if (go) go.style.display = newer ? '' : 'none';   // nothing to open when up to date
 }
 
-async function checkForUpdate() {
+// `force` = the footer's "Check for updates": ignore the once-a-day memory.
+// Returns true when the server answered during this call.
+async function checkForUpdate(force) {
   let last = 0;
   try { last = Number(localStorage.getItem(UPDATE_CHECKED_KEY)) || 0; } catch (e) {}
   const now = Date.now();
-  if (!(last && now - last < UPDATE_EVERY_MS && now >= last)) {
+  let fresh = false;
+  if (force || !(last && now - last < UPDATE_EVERY_MS && now >= last)) {
     const data = await apiGet('/api/latest', 5000);
     if (data && /^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(String(data.version || ''))) {
+      fresh = true;
       const url = (typeof data.url === 'string' && data.url.indexOf(UPDATE_SITE) === 0)
-        ? data.url : UPDATE_SITE + 'install/';
+        ? data.url : UPDATE_PAGE;
       try {
         localStorage.setItem(UPDATE_LATEST_KEY, JSON.stringify({ version: data.version, url }));
         localStorage.setItem(UPDATE_CHECKED_KEY, String(now));
@@ -460,19 +507,50 @@ async function checkForUpdate() {
     // Offline / server error: nothing stored, so the next panel open retries.
   }
   renderUpdateBanner();
+  return fresh;
+}
+
+// "Check for updates" in the footer (it is otherwise at most once a day by
+// itself): answer straight away, in the place the user pressed. The label goes
+// back to normal after a few seconds.
+async function onUpdateCheck() {
+  const el = document.getElementById('updateCheck');
+  const label = L('↻ Check for updates');
+  const say = (msg) => { if (el) el.textContent = L(msg); };
+  say('Checking…');
+  const fresh = await checkForUpdate(true);
+  const latest = readJson(UPDATE_LATEST_KEY);
+  if (!fresh) say('Could not check — no internet.');
+  else if (latest && versionNewer(latest.version, APP_VERSION)) say('Version ' + latest.version + ' is available.');
+  else say('You are up to date (v' + APP_VERSION + ').');
+  setTimeout(() => { if (el) el.textContent = label; }, 8000);
+}
+
+// Where "Download" goes: the website's download section (#download on the
+// install page), never the new-user install steps. A url from the Worker wins
+// when it is ours; an answer stored by an older panel ("…/install/") goes to
+// the downloads as well.
+function updateUrl() {
+  const latest = readJson(UPDATE_LATEST_KEY);
+  const raw = (latest && typeof latest.url === 'string' && latest.url.indexOf(UPDATE_SITE) === 0)
+    ? latest.url : UPDATE_PAGE;
+  if (raw.indexOf('#') >= 0) return raw;
+  const base = raw.replace(/\/+$/, '');
+  if (base === UPDATE_SITE.replace(/\/+$/, '')) return UPDATE_PAGE;   // the site root
+  return /\/install$/.test(base) ? base + '/#download' : raw;
+}
+function openDownloadPage() {
+  const url = updateUrl();
+  try { window.__adobe_cep__ && window.cep.util.openURLInDefaultBrowser(url); }
+  catch (err) { window.open(url, '_blank'); }
 }
 
 function initUpdateBanner() {
   const go = document.getElementById('updateGo');
   const later = document.getElementById('updateLater');
-  if (go) go.addEventListener('click', (e) => {
-    e.preventDefault();
-    const latest = readJson(UPDATE_LATEST_KEY);
-    const url = (latest && typeof latest.url === 'string' && latest.url.indexOf(UPDATE_SITE) === 0)
-      ? latest.url : UPDATE_SITE + 'install/';
-    try { window.__adobe_cep__ && window.cep.util.openURLInDefaultBrowser(url); }
-    catch (err) { window.open(url, '_blank'); }
-  });
+  const check = document.getElementById('updateCheck');
+  if (go) go.addEventListener('click', (e) => { e.preventDefault(); openDownloadPage(); });
+  if (check) check.addEventListener('click', (e) => { e.preventDefault(); onUpdateCheck(); });
   if (later) later.addEventListener('click', () => {
     const latest = readJson(UPDATE_LATEST_KEY);
     if (latest) {
@@ -486,6 +564,70 @@ function initUpdateBanner() {
   if (typeof i18nOnChange === 'function') i18nOnChange(renderUpdateBanner);
   renderUpdateBanner();                 // last known answer, even offline
   setTimeout(checkForUpdate, 1500);
+}
+
+// ── What's new card ─────────────────────────────────────────────────────────
+// Shown once, on the first open after a version change (see WHATS_NEW above).
+// A first install never sees it: onboarding is the first-run story, so that
+// path just remembers the version silently. ✕ and "Try it" both hide it for
+// this version — "the card hides after use".
+function seenWhatsNew() {
+  try { return localStorage.getItem(WHATSNEW_KEY) || ''; } catch (e) { return ''; }
+}
+function markWhatsNewSeen(version) {
+  try { localStorage.setItem(WHATSNEW_KEY, String(version)); } catch (e) {}
+}
+function renderWhatsNew() {
+  const card = document.getElementById('whatsNew');
+  if (!card) return;
+  const entry = WHATS_NEW[APP_VERSION];
+  const show = !!entry && !needsOnboarding() && seenWhatsNew() !== APP_VERSION;
+  card.style.display = show ? 'block' : 'none';
+  if (!show) return;
+  const title = document.getElementById('wnTitle');
+  if (title) title.textContent = L("What's new in " + APP_VERSION);
+  const list = document.getElementById('wnList');
+  if (list) {
+    list.textContent = '';
+    entry.items.forEach((item) => {
+      const li = document.createElement('li');
+      li.textContent = wnText(item);
+      list.appendChild(li);
+    });
+  }
+}
+function hideWhatsNew() {
+  markWhatsNewSeen(APP_VERSION);
+  const card = document.getElementById('whatsNew');
+  if (card) card.style.display = 'none';
+}
+// "Try it": the new styles, fonts and animations live in the review's style
+// strip. Go there when the review is open; otherwise say where they appear.
+function whatsNewTry() {
+  const strip = document.getElementById('styleStrip');
+  const review = document.getElementById('review');
+  const reviewOpen = !!(review && review.classList.contains('show'));
+  hideWhatsNew();
+  if (reviewOpen && strip && strip.style.display !== 'none') {
+    try { strip.scrollIntoView({ block: 'center' }); } catch (e) { strip.scrollIntoView(); }
+    log('Pick a style — the preview updates as you tap one.');
+    return;
+  }
+  const opts = document.getElementById('capSeg');
+  if (opts) { try { opts.scrollIntoView({ block: 'center' }); } catch (e) {} }
+  log('Styles, fonts and animations appear in the review after you press');
+  log('Generate. Choose a style there, then press Customize.');
+}
+function initWhatsNew() {
+  const card = document.getElementById('whatsNew');
+  if (!card) return;
+  const close = document.getElementById('wnClose');
+  const tryBtn = document.getElementById('wnTry');
+  if (close) close.addEventListener('click', hideWhatsNew);
+  if (tryBtn) tryBtn.addEventListener('click', whatsNewTry);
+  if (typeof i18nOnChange === 'function') i18nOnChange(renderWhatsNew);
+  if (needsOnboarding()) markWhatsNewSeen(APP_VERSION);   // first install: never "new"
+  renderWhatsNew();
 }
 
 // Dark only (1.10.18): no light theme, whatever the host's brightness.
@@ -5563,6 +5705,7 @@ function setup() {
   initReview();
   initModelDownload();
   initUpdateBanner();
+  initWhatsNew();
   syncProgressRow();   // idle: no empty progress row
 }
 

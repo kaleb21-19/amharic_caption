@@ -15,6 +15,7 @@ new; merge duplicates; keep < 80 lines.
 - Run Python on downloaded or scratch files with `python -I`; `-I` also ignores PYTHONIOENCODING -> call `sys.stdout.reconfigure(encoding="utf-8")` before printing Amharic.
 - Long scratch paths break the bundled Python (MAX_PATH) -> work under a short `%TEMP%\...` folder.
 - `.cmd` files stay CRLF; `.command` / `.sh` stay LF. Never put `)` inside an `if (...)` echo in .cmd.
+- Next.js build inside a worktree needs its own `node_modules`: a junction fails under Turbopack ("symlink ... points out of the filesystem root") -> build with `npx.cmd next build --webpack`, then delete `.next` and remove the junction with `cmd /c rmdir` (never `Remove-Item -Recurse` on a junction — it empties the target).
 
 ## Tests
 - `test_panel_dom.js` needs `runtime/` -> `tools/agent/test.py panel` makes a junction to the main clone's runtime and removes ONLY the junction. Never delete the main clone's `runtime/` folder.

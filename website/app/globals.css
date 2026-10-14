@@ -946,6 +946,19 @@ code {
 }
 .dl-all { margin-top: var(--s-5); font-size: var(--t-sm); color: var(--muted); }
 
+/* The panel's "Download" button brings existing owners straight to the cards
+   above: the same installer updates an installed copy, license untouched. */
+.dl-keep {
+  margin-top: var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--brand-line);
+  border-radius: var(--radius);
+  background: var(--brand-glow);
+  font-size: var(--t-sm);
+  color: var(--ink-dim);
+  text-align: center;
+}
+
 /* OS switcher ------------------------------------------------------------- */
 .os-switch {
   display: grid;

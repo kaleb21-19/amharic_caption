@@ -273,6 +273,15 @@ export default function InstallGuide() {
             })}
           </div>
 
+          {/* The panel's "Download" button (existing owners) lands here, so say
+              the one thing an owner who updates needs to know. */}
+          <p className="dl-keep">
+            <Tx
+              am={<><strong>አስቀድመው ተጭነዋል?</strong> በላዩ ላይ ይጫኑት — ፈቃድዎ እንደቀድሞው ይቀጥላል። ምን አዲስ እንዳለ ፓነሉ ሲከፈት ያሳይዎታል።</>}
+              en={<><strong>Already installed?</strong> Install over it — your license stays the same. The panel shows you what&apos;s new when it opens.</>}
+            />
+          </p>
+
           <p className="center dl-all">
             <Tx
               am="የአማርኛ ሞዴሉ (610 MB ገደማ) ፓነሉን ለመጀመሪያ ጊዜ ሲከፍቱ አንድ ጊዜ ይወርዳል።"

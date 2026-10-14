@@ -157,7 +157,7 @@ function loadPanel(opts) {
       cb(JSON.stringify(opts.csiReply || defaultCsiReply));
     } },
     cep: { fs:{ showOpenDialog(){ return opts.folderDialog ? opts.folderDialog() : {err:1}; } },
-            util:{ openURLInDefaultBrowser(){} } },
+            util:{ openURLInDefaultBrowser(u){ if (opts.openUrl) opts.openUrl.push(u); } } },
     __adobe_cep__:{
       getHostEnvironment(){ return JSON.stringify({appName: opts.hostApp || 'PPRO', appSkinInfo:{appBackgroundColor:{red:30,green:30,blue:30}}}); },
       addEventListener(){},
@@ -231,7 +231,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.16.4');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.16.5');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -2310,7 +2310,10 @@ await t('16. update notice: newer shows, same/older/offline hide, ✕ snoozes pe
     await p.evalVm('checkForUpdate()');
     assert.strictEqual(calls, 1);
     assert.strictEqual(p.els('updateBanner').style.display, 'flex', 'newer version -> banner');
-    assert.strictEqual(p.els('updateText').textContent, 'Version 9.9.9 is available.');
+    // The banner says what the update brings (the WHATS_NEW line) and that the
+    // license stays — the two things an owner who updates asks about.
+    has(p.els('updateText').textContent, 'Version 9.9.9 is available.');
+    has(p.els('updateText').textContent, 'your license stays the same');
     await p.evalVm('checkForUpdate()');
     assert.strictEqual(calls, 1, 'at most one lookup a day');
 
@@ -2359,7 +2362,7 @@ await t('16. update notice: newer shows, same/older/offline hide, ✕ snoozes pe
   try {
     await q4.evalVm('checkForUpdate()');
     assert.strictEqual(JSON.parse(s4.getItem('amh.update.latest')).url,
-      'https://amharic-caption-pro.vercel.app/install/', 'foreign URL replaced by our install page');
+      'https://amharic-caption-pro.vercel.app/install/#download', 'foreign URL replaced by our download section');
   } finally { q4.close(); }
 
   // Amharic wording
@@ -2369,8 +2372,193 @@ await t('16. update notice: newer shows, same/older/offline hide, ✕ snoozes pe
   const a5 = loadPanel({ storage: s5, fetch: fetchLatest });
   try {
     await a5.evalVm('checkForUpdate()');
-    assert.strictEqual(a5.els('updateText').textContent, 'አዲስ ስሪት 9.9.9 ወጥቷል።');
+    has(a5.els('updateText').textContent, 'አዲስ ስሪት 9.9.9 ወጥቷል።');
+    has(a5.els('updateText').textContent, 'ፈቃድዎ እንደቀድሞው ይቀጥላል');
   } finally { a5.close(); }
+});
+
+await t('16b. update notice: "Download" opens the website download section, never the install steps', async () => {
+  const answer = { version: '9.9.9', url: 'https://amharic-caption-pro.vercel.app/install/' };
+  const fetchLatest = async (url) => (String(url).indexOf('/api/latest') < 0
+    ? { ok: false, json: async () => null }
+    : { ok: true, json: async () => answer });
+
+  // An owner updating: the older panel stored "…/install/" (no #download).
+  for (const [stored, why] of [
+    ['https://amharic-caption-pro.vercel.app/install/', 'an answer from an older panel'],
+    ['https://amharic-caption-pro.vercel.app/', 'the site root'],
+  ]) {
+    const s = makeLocalStorage();
+    s.setItem('amh.update.latest', JSON.stringify({ version: '9.9.9', url: stored }));
+    const opened = [];
+    const p = loadPanel({ storage: s, fetch: fetchLatest, openUrl: opened });
+    try {
+      await flush(10);
+      assert.strictEqual(p.els('updateBanner').style.display, 'flex', why);
+      p.els('updateGo').click();
+      assert.strictEqual(opened.length, 1, why + ': one tab');
+      assert.strictEqual(opened[0], 'https://amharic-caption-pro.vercel.app/install/#download',
+        why + ': lands on the download cards');
+    } finally { p.close(); }
+  }
+
+  // A url the Worker gives us for another page of ours is left alone.
+  const s2 = makeLocalStorage();
+  s2.setItem('amh.update.latest', JSON.stringify({ version: '9.9.9', url: 'https://amharic-caption-pro.vercel.app/whatsnew/' }));
+  const opened2 = [];
+  const q = loadPanel({ storage: s2, fetch: fetchLatest, openUrl: opened2 });
+  try {
+    await flush(10);
+    q.els('updateGo').click();
+    assert.strictEqual(opened2[0], 'https://amharic-caption-pro.vercel.app/whatsnew/');
+  } finally { q.close(); }
+});
+
+await t('16c. footer "Check for updates": forces a lookup and answers where the user pressed', async () => {
+  let calls = 0, online = true;
+  let answer = { version: '9.9.9', url: 'https://amharic-caption-pro.vercel.app/install/' };
+  const fetchLatest = async (url) => {
+    if (String(url).indexOf('/api/latest') < 0) return { ok: false, json: async () => null };
+    calls++;
+    if (!online) throw new Error('offline');
+    return { ok: true, json: async () => answer };
+  };
+
+  // Already checked today, and a manual press still asks (and shows the banner).
+  const s1 = makeLocalStorage();
+  s1.setItem('amh.update.checked', String(Date.now()));
+  const p = loadPanel({ storage: s1, fetch: fetchLatest });
+  try {
+    await flush(10);
+    p.els('updateCheck').click();
+    await flush(20);
+    assert.strictEqual(calls, 1, 'a manual check ignores the once-a-day memory');
+    has(p.els('updateCheck').textContent, '9.9.9');
+    assert.strictEqual(p.els('updateBanner').style.display, 'flex', 'the banner shows where to download');
+  } finally { p.close(); }
+
+  // Up to date: no banner, and the user is told so in the footer.
+  const s2 = makeLocalStorage();
+  answer = { version: p.evalVm('APP_VERSION'), url: 'https://amharic-caption-pro.vercel.app/install/' };
+  const q = loadPanel({ storage: s2, fetch: fetchLatest });
+  try {
+    await flush(10);
+    q.els('updateCheck').click();
+    await flush(20);
+    assert.strictEqual(q.els('updateBanner').style.display, 'none', 'nothing new -> no banner');
+    has(q.els('updateCheck').textContent, 'up to date');
+    has(q.els('updateCheck').textContent, q.evalVm('APP_VERSION'));
+  } finally { q.close(); }
+
+  // Offline: say so instead of pretending. The label comes back by itself.
+  const s3 = makeLocalStorage();
+  online = false;
+  const r = loadPanel({ storage: s3, fetch: fetchLatest });
+  try {
+    await flush(10);
+    r.evalVm('globalThis.__timers = []; setTimeout = (fn, ms) => { __timers.push([fn, ms]); return __timers.length; };');
+    r.els('updateCheck').click();
+    await flush(20);
+    assert.strictEqual(r.els('updateBanner').style.display, 'none');
+    has(r.els('updateCheck').textContent, 'Could not check');
+    const back = r.evalVm('__timers.filter((t) => t[1] === 8000)');
+    assert.strictEqual(back.length, 1, 'the label returns after a few seconds');
+    r.evalVm('__timers.filter((t) => t[1] === 8000)[0][0]()');
+    assert.strictEqual(r.els('updateCheck').textContent, '↻ Check for updates');
+  } finally { r.close(); }
+});
+
+await t('16d. what\'s new: once per version, never on a first install, ✕/Try it hide it', async () => {
+  // An editor who was already onboarded on an older build updates: the card is
+  // there on the first open, lists the new things, and ✕ remembers the version.
+  const storage = makeLocalStorage();
+  storage.setItem('amh.onboarded', '1');
+  let p = loadPanel({ storage });
+  try {
+    await flush(10);
+    assert.strictEqual(p.els('whatsNew').style.display, 'block', 'shown after an update');
+    const ver = p.evalVm('APP_VERSION');
+    has(p.els('wnTitle').textContent, "What's new in " + ver);
+    const items = p.els('wnList').children.map((li) => li.textContent);
+    assert.ok(items.length >= 4, 'lists the new things: ' + items.length);
+    has(items.join(' | '), 'Glide');
+    has(items.join(' | '), 'My styles');
+    has(items.join(' | '), 'caption fonts');
+    // ✕ hides it and remembers this version.
+    p.els('wnClose').click();
+    assert.strictEqual(p.els('whatsNew').style.display, 'none');
+    assert.strictEqual(storage.getItem('amh.whatsnew.seen'), ver);
+  } finally { p.close(); }
+
+  // Same version next time: never again.
+  p = loadPanel({ storage });
+  try {
+    await flush(10);
+    assert.strictEqual(p.els('whatsNew').style.display, 'none', 'once per version');
+  } finally { p.close(); }
+
+  // A brand-new install: onboarding is the first-run story, so no card — and
+  // the version is remembered silently, so it does not show up later either.
+  const fresh = makeLocalStorage();
+  const q = loadPanel({ storage: fresh });
+  try {
+    await flush(10);
+    assert.strictEqual(q.els('whatsNew').style.display, 'none', 'never on a first install');
+    assert.strictEqual(fresh.getItem('amh.whatsnew.seen'), q.evalVm('APP_VERSION'));
+  } finally { q.close(); }
+
+  // Amharic (the default for new installs) — the list follows the panel language.
+  const am = makeLocalStorage();
+  am.setItem('amh.onboarded', '1');
+  am.setItem('amh.lang', 'am');
+  const r = loadPanel({ storage: am });
+  try {
+    await flush(10);
+    has(r.els('wnTitle').textContent, 'በስሪት ' + r.evalVm('APP_VERSION') + ' አዲስ የመጣ');
+    has(r.els('wnList').children.map((li) => li.textContent).join(' | '), 'አዲስ ስታይሎች');
+  } finally { r.close(); }
+
+  // "Try it" with no captions yet: says where the styles live, and hides the card.
+  const s2 = makeLocalStorage();
+  s2.setItem('amh.onboarded', '1');
+  const v = loadPanel({ storage: s2 });
+  try {
+    await flush(10);
+    v.els('wnTry').click();
+    assert.strictEqual(v.els('whatsNew').style.display, 'none', 'the card hides after use');
+    has(v.els('logBox').textContent, 'appear in the review');
+  } finally { v.close(); }
+
+  // With the review open, "Try it" goes to the style strip instead.
+  const s3 = makeLocalStorage();
+  s3.setItem('amh.onboarded', '1');
+  const w = loadPanel({ storage: s3 });
+  try {
+    await flush(10);
+    w.evalVm("$('review').classList.add('show'); $('styleStrip').style.display = '';");
+    w.els('wnTry').click();
+    assert.strictEqual(w.els('whatsNew').style.display, 'none');
+    has(w.els('logBox').textContent, 'Pick a style');
+  } finally { w.close(); }
+});
+
+await t('18. i18n: every data-i18n key used in index.html has an Amharic string', async () => {
+  // A typo in a key silently leaves English text in the Amharic panel — the
+  // new "What's new" card and the footer's check link included.
+  const html = fs.readFileSync(path.join(REPO, 'panel', 'index.html'), 'utf8');
+  const keys = [];
+  const re = /data-i18n(?:-html|-title|-placeholder)?="([^"]+)"/g;
+  let m;
+  while ((m = re.exec(html))) if (keys.indexOf(m[1]) < 0) keys.push(m[1]);
+  assert.ok(keys.length > 80, 'markup read: ' + keys.length + ' keys');
+  const ctx = vm.createContext({
+    localStorage: makeLocalStorage(), document: makeDocument(), console,
+    navigator: { userAgent: 'i18n-key-test' },
+  });
+  vm.runInContext(fs.readFileSync(path.join(PANEL_JS, 'i18n.js'), 'utf8'), ctx);
+  const am = vm.runInContext('Object.keys(AM_STATIC)', ctx);
+  const missing = keys.filter((k) => am.indexOf(k) < 0);
+  assert.deepStrictEqual(missing, [], 'no Amharic for: ' + missing.join(', '));
 });
 
 await t('13b. language: an unset preference defaults to Amharic; unknown text falls back to English', async () => {
