@@ -41,6 +41,10 @@ const AM_STATIC = {
 
   'update.download':  'አውርድ',
   'update.later':     'በኋላ አስታውሰኝ',
+  'update.check':     '↻ ዝመና ይፈትሹ',
+  'update.checkTitle':'አዲስ ስሪት እንዳለ ይፈትሹ',
+  'wn.try':           'ይሞክሩት',
+  'wn.closeTitle':    'ዝጋ',
 
   'model.title':      'የአማርኛ ሞዴል',
   'model.hint':       'አንድ ጊዜ ብቻ የሚወርድ',
@@ -171,6 +175,10 @@ const AM_TEXT = {
   'Your free captions are used up. Activate your license key to continue.': 'ነጻ ሙከራዎቹ አልቀዋል። ለመቀጠል የፈቃድ ቁልፍዎን ያስገቡ።',
   'Connect to the internet once for a free caption (your license key works offline).': 'ለነጻ ሙከራ አንድ ጊዜ ኢንተርኔት ያገናኙ (ፈቃድ ያለው ያለ ኢንተርኔት ይሰራል)።',
   'Get your free minutes in Telegram first (the button above the license).': 'መጀመሪያ ነጻ ደቂቃዎችዎን በቴሌግራም ይቀበሉ (ከፈቃዱ በላይ ያለው ቁልፍ)።',
+  // footer: the user's own "Check for updates" (also used to put the label back)
+  '↻ Check for updates': '↻ ዝመና ይፈትሹ',
+  'Checking…': 'በመፈተሽ ላይ…',
+  'Could not check — no internet.': 'መፈተሽ አልተቻለም — ኢንተርኔት የለም።',
   'Your free minutes are used up. Buy a license to keep making captions.': 'ነጻ ደቂቃዎችዎ አልቀዋል። ካፕሽን መስራት ለመቀጠል ፈቃድ ይግዙ።',
   'Connect to the internet for the free trial (a license works offline).': 'ለነጻ ሙከራ ኢንተርኔት ያገናኙ (ፈቃድ ያለው ያለ ኢንተርኔት ይሰራል)።',
   'This computer has no active license. Activate your license key (or connect to the internet for the free trial).': 'ይህ ኮምፒውተር ፈቃድ የለውም። የፈቃድ ቁልፍዎን ያስገቡ (ወይም ለነጻ ሙከራ ኢንተርኔት ያገናኙ)።',
@@ -385,6 +393,8 @@ const AM_PATTERNS = [
   [/^(\d+) captions?$/, '$1 ካፕሽን'],
   [/^(\d+) to check$/, '$1 ለማረጋገጥ'],
   [/^Version (\d+\.\d+\.\d+) is available\.$/, 'አዲስ ስሪት $1 ወጥቷል።'],
+  [/^You are up to date \(v(\d+\.\d+\.\d+)\)\.$/, 'አዲሱ ስሪት አለዎት (v$1)።'],
+  [/^What's new in (\d+\.\d+\.\d+)$/, 'በስሪት $1 አዲስ የመጣ'],
   [/^Extracting audio (\d+)\/(\d+)$/, 'ድምፅ በማውጣት ላይ $1/$2'],
   [/^Transcribing (\d+)\/(\d+)(.*)$/, function (m, a, b, rest) {
     rest = rest

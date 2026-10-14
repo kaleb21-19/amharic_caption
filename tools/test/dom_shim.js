@@ -171,8 +171,9 @@ const KNOWN = [
   'groupSizeField', 'fmtField', 'footPrice', 'reviewSub', 'healthTitle',
   // lite: one-time model download card
   'modelCard', 'modelBtn', 'modelBar', 'modelLabel',
-  // update-available banner
-  'updateBanner', 'updateText', 'updateGo', 'updateLater',
+  // update-available banner + what's-new card + footer check link
+  'updateBanner', 'updateText', 'updateGo', 'updateLater', 'updateCheck',
+  'whatsNew', 'wnTitle', 'wnList', 'wnTry', 'wnClose', 'wnHint',
   // license
   'machineIdSection', 'machineIdDisplay', 'machineIdCopy', 'machineMismatch',
   'licensedNote', 'licenseInput', 'licenseActivate', 'licenseStatus', 'trialBanner',
@@ -216,6 +217,8 @@ function makeDocument(tagFor) {
     runBtn: ['button', null], cancelBtn: ['button', null], choose: ['button', null],
     modelBtn: ['button', null],
     updateGo: ['button', null], updateLater: ['button', null],
+    updateCheck: ['a', null], wnTry: ['button', null], wnClose: ['button', null],
+    wnHint: ['p', null],
     diag: ['a', null], credits: ['a', null], onboardStart: ['button', null],
     licenseActivate: ['button', null], machineIdCopy: ['button', null],
     buyBtn: ['button', null], bankDetails: ['a', null],
@@ -227,6 +230,7 @@ function makeDocument(tagFor) {
     panelVersion: ['span', null], supportLink: ['a', null],
     machineIdDisplay: ['span', null], licenseStatus: ['span', null],
     fontText: ['span', null],
+    wnTitle: ['span', null],
   };
   for (const id in stamp) {
     const [tag, ds] = stamp[id];

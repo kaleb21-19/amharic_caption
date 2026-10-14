@@ -20,6 +20,10 @@ the same PR that moves or renames the code. Keep this file under ~120 lines.
 - `panel/js/main.js` :: `TRIAL_GATE` — free-minutes gate (Telegram trial, 30 min / 7 days)
 - `panel/js/main.js` :: `function liveReviewAllowed` — review opens while long videos still transcribe
 - `panel/js/main.js` :: `function track` — anonymous step counts (/api/event)
+- `panel/js/main.js` :: `WHATS_NEW` — per-release "What's new" text + the update banner's one-line summary (edit this for a new version)
+- `panel/js/main.js` :: `function initWhatsNew` — the "What's new" card, once per version, never on a first install
+- `panel/js/main.js` :: `function updateUrl` — where the banner's "Download" goes (the website's #download section)
+- `panel/js/main.js` :: `function onUpdateCheck` — footer "Check for updates" (forces a lookup, answers in the footer)
 - `panel/js/i18n.js` :: `'NEW'` — Amharic UI strings (key = the English text)
 - `panel/index.html` :: `id="review"` — markup + all panel CSS (dark only)
 - `panel/CSXS/manifest.xml` :: `ExtensionBundleVersion` — version (bump with tools/agent/bump.py)
