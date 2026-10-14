@@ -78,7 +78,7 @@ export default function LegalPage() {
 
           <h3>3. Free trial</h3>
           <p>
-            Before buying you may get free minutes of transcription (20
+            Before buying you may get free minutes of transcription (30
             minutes unless we announce otherwise) from our Telegram bot, so you
             can test the Software on your own videos. One free trial per
             Telegram account and per computer; minutes are counted by the

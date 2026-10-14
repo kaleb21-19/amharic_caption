@@ -422,10 +422,10 @@ command menu live in Telegram, not in this code. Open @BotFather and send:
 ```
 🎬 አማርኛ ካፕሽን ፕሮ — የቪዲዮዎን የአማርኛ ንግግር በራሱ ወደ ካፕሽን ይቀይራል (Premiere Pro፣ After Effects፣ CapCut)።
 💯 ሙሉ በሙሉ በኮምፒውተርዎ ላይ፣ ያለ ኢንተርኔት።
-🎁 2 ካፕሽን በነጻ ይሞክሩ · 💰 2,500 ብር፣ አንድ ጊዜ ብቻ።
+🎁 30 ደቂቃ በነጻ ይሞክሩ · 💰 በወር ከ500 ብር ወይም 2,500 ብር፣ አንድ ጊዜ ብቻ።
 ⚠️ ክፍያ ለ KALEB TEGEGEN ብቻ።
 
-Offline Amharic captions for Premiere Pro, After Effects and any editor. Try 2 free, then buy and get your key right here.
+Offline Amharic captions for Premiere Pro, After Effects and any editor. Try 30 minutes free, then buy and get your key right here.
 ```
 
 **`/setabouttext`** (profile page, max 120 chars):
@@ -684,7 +684,7 @@ customers.renew_nudged), then `npm.cmd run deploy`, then merge.
 Order: `npm.cmd run migrate` (creates trial_requests / trial_grants /
 trial_runs), then `npm.cmd run deploy`, THEN merge the 1.10.7 release.
 
-- The panel's "Try 20 minutes free" asks `/api/trial/request` for a one-time
+- The panel's free-minutes box asks `/api/trial/request` for a one-time
   link `t_<nonce>`; START in the bot links that computer to the Telegram
   account and gives the minutes. One trial per Telegram account and per
   computer. Automatic, except: more than 10 links from one internet address in

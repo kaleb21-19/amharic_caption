@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.16.3';
+const APP_VERSION = '1.16.4';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -1002,8 +1002,9 @@ async function revalidateLicenseOnline(force) {
 }
 
 // ── Free trial: free MINUTES from the Telegram bot (1.10.7) ─────────────────
-// An unlicensed computer gets N free minutes of audio (owner setting, 20) from
-// our Telegram bot: "Try 20 minutes free" asks /api/trial/request for a
+// An unlicensed computer gets N free minutes of audio (the live owner setting;
+// 20 is only the fallback until the server answers) from
+// our Telegram bot: the free-minutes box asks /api/trial/request for a
 // one-time link, the person presses START in the bot, and this panel notices
 // by itself. Each free job is charged in seconds when the engine starts; the
 // engine's ticket says how many seconds of this job the free minutes cover
@@ -1017,6 +1018,8 @@ let TRIAL_CUT = null;         // seconds the free minutes covered, when less tha
 function trialRemaining() {
   return TRIAL_MIN && TRIAL_MIN.status === 'active' ? Math.max(0, TRIAL_MIN.seconds_left || 0) : 0;
 }
+// The live number comes from the server (owner setting); 20 is ONLY the
+// fallback until the first answer, never a promise shown to a customer.
 function trialMinutes() { return (TRIAL_MIN && TRIAL_MIN.minutes) || 20; }
 function fmtMinSec(s) {
   s = Math.max(0, Math.round(Number(s) || 0));
@@ -1215,7 +1218,7 @@ function wavSeconds(p) {
   try { return Math.max(1, (fs.statSync(p).size - 44) / 32000); } catch (e) { return 1; }
 }
 
-// "Try 20 minutes free" → the bot. The panel then checks every few seconds
+// The free-minutes box → the bot. The panel then checks every few seconds
 // (and when it gets focus back) until the minutes are there.
 function openExternal(url) {
   try { window.__adobe_cep__ && window.cep.util.openURLInDefaultBrowser(url); }

@@ -13,9 +13,9 @@ Copy-paste ready. Post these when you launch, and reuse later for reach.
 > ✅ የአማርኛ ንዑስ ርዕስ በቦታው ይፈጠር
 > ✅ በኮምፒውተርህ ላይ ብቻ ይሰራል — ኢንተርኔት አያስፈልግም, ቅጽበት (offline, on-device)
 > ✅ Windows & Mac
-> ✅ አንድ ጊዜ ክፍያ: **ETB 2,500** (subscription የለም)
+> ✅ አንድ ጊዜ **ETB 2,500** · ወይም በወር **ETB 500** (subscription የለም)
 >
-> 🎁 **ሁሉም ሰው 2 ነጻ trial** ያገኛል — ሞክር እና እርካታ ከተሰማህ ግዛ!
+> 🎁 **ሁሉም ሰው 30 ደቂቃ በነጻ** ያገኛል — ሞክር እና እርካታ ከተሰማህ ግዛ!
 >
 > 🏦 ለመግዛት: ባንክ ዝውውር → **KALEB TEGEGEN** (CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015) → Machine ID + payment screenshot ላክ
 > 👇 የተሟላ መረጃ pinned message ላይ
@@ -34,19 +34,19 @@ Copy-paste ready. Post these when you launch, and reuse later for reach.
 > 3. "Generate Captions" ተጫን
 > 4. አማርኛ ካፕሽን በቦታው ✨
 >
-> ለ2 ነጻ trial ፓነሉን ሞክር! 💬
+> ለ30 ደቂቃ በነጻ ፓነሉን ሞክር! 💬
 
 ---
 
 ## Post C — Pricing reminder (repeat every few days)
 
-> 💰 **ዋጋ: ETB 2,500 ብቻ** (አንድ ጊዜ ክፍያ)
+> 💰 **ዋጋ: ETB 2,500** (አንድ ጊዜ) ወይም **በወር ETB 500**
 >
 > • Windows & Mac ላይ ይሰራል
 > • ኢንተርኔት ሳያስፈልግ, በኮምፒውተርህ ላይ ብቻ
 > • የአማርኛ ካፕሽን በአውቶማቲክ
 >
-> 🎁 2 ነጻ trial አለ — መግዛትህ በፊት ሞክር!
+> 🎁 30 ደቂቃ በነጻ አለ — መግዛትህ በፊት ሞክር!
 > 🏦 ባንክ ዝውውር → **KALEB TEGEGEN** (CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015) → screenshot + Machine ID ላክ
 
 ---
@@ -78,5 +78,5 @@ Copy-paste ready. Post these when you launch, and reuse later for reach.
 > 3. Premiere Pro ከፍት → ፕሮጀክት ክፈት (project ሳይከፍት Extensions ሜኑ ግራይ ይሆናል) → Windows > Extensions > "Amharic Captions" ክፈት
 > 4. License ለማግኘት Machine ID ቅድህ።
 >
-> ከተጫነ በኋላ 2 ነጻ trial አለ! 🎁
+> ከተጫነ በኋላ 30 ደቂቃ በነጻ አለ! 🎁
 > ችግር ካጋጠመ → DM 👍
