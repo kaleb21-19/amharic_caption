@@ -209,8 +209,8 @@ export default function HomePage() {
 
               <p className="hero-note">
                 <Tx
-                  am="መጀመሪያ 20 ደቂቃ በነጻ ይሞክሩ · በወር ከ500 ብር · ወይም አንድ ጊዜ ለዘለቄታው"
-                  en="Try 20 minutes free first · From ETB 500 a month · Or pay once, forever"
+                  am="መጀመሪያ 30 ደቂቃ በነጻ ይሞክሩ · በወር ከ500 ብር · ወይም አንድ ጊዜ ለዘለቄታው"
+                  en="Try 30 minutes free first · From ETB 500 a month · Or pay once, forever"
                 />
               </p>
             </div>
@@ -444,8 +444,8 @@ export default function HomePage() {
               <h2><Tx am="የአማርኛ ካፕሽንን በእጅ መጻፍ ያቁሙ።" en="Stop typing Amharic captions by hand." /></h2>
               <p className="section-sub" style={{ marginInline: "auto" }}>
                 <Tx
-                  am="በራስዎ ቪዲዮ በነጻ ይሞክሩ — 20 ደቂቃ፣ ያለ ክፍያ፣ በቴሌግራም አንድ ጊዜ በመጫን።"
-                  en="Try it free on your own footage — 20 minutes, no payment, one tap in Telegram."
+                  am="በራስዎ ቪዲዮ በነጻ ይሞክሩ — 30 ደቂቃ፣ ያለ ክፍያ፣ በቴሌግራም አንድ ጊዜ በመጫን።"
+                  en="Try it free on your own footage — 30 minutes, no payment, one tap in Telegram."
                 />
               </p>
               <div className="cta-row">
