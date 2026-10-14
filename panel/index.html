@@ -282,6 +282,7 @@
   .whats-new .wn-list li { margin: 2px 0; }
   /* .btn-primary is full-width everywhere else in the panel; not here. */
   .whats-new .btn { width: auto; height: auto; padding: 4px 12px; font-size: 11px; }
+  .whats-new .wn-hint { display: none; margin: 7px 0 0; color: var(--text-primary); font-weight: 600; }
   /* ---------- License status line + support details ---------- */
   .license-status { font-size: 11px; font-weight: 600; margin: 0 0 6px; color: var(--text-secondary); }
   .support-details { margin: 6px 0 2px; }
@@ -684,6 +685,8 @@
       </div>
       <ul class="wn-list" id="wnList"></ul>
       <button type="button" id="wnTry" class="btn btn-primary" data-i18n="wn.try">Try it</button>
+      <!-- "Try it" before the review exists: what to do first, for a few seconds -->
+      <p class="wn-hint" id="wnHint" role="status" aria-live="polite"></p>
     </div>
 
     <!-- Update available (filled by initUpdateBanner; hidden when up to date) -->

@@ -428,6 +428,13 @@ const WHATS_NEW = {
   },
 };
 const WHATSNEW_KEY = 'amh.whatsnew.seen';          // version whose news was shown
+// "Try it" before the review exists: said inside the card for a few seconds
+// (and in the log, which keeps it). Amharic first, then English.
+const WN_TRY_HINT = {
+  am: 'Generate ይጫኑ፣ ከዚያ ስታይል ይምረጡ',
+  en: 'Press Generate, then choose a style',
+};
+const WN_HINT_MS = 6000;                           // read it, then the card goes
 
 // ── Update-available notice ──────────────────────────────────────────────────
 // Asks our Worker (GET /api/latest, one cached GitHub lookup for everyone) at
@@ -584,6 +591,12 @@ function renderWhatsNew() {
   const show = !!entry && !needsOnboarding() && seenWhatsNew() !== APP_VERSION;
   card.style.display = show ? 'block' : 'none';
   if (!show) return;
+  // Fresh card: no leftover hint, "Try it" pressable again (a language change
+  // re-renders this while the card is up).
+  const hint = document.getElementById('wnHint');
+  if (hint) { hint.textContent = ''; hint.style.display = 'none'; }
+  const tryBtn = document.getElementById('wnTry');
+  if (tryBtn) tryBtn.style.display = '';
   const title = document.getElementById('wnTitle');
   if (title) title.textContent = L("What's new in " + APP_VERSION);
   const list = document.getElementById('wnList');
@@ -602,21 +615,29 @@ function hideWhatsNew() {
   if (card) card.style.display = 'none';
 }
 // "Try it": the new styles, fonts and animations live in the review's style
-// strip. Go there when the review is open; otherwise say where they appear.
+// strip. With the review open, go there and let the card go at once. Before
+// that, the card itself says what to do first (hint + log), then hides.
 function whatsNewTry() {
   const strip = document.getElementById('styleStrip');
   const review = document.getElementById('review');
   const reviewOpen = !!(review && review.classList.contains('show'));
-  hideWhatsNew();
   if (reviewOpen && strip && strip.style.display !== 'none') {
+    hideWhatsNew();
     try { strip.scrollIntoView({ block: 'center' }); } catch (e) { strip.scrollIntoView(); }
     log('Pick a style — the preview updates as you tap one.');
     return;
   }
+  const hint = document.getElementById('wnHint');
+  if (!hint) { hideWhatsNew(); return; }        // nowhere to say it: just close
+  hint.textContent = wnText(WN_TRY_HINT);
+  hint.style.display = 'block';
+  const tryBtn = document.getElementById('wnTry');
+  if (tryBtn) tryBtn.style.display = 'none';    // one press is enough
   const opts = document.getElementById('capSeg');
   if (opts) { try { opts.scrollIntoView({ block: 'center' }); } catch (e) {} }
   log('Styles, fonts and animations appear in the review after you press');
   log('Generate. Choose a style there, then press Customize.');
+  setTimeout(hideWhatsNew, WN_HINT_MS);
 }
 function initWhatsNew() {
   const card = document.getElementById('whatsNew');

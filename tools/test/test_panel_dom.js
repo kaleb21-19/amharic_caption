@@ -2507,7 +2507,8 @@ await t('16d. what\'s new: once per version, never on a first install, ✕/Try i
     assert.strictEqual(fresh.getItem('amh.whatsnew.seen'), q.evalVm('APP_VERSION'));
   } finally { q.close(); }
 
-  // Amharic (the default for new installs) — the list follows the panel language.
+  // Amharic (the default for new installs) — the list and the labels around it
+  // follow the panel language, in the polite form (DECISIONS: እርስዎ).
   const am = makeLocalStorage();
   am.setItem('amh.onboarded', '1');
   am.setItem('amh.lang', 'am');
@@ -2516,17 +2517,44 @@ await t('16d. what\'s new: once per version, never on a first install, ✕/Try i
     await flush(10);
     has(r.els('wnTitle').textContent, 'በስሪት ' + r.evalVm('APP_VERSION') + ' አዲስ የመጣ');
     has(r.els('wnList').children.map((li) => li.textContent).join(' | '), 'አዲስ ስታይሎች');
+    // The labels around it: index.html gets its Amharic from data-i18n, which
+    // this shim does not render — so read the tables the panel applies.
+    assert.strictEqual(r.evalVm("AM_STATIC['wn.try']"), 'ይሞክሩት', 'polite: ይሞክሩት');
+    assert.strictEqual(r.evalVm("AM_STATIC['update.check']"), '↻ ዝመና ይፈትሹ', 'polite: ይፈትሹ');
+    assert.strictEqual(r.evalVm("AM_TEXT['↻ Check for updates']"), '↻ ዝመና ይፈትሹ',
+      'and the same wording when the label is put back');
+    // "Try it" before the review exists: the card itself says what to do first,
+    // holds on while it can be read, then lets go (once per version).
+    r.evalVm('globalThis.__timers = []; setTimeout = (fn, ms) => { __timers.push([fn, ms]); return __timers.length; };');
+    r.els('wnTry').click();
+    assert.strictEqual(r.els('wnHint').style.display, 'block', 'the hint is in the card');
+    has(r.els('wnHint').textContent, 'Generate ይጫኑ፣ ከዚያ ስታይል ይምረጡ');
+    assert.strictEqual(r.els('whatsNew').style.display, 'block', 'the card stays while the hint is up');
+    assert.strictEqual(r.els('wnTry').style.display, 'none', 'one press is enough');
+    assert.strictEqual(r.evalVm('__timers.filter((t) => t[1] === 6000)').length, 1,
+      'the card hides by itself after the hint');
+    r.evalVm('__timers.filter((t) => t[1] === 6000)[0][0]()');
+    assert.strictEqual(r.els('whatsNew').style.display, 'none');
+    assert.strictEqual(am.getItem('amh.whatsnew.seen'), r.evalVm('APP_VERSION'));
   } finally { r.close(); }
 
-  // "Try it" with no captions yet: says where the styles live, and hides the card.
+  // "Try it" with no captions yet: the card itself says what to do first (hint +
+  // log), and the card then lets go.
   const s2 = makeLocalStorage();
   s2.setItem('amh.onboarded', '1');
   const v = loadPanel({ storage: s2 });
   try {
     await flush(10);
+    v.evalVm('globalThis.__timers = []; setTimeout = (fn, ms) => { __timers.push([fn, ms]); return __timers.length; };');
     v.els('wnTry').click();
-    assert.strictEqual(v.els('whatsNew').style.display, 'none', 'the card hides after use');
+    assert.strictEqual(v.els('wnHint').style.display, 'block');
+    assert.strictEqual(v.els('wnHint').textContent, 'Press Generate, then choose a style');
+    assert.strictEqual(v.els('whatsNew').style.display, 'block', 'stays while the hint is up');
     has(v.els('logBox').textContent, 'appear in the review');
+    assert.strictEqual(v.evalVm('__timers.filter((t) => t[1] === 6000)').length, 1);
+    v.evalVm('__timers.filter((t) => t[1] === 6000)[0][0]()');
+    assert.strictEqual(v.els('whatsNew').style.display, 'none', 'the card hides after use');
+    assert.strictEqual(s2.getItem('amh.whatsnew.seen'), v.evalVm('APP_VERSION'));
   } finally { v.close(); }
 
   // With the review open, "Try it" goes to the style strip instead.
@@ -2540,6 +2568,30 @@ await t('16d. what\'s new: once per version, never on a first install, ✕/Try i
     assert.strictEqual(w.els('whatsNew').style.display, 'none');
     has(w.els('logBox').textContent, 'Pick a style');
   } finally { w.close(); }
+});
+
+await t('16e. footer check in Amharic: polite wording, and the label comes back', async () => {
+  // Offline is enough here — the point is the wording the customer reads.
+  const offline = async (url) => {
+    if (String(url).indexOf('/api/latest') < 0) return { ok: false, json: async () => null };
+    throw new Error('offline');
+  };
+  const s = makeLocalStorage();
+  s.setItem('amh.lang', 'am');
+  s.setItem('amh.onboarded', '1');
+  const p = loadPanel({ storage: s, fetch: offline });
+  try {
+    await flush(10);
+    p.evalVm('globalThis.__timers = []; setTimeout = (fn, ms) => { __timers.push([fn, ms]); return __timers.length; };');
+    p.els('updateCheck').click();
+    await flush(20);
+    assert.strictEqual(p.els('updateCheck').textContent, 'መፈተሽ አልተቻለም — ኢንተርኔት የለም።');
+    assert.strictEqual(p.els('updateBanner').style.display, 'none');
+    const back = p.evalVm('__timers.filter((t) => t[1] === 8000)');
+    assert.strictEqual(back.length, 1, 'the label returns after a few seconds');
+    p.evalVm('__timers.filter((t) => t[1] === 8000)[0][0]()');
+    assert.strictEqual(p.els('updateCheck').textContent, '↻ ዝመና ይፈትሹ');
+  } finally { p.close(); }
 });
 
 await t('18. i18n: every data-i18n key used in index.html has an Amharic string', async () => {

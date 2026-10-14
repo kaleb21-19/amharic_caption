@@ -12,7 +12,7 @@ Add a line (with the date) when the owner decides something. Keep < 60 lines.
 - No next/previous navigation buttons in the review (owner rejected; the orange marks are enough).
 - Amharic TTS: free models (e.g. MMS) are non-commercial — do not ship them. A sample clip must be the owner's own recording.
 - Nothing persistent above the caption list; hints hide after use.
-- Update experience (2026-10-14): a "What's new" card on the first open after a version change — once per version, never on a first install, closed by ✕ or "Try it"; the update banner says what the update brings + that the license stays and opens the website's download section (not the new-user install steps); the footer has a pressable "Check for updates".
+- Update experience (2026-10-14): a "What's new" card on the first open after a version change — once per version, never on a first install; ✕ closes it, and "Try it" goes to the review's style strip (before the review exists the card itself says what to do first for a few seconds); the update banner says what the update brings + that the license stays and opens the website's download section (not the new-user install steps); the footer has a pressable "Check for updates".
 - Customize starts closed for every caption (2026-10-13). Preview = caption strip only.
 - Fonts must be free for commercial use (OFL). Abyssinica SIL ships unmodified (Reserved Font Name).
 - Never ship third-party videos or faces (thumbnails, demos, promo videos): neutral backgrounds.

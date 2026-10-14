@@ -41,9 +41,9 @@ const AM_STATIC = {
 
   'update.download':  'አውርድ',
   'update.later':     'በኋላ አስታውሰኝ',
-  'update.check':     '↻ ዝመና ፈትሹ',
+  'update.check':     '↻ ዝመና ይፈትሹ',
   'update.checkTitle':'አዲስ ስሪት እንዳለ ይፈትሹ',
-  'wn.try':           'ሞክሩት',
+  'wn.try':           'ይሞክሩት',
   'wn.closeTitle':    'ዝጋ',
 
   'model.title':      'የአማርኛ ሞዴል',
@@ -176,9 +176,9 @@ const AM_TEXT = {
   'Connect to the internet once for a free caption (your license key works offline).': 'ለነጻ ሙከራ አንድ ጊዜ ኢንተርኔት ያገናኙ (ፈቃድ ያለው ያለ ኢንተርኔት ይሰራል)።',
   'Get your free minutes in Telegram first (the button above the license).': 'መጀመሪያ ነጻ ደቂቃዎችዎን በቴሌግራም ይቀበሉ (ከፈቃዱ በላይ ያለው ቁልፍ)።',
   // footer: the user's own "Check for updates" (also used to put the label back)
-  '↻ Check for updates': '↻ ዝመና ፈትሹ',
+  '↻ Check for updates': '↻ ዝመና ይፈትሹ',
   'Checking…': 'በመፈተሽ ላይ…',
-  'Could not check — no internet.': 'ማፈተሽ አልተቻለም — ኢንተርኔት የለም።',
+  'Could not check — no internet.': 'መፈተሽ አልተቻለም — ኢንተርኔት የለም።',
   'Your free minutes are used up. Buy a license to keep making captions.': 'ነጻ ደቂቃዎችዎ አልቀዋል። ካፕሽን መስራት ለመቀጠል ፈቃድ ይግዙ።',
   'Connect to the internet for the free trial (a license works offline).': 'ለነጻ ሙከራ ኢንተርኔት ያገናኙ (ፈቃድ ያለው ያለ ኢንተርኔት ይሰራል)።',
   'This computer has no active license. Activate your license key (or connect to the internet for the free trial).': 'ይህ ኮምፒውተር ፈቃድ የለውም። የፈቃድ ቁልፍዎን ያስገቡ (ወይም ለነጻ ሙከራ ኢንተርኔት ያገናኙ)።',

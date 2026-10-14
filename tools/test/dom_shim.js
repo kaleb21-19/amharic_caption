@@ -173,7 +173,7 @@ const KNOWN = [
   'modelCard', 'modelBtn', 'modelBar', 'modelLabel',
   // update-available banner + what's-new card + footer check link
   'updateBanner', 'updateText', 'updateGo', 'updateLater', 'updateCheck',
-  'whatsNew', 'wnTitle', 'wnList', 'wnTry', 'wnClose',
+  'whatsNew', 'wnTitle', 'wnList', 'wnTry', 'wnClose', 'wnHint',
   // license
   'machineIdSection', 'machineIdDisplay', 'machineIdCopy', 'machineMismatch',
   'licensedNote', 'licenseInput', 'licenseActivate', 'licenseStatus', 'trialBanner',
@@ -218,6 +218,7 @@ function makeDocument(tagFor) {
     modelBtn: ['button', null],
     updateGo: ['button', null], updateLater: ['button', null],
     updateCheck: ['a', null], wnTry: ['button', null], wnClose: ['button', null],
+    wnHint: ['p', null],
     diag: ['a', null], credits: ['a', null], onboardStart: ['button', null],
     licenseActivate: ['button', null], machineIdCopy: ['button', null],
     buyBtn: ['button', null], bankDetails: ['a', null],
