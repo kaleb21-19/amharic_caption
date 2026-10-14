@@ -679,7 +679,7 @@ customers.renew_nudged), then `npm.cmd run deploy`, then merge.
   with Renew / Forever buttons (only the buying Telegram account can use them).
 - Prices and days: PLANS in src/worker.js.
 
-## Free trial = 20 free minutes from the bot (migration 0027, panel 1.10.7)
+## Free trial = 30 free minutes from the bot (raised from 20 on 2026-10-14; migration 0029)
 
 Order: `npm.cmd run migrate` (creates trial_requests / trial_grants /
 trial_runs), then `npm.cmd run deploy`, THEN merge the 1.10.7 release.
