@@ -870,6 +870,12 @@ await t('3.12 review: 👤 client words — a list per client, on this computer 
       ' for (let i = 0; i < 2005; i++) w["w" + i] = { to: "x" + i, n: 1, strong: true, at: i }; pruneClientWords(w);' +
       ' return JSON.stringify([Object.keys(w).length, "w4" in w, "w5" in w]); })()'));
     assert.deepStrictEqual(prunedWords, [2000, false, true], '2000 words per client, the oldest drop out');
+    // ...and the real path keeps them too (the machine memory's 500 cap used to
+    // trim a client's list while it was being filled).
+    const cap = JSON.parse(p.evalVm('(function(){ createClient("cap");' +
+      ' for (let i = 0; i < 505; i++) rememberClientFix("cap", "w" + i, "x" + i);' +
+      ' return JSON.stringify(clientWordCount("cap")); })()'));
+    assert.strictEqual(cap, 505, 'a client list is not cut at the machine memory’s 500');
 
     // (i) Switching client mid-review is ONE undo step: the old client's words
     //     go back out and the new client's go in.
@@ -898,6 +904,29 @@ await t('3.12 review: 👤 client words — a list per client, on this computer 
       assert.strictEqual(JSON.parse(fs.readFileSync(path.join(home4, '.amharic_captions_clients.json'), 'utf8')).projects['sports clip'], '',
         'and the project remembers "no client"');
     } finally { p4.close(); fs.rmSync(home4, { recursive: true, force: true }); }
+
+    // (j) Undo puts the panel's belief back with the text: after ↩ the rules
+    //     that are "in" the captions are the ones the text really shows, so the
+    //     next client's word still lands (a stale rule used to make it silent).
+    const home5 = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_cli3_'));
+    const p5 = loadPanel({ machineHome: home5 });
+    try {
+      const t5 = () => JSON.parse(p5.evalVm('JSON.stringify(reviewCues.map((c) => c.text))'));
+      p5.evalVm('saveFixStore({ v: 1, fixes: { "ላሊቤላ": { to: "ላልቤላ", n: 3, strong: true, at: 1 } } })');
+      p5.evalVm('createClient("X"); rememberClientFix("X", "ላሊቤላ", "ላሊበላ");' +
+        ' createClient("Y"); rememberClientFix("Y", "ላሊቤላ", "ላሊበላ ከተማ")');
+      p5.evalVm('reviewTrialCharged = true; lastCues = ' + JSON.stringify([{ start: 0, end: 1, text: 'ላሊቤላ ደርሰናል' }]) + ';');
+      await p5.evalVm('openReview("C:/tmp/amh_captions_9.srt", "clinic clip", 0, {})');
+      assert.deepStrictEqual(t5(), ['ላልቤላ ደርሰናል'], 'the 🧠 rule is in the text');
+      p5.evalVm('setActiveClient("X")');
+      assert.deepStrictEqual(t5(), ['ላሊበላ ደርሰናል'], 'X overrides it');
+      p5.els('revUndo').fire('click', {});
+      assert.deepStrictEqual(t5(), ['ላልቤላ ደርሰናል'], '↩ puts the 🧠 spelling back');
+      assert.strictEqual(p5.els('revClient').textContent, '👤 Client', 'and no client is left in the header');
+      p5.evalVm('setActiveClient("Y")');
+      assert.deepStrictEqual(t5(), ['ላሊበላ ከተማ ደርሰናል'], 'the next client’s word still lands after the undo');
+      assert.strictEqual(p5.els('revClient').textContent, '👤 Y (1)', 'and its header agrees with the text');
+    } finally { p5.close(); fs.rmSync(home5, { recursive: true, force: true }); }
   } finally { p.close(); fs.rmSync(machineHome, { recursive: true, force: true }); }
 });
 

@@ -3952,6 +3952,10 @@ function pushReviewUndo(what) {
   REVIEW_UNDO.push({
     what, cues: JSON.stringify(reviewCues),
     client: JSON.stringify(REVIEW_CLIENT_WORDS), active: ACTIVE_CLIENT,
+    // Which fixes are in the captions travels too: after an undo the panel must
+    // believe exactly what the text says (a stale rule would silently stop the
+    // next client's word from landing).
+    fixes: JSON.stringify(REVIEW_AUTOFIX.rules), mem: JSON.stringify(REVIEW_MEM_FIXES),
   });
   if (REVIEW_UNDO.length > 30) REVIEW_UNDO.shift();
   syncReviewUndo();
@@ -3969,6 +3973,8 @@ function undoReview() {
   if (!top) return;
   reviewCues = JSON.parse(top.cues);
   if (top.client) REVIEW_CLIENT_WORDS = JSON.parse(top.client);
+  if (top.fixes) REVIEW_AUTOFIX.rules = JSON.parse(top.fixes);
+  if (top.mem) REVIEW_MEM_FIXES = JSON.parse(top.mem);
   if (typeof top.active === 'string') { ACTIVE_CLIENT = top.active; syncClientButton(); }
   if (reviewOpen) renderClientPanel();     // an open 👤 panel shows the right client again
   clearRowHint();
@@ -5780,7 +5786,7 @@ async function runWorkArea() {
     if (all.length === 0) log('No speech detected in these clips — nothing to place.');
     log('Done — ' + all.length + ' captions written (' +
         items.length + ' clip(s) cached).');
-    await openReview(outSrt, 'sequence', 0, {});
+    await openReview(outSrt, 'sequence', 0, { projectId: info.sequence });
     return;
   }
 

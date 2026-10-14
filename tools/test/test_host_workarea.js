@@ -61,6 +61,9 @@ test('plain clips: work area cuts them, whole edit takes all (unchanged)', () =>
   assert.deepStrictEqual(rows(get(false)), [['C:/v/a.mp4', 10, 10, 5], ['C:/v/b.mp4', 15, 5, 5]]);
   assert.deepStrictEqual(rows(get(true)), [['C:/v/a.mp4', 0, 0, 15], ['C:/v/b.mp4', 15, 5, 25]]);
   assert.strictEqual(get(false).outside, undefined);
+  // The sequence's own name travels with the result: the panel links a client's
+  // word list to the project by it (never to the run's temporary .srt).
+  assert.strictEqual(get(false).sequence, 'Main', 'the sequence name comes back');
 });
 
 test('a nested sequence is opened: its clips land at the right outer time', () => {
