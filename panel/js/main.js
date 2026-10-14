@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.16.5';
+const APP_VERSION = '1.16.6';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -32,6 +32,7 @@ if (typeof i18nOnChange === 'function') {
         const rv = document.getElementById('review');
         if (rv && rv.classList.contains('show')) renderReview();
       },
+      () => { syncClientButton(); renderClientPanel(); },
       () => {
         const pl = document.getElementById('progLabel');
         if (pl && PROGRESS_EN) pl.textContent = L(PROGRESS_EN);
@@ -424,6 +425,18 @@ const WHATS_NEW = {
       { am: '8 አገባቦች፦ Fade · Slide · Pop · Zoom · Blur …', en: '8 animations: Fade · Slide · Pop · Zoom · Blur …' },
       { am: '«የኔ ስታይል» — የራስዎን ገጽታ አስቀምጠው በአንድ ንክኪ ይጠቀሙ', en: 'My styles — save your own look and reuse it in one tap' },
       { am: 'ትንሽና ፈጣን ቅድመ እይታ — የካፕሽን ስላይስ ብቻ', en: 'A smaller, faster preview — just the caption strip' },
+    ],
+  },
+  '1.16.6': {
+    banner: {
+      am: 'የደንበኛ ቃላት መዝገብ ተጨምሯል — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: 'Adds a per-client word list — your license stays the same.',
+    },
+    items: [
+      { am: '👤 የደንበኛ ቃላት፦ የአንድ ደንበኛ ስሞችና ቃላት አስተምረው፣ በዚያ ደንበኛ ቪዲዮዎች ውስጥ ብቻ በራሳቸው ይታረማሉ (የማሽኑ ማስታወሻ አይቀየርም)', en: '👤 Client words: teach one client’s names and terms — fixed only in that client’s videos (your 🧠 memory stays as it is)' },
+      { am: 'በዚህ ኮምፒውተር ላይ ብቻ ይቀመጣል — ወደ ኢንተርኔት አይላክም', en: 'Kept on this computer only — nothing is uploaded' },
+      { am: 'የደንበኛውን ዝርዝር አውጥተው (.txt / .json) ለተባባሪዎ ማስተላለፍ ይችላሉ', en: 'Export a client’s list (.txt / .json) to share it with a colleague' },
+      { am: 'ወደ ሌላ ደንበኛ ሲቀይሩ የቀድሞው ቃላት በራሳቸው ይወጣሉ — አንድ ↩ Undo ብቻ', en: 'Changing client takes the old client’s words back out — one ↩ Undo' },
     ],
   },
 };
@@ -3135,7 +3148,7 @@ function activeFixes(st) {
   });
   return out;
 }
-function rememberFix(st, wrong, right, strong) {
+function rememberFix(st, wrong, right, strong, max) {
   wrong = String(wrong || '').trim(); right = String(right || '').trim();
   if (!wrong || wrong === right) return;
   const cur = st.fixes[wrong];
@@ -3148,14 +3161,255 @@ function rememberFix(st, wrong, right, strong) {
   st.fixes[wrong].at = Date.now();
   // Never keep the opposite rule (it would flip the word back and forth).
   if (st.fixes[right] && st.fixes[right].to === wrong) delete st.fixes[right];
+  const cap = max || FIX_MAX;         // a client's own list is bigger than the machine's
   const keys = Object.keys(st.fixes);
-  if (keys.length > FIX_MAX) {
+  if (keys.length > cap) {
     keys.sort((a, b) => (st.fixes[a].at || 0) - (st.fixes[b].at || 0));
-    keys.slice(0, keys.length - FIX_MAX).forEach((k) => delete st.fixes[k]);
+    keys.slice(0, keys.length - cap).forEach((k) => delete st.fixes[k]);
   }
 }
+// ── client glossaries ───────────────────────────────────────────────────
+// A freelancer works for the same few clients (a clinic, a school, a shop) and
+// retypes the same names in every video. A client list keeps those words on
+// THIS computer (~/.amharic_captions_clients.json, 0600) and fixes them in
+// that client's videos only. A client's spelling must never leak into another
+// client's job, so a client word is kept out of the computer-wide memory — and
+// nothing here leaves the machine: no cloud, no bot, no account, no upload.
+const CLIENTS_FILE = '.amharic_captions_clients.json';
+const CLIENT_MAX = 30;            // clients kept
+const CLIENT_WORD_MAX = 2000;     // words per client
+const CLIENT_PROJECT_MAX = 100;   // remembered "this project belongs to" links
+let ACTIVE_CLIENT = '';           // '' = no client: exactly the old behaviour
+function clientsPath() { return identityFile(CLIENTS_FILE); }
+function loadClients() {
+  try {
+    const j = JSON.parse(fs.readFileSync(clientsPath(), 'utf8'));
+    if (j && j.clients && typeof j.clients === 'object') {
+      if (!j.projects || typeof j.projects !== 'object') j.projects = {};
+      return j;
+    }
+  } catch (e) { /* none yet */ }
+  return { v: 1, clients: {}, last: '', projects: {} };
+}
+function saveClients(st) {
+  try { fs.writeFileSync(clientsPath(), JSON.stringify(st), { encoding: 'utf8', mode: 0o600 }); } catch (e) {}
+}
+// Oldest first, so the client used last is at the top of the picker.
+function pruneClients(st) {
+  const names = Object.keys(st.clients || {});
+  if (names.length > CLIENT_MAX) {
+    names.sort((a, b) => (st.clients[a].at || 0) - (st.clients[b].at || 0));
+    names.slice(0, names.length - CLIENT_MAX).forEach((n) => { delete st.clients[n]; });
+  }
+  const keys = Object.keys(st.projects || {});
+  if (keys.length > CLIENT_PROJECT_MAX) keys.slice(0, keys.length - CLIENT_PROJECT_MAX).forEach((k) => { delete st.projects[k]; });
+  return st;
+}
+function clientWords(st, name) { const c = (st.clients || {})[name]; return (c && c.words) || {}; }
+// One client's rules, in the same shape as the computer memory's.
+function clientFixes(name) {
+  const st = loadClients();
+  return (name && st.clients[name]) ? activeFixes({ fixes: clientWords(st, name) }) : {};
+}
+function clientWordCount(name) { return Object.keys(clientFixes(name)).length; }
+function createClient(name) {
+  name = String(name || '').trim().replace(/\s+/g, ' ').slice(0, 60);
+  if (!name) return '';
+  const st = loadClients();
+  if (!st.clients[name]) st.clients[name] = { at: Date.now(), words: {} };
+  st.last = name;
+  pruneClients(st);
+  saveClients(st);
+  return name;
+}
+function rememberClientFix(name, wrong, right) {
+  const st = loadClients();
+  if (!name || !st.clients[name]) return false;
+  const holder = { fixes: clientWords(st, name) };
+  rememberFix(holder, wrong, right, true, CLIENT_WORD_MAX);
+  pruneClientWords(holder.fixes);
+  st.clients[name].at = Date.now();
+  st.last = name;
+  saveClients(st);
+  return true;
+}
+function forgetClientWord(name, wrong) {
+  const st = loadClients();
+  if (!name || !clientWords(st, name)[wrong]) return false;
+  delete st.clients[name].words[wrong];
+  saveClients(st);
+  return true;
+}
+// Keep one client's list bounded: the least recently used words go first.
+function pruneClientWords(words) {
+  const keys = Object.keys(words || {});
+  if (keys.length > CLIENT_WORD_MAX) {
+    keys.sort((a, b) => (words[a].at || 0) - (words[b].at || 0));
+    keys.slice(0, keys.length - CLIENT_WORD_MAX).forEach((k) => { delete words[k]; });
+  }
+  return words;
+}
+// Which project a client belongs to. Only a real, stable name of the editor's
+// own material: the clip or video file name (the sequence name for a Work Area
+// / Whole edit run). Never the temporary .srt the panel works in — those are
+// made fresh for every run (amh_captions_<time>.srt), so a key taken from one
+// would never match the next run and the client would be forgotten every time.
+// A generic name (or none) means NO link: the editor picks the client again,
+// which is better than one client's words landing in another client's video.
+// That includes the names an editor never chose — Premiere's own "Sequence 01"
+// appears in every project, so it can never identify a client's job.
+// No folder paths are kept, so nothing about the editor's disk travels.
+const GENERIC_PROJECTS = /^(captions?|clip|video|timeline|sequence|comp|composition|untitled|work area|whole edit)(\s*\d+)?$/;
+function projectKey(name) {
+  const base = String(name || '').replace(/^.*[\\/]/, '').replace(/\.[a-z0-9]+$/i, '')
+    .replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 120);
+  if (!base || GENERIC_PROJECTS.test(base)) return '';
+  return base;
+}
+function activeClientForProject(st) {
+  const key = (REVIEW && REVIEW.projectKey) || '';
+  if (!key || !Object.prototype.hasOwnProperty.call(st.projects || {}, key)) return '';
+  const name = String(st.projects[key] || '');
+  return (name && st.clients[name]) ? name : '';
+}
+function setActiveClient(name) {
+  const st = loadClients();
+  name = String(name || '');
+  if (name && !st.clients[name]) return false;
+  const prev = ACTIVE_CLIENT;
+  const same = prev === name;
+  // ONE undo step for a whole switch (the old client's words out, the new
+  // client's in). The snapshot is taken FIRST, while the header still shows the
+  // old client, so the text and "which client wrote this word" agree again
+  // after an undo. A no-op switch leaves no undo step behind.
+  const snapshot = reviewOpen && !same;
+  if (snapshot) pushReviewUndo('client words');
+  let changed = false;
+  if (prev && !same && unapplyClientWords(prev, { keepUndo: true })) changed = true;
+  ACTIVE_CLIENT = name;
+  st.last = name;
+  const key = (REVIEW && REVIEW.projectKey) || '';
+  if (key) st.projects[key] = name;
+  pruneClients(st);
+  saveClients(st);
+  syncClientButton();
+  if (applyClientWords(true, { keepUndo: snapshot })) changed = true;
+  if (snapshot && !changed) { REVIEW_UNDO.pop(); syncReviewUndo(); }
+  if (!changed) renderClientPanel();
+  return true;
+}
+// Take the words one client had applied back out of this review (the editor
+// switched client, or chose "No client"). Pushes ONE undo step, and only when
+// the text really changes; no log of its own — the caller decides.
+function unapplyClientWords(scope, opts) {
+  opts = opts || {};
+  if (!reviewOpen || !scope) return false;
+  const words = Object.keys(REVIEW_CLIENT_WORDS).filter((w) => REVIEW_CLIENT_WORDS[w].scope === scope);
+  if (!words.length) return false;
+  // The words the computer memory also knows: while the client was chosen the
+  // memory had no say, so it takes those words back at the end.
+  const back = {};
+  words.forEach((w) => { const f = REVIEW_CLIENT_WORDS[w].from; if (REVIEW_MEM_FIXES[f]) back[f] = REVIEW_MEM_FIXES[f]; });
+  if (!opts.keepUndo) {
+    let hits = 0;
+    words.forEach((word) => {
+      const from = REVIEW_CLIENT_WORDS[word].from;
+      reviewCues.forEach((c) => { hits += replaceWords(c.text, word, from).n; });
+    });
+    if (hits) pushReviewUndo('client words');
+  }
+  let changed = false;
+  words.forEach((word) => {
+    const from = REVIEW_CLIENT_WORDS[word].from;
+    reviewCues.forEach((c) => {
+      const x = replaceWords(c.text, word, from);
+      if (x.n) { c.text = x.text; changed = true; }
+      if ((c._fixed || []).indexOf(word) >= 0) c._fixed = c._fixed.filter((v) => v !== word);
+      const b = REVIEW_BASE.find((z) => String(z._id) === String(c._id));
+      if (b) { const y = replaceWords(b.text, word, from); if (y.n) b.text = y.text; }
+    });
+    if (REVIEW_AUTOFIX.rules[from] === word) delete REVIEW_AUTOFIX.rules[from];
+    delete REVIEW_CLIENT_WORDS[word];
+  });
+  // Give the memory its rule back for those words — the editor is now working
+  // with "no client" (or another one), where the memory applies as everywhere.
+  Object.keys(back).forEach((from) => {
+    const to = back[from];
+    reviewCues.forEach((c) => {
+      const x = replaceWords(c.text, from, to);
+      if (x.n) {
+        c.text = x.text; changed = true;
+        if ((c._fixed || []).indexOf(to) < 0) c._fixed = (c._fixed || []).concat([to]);
+      }
+      const b = REVIEW_BASE.find((z) => String(z._id) === String(c._id));
+      if (b) { const y = replaceWords(b.text, from, to); if (y.n) b.text = y.text; }
+    });
+    REVIEW_AUTOFIX.rules[from] = to;
+  });
+  clearRowHint();
+  renderReview();
+  syncClientButton();
+  renderClientPanel();
+  return changed;
+}
+// The client's own words, applied to the captions as ONE undo step (nothing
+// happens silently: the words turn green and ↩ Undo puts them back).
+function applyClientWords(announce, opts) {
+  opts = opts || {};
+  if (!reviewOpen || !ACTIVE_CLIENT) return 0;
+  const fx = clientFixes(ACTIVE_CLIENT);
+  if (!Object.keys(fx).length) return 0;
+  // A client's spelling beats the computer memory's for the same word — even
+  // when the memory wrote its version first (the client was picked after the
+  // review opened, or a memory rule was learned while it was open). Put the
+  // memory's version back for those words, then apply the client's.
+  const memTo = (from) => {
+    const to = REVIEW_AUTOFIX.rules[from];
+    return (to && to !== fx[from]) ? to : '';
+  };
+  const keys = Object.keys(fx).filter((from) => memTo(from));
+  let total = keys.length;
+  reviewCues.forEach((c) => { total += applyFixes(c.text, fx).applied.length; });
+  if (!total) return 0;
+  if (!opts.keepUndo) pushReviewUndo('client words');
+  if (keys.length) {
+    reviewCues.forEach((c) => {
+      keys.forEach((from) => {
+        const was = memTo(from);
+        const x = replaceWords(c.text, was, from);
+        if (x.n) c.text = x.text;
+        if ((c._fixed || []).indexOf(was) >= 0) c._fixed = c._fixed.filter((v) => v !== was);
+        const b = REVIEW_BASE.find((z) => String(z._id) === String(c._id));
+        if (b) { const y = replaceWords(b.text, was, from); if (y.n) b.text = y.text; }
+      });
+    });
+    keys.forEach((from) => { delete REVIEW_AUTOFIX.rules[from]; });
+  }
+  let n = 0;
+  reviewCues.forEach((c) => {
+    const r = applyFixes(c.text, fx);
+    if (!r.applied.length) return;
+    c.text = r.text;
+    n += r.applied.length;
+    r.applied.forEach((x) => { REVIEW_AUTOFIX.rules[x.from] = x.to; REVIEW_CLIENT_WORDS[x.to] = { from: x.from, scope: ACTIVE_CLIENT }; });
+    c._fixed = (c._fixed || []).concat(r.applied.map((x) => x.to));
+    // The "before" copy moves with it, so a client word is never learned as a
+    // new fix (which would put it in the computer memory).
+    const b = REVIEW_BASE.find((z) => String(z._id) === String(c._id));
+    if (b) b.text = c.text;
+  });
+  clearRowHint();
+  renderReview();
+  syncClientButton();
+  renderClientPanel();
+  if (announce !== false) log('Client words: ' + n + ' word(s) fixed in this project.');
+  return n;
+}
+
 let REVIEW_BASE = [];        // captions as the editor first saw them (after auto-fix)
-let REVIEW_AUTOFIX = { rules: {} };   // this review's memory fixes: wrong -> right
+let REVIEW_AUTOFIX = { rules: {} };   // this review's applied fixes: wrong -> right
+let REVIEW_MEM_FIXES = {};    // the computer memory's own rules for this review (🧠)
+let REVIEW_CLIENT_WORDS = {}; // this review: green word -> { from, scope } (a client's word)
 let FIX_OFFER = null;        // { w, r } offered by the fix bar (Change all / Remember)
 let REVIEW_UNDO = [];        // snapshots before split / join / delete / shift / add
 let REVIEW_NEXT_ID = 0;      // _id for captions made by split / add
@@ -3170,21 +3424,36 @@ async function openReview(outSrt, label, startSeconds, opts) {
   reviewTrialCharged = true;
   REVIEW = {
     outSrt, label: label || 'captions', startSeconds: startSeconds || 0,
+    projectKey: projectKey(opts.projectId || label || 'captions'),
   };
   // Transcript cleanup pass: normalize spacing/punctuation in every cue as it
   // enters the review so the user edits (and we write) tidy Amharic.
   reviewCues = JSON.parse(JSON.stringify(lastCues)).map((c, i) =>
     Object.assign({}, c, { text: cleanCueLines(c.text), _id: i }));
-  // Remembered fixes first, so the editor starts from their own spellings.
+  // Remembered fixes first, so the editor starts from their own spellings; the
+  // client's own words win over them (that is why the client was chosen).
   REVIEW_AUTOFIX = { rules: {} };
+  REVIEW_CLIENT_WORDS = {};
   FIX_OFFER = null;
-  const fx = activeFixes(loadFixStore());
+  // The client of this project — only if THIS project used one before. Never
+  // guessed for a new project, so one client's words cannot land in another
+  // client's video. No client at all = exactly the old behaviour.
+  ACTIVE_CLIENT = activeClientForProject(loadClients());
+  const cfx = clientFixes(ACTIVE_CLIENT);
+  // The computer memory's own rules are kept apart: a client's rule overrides
+  // one of them while the client is chosen, and gives the word back to the
+  // memory when the editor takes the client off again.
+  REVIEW_MEM_FIXES = activeFixes(loadFixStore());
+  const fx = Object.assign({}, REVIEW_MEM_FIXES, cfx);
   if (Object.keys(fx).length) {
     reviewCues.forEach((c) => {
       const r = applyFixes(c.text, fx);
       if (r.applied.length) {
         c.text = r.text;
-        r.applied.forEach((x) => { REVIEW_AUTOFIX.rules[x.from] = x.to; });
+        r.applied.forEach((x) => {
+          REVIEW_AUTOFIX.rules[x.from] = x.to;
+          if (cfx[x.from]) REVIEW_CLIENT_WORDS[x.to] = { from: x.from, scope: ACTIVE_CLIENT };
+        });
         c._fixed = r.applied.map((x) => x.to);   // shown green: fixed from memory
       }
     });
@@ -3196,6 +3465,8 @@ async function openReview(outSrt, label, startSeconds, opts) {
   syncReviewUndo();
   syncMemoryButton();
   closeMemoryPanel();
+  syncClientButton();
+  closeClientPanel();
   reviewOpen = true;
   renderReview();
   $('review').classList.add('show');
@@ -3219,7 +3490,7 @@ async function openReview(outSrt, label, startSeconds, opts) {
 // Licensed users and free minutes alike (1.10.19): free minutes are charged
 // when the engine starts (engineAuth), never when the review opens, and a run
 // that fails or is stopped gives them back as before.
-let LIVE_WANTED = null;      // { outSrt, label } — set by the run that may go live
+let LIVE_WANTED = null;      // { outSrt, label, projectId } — set by the run that may go live
 let REVIEW_LIVE = null;      // { seen, pending } while a live review is open
 let LIVE_OPENING = null;     // the live review's openReview() while it runs
 const LIVE_POLL_MS = 2000;
@@ -3246,7 +3517,7 @@ function startLivePoll(work) {
         if (reviewOpen) return;            // another review is open: leave it alone
         lastCues = cues;
         REVIEW_LIVE = { seen: cues.length, pending: false };
-        LIVE_OPENING = openReview(want.outSrt, want.label, 0, { live: true });
+        LIVE_OPENING = openReview(want.outSrt, want.label, 0, { live: true, projectId: want.projectId });
         const opened = await LIVE_OPENING;
         LIVE_OPENING = null;
         if (!opened) { REVIEW_LIVE = null; return; }
@@ -3265,14 +3536,18 @@ function startLivePoll(work) {
 // remembered fixes), then the list is redrawn — unless the editor is typing.
 function appendLiveCues(cues) {
   if (!cues.length) return;
-  const fx = activeFixes(loadFixStore());
+  const cfx = clientFixes(ACTIVE_CLIENT);
+  const fx = Object.assign({}, activeFixes(loadFixStore()), cfx);
   cues.forEach((c) => {
     const cue = Object.assign({}, JSON.parse(JSON.stringify(c)), { text: cleanCueLines(c.text), _id: REVIEW_NEXT_ID++ });
     if (Object.keys(fx).length) {
       const r = applyFixes(cue.text, fx);
       if (r.applied.length) {
         cue.text = r.text;
-        r.applied.forEach((x) => { REVIEW_AUTOFIX.rules[x.from] = x.to; });
+        r.applied.forEach((x) => {
+          REVIEW_AUTOFIX.rules[x.from] = x.to;
+          if (cfx[x.from]) REVIEW_CLIENT_WORDS[x.to] = { from: x.from, scope: ACTIVE_CLIENT };
+        });
         cue._fixed = r.applied.map((x) => x.to);
       }
     }
@@ -3362,15 +3637,15 @@ function finishLiveReview(finalCues, ok) {
 }
 
 // After a run: finish the live review, or open the review as before.
-async function showRunResult(outSrt, label, r) {
+async function showRunResult(outSrt, label, r, projectId) {
   if (LIVE_OPENING) { try { await LIVE_OPENING; } catch (e) {} }
   if (REVIEW_LIVE && reviewOpen) {
-    if (REVIEW) REVIEW.outSrt = outSrt;
+    if (REVIEW) { REVIEW.outSrt = outSrt; if (projectId) REVIEW.projectKey = projectKey(projectId); }
     finishLiveReview(r.cues, true);
     return true;
   }
   REVIEW_LIVE = null;
-  return openReview(outSrt, label, 0);
+  return openReview(outSrt, label, 0, { projectId });
 }
 
 function removeTempCaptionArtifact(filePath) {
@@ -3392,6 +3667,9 @@ function closeReview(keepArtifact) {
   reviewOpen = false;
   reviewPlacing = false;
   REVIEW = null;
+  ACTIVE_CLIENT = '';        // a client is never carried into another project
+  REVIEW_CLIENT_WORDS = {};
+  closeClientPanel();
   reviewCues = [];
   $('review').classList.remove('show');
   showTrialCardIfDue();
@@ -3667,9 +3945,18 @@ function renderReview() {
 // next caption. All operate on the working copy; nothing reaches the timeline
 // until the user places.
 // Every structural edit (split, join, delete, shift, add, change all) saves a
-// snapshot first, so "↩ Undo" puts it back — a one-click delete is safe.
+// snapshot first, so "↩ Undo" puts it back — a one-click delete is safe. The
+// client-word record and the chosen client travel with it: after an undo the
+// text and "which client wrote this word" must agree again.
 function pushReviewUndo(what) {
-  REVIEW_UNDO.push({ what, cues: JSON.stringify(reviewCues) });
+  REVIEW_UNDO.push({
+    what, cues: JSON.stringify(reviewCues),
+    client: JSON.stringify(REVIEW_CLIENT_WORDS), active: ACTIVE_CLIENT,
+    // Which fixes are in the captions travels too: after an undo the panel must
+    // believe exactly what the text says (a stale rule would silently stop the
+    // next client's word from landing).
+    fixes: JSON.stringify(REVIEW_AUTOFIX.rules), mem: JSON.stringify(REVIEW_MEM_FIXES),
+  });
   if (REVIEW_UNDO.length > 30) REVIEW_UNDO.shift();
   syncReviewUndo();
 }
@@ -3685,6 +3972,11 @@ function undoReview() {
   const top = REVIEW_UNDO.pop();
   if (!top) return;
   reviewCues = JSON.parse(top.cues);
+  if (top.client) REVIEW_CLIENT_WORDS = JSON.parse(top.client);
+  if (top.fixes) REVIEW_AUTOFIX.rules = JSON.parse(top.fixes);
+  if (top.mem) REVIEW_MEM_FIXES = JSON.parse(top.mem);
+  if (typeof top.active === 'string') { ACTIVE_CLIENT = top.active; syncClientButton(); }
+  if (reviewOpen) renderClientPanel();     // an open 👤 panel shows the right client again
   clearRowHint();
   renderReview();
   syncReviewUndo();
@@ -4427,6 +4719,8 @@ function initReview() {
   if (undoEdit) undoEdit.addEventListener('click', undoReview);
   const memBtn = $('revMemory');
   if (memBtn) memBtn.addEventListener('click', toggleMemoryPanel);
+  const cliBtn = $('revClient');
+  if (cliBtn) cliBtn.addEventListener('click', toggleClientPanel);
 
 
 
@@ -4438,6 +4732,7 @@ function initReview() {
     if (!reviewOpen) return;
     const el = e && e.target;
     if (!(el && el.closest && el.closest('#memoryPanel, #revMemory'))) closeMemoryPanel();
+    if (!(el && el.closest && el.closest('#clientPanel, #revClient'))) closeClientPanel();
     if (el && el.closest && el.closest('.row-more')) return;
     closeRowMenus();
   });
@@ -4450,6 +4745,8 @@ function initReview() {
       if (list && list.querySelector && list.querySelector('.row-more.open')) { closeRowMenus(); return; }
       const mp = $('memoryPanel');
       if (mp && mp.style.display !== 'none') { closeMemoryPanel(); return; }
+      const cp = $('clientPanel');
+      if (cp && cp.style.display !== 'none') { closeClientPanel(); return; }
       // While typing in a caption/time field, Esc just cancels that edit
       // (moves focus away) instead of wiping the whole review.
       const el = e.target;
@@ -4527,61 +4824,92 @@ function offerFixAll(cue) {
   const n = reviewCues.filter((c) => c !== cue && replaceWords(c.text, w, r).n).length;
   const st = loadFixStore();
   const known = !!(st.fixes[w] && st.fixes[w].to === r && st.fixes[w].strong);
-  if (known && !n) return;   // already fixed everywhere and remembered: nothing to ask
+  const clientKnown = !!(ACTIVE_CLIENT && clientFixes(ACTIVE_CLIENT)[w] === r);
+  if (known && clientKnown && !n) return;   // already fixed everywhere and remembered: nothing to ask
   const parts = [{ text: w + ' → ' + r, cls: 'hint-pair' }];
   if (n) parts.push({ btn: L('Change all') + ' (' + n + ')', cls: 'primary', title: L('Change this word in the other captions of this video'), onClick: () => applyFix(false) });
   if (!known) parts.push({ btn: '🧠 ' + L('Always fix'), cls: n ? '' : 'primary', title: L('Change this word in every caption now and in every new video'), onClick: () => applyFix(true) });
+  // A client has its own words: keeping them in the client's list means one
+  // client's spelling can never turn up in another client's video.
+  if (ACTIVE_CLIENT && !clientKnown) parts.push({
+    btn: '👤 ' + L('For this client'),
+    cls: (n || known || clientKnown) ? '' : 'primary',
+    title: L('Fix this word in this client’s videos only'),
+    onClick: () => applyFix(false, 'client'),
+  });
   parts.push({ btn: '✕', cls: 'close', title: L('Close'), onClick: clearRowHint });
   showRowHint(cue, parts, { w, r, cue });
 }
-// Change all (this video) — and with `always`, remember it for every new
-// video too. The changed words turn green so the memory is visible.
-function applyFix(always) {
+// Change all (this video) — and, with `always`, remember it for every new
+// video too, or, with scope "client", for this client's videos only.
+// The changed words turn green so the memory is visible.
+function applyFix(always, scope) {
   if (!FIX_OFFER || !FIX_OFFER.w) return;
   const w = FIX_OFFER.w, r = FIX_OFFER.r, cue = FIX_OFFER.cue;
+  const forClient = scope === 'client' && !!ACTIVE_CLIENT;
   pushReviewUndo('change all');
   let n = 0;
   reviewCues.forEach((c) => {
     const x = replaceWords(c.text, w, r);
-    if (x.n) { c.text = x.text; n += x.n; if (always) c._fixed = (c._fixed || []).concat([r]); }
+    if (x.n) { c.text = x.text; n += x.n; if (always || forClient) c._fixed = (c._fixed || []).concat([r]); }
   });
-  if (always) {
+  if (always || forClient) {
     cue._fixed = (cue._fixed || []).concat([r]);
-    const st = loadFixStore();
-    rememberFix(st, w, r, true);
-    saveFixStore(st);
     REVIEW_AUTOFIX.rules[w] = r;
-    syncMemoryButton();
-    renderMemoryPanel();
-    log('Auto-correct memory: "' + w + '" → "' + r + '" will be fixed in every new transcription.');
+    if (forClient) {
+      rememberClientFix(ACTIVE_CLIENT, w, r);
+      REVIEW_CLIENT_WORDS[r] = { from: w, scope: ACTIVE_CLIENT };
+      syncClientButton();
+      log('Client words: "' + w + '" → "' + r + '" will be fixed in this client’s videos.');
+    } else {
+      const st = loadFixStore();
+      rememberFix(st, w, r, true);
+      saveFixStore(st);
+      syncMemoryButton();
+      renderMemoryPanel();
+      log('Auto-correct memory: "' + w + '" → "' + r + '" will be fixed in every new transcription.');
+    }
   }
   if (n) log('Changed "' + w + '" to "' + r + '" in ' + n + ' place(s).');
   clearRowHint();
   renderReview();
-  if (always) flashRowHint(cue, '✓ 🧠 ' + w + ' → ' + r + ' · ' + L('Will be fixed automatically from now on'));
+  if (always || forClient) {
+    flashRowHint(cue, '✓ ' + (forClient ? '👤 ' : '🧠 ') + w + ' → ' + r + ' · ' +
+      L(forClient ? 'Fixed in this client’s videos' : 'Will be fixed automatically from now on'));
+  }
+  renderClientPanel();
 }
 
-// Which remembered fix produced `word` (a green word).
+// Which remembered rule produced `word` (a green word) — and where it lives:
+// the active client's own list, or the computer-wide memory.
 function memoryRuleFor(word) {
+  if (ACTIVE_CLIENT) {
+    const words = clientWords(loadClients(), ACTIVE_CLIENT);
+    const fromClient = Object.keys(words).find((k) => words[k] && words[k].to === word);
+    if (fromClient) return { from: fromClient, scope: ACTIVE_CLIENT };
+  }
   const st = loadFixStore();
   const fromStore = Object.keys(st.fixes).find((k) => st.fixes[k] && st.fixes[k].to === word);
-  if (fromStore) return fromStore;
-  return Object.keys(REVIEW_AUTOFIX.rules || {}).find((k) => REVIEW_AUTOFIX.rules[k] === word) || null;
+  if (fromStore) return { from: fromStore, scope: '' };
+  const fromReview = Object.keys(REVIEW_AUTOFIX.rules || {}).find((k) => REVIEW_AUTOFIX.rules[k] === word);
+  if (fromReview) return { from: fromReview, scope: (REVIEW_CLIENT_WORDS[word] || {}).scope || '' };
+  return null;
 }
 function offerMemoryWord(cue, word) {
-  const from = memoryRuleFor(word);
-  if (!from) return;
+  const rule = memoryRuleFor(word);
+  if (!rule) return;
+  const from = rule.from, scope = rule.scope;
   showRowHint(cue, [
-    { text: '🧠 ' + from + ' → ' + word + ' · ' + L('from memory'), cls: 'hint-pair' },
-    { btn: '↩ ' + L('Put back'), title: L('Put the original word back in this caption'), onClick: () => putBackWord(cue, word, from, false) },
-    { btn: L('Forget this fix'), cls: 'danger', title: L('Stop fixing this word, and put the original back everywhere'), onClick: () => putBackWord(cue, word, from, true) },
+    { text: (scope ? '👤 ' + L('from the client list') : '🧠 ' + L('from memory')) + ' ' + from + ' → ' + word, cls: 'hint-pair' },
+    { btn: '↩ ' + L('Put back'), title: L('Put the original word back in this caption'), onClick: () => putBackWord(cue, word, from, false, scope) },
+    { btn: L('Forget this fix'), cls: 'danger', title: scope ? L('Stop fixing this word in this client’s videos, and put the original back everywhere') : L('Stop fixing this word, and put the original back everywhere'), onClick: () => putBackWord(cue, word, from, true, scope) },
     { btn: '✕', cls: 'close', title: L('Close'), onClick: clearRowHint },
   ], { cue });
 }
 // Put the original word back — in this caption, or (forget) everywhere the
 // memory changed it, and drop the rule. The "before" copy is updated too, so
 // putting a word back is never mistaken for a new fix to learn.
-function putBackWord(cue, word, from, forget) {
+function putBackWord(cue, word, from, forget, scope) {
   pushReviewUndo(forget ? 'forget' : 'put back');
   const targets = forget ? reviewCues.filter((c) => (c._fixed || []).indexOf(word) >= 0) : [cue];
   targets.forEach((c) => {
@@ -4592,13 +4920,20 @@ function putBackWord(cue, word, from, forget) {
     if (b) { const y = replaceWords(b.text, word, from); if (y.n) b.text = y.text; }
   });
   if (forget) {
-    const st = loadFixStore();
-    if (st.fixes[from] && st.fixes[from].to === word) delete st.fixes[from];
-    saveFixStore(st);
+    if (scope) {
+      forgetClientWord(scope, from);
+      delete REVIEW_CLIENT_WORDS[word];
+      log('Client words: forgot "' + from + '" → "' + word + '".');
+    } else {
+      const st = loadFixStore();
+      if (st.fixes[from] && st.fixes[from].to === word) delete st.fixes[from];
+      saveFixStore(st);
+      syncMemoryButton();
+      log('Auto-correct memory: forgot "' + from + '" → "' + word + '".');
+    }
     delete REVIEW_AUTOFIX.rules[from];
-    syncMemoryButton();
     renderMemoryPanel();
-    log('Auto-correct memory: forgot "' + from + '" → "' + word + '".');
+    renderClientPanel();
   }
   clearRowHint();
   renderReview();
@@ -4689,6 +5024,272 @@ function renderMemoryPanel() {
     });
     p.appendChild(all);
   }
+}
+
+// ── the client picker (👤, a dropdown like 🧠 Memory) ───────────────────
+// Nothing sits above the caption list: one button in the review header, a
+// panel that opens on demand and closes on a click elsewhere. The list lives
+// on this computer only (see the note in the storage block above).
+function syncClientButton() {
+  const b = $('revClient');
+  if (!b) return;
+  const n = ACTIVE_CLIENT ? clientWordCount(ACTIVE_CLIENT) : 0;
+  b.textContent = '👤 ' + (ACTIVE_CLIENT || L('Client')) + (n ? ' (' + n + ')' : '');
+  b.title = ACTIVE_CLIENT
+    ? L('This client’s words are fixed in this project')
+    : L('Choose a client — their names and words are fixed automatically');
+}
+function toggleClientPanel() {
+  const p = $('clientPanel');
+  if (!p) return;
+  const open = p.style.display === 'none';
+  closeMemoryPanel();                      // one dropdown at a time
+  p.style.display = open ? '' : 'none';
+  if (open) {
+    // Just below the 👤 button, wherever the header wrapped it to.
+    const b = $('revClient');
+    if (b && typeof b.offsetTop === 'number' && b.offsetHeight) p.style.top = (b.offsetTop + b.offsetHeight + 4) + 'px';
+    renderClientPanel();
+  }
+}
+function closeClientPanel() {
+  const p = $('clientPanel');
+  if (p) p.style.display = 'none';
+}
+function cliButton(text, cls, title, onClick) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = cls;
+  b.textContent = text;
+  if (title) b.title = title;
+  b.addEventListener('click', onClick);
+  return b;
+}
+function renderClientPanel() {
+  const p = $('clientPanel');
+  if (!p || p.style.display === 'none') return;
+  const st = loadClients();
+  p.textContent = '';
+
+  const head = document.createElement('div');
+  head.className = 'mem-head';
+  head.textContent = '👤 ' + L('Client words');
+  p.appendChild(head);
+
+  const sub = document.createElement('div');
+  sub.className = 'mem-sub';
+  sub.textContent = ACTIVE_CLIENT
+    ? L('This client’s names and words — fixed automatically in this project.')
+    : L('Choose a client — their names and words are fixed in that client’s videos only.');
+  p.appendChild(sub);
+
+  // The clients, newest first; then "no client" and "new client".
+  const chips = document.createElement('div');
+  chips.className = 'cli-chips';
+  Object.keys(st.clients || {})
+    .sort((a, b) => (st.clients[b].at || 0) - (st.clients[a].at || 0))
+    .forEach((name) => {
+      const n = clientWordCount(name);
+      chips.appendChild(cliButton(
+        name + (n ? ' (' + n + ')' : ''),
+        'cli-chip' + (name === ACTIVE_CLIENT ? ' active' : ''),
+        L('Use this client in this project'),
+        () => { setActiveClient(name === ACTIVE_CLIENT ? '' : name); renderClientPanel(); }));
+    });
+  if (ACTIVE_CLIENT) {
+    chips.appendChild(cliButton(L('No client'), 'cli-chip', L('Fix no client words in this project'),
+      () => { setActiveClient(''); renderClientPanel(); }));
+  }
+  chips.appendChild(cliButton('➕ ' + L('New client…'), 'cli-chip add', L('Add a client of this computer'),
+    () => clientNewForm()));
+  p.appendChild(chips);
+
+  if (ACTIVE_CLIENT) {
+    const fx = clientFixes(ACTIVE_CLIENT);
+    const words = Object.keys(fx).sort((a, b) => (fx[b].at || 0) - (fx[a].at || 0));
+    const list = document.createElement('div');
+    list.className = 'mem-list';
+    words.forEach((w) => {
+      const line = document.createElement('div');
+      line.className = 'mem-row';
+      const txt = document.createElement('span');
+      txt.className = 'mem-pair';
+      txt.textContent = w + ' → ' + fx[w];
+      line.appendChild(txt);
+      const x = cliButton('✕', 'mem-del', L('Forget this fix'), () => {
+        forgetClientWord(ACTIVE_CLIENT, w);
+        log('Client words: forgot "' + w + '".');
+        renderClientPanel();
+        syncClientButton();
+      });
+      line.appendChild(x);
+      list.appendChild(line);
+    });
+    p.appendChild(list);
+    if (!words.length) {
+      const none = document.createElement('div');
+      none.className = 'mem-sub';
+      none.textContent = L('Nothing in this client’s list yet — fix a word in a caption, then tap “👤 For this client”, or add one here.');
+      p.appendChild(none);
+    }
+
+    const acts = document.createElement('div');
+    acts.className = 'cli-actions';
+    acts.appendChild(cliButton('➕ ' + L('Add a word'), 'mem-all', L('Add a word to this client’s list'),
+      () => clientNewWordForm()));
+    const imp = cliButton('⬆ ' + L('Import'), 'mem-all', L('Import a client word list from a .txt or .json file'),
+      () => clientImport());
+    const exp = cliButton('⬇ ' + L('Export'), 'mem-all', L('Export this client’s list as .txt and .json'),
+      () => clientExport());
+    acts.appendChild(imp);
+    acts.appendChild(exp);
+    p.appendChild(acts);
+
+    if (words.length) {
+      const all = cliButton(L('Forget all'), 'mem-all', L('Forget every word of this client'),
+        () => {
+          if (all.dataset.armed !== '1') { all.dataset.armed = '1'; all.textContent = L('Tap again to forget all'); return; }
+          const cur = loadClients();
+          if (cur.clients[ACTIVE_CLIENT]) cur.clients[ACTIVE_CLIENT].words = {};
+          saveClients(cur);
+          log('Client words: the list was cleared.');
+          renderClientPanel();
+          syncClientButton();
+        });
+      p.appendChild(all);
+    }
+
+    const note = document.createElement('div');
+    note.className = 'cli-note';
+    note.textContent = '🔒 ' + L('Saved on this computer only — nothing is uploaded.');
+    p.appendChild(note);
+  }
+}
+function clientNewForm() {
+  const p = $('clientPanel');
+  if (!p) return;
+  const box = document.createElement('div');
+  box.className = 'cli-form';
+  const inp = document.createElement('input');
+  inp.type = 'text'; inp.className = 'cli-input'; inp.placeholder = L('Client name'); inp.maxLength = 60;
+  box.appendChild(inp);
+  const save = cliButton(L('Save'), 'cli-save', '', () => {
+    const name = createClient(inp.value);
+    if (!name) { inp.focus(); return; }
+    log('Client list: a client was added.');
+    setActiveClient(name);
+    renderClientPanel();
+  });
+  const cancel = cliButton(L('Cancel'), 'cli-cancel', '', () => renderClientPanel());
+  box.appendChild(save);
+  box.appendChild(cancel);
+  p.appendChild(box);
+  try { inp.focus(); } catch (e) {}
+}
+function clientNewWordForm() {
+  const p = $('clientPanel');
+  if (!p || !ACTIVE_CLIENT) return;
+  const box = document.createElement('div');
+  box.className = 'cli-form';
+  const w = document.createElement('input');
+  w.type = 'text'; w.className = 'cli-input'; w.placeholder = L('Wrong word'); w.maxLength = 120;
+  const r = document.createElement('input');
+  r.type = 'text'; r.className = 'cli-input'; r.placeholder = L('Right word'); r.maxLength = 120;
+  box.appendChild(w);
+  box.appendChild(r);
+  const save = cliButton(L('Save'), 'cli-save', '', () => {
+    const wrong = w.value.trim(), right = r.value.trim();
+    if (!wrong || !right || wrong === right) { log('Client words: nothing added — the two words must be different.'); return; }
+    rememberClientFix(ACTIVE_CLIENT, wrong, right);
+    log('Client words: "' + wrong + '" → "' + right + '" will be fixed in this client’s videos.');
+    setActiveClient(ACTIVE_CLIENT);      // applies it and redraws the panel
+    renderClientPanel();
+  });
+  const cancel = cliButton(L('Cancel'), 'cli-cancel', '', () => renderClientPanel());
+  box.appendChild(save);
+  box.appendChild(cancel);
+  p.appendChild(box);
+  try { w.focus(); } catch (e) {}
+}
+// A file dialog (the app's own chooser; CEP's on the panel side).
+function pickDialogPath(chooseDir, title) {
+  try {
+    if (window.cep && window.cep.fs && window.cep.fs.showOpenDialog) {
+      const res = window.cep.fs.showOpenDialog(false, chooseDir, title, '');
+      if (res && res.err === 0 && res.data && res.data.length) return res.data[0];
+    }
+  } catch (e) {}
+  return null;
+}
+// One line per word: "wrong=right" (the same shape a translator can keep).
+function clientExport() {
+  if (!ACTIVE_CLIENT) return;
+  const fx = clientFixes(ACTIVE_CLIENT);
+  const words = Object.keys(fx);
+  if (!words.length) { log('The client list is empty — nothing to export.'); return; }
+  const dir = pickDialogPath(true, 'Choose a folder for the client word list') || ensureCaptionsDir();
+  const base = safeFileName(ACTIVE_CLIENT) || 'client';
+  const pairs = {};
+  words.forEach((w) => { pairs[w] = fx[w]; });
+  const txt = words.map((w) => w + '=' + fx[w]).join('\n') + '\n';
+  const json = JSON.stringify({ v: 1, client: ACTIVE_CLIENT, words: pairs }, null, 2) + '\n';
+  try {
+    fs.writeFileSync(path.join(dir, base + '.amhglossary.txt'), txt, { encoding: 'utf8', mode: 0o600 });
+    fs.writeFileSync(path.join(dir, base + '.amhglossary.json'), json, { encoding: 'utf8', mode: 0o600 });
+  } catch (e) { log('Could not write the client list to that folder — try another folder.'); return; }
+  log('Exported ' + words.length + ' word(s) to the folder you chose.');
+}
+// Read a word list: our .json, or plain "wrong=right" lines (.txt). # starts
+// a comment in the text form. Unknown lines are ignored, never an error box.
+function parseGlossary(raw) {
+  const out = {};
+  const text = String(raw || '').replace(/^\uFEFF/, '').trim();
+  if (!text) return out;
+  if (text.charAt(0) === '{') {
+    let j = null;
+    try { j = JSON.parse(text); } catch (e) { return out; }
+    const words = (j && j.words) || j || {};
+    Object.keys(words).forEach((k) => {
+      const v = words[k];
+      const to = (v && typeof v === 'object') ? v.to : v;
+      const from = String(k || '').trim();
+      if (from && typeof to === 'string' && to.trim()) out[from] = to.trim();
+    });
+    return out;
+  }
+  text.split(/\r?\n/).forEach((line) => {
+    const cut = line.split('#')[0];
+    const i = cut.indexOf('=');
+    if (i < 1) return;
+    const w = cut.slice(0, i).trim(), to = cut.slice(i + 1).trim();
+    if (w && to && w !== to) out[w] = to;
+  });
+  return out;
+}
+function clientImport() {
+  if (!ACTIVE_CLIENT) return;
+  const file = pickDialogPath(false, 'Choose a client word list (.txt or .json)');
+  if (!file) { log('Import cancelled.'); return; }
+  let raw = '';
+  try { raw = fs.readFileSync(file, 'utf8'); } catch (e) { log('Could not read that file.'); return; }
+  const words = parseGlossary(raw);
+  const keys = Object.keys(words);
+  if (!keys.length) { log('No words found in that file.'); return; }
+  const st = loadClients();
+  if (!st.clients[ACTIVE_CLIENT]) return;
+  const holder = { fixes: clientWords(st, ACTIVE_CLIENT) };
+  let added = 0, updated = 0;
+  keys.forEach((w) => {
+    const had = !!(holder.fixes[w] && holder.fixes[w].strong && holder.fixes[w].to === words[w]);
+    rememberFix(holder, w, words[w], true, CLIENT_WORD_MAX);
+    if (had) updated++; else added++;
+  });
+  pruneClientWords(holder.fixes);
+  st.clients[ACTIVE_CLIENT].at = Date.now();
+  saveClients(st);
+  log('Imported ' + added + ' new word(s), ' + updated + ' already there.');
+  setActiveClient(ACTIVE_CLIENT);
+  renderClientPanel();
 }
 // ---------------------------------------------------------------- runners
 let PROGRESS_EN = '';
@@ -5185,7 +5786,7 @@ async function runWorkArea() {
     if (all.length === 0) log('No speech detected in these clips — nothing to place.');
     log('Done — ' + all.length + ' captions written (' +
         items.length + ' clip(s) cached).');
-    await openReview(outSrt, 'sequence', 0, {});
+    await openReview(outSrt, 'sequence', 0, { projectId: info.sequence });
     return;
   }
 
@@ -5232,7 +5833,7 @@ async function runWorkArea() {
 
     log('Transcribing ' + batchItems.length + ' clip(s) in one pass…');
     const batchStart = Date.now();
-    LIVE_WANTED = { outSrt, label: 'sequence' };
+    LIVE_WANTED = { outSrt, label: 'sequence', projectId: info.sequence };
     const r = await transcribeBatch(batchItems, outSrt, (msgOrN, total, name) => {
       // Warm-worker callback passes {at, of, name}; one-shot passes (n, total, name).
       const done = typeof msgOrN === 'object' ? msgOrN.at : msgOrN;
@@ -5251,7 +5852,7 @@ async function runWorkArea() {
     LIVE_WANTED = null;
     if (!r.cues.length) log('No speech detected in these clips — nothing to place.');
     log('Done — ' + r.cues.length + ' captions written.');
-    await showRunResult(outSrt, 'sequence', r);
+    await showRunResult(outSrt, 'sequence', r, info.sequence);
   } finally {
     // Always remove every temporary WAV, including failures and cancellation.
     for (const it of items) {

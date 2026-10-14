@@ -179,6 +179,7 @@ const KNOWN = [
   'licensedNote', 'licenseInput', 'licenseActivate', 'licenseStatus', 'trialBanner',
   'buyBtn', 'buyPending', 'bankDetails', 'bankBox',
   'revUndo', 'revMemory', 'memoryPanel',
+  'revClient', 'clientPanel',
   // next-step card after a free caption
   'trialCard', 'tcGroup', 'tcBuy', 'tcLater', 'tcLeftText', 'tcCutText',
   'freeMinBox', 'freeMinTitle', 'freeMinBtn', 'freeMinWait',
@@ -222,7 +223,7 @@ function makeDocument(tagFor) {
     diag: ['a', null], credits: ['a', null], onboardStart: ['button', null],
     licenseActivate: ['button', null], machineIdCopy: ['button', null],
     buyBtn: ['button', null], bankDetails: ['a', null],
-    revUndo: ['button', null], revMemory: ['button', null],
+    revUndo: ['button', null], revMemory: ['button', null], revClient: ['button', null],
     tcGroup: ['button', null], tcBuy: ['button', null], tcLater: ['button', null], freeMinBtn: ['button', null], reportBtn: ['button', null], feedbackSend: ['button', null], feedbackCancel: ['button', null], feedbackText: ['textarea', null], feedbackTg: ['input', null],
     reviewAdd: ['button', null], reviewExport: ['button', null],
     reviewDiscard: ['button', null], reviewBurn: ['button', null],
@@ -249,6 +250,7 @@ function makeDocument(tagFor) {
   ids.fmtSeg.appendChild(ids.fmtH); ids.fmtSeg.appendChild(ids.fmtV);
   ids.fmtH.classList.add('active');
   ids.memoryPanel.style.display = 'none';
+  ids.clientPanel.style.display = 'none';
   ids.revMemory.style.display = 'none';
   ids.revUndo.style.display = 'none';
   // initial active states as in index.html

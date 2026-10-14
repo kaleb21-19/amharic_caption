@@ -188,6 +188,9 @@ t('work area clips layers; whole comp does not; retimed layers reported', () => 
   assert.deepStrictEqual(wa.clips.map((c) => [c.sourcePath, c.timelineStart, c.sourceIn, c.duration]),
     [['C:/v/a.mp4', 10, 10, 5], ['C:/v/b.mp4', 12, 0, 8]]);
   assert.strictEqual(wa.unsupported.length, 1);
+  // The comp's name travels too: the panel links a client's word list to the
+  // project by it (never to the run's temporary .srt).
+  assert.strictEqual(wa.sequence, 'Comp 1', 'the comp name comes back');
   const whole = call(ctx, 'amharic_getSequenceInfo(true)');
   assert.deepStrictEqual(whole.clips.map((c) => [c.timelineStart, c.duration]), [[0, 15], [12, 28]]);
 });

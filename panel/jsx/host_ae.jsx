@@ -211,7 +211,8 @@ function amharic_getSequenceInfo(all) {
             });
         }
         clips.sort(function (a, b) { return a.timelineStart - b.timelineStart; });
-        return amhOk({ inPoint: inP, outPoint: outP, clips: clips, unsupported: unsupported });
+        return amhOk({ inPoint: inP, outPoint: outP, clips: clips, unsupported: unsupported,
+                       sequence: String((comp && comp.name) || "") });
     });
 }
 
