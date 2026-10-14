@@ -3277,6 +3277,41 @@ console.log('\n:: 1.10.7 free minutes via Telegram');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: free minutes: every customer text follows the live setting, not a fixed 20');
+{
+  const { env } = fresh();
+  await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('trial_free_minutes', '30')").run();
+  const U = 973000001;
+  const say = (text) => post(env, msg(U, { id: U, username: 'u' + U, first_name: 'Tigist' }, { text }));
+  const tap = (data) => cb(env, { id: U, username: 'u' + U }, data, { chatId: U });
+  const last = () => OUTBOUND.filter((x) => x.id && ['sendMessage', 'editMessageText'].includes(x.method) && String(x.body.chat_id) === String(U)).at(-1);
+  const txt = () => String(last().body.text || '');
+
+  await say('/start');
+  assert.ok(txt().includes('30 ደቂቃ በነጻ') && txt().includes('Try 30 minutes free'), 'welcome: the live 30, not the 20 default\n' + txt());
+  await tap('faq:trial');
+  assert.ok(txt().includes('30 ደቂቃ በነጻ') && txt().includes('try 30 minutes free'), 'FAQ "free trial" answer: live 30\n' + txt());
+  await say('capcut phone lay yiseral');
+  assert.ok(txt().includes('30 ደቂቃ በነጻ') && txt().includes('Try 30 minutes free'), 'phone FAQ answer: live 30\n' + txt());
+
+  // the quiet-buyer reminder
+  await tap('menu:pay');
+  env.DB.prepare("UPDATE fsm SET updated_at=datetime('now','-5 hours'), step='photo' WHERE uid=?").bind(String(U)).run();
+  let n = OUTBOUND.length;
+  await worker.scheduled({ cron: '0 */6 * * *' }, env);
+  const nudge = OUTBOUND.slice(n).find((x) => String(x.body.chat_id) === String(U) && /opened the payment page earlier/.test(x.body.text || ''));
+  assert.ok(nudge && nudge.body.text.includes('30 ደቂቃ በነጻ') && nudge.body.text.includes('try 30 minutes free'), 'quiet-buyer reminder: live 30\n' + (nudge && nudge.body.text));
+
+  // the support group's own answer
+  const G = Number(GROUP);
+  n = OUTBOUND.length;
+  await post(env, msg(G, { id: 973000002, first_name: 'Sara' }, { text: 'is there a free trial?' }));
+  const grp = OUTBOUND.slice(n).find((x) => x.method === 'sendMessage' && String(x.body.chat_id) === GROUP);
+  assert.ok(grp && grp.body.text.includes('30 ደቂቃ በነጻ') && grp.body.text.includes('try 30 minutes free'), 'group FAQ: live 30, not the fixed 20\n' + (grp && grp.body.text));
+  ok('free minutes: welcome, FAQ (private chat and phone), quiet-buyer reminder and the group answer all read the live setting (30), never the fixed 20');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 console.log('\n:: editing jobs feed');
 {
   const { env } = fresh({

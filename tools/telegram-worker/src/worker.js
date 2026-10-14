@@ -444,12 +444,13 @@ function entitiesToHtml(text, entities) {
 }
 
 // ── menu text (port from bot.py) ────────────────────────────────────────────
-function heroText(first = '', offer = null) {
+async function heroText(first = '', offer = null) {
   const name = first ? `${esc(first)}, ` : '';
   const invited = offer && offer.discount > 0
     ? `\n\n🎁 <b>በጓደኛዎ ግብዣ</b> ለዘለቄታው ፈቃድ <b>ETB ${money(offer.price)}</b> ብቻ (<s>${PRICE}</s>)።\n` +
       `<i>Invited by a friend: the Forever license is ETB ${money(offer.price)} instead of ${PRICE}.</i>`
     : '';
+  const mins = trialTerms(await getSettings()).minutes;
   return (
     `👋 ${name}<b>እንኳን ወደ አማርኛ ካፕሽን ፕሮ በደህና መጡ</b>\n` +
     '<i>Welcome to Amharic Captions Pro</i>\n\n' +
@@ -459,9 +460,9 @@ function heroText(first = '', offer = null) {
     '✅ ከተጫነ በኋላ ያለ ኢንተርኔት ይሰራል\n' +
     '✅ ከማስቀመጥዎ በፊት ካፕሽኑን ያስተካክሉ\n' +
     '<i>Runs on your computer (nothing is uploaded) · works offline · review before you place</i>\n\n' +
-    '🎁 <b>20 ደቂቃ በነጻ ይሞክሩ</b> — ክፍያ አያስፈልግም\n' +
+    `🎁 <b>${mins} ደቂቃ በነጻ ይሞክሩ</b> — ክፍያ አያስፈልግም\n` +
     `💳 <b>ከ ETB ${money(PLANS.m1.etb)} ጀምሮ</b> · ለዘለቄታው ${PRICE}\n` +
-    `<i>Try 20 minutes free · plans from ETB ${money(PLANS.m1.etb)} · Forever ${PRICE}</i>` + invited
+    `<i>Try ${mins} minutes free · plans from ETB ${money(PLANS.m1.etb)} · Forever ${PRICE}</i>` + invited
   );
 }
 // One button per row on purpose: Amharic labels are longer than their English
@@ -2714,8 +2715,11 @@ const GROUP_FAQ = {
     `<i>${PRICE} forever (one payment) — or 1 month ETB ${money(PLANS.m1.etb)} · 2 months ETB ${money(PLANS.m2.etb)}. Free updates.</i>\n\n` +
     `🏦 ክፍያ በ @AmharicCaptionsBot ብቻ — ለ <b>${ACCT_NAME}</b>።\n` +
     `<i>Pay only through @AmharicCaptionsBot, to ${ACCT_NAME}.</i>`,
-  trial: () => '🎁 ፓነሉን ይጫኑ — <b>20 ደቂቃ በነጻ</b> ይሞክሩ (በፕሮግራሙ ውስጥ «በቴሌግራም ይቀበሉ»)፤ ክፍያ አያስፈልግም።\n' +
-    '<i>Install the panel and try 20 minutes free (press “Get them in Telegram” in it) — no payment.</i>',
+  trial: async () => {
+    const mins = trialTerms(await getSettings()).minutes;
+    return `🎁 ፓነሉን ይጫኑ — <b>${mins} ደቂቃ በነጻ</b> ይሞክሩ (በፕሮግራሙ ውስጥ «በቴሌግራም ይቀበሉ»)፤ ክፍያ አያስፈልግም።\n` +
+      `<i>Install the panel and try ${mins} minutes free (press “Get them in Telegram” in it) — no payment.</i>`;
+  },
   install: (chatId) => '📲 <b>①</b> ያውርዱ · <i>download</i>  <b>②</b> Premiere / After Effects ይዝጉ፣ <b>Install</b> ን ያስኪዱ · <i>close them, run Install</i>\n' +
     '<b>③</b> Premiere ይክፈቱ → <b>Window → Extensions → Amharic Captions Pro</b>\n' +
     '✂️ CapCut / DaVinci፦ ዴስክቶፕ ላይ <b>Make Amharic Captions</b> ን ይክፈቱ · <i>open Make Amharic Captions on your desktop</i>\n\n' +
@@ -2958,14 +2962,15 @@ async function postWeeklyJobsDigest() {
   const jobsHome = /^@[A-Za-z0-9_]{4,}$/.test(JOBS_PUBLIC) ? 'https://t.me/' + JOBS_PUBLIC.slice(1) : jobsUrl;
   const share = 'https://t.me/share/url?url=' + encodeURIComponent(jobsHome) +
     '&text=' + encodeURIComponent('Every video editing job in Ethiopia, in one place — free.');
+  const jobsMins = trialTerms(await getSettings()).minutes;
   const text =
     '📊 <b>የዚህ ሳምንት የኤዲቲንግ ስራዎች · This week in editing jobs</b>\n\n' +
     `💼 <b>${n}</b> ስራዎች ከ <b>${ch}</b> የስራ ቻናሎች ተለጥፈዋል።\n` +
     `<i>${n} video editing jobs from ${ch} job channels, posted as they appeared.</i>\n\n` +
     'አዳዲሶቹ በደቂቃዎች ውስጥ ይለጠፋሉ። ኤዲተር ጓደኛዎን ይጋብዙ!\n' +
     '<i>New ones appear within minutes. Know an editor? Share it.</i>\n\n' +
-    '🎬 ለቪዲዮዎችዎ የአማርኛ ካፕሽን? <b>Amharic Captions Pro</b> — 20 ደቂቃ በነጻ፣ ያለ ኢንተርኔት። @AmharicCaptionsBot\n' +
-    '<i>Amharic captions for your videos? Amharic Captions Pro — 20 minutes free, works offline.</i>';
+    `🎬 ለቪዲዮዎችዎ የአማርኛ ካፕሽን? <b>Amharic Captions Pro</b> — ${jobsMins} ደቂቃ በነጻ፣ ያለ ኢንተርኔት። @AmharicCaptionsBot\n` +
+    `<i>Amharic captions for your videos? Amharic Captions Pro — ${jobsMins} minutes free, works offline.</i>`;
   const kb = [[{ text: '💼 ስራዎቹን ይመልከቱ · See the jobs', url: jobsUrl }],
               [{ text: '📣 ለጓደኛ ያጋሩ · Share with a friend', url: share }]];
   await safeSend(tg(TOKEN, 'sendMessage', { chat_id: SUPPORT_GROUP, text, parse_mode: 'HTML', disable_web_page_preview: true, reply_markup: { inline_keyboard: kb } }));
@@ -3134,7 +3139,7 @@ async function handleGroupMessage(msg, text) {
   const ckey = `grp:faq:${chatId}:${intent}`;
   if (await kvGet(ckey)) return;
   await kvPut(ckey, '1', GROUP_FAQ_COOLDOWN);
-  await groupSend(msg, GROUP_FAQ[intent](chatId), GROUP_FAQ_KB[intent](), true);
+  await groupSend(msg, await GROUP_FAQ[intent](chatId), GROUP_FAQ_KB[intent](), true);
 }
 
 // ── Buyer FSM flow (port of handle_buyer_message) ───────────────────────────
@@ -3201,7 +3206,7 @@ async function homeScreen(uid, first = '', offer = null) {
       kb,
     };
   }
-  return { text: heroText(first, offer), kb: await menuKeyboardFor(uid) };
+  return { text: await heroText(first, offer), kb: await menuKeyboardFor(uid) };
 }
 
 const FAQ = {
@@ -3218,9 +3223,12 @@ const FAQ = {
   },
   trial: {
     btn: '🎁 በነጻ መሞከር እችላለሁ? · Free trial',
-    text: () => '🎁 <b>በነጻ መሞከር / Free trial</b>\n\n' +
-      'ፓነሉን ይጫኑ — <b>20 ደቂቃ በነጻ</b> ይሞክሩ (በፕሮግራሙ ውስጥ «በቴሌግራም ይቀበሉ» ይጫኑ)፤ ክፍያ አያስፈልግም። ከወደዱት በኋላ ብቻ ይክፈሉ።\n' +
-      '<i>Install the panel and try 20 minutes free (press “Get them in Telegram” in it) — no payment. Pay only if you like it.</i>',
+    text: async () => {
+      const mins = trialTerms(await getSettings()).minutes;
+      return '🎁 <b>በነጻ መሞከር / Free trial</b>\n\n' +
+        `ፓነሉን ይጫኑ — <b>${mins} ደቂቃ በነጻ</b> ይሞክሩ (በፕሮግራሙ ውስጥ «በቴሌግራም ይቀበሉ» ይጫኑ)፤ ክፍያ አያስፈልግም። ከወደዱት በኋላ ብቻ ይክፈሉ።\n` +
+        `<i>Install the panel and try ${mins} minutes free (press “Get them in Telegram” in it) — no payment. Pay only if you like it.</i>`;
+    },
     kb: () => [[INSTALL_BTN]],
   },
   need: {
@@ -3273,15 +3281,18 @@ const FAQ = {
   // phone in their own words — "capcut phone lay yiseral", "ስልኬ ላይ ይሰራል".
   phone: {
     btn: '📱 በስልክ ይሰራል? · On my phone?',
-    text: () => '📱 <b>በስልክ ይሰራል? / Does it work on my phone?</b>\n\n' +
-      '🛠 መሣሪያው <b>በኮምፒውተር ላይ ይሰራል</b> — Windows ወይም Mac።\n' +
-      '<i>The tool runs on a computer — Windows or Mac.</i>\n\n' +
-      '📱 የCapCut የስልክ መተግበሪያው .srt ፋይል አይገባውም።\n' +
-      '<i>The CapCut phone app cannot import .srt files.</i>\n\n' +
-      '💻 ኮምፒውተር ካለዎት፦ በ«Make Amharic Captions» ካፕሽኖችን ይሥራሉ፤ ከዚያ በኮምፒውተሩ ላይ በCapCut ያስገቡ (Text → Captions → Import)።\n' +
-      '<i>If you have a computer: make the captions in “Make Amharic Captions”, then use CapCut on the computer (Text → Captions → Import).</i>\n\n' +
-      '🎁 በነጻ ይሞክሩ፦ <b>20 ደቂቃ በነጻ</b> — ይጫኑ፣ ከዚያ በፕሮግራሙ ውስጥ «በቴሌግራም ይቀበሉ» ይጫኑ።\n' +
-      '<i>Try 20 minutes free — install, then press “Get them in Telegram” in the program.</i>',
+    text: async () => {
+      const mins = trialTerms(await getSettings()).minutes;
+      return '📱 <b>በስልክ ይሰራል? / Does it work on my phone?</b>\n\n' +
+        '🛠 መሣሪያው <b>በኮምፒውተር ላይ ይሰራል</b> — Windows ወይም Mac።\n' +
+        '<i>The tool runs on a computer — Windows or Mac.</i>\n\n' +
+        '📱 የCapCut የስልክ መተግበሪያው .srt ፋይል አይገባውም።\n' +
+        '<i>The CapCut phone app cannot import .srt files.</i>\n\n' +
+        '💻 ኮምፒውተር ካለዎት፦ በ«Make Amharic Captions» ካፕሽኖችን ይሥራሉ፤ ከዚያ በኮምፒውተሩ ላይ በCapCut ያስገቡ (Text → Captions → Import)።\n' +
+        '<i>If you have a computer: make the captions in “Make Amharic Captions”, then use CapCut on the computer (Text → Captions → Import).</i>\n\n' +
+        `🎁 በነጻ ይሞክሩ፦ <b>${mins} ደቂቃ በነጻ</b> — ይጫኑ፣ ከዚያ በፕሮግራሙ ውስጥ «በቴሌግራም ይቀበሉ» ይጫኑ።\n` +
+        `<i>Try ${mins} minutes free — install, then press “Get them in Telegram” in the program.</i>`;
+    },
     kb: () => [[INSTALL_BTN]],
   },
 };
@@ -3291,7 +3302,7 @@ async function showFaq(chatId, messageId, topic) {
   let text;
   let kb;
   if (FAQ[topic]) {
-    text = FAQ[topic].text();
+    text = await FAQ[topic].text();
     kb = FAQ[topic].kb().concat([[{ text: '❓ ሌላ ጥያቄ · Other questions', callback_data: 'faq:home' }], [MENU_BTN]]);
   } else {
     text = '❓ <b>ጥያቄዎች / Questions</b>\n\nጥያቄዎን ይምረጡ — ወይም በራስዎ ቃላት ይጻፉልኝ።\n' +
@@ -3376,7 +3387,7 @@ async function answerQuestion(uid, chatId, text, waiting, first = '') {
   const kb = waiting
     ? [[{ text: '💳 የባንክ አካውንቶች · Bank accounts', callback_data: 'menu:pay' }], [FAQ_BTN]]
     : f.kb().concat([[FAQ_BTN], [MENU_BTN]]);
-  await sendText(chatId, f.text() + tail, kb);
+  await sendText(chatId, (await f.text()) + tail, kb);
   try { await addFunnel(uid, 'faq_' + intent); } catch (e) { /* stats only */ }
   return true;
 }
@@ -3399,10 +3410,11 @@ async function nudgeQuietBuyers() {
     const o = await DB.prepare('SELECT 1 AS x FROM orders WHERE uid=? LIMIT 1').bind(uid).first();
     if (o || (await isBuyer(uid))) continue;
     await kvPut('nudge:' + uid, '1', NUDGE_DAYS * 86400);
+    const nudgeMins = trialTerms(await getSettings()).minutes;
     const res = await sendText(uid,
       '👋 ቀደም ብለው የክፍያ ገጹን ከፍተው ነበር — ጥያቄ አለዎት? መልሶቹ ከታች ናቸው።\n' +
       '<i>You opened the payment page earlier — any questions? The answers are below.</i>\n\n' +
-      '🎁 መጀመሪያ <b>20 ደቂቃ በነጻ</b> መሞከር ይችላሉ።\n<i>You can try 20 minutes free first.</i>\n\n' +
+      `🎁 መጀመሪያ <b>${nudgeMins} ደቂቃ በነጻ</b> መሞከር ይችላሉ።\n<i>You can try ${nudgeMins} minutes free first.</i>\n\n` +
       '📸 ከፍለው ከሆነ ስክሪንሾቱን እዚሁ ብቻ ይላኩ።\n<i>Already paid? Just send the screenshot here.</i>',
       [[FAQ_BTN], [{ text: '💳 የባንክ አካውንቶች · Bank accounts', callback_data: 'menu:pay' }],
        [{ text: '🎁 በነጻ ልሞክር · Try free', url: `${SITE_URL}/install` }], [SUPPORT_BTN]]);
@@ -3477,7 +3489,7 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
     if (typed && typed.active) {
       const reason = await attachReferral(uid, typed.code);
       const offer = await referralOffer(uid);
-      await sendText(chatId, heroText((msg.from && msg.from.first_name) || '', offer) + (offer ? '' : linkNote(reason)),
+      await sendText(chatId, (await heroText((msg.from && msg.from.first_name) || '', offer)) + (offer ? '' : linkNote(reason)),
         await menuKeyboardFor(uid));
       return;
     }
