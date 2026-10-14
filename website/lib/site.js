@@ -11,6 +11,12 @@ export const PRICE_NUM = "2500";
 export const PRICE_OLD = "ETB 3,500";
 export const PRICE_OLD_AM = "3,500 ብር";
 export const PRICE_OLD_NUM = "3500";
+export const PRICE_M1 = "ETB 500";
+export const PRICE_M1_AM = "500 ብር";
+export const PRICE_M1_NUM = "500";
+export const PRICE_M2 = "ETB 900";
+export const PRICE_M2_AM = "900 ብር";
+export const PRICE_M2_NUM = "900";
 
 // Official payment details. We publish these so buyers can always verify they
 // are paying the real seller — never pay anyone who claims to accept payment

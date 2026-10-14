@@ -13,7 +13,7 @@ Copy-paste ready. Post these when you launch, and reuse later for reach.
 > ✅ የአማርኛ ንዑስ ርዕስ በቦታው ይፈጠር
 > ✅ በኮምፒውተርህ ላይ ብቻ ይሰራል — ኢንተርኔት አያስፈልግም, ቅጽበት (offline, on-device)
 > ✅ Windows & Mac
-> ✅ አንድ ጊዜ **ETB 2,500** · ወይም በወር **ETB 500** (subscription የለም)
+> ✅ አማራጮች፦ **1 ወር ETB 500** · **2 ወር ETB 900** · **ለዘለቄታው ETB 2,500** (subscription የለም)
 >
 > 🎁 **ሁሉም ሰው 30 ደቂቃ በነጻ** ያገኛል — ሞክር እና እርካታ ከተሰማህ ግዛ!
 >

@@ -209,8 +209,8 @@ export default function HomePage() {
 
               <p className="hero-note">
                 <Tx
-                  am="መጀመሪያ 30 ደቂቃ በነጻ ይሞክሩ · በወር ከ500 ብር · ወይም አንድ ጊዜ ለዘለቄታው"
-                  en="Try 30 minutes free first · From ETB 500 a month · Or pay once, forever"
+                  am="መጀመሪያ 30 ደቂቃ በነጻ ይሞክሩ · 1 ወር 500 ብር · 2 ወር 900 ብር · ወይም አንድ ጊዜ ለዘለቄታው 2,500 ብር"
+                  en="Try 30 minutes free first · 1 month ETB 500 · 2 months ETB 900 · Or pay once, forever ETB 2,500"
                 />
               </p>
             </div>
@@ -381,8 +381,8 @@ export default function HomePage() {
 
               <p className="price-plans" style={{ margin: "14px 0 16px", lineHeight: 1.6, fontSize: "0.95em" }}>
                 <Tx
-                  am={<>ወይም በወር ይጀምሩ፦ <strong>1 ወር 500 ብር</strong> · <strong>2 ወር 900 ብር</strong>። በኋላ ለዘለቄታው ሲገዙ የከፈሉት ይቀነሳል።</>}
-                  en={<>Or start monthly: <strong>1 month ETB 500</strong> · <strong>2 months ETB 900</strong>. Go Forever later and what you paid is deducted.</>}
+                  am={<>አማራጮች፦ <strong>1 ወር 500 ብር</strong> · <strong>2 ወር 900 ብር</strong> · <strong>ለዘለቄታው 2,500 ብር</strong>። በወር ይጀምሩ፣ በኋላ ለዘለቄታው ሲገዙ የከፈሉት ይቀነሳል።</>}
+                  en={<>Options: <strong>1 month ETB 500</strong> · <strong>2 months ETB 900</strong> · <strong>Forever ETB 2,500</strong>. Start monthly, go Forever later and what you paid is deducted.</>}
                 />
               </p>
 

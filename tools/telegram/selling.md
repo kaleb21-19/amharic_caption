@@ -19,7 +19,7 @@ the group, post offers, and handle buyers — copy-paste ready.
 > Automatic Amharic captions (subtitles) for Premiere Pro. On-device, offline,
 > pay once, or by the month.
 >
-> 💰 ዋጋ: **ETB 2,500** አንድ ጊዜ · ወይም **በወር ETB 500** (per licensed installation)
+> 💰 ዋጋ: **1 ወር ETB 500** · **2 ወር ETB 900** · **ለዘለቄታው ETB 2,500** (አንድ ጊዜ / ክሊፕት ለአንድ ኮምፒውተር)
 > 🏦 የሚከፈለው: ባንክ ዝውውር → **KALEB TEGEGEN** (CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015)
 > 🖥 Windows & Mac
 >
@@ -40,8 +40,8 @@ the group, post offers, and handle buyers — copy-paste ready.
 > **1.** የሶፍትዌሩን ፓነል ይክፈቱና "Your Machine ID" የሚለውን ቁጥር ይቅዱ
 > (Copy the Machine ID shown in the panel's License section).
 >
-> **2.** **ETB 2,500** (ወይም **በወር ETB 500**) በባንክ ዝውውር ወደ **KALEB TEGEGEN** (CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015) ይላኩ
-> (Send ETB 2,500 — or ETB 500 for one month — by bank transfer to KALEB TEGEGEN - CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015).
+> **2.** **1 ወር 500 ብር** · **2 ወር 900 ብር** · **ለዘለቄታው 2,500 ብር** በባንክ ዝውውር ወደ **KALEB TEGEGEN** (CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015) ይላኩ
+> (Send ETB 500 for 1 month, ETB 900 for 2 months, or ETB 2,500 forever — by bank transfer to KALEB TEGEGEN - CBE 1000504159977 / Abyssinia 402393939 / Zemen 1031111343277015).
 >
 > **3.** የዝውውር ማረጋገጫ (screenshot) እና Machine ID በዚህ ግሩፕ ወይም በግል
 > መልእክት ይላኩ (Send the payment screenshot + your Machine ID here or in DM).
