@@ -156,7 +156,7 @@ function loadPanel(opts) {
       if (opts.csiRaw) { cb(opts.csiRaw(jsx)); return; }
       cb(JSON.stringify(opts.csiReply || defaultCsiReply));
     } },
-    cep: { fs:{ showOpenDialog(){ return opts.folderDialog ? opts.folderDialog() : {err:1}; } },
+    cep: { fs:{ showOpenDialog(multi, chooseDir, title){ return opts.openDialog ? opts.openDialog(multi, chooseDir, title) : (opts.folderDialog ? opts.folderDialog() : {err:1}); } },
             util:{ openURLInDefaultBrowser(u){ if (opts.openUrl) opts.openUrl.push(u); } } },
     __adobe_cep__:{
       getHostEnvironment(){ return JSON.stringify({appName: opts.hostApp || 'PPRO', appSkinInfo:{appBackgroundColor:{red:30,green:30,blue:30}}}); },
@@ -231,7 +231,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.16.5');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.16.6');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -707,6 +707,162 @@ await t('3.11 review: split / join / delete one click; Enter & Backspace; undo; 
     assert.ok(!p.els('revMemory').textContent.includes('('), 'count gone');
     assert.strictEqual(p.els('revMemory').style.display, 'none', 'nothing left -> the 🧠 button hides again');
     assert.strictEqual(panel.style.display, 'none', 'and its list closes');
+  } finally { p.close(); fs.rmSync(machineHome, { recursive: true, force: true }); }
+});
+
+await t('3.12 review: 👤 client words — a list per client, on this computer only, never in the 🧠 memory, import/export', async () => {
+  const machineHome = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_cli_'));
+  const store = path.join(machineHome, '.amharic_captions_fixes.json');
+  const cli = path.join(machineHome, '.amharic_captions_clients.json');
+  const p = loadPanel({ machineHome });
+  const open = async (cues, file) => {
+    p.evalVm('reviewTrialCharged = true; lastCues = ' + JSON.stringify(cues) + ';');
+    await p.evalVm('openReview(' + JSON.stringify(file || 'x.srt') + ', "t", 0, {})');
+  };
+  const texts = () => JSON.parse(p.evalVm('JSON.stringify(reviewCues.map((c) => c.text))'));
+  const row = (i) => p.els('reviewList').children[i];
+  const ta = (i) => row(i).children[1].children[0];
+  const hint = (i) => row(i).children.find((c) => c.className === 'row-hint');
+  const hintBtn = (i, text) => hint(i).children.find((c) => c.tagName === 'BUTTON' && c.textContent.includes(text));
+  const editRow = (i, text) => { ta(i).value = text; ta(i).fire('input', {}); ta(i).fire('change', {}); };
+  const greens = (i) => row(i).children[1].children[1].children.filter((c) => c.tagName === 'MARK' && c.className === 'fix').map((c) => c.textContent);
+  const panel = () => p.els('clientPanel');
+  const chips = () => panel().children.find((c) => c.className === 'cli-chips');
+  const chip = (txt) => chips().children.find((c) => c.textContent.indexOf(txt) >= 0);
+  const clientFile = () => JSON.parse(fs.readFileSync(cli, 'utf8'));
+  try {
+    // (a) Nobody chose a client: exactly today's behaviour, and nothing written.
+    await open([{ start: 0, end: 1, text: 'ሰላም ላሊቤላ' }]);
+    assert.strictEqual(p.els('revClient').textContent, '👤 Client', 'no client -> the plain 👤 button');
+    assert.ok(!fs.existsSync(cli), 'no client file before a client is used');
+    p.els('revClient').fire('click', {});
+    assert.strictEqual(panel().style.display, '', 'the picker opens');
+    has(panel().children[0].textContent, 'Client words', 'and says what it is');
+
+    // (b) A new client lives in its own local file; this project remembers it.
+    chip('New client').fire('click', {});
+    const form = panel().children.find((c) => c.className === 'cli-form');
+    form.children[0].value = 'ጤና ክሊኒክ';
+    form.children[1].fire('click', {});                    // Save
+    assert.strictEqual(p.els('revClient').textContent, '👤 ጤና ክሊኒክ', 'the header shows the client');
+    assert.deepStrictEqual(Object.keys(clientFile().clients), ['ጤና ክሊኒክ']);
+    assert.strictEqual(clientFile().projects['x'], 'ጤና ክሊኒክ', 'this project remembers its client');
+
+    // (c) "👤 For this client" keeps the fix in the client's list ONLY — it must
+    //     never reach the computer memory (another client's video would get it).
+    editRow(0, 'ሰላም ላሊበላ');
+    assert.ok(hint(0), 'the fix line offers the choices');
+    hintBtn(0, 'For this client').fire('click', {});
+    assert.deepStrictEqual(texts(), ['ሰላም ላሊበላ']);
+    assert.strictEqual(clientFile().clients['ጤና ክሊኒክ'].words['ላሊቤላ'].to, 'ላሊበላ', 'kept in the client list');
+    assert.ok(!fs.existsSync(store) || !Object.keys(JSON.parse(fs.readFileSync(store, 'utf8')).fixes).length,
+      'and never in the computer memory');
+    has(p.els('revClient').textContent, '(1)', 'the count sits in the 👤 button');
+
+    // (d) The client's spelling is applied on the next open, green, and it beats
+    //     the computer memory for the same word.
+    p.evalVm('saveFixStore({ v: 1, fixes: { "ላሊቤላ": { to: "ላልቤላ", n: 3, strong: true, at: 1 } } })');
+    await open([{ start: 0, end: 1, text: 'ላሊቤላ ደርሰናል' }]);
+    assert.strictEqual(p.els('revClient').textContent, '👤 ጤና ክሊኒክ (1)', 'the same project picks the same client');
+    assert.deepStrictEqual(texts(), ['ላሊበላ ደርሰናል'], 'the client spelling wins over the 🧠 rule');
+    assert.deepStrictEqual(greens(0), ['ላሊበላ'], 'shown green like any remembered word');
+    ta(0).selectionStart = ta(0).selectionEnd = 3;
+    ta(0).fire('click', {});
+    has(hint(0).children[0].textContent, 'from the client list', 'the line says where the rule lives');
+    hintBtn(0, 'Put back').fire('click', {});
+    assert.deepStrictEqual(texts(), ['ላሊቤላ ደርሰናል'], 'put back in this caption only');
+    assert.strictEqual(clientFile().clients['ጤና ክሊኒክ'].words['ላሊቤላ'].to, 'ላሊበላ', 'the client list keeps it');
+
+    // (e) A different project does NOT get that client — the words of one client
+    //     must never turn up in another client's job.
+    await open([{ start: 0, end: 1, text: 'ላሊቤላ ደርሰናል' }], 'y.srt');
+    assert.strictEqual(p.els('revClient').textContent, '👤 Client', 'a new project starts with no client');
+    assert.deepStrictEqual(texts(), ['ላልቤላ ደርሰናል'], 'only the computer memory applies');
+
+    // (f) Import a shared list (plain "wrong=right" lines), then export it back.
+    const list = path.join(machineHome, 'clinic.txt');
+    fs.writeFileSync(list, '# names\nሚኪያስ=ሚካኤል\nጎንደር=ጎንደር ከተማ\nnot a line\n', 'utf8');
+    const p2 = loadPanel({ machineHome, openDialog: (multi, chooseDir) => (chooseDir ? { err: 0, data: [machineHome] } : { err: 0, data: [list] }) });
+    try {
+      const t2 = () => JSON.parse(p2.evalVm('JSON.stringify(reviewCues.map((c) => c.text))'));
+      p2.evalVm('reviewTrialCharged = true; lastCues = ' + JSON.stringify([{ start: 0, end: 1, text: 'ሚኪያስ ነው' }]) + ';');
+      await p2.evalVm('openReview("x.srt", "t", 0, {})');
+      assert.deepStrictEqual(t2(), ['ሚኪያስ ነው'], 'not applied before the import');
+      p2.els('revClient').fire('click', {});
+      const p2panel = p2.els('clientPanel');
+      const act = (txt) => p2panel.children.find((c) => c.className === 'cli-actions').children
+        .find((c) => c.textContent.includes(txt));
+      act('Import').fire('click', {});
+      assert.deepStrictEqual(Object.keys(clientFile().clients['ጤና ክሊኒክ'].words).sort(),
+        ['ላሊቤላ', 'ሚኪያስ', 'ጎንደር'].sort(), 'both words in, the broken line ignored');
+      assert.deepStrictEqual(t2(), ['ሚካኤል ነው'], 'and applied straight away');
+      has(p2.els('logBox').textContent, 'Imported 2 new word(s)', 'the log says how many');
+      assert.strictEqual(p2.els('logBox').textContent.indexOf('ጤና ክሊኒክ'), -1, 'the customer name never reaches the log');
+      act('Import').fire('click', {});
+      has(p2.els('logBox').textContent, 'Imported 0 new word(s), 2 already there', 'the same file twice changes nothing');
+      const before = Object.keys(clientFile().clients['ጤና ክሊኒክ'].words).length;
+
+      // Export writes both shapes next to each other; the .json reads back.
+      act('Export').fire('click', {});
+      const base = p2.evalVm('safeFileName(ACTIVE_CLIENT)');
+      has(fs.readFileSync(path.join(machineHome, base + '.amhglossary.txt'), 'utf8'), 'ሚኪያስ=ሚካኤል', 'the .txt is a plain list');
+      const back = path.join(machineHome, base + '.amhglossary.json');
+      const js = JSON.parse(fs.readFileSync(back, 'utf8'));
+      assert.strictEqual(js.v, 1, 'the .json says which version it is');
+      assert.strictEqual(js.words['ጎንደር'], 'ጎንደር ከተማ', 'and carries the same words');
+      assert.deepStrictEqual(JSON.parse(p2.evalVm('JSON.stringify(parseGlossary(fs.readFileSync(' + JSON.stringify(back) + ', "utf8")))')),
+        { 'ላሊቤላ': 'ላሊበላ', 'ሚኪያስ': 'ሚካኤል', 'ጎንደር': 'ጎንደር ከተማ' }, 'a .json list imports back');
+      has(p2.els('logBox').textContent, 'Exported ' + before + ' word(s)', 'the export says how many');
+
+      // (g) ✕ forgets one word; "Forget all" needs a second tap.
+      const rows2 = () => p2panel.children.find((c) => c.className === 'mem-list').children;
+      const first = rows2()[0];
+      const word = first.children[0].textContent.split(' → ')[0];
+      first.children[1].fire('click', {});
+      assert.ok(!clientFile().clients['ጤና ክሊኒክ'].words[word], 'forgotten from the client list');
+      const all = p2panel.children.find((c) => c.textContent.indexOf('Forget all') === 0);
+      all.fire('click', {});
+      assert.ok(Object.keys(clientFile().clients['ጤና ክሊኒክ'].words).length, 'the first tap only arms it');
+      all.fire('click', {});
+      assert.deepStrictEqual(clientFile().clients['ጤና ክሊኒክ'].words, {}, 'the second tap clears the list');
+      assert.strictEqual(p2.els('revClient').textContent, '👤 ጤና ክሊኒክ', 'and the count goes with it');
+    } finally { p2.close(); }
+
+    // (h) The lists stay bounded (oldest goes first) — never an endless file.
+    const prunedClients = JSON.parse(p.evalVm('(function(){ const st = { clients: {}, projects: {} };' +
+      ' for (let i = 0; i < 33; i++) st.clients["c" + i] = { at: i, words: {} }; pruneClients(st);' +
+      ' return JSON.stringify([Object.keys(st.clients).length, Object.keys(st.clients)[0]]); })()'));
+    assert.deepStrictEqual(prunedClients, [30, 'c3'], '30 clients kept, the oldest ones drop out');
+    const prunedWords = JSON.parse(p.evalVm('(function(){ const w = {};' +
+      ' for (let i = 0; i < 2005; i++) w["w" + i] = { to: "x" + i, n: 1, strong: true, at: i }; pruneClientWords(w);' +
+      ' return JSON.stringify([Object.keys(w).length, "w4" in w, "w5" in w]); })()'));
+    assert.deepStrictEqual(prunedWords, [2000, false, true], '2000 words per client, the oldest drop out');
+
+    // (i) Switching client mid-review is ONE undo step: the old client's words
+    //     go back out and the new client's go in.
+    const home4 = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_cli2_'));
+    const p4 = loadPanel({ machineHome: home4 });
+    try {
+      const t4 = () => JSON.parse(p4.evalVm('JSON.stringify(reviewCues.map((c) => c.text))'));
+      p4.evalVm('reviewTrialCharged = true; lastCues = ' + JSON.stringify([{ start: 0, end: 1, text: 'ሰላም ላሊቤላ' }]) + ';');
+      await p4.evalVm('openReview("z.srt", "t", 0, {})');
+      p4.evalVm('createClient("ሀ"); rememberClientFix("ሀ", "ላሊቤላ", "ላሊበላ");' +
+        ' createClient("ለ"); rememberClientFix("ለ", "ላሊቤላ", "ላሊበላ አደራሽ")');
+      p4.evalVm('setActiveClient("ሀ")');
+      assert.deepStrictEqual(t4(), ['ሰላም ላሊበላ'], 'client A applied');
+      p4.els('revClient').fire('click', {});
+      p4.els('clientPanel').children.find((c) => c.className === 'cli-chips').children
+        .find((c) => c.textContent.indexOf('ለ') === 0).fire('click', {});
+      assert.deepStrictEqual(t4(), ['ሰላም ላሊበላ አደራሽ'], 'A out, B in — nothing of A left behind');
+      has(p4.els('revUndo').textContent, 'Undo client words', 'offered as one step');
+      p4.els('revUndo').fire('click', {});
+      assert.deepStrictEqual(t4(), ['ሰላም ላሊበላ'], 'one undo returns to A’s spelling');
+      // "No client" is a real choice and is remembered for the project.
+      p4.evalVm('setActiveClient("")');
+      assert.deepStrictEqual(t4(), ['ሰላም ላሊቤላ'], 'changing your mind puts the original back');
+      assert.strictEqual(JSON.parse(fs.readFileSync(path.join(home4, '.amharic_captions_clients.json'), 'utf8')).projects['z'], '',
+        'and the project remembers "no client"');
+    } finally { p4.close(); fs.rmSync(home4, { recursive: true, force: true }); }
   } finally { p.close(); fs.rmSync(machineHome, { recursive: true, force: true }); }
 });
 
@@ -2481,9 +2637,9 @@ await t('16d. what\'s new: once per version, never on a first install, ✕/Try i
     has(p.els('wnTitle').textContent, "What's new in " + ver);
     const items = p.els('wnList').children.map((li) => li.textContent);
     assert.ok(items.length >= 4, 'lists the new things: ' + items.length);
-    has(items.join(' | '), 'Glide');
-    has(items.join(' | '), 'My styles');
-    has(items.join(' | '), 'caption fonts');
+    has(items.join(' | '), 'Client words');
+    has(items.join(' | '), 'this computer only');
+    has(items.join(' | '), 'Export');
     // ✕ hides it and remembers this version.
     p.els('wnClose').click();
     assert.strictEqual(p.els('whatsNew').style.display, 'none');
@@ -2516,7 +2672,7 @@ await t('16d. what\'s new: once per version, never on a first install, ✕/Try i
   try {
     await flush(10);
     has(r.els('wnTitle').textContent, 'በስሪት ' + r.evalVm('APP_VERSION') + ' አዲስ የመጣ');
-    has(r.els('wnList').children.map((li) => li.textContent).join(' | '), 'አዲስ ስታይሎች');
+    has(r.els('wnList').children.map((li) => li.textContent).join(' | '), 'የደንበኛ ቃላት');
     // The labels around it: index.html gets its Amharic from data-i18n, which
     // this shim does not render — so read the tables the panel applies.
     assert.strictEqual(r.evalVm("AM_STATIC['wn.try']"), 'ይሞክሩት', 'polite: ይሞክሩት');
@@ -2623,6 +2779,10 @@ await t('13b. language: an unset preference defaults to Amharic; unknown text fa
     assert.strictEqual(p.evalVm("T('some brand-new English message')"), 'some brand-new English message');
     assert.strictEqual(p.evalVm("T('License expired on 2027-01-01')"), 'ፈቃዱ 2027-01-01 ላይ አብቅቷል');
     assert.strictEqual(p.evalVm("T('2 captions')"), '2 ካፕሽን');
+    // The 👤 client words the customer reads are Amharic too (polite form).
+    assert.strictEqual(p.evalVm("T('Client words')"), 'የደንበኛ ቃላት');
+    assert.strictEqual(p.evalVm("T('For this client')"), 'ለዚህ ደንበኛ');
+    assert.strictEqual(p.evalVm("T('Saved on this computer only — nothing is uploaded.')"), 'በዚህ ኮምፒውተር ላይ ብቻ ይቀመጣል — ወደ ኢንተርኔት አይላክም።');
   } finally { p.close(); }
 });
 

@@ -514,6 +514,23 @@
   .memory-panel .mem-del { border: 0; background: transparent; color: var(--text-secondary); cursor: pointer; border-radius: var(--radius-sm); }
   .memory-panel .mem-del:hover { background: var(--err-soft); color: var(--err); }
   .memory-panel .mem-all { margin-top: 6px; border: 0; background: transparent; color: var(--err); cursor: pointer; padding: 2px 0; font-size: var(--font-s); }
+  /* 👤 client words: one chip per client, then that client's words */
+  .client-panel .cli-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; }
+  .client-panel .cli-chip { border: 1px solid var(--border); background: var(--bg-field); color: var(--text-primary);
+    border-radius: 999px; padding: 3px 10px; font-size: var(--font-s); cursor: pointer; max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .client-panel .cli-chip:hover { background: var(--bg-hover); }
+  .client-panel .cli-chip.active { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+  .client-panel .cli-chip.add { border-style: dashed; color: var(--text-secondary); }
+  .client-panel .cli-form { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .client-panel .cli-input { flex: 1 1 90px; min-width: 0; }
+  .client-panel .cli-save, .client-panel .cli-cancel { border: 1px solid var(--border); background: var(--bg-field);
+    color: var(--text-primary); border-radius: var(--radius-sm); padding: 3px 10px; font-size: var(--font-s); cursor: pointer; }
+  .client-panel .cli-save { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+  .client-panel .cli-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; }
+  .client-panel .cli-actions .mem-all { color: var(--accent); }
+  .client-panel .cli-note { margin-top: 6px; padding-top: 5px; border-top: 1px solid var(--border);
+    color: var(--text-secondary); font-size: var(--font-s); }
   .review-empty { padding: 18px 8px; text-align: center; color: var(--text-disabled); font-size: var(--font-m); }
   .style-strip { flex: 0 0 auto; margin-top: 8px; }
   .style-head { display: flex; align-items: baseline; gap: 8px; font-size: var(--font-s); color: var(--text-secondary); margin-bottom: 5px; }
@@ -874,7 +891,7 @@
   </div>
 
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.16.5</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span></span>
+    <span>v<span id="panelVersion">1.16.6</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span></span>
     <span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
       <a href="#" id="updateCheck" title="Check for updates" data-i18n="update.check" data-i18n-title="update.checkTitle">↻ Check for updates</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
@@ -906,9 +923,11 @@
       <span class="review-actions">
         <button type="button" id="revUndo" class="btn btn-neutral" style="display:none;"></button>
         <button type="button" id="revMemory" class="btn btn-neutral" style="display:none;">🧠 Memory</button>
+        <button type="button" id="revClient" class="btn btn-neutral" data-i18n="cli.button">👤 Client</button>
       </span>
     </div>
     <div class="memory-panel" id="memoryPanel" style="display:none;"></div>
+    <div class="memory-panel client-panel" id="clientPanel" style="display:none;"></div>
     <div id="reviewList"></div>
     <!-- 1.11: caption styles (shown only when this computer's ffmpeg can draw them) -->
     <div class="style-strip" id="styleStrip" style="display:none;">
