@@ -3148,7 +3148,7 @@ function activeFixes(st) {
   });
   return out;
 }
-function rememberFix(st, wrong, right, strong) {
+function rememberFix(st, wrong, right, strong, max) {
   wrong = String(wrong || '').trim(); right = String(right || '').trim();
   if (!wrong || wrong === right) return;
   const cur = st.fixes[wrong];
@@ -3161,10 +3161,11 @@ function rememberFix(st, wrong, right, strong) {
   st.fixes[wrong].at = Date.now();
   // Never keep the opposite rule (it would flip the word back and forth).
   if (st.fixes[right] && st.fixes[right].to === wrong) delete st.fixes[right];
+  const cap = max || FIX_MAX;         // a client's own list is bigger than the machine's
   const keys = Object.keys(st.fixes);
-  if (keys.length > FIX_MAX) {
+  if (keys.length > cap) {
     keys.sort((a, b) => (st.fixes[a].at || 0) - (st.fixes[b].at || 0));
-    keys.slice(0, keys.length - FIX_MAX).forEach((k) => delete st.fixes[k]);
+    keys.slice(0, keys.length - cap).forEach((k) => delete st.fixes[k]);
   }
 }
 // ── client glossaries ───────────────────────────────────────────────────
@@ -3225,7 +3226,7 @@ function rememberClientFix(name, wrong, right) {
   const st = loadClients();
   if (!name || !st.clients[name]) return false;
   const holder = { fixes: clientWords(st, name) };
-  rememberFix(holder, wrong, right, true);
+  rememberFix(holder, wrong, right, true, CLIENT_WORD_MAX);
   pruneClientWords(holder.fixes);
   st.clients[name].at = Date.now();
   st.last = name;
@@ -3248,12 +3249,22 @@ function pruneClientWords(words) {
   }
   return words;
 }
-// Which project a client belongs to. The output file's own name is enough —
-// no folder paths are kept, so nothing about the editor's disk travels.
-function projectKey(outSrt, label) {
-  let base = String(outSrt || '').replace(/^.*[\\/]/, '').replace(/\.[a-z0-9]+$/i, '');
-  if (!base) base = String(label || '');
-  return base.trim().slice(0, 120);
+// Which project a client belongs to. Only a real, stable name of the editor's
+// own material: the clip or video file name (the sequence name for a Work Area
+// / Whole edit run). Never the temporary .srt the panel works in — those are
+// made fresh for every run (amh_captions_<time>.srt), so a key taken from one
+// would never match the next run and the client would be forgotten every time.
+// A generic name (or none) means NO link: the editor picks the client again,
+// which is better than one client's words landing in another client's video.
+// That includes the names an editor never chose — Premiere's own "Sequence 01"
+// appears in every project, so it can never identify a client's job.
+// No folder paths are kept, so nothing about the editor's disk travels.
+const GENERIC_PROJECTS = /^(captions?|clip|video|timeline|sequence|comp|composition|untitled|work area|whole edit)(\s*\d+)?$/;
+function projectKey(name) {
+  const base = String(name || '').replace(/^.*[\\/]/, '').replace(/\.[a-z0-9]+$/i, '')
+    .replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 120);
+  if (!base || GENERIC_PROJECTS.test(base)) return '';
+  return base;
 }
 function activeClientForProject(st) {
   const key = (REVIEW && REVIEW.projectKey) || '';
@@ -3266,12 +3277,15 @@ function setActiveClient(name) {
   name = String(name || '');
   if (name && !st.clients[name]) return false;
   const prev = ACTIVE_CLIENT;
-  // Take the previous client's words out FIRST (while the header still shows
-  // it), so the undo snapshot records the client the text belongs to. One
-  // client's spelling must never stay in another client's video, and the whole
-  // switch (out + in) is ONE undo step.
+  const same = prev === name;
+  // ONE undo step for a whole switch (the old client's words out, the new
+  // client's in). The snapshot is taken FIRST, while the header still shows the
+  // old client, so the text and "which client wrote this word" agree again
+  // after an undo. A no-op switch leaves no undo step behind.
+  const snapshot = reviewOpen && !same;
+  if (snapshot) pushReviewUndo('client words');
   let changed = false;
-  if (prev && prev !== name && unapplyClientWords(prev)) changed = true;
+  if (prev && !same && unapplyClientWords(prev, { keepUndo: true })) changed = true;
   ACTIVE_CLIENT = name;
   st.last = name;
   const key = (REVIEW && REVIEW.projectKey) || '';
@@ -3279,7 +3293,8 @@ function setActiveClient(name) {
   pruneClients(st);
   saveClients(st);
   syncClientButton();
-  if (applyClientWords(true, { keepUndo: changed })) changed = true;
+  if (applyClientWords(true, { keepUndo: snapshot })) changed = true;
+  if (snapshot && !changed) { REVIEW_UNDO.pop(); syncReviewUndo(); }
   if (!changed) renderClientPanel();
   return true;
 }
@@ -3291,6 +3306,10 @@ function unapplyClientWords(scope, opts) {
   if (!reviewOpen || !scope) return false;
   const words = Object.keys(REVIEW_CLIENT_WORDS).filter((w) => REVIEW_CLIENT_WORDS[w].scope === scope);
   if (!words.length) return false;
+  // The words the computer memory also knows: while the client was chosen the
+  // memory had no say, so it takes those words back at the end.
+  const back = {};
+  words.forEach((w) => { const f = REVIEW_CLIENT_WORDS[w].from; if (REVIEW_MEM_FIXES[f]) back[f] = REVIEW_MEM_FIXES[f]; });
   if (!opts.keepUndo) {
     let hits = 0;
     words.forEach((word) => {
@@ -3312,6 +3331,21 @@ function unapplyClientWords(scope, opts) {
     if (REVIEW_AUTOFIX.rules[from] === word) delete REVIEW_AUTOFIX.rules[from];
     delete REVIEW_CLIENT_WORDS[word];
   });
+  // Give the memory its rule back for those words — the editor is now working
+  // with "no client" (or another one), where the memory applies as everywhere.
+  Object.keys(back).forEach((from) => {
+    const to = back[from];
+    reviewCues.forEach((c) => {
+      const x = replaceWords(c.text, from, to);
+      if (x.n) {
+        c.text = x.text; changed = true;
+        if ((c._fixed || []).indexOf(to) < 0) c._fixed = (c._fixed || []).concat([to]);
+      }
+      const b = REVIEW_BASE.find((z) => String(z._id) === String(c._id));
+      if (b) { const y = replaceWords(b.text, from, to); if (y.n) b.text = y.text; }
+    });
+    REVIEW_AUTOFIX.rules[from] = to;
+  });
   clearRowHint();
   renderReview();
   syncClientButton();
@@ -3325,10 +3359,32 @@ function applyClientWords(announce, opts) {
   if (!reviewOpen || !ACTIVE_CLIENT) return 0;
   const fx = clientFixes(ACTIVE_CLIENT);
   if (!Object.keys(fx).length) return 0;
-  let total = 0;
+  // A client's spelling beats the computer memory's for the same word — even
+  // when the memory wrote its version first (the client was picked after the
+  // review opened, or a memory rule was learned while it was open). Put the
+  // memory's version back for those words, then apply the client's.
+  const memTo = (from) => {
+    const to = REVIEW_AUTOFIX.rules[from];
+    return (to && to !== fx[from]) ? to : '';
+  };
+  const keys = Object.keys(fx).filter((from) => memTo(from));
+  let total = keys.length;
   reviewCues.forEach((c) => { total += applyFixes(c.text, fx).applied.length; });
   if (!total) return 0;
   if (!opts.keepUndo) pushReviewUndo('client words');
+  if (keys.length) {
+    reviewCues.forEach((c) => {
+      keys.forEach((from) => {
+        const was = memTo(from);
+        const x = replaceWords(c.text, was, from);
+        if (x.n) c.text = x.text;
+        if ((c._fixed || []).indexOf(was) >= 0) c._fixed = c._fixed.filter((v) => v !== was);
+        const b = REVIEW_BASE.find((z) => String(z._id) === String(c._id));
+        if (b) { const y = replaceWords(b.text, was, from); if (y.n) b.text = y.text; }
+      });
+    });
+    keys.forEach((from) => { delete REVIEW_AUTOFIX.rules[from]; });
+  }
   let n = 0;
   reviewCues.forEach((c) => {
     const r = applyFixes(c.text, fx);
@@ -3351,7 +3407,8 @@ function applyClientWords(announce, opts) {
 }
 
 let REVIEW_BASE = [];        // captions as the editor first saw them (after auto-fix)
-let REVIEW_AUTOFIX = { rules: {} };   // this review's memory fixes: wrong -> right
+let REVIEW_AUTOFIX = { rules: {} };   // this review's applied fixes: wrong -> right
+let REVIEW_MEM_FIXES = {};    // the computer memory's own rules for this review (🧠)
 let REVIEW_CLIENT_WORDS = {}; // this review: green word -> { from, scope } (a client's word)
 let FIX_OFFER = null;        // { w, r } offered by the fix bar (Change all / Remember)
 let REVIEW_UNDO = [];        // snapshots before split / join / delete / shift / add
@@ -3367,7 +3424,7 @@ async function openReview(outSrt, label, startSeconds, opts) {
   reviewTrialCharged = true;
   REVIEW = {
     outSrt, label: label || 'captions', startSeconds: startSeconds || 0,
-    projectKey: projectKey(outSrt, label || 'captions'),
+    projectKey: projectKey(opts.projectId || label || 'captions'),
   };
   // Transcript cleanup pass: normalize spacing/punctuation in every cue as it
   // enters the review so the user edits (and we write) tidy Amharic.
@@ -3383,7 +3440,11 @@ async function openReview(outSrt, label, startSeconds, opts) {
   // client's video. No client at all = exactly the old behaviour.
   ACTIVE_CLIENT = activeClientForProject(loadClients());
   const cfx = clientFixes(ACTIVE_CLIENT);
-  const fx = Object.assign({}, activeFixes(loadFixStore()), cfx);
+  // The computer memory's own rules are kept apart: a client's rule overrides
+  // one of them while the client is chosen, and gives the word back to the
+  // memory when the editor takes the client off again.
+  REVIEW_MEM_FIXES = activeFixes(loadFixStore());
+  const fx = Object.assign({}, REVIEW_MEM_FIXES, cfx);
   if (Object.keys(fx).length) {
     reviewCues.forEach((c) => {
       const r = applyFixes(c.text, fx);
@@ -3429,7 +3490,7 @@ async function openReview(outSrt, label, startSeconds, opts) {
 // Licensed users and free minutes alike (1.10.19): free minutes are charged
 // when the engine starts (engineAuth), never when the review opens, and a run
 // that fails or is stopped gives them back as before.
-let LIVE_WANTED = null;      // { outSrt, label } — set by the run that may go live
+let LIVE_WANTED = null;      // { outSrt, label, projectId } — set by the run that may go live
 let REVIEW_LIVE = null;      // { seen, pending } while a live review is open
 let LIVE_OPENING = null;     // the live review's openReview() while it runs
 const LIVE_POLL_MS = 2000;
@@ -3456,7 +3517,7 @@ function startLivePoll(work) {
         if (reviewOpen) return;            // another review is open: leave it alone
         lastCues = cues;
         REVIEW_LIVE = { seen: cues.length, pending: false };
-        LIVE_OPENING = openReview(want.outSrt, want.label, 0, { live: true });
+        LIVE_OPENING = openReview(want.outSrt, want.label, 0, { live: true, projectId: want.projectId });
         const opened = await LIVE_OPENING;
         LIVE_OPENING = null;
         if (!opened) { REVIEW_LIVE = null; return; }
@@ -3576,15 +3637,15 @@ function finishLiveReview(finalCues, ok) {
 }
 
 // After a run: finish the live review, or open the review as before.
-async function showRunResult(outSrt, label, r) {
+async function showRunResult(outSrt, label, r, projectId) {
   if (LIVE_OPENING) { try { await LIVE_OPENING; } catch (e) {} }
   if (REVIEW_LIVE && reviewOpen) {
-    if (REVIEW) REVIEW.outSrt = outSrt;
+    if (REVIEW) { REVIEW.outSrt = outSrt; if (projectId) REVIEW.projectKey = projectKey(projectId); }
     finishLiveReview(r.cues, true);
     return true;
   }
   REVIEW_LIVE = null;
-  return openReview(outSrt, label, 0);
+  return openReview(outSrt, label, 0, { projectId });
 }
 
 function removeTempCaptionArtifact(filePath) {
@@ -3909,6 +3970,7 @@ function undoReview() {
   reviewCues = JSON.parse(top.cues);
   if (top.client) REVIEW_CLIENT_WORDS = JSON.parse(top.client);
   if (typeof top.active === 'string') { ACTIVE_CLIENT = top.active; syncClientButton(); }
+  if (reviewOpen) renderClientPanel();     // an open 👤 panel shows the right client again
   clearRowHint();
   renderReview();
   syncReviewUndo();
@@ -5168,7 +5230,7 @@ function clientExport() {
   try {
     fs.writeFileSync(path.join(dir, base + '.amhglossary.txt'), txt, { encoding: 'utf8', mode: 0o600 });
     fs.writeFileSync(path.join(dir, base + '.amhglossary.json'), json, { encoding: 'utf8', mode: 0o600 });
-  } catch (e) { log('Export failed: ' + (e && e.message ? e.message : String(e))); return; }
+  } catch (e) { log('Could not write the client list to that folder — try another folder.'); return; }
   log('Exported ' + words.length + ' word(s) to the folder you chose.');
 }
 // Read a word list: our .json, or plain "wrong=right" lines (.txt). # starts
@@ -5213,7 +5275,7 @@ function clientImport() {
   let added = 0, updated = 0;
   keys.forEach((w) => {
     const had = !!(holder.fixes[w] && holder.fixes[w].strong && holder.fixes[w].to === words[w]);
-    rememberFix(holder, w, words[w], true);
+    rememberFix(holder, w, words[w], true, CLIENT_WORD_MAX);
     if (had) updated++; else added++;
   });
   pruneClientWords(holder.fixes);
@@ -5765,7 +5827,7 @@ async function runWorkArea() {
 
     log('Transcribing ' + batchItems.length + ' clip(s) in one pass…');
     const batchStart = Date.now();
-    LIVE_WANTED = { outSrt, label: 'sequence' };
+    LIVE_WANTED = { outSrt, label: 'sequence', projectId: info.sequence };
     const r = await transcribeBatch(batchItems, outSrt, (msgOrN, total, name) => {
       // Warm-worker callback passes {at, of, name}; one-shot passes (n, total, name).
       const done = typeof msgOrN === 'object' ? msgOrN.at : msgOrN;
@@ -5784,7 +5846,7 @@ async function runWorkArea() {
     LIVE_WANTED = null;
     if (!r.cues.length) log('No speech detected in these clips — nothing to place.');
     log('Done — ' + r.cues.length + ' captions written.');
-    await showRunResult(outSrt, 'sequence', r);
+    await showRunResult(outSrt, 'sequence', r, info.sequence);
   } finally {
     // Always remove every temporary WAV, including failures and cancellation.
     for (const it of items) {

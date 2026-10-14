@@ -431,8 +431,10 @@ function amharic_getSequenceInfo(all) {
 
         // Nothing to caption: say WHY, so the panel can tell the editor what
         // to do instead of "no clips" (customer report, 1.10.15).
+        var seqName = '';
+        try { seqName = String(seq.name || ''); } catch (e) { seqName = ''; }
         var result = { inPoint: inP, outPoint: outP, clips: clips, unsupported: found.unsupported,
-                       noMedia: found.noMedia };
+                       noMedia: found.noMedia, sequence: seqName };
         if (!clips.length && filterByWorkArea) {
             var everything = amhCollectClips(seq, 0, -1e12, 1e12, 0, toSec);
             if (everything.clips.length) {

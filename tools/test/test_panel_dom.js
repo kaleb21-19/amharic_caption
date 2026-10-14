@@ -715,9 +715,13 @@ await t('3.12 review: 👤 client words — a list per client, on this computer 
   const store = path.join(machineHome, '.amharic_captions_fixes.json');
   const cli = path.join(machineHome, '.amharic_captions_clients.json');
   const p = loadPanel({ machineHome });
-  const open = async (cues, file) => {
+  const open = async (cues, label, projectId) => {
     p.evalVm('reviewTrialCharged = true; lastCues = ' + JSON.stringify(cues) + ';');
-    await p.evalVm('openReview(' + JSON.stringify(file || 'x.srt') + ', "t", 0, {})');
+    // A real run works in a fresh temporary .srt (amh_captions_<time>.srt): the
+    // client link must not depend on it, or it would never match again.
+    const out = path.join(os.tmpdir(), 'amh_captions_' + Date.now() + '_' + Math.random().toString(36).slice(2) + '.srt');
+    await p.evalVm('openReview(' + JSON.stringify(out) + ', ' + JSON.stringify(label || 'mehari') + ', 0, ' +
+      (projectId ? JSON.stringify({ projectId }) : '{}') + ')');
   };
   const texts = () => JSON.parse(p.evalVm('JSON.stringify(reviewCues.map((c) => c.text))'));
   const row = (i) => p.els('reviewList').children[i];
@@ -746,7 +750,7 @@ await t('3.12 review: 👤 client words — a list per client, on this computer 
     form.children[1].fire('click', {});                    // Save
     assert.strictEqual(p.els('revClient').textContent, '👤 ጤና ክሊኒክ', 'the header shows the client');
     assert.deepStrictEqual(Object.keys(clientFile().clients), ['ጤና ክሊኒክ']);
-    assert.strictEqual(clientFile().projects['x'], 'ጤና ክሊኒክ', 'this project remembers its client');
+    assert.strictEqual(clientFile().projects['mehari'], 'ጤና ክሊኒክ', 'this project remembers its client');
 
     // (c) "👤 For this client" keeps the fix in the client's list ONLY — it must
     //     never reach the computer memory (another client's video would get it).
@@ -759,11 +763,11 @@ await t('3.12 review: 👤 client words — a list per client, on this computer 
       'and never in the computer memory');
     has(p.els('revClient').textContent, '(1)', 'the count sits in the 👤 button');
 
-    // (d) The client's spelling is applied on the next open, green, and it beats
-    //     the computer memory for the same word.
+    // (d) The next run of the same clip (a NEW temporary .srt, the same clip
+    //     name) brings the client's spelling back, green, and it beats the 🧠 rule.
     p.evalVm('saveFixStore({ v: 1, fixes: { "ላሊቤላ": { to: "ላልቤላ", n: 3, strong: true, at: 1 } } })');
     await open([{ start: 0, end: 1, text: 'ላሊቤላ ደርሰናል' }]);
-    assert.strictEqual(p.els('revClient').textContent, '👤 ጤና ክሊኒክ (1)', 'the same project picks the same client');
+    assert.strictEqual(p.els('revClient').textContent, '👤 ጤና ክሊኒክ (1)', 'the same clip picks the same client by itself');
     assert.deepStrictEqual(texts(), ['ላሊበላ ደርሰናል'], 'the client spelling wins over the 🧠 rule');
     assert.deepStrictEqual(greens(0), ['ላሊበላ'], 'shown green like any remembered word');
     ta(0).selectionStart = ta(0).selectionEnd = 3;
@@ -773,11 +777,39 @@ await t('3.12 review: 👤 client words — a list per client, on this computer 
     assert.deepStrictEqual(texts(), ['ላሊቤላ ደርሰናል'], 'put back in this caption only');
     assert.strictEqual(clientFile().clients['ጤና ክሊኒክ'].words['ላሊቤላ'].to, 'ላሊበላ', 'the client list keeps it');
 
-    // (e) A different project does NOT get that client — the words of one client
-    //     must never turn up in another client's job.
-    await open([{ start: 0, end: 1, text: 'ላሊቤላ ደርሰናል' }], 'y.srt');
-    assert.strictEqual(p.els('revClient').textContent, '👤 Client', 'a new project starts with no client');
+    // (e) A different clip does NOT get that client, and a run with only a
+    //     generic name (no clip/sequence name) is not linked at all — the words
+    //     of one client must never turn up in another client's job.
+    await open([{ start: 0, end: 1, text: 'ላሊቤላ ደርሰናል' }], 'sports');
+    assert.strictEqual(p.els('revClient').textContent, '👤 Client', 'another clip starts with no client');
     assert.deepStrictEqual(texts(), ['ላልቤላ ደርሰናል'], 'only the computer memory applies');
+    await open([{ start: 0, end: 1, text: 'ላሊቤላ ደርሰናል' }], 'sequence');
+    p.evalVm('setActiveClient("ጤና ክሊኒክ")');                 // the editor picks it by hand
+    assert.deepStrictEqual(texts(), ['ላሊበላ ደርሰናል'],
+      'the client still wins over the 🧠 rule the review already applied');
+    p.evalVm('setActiveClient("")');                        // ...and off again
+    assert.deepStrictEqual(texts(), ['ላልቤላ ደርሰናል'], 'the computer memory gets its word back');
+    assert.strictEqual(p.els('revClient').textContent, '👤 Client', 'and the header goes back to no client');
+    await open([{ start: 0, end: 1, text: 'ላሊቤላ ደርሰናል' }], 'sequence');
+    assert.strictEqual(p.els('revClient').textContent, '👤 Client',
+      'an unnamed run is never linked — no leaking into the next sequence');
+
+    // (e2) Work Area / Whole edit: the same sequence name links again.
+    await open([{ start: 0, end: 1, text: 'ላሊቤላ ደርሰናል' }], 'sequence', 'Mehari interview');
+    p.evalVm('setActiveClient("ጤና ክሊኒክ")');
+    assert.deepStrictEqual(texts(), ['ላሊበላ ደርሰናል'], 'picked for that sequence');
+    await open([{ start: 0, end: 1, text: 'ላሊቤላ ደርሰናል' }], 'sequence', 'Mehari interview');
+    assert.strictEqual(p.els('revClient').textContent, '👤 ጤና ክሊኒክ (1)', 'the sequence brings it back');
+    assert.deepStrictEqual(texts(), ['ላሊበላ ደርሰናል'], 'its words are applied');
+
+    // (e3) A sequence the editor never named (Premiere's own "Sequence 01" shows
+    //      up in every project) is not an identity either.
+    await open([{ start: 0, end: 1, text: 'ላሊቤላ ደርሰናል' }], 'sequence', 'Sequence 01');
+    p.evalVm('setActiveClient("ጤና ክሊኒክ")');
+    await open([{ start: 0, end: 1, text: 'ላሊቤላ ደርሰናል' }], 'sequence', 'Sequence 01');
+    assert.strictEqual(p.els('revClient').textContent, '👤 Client', 'an auto-named sequence is never remembered');
+    assert.strictEqual(clientFile().projects['mehari interview'], 'ጤና ክሊኒክ',
+      'while the sequence the editor did name still knows its client');
 
     // (f) Import a shared list (plain "wrong=right" lines), then export it back.
     const list = path.join(machineHome, 'clinic.txt');
@@ -786,7 +818,8 @@ await t('3.12 review: 👤 client words — a list per client, on this computer 
     try {
       const t2 = () => JSON.parse(p2.evalVm('JSON.stringify(reviewCues.map((c) => c.text))'));
       p2.evalVm('reviewTrialCharged = true; lastCues = ' + JSON.stringify([{ start: 0, end: 1, text: 'ሚኪያስ ነው' }]) + ';');
-      await p2.evalVm('openReview("x.srt", "t", 0, {})');
+      await p2.evalVm('openReview("C:/tmp/amh_captions_2.srt", "mehari", 0, {})');
+      assert.strictEqual(p2.els('revClient').textContent, '👤 ጤና ክሊኒክ (1)', 'the clip brings its client back');
       assert.deepStrictEqual(t2(), ['ሚኪያስ ነው'], 'not applied before the import');
       p2.els('revClient').fire('click', {});
       const p2panel = p2.els('clientPanel');
@@ -845,7 +878,7 @@ await t('3.12 review: 👤 client words — a list per client, on this computer 
     try {
       const t4 = () => JSON.parse(p4.evalVm('JSON.stringify(reviewCues.map((c) => c.text))'));
       p4.evalVm('reviewTrialCharged = true; lastCues = ' + JSON.stringify([{ start: 0, end: 1, text: 'ሰላም ላሊቤላ' }]) + ';');
-      await p4.evalVm('openReview("z.srt", "t", 0, {})');
+      await p4.evalVm('openReview("z.srt", "sports clip", 0, {})');
       p4.evalVm('createClient("ሀ"); rememberClientFix("ሀ", "ላሊቤላ", "ላሊበላ");' +
         ' createClient("ለ"); rememberClientFix("ለ", "ላሊቤላ", "ላሊበላ አደራሽ")');
       p4.evalVm('setActiveClient("ሀ")');
@@ -857,10 +890,12 @@ await t('3.12 review: 👤 client words — a list per client, on this computer 
       has(p4.els('revUndo').textContent, 'Undo client words', 'offered as one step');
       p4.els('revUndo').fire('click', {});
       assert.deepStrictEqual(t4(), ['ሰላም ላሊበላ'], 'one undo returns to A’s spelling');
+      assert.strictEqual(p4.els('revClient').textContent, '👤 ሀ (1)',
+        'and the header shows the client whose words are in the text');
       // "No client" is a real choice and is remembered for the project.
       p4.evalVm('setActiveClient("")');
       assert.deepStrictEqual(t4(), ['ሰላም ላሊቤላ'], 'changing your mind puts the original back');
-      assert.strictEqual(JSON.parse(fs.readFileSync(path.join(home4, '.amharic_captions_clients.json'), 'utf8')).projects['z'], '',
+      assert.strictEqual(JSON.parse(fs.readFileSync(path.join(home4, '.amharic_captions_clients.json'), 'utf8')).projects['sports clip'], '',
         'and the project remembers "no client"');
     } finally { p4.close(); fs.rmSync(home4, { recursive: true, force: true }); }
   } finally { p.close(); fs.rmSync(machineHome, { recursive: true, force: true }); }

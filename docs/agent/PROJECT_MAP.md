@@ -26,6 +26,7 @@ the same PR that moves or renames the code. Keep this file under ~120 lines.
 - `panel/js/main.js` :: `function onUpdateCheck` — footer "Check for updates" (forces a lookup, answers in the footer)
 - `panel/js/main.js` :: `function loadClients` — the per-client word lists (`~/.amharic_captions_clients.json`, this computer only, 0600)
 - `panel/js/main.js` :: `function renderClientPanel` — the 👤 picker: choose/add a client, its words, import/export
+- `panel/js/main.js` :: `function projectKey` — which project a client belongs to (clip / video / sequence name; a temp or generic name links nothing)
 - `panel/js/main.js` :: `function setActiveClient` — the client of this project (auto from the project's own name, never guessed from the last one)
 - `panel/js/main.js` :: `function applyClientWords` — a client's words into the captions as ONE undo step (out: `unapplyClientWords`)
 - `panel/js/main.js` :: `function memoryRuleFor` — which store a green word came from (🧠 machine or 👤 client)
