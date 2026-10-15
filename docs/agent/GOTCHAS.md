@@ -31,6 +31,7 @@ new; merge duplicates; keep < 80 lines.
 - After cutting, Premiere's selection also holds titles / captions / nested sequences (no media file) -> pick the first selected clip that HAS a media path (host.jsx findSelected).
 - A video file with no audio stream but the voice on A1 -> host sends `audioAlt` (audio clip under the same timeline range); runSelectedClip retries with it on the no-audio error (extraction runs BEFORE the trial charge, so the failed try costs nothing).
 - Our own styled caption layers (`amhstyle_*.mov`, no sound) sit ABOVE the footage -> never pick them as the clip to listen to (host.jsx `amhListenPath`); with nothing selected the playhead found the Glide layer first (owner report 1.16.8).
+- The editor's timeline can be a NESTED sequence (no media path): single-clip mode must look inside it like Work Area (`amhCollectClips` over the clip's timeline range) - otherwise "No clip found" (owner, 1.16.9).
 - A clip with no sound -> ffmpeg "Output file does not contain any stream" -> err_no_audio (clear message). Premiere picks audio-track clips first.
 - libass `\move` cannot ease -> smooth moves use a tiny `\frz` turn around a far `\org` (see amh_styles `_glide_tags`).
 - libass fakes bold on variable fonts -> ship static Regular/Bold files.

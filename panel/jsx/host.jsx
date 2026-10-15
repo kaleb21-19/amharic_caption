@@ -308,6 +308,7 @@ function amharic_getSelectedClip() {
         }
 
         // Pass 2: playhead fallback only when nothing was explicitly selected.
+        var nestedUnder = null;   // a nested sequence under the playhead (1.16.10)
         if (!picked) {
             var playhead = null;
             try { playhead = seq.getPlayerPosition().seconds; } catch (e) { playhead = null; }
@@ -321,10 +322,13 @@ function amharic_getSelectedClip() {
                                 try {
                                     var cs = clip2.start.seconds;
                                     var cd = clip2.duration.seconds;
-                                    if (playhead >= cs && playhead <= cs + cd + 0.05 &&
-                                        clip2.projectItem && amhListenPath(clip2.projectItem)) {
-                                        picked = clip2;
-                                        pickedVia = "playhead (no explicit selection found)";
+                                    if (playhead >= cs && playhead <= cs + cd + 0.05 && clip2.projectItem) {
+                                        if (amhListenPath(clip2.projectItem)) {
+                                            picked = clip2;
+                                            pickedVia = "playhead (no explicit selection found)";
+                                        } else if (!nestedUnder && amhNestedSequence(clip2.projectItem)) {
+                                            nestedUnder = clip2;
+                                        }
                                     }
                                 } catch (e) {}
                             }
@@ -332,6 +336,52 @@ function amharic_getSelectedClip() {
                     } catch (e) {}
                 }
             }
+        }
+
+        // A nested sequence (selected, or under the playhead) has no media file
+        // of its own: take the clips INSIDE it for the same part of the timeline,
+        // like Work Area / Whole edit do (owner report, 1.16.10).
+        var nestedClip = null;
+        if (picked && picked.projectItem && !amhListenPath(picked.projectItem) && amhNestedSequence(picked.projectItem)) {
+            nestedClip = picked;
+        } else if (!picked && nestedUnder) {
+            nestedClip = nestedUnder;
+        }
+        if (nestedClip) {
+            var nsec = function (t) {
+                if (t === null || t === undefined) { return null; }
+                try { var s0 = Number(t.seconds); if (!isNaN(s0)) { return s0; } } catch (e) {}
+                try { var tk0 = Number(t.ticks); if (!isNaN(tk0)) { return tk0 / AMH_TICKS_PER_SECOND; } } catch (e) {}
+                return null;
+            };
+            var nS = nsec(nestedClip.start), nE = nsec(nestedClip.end);
+            if (nE === null && nS !== null) { nE = nS + (nsec(nestedClip.duration) || 0); }
+            if (nS !== null && nE !== null && nE > nS) {
+                var inner = amhCollectClips(seq, 0, nS, nE, 0, nsec).clips;
+                var best = null;
+                for (var ib = 0; ib < inner.length; ib++) {
+                    if (/^amhstyle_/.test(String(inner[ib].name || ""))) { continue; }
+                    if (!best || inner[ib].duration > best.duration) { best = inner[ib]; }
+                }
+                var alt = null;   // another file in the same part: the voice when best is a silent video
+                for (var ia = 0; best && ia < inner.length; ia++) {
+                    var cand = inner[ia];
+                    if (cand.sourcePath === best.sourcePath || /^amhstyle_/.test(String(cand.name || ""))) { continue; }
+                    if (!alt || cand.duration > alt.duration) {
+                        alt = { sourcePath: cand.sourcePath, sourceIn: cand.sourceIn, duration: cand.duration,
+                                timelineStart: cand.timelineStart, name: cand.name };
+                    }
+                }
+                if (best) {
+                    return amhOk({
+                        sourcePath: best.sourcePath, sourceIn: best.sourceIn, sourceOut: best.sourceIn + best.duration,
+                        duration: best.duration, timelineStart: best.timelineStart, timelineEnd: best.timelineEnd,
+                        name: best.name, mode: "clip", via: "inside nested sequence " + nestedClip.projectItem.name,
+                        audioAlt: alt
+                    });
+                }
+            }
+            return amhErr("This nested sequence has no clip with sound in that part. Open it and select the clip, or use Whole edit.");
         }
 
         if (!picked || !picked.projectItem) {
@@ -581,7 +631,9 @@ function amhCollectClips(seq, shift, lo, hi, depth, toSec) {
                             if (!(segEnd > segStart)) { continue; }
 
                             var nested = amhNestedSequence(clip.projectItem);
-                            var src = nested ? null : amhMediaPath(clip.projectItem);
+                            var src = nested ? null : amhListenPath(clip.projectItem);
+                            // our own styled caption layer: not footage, skip quietly (1.16.10)
+                            if (!nested && !src && amhMediaPath(clip.projectItem)) { continue; }
                             if (!nested && !src) { out.noMedia++; continue; }
 
                             // A source duration that differs from the timeline
