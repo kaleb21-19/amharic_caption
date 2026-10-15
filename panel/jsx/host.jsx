@@ -263,7 +263,12 @@ function amharic_getSelectedClip() {
         try { collections.push(seq.videoTracks); } catch (e) {}
 
         // Pass 1: explicit selection only.
+        // A selection after cutting often also holds titles, captions,
+        // adjustment layers or nested sequences: they have no media file. Take
+        // the first selected clip that HAS one; only when none has, the first
+        // selected item (so the error can say what it is) (1.16.7).
         var findSelected = function () {
+            var first = null;
             for (var k = 0; k < collections.length; k++) {
                 try {
                     for (var t = 0; t < collections[k].numTracks; t++) {
@@ -272,12 +277,16 @@ function amharic_getSelectedClip() {
                             var clip = track.clips[c];
                             var isSel = false;
                             try { if (clip.selected) { isSel = true; } } catch (e) {}
-                            if (isSel) { return { clip: clip, via: "selected" }; }
+                            if (!isSel) { continue; }
+                            if (clip.projectItem && amhMediaPath(clip.projectItem)) {
+                                return { clip: clip, via: "selected" };
+                            }
+                            if (!first) { first = { clip: clip, via: "selected" }; }
                         }
                     }
                 } catch (e) {}
             }
-            return null;
+            return first;
         };
         var sel = findSelected();
         if (sel) {
@@ -299,7 +308,8 @@ function amharic_getSelectedClip() {
                                 try {
                                     var cs = clip2.start.seconds;
                                     var cd = clip2.duration.seconds;
-                                    if (playhead >= cs && playhead <= cs + cd + 0.05) {
+                                    if (playhead >= cs && playhead <= cs + cd + 0.05 &&
+                                        clip2.projectItem && amhMediaPath(clip2.projectItem)) {
                                         picked = clip2;
                                         pickedVia = "playhead (no explicit selection found)";
                                     }

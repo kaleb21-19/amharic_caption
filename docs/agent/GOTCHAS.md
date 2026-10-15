@@ -28,6 +28,7 @@ new; merge duplicates; keep < 80 lines.
 
 ## Product behaviour
 - The panel always works in a FRESH temporary .srt (`amh_captions_<Date.now()>.srt`, same for `amh_sequence_`/`amh_file_`) -> never key anything that must survive a run (client links, caches) on that path; use the clip / video / sequence name.
+- After cutting, Premiere's selection also holds titles / captions / nested sequences (no media file) -> pick the first selected clip that HAS a media path (host.jsx findSelected).
 - A clip with no sound -> ffmpeg "Output file does not contain any stream" -> err_no_audio (clear message). Premiere picks audio-track clips first.
 - libass `\move` cannot ease -> smooth moves use a tiny `\frz` turn around a far `\org` (see amh_styles `_glide_tags`).
 - libass fakes bold on variable fonts -> ship static Regular/Bold files.
