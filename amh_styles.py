@@ -783,6 +783,20 @@ def plan(cues):
     return t0, dur, [(w[0], w[1] - t0, w[2] - t0) for w in words]
 
 
+def _overlay_codec(job):
+    """ffmpeg codec args for the transparent caption layer (.mov).
+
+    Windows: QuickTime Animation (qtrle, argb) - Premiere on Windows shows it
+    right. Mac: ProRes 4444 with alpha - Premiere on Apple Silicon decoded
+    qtrle as smeared streaks (customer screenshot, 1.16.7). job["codec"]
+    ("qtrle" / "prores") overrides, for tests."""
+    want = job.get("codec") or ("prores" if sys.platform == "darwin" else "qtrle")
+    if want == "prores" and _has_encoder(job["ffmpeg"], "prores_ks"):
+        return ["-c:v", "prores_ks", "-profile:v", "4444", "-pix_fmt", "yuva444p10le",
+                "-alpha_bits", "16", "-vendor", "apl0"]
+    return ["-c:v", "qtrle", "-pix_fmt", "argb"]
+
+
 def _caption_band(ffmpeg, tmp, w, h, dur):
     """The preview shows only the strip of the frame where the captions are
     (wide and short), so it is small in the panel and the words are big.
@@ -891,7 +905,7 @@ def render(job, progress=None):
         else:
             cmd = [job["ffmpeg"], "-y", "-v", "error", "-f", "lavfi",
                    "-i", "color=c=black@0.0:s=%dx%d:r=%s:d=%.3f,format=rgba" % (w, h, ("%.5f" % fps).rstrip("0").rstrip("."), dur),
-                   "-vf", "subtitles=c.ass:fontsdir=fonts:alpha=1", "-c:v", "qtrle", "-pix_fmt", "argb"]
+                   "-vf", "subtitles=c.ass:fontsdir=fonts:alpha=1"] + _overlay_codec(job)
         cmd += ["-progress", "pipe:1", "-nostats", out]
         proc = subprocess.Popen(cmd, cwd=tmp, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                 universal_newlines=True, encoding="utf-8", errors="replace")

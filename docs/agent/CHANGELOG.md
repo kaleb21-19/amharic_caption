@@ -3,6 +3,7 @@
 One dated line per task the agent finished: what changed, version, PR.
 Older than ~3 months: summarize into one line per month.
 
+- 2026-10-15 — 1.16.11: Mac customer "only Plain works": styled layers were placed but Premiere (Apple Silicon) showed the qtrle overlay as streaks. Mac overlays are now ProRes 4444 with alpha (same transparency, tested); Windows unchanged.
 - 2026-10-15 — 1.16.10: single-clip mode on a NESTED sequence (owner: cut in two parts -> "No clip found" while Whole edit worked): the clip inside the nested sequence is used for that timeline part (+ another file inside as audioAlt); Work Area/Whole edit skip our own amhstyle layers. test_host_pick +2.
 - 2026-10-15 — 1.16.9: the REAL cause of the cut-clip errors (owner): with nothing selected the playhead picked our own Glide caption layer (amhstyle_*.mov, no sound) above the video. Own layers are never picked (selection, playhead, audioAlt); selecting only a layer says so in Amharic + English. test_host_pick +3.
 - 2026-10-15 — 1.16.8: selected video with no sound (owner report after 1.16.7) -> the audio clip under it on the audio tracks is used for the same timeline part (host `audioAlt`, panel retry on the no-audio error; real errors are not hidden). test_host_pick +2, test_panel_dom 14f.
