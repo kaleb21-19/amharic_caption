@@ -376,6 +376,35 @@ function amharic_getSelectedClip() {
         }
         var dur = sourceDuration;
 
+        // A video file may have no sound at all (screen recording, stock
+        // video) while the voice is a separate clip on an audio track under
+        // it. Send the audio clip that covers most of the same timeline range
+        // along, so the panel can switch to it when the video has no audio
+        // stream (owner report, 1.16.8). Same source/timeline mapping rules.
+        var audioAlt = null;
+        try {
+            var at = seq.audioTracks;
+            for (var ta = 0; ta < at.numTracks; ta++) {
+                var trk = at[ta];
+                for (var ca = 0; ca < trk.clips.numItems; ca++) {
+                    var a = trk.clips[ca];
+                    if (a === picked || !a.projectItem) { continue; }
+                    var aPath = amhMediaPath(a.projectItem);
+                    if (!aPath) { continue; }
+                    var aStart = toSec(a.start), aEnd = toSec(a.end), aIn = toSec(a.inPoint), aOut = toSec(a.outPoint);
+                    if (aStart === null || aEnd === null || aIn === null || aOut === null) { continue; }
+                    if (Math.abs((aOut - aIn) - (aEnd - aStart)) > 0.05) { continue; }   // retimed
+                    var ovS = Math.max(tlStart, aStart), ovE = Math.min(tlEnd, aEnd);
+                    if (!(ovE - ovS > 0.2)) { continue; }
+                    if (aPath === src && Math.abs((aIn - aStart) - (sourceIn - tlStart)) < 0.05) { continue; }   // the same audio
+                    if (!audioAlt || ovE - ovS > audioAlt.duration) {
+                        audioAlt = { sourcePath: aPath, sourceIn: aIn + (ovS - aStart), duration: ovE - ovS,
+                                     timelineStart: ovS, name: a.projectItem.name };
+                    }
+                }
+            }
+        } catch (e) { audioAlt = null; }
+
         return amhOk({
             sourcePath: src,
             sourceIn: sourceIn,
@@ -385,7 +414,8 @@ function amharic_getSelectedClip() {
             timelineEnd: tlEnd,
             name: picked.projectItem.name,
             mode: "clip",
-            via: pickedVia
+            via: pickedVia,
+            audioAlt: audioAlt
         });
     });
 }

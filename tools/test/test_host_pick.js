@@ -84,6 +84,21 @@ t('playhead: a title above the video does not hide the video', () => {
   assert.strictEqual(r.sourcePath, 'C:/cam/talk.mp4');
 });
 
+// A video file without sound + the voice as a separate clip on A1 (owner
+// report, 1.16.8): the audio clip under the selected part comes along, mapped
+// to the same timeline range.
+t('selected video + a voice clip under it -> audioAlt with the same timeline part', () => {
+  const r = pick([[clip('C:/cam/silent.mp4', 4, 6, true)]], [[clip('C:/rec/voice.wav', 0, 20)]], 5);
+  assert.strictEqual(r.sourcePath, 'C:/cam/silent.mp4');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(r.audioAlt)),
+    { sourcePath: 'C:/rec/voice.wav', sourceIn: 4, duration: 6, timelineStart: 4, name: 'voice.wav' });
+});
+
+t('the video\'s own linked audio (same file, same offset) is not an alternative', () => {
+  const r = pick([[clip('C:/cam/talk.mp4', 4, 6, true)]], [[clip('C:/cam/talk.mp4', 4, 6)]], 5);
+  assert.strictEqual(r.audioAlt, null);
+});
+
 t('no clip anywhere: a clear "no clip found" answer', () => {
   const r = pick([[]], [[]], 3);
   assert.strictEqual(r.ok, false);
