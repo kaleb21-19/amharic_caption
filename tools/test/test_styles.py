@@ -163,7 +163,24 @@ if ff and A.supported(ff):
                       "out": os.path.join(tmp, "o.mov"), "ffmpeg": ff, "fonts": fonts, "tag": True})
         info = subprocess.run([ff, "-hide_banner", "-i", r["out"]], capture_output=True, universal_newlines=True,
                               encoding="utf-8", errors="replace").stderr
-        check("qtrle" in info and "argb" in info and "320x568" in info, "overlay: QuickTime Animation with alpha, the asked size")
+        if sys.platform == "darwin":
+            # Premiere on Apple Silicon showed qtrle as smeared streaks (customer, 1.16.7)
+            check("prores" in info and "4444" in info and "yuva" in info and "320x568" in info,
+                  "overlay on Mac: ProRes 4444 with alpha, the asked size")
+        else:
+            check("qtrle" in info and "argb" in info and "320x568" in info, "overlay: QuickTime Animation with alpha, the asked size")
+        # ProRes 4444 (the Mac format) keeps the same transparency, on every OS
+        rp = A.render({"cues": [("ሰላም እንዴት ነህ", 0.5, 2.0)], "style": "karaoke", "width": 320, "height": 568, "fps": 25,
+                       "out": os.path.join(tmp, "p.mov"), "ffmpeg": ff, "fonts": fonts, "codec": "prores"})
+        pinfo = subprocess.run([ff, "-hide_banner", "-i", rp["out"]], capture_output=True, universal_newlines=True,
+                               encoding="utf-8", errors="replace").stderr
+        praw = subprocess.run([ff, "-v", "error", "-ss", "1.0", "-i", rp["out"], "-frames:v", "1", "-vf", "alphaextract",
+                               "-f", "rawvideo", "-pix_fmt", "gray", "-"], capture_output=True).stdout
+        if "prores" in pinfo:
+            check(sum(1 for b in praw if b > 200) > 200 and sum(1 for b in praw if b == 0) > len(praw) * 0.8,
+                  "ProRes 4444 overlay: the text is solid, the rest is see-through")
+        else:
+            print("  skip  ProRes check (this ffmpeg has no prores_ks)")
         raw = subprocess.run([ff, "-v", "error", "-ss", "1.0", "-i", r["out"], "-frames:v", "1", "-vf", "alphaextract",
                               "-f", "rawvideo", "-pix_fmt", "gray", "-"], capture_output=True).stdout
         opaque = sum(1 for b in raw if b > 200)
