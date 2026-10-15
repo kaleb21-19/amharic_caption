@@ -7,7 +7,7 @@ new; merge duplicates; keep < 80 lines.
 - "release tag vX already points at ..." -> X was published by an earlier merge. New branch from origin/main + `python tools/agent/bump.py <next>`. Check first: `python tools/agent/release_state.py`.
 - New `ci/build-*` branches do NOT start build-zips (paths-ignore) -> force-push the work to the existing `ci/build-1.10.20` branch to get a full Windows+Mac build.
 - A merge without a version bump ends red at "Stage verified packages" -> expected, harmless.
-- A new version that ships in the zip ALSO needs a `WHATS_NEW['<version>']` entry (panel/js/main.js) -> without it the card shows nothing and test_panel_dom 16d fails; keep the banner's "ፈቃድዎ እንደቀድሞው ይቀጥላል" wording (test 16 pins it).
+- A fix release needs NO `WHATS_NEW` entry (since 1.16.7 the card shows the newest news not yet seen); add an entry only when a release brings news. Keep the banner's "ፈቃድዎ እንደቀድሞው ይቀጥላል" wording (test 16 pins it).
 - GitHub API without login is rate-limited -> poll at most every 150 s.
 
 ## Shell / files (Windows)
@@ -29,6 +29,7 @@ new; merge duplicates; keep < 80 lines.
 ## Product behaviour
 - The panel always works in a FRESH temporary .srt (`amh_captions_<Date.now()>.srt`, same for `amh_sequence_`/`amh_file_`) -> never key anything that must survive a run (client links, caches) on that path; use the clip / video / sequence name.
 - After cutting, Premiere's selection also holds titles / captions / nested sequences (no media file) -> pick the first selected clip that HAS a media path (host.jsx findSelected).
+- A video file with no audio stream but the voice on A1 -> host sends `audioAlt` (audio clip under the same timeline range); runSelectedClip retries with it on the no-audio error (extraction runs BEFORE the trial charge, so the failed try costs nothing).
 - A clip with no sound -> ffmpeg "Output file does not contain any stream" -> err_no_audio (clear message). Premiere picks audio-track clips first.
 - libass `\move` cannot ease -> smooth moves use a tiny `\frz` turn around a far `\org` (see amh_styles `_glide_tags`).
 - libass fakes bold on variable fonts -> ship static Regular/Bold files.

@@ -231,7 +231,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.16.7');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.16.8');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -2392,6 +2392,27 @@ await t('14d. Work Area finds nothing: the message says why and what to do (1.10
       assert.match(p.evalVm('T(PROGRESS_EN)'), am, 'Amharic text');
     } finally { p.close(); }
   }
+});
+
+await t('14f. selected video has no sound -> the audio clip under it is used, same timeline part (1.16.8)', async () => {
+  // Owner report: a cut video with no audio stream; the voice is a separate clip on A1.
+  const clip = { ok: true, sourcePath: 'C:/cam/silent.mp4', sourceIn: 2, duration: 6, timelineStart: 4, name: 'silent.mp4',
+    via: 'selected', audioAlt: { sourcePath: 'C:/rec/voice.wav', sourceIn: 4, duration: 6, timelineStart: 4, name: 'voice.wav' } };
+  const p = loadPanel({ csiRaw: (jsx) => /getSelectedClip/.test(jsx) ? JSON.stringify(clip) : '{"ok":true}' });
+  try {
+    await flush(5);
+    p.evalVm('globalThis.__tr = []; transcribe = async (src, out, range, off) => { __tr.push([src, range.sourceIn, range.duration, off]);' +
+      ' if (/silent/.test(src)) throw new Error("ffmpeg failed: [out#0/wav] Output file does not contain any stream");' +
+      ' return { cues: [] }; }; showRunResult = async () => {};');
+    await p.evalVm('runSelectedClip()');
+    assert.strictEqual(p.evalVm('JSON.stringify(__tr)'),
+      JSON.stringify([['C:/cam/silent.mp4', 2, 6, 4], ['C:/rec/voice.wav', 4, 6, 4]]), 'tried the video, then the audio under it');
+    // a real failure (not "no sound") is not hidden by the switch
+    p.evalVm('transcribe = async () => { throw new Error("Python failed: worker exited"); };');
+    let err = '';
+    try { await p.evalVm('runSelectedClip()'); } catch (e) { err = String(e && e.message); }
+    assert.match(err, /Python failed/);
+  } finally { p.close(); }
 });
 
 await t('14b. editing shortcuts (Ctrl/Cmd + C V X A Z Y, + Shift) stay in the panel, in AE and Premiere', async () => {

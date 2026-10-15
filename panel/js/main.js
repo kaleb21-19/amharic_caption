@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.16.7';
+const APP_VERSION = '1.16.8';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -5691,8 +5691,18 @@ async function runSelectedClip() {
   let r;
   LIVE_WANTED = { outSrt, label: cleanName };
   try {
-    r = await transcribe(c.sourcePath, outSrt,
-      { sourceIn: c.sourceIn, duration: c.duration }, c.timelineStart);
+    try {
+      r = await transcribe(c.sourcePath, outSrt,
+        { sourceIn: c.sourceIn, duration: c.duration }, c.timelineStart);
+    } catch (e) {
+      // The video file has no sound, but the voice is a clip on an audio
+      // track under it: use that, for the same part of the timeline (1.16.8).
+      const alt = c.audioAlt;
+      if (!alt || !alt.sourcePath || !NO_AUDIO_RE.test(String((e && e.message) || e))) throw e;
+      log('The video has no sound — using the audio under it: ' + alt.name);
+      r = await transcribe(alt.sourcePath, outSrt,
+        { sourceIn: alt.sourceIn, duration: alt.duration }, alt.timelineStart);
+    }
   } finally {
     // Always clear, including on cancel or error — a stale reporter would
     // otherwise keep moving the bar during the next run.
