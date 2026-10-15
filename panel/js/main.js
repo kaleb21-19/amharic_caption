@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.16.6';
+const APP_VERSION = '1.16.7';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -600,8 +600,10 @@ function markWhatsNewSeen(version) {
 function renderWhatsNew() {
   const card = document.getElementById('whatsNew');
   if (!card) return;
-  const entry = WHATS_NEW[APP_VERSION];
-  const show = !!entry && !needsOnboarding() && seenWhatsNew() !== APP_VERSION;
+  const nv = newsVersion();
+  const entry = nv ? WHATS_NEW[nv] : null;
+  const seen = seenWhatsNew();
+  const show = !!entry && !needsOnboarding() && (!seen || versionNewer(nv, seen));
   card.style.display = show ? 'block' : 'none';
   if (!show) return;
   // Fresh card: no leftover hint, "Try it" pressable again (a language change
@@ -621,6 +623,15 @@ function renderWhatsNew() {
       list.appendChild(li);
     });
   }
+}
+// The newest news this panel has (a fix release needs no entry of its own, and
+// someone who skipped versions still sees the last news once) (1.16.7).
+function newsVersion() {
+  let best = '';
+  Object.keys(WHATS_NEW).forEach((v) => {
+    if (!versionNewer(v, APP_VERSION) && (!best || versionNewer(v, best))) best = v;
+  });
+  return best;
 }
 function hideWhatsNew() {
   markWhatsNewSeen(APP_VERSION);

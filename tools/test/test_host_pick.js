@@ -65,6 +65,25 @@ t('an explicit selection always wins over the playhead', () => {
   assert.strictEqual(r.sourcePath, 'C:/cam/talk.mp4');
 });
 
+// After cutting, the selection also holds titles / captions / nested sequences
+// (no media file). The clip that HAS a file is used (owner report, 1.16.6).
+t('selected: a cut video clip + a title (no media file) -> the video clip', () => {
+  const r = pick([[clip('', 4, 6, true)], [clip('C:/cam/talk.mp4', 4, 6, true)]], [], 5);
+  assert.strictEqual(r.ok, true, JSON.stringify(r));
+  assert.strictEqual(r.sourcePath, 'C:/cam/talk.mp4');
+});
+
+t('selected: only a title -> a clear "no media file" answer', () => {
+  const r = pick([[clip('', 4, 6, true)]], [], 5);
+  assert.strictEqual(r.ok, false);
+  assert.match(JSON.stringify(r), /no on-disk source path/);
+});
+
+t('playhead: a title above the video does not hide the video', () => {
+  const r = pick([[clip('', 0, 10)], [clip('C:/cam/talk.mp4', 0, 10)]], [], 3);
+  assert.strictEqual(r.sourcePath, 'C:/cam/talk.mp4');
+});
+
 t('no clip anywhere: a clear "no clip found" answer', () => {
   const r = pick([[]], [[]], 3);
   assert.strictEqual(r.ok, false);
