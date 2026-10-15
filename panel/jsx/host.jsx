@@ -768,7 +768,12 @@ function amh_placeOverlay(argsJSON) {
                         try { nm = String(cl.projectItem.name || ""); } catch (e) {}
                         if (nm.indexOf(pre) !== 0) { continue; }
                         var cs = Number(cl.start.seconds), ce = Number(cl.end.seconds);
-                        if (cs < end + 0.5 && ce > start - 0.5) {
+                        // Only a layer MOSTLY inside the new captions' time is
+                        // the same captions placed before; a neighbouring cut
+                        // part of the same video only touches it and stays
+                        // (owner report, 1.16.12).
+                        var ov = Math.min(ce, end) - Math.max(cs, start);
+                        if (ce > cs && ov > 0.5 * (ce - cs)) {
                             try { cl.remove(false, false); removed++; } catch (e) {}
                         }
                     }

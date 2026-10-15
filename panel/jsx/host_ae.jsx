@@ -324,12 +324,19 @@ function amh_placeOverlay(argsJSON) {
             // Placing again replaces our earlier styled layer for the same captions.
             var removed = 0;
             var pre = String(args.replacePrefix || "");
-            if (pre.length > 9 && pre.indexOf("amhstyle_") === 0) {
+            // Only a layer that lies MOSTLY inside the new captions' time is the
+            // same captions placed before; a neighbouring part of the same
+            // video only touches it and stays (owner report, 1.16.12).
+            var ns = Number(args.startSeconds || 0), ne = ns + Number(args.duration || 0);
+            if (pre.length > 9 && pre.indexOf("amhstyle_") === 0 && ne > ns) {
                 for (var i = comp.numLayers; i >= 1; i--) {
                     var ly = comp.layer(i);
                     var nm = "";
                     try { nm = String(ly.source && ly.source.name || ""); } catch (e) {}
-                    if (nm.indexOf(pre) === 0) {
+                    if (nm.indexOf(pre) !== 0) { continue; }
+                    var ls = Number(ly.inPoint), le = Number(ly.outPoint);
+                    var ov = Math.min(le, ne) - Math.max(ls, ns);
+                    if (le > ls && ov > 0.5 * (le - ls)) {
                         try { ly.remove(); removed++; } catch (e) {}
                     }
                 }
