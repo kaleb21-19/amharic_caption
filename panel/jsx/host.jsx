@@ -56,6 +56,19 @@ function amhMediaPath(item) {
     return null;
 }
 
+// The media of a clip Generate may listen to: never our own styled caption
+// layers ("amhstyle_..." videos the panel placed above the footage - they
+// have no sound). Owner report 1.16.8: after cutting, the playhead picked the
+// Glide layer instead of the video.
+function amhListenPath(item) {
+    var mp = amhMediaPath(item);
+    if (!mp) { return null; }
+    var nm = "";
+    try { nm = String(item.name || ""); } catch (e) {}
+    if (nm.indexOf("amhstyle_") === 0 || /[\\\/]amhstyle_[^\\\/]*$/.test(mp)) { return null; }
+    return mp;
+}
+
 /**
  * Dump the whole project tree with resolved media paths so we can see exactly
  * what Premiere reports. Returns { ok, lines:[...] }.
@@ -278,7 +291,7 @@ function amharic_getSelectedClip() {
                             var isSel = false;
                             try { if (clip.selected) { isSel = true; } } catch (e) {}
                             if (!isSel) { continue; }
-                            if (clip.projectItem && amhMediaPath(clip.projectItem)) {
+                            if (clip.projectItem && amhListenPath(clip.projectItem)) {
                                 return { clip: clip, via: "selected" };
                             }
                             if (!first) { first = { clip: clip, via: "selected" }; }
@@ -309,7 +322,7 @@ function amharic_getSelectedClip() {
                                     var cs = clip2.start.seconds;
                                     var cd = clip2.duration.seconds;
                                     if (playhead >= cs && playhead <= cs + cd + 0.05 &&
-                                        clip2.projectItem && amhMediaPath(clip2.projectItem)) {
+                                        clip2.projectItem && amhListenPath(clip2.projectItem)) {
                                         picked = clip2;
                                         pickedVia = "playhead (no explicit selection found)";
                                     }
@@ -326,8 +339,11 @@ function amharic_getSelectedClip() {
                           "playhead on it, then try again.");
         }
 
-        var src = amhMediaPath(picked.projectItem);
+        var src = amhListenPath(picked.projectItem);
         if (!src) {
+            if (amhMediaPath(picked.projectItem)) {
+                return amhErr("That is a caption layer made by Amharic Captions. Select your video or audio clip instead.");
+            }
             return amhErr("The selected clip has no on-disk source path.");
         }
 
@@ -389,7 +405,7 @@ function amharic_getSelectedClip() {
                 for (var ca = 0; ca < trk.clips.numItems; ca++) {
                     var a = trk.clips[ca];
                     if (a === picked || !a.projectItem) { continue; }
-                    var aPath = amhMediaPath(a.projectItem);
+                    var aPath = amhListenPath(a.projectItem);
                     if (!aPath) { continue; }
                     var aStart = toSec(a.start), aEnd = toSec(a.end), aIn = toSec(a.inPoint), aOut = toSec(a.outPoint);
                     if (aStart === null || aEnd === null || aIn === null || aOut === null) { continue; }

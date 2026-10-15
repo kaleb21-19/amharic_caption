@@ -152,6 +152,8 @@ const AM_TEXT = {
   // failure messages shown under Generate (main.js humanError)
   'That clip is too short to transcribe.': 'ክሊፑ ወደ ጽሑፍ ለመቀየር በጣም አጭር ነው።',
   'No speech found in that audio.': 'በድምፁ ውስጥ ንግግር አልተገኘም።',
+  'That is a caption layer made by Amharic Captions. Select your video or audio clip instead.':
+    'ይህ በAmharic Captions የተሰራ የካፕሽን ንብርብር ነው። እባክዎ የቪዲዮ ወይም የድምፅ ክሊፕዎን ይምረጡ።',
   'This clip has no sound. Select the clip with the voice (usually on an audio track, A1), then try again.':
     'ይህ ክሊፕ ድምፅ የለውም። ድምፁ ያለበትን ክሊፕ ይምረጡ (ብዙ ጊዜ በኦዲዮ ትራክ ላይ፣ A1)፣ ከዚያ እንደገና ይሞክሩ።',
   'No transcribable clips in that range.': 'በዚህ ክፍል ውስጥ ወደ ጽሑፍ የሚቀየር ክሊፕ የለም።',

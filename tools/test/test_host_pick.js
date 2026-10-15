@@ -99,6 +99,26 @@ t('the video\'s own linked audio (same file, same offset) is not an alternative'
   assert.strictEqual(r.audioAlt, null);
 });
 
+// Our own styled caption layers ("amhstyle_...mov", no sound) are never the
+// clip to listen to (owner report 1.16.8: after cutting, the playhead picked
+// the Glide layer above the video).
+t('playhead over a cut video with our Glide layer above it -> the video', () => {
+  const r = pick([[clip('C:/cam/part2.mp4', 10, 10)], [clip('C:/Docs/AmharicCaptions/amhstyle_sequence__glide_1.mov', 0, 25)]], [], 12);
+  assert.strictEqual(r.ok, true, JSON.stringify(r));
+  assert.strictEqual(r.sourcePath, 'C:/cam/part2.mp4');
+});
+
+t('selected: our Glide layer + the cut video -> the video', () => {
+  const r = pick([[clip('C:/Docs/AmharicCaptions/amhstyle_sequence__glide_1.mov', 0, 25, true)], [clip('C:/cam/part2.mp4', 10, 10, true)]], [], 12);
+  assert.strictEqual(r.sourcePath, 'C:/cam/part2.mp4');
+});
+
+t('only our Glide layer selected -> a clear "caption layer" answer', () => {
+  const r = pick([[clip('C:/Docs/AmharicCaptions/amhstyle_sequence__glide_1.mov', 0, 25, true)]], [], 12);
+  assert.strictEqual(r.ok, false);
+  assert.match(JSON.stringify(r), /caption layer made by Amharic Captions/);
+});
+
 t('no clip anywhere: a clear "no clip found" answer', () => {
   const r = pick([[]], [[]], 3);
   assert.strictEqual(r.ok, false);
