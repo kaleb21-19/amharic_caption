@@ -27,13 +27,24 @@ function clip(file, start, dur, selected) {
 }
 function track(clips) { return { clips: coll(clips, 'numItems') }; }
 
-function pick(video, audio, playhead) {
+// A nested sequence: a clip whose projectItem IS a sequence (no media file).
+function seqOf(video, audio, name) {
+  const item = { name: name || 'Nested Sequence 01', nodeId: 'n-' + (name || 'x'), getMediaPath: () => '', isSequence: () => true };
+  return { name: item.name, projectItem: item, videoTracks: coll(video.map(track), 'numTracks'),
+           audioTracks: coll(audio.map(track), 'numTracks') };
+}
+function nestedClip(inner, start, dur, selected) {
+  return { start: T(start), duration: T(dur), end: T(start + dur), inPoint: T(0), outPoint: T(dur),
+           selected: !!selected, name: inner.name, projectItem: inner.projectItem };
+}
+
+function pick(video, audio, playhead, sequences) {
   const seq = {
     videoTracks: coll(video.map(track), 'numTracks'),
     audioTracks: coll(audio.map(track), 'numTracks'),
     getPlayerPosition: () => T(playhead),
   };
-  const ctx = { JSON, app: { project: { activeSequence: seq } } };
+  const ctx = { JSON, app: { project: { activeSequence: seq, sequences: coll(sequences || [], 'numSequences') } } };
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(JSX, 'host.jsx'), 'utf8').replace(/^#include.*$/m, ''), ctx);
   return JSON.parse(vm.runInContext('amharic_getSelectedClip()', ctx));
@@ -117,6 +128,25 @@ t('only our Glide layer selected -> a clear "caption layer" answer', () => {
   const r = pick([[clip('C:/Docs/AmharicCaptions/amhstyle_sequence__glide_1.mov', 0, 25, true)]], [], 12);
   assert.strictEqual(r.ok, false);
   assert.match(JSON.stringify(r), /caption layer made by Amharic Captions/);
+});
+
+// The owner's case (1.16.9 "No clip found"): the edit is a NESTED sequence,
+// cut in two parts, with our Glide layer above. Single-clip mode looks inside.
+t('playhead over a cut nested sequence (+ our Glide layer) -> the clip inside, same timeline part', () => {
+  const inner = seqOf([[clip('C:/cam/full.mp4', 0, 30)]], [[clip('C:/cam/full.mp4', 0, 30)]], 'Nested Sequence 01');
+  const part2 = nestedClip(inner, 10, 10);
+  part2.inPoint = T(10); part2.outPoint = T(20);   // the second part shows inner 10..20
+  const r = pick([[nestedClip(inner, 0, 10), part2], [clip('C:/Docs/amhstyle_sequence__glide_1.mov', 0, 25)]], [], 12, [inner]);
+  assert.strictEqual(r.ok, true, JSON.stringify(r));
+  assert.deepStrictEqual([r.sourcePath, r.sourceIn, r.duration, r.timelineStart], ['C:/cam/full.mp4', 10, 10, 10]);
+  assert.match(r.via, /nested/);
+});
+
+t('a selected nested sequence part -> the clip inside; a silent video inside gets the voice as audioAlt', () => {
+  const inner = seqOf([[clip('C:/stock/silent.mp4', 0, 30)]], [[clip('C:/rec/voice.wav', 0, 20)]], 'Edit');
+  const r = pick([[nestedClip(inner, 0, 30, true)]], [], 0, [inner]);
+  assert.strictEqual(r.sourcePath, 'C:/stock/silent.mp4');
+  assert.strictEqual(r.audioAlt.sourcePath, 'C:/rec/voice.wav');
 });
 
 t('no clip anywhere: a clear "no clip found" answer', () => {
