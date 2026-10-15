@@ -115,6 +115,22 @@ test('missing file / refused import: clear errors', () => {
   assert.match(r.error, /refused/);
 });
 
+test('cut parts of the same video: the next part does NOT remove the previous part\'s styled layer (1.16.12)', () => {
+  // Owner report: 3 cut parts, part 1 placed in one style, part 2 in another
+  // style removed part 1's layer (same name prefix, the layers only touch).
+  const part1 = 'amhstyle_sequence__glide_1.mov';
+  const pp = makePremiere([[[0, 30]], [[0, 10.4, part1]]]);
+  const r = pp.call('amh_placeOverlay(' + JSON.stringify(JSON.stringify({ path: tmp, startSeconds: 9.8, duration: 10,
+    replacePrefix: 'amhstyle_sequence__' })) + ')');
+  assert.ok(r.ok && r.placed, JSON.stringify(r));
+  assert.strictEqual(r.replaced, 0, 'part 1 only touches part 2: it stays');
+  assert.ok(pp.vt[1].list.some((c) => c.projectItem.name === part1), 'part 1\'s layer is still there');
+  // placing part 1 again (same time) still replaces it
+  const r2 = pp.call('amh_placeOverlay(' + JSON.stringify(JSON.stringify({ path: tmp, startSeconds: 0, duration: 10.2,
+    replacePrefix: 'amhstyle_sequence__' })) + ')');
+  assert.strictEqual(r2.replaced, 1, 'the same captions placed again replace the old layer');
+});
+
 test('placing again replaces our earlier layer for the same captions, nothing else', () => {
   const old = 'amhstyle_interview__karaoke_111.mov';
   const pp = makePremiere([[[0, 60]], [[0, 30, old], [40, 50, 'amhstyle_interview__pop_9.mov']], [[5, 8, 'title.mov']]]);
