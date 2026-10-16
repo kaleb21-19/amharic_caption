@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.16.14';
+const APP_VERSION = '1.16.15';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,18 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.16.15': {
+    banner: {
+      am: 'ያስቀመጧቸውን ካፕሽኖች እንደገና ከፍተው ማስተካከል ይችላሉ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: 'Reopen and edit captions you placed — your license stays the same.',
+    },
+    items: [
+      { am: '🕘 የቅርብ ጊዜ፦ ያስቀመጧቸውን ካፕሽኖች ከፍተው ያስተካክሉ፣ እንደገና ያስቀምጡ', en: '🕘 Recent: reopen captions you placed, edit them, place them again' },
+      { am: 'እንደገና ሲያስቀምጡ የቀድሞውን ይተካል — ሁለት ጊዜ አይደገምም', en: 'Placing again replaces the old captions — no doubles' },
+      { am: 'ስታይሉና ቅንብሮቹ አብረው ይመለሳሉ', en: 'The style and its settings come back too' },
+      { am: 'የስታይል ቅድመ እይታው በራስዎ ቪዲዮ ላይ ይታያል', en: 'The style preview plays on your own video' },
+    ],
+  },
   '1.16.14': {
     banner: {
       am: 'የስታይል ቅድመ እይታው በራስዎ ቪዲዮ ላይ ይታያል፤ በMac እና በተቆረጡ ክሊፖች ላይ ያሉ ችግሮች ተስተካክለዋል — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -586,6 +598,13 @@ function initUpdateBanner() {
   const check = document.getElementById('updateCheck');
   if (go) go.addEventListener('click', (e) => { e.preventDefault(); openDownloadPage(); });
   if (check) check.addEventListener('click', (e) => { e.preventDefault(); onUpdateCheck(); });
+  const recent = document.getElementById('recentLink');
+  if (recent) {
+    if (IS_APP_MODE()) recent.style.display = 'none';    // Premiere / After Effects only
+    else recent.addEventListener('click', (e) => { e.preventDefault(); toggleRecent(); });
+  }
+  const recentClose = document.getElementById('recentClose');
+  if (recentClose) recentClose.addEventListener('click', (e) => { e.preventDefault(); hideRecent(); });
   if (later) later.addEventListener('click', () => {
     const latest = readJson(UPDATE_LATEST_KEY);
     if (latest) {
@@ -4653,6 +4672,7 @@ async function placeReview() {
         if (!LICENSED) log('Free version: a small "Amharic Captions Pro" tag is in the corner — a license removes it.');
         setSuccess('✓ Styled captions on timeline');
         track('placed');
+        saveHistory(dest);
         closeReview(true);
         return;
       } catch (e) {
@@ -4666,6 +4686,7 @@ async function placeReview() {
     // "Locate file" prompt on every project open.
     log('Captions saved to ' + dest + '  (Premiere keeps a file link to this).');
     track('placed');
+    saveHistory(dest);
     closeReview(true);
   } catch (e) {
     log('ERROR: placement failed: ' + (e && e.message ? e.message : String(e)));
@@ -4680,6 +4701,127 @@ async function placeReview() {
     }
     if (discardBtn) discardBtn.disabled = false;
   }
+}
+
+// ── Recent captions: reopen and edit what was placed (1.16.15) ───────────────
+// After a successful placement a small companion file is saved next to the
+// .srt in Documents/AmharicCaptions (captions, style + options, name, timeline
+// position, footage). "🕘 Recent" lists the newest; one tap reopens it in the
+// review, and placing again REPLACES the old captions (same name = the
+// existing replace rules for plain captions and styled layers).
+// Safety: a reopened review works on a fresh TEMPORARY copy - the .srt that
+// Premiere links to is never the review file (Place / Discard clean up the
+// review file). Deleting an entry removes only the companion file.
+const HISTORY_MAX = 30;
+const HISTORY_EXT = '.amh.json';
+function saveHistory(srtPath) {
+  try {
+    if (!srtPath || !REVIEW) return;
+    const rec = {
+      v: 1, at: Date.now(), srt: srtPath, label: REVIEW.label || 'captions',
+      startSeconds: Number(REVIEW.startSeconds) || 0, host: HOST_NAME,
+      style: STYLE_OK ? STYLE : 'plain', opts: (STYLE_OK && STYLE !== 'plain') ? styleOpts(STYLE) : null,
+      media: PREVIEW_MEDIA.slice(0, 50),
+      cues: (lastCues || []).map((c) => ({ start: c.start, end: c.end, text: c.text })),
+    };
+    fs.writeFileSync(srtPath + HISTORY_EXT, JSON.stringify(rec), { encoding: 'utf8', mode: 0o600 });
+    const all = readHistory();
+    all.slice(HISTORY_MAX).forEach((h) => { try { fs.unlinkSync(h.file); } catch (e) {} });
+  } catch (e) {}
+}
+function readHistory() {
+  const out = [];
+  try {
+    const dir = ensureCaptionsDir();
+    fs.readdirSync(dir).filter((f) => f.endsWith(HISTORY_EXT)).forEach((f) => {
+      try {
+        const file = path.join(dir, f);
+        const rec = JSON.parse(fs.readFileSync(file, 'utf8'));
+        if (rec && rec.v === 1 && Array.isArray(rec.cues) && rec.cues.length) out.push(Object.assign(rec, { file }));
+      } catch (e) {}
+    });
+  } catch (e) {}
+  return out.sort((a, b) => (b.at || 0) - (a.at || 0));
+}
+function deleteHistory(file) {
+  try { if (String(file).endsWith(HISTORY_EXT)) fs.unlinkSync(file); } catch (e) {}
+}
+async function reopenHistory(rec) {
+  if (!rec || !Array.isArray(rec.cues) || !rec.cues.length) return false;
+  if (reviewOpen) closeReview();
+  hideRecent();
+  lastCues = rec.cues.map((c) => ({ start: Number(c.start) || 0, end: Number(c.end) || 0, text: String(c.text || '') }));
+  setPreviewMedia(rec.media || []);
+  if (rec.style && STYLE_LIST.indexOf(rec.style) >= 0) {
+    STYLE = rec.style;
+    const s = { style: rec.style };
+    if (rec.opts && rec.style !== 'plain') {
+      const all = loadSettings().styleOpts || {};
+      all[rec.style] = styleOpts(rec.style, rec.opts);
+      s.styleOpts = all;
+    }
+    saveSettings(s);
+  }
+  // a TEMPORARY copy: the review file is cleaned up after Place / Discard
+  const tmp = path.join(os.tmpdir(), 'amh_reopen_' + Date.now() + '.srt');
+  try { fs.writeFileSync(tmp, displaySrtTextFromCues(lastCues), { encoding: 'utf8', mode: 0o600 }); } catch (e) {}
+  log('Reopened "' + rec.label + '" (' + lastCues.length + ' captions). Edit, then press Place — it replaces the old ones.');
+  await openReview(tmp, rec.label, rec.startSeconds, { projectId: rec.label });
+  return true;
+}
+function fmtWhen(ms) {
+  const d = new Date(ms || 0);
+  const pad = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+function hideRecent() {
+  const box = $('recentBox');
+  if (box) box.style.display = 'none';
+}
+function renderRecent() {
+  const box = $('recentBox');
+  const list = $('recentList');
+  if (!box || !list) return;
+  const items = readHistory().slice(0, HISTORY_MAX);
+  list.textContent = '';
+  if (!items.length) {
+    const empty = document.createElement('div');
+    empty.className = 'recent-empty';
+    empty.textContent = L('No captions placed yet.');
+    list.appendChild(empty);
+  }
+  items.forEach((rec) => {
+    const row = document.createElement('div');
+    row.className = 'recent-row';
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'recent-open';
+    const name = document.createElement('span');
+    name.className = 'recent-name';
+    name.textContent = rec.label;
+    const meta = document.createElement('span');
+    meta.className = 'recent-meta';
+    meta.textContent = fmtWhen(rec.at) + ' · ' + (STYLE_NAMES[rec.style] || 'Plain') + ' · ' + rec.cues.length;
+    open.appendChild(name);
+    open.appendChild(meta);
+    open.addEventListener('click', () => { reopenHistory(rec); });
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'recent-del';
+    del.title = L('Remove from this list');
+    del.textContent = '✕';
+    del.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); deleteHistory(rec.file); renderRecent(); });
+    row.appendChild(open);
+    row.appendChild(del);
+    list.appendChild(row);
+  });
+}
+function toggleRecent() {
+  const box = $('recentBox');
+  if (!box) return;
+  const show = box.style.display === 'none' || !box.style.display;
+  if (show) renderRecent();
+  box.style.display = show ? 'block' : 'none';
 }
 
 function discardReview() {

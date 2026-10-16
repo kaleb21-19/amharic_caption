@@ -231,7 +231,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.16.14');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.16.15');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1295,6 +1295,54 @@ await t('4h. My styles (1.13): save a look under a name, one click to use it aga
     storage.setItem('amh.settings', JSON.stringify({ myStyles: [{ id: 'z', name: '', style: 'bold' }, { id: 'y', name: 'X', style: 'nope' }, 7] }));
     assert.strictEqual(p.evalVm('myStyles().length'), 0);
   } finally { p.close(); }
+});
+
+await t('4i. Recent (1.16.15): placed captions can be reopened, edited and placed again; the linked .srt is never touched', async () => {
+  const storage = makeLocalStorage();
+  const p = loadPanel({ storage });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_hist_'));     // never the real Documents folder
+  try {
+    await flush(10);
+    p.evalVm('ensureCaptionsDir = () => ' + JSON.stringify(dir) + '; LICENSED = true; STYLE_OK = true; STYLE = "bold";' +
+      'globalThis.__placed = []; placeStyled = async (cues, label, start) => { __placed.push([cues.length, label, start]);' +
+      ' return { track: 2, addedTrack: false, replaced: 0, file: "x.mov" }; }; renderPreview = async () => {};' +
+      'setPreviewMedia([{ path: "C:/v/interview.mp4", offset: 3, from: 10, to: 30 }]);' +
+      'lastCues = [{ start: 12, end: 13, text: "ሰላም እንዴት" }, { start: 13.2, end: 14, text: "ናችሁ" }];');
+    const first = path.join(os.tmpdir(), 'amh_review_' + Date.now() + '.srt');
+    fs.writeFileSync(first, '1\n00:00:12,000 --> 00:00:13,000\nሰላም እንዴት\n');
+    await p.evalVm('openReview(' + JSON.stringify(first) + ', "interview.mp4", 12, {})');
+    await p.evalVm('placeReview()');
+    let hist = JSON.parse(p.evalVm('JSON.stringify(readHistory())'));
+    assert.strictEqual(hist.length, 1, 'saved after placing');
+    assert.deepStrictEqual([hist[0].label, hist[0].startSeconds, hist[0].style, hist[0].cues.length], ['interview.mp4', 12, 'bold', 2]);
+    const linked = hist[0].srt;
+    assert.ok(fs.existsSync(linked) && linked.startsWith(dir), 'the .srt Premiere links to');
+    // reopen another day: the style comes back, the review is a TEMPORARY copy
+    p.evalVm('STYLE = "plain"; lastCues = [];');
+    assert.strictEqual(await p.evalVm('reopenHistory(readHistory()[0])'), true);
+    assert.strictEqual(p.evalVm('reviewOpen'), true);
+    assert.strictEqual(p.evalVm('STYLE'), 'bold', 'the style it was placed with');
+    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify([REVIEW.label, REVIEW.startSeconds])')), ['interview.mp4', 12]);
+    const reviewFile = p.evalVm('REVIEW.outSrt');
+    assert.ok(reviewFile.startsWith(os.tmpdir()) && /amh_reopen_/.test(reviewFile) && !reviewFile.startsWith(dir), 'a temporary copy');
+    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(reviewCues.map((c) => c.text))')), ['ሰላም እንዴት', 'ናችሁ']);
+    // discard: the linked .srt stays; place again: same name and position (replaces the old one)
+    p.evalVm('discardReview()');
+    assert.ok(fs.existsSync(linked), 'Discard never deletes the linked .srt');
+    await p.evalVm('reopenHistory(readHistory()[0])');
+    await p.evalVm('placeReview()');
+    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(__placed)'))[1], [2, 'interview.mp4', 12], 'placed again with the same name and time');
+    assert.ok(fs.existsSync(linked), 'placing again never deletes the first .srt');
+    // the list: newest first, ✕ removes only the companion file
+    hist = JSON.parse(p.evalVm('JSON.stringify(readHistory())'));
+    assert.strictEqual(hist.length, 2);
+    p.evalVm('deleteHistory(readHistory()[0].file)');
+    assert.strictEqual(p.evalVm('readHistory().length'), 1);
+    assert.ok(fs.existsSync(linked), 'removing from the list keeps the .srt');
+    // bad files in the folder are ignored
+    fs.writeFileSync(path.join(dir, 'broken.srt.amh.json'), '{nope');
+    assert.strictEqual(p.evalVm('readHistory().length'), 1);
+  } finally { p.close(); try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {} }
 });
 
 await t('5. review: cache-hit transcribe -> edit -> export (speaker tags) -> nudge -> add -> discard', async () => {
