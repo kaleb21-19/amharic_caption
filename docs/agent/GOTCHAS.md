@@ -21,7 +21,7 @@ new; merge duplicates; keep < 80 lines.
 
 ## Tests
 - `test_panel_dom.js` needs `runtime/` -> `tools/agent/test.py panel` makes a junction to the main clone's runtime and removes ONLY the junction. Never delete the main clone's `runtime/` folder.
-- Tests must never touch `~/.amharic_captions_license.json` / `~/.amharic_captions_machine.json` (a test once overwrote the owner's real license).
+- Tests must never touch `~/.amharic_captions_license.json` / `~/.amharic_captions_machine.json` NOR the real `~/Documents/AmharicCaptions` (test_panel_dom sets AMH_CAPTIONS_DIR to a temp folder and checks the real one at the end; a test once overwrote the owner's real license, and tests filled his Recent list).
 - dom_shim: `className` and `classList` are not synced -> assert on `className`; objects from the vm need JSON comparison. Static `data-i18n` labels are NOT applied (no attribute selectors) -> assert those via `evalVm("AM_STATIC['<key>']")`.
 - Headless Edge screenshots: minimum window ~500 px wide -> put the page in a fixed-size box and crop.
 - ffmpeg cannot decode animated WebP -> for frame checks render previews as GIF (`A._has_encoder = lambda f, n: False`).
