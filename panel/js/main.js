@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.16.17';
+const APP_VERSION = '1.16.18';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -2276,7 +2276,10 @@ let activeChild = null;
 // (both right after adding the captions and every time the project reopens).
 // So placed SRTs live here permanently instead of a temp dir that gets wiped.
 // Documents (not Desktop) so customer desktops stay clean.
-const USER_CAPTIONS_DIR = path.join(os.homedir(), 'Documents', 'AmharicCaptions');
+// AMH_CAPTIONS_DIR: tests point this at a temporary folder (they once filled
+// the owner's real Documents/AmharicCaptions and his 🕘 Recent list, 1.16.18).
+const USER_CAPTIONS_DIR = (typeof process !== 'undefined' && process.env && process.env.AMH_CAPTIONS_DIR) ||
+  path.join(os.homedir(), 'Documents', 'AmharicCaptions');
 function ensureCaptionsDir() {
   try {
     fs.mkdirSync(USER_CAPTIONS_DIR, { recursive: true, mode: 0o700 });
