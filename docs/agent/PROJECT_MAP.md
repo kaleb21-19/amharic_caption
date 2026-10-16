@@ -37,7 +37,7 @@ the same PR that moves or renames the code. Keep this file under ~120 lines.
 - `panel/CSXS/manifest.xml` :: `ExtensionBundleVersion` — version (bump with tools/agent/bump.py)
 - `panel/jsx/host.jsx` :: `function amharic_getSelectedClip` — which clip Generate uses (audio tracks first, then video)
 - `panel/jsx/host.jsx` :: `function amh_placeOverlay` — styled layer on the first empty track above (Premiere)
-- `panel/jsx/host.jsx` :: `function amh_cleanupCut` — clone the sequence, razor + ripple-remove the cuts on every track (Premiere only)
+- `panel/jsx/host.jsx` :: `function amh_cleanupPrepare` — ✂ checks + copy the sequence; then `amh_cleanupSome` cuts groups (razor + ripple, every track)
 - `panel/jsx/host.jsx` :: `function amharic_getFrame` — sequence width/height/fps
 - `panel/jsx/host_ae.jsx` :: `function amh_placeOverlay` — styled layer in After Effects (pure ASCII file!)
 

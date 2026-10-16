@@ -1383,28 +1383,90 @@ function amhClipName(cl) {
     try { return String(cl.name || (cl.projectItem && cl.projectItem.name) || ""); } catch (e) { return ""; }
 }
 
-function amh_cleanupCut(argsJSON) {
+// Seconds -> frame-exact cuts, sorted (a cut between two frames leaves a
+// sliver; a cut under 2 frames is dropped).
+function amhCleanupFrames(raw, fps) {
+    var cuts = [];
+    for (var c = 0; c < (raw || []).length; c++) {
+        var s = Math.ceil(Number(raw[c][0]) * fps - 0.001) / fps;
+        var e = Math.floor(Number(raw[c][1]) * fps + 0.001) / fps;
+        if (e - s >= 2 / fps) { cuts.push([s, e]); }
+    }
+    cuts.sort(function (x, y) { return x[0] - y[0]; });
+    return cuts;
+}
+
+function amhCleanupFps() {
+    try { var fr = JSON.parse(amharic_getFrame()); if (fr.ok && fr.fps > 0) { return fr.fps; } } catch (e) {}
+    return 30;
+}
+
+// First clip (index) of a track that ends after t. Premiere keeps a track's
+// clips in time order, so this is a binary search: a few reads instead of
+// walking the whole track (1.16.22: walking every track after every cut made
+// 200 cuts take ~8 million reads).
+function amhCleanupFirstAfter(clips, t) {
+    var lo = 0, hi = clips.numItems;
+    while (lo < hi) {
+        var mid = (lo + hi) >> 1;
+        if (Number(clips[mid].end.seconds) > t) { hi = mid; } else { lo = mid + 1; }
+    }
+    return lo;
+}
+
+// One cut [a, b] on the open sequence, every track: razor both edges, take
+// out what lies inside (ripple closes the gap), and if a track's later clips
+// did not move with it (a Premiere version that leaves the gap), move them.
+function amhCleanupOne(seq, a, b, fps) {
+    var eps = 0.5 / fps, len = b - a;
+    app.enableQE();
+    var qseq = qe.project.getActiveSequence();
+    var tcA = amhCleanupTc(seq, a), tcB = amhCleanupTc(seq, b);
+    var vN = seq.videoTracks.numTracks, aN = seq.audioTracks.numTracks;
+    for (var vi = 0; vi < vN; vi++) { try { qseq.getVideoTrackAt(vi).razor(tcB); qseq.getVideoTrackAt(vi).razor(tcA); } catch (e) {} }
+    for (var ai = 0; ai < aN; ai++) { try { qseq.getAudioTrackAt(ai).razor(tcB); qseq.getAudioTrackAt(ai).razor(tcA); } catch (e) {} }
+    var tracks = amhCleanupTracks(seq);
+    var removed = 0, moved = 0;
+    for (var t = 0; t < tracks.length; t++) {
+        var track = tracks[t].track;
+        var cl = track.clips;
+        var inside = [], next = null;
+        for (var k = amhCleanupFirstAfter(cl, a + eps); k < cl.numItems; k++) {
+            var it = cl[k];
+            var s = Number(it.start.seconds), e = Number(it.end.seconds);
+            if (s >= b - eps) { next = { name: amhClipName(it), s: s }; break; }
+            if (s >= a - eps && e <= b + eps) { inside.push(it); }
+        }
+        for (var r = inside.length - 1; r >= 0; r--) {
+            try { inside[r].remove(true, true); removed++; } catch (e) {}
+        }
+        if (!next) { continue; }
+        cl = track.clips;
+        var j = amhCleanupFirstAfter(cl, next.s - eps);
+        if (j < cl.numItems && Math.abs(Number(cl[j].start.seconds) - next.s) < eps && amhClipName(cl[j]) === next.name) {
+            for (var m = j; m < cl.numItems; m++) {
+                var shift = new Time();
+                shift.seconds = -len;
+                try { cl[m].move(shift); moved++; } catch (e) {}
+            }
+        }
+    }
+    return { removed: removed, moved: moved, len: len };
+}
+
+// Step 1: checks, then copy the sequence and open the copy. Nothing is cut
+// yet. args = { cuts: [[start, end], ...], media: [paths] }.
+function amh_cleanupPrepare(argsJSON) {
     return amhGuard(function () {
         var args = JSON.parse(argsJSON);
         if (!app || !app.project) { return amhErr("No project is open."); }
         var seq = app.project.activeSequence;
         if (!seq) { return amhErr("No active sequence. Open one first."); }
-
-        // frame-exact cuts (a cut between two frames leaves a sliver)
-        var fps = 30;
-        try { var fr = JSON.parse(amharic_getFrame()); if (fr.ok && fr.fps > 0) { fps = fr.fps; } } catch (e) {}
-        var cuts = [];
-        var raw = args.cuts || [];
-        for (var c = 0; c < raw.length; c++) {
-            var s = Math.ceil(Number(raw[c][0]) * fps - 0.001) / fps;
-            var e = Math.floor(Number(raw[c][1]) * fps + 0.001) / fps;
-            if (e - s >= 2 / fps) { cuts.push([s, e]); }
-        }
+        var fps = amhCleanupFps();
+        var cuts = amhCleanupFrames(args.cuts, fps);
         if (!cuts.length) { return amhErr("Nothing to cut."); }
-        cuts.sort(function (x, y) { return x[0] - y[0]; });
 
         // The open sequence must be the one these captions were made from.
-        var tracks = amhCleanupTracks(seq);
         var want = args.media || [];
         if (want.length) {
             var wantSet = {};
@@ -1413,13 +1475,13 @@ function amh_cleanupCut(argsJSON) {
                 return amhErr("The open sequence is not the one these captions were made from. Open that sequence, then press Cut again.");
             }
         }
+        var tracks = amhCleanupTracks(seq);
         for (var L = 0; L < tracks.length; L++) {
             var locked = false;
             try { locked = tracks[L].track.isLocked(); } catch (e) {}
             if (locked) { return amhErr("A track is locked. Unlock all tracks (the lock icons), then press Cut again."); }
         }
 
-        // Copy the sequence and work on the copy.
         var before = {};
         for (var q = 0; q < app.project.sequences.numSequences; q++) { before[String(app.project.sequences[q].sequenceID)] = true; }
         var origName = String(seq.name);
@@ -1436,63 +1498,38 @@ function amh_cleanupCut(argsJSON) {
         if (!seq || String(seq.sequenceID) !== String(copy.sequenceID)) {
             return amhErr("Premiere could not open the copy of the sequence. Nothing was cut.");
         }
-        tracks = amhCleanupTracks(seq);
+        return amhOk({ sequence: String(seq.name), sequenceID: String(seq.sequenceID), original: origName, fps: fps, list: cuts });
+    });
+}
 
-        app.enableQE();
-        var qseq = qe.project.getActiveSequence();
-        var eps = 0.5 / fps;
-        var removed = 0, moved = 0, total = 0;
-        // last cut first: the cuts before it keep their times
-        for (var n = cuts.length - 1; n >= 0; n--) {
-            var a = cuts[n][0], b = cuts[n][1], len = b - a;
-            var tcA = amhCleanupTc(seq, a), tcB = amhCleanupTc(seq, b);
-            var vN = seq.videoTracks.numTracks, aN = seq.audioTracks.numTracks;
-            for (var vi = 0; vi < vN; vi++) { try { qseq.getVideoTrackAt(vi).razor(tcB); qseq.getVideoTrackAt(vi).razor(tcA); } catch (e) {} }
-            for (var ai = 0; ai < aN; ai++) { try { qseq.getAudioTrackAt(ai).razor(tcB); qseq.getAudioTrackAt(ai).razor(tcA); } catch (e) {} }
-            tracks = amhCleanupTracks(seq);
-            // what comes after the cut, per track: it must end up len earlier
-            var later = [];
-            for (var t1 = 0; t1 < tracks.length; t1++) {
-                var list = [];
-                var cl1 = tracks[t1].track.clips;
-                for (var k1 = 0; k1 < cl1.numItems; k1++) {
-                    var st1 = Number(cl1[k1].start.seconds);
-                    if (st1 >= b - eps) { list.push({ name: amhClipName(cl1[k1]), s: st1 }); }
-                }
-                later.push(list);
-            }
-            // take out what lies inside the cut (ripple: the gap closes)
-            for (var t2 = 0; t2 < tracks.length; t2++) {
-                var cl2 = tracks[t2].track.clips;
-                for (var k2 = cl2.numItems - 1; k2 >= 0; k2--) {
-                    var it = cl2[k2];
-                    var s2 = Number(it.start.seconds), e2 = Number(it.end.seconds);
-                    if (s2 >= a - eps && e2 <= b + eps) {
-                        try { it.remove(true, true); removed++; } catch (e) {}
-                    }
-                }
-            }
-            // anything after the cut that did not move with it (a track with
-            // nothing inside the cut, e.g. a title further on) moves now
-            tracks = amhCleanupTracks(seq);
-            for (var t3 = 0; t3 < tracks.length; t3++) {
-                var cl3 = tracks[t3].track.clips;
-                for (var x = 0; x < later[t3].length; x++) {
-                    var rec = later[t3][x];
-                    for (var k3 = 0; k3 < cl3.numItems; k3++) {
-                        var it3 = cl3[k3];
-                        if (amhClipName(it3) === rec.name && Math.abs(Number(it3.start.seconds) - rec.s) < eps) {
-                            var shift = new Time();
-                            shift.seconds = -len;
-                            try { it3.move(shift); moved++; } catch (e) {}
-                            break;
-                        }
-                    }
-                }
-            }
-            total += len;
+// Step 2 (called again and again, so the panel can show progress and stop):
+// some of the cuts, on the copy only. args = { sequenceID, fps, cuts }.
+function amh_cleanupSome(argsJSON) {
+    return amhGuard(function () {
+        var args = JSON.parse(argsJSON);
+        var seq = app.project.activeSequence;
+        if (!seq || String(seq.sequenceID) !== String(args.sequenceID)) {
+            return amhErr("The clean copy is no longer the open sequence. Open it, then press Cut again.");
         }
-        return amhOk({ sequence: String(seq.name), original: origName, cuts: cuts.length,
-                       removedSeconds: Math.round(total * 1000) / 1000, removed: removed, moved: moved, list: cuts });
+        var fps = Number(args.fps) > 0 ? Number(args.fps) : amhCleanupFps();
+        var cuts = args.cuts || [];
+        var removed = 0, moved = 0, total = 0;
+        for (var n = cuts.length - 1; n >= 0; n--) {          // last first: earlier times stay valid
+            var r = amhCleanupOne(seq, Number(cuts[n][0]), Number(cuts[n][1]), fps);
+            removed += r.removed; moved += r.moved; total += r.len;
+        }
+        return amhOk({ cuts: cuts.length, removed: removed, moved: moved, removedSeconds: Math.round(total * 1000) / 1000 });
+    });
+}
+
+// Everything in one call (older panels).
+function amh_cleanupCut(argsJSON) {
+    return amhGuard(function () {
+        var p = JSON.parse(amh_cleanupPrepare(argsJSON));
+        if (!p.ok) { return JSON.stringify(p); }
+        var s = JSON.parse(amh_cleanupSome(JSON.stringify({ sequenceID: p.sequenceID, fps: p.fps, cuts: p.list })));
+        if (!s.ok) { return JSON.stringify(s); }
+        return amhOk({ sequence: p.sequence, original: p.original, cuts: p.list.length,
+                       removedSeconds: s.removedSeconds, removed: s.removed, moved: s.moved, list: p.list });
     });
 }

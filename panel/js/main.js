@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.16.21';
+const APP_VERSION = '1.16.22';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,18 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.16.22': {
+    banner: {
+      am: '✂ ማጽዳት በረጅም ቪዲዮዎች ላይ በጣም ፈጣን ሆኗል — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '✂ Clean up is much faster on long videos — your license stays the same.',
+    },
+    items: [
+      { am: '✂ ማጽዳት በረጅም ቪዲዮዎች ላይ በጣም ፈጣን ሆኗል', en: '✂ Clean up is much faster on long videos' },
+      { am: 'ሲቆርጥ ሂደቱን ያያሉ፦ «እየቆረጠ ነው 10 ከ 40…»', en: 'You see the progress while it cuts: "Cutting 10 of 40…"' },
+      { am: '✕ ያቁሙ፦ በማንኛውም ጊዜ ማቆም ይችላሉ፤ የተቆረጠው ይቀራል', en: '✕ Stop at any time; what is already cut stays' },
+      { am: 'ቪዲዮዎ በNested sequence ውስጥ ቢሆንም ይሠራል', en: 'Works when your video is inside a nested sequence' },
+    ],
+  },
   '1.16.20': {
     banner: {
       am: '✂ በአንድ ቁልፍ ያጽዱ፦ ዝምታ፣ የተደገመ አባባልና እ… ድምፆች ይቆረጣሉ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -4371,6 +4383,11 @@ function renderCleanupPanel() {
   if (CLEAN.done) {
     p.appendChild(el('div', 'clean-done', L('Done') + ': ' + L('removed') + ' ' + fmtDur(CLEAN.done.removedSeconds) +
       ' — “' + CLEAN.done.sequence + '” ' + L('is open. Your captions moved with the cuts: press Place to put them on it.')));
+    if (CLEAN.done.cuts < CLEAN.done.total) {
+      p.appendChild(el('div', 'mem-sub', L('Stopped after') + ' ' + CLEAN.done.cuts + ' ' + L('of') + ' ' + CLEAN.done.total + ' ' +
+        L('cuts — the ones nearer the start were not cut.')));
+    }
+    if (CLEAN.done.error) p.appendChild(el('div', 'clean-err', CLEAN.done.error));
     return;
   }
   const seg = el('div', 'clean-opt');
@@ -4407,33 +4424,79 @@ function renderCleanupPanel() {
   const length = Math.max.apply(null, reviewCues.map((c) => c.end).concat([0]));
   p.appendChild(el('div', 'clean-sum', L('Removes') + ' ' + fmtDur(total) + ' ' + L('of') + ' ' + fmtDur(length)));
   if (CLEAN.error) p.appendChild(el('div', 'clean-err', CLEAN.error));
-  const go = el('button', 'btn btn-primary clean-go', '✂ ' + L('Cut on a copy of the sequence'));
-  go.type = 'button';
-  go.disabled = !sel.length || !!CLEAN.cutting;
-  go.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); applyCleanup(); });
-  p.appendChild(go);
+  if (CLEAN.cutting) {
+    const pr = CLEAN.progress || { done: 0, total: 0 };
+    const bar = el('div', 'clean-progress');
+    const fill = el('i');
+    fill.style.width = (pr.total ? Math.round(pr.done / pr.total * 100) : 0) + '%';
+    bar.appendChild(fill);
+    p.appendChild(bar);
+    p.appendChild(el('div', 'clean-sum', CLEAN.stop ? L('Stopping…')
+      : L('Cutting') + ' ' + pr.done + ' ' + L('of') + ' ' + pr.total + '…'));
+    const stop = el('button', 'btn btn-neutral clean-go', '✕ ' + L('Stop'));
+    stop.type = 'button';
+    stop.disabled = !!CLEAN.stop;
+    stop.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); CLEAN.stop = true; renderCleanupPanel(); });
+    p.appendChild(stop);
+  } else {
+    const go = el('button', 'btn btn-primary clean-go', '✂ ' + L('Cut on a copy of the sequence'));
+    go.type = 'button';
+    go.disabled = !sel.length;
+    go.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); applyCleanup(); });
+    p.appendChild(go);
+  }
   p.appendChild(el('div', 'mem-sub', L('Your sequence stays as it is; the clean copy opens next to it. Clean up before you place the captions.')));
 }
+// Cut in small groups, last group first (1.16.22): the panel shows "Cutting
+// 10 of 40…" and ✕ Stop between groups. A stop keeps what is already cut on
+// the copy (in sync — each group is whole) and the captions follow exactly
+// the cuts that were made.
+const CLEAN_CHUNK = 5;
 async function applyCleanup() {
   const sel = cleanupSelected();
   const cuts = mergeRanges(sel);
   if (!cuts.length || CLEAN.cutting) return null;
   CLEAN.cutting = true;
+  CLEAN.stop = false;
   CLEAN.error = '';
+  CLEAN.progress = { done: 0, total: cuts.length };
   renderCleanupPanel();
   const media = Array.from(new Set(PREVIEW_MEDIA.map((m) => m.path)));
-  const r = await evalScript('amh_cleanupCut(' + escJson(JSON.stringify({ cuts: cuts.map((c) => [c.start, c.end]), media })) + ')', 300000);
-  CLEAN.cutting = false;
-  if (!r || !r.ok) {
+  const fail = (r) => {
+    CLEAN.cutting = false;
     CLEAN.error = L((r && r.error) || 'Premiere did not answer.');
     log('Clean up: ' + ((r && r.error) || 'no answer'));
     log('  (the captions were made from: ' + media.join(', ') + ')');
     renderCleanupPanel();
     return r;
+  };
+  const p = await evalScript('amh_cleanupPrepare(' + escJson(JSON.stringify({ cuts: cuts.map((c) => [c.start, c.end]), media })) + ')', 120000);
+  if (!p || !p.ok) return fail(p);
+  const list = p.list || [];
+  CLEAN.progress.total = list.length;
+  const applied = [];
+  let removedSeconds = 0;
+  let err = null;
+  for (let end = list.length; end > 0 && !CLEAN.stop; end -= CLEAN_CHUNK) {
+    const chunk = list.slice(Math.max(0, end - CLEAN_CHUNK), end);
+    const r = await evalScript('amh_cleanupSome(' + escJson(JSON.stringify({ sequenceID: p.sequenceID, fps: p.fps, cuts: chunk })) + ')', 120000);
+    if (!r || !r.ok) { err = r || { error: 'Premiere did not answer.' }; break; }
+    applied.push(...chunk);
+    removedSeconds += Number(r.removedSeconds) || 0;
+    CLEAN.progress.done = applied.length;
+    renderCleanupPanel();
   }
-  const done = (r.list || cuts.map((c) => [c.start, c.end])).map((c) => ({ start: c[0], end: c[1] }));
+  CLEAN.cutting = false;
+  if (!applied.length) {
+    if (err) return fail(err);
+    CLEAN.error = L('Stopped — nothing was cut.') + ' “' + p.sequence + '”';
+    renderCleanupPanel();
+    return null;
+  }
+  const done = applied.map((c) => ({ start: c[0], end: c[1] })).sort((x, y) => x.start - y.start);
+  const inCut = (it) => done.some((c) => it.start >= c.start - 0.1 && it.end <= c.end + 0.1);
   const drop = [];
-  sel.forEach((it) => { if (it.words) it.words.forEach((w) => drop.push(w)); });
+  sel.forEach((it) => { if (it.words && inCut(it)) it.words.forEach((w) => drop.push(w)); });
   hideTiming();
   reviewCues = remapCuesAfterCut(reviewCues, done, drop);
   setPreviewMedia(remapMediaAfterCut(PREVIEW_MEDIA, done));
@@ -4441,10 +4504,11 @@ async function applyCleanup() {
   syncReviewUndo();
   renderReview();
   schedulePreview();
-  CLEAN.done = r;
-  log('✂ Clean up: removed ' + fmtDur(r.removedSeconds) + ' in ' + r.cuts + ' cut(s) — "' + r.sequence + '"');
+  CLEAN.done = { sequence: p.sequence, removedSeconds, cuts: applied.length, total: list.length,
+    error: err ? L(err.error || 'Premiere did not answer.') : '' };
+  log('✂ Clean up: removed ' + fmtDur(removedSeconds) + ' in ' + applied.length + ' of ' + list.length + ' cut(s) — "' + p.sequence + '"');
   renderCleanupPanel();
-  return r;
+  return CLEAN.done;
 }
 function toggleCleanupPanel() {
   const p = $('cleanupPanel');
