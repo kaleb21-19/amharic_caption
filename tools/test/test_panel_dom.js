@@ -1433,7 +1433,7 @@ await t('4k. timing editor (1.16.19): the sound wave under the caption being edi
     // a real ffmpeg: the panel's own, else AMH_TEST_FFMPEG / the installed panel's / PATH
     // (the dev runtime's ffmpeg can be an empty placeholder)
     const cp = require('child_process');
-    const works = (f) => !!f && cp.spawnSync(f, ['-version']).status === 0;
+    const works = (f) => { if (!f) return false; const r = cp.spawnSync(f, ['-version'], { encoding: 'utf8' }); return r.status === 0 && /ffmpeg version/.test(r.stdout || ''); };   // an empty +x placeholder 'succeeds' on Linux
     const ff = [p.evalVm('FFMPEG'), process.env.AMH_TEST_FFMPEG,
       path.join(process.env.APPDATA || '', 'Adobe', 'CEP', 'extensions', 'com.amharic.captions', 'runtime', 'bin', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'),
       'ffmpeg'].find(works);
