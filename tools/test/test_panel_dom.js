@@ -237,7 +237,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.16.18');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.16.19');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1399,6 +1399,55 @@ await t('4j. ★ Emphasis (1.16.16): mark / unmark a word; plain captions and ex
     ta.selectionStart = 6; ta.selectionEnd = 6;          // the cursor inside "ለሁላችሁ"
     star.fire('mousedown', { preventDefault() {} });
     assert.strictEqual(text(), 'ሰላም *ለሁላችሁ*', 'the word at the cursor pops');
+  } finally { p.close(); }
+});
+
+await t('4k. timing editor (1.16.19): the sound wave under the caption being edited; edges stay between the neighbours', async () => {
+  const p = loadPanel({});
+  try {
+    await flush(10);
+    p.evalVm('LICENSED = true; renderPreview = async () => {}; lastCues = [' +
+      '{ start: 1, end: 2, text: "ሰላም" }, { start: 2.5, end: 4, text: "እንዴት ናችሁ" }, { start: 4.4, end: 5, text: "ዛሬ" }];');
+    const tmp = path.join(os.tmpdir(), 'amh_review_' + Date.now() + '.srt');
+    fs.writeFileSync(tmp, '1\n00:00:01,000 --> 00:00:02,000\nx\n');
+    await p.evalVm('openReview(' + JSON.stringify(tmp) + ', "talk.mp4", 0, {})');
+    // the limits: never over a neighbour, never shorter than 0.2 s
+    assert.strictEqual(p.evalVm('setTimingEdge(1, "start", 1.2)'), 2, 'start stops at the previous caption end');
+    assert.strictEqual(p.evalVm('setTimingEdge(1, "end", 9)'), 4.4, 'end stops at the next caption start');
+    assert.strictEqual(p.evalVm('setTimingEdge(1, "start", 4.3)'), 4.2, 'at least 0.2 s long');
+    assert.strictEqual(p.evalVm('setTimingEdge(1, "start", 2.734)'), 2.73, 'to the hundredth');
+    // no footage known: nothing extra under the caption
+    p.evalVm('setPreviewMedia([])');
+    assert.strictEqual(p.evalVm('showTiming(1, { appendChild() {}, className: "" })'), null);
+    // with footage: the wave opens under that caption, and only one at a time
+    p.evalVm('setPreviewMedia([{ path: "C:/v/talk.mp4", offset: 0 }]); renderReview();');
+    const rows = p.els('reviewList').children;
+    const strips = () => rows.filter((r) => (r.children || []).some((c) => c.className && /timing-strip/.test(c.className))).length;
+    p.evalVm('showTiming(1, document.getElementById("reviewList").children[1])');
+    assert.strictEqual(strips(), 1, 'the wave is under caption 2');
+    p.evalVm('showTiming(0, document.getElementById("reviewList").children[0])');
+    assert.strictEqual(strips(), 1, 'moving to another caption closes the first one');
+    p.evalVm('closeReview()');
+    assert.strictEqual(p.evalVm('TIMING_I'), -1);
+    // the wave follows the sound: 1 s silence, then 1 s tone
+    // a real ffmpeg: the panel's own, else AMH_TEST_FFMPEG / the installed panel's / PATH
+    // (the dev runtime's ffmpeg can be an empty placeholder)
+    const cp = require('child_process');
+    const works = (f) => { if (!f) return false; const r = cp.spawnSync(f, ['-version'], { encoding: 'utf8' }); return r.status === 0 && /ffmpeg version/.test(r.stdout || ''); };   // an empty +x placeholder 'succeeds' on Linux
+    const ff = [p.evalVm('FFMPEG'), process.env.AMH_TEST_FFMPEG,
+      path.join(process.env.APPDATA || '', 'Adobe', 'CEP', 'extensions', 'com.amharic.captions', 'runtime', 'bin', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'),
+      'ffmpeg'].find(works);
+    if (!ff) { console.log('    (4k: no working ffmpeg here - the wave check was SKIPPED)'); return; }
+    const wav = path.join(os.tmpdir(), 'amh_wave_' + Date.now() + '.wav');
+    const made = cp.spawnSync(ff, ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'anullsrc=r=16000:cl=mono:d=1',
+      '-f', 'lavfi', '-i', 'sine=f=440:d=1:r=16000', '-filter_complex', '[0][1]concat=n=2:v=0:a=1', wav]);
+    assert.ok(made.status === 0 && fs.existsSync(wav), 'test sound made');
+    {
+      const peaks = JSON.parse(await p.evalVm('waveformPeaks({ path: ' + JSON.stringify(wav) + ', offset: 0 }, 0, 2, 20, ' + JSON.stringify(ff) + ').then(JSON.stringify)'));
+      assert.strictEqual(peaks.length, 20);
+      assert.ok(Math.max(...peaks.slice(0, 9)) < 0.05 && Math.min(...peaks.slice(11)) > 0.5, 'quiet first, loud after: ' + peaks.map((v) => v.toFixed(2)).join(' '));
+      fs.unlinkSync(wav);
+    }
   } finally { p.close(); }
 });
 

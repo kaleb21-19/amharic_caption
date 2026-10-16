@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.16.18';
+const APP_VERSION = '1.16.19';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,18 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.16.19': {
+    banner: {
+      am: 'የካፕሽን ጊዜን በድምፅ ሞገድ ላይ በመጎተት ያስተካክሉ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: 'Fix caption timing by dragging on the sound wave — your license stays the same.',
+    },
+    items: [
+      { am: '〰 ካፕሽን ሲያስተካክሉ የቪዲዮዎ ድምፅ ሞገድ ከስሩ ይታያል', en: "〰 Editing a caption shows your video's sound wave right under it" },
+      { am: 'አረንጓዴውን ክፍል ጫፎች ይጎትቱ፦ ካፕሽኑ የሚጀምርበትና የሚያልቅበት', en: "Drag the green part's edges: when the caption starts and ends" },
+      { am: 'ከጎረቤት ካፕሽኖች ጋር አይደራረብም፤ ↶ ይመልሳል', en: 'It never overlaps the next caption; ↶ undoes it' },
+      { am: 'ሞገዱን ይንኩ — Premiere ያንን ቦታ ያሳያል', en: 'Click the wave — Premiere jumps there' },
+    ],
+  },
   '1.16.16': {
     banner: {
       am: 'ቃላትን ጎልተው እንዲታዩ ያድርጉ (★) — ቁጥሮችና ብር ራሳቸው ይጎላሉ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -3722,6 +3734,7 @@ function removeTempCaptionArtifact(filePath) {
 }
 
 function closeReview(keepArtifact) {
+  hideTiming();
   if (!keepArtifact && REVIEW && REVIEW.outSrt) removeTempCaptionArtifact(REVIEW.outSrt);
   if (!keepArtifact) lastSrtPath = null;
   reviewOpen = false;
@@ -3995,6 +4008,9 @@ function renderReview() {
     row.appendChild(timeBox);
     row.appendChild(textBox);
     row.appendChild(acts);
+    // the timing editor of the caption being edited (it survives a re-render)
+    if (TIMING_I === i) showTiming(i, row, tIn, tOut);
+    ta.addEventListener('focus', () => { showTiming(i, row, tIn, tOut); });
     // Click a caption row to jump the Premiere playhead to that caption's start.
     row.addEventListener('click', (e) => {
       const el = e.target;
@@ -4104,6 +4120,151 @@ function toggleEmphasis(i, from, to) {
   schedulePreview();
   return true;
 }
+// ── Timing editor (1.16.19) ──────────────────────────────────────────────────
+// Click into a caption: a small sound wave of the editor's own footage opens
+// UNDER that caption (nothing stays above the list), a little before and
+// after it. The caption is the green part; drag its two handles to move the
+// start / end - never over the neighbouring captions, never shorter than
+// 0.2 s, one undo step per drag. Clicking the wave moves the Premiere
+// playhead there. No footage known (an audio-only run is fine: the voice
+// file IS the footage) -> nothing extra appears.
+let TIMING_I = -1;
+let TIMING_EL = null;
+const WAVE_CACHE = {};
+const TIMING_MIN = 0.2;
+function timingWindow(c) {
+  const pad = Math.max(1, Math.min(3, (c.end - c.start) * 0.6));
+  return { from: Math.max(0, c.start - pad), to: c.end + pad };
+}
+function waveformPeaks(media, from, to, n, ff) {   // ff: tests only
+  const key = media.path + '|' + (from + media.offset).toFixed(2) + '|' + (to - from).toFixed(2) + '|' + n;
+  if (WAVE_CACHE[key]) return Promise.resolve(WAVE_CACHE[key]);
+  return new Promise((resolve) => {
+    const ss = Math.max(0, from + media.offset);
+    try {
+      execFile(ff || FFMPEG, ['-v', 'error', '-ss', ss.toFixed(3), '-t', (to - from).toFixed(3), '-i', media.path,
+        '-vn', '-ac', '1', '-ar', '4000', '-f', 's16le', '-'],
+      { encoding: 'buffer', maxBuffer: 16 * 1024 * 1024, timeout: 20000 }, (err, out) => {
+        if (err || !out || out.length < 4) { resolve(null); return; }
+        const samples = Math.floor(out.length / 2);
+        const per = Math.max(1, Math.floor(samples / n));
+        const peaks = [];
+        let max = 1;
+        for (let b = 0; b < n; b++) {
+          let m = 0;
+          for (let k = b * per; k < Math.min(samples, (b + 1) * per); k++) {
+            const v = Math.abs(out.readInt16LE(k * 2));
+            if (v > m) m = v;
+          }
+          peaks.push(m);
+          if (m > max) max = m;
+        }
+        const res = peaks.map((v) => v / max);
+        WAVE_CACHE[key] = res;
+        resolve(res);
+      });
+    } catch (e) { resolve(null); }
+  });
+}
+// Move one edge of caption i to time t (seconds), kept between the
+// neighbours and at least TIMING_MIN long. Returns the time it got.
+function setTimingEdge(i, which, t) {
+  const c = reviewCues[i];
+  if (!c) return null;
+  const prev = reviewCues[i - 1];
+  const next = reviewCues[i + 1];
+  t = Math.round(Number(t) * 100) / 100;
+  if (which === 'start') {
+    t = Math.max(prev ? prev.end : 0, Math.min(t, c.end - TIMING_MIN));
+    c.start = t;
+  } else {
+    t = Math.min(next ? next.start : 1e9, Math.max(t, c.start + TIMING_MIN));
+    c.end = t;
+  }
+  return t;
+}
+function hideTiming() {
+  if (TIMING_EL && TIMING_EL.parentNode) {
+    if (TIMING_EL.parentNode.className) TIMING_EL.parentNode.className = TIMING_EL.parentNode.className.replace(/ ?timing-open/g, '');
+    TIMING_EL.parentNode.removeChild(TIMING_EL);
+  }
+  TIMING_EL = null;
+  TIMING_I = -1;
+}
+function showTiming(i, row, tIn, tOut) {
+  const c = reviewCues[i];
+  if (!c || !row) return null;
+  const media = previewMediaFor([[c.text, c.start, c.end]]);
+  if (!media) return null;                       // no footage known: nothing extra
+  if (TIMING_EL && TIMING_I !== i) hideTiming();
+  if (TIMING_EL && TIMING_EL.parentNode === row) return TIMING_EL;
+  TIMING_I = i;
+  const win = timingWindow(c);
+  const span = win.to - win.from;
+  const pct = (t) => Math.max(0, Math.min(100, (t - win.from) / span * 100));
+  const strip = document.createElement('div');
+  strip.className = 'timing-strip';
+  const wave = document.createElement('div');
+  wave.className = 'wave';
+  const region = document.createElement('div');
+  region.className = 'region';
+  const hs = document.createElement('div');
+  hs.className = 'handle';
+  hs.title = L('Drag: when this caption starts');
+  const he = document.createElement('div');
+  he.className = 'handle';
+  he.title = L('Drag: when this caption ends');
+  strip.appendChild(wave);
+  strip.appendChild(region);
+  strip.appendChild(hs);
+  strip.appendChild(he);
+  const place = () => {
+    region.style.left = pct(c.start) + '%';
+    region.style.width = (pct(c.end) - pct(c.start)) + '%';
+    hs.style.left = pct(c.start) + '%';
+    he.style.left = pct(c.end) + '%';
+    if (tIn) tIn.value = fmtReviewTs(c.start);
+    if (tOut) tOut.value = fmtReviewTs(c.end);
+  };
+  place();
+  const timeAt = (clientX) => {
+    const r = strip.getBoundingClientRect ? strip.getBoundingClientRect() : { left: 0, width: 1 };
+    return win.from + Math.max(0, Math.min(1, (clientX - r.left) / Math.max(1, r.width))) * span;
+  };
+  const drag = (which) => (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (e && e.stopPropagation) e.stopPropagation();
+    pushReviewUndo('timing');
+    const move = (ev) => { setTimingEdge(i, which, timeAt(ev.clientX)); place(); };
+    const up = () => {
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+      schedulePreview();
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  };
+  hs.addEventListener('mousedown', drag('start'));
+  he.addEventListener('mousedown', drag('end'));
+  strip.addEventListener('click', (e) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    if (e && typeof e.clientX === 'number') seekPlayhead(timeAt(e.clientX));
+  });
+  row.className = (row.className || '') + ' timing-open';
+  row.appendChild(strip);
+  TIMING_EL = strip;
+  waveformPeaks(media, win.from, win.to, 90).then((peaks) => {
+    if (TIMING_EL !== strip) return;
+    if (!peaks) { strip.className += ' no-wave'; return; }
+    peaks.forEach((v) => {
+      const bar = document.createElement('i');
+      bar.style.height = Math.max(4, Math.round(v * 100)) + '%';
+      wave.appendChild(bar);
+    });
+  });
+  return strip;
+}
+
 function nudgeReview(i, delta) {
   const cue = reviewCues[i];
   if (!cue) return;

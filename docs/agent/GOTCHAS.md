@@ -41,3 +41,4 @@ new; merge duplicates; keep < 80 lines.
 - CEP CSP allows `img-src 'self' data:` only -> show generated images as data: URIs.
 - The desktop app bridge `readFileSync` is text-only -> use `readBase64` for images.
 - One changed setting = one stale text somewhere. A customer-visible number lives in worker.js, website/*.jsx, the in-zip tools/installers/START HERE.html AND the bot's hand-set profile (DEPLOY.md `/setdescription`, `/setabouttext`) -> grep the literal old value in all four and update the bot profile by hand. tools/telegram/bot.py is DECOMMISSIONED (DEPLOY.md) - never "fix" its texts.
+- The dev/worktree runtime's `bin/ffmpeg.exe` can be a 0-byte placeholder: a test that needs real ffmpeg must find a working one (`-version` exit 0 AND output says "ffmpeg version": on Linux CI the placeholder is an EMPTY +x file, which runs as a blank shell script and exits 0), never silently skip. (2026-10-17, 1.16.19 test 4k)
