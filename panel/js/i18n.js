@@ -152,6 +152,8 @@ const AM_TEXT = {
   // failure messages shown under Generate (main.js humanError)
   'That clip is too short to transcribe.': 'ክሊፑ ወደ ጽሑፍ ለመቀየር በጣም አጭር ነው።',
   'No speech found in that audio.': 'በድምፁ ውስጥ ንግግር አልተገኘም።',
+  'This precomp has no layer with sound in that part. Open it and select the layer, or use Whole comp.':
+    'ይህ precomp በዚህ ክፍል ድምፅ ያለው ንብርብር የለውም። ይክፈቱትና ንብርብሩን ይምረጡ፣ ወይም Whole comp ይጠቀሙ።',
   'This nested sequence has no clip with sound in that part. Open it and select the clip, or use Whole edit.':
     'ይህ የተጠቃለለ ሲክዌንስ (nested sequence) በዚህ ክፍል ድምፅ ያለው ክሊፕ የለውም። ይክፈቱትና ክሊፑን ይምረጡ፣ ወይም Whole edit ይጠቀሙ።',
   'That is a caption layer made by Amharic Captions. Select your video or audio clip instead.':

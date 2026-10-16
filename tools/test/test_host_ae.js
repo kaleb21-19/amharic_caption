@@ -148,6 +148,48 @@ t('selected layer: source range from startTime/inPoint/outPoint', () => {
   assert.strictEqual(r.via, 'selected');
 });
 
+// 1.16.13: the Premiere fixes of 1.16.7-1.16.10, in After Effects.
+function ownLayer(comp, o) {          // our styled caption layer (no sound)
+  const L = new AVLayer(comp, Object.assign({ hasAudio: false }, o));
+  L.source = new FootageItem('amhstyle_comp__glide_1.mov', 'C:/Docs/amhstyle_comp__glide_1.mov', false);
+  comp._layers.push(L);
+  return L;
+}
+function precompLayer(comp, inner, o) {
+  const L = new AVLayer(comp, Object.assign({ hasAudio: true, name: inner.name }, o));
+  L.source = inner;
+  comp._layers.push(L);
+  return L;
+}
+
+t('selected: our caption layer + the clip -> the clip (not "no audio")', () => {
+  const comp = new CompItem();
+  ownLayer(comp, { inPoint: 0, outPoint: 30, selected: true });
+  footageLayer(comp, { inPoint: 0, outPoint: 30, selected: true, file: 'C:/v/talk.mp4' });
+  const r = call(makeCtx(comp), 'amharic_getSelectedClip()');
+  assert.ok(r.ok, r.error);
+  assert.strictEqual(r.sourcePath, 'C:/v/talk.mp4');
+});
+
+t('time indicator over our caption layer and the clip -> the clip', () => {
+  const comp = new CompItem({ time: 5 });
+  ownLayer(comp, { inPoint: 0, outPoint: 30 });
+  footageLayer(comp, { inPoint: 0, outPoint: 30, file: 'C:/v/talk.mp4' });
+  assert.strictEqual(call(makeCtx(comp), 'amharic_getSelectedClip()').sourcePath, 'C:/v/talk.mp4');
+});
+
+t('a precomp cut in two parts: the part under the time indicator -> the clip inside, same comp time', () => {
+  const inner = new CompItem({ name: 'Interview', duration: 60 });
+  footageLayer(inner, { startTime: 0, inPoint: 0, outPoint: 60, file: 'C:/v/full.mp4' });
+  const comp = new CompItem({ time: 15 });
+  precompLayer(comp, inner, { startTime: 0, inPoint: 0, outPoint: 10 });
+  precompLayer(comp, inner, { startTime: 0, inPoint: 10, outPoint: 20 });   // part 2 shows inner 10..20
+  const r = call(makeCtx(comp), 'amharic_getSelectedClip()');
+  assert.ok(r.ok, r.error);
+  assert.deepStrictEqual([r.sourcePath, r.sourceIn, r.duration, r.timelineStart], ['C:/v/full.mp4', 10, 10, 10]);
+  assert.match(r.via, /precomp/);
+});
+
 t('no selection: falls back to the audio layer under the time indicator', () => {
   const comp = new CompItem({ time: 20 });
   footageLayer(comp, { inPoint: 0, outPoint: 10, file: 'C:/v/a.mp4' });

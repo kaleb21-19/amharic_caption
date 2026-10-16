@@ -3,6 +3,7 @@
 One dated line per task the agent finished: what changed, version, PR.
 Older than ~3 months: summarize into one line per month.
 
+- 2026-10-16 — 1.16.13: reliability pass, After Effects: the Premiere fixes of 1.16.7-1.16.10 ported - selected/time-indicator pick skips our amhstyle layers and silent layers, and a precomp is opened (up to 3 levels) for that part of the comp. test_host_ae +3.
 - 2026-10-15 — 1.16.12: placing a style on cut part 2 removed part 1's styled layer (same name prefix; layers only touch; AE removed every match at any time). Replace now only removes a layer lying MOSTLY (>50%) inside the new captions' time (Premiere + AE). test_host_overlay +1.
 - 2026-10-15 — 1.16.11: Mac customer "only Plain works": styled layers were placed but Premiere (Apple Silicon) showed the qtrle overlay as streaks. Mac overlays are now ProRes 4444 with alpha (same transparency, tested); Windows unchanged.
 - 2026-10-15 — 1.16.10: single-clip mode on a NESTED sequence (owner: cut in two parts -> "No clip found" while Whole edit worked): the clip inside the nested sequence is used for that timeline part (+ another file inside as audioAlt); Work Area/Whole edit skip our own amhstyle layers. test_host_pick +2.

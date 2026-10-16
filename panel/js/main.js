@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.16.12';
+const APP_VERSION = '1.16.13';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -395,6 +395,7 @@ function errorStep(raw) {
   if (t.includes('audio-bearing')) return 'err_no_clips';
   if (t.includes('caption layer made by amharic captions')) return 'err_no_clip';
   if (t.includes('nested sequence has no clip with sound')) return 'err_no_media';
+  if (t.includes('precomp has no layer with sound')) return 'err_no_media';
   if (t.includes('no clip found') || t.includes('no selected clip') || t.includes('select a clip')) return 'err_no_clip';
   if (t.includes('source path') || t.includes('no media file')) return 'err_no_media';
   if (NO_AUDIO_RE.test(t)) return 'err_no_audio';
@@ -5509,6 +5510,9 @@ function humanError(raw) {
   if (t.includes('audio too short')) return 'That clip is too short to transcribe.';
   if (t.includes('no speech')) return 'No speech found in that audio.';
   if (t.includes('audio-bearing')) return NO_CLIPS_HELP || 'No transcribable clips in that range.';
+  if (t.includes('precomp has no layer with sound')) {
+    return 'This precomp has no layer with sound in that part. Open it and select the layer, or use Whole comp.';
+  }
   if (t.includes('nested sequence has no clip with sound')) {
     return 'This nested sequence has no clip with sound in that part. Open it and select the clip, or use Whole edit.';
   }
