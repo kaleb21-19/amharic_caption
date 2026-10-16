@@ -202,6 +202,31 @@ if ff and A.supported(ff):
         else:
             pw_, ph_ = 1 + int.from_bytes(head[24:27], "little"), 1 + int.from_bytes(head[27:30], "little")
         check(pw_ == A.PREVIEW_PX and ph_ <= pw_ * 0.4, "preview: the caption strip only, %dx%d" % (pw_, ph_))
+        # 1.16.14: the editor's own footage plays behind the captions; an
+        # audio-only file (the voice clip) falls back to the plain background
+        foot = os.path.join(tmp, "foot.mp4")
+        subprocess.run([ff, "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=320x568:r=25:d=8", "-pix_fmt", "yuv420p", foot], check=True)
+        voice = os.path.join(tmp, "voice.wav")
+        subprocess.run([ff, "-y", "-v", "error", "-f", "lavfi", "-i", "sine=d=8", voice], check=True)
+        save = A._has_encoder
+        A._has_encoder = lambda f, n: False if n == "libwebp_anim" else save(f, n)   # GIF: ffmpeg can read it back
+        try:
+            def colours(job):
+                rr = A.render(dict({"cues": [("ሰላም እንዴት ነህ", 4.5, 6.0)], "style": "bold", "width": 320, "height": 568,
+                                    "mode": "preview", "ffmpeg": ff, "fonts": fonts}, **job))
+                fr = subprocess.run([ff, "-v", "error", "-i", rr["out"], "-vf", "select=eq(n\\,8)", "-frames:v", "1",
+                                     "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True).stdout
+                # colourfulness: mean |R-G| + |G-B| (test pattern: bright bars; plain: grey-blue)
+                px = [(fr[i], fr[i + 1], fr[i + 2]) for i in range(0, len(fr) - 2, 3 * 5)]
+                return sum(abs(r - g) + abs(g - b) for r, g, b in px) / float(max(1, len(px)))
+            on_foot = colours({"out": os.path.join(tmp, "pv1"), "video": foot, "videoOffset": -2.0})
+            on_voice = colours({"out": os.path.join(tmp, "pv2"), "video": voice})
+            plain = colours({"out": os.path.join(tmp, "pv3")})
+            check(on_foot > plain * 3 and on_foot > 60, "preview over the editor's footage (colour %.0f vs %.0f plain)" % (on_foot, plain))
+            check(on_voice > 0 and abs(on_voice - plain) < 10,
+                  "preview from an audio-only file: the plain background, no error (%.0f vs %.0f)" % (on_voice, plain))
+        finally:
+            A._has_encoder = save
         # entrances: the text moves the right way with no jump (fast words, so
         # the word-by-word redraws start while the entrance still runs) and
         # ends exactly where the style puts it

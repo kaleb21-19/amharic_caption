@@ -7,7 +7,7 @@ new; merge duplicates; keep < 80 lines.
 - "release tag vX already points at ..." -> X was published by an earlier merge. New branch from origin/main + `python tools/agent/bump.py <next>`. Check first: `python tools/agent/release_state.py`.
 - New `ci/build-*` branches do NOT start build-zips (paths-ignore) -> force-push the work to the existing `ci/build-1.10.20` branch to get a full Windows+Mac build.
 - A merge without a version bump ends red at "Stage verified packages" -> expected, harmless.
-- A fix release needs NO `WHATS_NEW` entry (since 1.16.7 the card shows the newest news not yet seen); add an entry only when a release brings news. Keep the banner's "ፈቃድዎ እንደቀድሞው ይቀጥላል" wording (test 16 pins it).
+- A fix release needs NO `WHATS_NEW` entry (since 1.16.7 the card shows the newest news not yet seen); add an entry only when a release brings news. Keep the banner's "ፈቃድዎ እንደቀድሞው ይቀጥላል" wording (test 16 pins it). Tests 16d check the NEWEST entry (`WHATS_NEW[newsVersion()]`), never a fixed text - adding news must not break them.
 - GitHub API without login is rate-limited -> poll at most every 150 s.
 
 ## Shell / files (Windows)

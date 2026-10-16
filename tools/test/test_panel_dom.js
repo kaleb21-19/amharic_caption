@@ -231,7 +231,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.16.13');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.16.14');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1184,6 +1184,12 @@ await t('4g. customize (1.12): colour, size, position, words, box remembered per
     assert.deepStrictEqual(j.cues, [['ሰላም እንዴት', 0.5, 1.2], ['ናችሁ', 1.3, 2.0]]);
     assert.ok(/^data:image\/webp;base64,/.test(p.els('stylePreview').src), 'the preview is shown as an image');
     assert.ok(!fs.existsSync(prev), 'the preview file is cleaned up');
+    assert.strictEqual(j.video, undefined, 'no footage known: the plain background');
+    // 1.16.14: the clip's own footage plays behind the preview, at the right second
+    p.evalVm('setPreviewMedia([{ path: "C:/v/other.mp4", offset: 0, from: 30, to: 40 }, { path: "C:/v/talk.mp4", offset: 2.5, from: 0, to: 10 }])');
+    await p.evalVm('renderPreview()');
+    j = last();
+    assert.deepStrictEqual([j.video, j.videoOffset], ['C:/v/talk.mp4', 2.5], 'the footage that covers these captions');
     // pick: red highlight, slide-up entrance, the Classic (serif) font, XL, TikTok safe, 2 words, box
     const rows = p.els('styleOpts').children;
     const pick = (row, value) => Array.from(rows[row].children[1].children).find((b) => b.dataset.value === value).fire('click');
@@ -2722,9 +2728,9 @@ await t('16d. what\'s new: once per version, never on a first install, ✕/Try i
     has(p.els('wnTitle').textContent, "What's new in " + ver);
     const items = p.els('wnList').children.map((li) => li.textContent);
     assert.ok(items.length >= 4, 'lists the new things: ' + items.length);
-    has(items.join(' | '), 'Client words');
-    has(items.join(' | '), 'this computer only');
-    has(items.join(' | '), 'Export');
+    // the newest news this version has (not a fixed text: each release may add news)
+    const newest = JSON.parse(p.evalVm('JSON.stringify(WHATS_NEW[newsVersion()].items.map((x) => x.en))'));
+    newest.forEach((x) => has(items.join(' | '), x));
     // ✕ hides it and remembers this version.
     p.els('wnClose').click();
     assert.strictEqual(p.els('whatsNew').style.display, 'none');
@@ -2757,7 +2763,8 @@ await t('16d. what\'s new: once per version, never on a first install, ✕/Try i
   try {
     await flush(10);
     has(r.els('wnTitle').textContent, 'በስሪት ' + r.evalVm('APP_VERSION') + ' አዲስ የመጣ');
-    has(r.els('wnList').children.map((li) => li.textContent).join(' | '), 'የደንበኛ ቃላት');
+    has(r.els('wnList').children.map((li) => li.textContent).join(' | '),
+      JSON.parse(r.evalVm('JSON.stringify(WHATS_NEW[newsVersion()].items[0].am)')));   // the newest news, in Amharic
     // The labels around it: index.html gets its Amharic from data-i18n, which
     // this shim does not render — so read the tables the panel applies.
     assert.strictEqual(r.evalVm("AM_STATIC['wn.try']"), 'ይሞክሩት', 'polite: ይሞክሩት');
