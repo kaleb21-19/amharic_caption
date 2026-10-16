@@ -426,6 +426,181 @@ function applyFixes(text, fixes) {
   return { text: t, applied };
 }
 
+// ── Clean-up cut (1.16.20) ───────────────────────────────────────────────────
+// What the ✂ Clean up panel offers to cut from the timeline: long pauses (from
+// the sound itself), repeated takes and Amharic hesitation sounds (from the
+// captions). Pure functions: the panel measures the sound, the host cuts.
+// Times are timeline seconds, like the captions.
+const CLEANUP_FILLERS = ['እ', 'እእ', 'እእእ', 'ኧ', 'ኧኧ', 'ኧኧኧ', 'እም', 'እምም', 'ኧም', 'ኤ', 'ኤኤ', 'ም', 'ምም', 'ምምም', 'አአ', 'አአአ'];
+// Words that are often only filling, but not always: offered, never ticked.
+const CLEANUP_FILLER_WORDS = ['እንግዲህ', 'ያው', 'ማለቴ'];
+const CLEANUP_STRIP = /[*።፣፤፥፦፧፨?!.,;:"'“”‘’«»()[\]…-]/g;
+function cleanupNorm(w) { return String(w || '').replace(CLEANUP_STRIP, '').trim(); }
+
+// Every word of the captions with an estimated time (the caption's time shared
+// by letters), in order: { w, n (normalized), s, e, cue, k (word index) }.
+function cleanupWords(cues) {
+  const out = [];
+  (cues || []).forEach((c, ci) => {
+    const parts = String(c.text || '').replace(/\n/g, ' ').split(/\s+/).filter(Boolean);
+    if (!parts.length) return;
+    const weight = parts.map((w) => Array.from(w).length + 1);
+    const total = weight.reduce((x, y) => x + y, 0);
+    const span = Math.max(0, Number(c.end) - Number(c.start));
+    let t = Number(c.start);
+    parts.forEach((w, k) => {
+      const d = span * weight[k] / total;
+      out.push({ w, n: cleanupNorm(w), s: t, e: t + d, cue: ci, k });
+      t += d;
+    });
+  });
+  return out;
+}
+
+// Long pauses from the sound: env = { t0, step, db: [loudness per frame] }.
+// The quiet level is measured on THIS recording (a noisy room is fine): a
+// frame is quiet when it sits in the lower part between the room's own floor
+// and the voice. Keeps `pad` seconds of breath on each side.
+function findSilences(env, opts) {
+  opts = opts || {};
+  const minLen = Number(opts.minLen) || 0.7;
+  const pad = opts.pad == null ? 0.15 : Number(opts.pad);
+  const db = (env && env.db) || [];
+  if (db.length < 10) return [];
+  const sorted = Array.from(db).sort((a, b) => a - b);
+  const pct = (q) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
+  const floor = pct(0.1);
+  const loud = pct(0.95);
+  if (loud - floor < 12) return [];                 // no clear voice/quiet difference: cut nothing
+  const thr = floor + Math.max(6, 0.3 * (loud - floor));
+  const out = [];
+  let runStart = -1;
+  for (let i = 0; i <= db.length; i++) {
+    const quiet = i < db.length && db[i] < thr;
+    if (quiet && runStart < 0) runStart = i;
+    if (!quiet && runStart >= 0) {
+      const s = env.t0 + runStart * env.step;
+      const e = env.t0 + i * env.step;
+      if (e - s >= minLen && e - s - 2 * pad >= 0.2) out.push({ start: s + pad, end: e - pad });
+      runStart = -1;
+    }
+  }
+  return out;
+}
+
+// Repeated takes: the same 3+ words said again right after ("ዛሬ ስለ ቡና … ዛሬ ስለ
+// ቡና ታሪክ"): the FIRST try is cut, the last one stays. Short repeats (two
+// words, "በጣም በጣም") are how people speak and are never offered.
+function findRepeats(cues) {
+  const W = cleanupWords(cues).filter((x) => x.n);
+  const out = [];
+  let p = 0;
+  while (p < W.length) {
+    let hit = 0;
+    for (let k = Math.min(10, Math.floor((W.length - p) / 2)); k >= 3; k--) {
+      let same = true;
+      for (let j = 0; j < k && same; j++) same = W[p + j].n === W[p + k + j].n;
+      if (same && W.slice(p, p + k).map((x) => x.n).join('').length >= 5) { hit = k; break; }
+    }
+    if (hit) {
+      out.push({ start: W[p].s, end: W[p + hit].s, text: W.slice(p, p + hit).map((x) => x.w).join(' '),
+        words: W.slice(p, p + hit).map((x) => [x.cue, x.k]) });
+      p += hit;
+    } else p++;
+  }
+  return out;
+}
+
+// Hesitation sounds (እ…, ኧ…, እም…) and, separately, words that are often only
+// filling (እንግዲህ, ያው, ማለቴ) — those are offered but never ticked.
+function findFillers(cues) {
+  const out = [];
+  cleanupWords(cues).forEach((x) => {
+    const sound = CLEANUP_FILLERS.indexOf(x.n) >= 0;
+    const word = CLEANUP_FILLER_WORDS.indexOf(x.n) >= 0;
+    if (sound || word) out.push({ start: x.s, end: x.e, text: x.w, word: !sound, words: [[x.cue, x.k]] });
+  });
+  return out;
+}
+
+// Move a cut edge to the quietest moment near it.
+function snapQuiet(t, env, radius) {
+  if (!env || !env.db || !env.db.length) return t;
+  const r = radius == null ? 0.25 : radius;
+  const i0 = Math.max(0, Math.floor((t - r - env.t0) / env.step));
+  const i1 = Math.min(env.db.length - 1, Math.ceil((t + r - env.t0) / env.step));
+  if (i1 < i0) return t;
+  let best = -1;
+  for (let i = i0; i <= i1; i++) if (best < 0 || env.db[i] < env.db[best]) best = i;
+  return env.t0 + (best + 0.5) * env.step;
+}
+
+function mergeRanges(list) {
+  const r = (list || []).filter((x) => x && x.end - x.start > 0.01)
+    .map((x) => ({ start: x.start, end: x.end })).sort((a, b) => a.start - b.start);
+  const out = [];
+  r.forEach((x) => {
+    const last = out[out.length - 1];
+    if (last && x.start <= last.end + 0.05) last.end = Math.max(last.end, x.end);
+    else out.push(x);
+  });
+  return out;
+}
+
+// Where timeline second t lands after the cuts (merged, sorted).
+function cutTime(t, cuts) {
+  let shift = 0;
+  for (const c of cuts) {
+    if (t >= c.end) shift += c.end - c.start;
+    else if (t > c.start) shift += t - c.start;
+  }
+  return t - shift;
+}
+
+// The captions after the cut: times follow the timeline; the words of a cut
+// repeat / filler leave the text (`drop` = [[cue, wordIndex], ...]); a caption
+// with nothing left goes.
+function remapCuesAfterCut(cues, cuts, drop) {
+  const gone = {};
+  (drop || []).forEach((d) => { (gone[d[0]] = gone[d[0]] || {})[d[1]] = true; });
+  const out = [];
+  (cues || []).forEach((c, ci) => {
+    let text = c.text;
+    if (gone[ci]) {
+      text = String(c.text || '').replace(/\n/g, ' ').split(/\s+/).filter(Boolean)
+        .filter((w, k) => !gone[ci][k]).join(' ');
+    }
+    const start = cutTime(Number(c.start), cuts);
+    const end = cutTime(Number(c.end), cuts);
+    if (!String(text || '').trim() || end - start < 0.05) return;
+    out.push(Object.assign({}, c, { text, start: Math.round(start * 1000) / 1000, end: Math.round(end * 1000) / 1000 }));
+  });
+  return out;
+}
+
+// The footage list after the cut: each kept stretch keeps pointing at the
+// same second of its file (source = timeline + offset).
+function remapMediaAfterCut(media, cuts) {
+  const out = [];
+  (media || []).forEach((m) => {
+    let a = Number(m.from) || 0;
+    const to = m.to == null ? 1e12 : Number(m.to);
+    const pieces = [];
+    cuts.forEach((c) => {
+      if (c.end <= a || c.start >= to) return;
+      if (c.start > a) pieces.push([a, c.start]);
+      a = Math.max(a, c.end);
+    });
+    if (a < to) pieces.push([a, to]);
+    pieces.forEach((pc) => {
+      const ns = cutTime(pc[0], cuts);
+      out.push({ path: m.path, offset: (Number(m.offset) || 0) + (pc[0] - ns), from: ns,
+        to: pc[1] >= 1e12 ? 1e12 : cutTime(pc[1], cuts) });
+    });
+  });
+  return out;
+}
+
 // Node (tests) — no-op in the CEP browser where `module` is undefined.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -434,6 +609,8 @@ if (typeof module !== 'undefined' && module.exports) {
     speakerPrefix, noEmph, srtTextFromCues, displaySrtTextFromCues, vttTextFromCues, txtTextFromCues,
     speakerSummary, aeHostCall, replaceWords, learnFixes, applyFixes, doubtRanges, splitTextAt,
     validateLicense,
+    cleanupWords, findSilences, findRepeats, findFillers, snapQuiet, mergeRanges, cutTime,
+    remapCuesAfterCut, remapMediaAfterCut, CLEANUP_FILLERS, CLEANUP_FILLER_WORDS,
     LICENSE_TOKEN_PUBKEY_PEM, licenseTokenParse, verifyLicenseToken,
   };
 }

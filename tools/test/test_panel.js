@@ -410,6 +410,48 @@ tAsync('license token: embedded public key matches the real signing key', async 
   assert.ok(b64.indexOf('MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEh4nYjxBierpwVmlfyDAGnpcqjZZl') === 0, 'embedded pubkey is the generated P-256 key');
 });
 
+// ── ✂ Clean-up cut (1.16.20) ─────────────────────────────────────────────────
+t('clean up: a repeated take (3+ words said again) cuts the FIRST try; two-word repeats stay', () => {
+  const cues = [{ text: 'ዛሬ ስለ ቡና', start: 0, end: 1.5 }, { text: 'ዛሬ ስለ ቡና ታሪክ እናወራለን።', start: 2, end: 5 }];
+  const r = core.findRepeats(cues);
+  assert.strictEqual(r.length, 1);
+  assert.deepStrictEqual([r[0].start, r[0].end, r[0].text], [0, 2, 'ዛሬ ስለ ቡና']);
+  assert.deepStrictEqual(r[0].words, [[0, 0], [0, 1], [0, 2]]);
+  assert.strictEqual(core.findRepeats([{ text: 'በጣም በጣም ጥሩ ነው', start: 0, end: 2 }]).length, 0, 'emphasis is how people talk');
+  assert.strictEqual(core.findRepeats([{ text: 'ሀ ለ መ ሀ ለ መ', start: 0, end: 2 }]).length, 0, 'too short to be a sentence');
+});
+
+t('clean up: hesitation sounds are ticked, "filler words" (እንግዲህ, ያው, ማለቴ) are only offered', () => {
+  const f = core.findFillers([{ text: 'እ… እንግዲህ ዛሬ ኧኧ', start: 0, end: 4 }]);
+  assert.deepStrictEqual(f.map((x) => [x.text, x.word]), [['እ…', false], ['እንግዲህ', true], ['ኧኧ', false]]);
+  assert.deepStrictEqual(f[2].words, [[0, 3]]);
+});
+
+t('clean up: pauses come from THIS recording (noisy room fine, no contrast = nothing), with breath kept', () => {
+  const env = (quiet, loud) => {
+    const db = [];
+    for (let i = 0; i < 500; i++) db.push(i >= 100 && i < 200 ? quiet : loud + (i % 3));
+    return { t0: 10, step: 0.02, db };
+  };
+  assert.deepStrictEqual(core.findSilences(env(-70, -20)), [{ start: 12.15, end: 13.85 }]);
+  assert.strictEqual(core.findSilences(env(-45, -20)).length, 1, 'a noisy room still has its pauses');
+  assert.strictEqual(core.findSilences(env(-24, -20)).length, 0, 'no clear voice/quiet difference: cut nothing');
+  assert.strictEqual(core.findSilences(env(-70, -20), { minLen: 2.5 }).length, 0, 'shorter than asked');
+});
+
+t('clean up: captions and footage follow the cut', () => {
+  const cuts = core.mergeRanges([{ start: 8, end: 9 }, { start: 3, end: 4 }, { start: 3.5, end: 4.2 }]);
+  assert.deepStrictEqual(cuts, [{ start: 3, end: 4.2 }, { start: 8, end: 9 }]);
+  assert.strictEqual(core.cutTime(10, cuts), 7.8);
+  assert.strictEqual(core.cutTime(3.6, cuts), 3);
+  const cues = [{ text: 'አንድ', start: 1, end: 2, _id: 'a' }, { text: 'ሁለት', start: 3.2, end: 4 }, { text: 'እ ሶስት', start: 5, end: 6 }];
+  assert.deepStrictEqual(core.remapCuesAfterCut(cues, cuts, [[2, 0]]),
+    [{ text: 'አንድ', start: 1, end: 2, _id: 'a' }, { text: 'ሶስት', start: 3.8, end: 4.8 }]);
+  const m = core.remapMediaAfterCut([{ path: 'v.mp4', offset: 5, from: 0, to: 20 }], cuts);
+  assert.deepStrictEqual(m.map((x) => [x.from, Math.round(x.to * 10) / 10, Math.round(x.offset * 10) / 10]),
+    [[0, 3, 5], [3, 6.8, 6.2], [6.8, 17.8, 7.2]]);
+});
+
 (async () => {
   await Promise.all(pending);
   console.log('\n' + (fail === 0 ? 'ALL PASS' : 'FAILURES: ' + fail) +

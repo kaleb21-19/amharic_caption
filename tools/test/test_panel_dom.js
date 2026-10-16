@@ -237,7 +237,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.16.19');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.16.20');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1449,6 +1449,77 @@ await t('4k. timing editor (1.16.19): the sound wave under the caption being edi
       fs.unlinkSync(wav);
     }
   } finally { p.close(); }
+});
+
+await t('4l. ✂ clean up (1.16.20): pauses from the footage, repeats and እ sounds from the captions; cut on a copy; captions follow', async () => {
+  // a real ffmpeg makes the test sound: 1 s voice (tone), 1.5 s quiet, 1 s voice
+  const cp = require('child_process');
+  const works = (f) => { if (!f) return false; const r = cp.spawnSync(f, ['-version'], { encoding: 'utf8' }); return r.status === 0 && /ffmpeg version/.test(r.stdout || ''); };
+  let hostCut = null;
+  let hostReply = null;
+  const p = loadPanel({ csiRaw: (jsx) => {
+    if (/amh_cleanupCut/.test(jsx)) { hostCut = jsx; return JSON.stringify(hostReply); }
+    return JSON.stringify(defaultCsiReply);
+  } });
+  try {
+    await flush(10);
+    const ff = [p.evalVm('FFMPEG'), process.env.AMH_TEST_FFMPEG,
+      path.join(process.env.APPDATA || '', 'Adobe', 'CEP', 'extensions', 'com.amharic.captions', 'runtime', 'bin', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'),
+      'ffmpeg'].find(works);
+    const wav = path.join(os.tmpdir(), 'amh_clean_' + Date.now() + '.wav');
+    if (ff) {
+      const made = cp.spawnSync(ff, ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'sine=f=300:d=1:r=16000', '-f', 'lavfi', '-i', 'anullsrc=r=16000:cl=mono:d=1.5',
+        '-f', 'lavfi', '-i', 'sine=f=300:d=1:r=16000', '-filter_complex', '[0][1][2]concat=n=3:v=0:a=1', wav]);
+      assert.ok(made.status === 0 && fs.existsSync(wav), 'test sound made');
+    } else console.log('    (4l: no working ffmpeg here - the pause part was SKIPPED)');
+    p.evalVm('LICENSED = true; renderPreview = async () => {}; lastCues = [' +
+      '{ start: 0.1, end: 0.9, text: "ዛሬ ስለ ቡና" }, { start: 2.6, end: 3.4, text: "ዛሬ ስለ ቡና እ እንግዲህ ታሪክ" }];');
+    const tmp = path.join(os.tmpdir(), 'amh_review_' + Date.now() + '.srt');
+    fs.writeFileSync(tmp, '1\n00:00:01,000 --> 00:00:02,000\nx\n');
+    await p.evalVm('openReview(' + JSON.stringify(tmp) + ', "talk.mp4", 0, {})');
+    p.evalVm('setPreviewMedia([{ path: ' + JSON.stringify(ff ? wav : 'C:/v/talk.mp4') + ', offset: 0 }])');
+    assert.notStrictEqual(p.els('revCleanup').style.display, 'none', 'the ✂ button is in the review header (Premiere)');
+    p.els('cleanupPanel').style.display = '';
+    await p.evalVm('analyzeCleanup(' + JSON.stringify(ff || null) + ')');
+    const items = JSON.parse(p.evalVm('JSON.stringify(CLEAN.items.map((x) => [x.kind, Math.round(x.start * 100) / 100, Math.round(x.end * 100) / 100, x.on]))'));
+    const kinds = items.map((x) => x[0]);
+    assert.ok(kinds.indexOf('repeat') >= 0 && kinds.indexOf('filler') >= 0 && kinds.indexOf('word') >= 0, JSON.stringify(items));
+    assert.strictEqual(items.find((x) => x[0] === 'word')[3], false, 'a filler WORD is offered, not ticked');
+    if (ff) {
+      const pause = items.find((x) => x[0] === 'pause');
+      assert.ok(pause && Math.abs(pause[1] - 1.15) < 0.06 && Math.abs(pause[2] - 2.35) < 0.06, 'the quiet part, breath kept: ' + JSON.stringify(items));
+      fs.unlinkSync(wav);
+    }
+    assert.ok(/Removes|የሚቆረጠው/.test(JSON.stringify(p.els('cleanupPanel').children.map((c) => c.textContent))), 'how much goes is shown');
+    // Premiere says no (a locked track): nothing changes, the reason is shown
+    hostReply = { ok: false, error: 'A track is locked. Unlock all tracks (the lock icons), then press Cut again.' };
+    const before = p.evalVm('JSON.stringify(reviewCues)');
+    await p.evalVm('applyCleanup()');
+    assert.ok(p.evalVm('CLEAN.error'), 'the reason is shown');
+    assert.strictEqual(p.evalVm('JSON.stringify(reviewCues)'), before, 'captions unchanged');
+    // only the repeat + the እ sound ticked; Premiere cuts on the copy
+    p.evalVm('CLEAN.items.forEach((x) => { x.on = x.kind === "repeat" || x.kind === "filler"; })');
+    hostReply = { ok: true, sequence: 'talk - clean', original: 'talk', cuts: 1, removedSeconds: 2.5, list: [[0.1, 2.6]] };
+    p.evalVm('pushReviewUndo("edit")');
+    await p.evalVm('applyCleanup()');
+    assert.ok(/C:|amh_clean_/.test(hostCut) && /\[0\.1/.test(hostCut), 'cuts + the footage sent to Premiere');
+    const after = JSON.parse(p.evalVm('JSON.stringify(reviewCues.map((c) => [c.text, c.start, c.end]))'));
+    assert.strictEqual(after.length, 1, 'the first try is gone');
+    assert.strictEqual(after[0][0], 'ዛሬ ስለ ቡና እንግዲህ ታሪክ', 'the እ left the text, the unticked filler word stayed');
+    assert.deepStrictEqual([after[0][1], after[0][2]], [0.1, 0.9], 'times follow the timeline');
+    const media = JSON.parse(p.evalVm('JSON.stringify(PREVIEW_MEDIA.map((m) => [Math.round(m.from * 1000) / 1000, Math.round(m.offset * 1000) / 1000]))'));
+    assert.deepStrictEqual(media, [[0, 0], [0.1, 2.5]], 'the footage preview still shows the right picture');
+    assert.strictEqual(p.evalVm('REVIEW_UNDO.length'), 0, 'old undo steps would not match the timeline any more');
+    assert.ok(p.evalVm('!!CLEAN.done'));
+    p.evalVm('closeReview()');
+    assert.strictEqual(p.evalVm('CLEAN'), null);
+  } finally { p.close(); }
+  // After Effects / the desktop app: no ✂ button
+  const q = loadPanel({ hostApp: 'AEFT' });
+  try {
+    await flush(10);
+    assert.strictEqual(q.els('revCleanup').style.display, 'none');
+  } finally { q.close(); }
 });
 
 await t('5. review: cache-hit transcribe -> edit -> export (speaker tags) -> nudge -> add -> discard', async () => {

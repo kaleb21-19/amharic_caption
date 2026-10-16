@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.16.19';
+const APP_VERSION = '1.16.20';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,19 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.16.20': {
+    banner: {
+      am: '✂ በአንድ ቁልፍ ያጽዱ፦ ዝምታ፣ የተደገመ አባባልና እ… ድምፆች ይቆረጣሉ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '✂ Clean up in one click: pauses, repeated takes and እ… sounds are cut — your license stays the same.',
+    },
+    items: [
+      { am: '✂ ያጽዱ፦ ረጅም ዝምታዎች ከቪዲዮዎ ድምፅ ይገኛሉ', en: '✂ Clean up: long pauses are found in your video\u2019s own sound' },
+      { am: 'የተደገመ አባባል — የመጀመሪያው ሙከራ ይቆረጣል፣ የመጨረሻው ይቀራል', en: 'Repeated takes — the first try is cut, the last one stays' },
+      { am: 'እ…፣ ኧ…፣ እም… ድምፆች ይቆረጣሉ፤ እንግዲህ/ያው እርስዎ ከመረጡ ብቻ', en: 'እ…, ኧ…, እም… sounds are cut; እንግዲህ/ያው only if you tick them' },
+      { am: 'ዝርዝሩን ያዩታል፣ ማንኛውንም ያስቀራሉ፣ መስመሩን ሲነኩ Premiere እዚያ ይሄዳል', en: 'You see the list, untick anything, click a line and Premiere goes there' },
+      { am: 'ዋናው ሴኩዌንስ አይነካም — የሚቆረጠው ቅጂው ነው፤ ካፕሽኖቹ አብረው ይስተካከላሉ', en: 'Your sequence is never touched — a copy is cut; the captions move with it' },
+    ],
+  },
   '1.16.19': {
     banner: {
       am: 'የካፕሽን ጊዜን በድምፅ ሞገድ ላይ በመጎተት ያስተካክሉ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -3735,6 +3748,8 @@ function removeTempCaptionArtifact(filePath) {
 
 function closeReview(keepArtifact) {
   hideTiming();
+  CLEAN = null;
+  closeCleanupPanel();
   if (!keepArtifact && REVIEW && REVIEW.outSrt) removeTempCaptionArtifact(REVIEW.outSrt);
   if (!keepArtifact) lastSrtPath = null;
   reviewOpen = false;
@@ -4263,6 +4278,189 @@ function showTiming(i, row, tIn, tOut) {
     });
   });
   return strip;
+}
+
+// ── ✂ Clean-up cut (1.16.20) ─────────────────────────────────────────────────
+// One button in the review header: the panel listens to the editor's own
+// footage for long pauses, and reads the captions for repeated takes and
+// hesitation sounds (core.js). Everything found is listed with a tick box (a
+// click on a line jumps the playhead there to listen); "Cut on a copy" takes
+// the ticked parts out of a COPY of the sequence (host amh_cleanupCut), and
+// the captions follow the cut. Premiere only.
+let CLEAN = null;            // { envs, items, busy, done, error }
+const CLEAN_PAUSES = [0.5, 0.8, 1.2];
+function cleanupAvailable() { return !IS_AE && !IS_APP_MODE(); }
+function fmtDur(sec) {
+  const s = Math.max(0, Math.round(Number(sec) || 0));
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+// Loudness of the footage, 50 times a second, for a stretch of the timeline.
+function audioEnvelope(media, from, to, ff) {
+  return new Promise((resolve) => {
+    const ss = Math.max(0, from + media.offset);
+    const dur = to - from;
+    if (!(dur > 0.2)) { resolve(null); return; }
+    try {
+      execFile(ff || FFMPEG, ['-v', 'error', '-ss', ss.toFixed(3), '-t', dur.toFixed(3), '-i', media.path,
+        '-vn', '-ac', '1', '-ar', '4000', '-f', 's16le', '-'],
+      { encoding: 'buffer', maxBuffer: Math.ceil(dur * 8000) + (1 << 20), timeout: 300000 }, (err, out) => {
+        if (err || !out || out.length < 160) { resolve(null); return; }
+        const per = 80;                                  // 20 ms at 4 kHz
+        const n = Math.floor(out.length / 2 / per);
+        const db = new Array(n);
+        for (let f = 0; f < n; f++) {
+          let sum = 0;
+          for (let k = 0; k < per; k++) { const v = out.readInt16LE((f * per + k) * 2); sum += v * v; }
+          db[f] = 20 * Math.log10(Math.sqrt(sum / per) / 32768 + 1e-6);
+        }
+        resolve({ t0: from, step: 0.02, db });
+      });
+    } catch (e) { resolve(null); }
+  });
+}
+function cleanupEnvAt(t) {
+  return ((CLEAN && CLEAN.envs) || []).find((e) => t >= e.t0 && t <= e.t0 + e.db.length * e.step) || null;
+}
+function cleanupPause() {
+  const v = Number(loadSettings().cleanupPause);
+  return CLEAN_PAUSES.indexOf(v) >= 0 ? v : 0.8;
+}
+// Find everything (the sound is measured once per review; the pause length
+// only re-reads it).
+async function analyzeCleanup(ff) {
+  CLEAN = { envs: [], items: [], busy: true };
+  renderCleanupPanel();
+  if (!reviewCues.length) { CLEAN.busy = false; renderCleanupPanel(); return CLEAN; }
+  const lo = Math.max(0, Math.min.apply(null, reviewCues.map((c) => c.start)) - 0.5);
+  const hi = Math.max.apply(null, reviewCues.map((c) => c.end)) + 0.5;
+  for (const m of PREVIEW_MEDIA) {
+    const a = Math.max(lo, m.from);
+    const b = Math.min(hi, m.to);
+    if (b - a > 0.5) {
+      const env = await audioEnvelope(m, a, b, ff);
+      if (env) CLEAN.envs.push(env);
+    }
+  }
+  cleanupFindAll();
+  CLEAN.busy = false;
+  renderCleanupPanel();
+  return CLEAN;
+}
+function cleanupFindAll() {
+  const items = [];
+  CLEAN.envs.forEach((env) => findSilences(env, { minLen: cleanupPause() }).forEach((s) =>
+    items.push({ kind: 'pause', start: s.start, end: s.end, on: true })));
+  findRepeats(reviewCues).forEach((r) => items.push({ kind: 'repeat', start: r.start, end: r.end, text: r.text, words: r.words, on: true }));
+  findFillers(reviewCues).forEach((f) => {
+    const env = cleanupEnvAt(f.start);
+    items.push({ kind: f.word ? 'word' : 'filler', text: f.text, words: f.words, on: !f.word,
+      start: snapQuiet(f.start, env, 0.2), end: snapQuiet(f.end, env, 0.2) });
+  });
+  items.sort((x, y) => x.start - y.start);
+  CLEAN.items = items.filter((x) => x.end - x.start > 0.05);
+}
+function cleanupSelected() { return ((CLEAN && CLEAN.items) || []).filter((x) => x.on); }
+function renderCleanupPanel() {
+  const p = $('cleanupPanel');
+  if (!p || p.style.display === 'none') return;
+  p.textContent = '';
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  p.appendChild(el('div', 'mem-head', '✂ ' + L('Clean up')));
+  p.appendChild(el('div', 'mem-sub', L('Cuts long pauses, repeated takes and እ… sounds — on a copy of your sequence.')));
+  if (!CLEAN || CLEAN.busy) { p.appendChild(el('div', 'mem-sub', L('Listening for pauses…'))); return; }
+  if (CLEAN.done) {
+    p.appendChild(el('div', 'clean-done', L('Done') + ': ' + L('removed') + ' ' + fmtDur(CLEAN.done.removedSeconds) +
+      ' — “' + CLEAN.done.sequence + '” ' + L('is open. Your captions moved with the cuts: press Place to put them on it.')));
+    return;
+  }
+  const seg = el('div', 'clean-opt');
+  seg.appendChild(el('span', '', L('Pauses longer than')));
+  CLEAN_PAUSES.forEach((v) => {
+    const b = el('button', 'sc-opt' + (v === cleanupPause() ? ' active' : ''), v + ' s');
+    b.type = 'button';
+    b.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); saveSettings({ cleanupPause: v }); cleanupFindAll(); renderCleanupPanel(); });
+    seg.appendChild(b);
+  });
+  p.appendChild(seg);
+  if (!CLEAN.envs.length) p.appendChild(el('div', 'mem-sub', L('Pauses: your footage could not be read here — repeats and sounds only.')));
+  const names = { pause: L('Pause'), repeat: L('Repeated take'), filler: L('Sound'), word: L('Filler word?') };
+  const list = el('div', 'clean-list');
+  if (!CLEAN.items.length) list.appendChild(el('div', 'mem-sub', L('Nothing to clean — it is already tight.')));
+  CLEAN.items.forEach((it) => {
+    const row = el('label', 'clean-row' + (it.on ? '' : ' off'));
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = it.on;
+    cb.addEventListener('change', () => { it.on = cb.checked; renderCleanupPanel(); });
+    row.appendChild(cb);
+    row.appendChild(el('span', 'clean-t', fmtReviewTs(it.start)));
+    const what = names[it.kind] + (it.text ? ' «' + it.text + '»' : '') + ' · ' + (it.end - it.start).toFixed(1) + ' s';
+    const txt = el('span', 'clean-what', what);
+    txt.title = L('Listen: moves the playhead here');
+    txt.addEventListener('click', (e) => { if (e && e.preventDefault) e.preventDefault(); seekPlayhead(Math.max(0, it.start - 1)); });
+    row.appendChild(txt);
+    list.appendChild(row);
+  });
+  p.appendChild(list);
+  const sel = mergeRanges(cleanupSelected());
+  const total = sel.reduce((x, c) => x + c.end - c.start, 0);
+  const length = Math.max.apply(null, reviewCues.map((c) => c.end).concat([0]));
+  p.appendChild(el('div', 'clean-sum', L('Removes') + ' ' + fmtDur(total) + ' ' + L('of') + ' ' + fmtDur(length)));
+  if (CLEAN.error) p.appendChild(el('div', 'clean-err', CLEAN.error));
+  const go = el('button', 'btn btn-primary clean-go', '✂ ' + L('Cut on a copy of the sequence'));
+  go.type = 'button';
+  go.disabled = !sel.length || !!CLEAN.cutting;
+  go.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); applyCleanup(); });
+  p.appendChild(go);
+  p.appendChild(el('div', 'mem-sub', L('Your sequence stays as it is; the clean copy opens next to it. Clean up before you place the captions.')));
+}
+async function applyCleanup() {
+  const sel = cleanupSelected();
+  const cuts = mergeRanges(sel);
+  if (!cuts.length || CLEAN.cutting) return null;
+  CLEAN.cutting = true;
+  CLEAN.error = '';
+  renderCleanupPanel();
+  const media = Array.from(new Set(PREVIEW_MEDIA.map((m) => m.path)));
+  const r = await evalScript('amh_cleanupCut(' + escJson(JSON.stringify({ cuts: cuts.map((c) => [c.start, c.end]), media })) + ')', 300000);
+  CLEAN.cutting = false;
+  if (!r || !r.ok) {
+    CLEAN.error = L((r && r.error) || 'Premiere did not answer.');
+    log('Clean up: ' + ((r && r.error) || 'no answer'));
+    renderCleanupPanel();
+    return r;
+  }
+  const done = (r.list || cuts.map((c) => [c.start, c.end])).map((c) => ({ start: c[0], end: c[1] }));
+  const drop = [];
+  sel.forEach((it) => { if (it.words) it.words.forEach((w) => drop.push(w)); });
+  hideTiming();
+  reviewCues = remapCuesAfterCut(reviewCues, done, drop);
+  setPreviewMedia(remapMediaAfterCut(PREVIEW_MEDIA, done));
+  REVIEW_UNDO.length = 0;             // the old captions no longer match the timeline
+  syncReviewUndo();
+  renderReview();
+  schedulePreview();
+  CLEAN.done = r;
+  log('✂ Clean up: removed ' + fmtDur(r.removedSeconds) + ' in ' + r.cuts + ' cut(s) — "' + r.sequence + '"');
+  renderCleanupPanel();
+  return r;
+}
+function toggleCleanupPanel() {
+  const p = $('cleanupPanel');
+  if (!p) return;
+  const open = p.style.display === 'none';
+  closeMemoryPanel();
+  closeClientPanel();
+  p.style.display = open ? '' : 'none';
+  if (open) {
+    const b = $('revCleanup');
+    if (b && typeof b.offsetTop === 'number' && b.offsetHeight) p.style.top = (b.offsetTop + b.offsetHeight + 4) + 'px';
+    if (!CLEAN || CLEAN.done) analyzeCleanup(); else renderCleanupPanel();
+  }
+}
+function closeCleanupPanel() {
+  const p = $('cleanupPanel');
+  if (p) p.style.display = 'none';
 }
 
 function nudgeReview(i, delta) {
@@ -5131,6 +5329,11 @@ function initReview() {
   if (memBtn) memBtn.addEventListener('click', toggleMemoryPanel);
   const cliBtn = $('revClient');
   if (cliBtn) cliBtn.addEventListener('click', toggleClientPanel);
+  const cleanBtn = $('revCleanup');
+  if (cleanBtn) {
+    if (cleanupAvailable()) cleanBtn.addEventListener('click', toggleCleanupPanel);
+    else cleanBtn.style.display = 'none';                   // Premiere only
+  }
 
 
 
@@ -5143,6 +5346,7 @@ function initReview() {
     const el = e && e.target;
     if (!(el && el.closest && el.closest('#memoryPanel, #revMemory'))) closeMemoryPanel();
     if (!(el && el.closest && el.closest('#clientPanel, #revClient'))) closeClientPanel();
+    if (!(el && el.closest && el.closest('#cleanupPanel, #revCleanup'))) closeCleanupPanel();
     if (el && el.closest && el.closest('.row-more')) return;
     closeRowMenus();
   });
