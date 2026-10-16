@@ -31,6 +31,7 @@ the same PR that moves or renames the code. Keep this file under ~120 lines.
 - `panel/js/main.js` :: `function applyClientWords` — a client's words into the captions as ONE undo step (out: `unapplyClientWords`)
 - `panel/js/main.js` :: `function analyzeCleanup` — ✂ Clean up: pauses (footage loudness) + repeats/እ sounds (core.js findSilences/findRepeats/findFillers)
 - `panel/js/main.js` :: `function applyCleanup` — cut on a copy (host amh_cleanupCut), captions + footage follow the cut
+- `panel/js/main.js` :: `function applyZoom` — 🔍 Auto zoom: moments from core findZoomMoments -> host amh_autoZoom
 - `panel/js/main.js` :: `function memoryRuleFor` — which store a green word came from (🧠 machine or 👤 client)
 - `panel/js/i18n.js` :: `'NEW'` — Amharic UI strings (key = the English text)
 - `panel/index.html` :: `id="review"` — markup + all panel CSS (dark only)
@@ -38,6 +39,7 @@ the same PR that moves or renames the code. Keep this file under ~120 lines.
 - `panel/jsx/host.jsx` :: `function amharic_getSelectedClip` — which clip Generate uses (audio tracks first, then video)
 - `panel/jsx/host.jsx` :: `function amh_placeOverlay` — styled layer on the first empty track above (Premiere)
 - `panel/jsx/host.jsx` :: `function amh_cleanupPrepare` — ✂ checks + copy the sequence; then `amh_cleanupSome` cuts groups (razor + ripple, every track)
+- `panel/jsx/host.jsx` :: `function amh_autoZoom` — Scale keyframes on the footage (Motion effect), on a copy; skips the editor's own animation
 - `panel/jsx/host.jsx` :: `function amharic_getFrame` — sequence width/height/fps
 - `panel/jsx/host_ae.jsx` :: `function amh_placeOverlay` — styled layer in After Effects (pure ASCII file!)
 
@@ -85,5 +87,6 @@ the same PR that moves or renames the code. Keep this file under ~120 lines.
 - `tools/test/test_host_pick.js` :: `nothing selected` — which clip is used
 - `tools/test/test_host_overlay.js` :: — styled layer placement
 - `tools/test/test_host_cleanup.js` :: — ✂ clean-up cut (copy, every track in sync, frame-exact)
+- `tools/test/test_host_zoom.js` :: — 🔍 auto zoom keyframes (source time, own scale, never over the editor's animation)
 - `tools/test/test_app.py` :: — desktop app bridge
 - `tools/test/amharic_regression.py` :: — engine output unchanged (~6 min)

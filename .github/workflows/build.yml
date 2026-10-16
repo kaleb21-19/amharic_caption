@@ -199,6 +199,9 @@ jobs:
       - name: Clean-up cut — on a copy, every track in sync (1.16.20)
         run: node tools/test/test_host_cleanup.js
 
+      - name: Auto zoom — Scale keyframes on a copy, never over the editor's own (1.16.23)
+        run: node tools/test/test_host_zoom.js
+
       - name: Caption styles — every style, smoothness rules, real drawing with ffmpeg (1.11)
         run: |
           if command -v ffmpeg >/dev/null; then export AMH_FFMPEG="$(command -v ffmpeg)"; fi
