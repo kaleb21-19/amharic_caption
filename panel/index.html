@@ -427,6 +427,17 @@
   /* One caption per row: time · (tools on hover) · text · (✕ on hover).
      The list reads like a script; the tools appear only where the mouse is. */
   .review-row { display: flex; gap: 6px; align-items: flex-start; padding: 4px; border-radius: var(--radius-sm); cursor: pointer; }
+  /* Timing editor (1.16.19): the sound wave under the caption being edited */
+  .review-row.timing-open { flex-wrap: wrap; }
+  .timing-strip { flex: 0 0 100%; position: relative; height: 40px; margin-top: 4px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--bg-card); overflow: hidden; cursor: crosshair; }
+  .timing-strip .wave { position: absolute; left: 0; right: 0; top: 3px; bottom: 3px; display: flex; align-items: center; gap: 1px; }
+  .timing-strip .wave i { flex: 1 1 0; min-height: 1px; border-radius: 1px; background: #3c4d47; }
+  .timing-strip .region { position: absolute; top: 0; bottom: 0; background: rgba(46,204,113,.20);
+    border-left: 2px solid var(--accent); border-right: 2px solid var(--accent); pointer-events: none; }
+  .timing-strip .handle { position: absolute; top: 0; bottom: 0; width: 12px; margin-left: -6px; z-index: 2; cursor: ew-resize; }
+  .timing-strip .handle::after { content: ''; position: absolute; left: 5px; top: 9px; bottom: 9px; width: 2px; border-radius: 1px; background: #fff; }
+  .timing-strip.no-wave .wave { background: repeating-linear-gradient(90deg, transparent 0 6px, #24302c 6px 7px); }
   .review-row:hover, .review-row:focus-within { background: var(--bg-hover); }
   .review-row .time-box { display: flex; flex-direction: column; gap: 1px; flex: 0 0 60px; }
   .review-row input, .review-row textarea, .review-row button { cursor: default; }
@@ -918,7 +929,7 @@
     <div class="recent-list" id="recentList"></div>
   </div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.16.18</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span></span>
+    <span>v<span id="panelVersion">1.16.19</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span></span>
     <span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="updateCheck" title="Check for updates" data-i18n="update.check" data-i18n-title="update.checkTitle">↻ Check for updates</a>

@@ -157,6 +157,8 @@ const AM_TEXT = {
   'That clip is too short to transcribe.': 'ክሊፑ ወደ ጽሑፍ ለመቀየር በጣም አጭር ነው።',
   'No speech found in that audio.': 'በድምፁ ውስጥ ንግግር አልተገኘም።',
   'Make the selected word pop': 'የተመረጠውን ቃል ጎልቶ እንዲታይ ያድርጉ',
+  'Drag: when this caption starts': 'ይጎትቱ፦ ይህ ካፕሽን የሚጀምርበት',
+  'Drag: when this caption ends': 'ይጎትቱ፦ ይህ ካፕሽን የሚያልቅበት',
   'Make the word at the cursor pop (★ again: back to normal)': 'ጠቋሚው ያለበትን ቃል ጎልቶ እንዲታይ ያድርጉ (እንደገና ★፦ ወደ መደበኛ)',
   'Pop words': 'ጎልተው የሚታዩ',
   'Numbers too': 'ቁጥሮችንም',
