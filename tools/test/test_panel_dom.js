@@ -231,7 +231,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.16.16');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.16.17');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1377,6 +1377,22 @@ await t('4j. ★ Emphasis (1.16.16): mark / unmark a word; plain captions and ex
     assert.match(p.evalVm('displaySrtTextFromCues(' + cues + ')'), /ዋጋው 5,000 ብር ነው/);
     // ... but the styled captions get them (the engine draws the word bigger)
     assert.match(p.evalVm('JSON.stringify(styleCues(reviewCues))'), /\*5,000 ብር\*/);
+    // 1.16.17: the ★ next to the text - click a word, press ★ (owner: "I click the word, nothing happens")
+    p.evalVm('reviewCues[0].text = "ሰላም ለሁላችሁ"; renderReview();');
+    const find = (node, cls) => {
+      if (!node) return null;
+      if (node.className === cls) return node;
+      for (const ch of (node.children || [])) { const f = find(ch, cls); if (f) return f; }
+      return null;
+    };
+    const list = p.els('reviewList');
+    const star = find(list, 'pop-word');
+    assert.ok(star, 'a ★ button next to the caption text');
+    const box = find(list, 'text-box');
+    const ta = box.children.find((c) => c.tagName === 'TEXTAREA' || c.value !== undefined);
+    ta.selectionStart = 6; ta.selectionEnd = 6;          // the cursor inside "ለሁላችሁ"
+    star.fire('mousedown', { preventDefault() {} });
+    assert.strictEqual(text(), 'ሰላም *ለሁላችሁ*', 'the word at the cursor pops');
   } finally { p.close(); }
 });
 
