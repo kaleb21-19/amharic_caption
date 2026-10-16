@@ -104,6 +104,12 @@ function srtTextFromCues(cues) {
 // What viewers see (Premiere captions, the saved .srt): the subtitle
 // convention — a "– " dash where the speaker CHANGES, nothing otherwise.
 // "[S1]" on screen meant nothing to a viewer and every editor deleted it.
+// ★ marks (*word*) are for the styled captions only: never in what viewers
+// see as plain captions, nor in exported files (1.16.16).
+function noEmph(text) {
+  return String(text || '').replace(/\*/g, '').replace(/ {2,}/g, ' ').trim();
+}
+
 function displaySrtTextFromCues(cues) {
   const sortable = (cues || []).slice().sort((a, b) => a.start - b.start);
   let out = '';
@@ -115,7 +121,7 @@ function displaySrtTextFromCues(cues) {
     if (cue.speaker) prev = cue.speaker;
     out += idx + '\n';
     out += formatSrtTs(cue.start) + ' --> ' + formatSrtTs(cue.end) + '\n';
-    out += (changed ? '– ' : '') + cleanCueLines(cue.text) + '\n\n';
+    out += (changed ? '– ' : '') + noEmph(cleanCueLines(cue.text)) + '\n\n';
   }
   return out;
 }
@@ -140,7 +146,7 @@ function vttTextFromCues(cues) {
   let out = 'WEBVTT\n\n';
   for (const cue of sortable) {
     out += ts(cue.start) + ' --> ' + ts(cue.end) + '\n';
-    const text = vttEscape(cleanCueLines(cue.text));
+    const text = vttEscape(noEmph(cleanCueLines(cue.text)));
     const voice = cue.speaker ? String(cue.speaker).replace(/[^A-Za-z0-9_-]/g, '') : '';
     out += (voice ? '<v ' + voice + '>' + text + '</v>' : text) + '\n\n';
   }
@@ -152,7 +158,7 @@ function vttTextFromCues(cues) {
 function txtTextFromCues(cues) {
   const sortable = (cues || []).slice().sort((a, b) => a.start - b.start);
   return sortable.map((c) => {
-    const text = cleanCueLines(c.text);
+    const text = noEmph(cleanCueLines(c.text));
     if (!text) return '';
     const n = c.speaker ? String(c.speaker).replace(/^S/, '') : '';
     return (n ? 'Speaker ' + n + ': ' : '') + text;
@@ -425,7 +431,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     parseSrt, formatSrtTs, cleanCueLines, AMH_PUNCT_CHARS,
     detectSpeaker, normalizeCues,
-    speakerPrefix, srtTextFromCues, displaySrtTextFromCues, vttTextFromCues, txtTextFromCues,
+    speakerPrefix, noEmph, srtTextFromCues, displaySrtTextFromCues, vttTextFromCues, txtTextFromCues,
     speakerSummary, aeHostCall, replaceWords, learnFixes, applyFixes, doubtRanges, splitTextAt,
     validateLicense,
     LICENSE_TOKEN_PUBKEY_PEM, licenseTokenParse, verifyLicenseToken,

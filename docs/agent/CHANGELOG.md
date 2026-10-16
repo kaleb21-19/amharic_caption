@@ -3,6 +3,7 @@
 One dated line per task the agent finished: what changed, version, PR.
 Older than ~3 months: summarize into one line per month.
 
+- 2026-10-16 — 1.16.16: ★ Emphasis words - *marked* words (★ in each caption's ⋯ menu; whole words) and, with Emphasis "Numbers & ★" (default), numbers/money/percent pop: accent colour + 115%, same size all phrase (no reflow); self-placed styles make room; * marks stripped from plain captions/.srt/.vtt/.txt (core.noEmph). Tests: test_styles + test_panel_dom 4j.
 - 2026-10-16 — 1.16.15: 🕘 Recent - reopen and edit placed captions (companion <srt>.amh.json next to the linked .srt in Documents/AmharicCaptions: cues, style+opts, label, startSeconds, footage; newest 30). Reopen works on a TEMPORARY copy (Place/Discard delete amh_review_* files - never the linked .srt); placing again replaces by the existing rules. Premiere/AE only. test_panel_dom 4i.
 - 2026-10-16 — 1.16.14: the style preview plays the editor's OWN footage behind the captions (setPreviewMedia per mode: selected clip / Work Area / file; amh_styles preview job video+videoOffset; audio-only or unreadable -> plain background). What's new entry for the week's fixes. Tests: test_styles +2, test_panel_dom 4g.
 - 2026-10-16 — 1.16.13: reliability pass, After Effects: the Premiere fixes of 1.16.7-1.16.10 ported - selected/time-indicator pick skips our amhstyle layers and silent layers, and a precomp is opened (up to 3 levels) for that part of the comp. test_host_ae +3.

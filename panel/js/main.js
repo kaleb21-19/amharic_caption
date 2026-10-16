@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.16.15';
+const APP_VERSION = '1.16.16';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,18 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.16.16': {
+    banner: {
+      am: 'ቃላትን ጎልተው እንዲታዩ ያድርጉ (★) — ቁጥሮችና ብር ራሳቸው ይጎላሉ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: 'Make words pop (★) — numbers and money pop by themselves — your license stays the same.',
+    },
+    items: [
+      { am: '★ ቃልን ጎልቶ ማሳያ፦ በካፕሽኑ ⋯ ምናሌ ውስጥ', en: '★ Make a word pop: in the ⋯ menu of each caption' },
+      { am: 'ቁጥሮች፣ ብርና መቶኛ ራሳቸው ይጎላሉ (በCustomize ማጥፋት ይቻላል)', en: 'Numbers, money and percent pop by themselves (can be turned off in Customize)' },
+      { am: 'ጎልቶ የሚታየው ቃል በአጽንኦት ቀለምና ትልቅ ሆኖ ይታያል', en: 'A popped word is bigger, in the accent colour' },
+      { am: '🕘 የቅርብ ጊዜ፦ ያስቀመጧቸውን ካፕሽኖች ከፍተው ያስተካክሉ', en: '🕘 Recent: reopen and edit captions you placed' },
+    ],
+  },
   '1.16.15': {
     banner: {
       am: 'ያስቀመጧቸውን ካፕሽኖች እንደገና ከፍተው ማስተካከል ይችላሉ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -3834,12 +3846,15 @@ function renderReview() {
     const nudgeBack = mk('−0.1s', 'Shift this caption −0.1s');
     const nudgeFwd = mk('+0.1s', 'Shift this caption +0.1s');
     const addBelow = mk('+', 'Add a caption below');
+    const popBtn = mk('★', 'Make the selected word pop');
     const nextCue = reviewCues[i + 1];
     mergeBtn.disabled = !canJoin(i);
     splitBtn.disabled = !splitTextAt(cue.text || '', -1);
     nudgeBack.addEventListener('click', () => nudgeReview(i, -0.1));
     nudgeFwd.addEventListener('click', () => nudgeReview(i, 0.1));
     addBelow.addEventListener('click', () => { const j = addReviewCue(i); focusReviewCue(j, 0); });
+    // the textarea keeps its selection after the menu takes the focus
+    popBtn.addEventListener('click', () => { closeRowMenus(); toggleEmphasis(i, ta.selectionStart, ta.selectionEnd); });
     splitBtn.addEventListener('click', () => {
       const j = splitReview(i, cue._caret);
       if (j >= 0) focusReviewCue(j, 0);
@@ -4044,6 +4059,36 @@ function focusReviewCue(i, caret) {
   } catch (e) { /* not focusable */ }
 }
 
+// ★ Emphasis (1.16.16): the selected word(s) - or the word at the cursor -
+// get *asterisks*; pressing ★ on a marked word takes them off. The styled
+// captions draw a marked word bigger in the accent colour; plain captions and
+// exported files never show the asterisks.
+function toggleEmphasis(i, from, to) {
+  const cue = reviewCues[i];
+  if (!cue) return false;
+  const text = String(cue.text || '');
+  let a = Math.max(0, Math.min(Number(from) || 0, text.length));
+  let b = Math.max(a, Math.min(Number(to) || a, text.length));
+  // whole words only (a selection that cuts a word grows to the full word;
+  // no selection = the word at the cursor)
+  while (a > 0 && !/\s/.test(text[a - 1])) a--;
+  while (b < text.length && !/\s/.test(text[b])) b++;
+  while (a < b && /\s/.test(text[a])) a++;
+  while (b > a && /\s/.test(text[b - 1])) b--;
+  if (a === b) return false;
+  pushReviewUndo('emphasis');
+  const inner = text.slice(a, b);
+  if (inner.startsWith('*') && inner.endsWith('*') && inner.length > 2) {
+    cue.text = text.slice(0, a) + inner.slice(1, -1) + text.slice(b);
+  } else if (text[a - 1] === '*' && text[b] === '*') {
+    cue.text = text.slice(0, a - 1) + inner + text.slice(b + 1);
+  } else {
+    cue.text = text.slice(0, a) + '*' + inner.replace(/\*/g, '') + '*' + text.slice(b);
+  }
+  renderReview();
+  schedulePreview();
+  return true;
+}
 function nudgeReview(i, delta) {
   const cue = reviewCues[i];
   if (!cue) return;
@@ -4430,6 +4475,7 @@ function styleOpts(style, raw) {
     box: !!o.box,
     font: STYLE_FONTS.some((f) => f[0] === o.font) ? o.font : 'sans',
     anim: STYLE_ANIMS.some((a) => a[0] === o.anim) ? o.anim : 'auto',
+    emph: o.emph === 'off' ? 'off' : 'auto',
   };
 }
 function setStyleOpt(key, value) {
@@ -4559,6 +4605,7 @@ function renderStyleCustom() {
   colorRow(opts, 'Colour', STYLE_COLORS, o.color, 'color');
   colorRow(opts, 'Text', TEXT_COLORS, o.text, 'text');
   segRow(opts, 'Animation', STYLE_ANIMS.map(([id, name]) => [id, L(name)]), o.anim, 'anim', true);
+  segRow(opts, 'Emphasis', [['auto', L('Numbers & ★')], ['off', L('★ only')]], o.emph, 'emph');
   segRow(opts, 'Font', STYLE_FONTS.map(([id, name]) => [id, L(name)]), o.font, 'font');
   segRow(opts, 'Size', [['s', 'S'], ['m', 'M'], ['l', 'L'], ['xl', 'XL']], o.size, 'size');
   segRow(opts, 'Position', [['bottom', L('Bottom')], ['middle', L('Middle')], ['top', L('Top')], ['safe', 'TikTok']], o.pos, 'pos');
