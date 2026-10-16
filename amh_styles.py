@@ -878,6 +878,7 @@ def render(job, progress=None):
     captions_only = script
     if job.get("tag"):
         script += _tag_line(w, h, 0, dur) + "\n"
+    used_video = False          # preview over the real footage (falls back to the gradient)
     tmp = tempfile.mkdtemp(prefix="amh_style_")
     try:
         with open(os.path.join(tmp, "c.ass"), "w", encoding="utf-8") as f:
@@ -896,8 +897,20 @@ def render(job, progress=None):
         elif mode == "preview":
             bg = "gradients=s=%dx%d:c0=0x2a3646:c1=0x0b1110:x0=0:y0=0:x1=%d:y1=%d:speed=0:r=%d:d=%.3f" % (w, h, w, h, fps, dur)
             webp = _has_encoder(job["ffmpeg"], "libwebp_anim")
-            cmd = [job["ffmpeg"], "-y", "-v", "error", "-f", "lavfi", "-i", bg,
-                   "-vf", "subtitles=c.ass:fontsdir=fonts" + _caption_band(job["ffmpeg"], tmp, w, h, dur) +
+            # The editor's own footage behind the captions when we know it
+            # (1.16.14): job["video"] + job["videoOffset"] (source seconds =
+            # caption seconds + offset). Any trouble -> the plain background.
+            src_in = ["-f", "lavfi", "-i", bg]
+            pre = ""
+            vid = job.get("video")
+            if vid and os.path.isfile(vid):
+                used_video = True
+                start = max(0.0, t0 + float(job.get("videoOffset") or 0))
+                src_in = ["-ss", "%.3f" % start, "-t", "%.3f" % dur, "-i", os.path.abspath(vid), "-an"]
+                pre = ("scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d,fps=%d,setsar=1,"
+                       "eq=brightness=-0.06,format=yuv420p,") % (w, h, w, h, fps)
+            cmd = [job["ffmpeg"], "-y", "-v", "error"] + src_in + [
+                   "-vf", pre + "subtitles=c.ass:fontsdir=fonts" + _caption_band(job["ffmpeg"], tmp, w, h, dur) +
                    ("" if webp else ",split[a][b];[a]palettegen=max_colors=96[p];[b][p]paletteuse")]
             cmd += (["-c:v", "libwebp_anim", "-loop", "0", "-quality", "72", "-compression_level", "3", "-f", "webp"] if webp
                     else ["-loop", "0", "-f", "gif"])
@@ -916,11 +929,15 @@ def render(job, progress=None):
                 except ValueError:
                     pass
         err = proc.stderr.read()
-        if proc.wait() != 0 or not os.path.exists(out):
-            raise RuntimeError("ffmpeg could not draw the styled captions: " + err.strip()[-300:])
-        return {"t0": round(t0, 3), "duration": round(dur, 3), "out": out}
+        if proc.wait() != 0 or not os.path.exists(out) or (used_video and os.path.getsize(out) < 200):
+            if not used_video:
+                raise RuntimeError("ffmpeg could not draw the styled captions: " + err.strip()[-300:])
+        else:
+            return {"t0": round(t0, 3), "duration": round(dur, 3), "out": out}
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+    # the footage could not be read (audio-only file, odd codec): plain background
+    return render(dict(job, video=None), progress)
 
 
 PREVIEW_SECS = 4.5      # the preview shows the first seconds of captions

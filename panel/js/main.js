@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.16.13';
+const APP_VERSION = '1.16.14';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,18 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.16.14': {
+    banner: {
+      am: 'የስታይል ቅድመ እይታው በራስዎ ቪዲዮ ላይ ይታያል፤ በMac እና በተቆረጡ ክሊፖች ላይ ያሉ ችግሮች ተስተካክለዋል — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: 'The style preview now plays on your own video; fixes for Mac and cut clips — your license stays the same.',
+    },
+    items: [
+      { am: 'የስታይል ቅድመ እይታው አሁን በራስዎ ቪዲዮ ላይ ይታያል', en: 'The style preview now plays on your own video' },
+      { am: 'በMac ላይ ስታይሎቹ በትክክል ይታያሉ', en: 'Caption styles show correctly on Mac' },
+      { am: 'የተቆረጡ ክሊፖች፣ nested sequence እና precomp ይሰራሉ', en: 'Cut clips, nested sequences and precomps work' },
+      { am: 'አንዱ ክፍል ሌላውን የስታይል ንብርብር አያጠፋም', en: 'Styling one part no longer removes another part' },
+    ],
+  },
   '1.16.5': {
     banner: {
       am: 'አዲስ ስታይሎች፣ ፎንቶችና አገባቦች ይዞ ይመጣል — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -4374,6 +4386,18 @@ const STYLE_FONTS = [['sans', 'Modern'], ['menbere', 'Rounded'], ['serif', 'Clas
 let STYLE_FRAME = null;          // { width, height } of the sequence / video
 let PREVIEW_TIMER = null;
 let PREVIEW_SEQ = 0;
+// The footage behind the captions being reviewed (1.16.14): the style preview
+// plays the editor's own video under the captions. Each item: a media file and
+// the caption-time range it covers; source second = caption second + offset.
+let PREVIEW_MEDIA = [];
+function setPreviewMedia(list) {
+  PREVIEW_MEDIA = (list || []).filter((m) => m && m.path)
+    .map((m) => ({ path: m.path, offset: Number(m.offset) || 0, from: Number(m.from) || 0, to: Number(m.to) || 1e12 }));
+}
+function previewMediaFor(cues) {
+  const t = cues.length ? Number(cues[0][1]) || 0 : 0;
+  return PREVIEW_MEDIA.find((m) => t >= m.from - 0.5 && t < m.to) || null;
+}
 const HEX_COLOR = /^#[0-9A-Fa-f]{6}$/;
 function styleOpts(style, raw) {
   const all = raw ? null : (loadSettings().styleOpts || {});
@@ -4581,8 +4605,10 @@ async function renderPreview() {
   if (note) { note.textContent = L('Making the preview…'); note.style.display = ''; }
   const fr = previewFrame();
   try {
-    const r = await renderStyled({ cues, style: STYLE, opts: styleOpts(STYLE), width: fr.width, height: fr.height,
-      mode: 'preview', out: path.join(os.tmpdir(), 'amh_style_preview_' + Date.now()), tag: !LICENSED });
+    const media = previewMediaFor(cues);
+    const r = await renderStyled(Object.assign({ cues, style: STYLE, opts: styleOpts(STYLE), width: fr.width, height: fr.height,
+      mode: 'preview', out: path.join(os.tmpdir(), 'amh_style_preview_' + Date.now()), tag: !LICENSED },
+      media ? { video: media.path, videoOffset: media.offset } : {}));
     if (seq !== PREVIEW_SEQ) return;              // a newer preview is on its way
     const b64 = fileBase64(r.out);
     try { fs.unlinkSync(r.out); } catch (e) {}
@@ -5669,6 +5695,8 @@ async function runSelectedClip() {
   log('Checking your selected clip…');
   const c = await getSelectedClip();
   if (!c.ok || !c.sourcePath) throw new Error(c.error || 'No selected clip.');
+  setPreviewMedia([{ path: c.sourcePath, offset: c.sourceIn - c.timelineStart, from: c.timelineStart,
+    to: c.timelineStart + c.duration }]);
   log('✓ Clip: ' + c.name + (c.via ? ('  [' + c.via + ']') : ''));
   log('Listening to ' + c.duration.toFixed(1) + 's of audio…');
 
@@ -5767,6 +5795,8 @@ async function runWorkArea() {
     unsupported.slice(0, 8).forEach((u) => log('  - ' + (u.name || 'unnamed clip') + ': ' + (u.reason || 'unsupported')));
   }
   const clips = (info.clips || []).filter((c) => !c.unsupported);
+  setPreviewMedia(clips.map((c) => ({ path: c.sourcePath, offset: c.sourceIn - c.timelineStart,
+    from: c.timelineStart, to: c.timelineStart + c.duration })));
   if (clips.length === 0) {
     NO_CLIPS_HELP = noClipsHelp(info, unsupported.length);
     log('Nothing to transcribe: ' + NO_CLIPS_HELP);
@@ -5926,6 +5956,7 @@ async function runFromFile(input) {
 
 async function runFile(filePath, fileName) {
   if (reviewOpen) closeReview();
+  setPreviewMedia([{ path: filePath, offset: 0 }]);
   track('run_click');
   clearLog();
   cancelRequested = false;
