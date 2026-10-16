@@ -237,7 +237,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.16.21');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.16.22');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1457,8 +1457,11 @@ await t('4l. ✂ clean up (1.16.20): pauses from the footage, repeats and እ so
   const works = (f) => { if (!f) return false; const r = cp.spawnSync(f, ['-version'], { encoding: 'utf8' }); return r.status === 0 && /ffmpeg version/.test(r.stdout || ''); };
   let hostCut = null;
   let hostReply = null;
+  const someCalls = [];
+  let onSome = null;
   const p = loadPanel({ csiRaw: (jsx) => {
-    if (/amh_cleanupCut/.test(jsx)) { hostCut = jsx; return JSON.stringify(hostReply); }
+    if (/amh_cleanupPrepare/.test(jsx)) { hostCut = jsx; return JSON.stringify(hostReply); }
+    if (/amh_cleanupSome/.test(jsx)) { someCalls.push(jsx); if (onSome) onSome(); return JSON.stringify({ ok: true, removedSeconds: 2.5 }); }
     return JSON.stringify(defaultCsiReply);
   } });
   try {
@@ -1499,18 +1502,34 @@ await t('4l. ✂ clean up (1.16.20): pauses from the footage, repeats and እ so
     assert.strictEqual(p.evalVm('JSON.stringify(reviewCues)'), before, 'captions unchanged');
     // only the repeat + the እ sound ticked; Premiere cuts on the copy
     p.evalVm('CLEAN.items.forEach((x) => { x.on = x.kind === "repeat" || x.kind === "filler"; })');
-    hostReply = { ok: true, sequence: 'talk - clean', original: 'talk', cuts: 1, removedSeconds: 2.5, list: [[0.1, 2.6]] };
+    hostReply = { ok: true, sequence: 'talk - clean', sequenceID: 's2', fps: 25, original: 'talk',
+      list: JSON.parse(p.evalVm('JSON.stringify(mergeRanges(cleanupSelected()).map((c) => [c.start, c.end]))')) };
+    assert.strictEqual(hostReply.list.length, 2, 'the repeat and the እ');
     p.evalVm('pushReviewUndo("edit")');
     await p.evalVm('applyCleanup()');
     assert.ok(/C:|amh_clean_/.test(hostCut) && /\[0\.1/.test(hostCut), 'cuts + the footage sent to Premiere');
     const after = JSON.parse(p.evalVm('JSON.stringify(reviewCues.map((c) => [c.text, c.start, c.end]))'));
     assert.strictEqual(after.length, 1, 'the first try is gone');
     assert.strictEqual(after[0][0], 'ዛሬ ስለ ቡና እንግዲህ ታሪክ', 'the እ left the text, the unticked filler word stayed');
-    assert.deepStrictEqual([after[0][1], after[0][2]], [0.1, 0.9], 'times follow the timeline');
+    assert.ok(Math.abs(after[0][1] - 0.1) < 0.001 && after[0][2] < 0.9 && after[0][2] > 0.5, 'times follow the timeline: ' + JSON.stringify(after));
     const media = JSON.parse(p.evalVm('JSON.stringify(PREVIEW_MEDIA.map((m) => [Math.round(m.from * 1000) / 1000, Math.round(m.offset * 1000) / 1000]))'));
-    assert.deepStrictEqual(media, [[0, 0], [0.1, 2.5]], 'the footage preview still shows the right picture');
+    assert.deepStrictEqual(media.slice(0, 2), [[0, 0], [0.1, 2.5]], 'the footage preview still shows the right picture');
     assert.strictEqual(p.evalVm('REVIEW_UNDO.length'), 0, 'old undo steps would not match the timeline any more');
     assert.ok(p.evalVm('!!CLEAN.done'));
+    const plain = (j) => j.split('\\').join('');
+    assert.ok(/"sequenceID":"s2"/.test(plain(someCalls[0])), 'cuts go to the copy only');
+    // a long clean-up: progress, and ✕ Stop between groups keeps what is cut
+    someCalls.length = 0;
+    const many = [];
+    for (let i = 0; i < 12; i++) many.push([10 + 2 * i, 10.5 + 2 * i]);
+    p.evalVm('CLEAN.done = null; CLEAN.items = ' + JSON.stringify(many.map((c) => ({ kind: 'pause', start: c[0], end: c[1], on: true }))));
+    hostReply = { ok: true, sequence: 'talk - clean 2', sequenceID: 's3', fps: 25, original: 'talk', list: many };
+    onSome = () => { p.evalVm('CLEAN.stop = true'); };
+    await p.evalVm('applyCleanup()');
+    onSome = null;
+    assert.strictEqual(someCalls.length, 1, 'stopped after the first group');
+    assert.ok(plain(someCalls[0]).includes('[32,32.5]') && !plain(someCalls[0]).includes('[10,10.5]'), 'the LAST cuts go first');
+    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify([CLEAN.done.cuts, CLEAN.done.total])')), [5, 12]);
     p.evalVm('closeReview()');
     assert.strictEqual(p.evalVm('CLEAN'), null);
   } finally { p.close(); }

@@ -552,6 +552,8 @@
   .cleanup-panel .clean-sum { margin: 6px 0; font-weight: 700; }
   .cleanup-panel .clean-err { margin: 4px 0; color: var(--err); }
   .cleanup-panel .clean-go { width: 100%; margin-bottom: 4px; }
+  .cleanup-panel .clean-progress { height: 6px; border-radius: 3px; background: var(--bg-field); overflow: hidden; margin-top: 6px; }
+  .cleanup-panel .clean-progress i { display: block; height: 100%; background: var(--accent); transition: width .2s; }
   .cleanup-panel .clean-done { margin: 6px 0; color: var(--ok); line-height: 1.4; }
   .memory-panel .mem-sub { color: var(--text-secondary); margin-bottom: 6px; }
   .memory-panel .mem-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; border-top: 1px solid var(--border); }
@@ -942,7 +944,7 @@
     <div class="recent-list" id="recentList"></div>
   </div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.16.21</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span></span>
+    <span>v<span id="panelVersion">1.16.22</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span></span>
     <span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="updateCheck" title="Check for updates" data-i18n="update.check" data-i18n-title="update.checkTitle">↻ Check for updates</a>

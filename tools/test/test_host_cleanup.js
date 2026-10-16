@@ -15,7 +15,10 @@ const path = require('path');
 const vm = require('vm');
 
 const JSX = path.resolve(__dirname, '..', '..', 'panel', 'jsx');
-const coll = (arr, n) => new Proxy(arr, { get: (t, p) => (p === n ? t.length : t[p]) });
+// READS counts every clip/track Premiere is asked for: each one crosses the
+// panel-Premiere bridge, which is what makes a long clean-up slow.
+let READS = 0;
+const coll = (arr, n) => new Proxy(arr, { get: (t, p) => { if (typeof p === 'string' && /^\d+$/.test(p)) READS++; return p === n ? t.length : t[p]; } });
 const r3 = (x) => Math.round(x * 1000) / 1000;
 
 // A fake Premiere: clips on tracks, QE razor, ripple delete (closes the gap on
@@ -94,7 +97,7 @@ function makePremiere(spec, opts) {
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(JSX, 'host.jsx'), 'utf8').replace(/^#include.*$/m, ''), ctx);
   const cut = (cuts, media) => JSON.parse(vm.runInContext('amh_cleanupCut(' + JSON.stringify(JSON.stringify({ cuts, media: media || ['C:/v/interview.mp4'] })) + ')', ctx));
-  return { project, seqs, cut };
+  return { project, seqs, cut, ctx };
 }
 const VIDEO = 'C:/v/interview.mp4';
 const base = () => ({
@@ -102,6 +105,18 @@ const base = () => ({
   a: [[[0, 60, 'interview.mp4', VIDEO]], [[0, 60, 'music.mp3', 'C:/v/music.mp3']]],
 });
 
+
+// A long podcast: 20 minutes, cuts every few seconds, 4 tracks.
+function longEdit(nCuts) {
+  const L = 1200;
+  const sp = { v: [[[0, L, 'interview.mp4', VIDEO]], [[600, 610, 'title']]],
+               a: [[[0, L, 'interview.mp4', VIDEO]], [[0, L, 'music.mp3', 'C:/v/music.mp3']]] };
+  const pp = makePremiere(sp);
+  const step = (L - 20) / nCuts;
+  const cuts = [];
+  for (let i = 0; i < nCuts; i++) cuts.push([10 + i * step, 10 + i * step + 0.6]);
+  return { pp, cuts };
+}
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  PASS  ' + name); }
 
@@ -196,6 +211,39 @@ test('the same file with other letter case / slashes is the same file', () => {
   const pp = makePremiere(base());
   const r = pp.cut([[10, 12]], ['c:\\V\\Interview.MP4']);
   assert.ok(r.ok, JSON.stringify(r));
+});
+
+test('fast on long videos: 200 cuts ask Premiere for few clips (1.16.22: was ~8 million reads)', () => {
+  const { pp, cuts } = longEdit(200);
+  READS = 0;
+  const r = pp.cut(cuts);
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.ok(READS < 30000, 'clip reads: ' + READS);
+  // and still right: every track ends at the same, shorter length
+  const s = pp.project.activeSequence;
+  const ends = [s.vt[0], s.at[0], s.at[1]].map((t) => t.snap().slice(-1)[0][1]);
+  assert.ok(ends.every((e) => Math.abs(e - (1200 - r.removedSeconds)) < 0.001), JSON.stringify(ends));
+});
+
+test('step by step (progress + Stop in the panel): prepare, then cuts in groups, last group first', () => {
+  const { pp, cuts } = longEdit(12);
+  const call = (fn, a) => JSON.parse(vm.runInContext(fn + '(' + JSON.stringify(JSON.stringify(a)) + ')', pp.ctx));
+  const p = call('amh_cleanupPrepare', { cuts, media: [VIDEO] });
+  assert.ok(p.ok && p.list.length === 12 && p.sequenceID, JSON.stringify(p));
+  assert.strictEqual(pp.project.activeSequence.vt[0].snap().length, 1, 'prepare copies, cuts nothing');
+  const a = call('amh_cleanupSome', { sequenceID: p.sequenceID, fps: p.fps, cuts: p.list.slice(8) });
+  const b = call('amh_cleanupSome', { sequenceID: p.sequenceID, fps: p.fps, cuts: p.list.slice(4, 8) });
+  assert.ok(a.ok && b.ok);
+  // stopped here: the first 4 stay, the copy is still in sync
+  const s = pp.project.activeSequence;
+  const ends = [s.vt[0], s.at[0], s.at[1]].map((t) => r3(t.snap().slice(-1)[0][1]));
+  assert.strictEqual(new Set(ends).size, 1, JSON.stringify(ends));
+  assert.strictEqual(ends[0], r3(1200 - a.removedSeconds - b.removedSeconds));
+  // the editor opened another sequence meanwhile: nothing is cut there
+  pp.project.activeSequence = pp.seqs[0];
+  const c = call('amh_cleanupSome', { sequenceID: p.sequenceID, fps: p.fps, cuts: p.list.slice(0, 4) });
+  assert.match(c.error, /no longer the open sequence/);
+  assert.deepStrictEqual(pp.seqs[0].vt[0].snap(), [[0, 1200, 'interview.mp4']]);
 });
 
 console.log('ALL PASS  (' + passed + ' tests)');
