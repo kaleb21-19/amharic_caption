@@ -35,6 +35,7 @@ new; merge duplicates; keep < 80 lines.
 - A clip with no sound -> ffmpeg "Output file does not contain any stream" -> err_no_audio (clear message). Premiere picks audio-track clips first.
 - Premiere on Apple Silicon shows QuickTime Animation (qtrle) overlays as smeared streaks (customer screenshot 1.16.7) -> Mac overlays are ProRes 4444 + alpha (`_overlay_codec`); Windows keeps qtrle. CI on Mac requires ProRes.
 - Styled-layer "replace" must only take layers MOSTLY inside the new time range: cut parts of one video share the name prefix and sit back to back (owner, 1.16.12).
+- `removeTempCaptionArtifact` deletes ANY `amh_review_*` file, also in Documents -> never make the linked .srt the review file (Recent reopens on an `amh_reopen_*` temp copy). Tests must redirect `ensureCaptionsDir` to a temp folder (default = the real Documents/AmharicCaptions).
 - libass `\move` cannot ease -> smooth moves use a tiny `\frz` turn around a far `\org` (see amh_styles `_glide_tags`).
 - libass fakes bold on variable fonts -> ship static Regular/Bold files.
 - CEP CSP allows `img-src 'self' data:` only -> show generated images as data: URIs.

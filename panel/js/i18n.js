@@ -43,6 +43,10 @@ const AM_STATIC = {
   'update.later':     'በኋላ አስታውሰኝ',
   'update.check':     '↻ ዝመና ይፈትሹ',
   'update.checkTitle':'አዲስ ስሪት እንዳለ ይፈትሹ',
+  'recent.link':      '🕘 የቅርብ ጊዜ',
+  'recent.linkTitle': 'ያስቀመጧቸውን ካፕሽኖች እንደገና ይክፈቱ',
+  'recent.title':     '🕘 የቅርብ ጊዜ ካፕሽኖች',
+  'recent.hint':      'አንዱን ነክተው ይክፈቱ፣ ያስተካክሉ፣ እንደገና ያስቀምጡ — የቀድሞውን ይተካል።',
   'wn.try':           'ይሞክሩት',
   'wn.closeTitle':    'ዝጋ',
   'cli.button':       'ደንበኛ',
@@ -152,6 +156,8 @@ const AM_TEXT = {
   // failure messages shown under Generate (main.js humanError)
   'That clip is too short to transcribe.': 'ክሊፑ ወደ ጽሑፍ ለመቀየር በጣም አጭር ነው።',
   'No speech found in that audio.': 'በድምፁ ውስጥ ንግግር አልተገኘም።',
+  'No captions placed yet.': 'እስካሁን ምንም ካፕሽን አልተቀመጠም።',
+  'Remove from this list': 'ከዝርዝሩ ያስወግዱ',
   'This precomp has no layer with sound in that part. Open it and select the layer, or use Whole comp.':
     'ይህ precomp በዚህ ክፍል ድምፅ ያለው ንብርብር የለውም። ይክፈቱትና ንብርብሩን ይምረጡ፣ ወይም Whole comp ይጠቀሙ።',
   'This nested sequence has no clip with sound in that part. Open it and select the clip, or use Whole edit.':
