@@ -48,6 +48,45 @@ function amhAeHasAudio(layer) {
     try { return !!(layer.hasAudio && layer.audioEnabled !== false); } catch (e) { return false; }
 }
 
+// Our own styled caption layer ("amhstyle_..."): never the sound to caption.
+function amhAeOwnLayer(layer) {
+    try { return /^amhstyle_/.test(String(layer.source && layer.source.name || "")); } catch (e) { return false; }
+}
+
+function amhAeListenable(layer) {
+    return !!(amhAeFootagePath(layer) && amhAeHasAudio(layer) && !amhAeOwnLayer(layer));
+}
+
+function amhAeIsPrecomp(layer) {
+    try { return !!(layer.source && layer.source instanceof CompItem); } catch (e) { return false; }
+}
+
+// The layer with sound inside a precomp, for outer comp time [a, b].
+// `shift`: outer time = inner time + shift. Longest overlap wins; precomps
+// inside precomps are opened too (up to 3 levels). Returns the clip fields
+// (outer times) or null.
+function amhAeInnerPick(pc, shift, a, b, depth) {
+    var best = null;
+    try {
+        for (var j = 1; j <= pc.numLayers; j++) {
+            var L = pc.layer(j);
+            if (amhAeRetimed(L)) { continue; }
+            var oS = Math.max(a, L.inPoint + shift), oE = Math.min(b, L.outPoint + shift);
+            if (!(oE - oS > 0.05)) { continue; }
+            var r = null;
+            if (amhAeListenable(L)) {
+                r = { sourcePath: amhAeFootagePath(L), sourceIn: (oS - shift) - L.startTime, duration: oE - oS,
+                      timelineStart: oS, timelineEnd: oE, name: String(L.source.name) };
+                r.sourceOut = r.sourceIn + r.duration;
+            } else if (depth < 3 && amhAeIsPrecomp(L)) {
+                r = amhAeInnerPick(L.source, shift + L.startTime, oS, oE, depth + 1);
+            }
+            if (r && (!best || r.duration > best.duration)) { best = r; }
+        }
+    } catch (e) {}
+    return best;
+}
+
 function amhAeRetimed(layer) {
     try {
         if (layer.timeRemapEnabled) { return "time remapping"; }
@@ -120,23 +159,42 @@ function amharic_getSelectedClip() {
         var comp = amhAeComp();
         if (!comp) { return amhAeNoComp(); }
 
-        // Pass 1: an explicitly selected footage layer. Pass 2: the topmost
-        // audio footage layer under the current-time indicator.
-        var picked = null, via = "";
+        // Pass 1: an explicitly selected footage layer WITH sound (not our own
+        // styled caption layer). Pass 2: the topmost such layer under the
+        // current-time indicator. A precomp (AE's nested sequence) is opened
+        // and the layer with sound inside it is used for that part of the
+        // comp (1.16.13, same fixes as Premiere 1.16.7-1.16.10).
+        var picked = null, via = "", precomp = null, anySel = null;
         var sel = comp.selectedLayers;
         for (var s = 0; s < sel.length && !picked; s++) {
-            if (amhAeFootagePath(sel[s])) { picked = sel[s]; via = "selected"; }
+            if (amhAeListenable(sel[s])) { picked = sel[s]; via = "selected"; }
+            else if (!precomp && amhAeIsPrecomp(sel[s])) { precomp = sel[s]; }
+            else if (!anySel && amhAeFootagePath(sel[s]) && !amhAeOwnLayer(sel[s])) { anySel = sel[s]; }
         }
-        if (!picked) {
+        if (!picked && !precomp && !anySel) {
             var t = comp.time;
             for (var i = 1; i <= comp.numLayers && !picked; i++) {
                 var L = comp.layer(i);
-                if (amhAeFootagePath(L) && amhAeHasAudio(L) && t >= L.inPoint && t <= L.outPoint) {
+                if (!(t >= L.inPoint && t <= L.outPoint)) { continue; }
+                if (amhAeListenable(L)) {
                     picked = L;
                     via = "time indicator (no layer selected)";
+                } else if (!precomp && amhAeIsPrecomp(L)) {
+                    precomp = L;
                 }
             }
         }
+        if (!picked && precomp) {
+            var pS = Math.max(0, precomp.inPoint), pE = Math.min(comp.duration, precomp.outPoint);
+            var inner = (pE > pS && !amhAeRetimed(precomp)) ? amhAeInnerPick(precomp.source, precomp.startTime, pS, pE, 0) : null;
+            if (inner) {
+                inner.mode = "clip";
+                inner.via = "inside precomp " + precomp.name;
+                return amhOk(inner);
+            }
+            return amhErr("This precomp has no layer with sound in that part. Open it and select the layer, or use Whole comp.");
+        }
+        if (!picked && anySel) { picked = anySel; via = "selected"; }   // says "no audio" below
         if (!picked) {
             return amhErr("No layer found. Select a video or audio layer in the comp, or " +
                           "move the time indicator onto it, then try again.");
