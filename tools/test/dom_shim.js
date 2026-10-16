@@ -179,7 +179,7 @@ const KNOWN = [
   'licensedNote', 'licenseInput', 'licenseActivate', 'licenseStatus', 'trialBanner',
   'buyBtn', 'buyPending', 'bankDetails', 'bankBox',
   'revUndo', 'revMemory', 'memoryPanel',
-  'revClient', 'clientPanel',
+  'revClient', 'clientPanel', 'revCleanup', 'cleanupPanel',
   // next-step card after a free caption
   'trialCard', 'tcGroup', 'tcBuy', 'tcLater', 'tcLeftText', 'tcCutText',
   'freeMinBox', 'freeMinTitle', 'freeMinBtn', 'freeMinWait',
@@ -223,7 +223,7 @@ function makeDocument(tagFor) {
     diag: ['a', null], credits: ['a', null], onboardStart: ['button', null],
     licenseActivate: ['button', null], machineIdCopy: ['button', null],
     buyBtn: ['button', null], bankDetails: ['a', null],
-    revUndo: ['button', null], revMemory: ['button', null], revClient: ['button', null],
+    revUndo: ['button', null], revMemory: ['button', null], revClient: ['button', null], revCleanup: ['button', null],
     tcGroup: ['button', null], tcBuy: ['button', null], tcLater: ['button', null], freeMinBtn: ['button', null], reportBtn: ['button', null], feedbackSend: ['button', null], feedbackCancel: ['button', null], feedbackText: ['textarea', null], feedbackTg: ['input', null],
     reviewAdd: ['button', null], reviewExport: ['button', null],
     reviewDiscard: ['button', null], reviewBurn: ['button', null],

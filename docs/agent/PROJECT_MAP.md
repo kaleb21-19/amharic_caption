@@ -29,12 +29,15 @@ the same PR that moves or renames the code. Keep this file under ~120 lines.
 - `panel/js/main.js` :: `function projectKey` — which project a client belongs to (clip / video / sequence name; a temp or generic name links nothing)
 - `panel/js/main.js` :: `function setActiveClient` — the client of this project (auto from the project's own name, never guessed from the last one)
 - `panel/js/main.js` :: `function applyClientWords` — a client's words into the captions as ONE undo step (out: `unapplyClientWords`)
+- `panel/js/main.js` :: `function analyzeCleanup` — ✂ Clean up: pauses (footage loudness) + repeats/እ sounds (core.js findSilences/findRepeats/findFillers)
+- `panel/js/main.js` :: `function applyCleanup` — cut on a copy (host amh_cleanupCut), captions + footage follow the cut
 - `panel/js/main.js` :: `function memoryRuleFor` — which store a green word came from (🧠 machine or 👤 client)
 - `panel/js/i18n.js` :: `'NEW'` — Amharic UI strings (key = the English text)
 - `panel/index.html` :: `id="review"` — markup + all panel CSS (dark only)
 - `panel/CSXS/manifest.xml` :: `ExtensionBundleVersion` — version (bump with tools/agent/bump.py)
 - `panel/jsx/host.jsx` :: `function amharic_getSelectedClip` — which clip Generate uses (audio tracks first, then video)
 - `panel/jsx/host.jsx` :: `function amh_placeOverlay` — styled layer on the first empty track above (Premiere)
+- `panel/jsx/host.jsx` :: `function amh_cleanupCut` — clone the sequence, razor + ripple-remove the cuts on every track (Premiere only)
 - `panel/jsx/host.jsx` :: `function amharic_getFrame` — sequence width/height/fps
 - `panel/jsx/host_ae.jsx` :: `function amh_placeOverlay` — styled layer in After Effects (pure ASCII file!)
 
@@ -81,5 +84,6 @@ the same PR that moves or renames the code. Keep this file under ~120 lines.
 - `tools/test/test_trial_texts.py` :: `ALL PASS` — the free trial is promised with ONE number everywhere (website, guide, panel, bot profile)
 - `tools/test/test_host_pick.js` :: `nothing selected` — which clip is used
 - `tools/test/test_host_overlay.js` :: — styled layer placement
+- `tools/test/test_host_cleanup.js` :: — ✂ clean-up cut (copy, every track in sync, frame-exact)
 - `tools/test/test_app.py` :: — desktop app bridge
 - `tools/test/amharic_regression.py` :: — engine output unchanged (~6 min)
