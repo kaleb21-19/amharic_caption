@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.16.20';
+const APP_VERSION = '1.16.21';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -4427,6 +4427,7 @@ async function applyCleanup() {
   if (!r || !r.ok) {
     CLEAN.error = L((r && r.error) || 'Premiere did not answer.');
     log('Clean up: ' + ((r && r.error) || 'no answer'));
+    log('  (the captions were made from: ' + media.join(', ') + ')');
     renderCleanupPanel();
     return r;
   }

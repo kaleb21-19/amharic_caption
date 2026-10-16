@@ -1353,6 +1353,32 @@ function amhCleanupTracks(seq) {
     return out;
 }
 
+// Same file? (Windows/macOS paths: slash direction and letter case differ
+// between Premiere's answers.)
+function amhCleanupKey(p) {
+    return String(p || "").replace(/\\/g, "/").toLowerCase();
+}
+
+// Does the sequence use one of these files - directly, or inside a nested
+// sequence (up to 4 levels; owner report 1.16.20: the captions were made
+// from a nested sequence's video, the check only looked at the top level).
+function amhCleanupHasMedia(seq, wantSet, depth) {
+    if (!seq || depth > 4) { return false; }
+    var tracks = amhCleanupTracks(seq);
+    for (var w = 0; w < tracks.length; w++) {
+        var cl = tracks[w].track.clips;
+        for (var k = 0; k < cl.numItems; k++) {
+            var item = null;
+            try { item = cl[k].projectItem; } catch (e) {}
+            var mp = amhMediaPath(item);
+            if (mp && wantSet[amhCleanupKey(mp)]) { return true; }
+            var inner = amhNestedSequence(item);
+            if (inner && inner !== seq && amhCleanupHasMedia(inner, wantSet, depth + 1)) { return true; }
+        }
+    }
+    return false;
+}
+
 function amhClipName(cl) {
     try { return String(cl.name || (cl.projectItem && cl.projectItem.name) || ""); } catch (e) { return ""; }
 }
@@ -1381,17 +1407,9 @@ function amh_cleanupCut(argsJSON) {
         var tracks = amhCleanupTracks(seq);
         var want = args.media || [];
         if (want.length) {
-            var found = false;
-            for (var w = 0; w < tracks.length && !found; w++) {
-                var cl0 = tracks[w].track.clips;
-                for (var k0 = 0; k0 < cl0.numItems && !found; k0++) {
-                    var mp = amhMediaPath(cl0[k0].projectItem);
-                    for (var m = 0; m < want.length; m++) {
-                        if (mp && String(mp).replace(/\\/g, "/") === String(want[m]).replace(/\\/g, "/")) { found = true; break; }
-                    }
-                }
-            }
-            if (!found) {
+            var wantSet = {};
+            for (var m = 0; m < want.length; m++) { wantSet[amhCleanupKey(want[m])] = true; }
+            if (!amhCleanupHasMedia(seq, wantSet, 0)) {
                 return amhErr("The open sequence is not the one these captions were made from. Open that sequence, then press Cut again.");
             }
         }

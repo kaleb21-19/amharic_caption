@@ -177,4 +177,25 @@ test('the copy cannot be made: nothing is cut on the original', () => {
   assert.deepStrictEqual(pp.seqs[0].vt[0].snap(), [[0, 60, 'interview.mp4']]);
 });
 
+test('captions made from a NESTED sequence: its video counts, the cut works (owner report 1.16.20)', () => {
+  const pp = makePremiere({ v: [[[0, 60, 'Nested', '']]], a: [[[0, 60, 'Nested', '']]] });
+  const inner = { name: 'Inner', sequenceID: 'in1', videoTracks: [], audioTracks: [] };
+  const vclip = { start: { seconds: 0 }, end: { seconds: 60 }, projectItem: { getMediaPath: () => VIDEO } };
+  inner.videoTracks = coll([{ clips: coll([vclip], 'numItems') }], 'numTracks');
+  inner.audioTracks = coll([], 'numTracks');
+  const item = pp.seqs[0].vt[0].list[0].projectItem;
+  item.isSequence = () => true;
+  inner.projectItem = item;
+  pp.seqs.push(inner);
+  const r = pp.cut([[10, 12]]);
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.strictEqual(r.removedSeconds, 2);
+});
+
+test('the same file with other letter case / slashes is the same file', () => {
+  const pp = makePremiere(base());
+  const r = pp.cut([[10, 12]], ['c:\\V\\Interview.MP4']);
+  assert.ok(r.ok, JSON.stringify(r));
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');
