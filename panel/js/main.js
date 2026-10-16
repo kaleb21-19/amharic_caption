@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.16.16';
+const APP_VERSION = '1.16.17';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3927,6 +3927,18 @@ function renderReview() {
     };
     textBox.appendChild(ta);
     textBox.appendChild(back);
+    // ★ right next to the text (1.16.17): click a word, press ★ - it pops.
+    // mousedown + preventDefault keeps the cursor / selection in the text.
+    const pop = document.createElement('button');
+    pop.type = 'button';
+    pop.className = 'pop-word';
+    pop.textContent = '★';
+    pop.title = L('Make the word at the cursor pop (★ again: back to normal)');
+    pop.addEventListener('mousedown', (e) => {
+      if (e && e.preventDefault) e.preventDefault();
+      toggleEmphasis(i, ta.selectionStart, ta.selectionEnd);
+    });
+    textBox.appendChild(pop);
     paint();
     ta.addEventListener('input', () => {
       cue.text = ta.value; paint(); fitReviewBox(ta); updateReviewCount();
@@ -4605,7 +4617,12 @@ function renderStyleCustom() {
   colorRow(opts, 'Colour', STYLE_COLORS, o.color, 'color');
   colorRow(opts, 'Text', TEXT_COLORS, o.text, 'text');
   segRow(opts, 'Animation', STYLE_ANIMS.map(([id, name]) => [id, L(name)]), o.anim, 'anim', true);
-  segRow(opts, 'Emphasis', [['auto', L('Numbers & ★')], ['off', L('★ only')]], o.emph, 'emph');
+  segRow(opts, 'Pop words', [['auto', L('Numbers too')], ['off', L('My ★ only')]], o.emph, 'emph');
+  const popHint = document.createElement('div');
+  popHint.className = 'sc-hint';
+  popHint.textContent = L('★ = click a word in a caption, then press the ★ next to it. Numbers and money can pop by themselves.');
+  const popRow = opts.lastChild;            // the hint sits inside the Pop words row
+  if (popRow) { popRow.className = (popRow.className || '') + ' wrap'; popRow.appendChild(popHint); }
   segRow(opts, 'Font', STYLE_FONTS.map(([id, name]) => [id, L(name)]), o.font, 'font');
   segRow(opts, 'Size', [['s', 'S'], ['m', 'M'], ['l', 'L'], ['xl', 'XL']], o.size, 'size');
   segRow(opts, 'Position', [['bottom', L('Bottom')], ['middle', L('Middle')], ['top', L('Top')], ['safe', 'TikTok']], o.pos, 'pos');
