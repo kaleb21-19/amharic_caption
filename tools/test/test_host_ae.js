@@ -237,6 +237,116 @@ t('work area clips layers; whole comp does not; retimed layers reported', () => 
   assert.deepStrictEqual(whole.clips.map((c) => [c.timelineStart, c.duration]), [[0, 15], [12, 28]]);
 });
 
+// 1.16.17: Whole comp / Work Area must open precomps too (a nested sequence
+// cut in Premiere), not only the single-clip path of 1.16.13 -- a comp built
+// from precomps answered "no clips".
+t('whole comp: a comp built from precomps -> the clips inside them', () => {
+  const interview = new CompItem({ name: 'Interview', duration: 60 });
+  footageLayer(interview, { startTime: 0, inPoint: 0, outPoint: 60, file: 'C:/v/vip.mp4', srcName: 'vip.mp4' });
+  const broll = new CompItem({ name: 'B-roll', duration: 60 });
+  footageLayer(broll, { startTime: 0, inPoint: 0, outPoint: 60, file: 'C:/v/b.mp4', srcName: 'b.mp4' });
+  const comp = new CompItem({ duration: 60 });
+  precompLayer(comp, interview, { startTime: 0, inPoint: 0, outPoint: 10 });
+  precompLayer(comp, broll, { startTime: 0, inPoint: 10, outPoint: 15 });   // starts 10s into B-roll
+  const ctx = makeCtx(comp);
+  const whole = call(ctx, 'amharic_getSequenceInfo(true)');
+  assert.ok(whole.ok, whole.error);
+  assert.deepStrictEqual(whole.clips.map((c) => [c.sourcePath, c.timelineStart, c.sourceIn, c.duration]),
+    [['C:/v/vip.mp4', 0, 0, 10], ['C:/v/b.mp4', 10, 10, 5]]);
+  assert.deepStrictEqual(whole.unsupported, []);
+  // Work Area (the whole 60 s here) answers the same list.
+  assert.deepStrictEqual(call(ctx, 'amharic_getSequenceInfo(false)').clips, whole.clips);
+});
+
+t('whole comp: a precomp cut in parts gives every part, inner time mapped', () => {
+  const inner = new CompItem({ name: 'Interview', duration: 60 });
+  footageLayer(inner, { startTime: 0, inPoint: 0, outPoint: 60, file: 'C:/v/full.mp4', srcName: 'full.mp4' });
+  const comp = new CompItem({ duration: 60 });
+  precompLayer(comp, inner, { startTime: 0, inPoint: 0, outPoint: 10 });    // shows inner 0..10
+  precompLayer(comp, inner, { startTime: 0, inPoint: 10, outPoint: 20 });   // shows inner 10..20
+  precompLayer(comp, inner, { startTime: 20, inPoint: 20, outPoint: 25 });  // moved: inner 0..5
+  const whole = call(makeCtx(comp), 'amharic_getSequenceInfo(true)');
+  assert.ok(whole.ok, whole.error);
+  assert.deepStrictEqual(whole.clips.map((c) => [c.timelineStart, c.sourceIn, c.duration]),
+    [[0, 0, 10], [10, 10, 10], [20, 0, 5]]);
+  assert.strictEqual(new Set(whole.clips.map((c) => c.sourcePath)).size, 1, 'one source file');
+});
+
+t('work area inside a precomp: clipped, and the time maps to comp time', () => {
+  const inner = new CompItem({ name: 'Talk', duration: 60 });
+  footageLayer(inner, { startTime: 0, inPoint: 0, outPoint: 60, file: 'C:/v/talk.mp4', srcName: 'talk.mp4' });
+  const comp = new CompItem({ duration: 60, workAreaStart: 5, workAreaDuration: 3 });
+  precompLayer(comp, inner, { startTime: 0, inPoint: 0, outPoint: 20 });
+  const wa = call(makeCtx(comp), 'amharic_getSequenceInfo(false)');
+  assert.deepStrictEqual(wa.clips.map((c) => [c.timelineStart, c.timelineEnd, c.sourceIn, c.duration]),
+    [[5, 8, 5, 3]]);
+  assert.deepStrictEqual([wa.inPoint, wa.outPoint], [5, 8]);
+  // Whole comp keeps the precomp layer's own range.
+  assert.deepStrictEqual(call(makeCtx(comp), 'amharic_getSequenceInfo(true)').clips.map((c) => [c.timelineStart, c.duration]),
+    [[0, 20]]);
+  // Work Area somewhere else in the comp -> nothing from this precomp.
+  const away = new CompItem({ duration: 60, workAreaStart: 30, workAreaDuration: 5 });
+  precompLayer(away, inner, { startTime: 0, inPoint: 0, outPoint: 20 });
+  assert.deepStrictEqual(call(makeCtx(away), 'amharic_getSequenceInfo(false)').clips, []);
+});
+
+t('precomps: our caption layer is skipped, a retimed precomp is reported, nesting is limited', () => {
+  // A styled caption layer inside the precomp is never the voice - even if it
+  // somehow carries sound.
+  const inner = new CompItem({ name: 'Talk', duration: 60 });
+  ownLayer(inner, { inPoint: 0, outPoint: 60, hasAudio: true, audioEnabled: true });
+  footageLayer(inner, { inPoint: 0, outPoint: 60, file: 'C:/v/voice.mp4', srcName: 'voice.mp4' });
+  const comp = new CompItem({ duration: 60 });
+  precompLayer(comp, inner, { inPoint: 0, outPoint: 30 });
+  assert.deepStrictEqual(call(makeCtx(comp), 'amharic_getSequenceInfo(true)').clips.map((c) => c.sourcePath),
+    ['C:/v/voice.mp4']);
+
+  // A precomp layer with a speed change cannot be followed: reported, not silent.
+  const sped = new CompItem({ duration: 60 });
+  precompLayer(sped, inner, { inPoint: 0, outPoint: 30, stretch: 50 });
+  const r = call(makeCtx(sped), 'amharic_getSequenceInfo(true)');
+  assert.deepStrictEqual(r.clips, []);
+  assert.deepStrictEqual(r.unsupported, [{ name: 'Talk', reason: 'speed/stretch' }]);
+
+  // Nested precomps are opened.
+  const deep = new CompItem({ name: 'Deep', duration: 60 });
+  footageLayer(deep, { inPoint: 0, outPoint: 60, file: 'C:/v/deep.mp4', srcName: 'deep.mp4' });
+  const mid = new CompItem({ name: 'Mid', duration: 60 });
+  precompLayer(mid, deep, { inPoint: 0, outPoint: 20 });
+  const outer = new CompItem({ duration: 60 });
+  precompLayer(outer, mid, { inPoint: 0, outPoint: 20 });
+  assert.deepStrictEqual(call(makeCtx(outer), 'amharic_getSequenceInfo(true)').clips.map((c) => c.sourcePath),
+    ['C:/v/deep.mp4']);
+
+  // Deeper than the limit: stops cleanly, and single-clip mode agrees.
+  let nest = new CompItem({ name: 'L6', duration: 60 });
+  footageLayer(nest, { inPoint: 0, outPoint: 60, file: 'C:/v/too-deep.mp4' });
+  for (let lvl = 5; lvl >= 1; lvl--) {
+    const up = new CompItem({ name: 'L' + lvl, duration: 60 });
+    precompLayer(up, nest, { inPoint: 0, outPoint: 20 });
+    nest = up;
+  }
+  const deepCtx = makeCtx(nest);
+  assert.deepStrictEqual(call(deepCtx, 'amharic_getSequenceInfo(true)').clips, [], 'no clips past the limit');
+  assert.match(call(deepCtx, 'amharic_getSelectedClip()').error, /no layer with sound/);
+});
+
+t('precomp: single-clip mode and whole comp agree on the same clip', () => {
+  const inner = new CompItem({ name: 'Interview', duration: 60 });
+  footageLayer(inner, { inPoint: 0, outPoint: 60, file: 'C:/v/full.mp4', srcName: 'full.mp4' });
+  const comp = new CompItem({ duration: 60, time: 15 });
+  precompLayer(comp, inner, { startTime: 0, inPoint: 0, outPoint: 10 });
+  precompLayer(comp, inner, { startTime: 0, inPoint: 10, outPoint: 20 });
+  const ctx = makeCtx(comp);
+  const clip = call(ctx, 'amharic_getSelectedClip()');
+  assert.ok(clip.ok, clip.error);
+  assert.deepStrictEqual(call(ctx, 'amharic_getSequenceInfo(true)').clips
+    .map((c) => [c.sourceIn, c.timelineStart, c.duration]), [[0, 0, 10], [10, 10, 10]]);
+  const whole = call(ctx, 'amharic_getSequenceInfo(true)');
+  assert.ok(whole.clips.some((c) => c.timelineStart === clip.timelineStart && c.sourceIn === clip.sourceIn &&
+    c.duration === clip.duration), 'the clip single-clip mode picked is in the whole-comp list');
+});
+
 t('import: one text layer, a keyframe per cue, blanks in gaps, offset applied', () => {
   const comp = new CompItem({ duration: 60 });
   const ctx = makeCtx(comp);
