@@ -102,7 +102,7 @@ check(ev(A.build(W, "pop", 1080, 1920, opts={"words": 1})) == 5 and ev(A.build(W
 check(st(A.build(W, "karaoke", 1080, 1920, opts={"box": True}))[15] == "3" and
       st(A.build(W, "neon", 1080, 1920, opts={"box": True}))[15] == "1", "box on (not for styles that are their own box/glow)")
 o = A.options({"color": "red", "size": "huge", "pos": "left", "words": 9, "box": 1})
-check(o == {"color": None, "text": None, "size": "m", "pos": "bottom", "words": 0, "box": True, "font": "sans", "anim": "auto"},
+check(o == {"color": None, "text": None, "size": "m", "pos": "bottom", "words": 0, "box": True, "font": "sans", "anim": "auto", "emph": "auto"},
       "bad options fall back safely")
 check(A.options({"font": "comic"})["font"] == "sans", "unknown font -> the default")
 for fid, fam in A.FONTS.items():
@@ -146,6 +146,25 @@ t = A.build(W, "glide", 1080, 1920, opts={"color": "#FF3B30"})
 check("&H00303BFF" in t and A.VIOLET not in t, "the colour option paints the glide pill")
 t = A.build(W, "spotlight", 1080, 1920, opts={"color": "#FF3B30"})
 check("&H00303BFF" in t and A.SPOT not in t, "the colour option tints the spoken word in spotlight")
+# ★ emphasis (1.16.16): *marked* words and (auto) numbers / money pop
+EW = A.words_from_cues([("ዋጋው *5,000 ብር* ነው *ልዩ* ዋጋ 20% ብቻ", 0, 6)])
+marked = lambda mode: [w[0].startswith(A.EM) for w in A._mark_emphasis(EW, mode)]
+check(marked("auto") == [False, True, True, False, True, False, True, False], "auto: *marked* words + numbers/percent")
+check(marked("off") == [False, True, True, False, True, False, False, False], "off: only the *marked* words")
+check(not any(A.EM in w[0] or "*" in w[0] for w in [(x[0].lstrip(A.EM),) for x in A._mark_emphasis(EW, "auto")]),
+      "the * marks never reach the screen")
+check(A.options({})["emph"] == "auto" and A.options({"emph": "off"})["emph"] == "off" and A.options({"emph": "x"})["emph"] == "auto",
+      "emphasis option: auto by default")
+for st in A.STYLES:
+    t = A.build(EW, st, 1080, 1920)
+    ok = t.count("\\fscx%d\\fscy%d" % (A.EMPH_SCALE, A.EMPH_SCALE)) >= 4 and A.EM not in t and "*" not in t
+    check(ok, "%s: emphasized words drawn bigger in the accent colour" % st)
+unm = A.words_from_cues([("ዋጋው 5000 ብር ነው", 0, 2)])
+t0 = A.build(unm, "bold", 1080, 1920, opts={"emph": "off"})
+check("fscx115" not in t0, "nothing marked + off: the style exactly as before")
+pl = A._place([A.EM + "ሰላም", "ሰላም"], "Noto Sans Ethiopic", 100, 1080, 1920, A.options({}), 0.24)
+check(abs(pl[0][2] / pl[1][2] - A.EMPH_SCALE / 100.0) < 0.01, "self-placed styles make room for a bigger word")
+
 FONT_FILES = {"sans": "NotoSansEthiopic", "menbere": "Menbere", "serif": "NotoSerifEthiopic", "abyssinica": "AbyssinicaSIL"}
 shipped = os.listdir(os.path.join(REPO, "tools", "fonts"))
 check(set(FONT_FILES) == set(A.FONTS) and all(FONT_FILES[f] + "-Regular.ttf" in shipped for f in A.FONTS),

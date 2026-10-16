@@ -231,7 +231,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.16.15');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.16.16');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1116,7 +1116,7 @@ await t('4f. caption styles (1.11): strip, choice remembered, styled layer place
     const args = JSON.parse(JSON.parse(/amh_placeOverlay\((.*)\)/.exec(ov)[1]));
     assert.deepStrictEqual(args, { path: 'C:/caps/x_karaoke.mov', startSeconds: 12.75, duration: 2.35, replacePrefix: 'amhstyle_clip__' },
       'placed at the clip start + the layer start; placing again replaces the earlier layer of these captions');
-    assert.deepStrictEqual(job.opts, { color: '', text: '', size: 'm', pos: 'bottom', words: 0, box: false, font: 'sans', anim: 'auto' }, 'default look');
+    assert.deepStrictEqual(job.opts, { color: '', text: '', size: 'm', pos: 'bottom', words: 0, box: false, font: 'sans', anim: 'auto', emph: 'auto' }, 'default look');
     assert.strictEqual(calls(/amh_importCaptions\(/).length, 0, 'no plain caption track as well');
     assert.strictEqual(p.evalVm('reviewOpen'), false, 'done');
     has(p.els('logBox').textContent, 'Styled captions on track V3');
@@ -1196,20 +1196,22 @@ await t('4g. customize (1.12): colour, size, position, words, box remembered per
     assert.deepStrictEqual(Array.from(rows[2].children[1].children).map((b) => b.dataset.value),
       ['auto', 'none', 'fade', 'slide', 'drop', 'pop', 'zoom', 'blur']);
     assert.ok(rows[2].children[1].className === 'sc-seg pills', 'animations wrap as pills');
-    assert.deepStrictEqual(Array.from(rows[3].children[1].children).map((b) => b.dataset.value), ['sans', 'menbere', 'serif', 'abyssinica']);
+    assert.deepStrictEqual(Array.from(rows[3].children[1].children).map((b) => b.dataset.value), ['auto', 'off'], 'emphasis: numbers & ★ / ★ only');
+    assert.deepStrictEqual(Array.from(rows[4].children[1].children).map((b) => b.dataset.value), ['sans', 'menbere', 'serif', 'abyssinica']);
     pick(0, '#FF3B30');
     pick(2, 'slide');
-    pick(3, 'serif');
-    pick(4, 'xl');
-    pick(5, 'safe');
-    pick(6, '2');
-    rows[7].children[1].fire('click');                       // Box switch on
+    pick(3, 'off');
+    pick(4, 'serif');
+    pick(5, 'xl');
+    pick(6, 'safe');
+    pick(7, '2');
+    rows[8].children[1].fire('click');                       // Box switch on
     await settle();
     const saved = JSON.parse(storage.getItem('amh.settings')).styleOpts.bold;
-    assert.deepStrictEqual(saved, { color: '#FF3B30', text: '', size: 'xl', pos: 'safe', words: 2, box: true, font: 'serif', anim: 'slide' }, 'remembered for this style');
+    assert.deepStrictEqual(saved, { color: '#FF3B30', text: '', size: 'xl', pos: 'safe', words: 2, box: true, font: 'serif', anim: 'slide', emph: 'off' }, 'remembered for this style');
     j = last();
     assert.deepStrictEqual(j.opts, saved, 'the preview follows every change');
-    assert.ok(Array.from(p.els('styleOpts').children[4].children[1].children).find((b) => b.dataset.value === 'xl').classList.contains('active'));
+    assert.ok(Array.from(p.els('styleOpts').children[5].children[1].children).find((b) => b.dataset.value === 'xl').classList.contains('active'));
     // any colour from the picker (brand colours)
     const picker = Array.from(rows[0].children[1].children).find((x) => x.type === 'color');
     picker.value = '#123abc';
@@ -1343,6 +1345,39 @@ await t('4i. Recent (1.16.15): placed captions can be reopened, edited and place
     fs.writeFileSync(path.join(dir, 'broken.srt.amh.json'), '{nope');
     assert.strictEqual(p.evalVm('readHistory().length'), 1);
   } finally { p.close(); try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {} }
+});
+
+await t('4j. ★ Emphasis (1.16.16): mark / unmark a word; plain captions and exports never show the * marks', async () => {
+  const p = loadPanel({});
+  try {
+    await flush(10);
+    p.evalVm('LICENSED = true; renderPreview = async () => {}; lastCues = [{ start: 0, end: 2, text: "ዋጋው 5,000 ብር ብቻ ነው" }];');
+    const tmp = path.join(os.tmpdir(), 'amh_review_' + Date.now() + '.srt');
+    fs.writeFileSync(tmp, '1\n00:00:00,000 --> 00:00:02,000\nx\n');
+    await p.evalVm('openReview(' + JSON.stringify(tmp) + ', "ad.mp4", 0, {})');
+    const text = () => p.evalVm('reviewCues[0].text');
+    // a selection: "5,000 ብር" (one that cuts a word in half grows to whole words)
+    assert.strictEqual(p.evalVm('toggleEmphasis(0, 6, 11)'), true);
+    assert.strictEqual(text(), 'ዋጋው *5,000 ብር* ብቻ ነው');
+    // ★ again on the marked words takes the marks off
+    p.evalVm('toggleEmphasis(0, 7, 12)');
+    assert.strictEqual(text(), 'ዋጋው 5,000 ብር ብቻ ነው');
+    // no selection: the word at the cursor
+    p.evalVm('toggleEmphasis(0, 15, 15)');
+    assert.strictEqual(text(), 'ዋጋው 5,000 ብር *ብቻ* ነው');
+    // undo brings the text back
+    p.evalVm('undoReview()');
+    assert.strictEqual(text(), 'ዋጋው 5,000 ብር ብቻ ነው');
+    // what viewers / files get: no asterisks
+    p.evalVm('toggleEmphasis(0, 4, 12)');
+    const cues = '[{ start: 0, end: 2, text: "ዋጋው *5,000 ብር* ነው" }]';
+    assert.ok(!/\*/.test(p.evalVm('displaySrtTextFromCues(' + cues + ')')), 'plain captions');
+    assert.ok(!/\*/.test(p.evalVm('vttTextFromCues(' + cues + ')')), '.vtt');
+    assert.ok(!/\*/.test(p.evalVm('txtTextFromCues(' + cues + ')')), '.txt');
+    assert.match(p.evalVm('displaySrtTextFromCues(' + cues + ')'), /ዋጋው 5,000 ብር ነው/);
+    // ... but the styled captions get them (the engine draws the word bigger)
+    assert.match(p.evalVm('JSON.stringify(styleCues(reviewCues))'), /\*5,000 ብር\*/);
+  } finally { p.close(); }
 });
 
 await t('5. review: cache-hit transcribe -> edit -> export (speaker tags) -> nudge -> add -> discard', async () => {

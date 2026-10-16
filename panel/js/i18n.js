@@ -156,6 +156,10 @@ const AM_TEXT = {
   // failure messages shown under Generate (main.js humanError)
   'That clip is too short to transcribe.': 'ክሊፑ ወደ ጽሑፍ ለመቀየር በጣም አጭር ነው።',
   'No speech found in that audio.': 'በድምፁ ውስጥ ንግግር አልተገኘም።',
+  'Make the selected word pop': 'የተመረጠውን ቃል ጎልቶ እንዲታይ ያድርጉ',
+  'Emphasis': 'ጎልቶ ማሳያ',
+  'Numbers & ★': 'ቁጥሮች እና ★',
+  '★ only': '★ ብቻ',
   'No captions placed yet.': 'እስካሁን ምንም ካፕሽን አልተቀመጠም።',
   'Remove from this list': 'ከዝርዝሩ ያስወግዱ',
   'This precomp has no layer with sound in that part. Open it and select the layer, or use Whole comp.':

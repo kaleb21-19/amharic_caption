@@ -175,6 +175,7 @@ def options(opts):
         "box": bool(o.get("box")),
         "font": o.get("font") if o.get("font") in FONTS else "sans",
         "anim": o.get("anim") if o.get("anim") in ANIMS else "auto",
+        "emph": "off" if o.get("emph") == "off" else "auto",
     }
 
 
@@ -207,6 +208,63 @@ def _apply_layout(script, style, width, height, o):
     return "\n".join(out)
 
 
+# ── Emphasis words (1.16.16) ────────────────────────────────────────────────
+# A word that should POP: the editor wraps it in *asterisks* in the review
+# ("*5,000 ብር*" = two words), and in "auto" numbers / money / percent pop by
+# themselves. The word is drawn in the accent colour and EMPH_SCALE % bigger -
+# the same size for the whole phrase, so nothing moves when the next word is
+# spoken (the size is never animated inside a line).
+EM = "\x01"
+EMPH_SCALE = 115
+_EMPH_WORDS = ("ብር", "ዶላር", "ሚሊዮን", "ቢሊዮን", "ሺህ", "ሺ", "ፐርሰንት", "በመቶ", "birr", "million", "billion")
+_EMPH_NUM = re.compile("[0-9\u1369-\u137c%$]")
+
+
+def _mark_emphasis(words, mode):
+    """Words -> the same words, emphasized ones prefixed with EM, *marks* removed.
+    "*word*" = one word; "*two words*" = both; an unclosed "*" stops after 6 words."""
+    out, inside, run = [], False, 0
+    for t, a, b in words:
+        lead, trail = t.startswith("*"), t.endswith("*")
+        clean = t.strip("*")
+        if not clean:                       # a lone "*" between words
+            inside, run = not inside, 0
+            continue
+        manual = inside or lead
+        if lead and not trail:
+            inside, run = True, 0
+        elif trail and not lead:
+            inside = False
+        if inside:
+            run += 1
+            if run >= 6:
+                inside = False
+        auto = mode == "auto" and (_EMPH_NUM.search(clean) is not None or clean.lower().strip(".,!?።፣") in _EMPH_WORDS)
+        out.append(((EM + clean) if (manual or auto) else clean, a, b))
+    return out
+
+
+def _emphasis_tags(lines, st):
+    """EM-marked words -> accent colour + bigger, then back to the line's own
+    colour and size (each line's style decides what "back" is)."""
+    prim = {}
+    for ln in st.split("\n"):
+        f = ln[7:].split(",")
+        if ln.startswith("Style: ") and len(f) > 3:
+            prim[f[0]] = f[3]
+    out = []
+    for line in lines:
+        if EM not in line:
+            out.append(line)
+            continue
+        p = line.split(",", 9)
+        base = prim.get(p[3], WHITE)
+        p[9] = re.sub(EM + r"([^\s{}\\" + EM + r"]+)", lambda m: "{\\fscx%d\\fscy%d\\1c%s&}%s{\\fscx100\\fscy100\\1c%s&}" % (
+            EMPH_SCALE, EMPH_SCALE, YELLOW, m.group(1), base), p[9])
+        out.append(",".join(p).replace(EM, ""))
+    return out
+
+
 def build(words, style, width, height, font=FONT, opts=None):
     """The ASS script for `words` [(text, start, end)] in `style`, for a
     frame of width x height (sizes scale with the frame), customized by
@@ -218,7 +276,7 @@ def build(words, style, width, height, font=FONT, opts=None):
         font = FONTS[o["font"]]
     K = SIZES[o["size"]]
     NW = o["words"]
-    words = [(_clean(w[0]), float(w[1]), float(w[2])) for w in words if _clean(w[0])]
+    words = _mark_emphasis([(_clean(w[0]), float(w[1]), float(w[2])) for w in words if _clean(w[0])], o["emph"])
     h = float(height)
     portrait = height > width
     lines = []
@@ -369,10 +427,15 @@ def build(words, style, width, height, font=FONT, opts=None):
         for g, (s0, e) in zip(groups, _spans(groups)):
             parts = []
             for w in g:
+                word = w[0].lstrip(EM)          # letter by letter: an emphasized word is tagged whole
                 t0 = max(0, int(round((w[1] - s0) * 1000)))
-                step = max(25, int(round((w[2] - w[1]) * 1000 / max(1, len(w[0])))))
-                parts.append("".join("{\\alpha&HFF&\\t(%d,%d,\\alpha&H00&)}%s" % (t0 + k * step, t0 + k * step + 30, ch)
-                                     for k, ch in enumerate(w[0])))
+                step = max(25, int(round((w[2] - w[1]) * 1000 / max(1, len(word)))))
+                piece = "".join("{\\alpha&HFF&\\t(%d,%d,\\alpha&H00&)}%s" % (t0 + k * step, t0 + k * step + 30, ch)
+                                for k, ch in enumerate(word))
+                if w[0].startswith(EM):
+                    piece = ("{\\fscx%d\\fscy%d\\1c%s&}" % (EMPH_SCALE, EMPH_SCALE, YELLOW) + piece +
+                             "{\\fscx100\\fscy100\\1c%s&}" % WHITE)
+                parts.append(piece)
             lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,\x02{\\fad(0,100)}%s" % (_ts(s0), _ts(e), " ".join(parts)))
     elif style == "impact":
         size = round(K * h * (0.070 if portrait else 0.082))
@@ -425,6 +488,7 @@ def build(words, style, width, height, font=FONT, opts=None):
         for g, (s, e) in zip(groups, _spans(groups)):
             lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,\x02{\\fad(140,120)}%s" % (_ts(s), _ts(e), " ".join(w[0] for w in g)))
     lines = _entrances(lines, o["anim"], st, width, height)
+    lines = _emphasis_tags(lines, st)
     script = _header(width, height, st) + "\n".join(_smooth_fades(lines)) + "\n"
     # colours: the highlight (yellow / green / cyan in the styles) and the text
     if o["color"] and style != "habesha":
@@ -592,7 +656,8 @@ def _place(words, font, size, width, height, o, bottom_frac, gap=0.28):
     than 86% of the frame, the block placed like the other styles."""
     max_w = width * 0.86
     sp = _text_w(" ", font, size) + size * gap * 0.25
-    ws = [_text_w(w, font, size) for w in words]
+    # an emphasized word is drawn EMPH_SCALE bigger: give it that much room
+    ws = [_text_w(w.lstrip(EM), font, size) * (EMPH_SCALE / 100.0 if w.startswith(EM) else 1) for w in words]
     rows, cur, cw = [], [], 0.0
     for i, w in enumerate(ws):
         need = w if not cur else cw + sp + w
@@ -668,7 +733,8 @@ def _modern(words, style, width, height, font, K, NW, o):
     big = max(width, height)
     size = round(K * h * ((0.056 if style != "spotlight" else 0.054) if portrait else (0.066 if style != "spotlight" else 0.062)))
     # one long word must still fit the frame: then everything gets smaller
-    widest = max([_text_w(w[0], font, size) for w in words] + [1])
+    widest = max([_text_w(w[0].lstrip(EM), font, size) * (EMPH_SCALE / 100.0 if w[0].startswith(EM) else 1)
+                  for w in words] + [1])
     if widest > width * 0.86:
         size = max(8, int(size * width * 0.86 / widest))
     bottom = 0.24 if portrait else 0.10
