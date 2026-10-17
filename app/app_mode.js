@@ -38,19 +38,22 @@
   if (seg) seg.replaceWith(drop);
 
   function renderDrop() {
-    drop.innerHTML = chosen
+    // the Studio's home always invites a new video (its projects are listed
+    // under it); the narrow app shows the chosen one
+    const shown = chosen && !document.documentElement.classList.contains('amh-studio');
+    drop.innerHTML = shown
       ? '<div class="app-drop-icon">🎬</div><div class="app-drop-name"></div>' +
         '<div class="app-drop-sub">' + tx('ሌላ ቪዲዮ ለመምረጥ እዚህ ይጫኑ ወይም ይጎትቱ', 'Click or drop another video to change') + '</div>'
       : '<div class="app-drop-icon">⬇</div><div class="app-drop-title">' +
         tx('ቪዲዮዎን እዚህ ይጎትቱ', 'Drag your video here') + '</div><div class="app-drop-sub">' +
         tx('ወይም ለመምረጥ ይጫኑ', 'or click to choose a file') + '</div>';
-    if (chosen) drop.querySelector('.app-drop-name').textContent = chosen.name;
-    drop.classList.toggle('has-file', !!chosen);
+    if (shown) drop.querySelector('.app-drop-name').textContent = chosen.name;
+    drop.classList.toggle('has-file', !!shown);
     const run = $('runBtn');
     if (run) run.textContent = tx('▶ ካፕሽን ይስሩ', '▶ Make captions');
   }
 
-  function choose(p) {
+  function choose(p, quiet) {
     if (!p) return;
     if (!VIDEO_EXT.test(p)) {
       log(tx('ይህ ቪዲዮ ወይም ድምፅ አይደለም፦ ', 'Not a video or audio file: ') + APP.path.basename(p));
@@ -60,6 +63,8 @@
     try { localStorage.setItem('amh.app.lastFile', JSON.stringify(chosen)); } catch (e) {}
     renderDrop();
     hideDone();
+    // the Studio (studio.js) starts the work as soon as a video is chosen
+    if (!quiet && typeof window.__amhOnChosen === 'function') window.__amhOnChosen(chosen);
   }
 
   function pick() {
@@ -69,8 +74,9 @@
   }
 
   // Amharic Captions Studio (studio.js) opens projects with these.
-  window.__amhAppChoose = (p) => choose(p);
+  window.__amhAppChoose = (p, quiet) => choose(p, quiet);
   window.__amhAppChosen = () => chosen;
+  window.__amhAppRenderDrop = () => renderDrop();
   drop.addEventListener('click', pick);
   drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
   ['dragenter', 'dragover'].forEach((ev) => document.addEventListener(ev, (e) => {
@@ -104,40 +110,63 @@
     return p;
   }
 
+  // The two things a CapCut / DaVinci editor takes away (Studio Export sheet,
+  // 1.18.0, and the narrow window's "Save SRT"): the .srt, and the video with
+  // the captions drawn in. Both next to the video (Documents when that folder
+  // cannot be written).
   let saving = false;
-  async function saveSrt() {
-    if (!reviewOpen || saving) return;
-    if (typeof REVIEW_LIVE !== 'undefined' && REVIEW_LIVE) return;   // still writing
-    const cues = (reviewCues || []).filter((c) => (c.text || '').trim().length > 0);
-    if (!cues.length) { log(tx('የሚቀመጥ ካፕሽን የለም።', 'Nothing to save yet.')); return; }
+  function reviewedCues() { return (reviewCues || []).filter((c) => (c.text || '').trim().length > 0); }
+  function baseName() {
+    return safeFileName((chosen && chosen.name.replace(/\.[^.]+$/, '')) || (REVIEW && REVIEW.label) || 'captions');
+  }
+  function exportSrt() {
+    const cues = reviewedCues();
+    if (!cues.length) throw new Error(tx('የሚቀመጥ ካፕሽን የለም።', 'Nothing to save yet.'));
     const src = chosen && chosen.path;
     const dir = src ? APP.path.dirname(src) : ensureCaptionsDir();
-    const base = safeFileName((chosen && chosen.name.replace(/\.[^.]+$/, '')) || (REVIEW && REVIEW.label) || 'captions');
-    let out = uniquePath(dir, base, '.srt');
+    let out = uniquePath(dir, baseName(), '.srt');
     try {
       fs.writeFileSync(out, displaySrtTextFromCues(cues), { encoding: 'utf8' });
     } catch (e) {
       // e.g. a read-only folder or a memory card: fall back to Documents.
-      out = uniquePath(ensureCaptionsDir(), base, '.srt');
+      out = uniquePath(ensureCaptionsDir(), baseName(), '.srt');
       fs.writeFileSync(out, displaySrtTextFromCues(cues), { encoding: 'utf8' });
     }
     lastSaved = out;
     if (typeof track === 'function') track('placed');
     log(tx('ተቀምጧል፦ ', 'Saved: ') + out);
+    return { file: out, count: cues.length };
+  }
+  async function exportVideo(onProgress, dirHint) {
+    const cues = reviewedCues();
+    const src = chosen && chosen.path;
+    if (!cues.length || !src) throw new Error(tx('የሚቀመጥ ካፕሽን የለም።', 'Nothing to save yet.'));
+    if (typeof STYLE === 'undefined' || STYLE === 'plain' || !STYLE_OK) throw new Error('no style');
+    const dir = dirHint || APP.path.dirname(src);
+    const vout = uniquePath(dir, baseName() + ' (' + STYLE_NAMES[STYLE] + ')', '.mp4');
+    await renderStyled({ cues: styleCues(cues), style: STYLE, opts: styleOpts(STYLE), mode: 'burn', video: src, out: vout, tag: !LICENSED }, onProgress);
+    log(tx('ካፕሽኑ የተጻፈበት ቪዲዮ፦ ', 'Video with the captions: ') + vout);
+    return { file: vout };
+  }
+  window.__amhAppExport = { srt: exportSrt, video: exportVideo, chosen: () => chosen };
+
+  async function saveSrt() {
+    if (!reviewOpen || saving) return;
+    if (typeof REVIEW_LIVE !== 'undefined' && REVIEW_LIVE) return;   // still writing
+    let res = null;
+    try { res = exportSrt(); } catch (e) { log(e.message); return; }
+    const out = res.file;
     // 1.11: with a caption style, also the video with the captions drawn in,
     // next to the .srt. A failure keeps the .srt and says so.
     let styled = null;
-    if (typeof STYLE !== 'undefined' && STYLE !== 'plain' && STYLE_OK && src) {
+    if (typeof STYLE !== 'undefined' && STYLE !== 'plain' && STYLE_OK && chosen && chosen.path) {
       const btn = $('reviewPlace');
       const label = btn ? btn.textContent : '';
       saving = true;
       if (btn) btn.disabled = true;
       try {
-        const vout = uniquePath(APP.path.dirname(out), base + ' (' + STYLE_NAMES[STYLE] + ')', '.mp4');
-        await renderStyled({ cues: styleCues(cues), style: STYLE, opts: styleOpts(STYLE), mode: 'burn', video: src, out: vout, tag: !LICENSED },
-          (x) => { if (btn) btn.textContent = '⏳ ' + tx('ቪዲዮውን በመስራት ላይ… ', 'Making the video… ') + Math.round(x * 100) + '%'; });
-        styled = vout;
-        log(tx('ካፕሽኑ የተጻፈበት ቪዲዮ፦ ', 'Video with the captions: ') + vout);
+        styled = (await exportVideo((x) => { if (btn) btn.textContent = '⏳ ' + tx('ቪዲዮውን በመስራት ላይ… ', 'Making the video… ') + Math.round(x * 100) + '%'; },
+          APP.path.dirname(out))).file;
       } catch (e) {
         log(tx('ስታይል ያለው ቪዲዮ አልተሰራም (', 'The styled video could not be made (') + (e && e.message ? e.message : String(e)) +
           tx(') — የ .srt ፋይሉ ተቀምጧል።', ') — the .srt file is saved.'));
@@ -147,7 +176,7 @@
       }
     }
     closeReview(true);
-    showDone(out, cues.length, styled);
+    showDone(out, res.count, styled);
     // With an editor on this computer the card's "Open in …" button is the
     // next step; without one, show the file in its folder straight away.
     const here = editorsHere();
@@ -195,6 +224,10 @@
       pasteStep(),
       tx('ከ Media Pool ወደ timeline ይጎትቱት', 'drag it from the Media Pool onto the timeline') ] },
   ];
+
+  // the Studio's Export sheet shows the same import steps
+  window.__amhAppExport.editors = () => editorsHere();
+  window.__amhAppExport.EDITORS = EDITORS;
 
   function openIn(ed, file, tile) {
     let copied = false, opened = false;

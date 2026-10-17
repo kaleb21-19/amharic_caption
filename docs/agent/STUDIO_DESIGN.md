@@ -1,0 +1,77 @@
+# Amharic Captions Studio — design (owner-approved direction, 2026-10-18)
+
+The desktop app (CapCut / DaVinci users). Modern, professional, easy. Every
+Studio change follows this page; change the page first if the design changes.
+Research basis: Descript (script-first, selection toolbar, AI tools in one
+sidebar), CapCut desktop / Submagic (drop → captions in seconds, one screen),
+Premiere text panel. The Premiere/AE panel is NOT this design (it stays a panel).
+
+## 1. Principles
+1. **One screen, no wizard.** Drop a video → the workspace opens at once and
+   works. No "Step 1 / 2 / 3", no options before transcription.
+2. **Decide later, never redo.** Everything that shapes captions (words per
+   caption, line length, style) changes instantly AFTER transcription — from
+   the words' times — never by transcribing again.
+3. **Act where you look.** Select words → the actions appear right there
+   (★ Pop · ✂ Cut · ✎ Fix · ▶ Play). No hidden menus for daily actions.
+4. **One place per kind of thing.** Text left, picture middle, settings right
+   (tabs), time bottom, Export top-right. Nothing floats elsewhere.
+5. **Never lose work.** Autosave always ("✓ Saved" in the top bar), undo for
+   everything, the original video is never changed.
+6. **Calm by default.** Show only what works here and now (no disabled
+   "coming soon"); one accent colour; warnings only when there is something
+   to do.
+7. **Amharic first**, polite form, English one tap away.
+8. **Every PC.** Smooth on weak PCs (light preview, GPU encode when present,
+   honest time estimates); never block, explain.
+
+## 2. Screens and states
+**Home** — logo + name, one large drop area ("Drop a video here · or choose"),
+Recent projects grid (name, length, captions, last opened; missing video
+greyed). Top-right: license chip, language. Nothing else.
+
+**Workspace** (one screen):
+```
+┌ top bar: ⌂ · name / project · ↶ · ✓ Saved ··········· license · EN · [⬆ Export] ┐
+│ LEFT: text (captions)  │  MIDDLE: video + caption  │  RIGHT: tabs (🎨 Style · Aa Captions · …) │
+├──────────────────────── BOTTOM: timeline (wave, caption blocks, playhead) ─────────────┤
+```
+States inside the workspace:
+- **Transcribing** — video plays already; the text area shows progress
+  ("Listening… 34 %", Cancel) and fills as parts finish (long videos).
+- **Ready** — normal editing.
+- **Problem** — one calm banner in the text area: what happened, what to do,
+  [Try again] [Send report]. Never a dead end.
+- **Free trial / no license** — the chip says what is left; when the minutes
+  are needed, a sheet explains the one step (Telegram) — the work stays open.
+
+## 3. Panels
+- **Text (left)** — 1.18.0: the caption list, cleaned up. 1.18.x: Script view
+  (flowing text, times at paragraph starts, orange = doubtful, yellow = ★,
+  red struck = ✂, green = now; selection toolbar).
+- **Video (middle)** — the real caption on the picture, play controls, time,
+  full screen; later 9:16 / 16:9 framing.
+- **Right tabs** — only tabs that work here: 🎨 Style (styles grid + size,
+  position, font, animation), Aa Captions (words per caption 1–5, line length,
+  instantly), later ✂ Clean up, 🔍 Zoom, 🔊 Sound.
+- **Timeline (bottom)** — ruler, sound wave, caption blocks (drag edges),
+  playhead; later cut ranges (red stripes) and zooms (yellow marks).
+- **Top bar** — ⌂ Home, project name, ↶ Undo, ✓ Saved, license chip, language,
+  ⬆ Export (primary, always visible).
+
+## 4. Export (one sheet)
+Cards: **Subtitles (.srt)** for CapCut / DaVinci (with "Open in …" steps) ·
+**Video with captions (MP4)** in the chosen style · later: transparent
+captions layer (.mov), DaVinci timeline, platform presets (YouTube, TikTok,
+Reels, Telegram), several at once in a queue. Saved next to the video by
+default (Documents if that folder is read-only); progress inside the sheet;
+"Show in folder" at the end.
+
+## 5. Keys (shown in tooltips and in a "?" sheet)
+Space/K play-pause · J/L ±1 s (Shift ±5) · ←/→ one frame (Shift 1 s) ·
+Home/End · Ctrl+Z undo · Ctrl+B ★ · Ctrl+D ✂ · Ctrl+↓/↑ next/previous caption ·
+Ctrl+E Export.
+
+## 6. Look
+8 px spacing grid; three text sizes; one accent (the green); dark only; focus
+rings on everything; 150 ms transitions; icons + short words, never icons alone.

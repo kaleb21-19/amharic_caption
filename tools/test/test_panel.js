@@ -508,6 +508,29 @@ t('word times: after a cut they follow the timeline, cut words drop out', () => 
   assert.strictEqual(core.remapCuesAfterCut([{ text: 'ሀ ለ', start: 0, end: 1 }], [], [])[0].wt, undefined);
 });
 
+// ── regroup (Studio 1.18.0: decide later, never redo) ────────────────────────
+t('regroup: words per caption change after transcription; the words, marks and edits stay', () => {
+  const cues = [{ text: 'ሰላም ናችሁ', start: 0, end: 1, wt: [[0, 0.4], [0.5, 1]] }, { text: 'ዛሬ ስለ *ቡና* ታሪክ', start: 1.1, end: 3, doubt: ['ታሪክ'] },
+    { text: '~እንግዲህ ቆይ~ እናወራለን።', start: 4.5, end: 6 }, { text: 'ጥሩ', start: 6.2, end: 6.4 }];
+  const words = (qs) => qs.map((q) => q.text).join(' ');
+  const one = core.regroupCues(cues, { words: 1 });
+  assert.strictEqual(words(one), words(cues), 'every word, in order, as written');
+  assert.deepStrictEqual(one.slice(0, 2).map((q) => [q.start, q.end, q.wt]), [[0, 0.4, [[0, 0.4]]], [0.5, 1, [[0.5, 1]]]], 'exact times stay exact');
+  assert.strictEqual(one.find((q) => q.text === 'ታሪክ').doubt[0], 'ታሪክ', 'a doubtful word keeps its mark');
+  assert.ok(one.some((q) => q.text === '~እንግዲህ ቆይ~'), 'a ✂ run is never split');
+  const three = core.regroupCues(cues, { words: 3 });
+  assert.deepStrictEqual(three.map((q) => q.text), ['ሰላም ናችሁ ዛሬ', 'ስለ *ቡና* ታሪክ', '~እንግዲህ ቆይ~ እናወራለን።', 'ጥሩ']);
+  assert.ok(three.every((q, i) => q.end > q.start && (!three[i + 1] || q.end <= three[i + 1].start)), 'never overlapping');
+  // a sentence end and a long pause always start a new caption
+  const s = core.regroupCues([{ text: 'አንድ። ሁለት ሶስት', start: 0, end: 3 }, { text: 'አራት', start: 6, end: 7 }], { words: 5 });
+  assert.deepStrictEqual(s.map((q) => q.text), ['አንድ።', 'ሁለት ሶስት', 'አራት']);
+  // short lines for vertical video
+  const long = [{ text: 'ዛሬ ስለ ኢትዮጵያ ቡና አስደናቂ ታሪክ እናወራለን', start: 0, end: 6 }];
+  assert.ok(core.regroupCues(long, { words: 5, maxChars: 14 }).every((q) => Array.from(q.text).length <= 14 || q.text.split(' ').length === 1));
+  // a karaoke word shorter than a frame is still readable
+  assert.ok(core.regroupCues([{ text: 'ሀ', start: 1, end: 1.02 }], { words: 1 })[0].end >= 1.3);
+});
+
 (async () => {
   await Promise.all(pending);
   console.log('\n' + (fail === 0 ? 'ALL PASS' : 'FAILURES: ' + fail) +

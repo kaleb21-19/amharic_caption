@@ -708,6 +708,62 @@ function findTextCuts(cues) {
   return out;
 }
 
+// ── Regroup captions (Studio 1.18.0: "decide later, never redo") ────────────
+// Words per caption and line length change AFTER transcription, instantly:
+// the captions are rebuilt from their words and the words' times (exact
+// engine times when they still fit, else estimated). The words themselves —
+// edits, ★ *marks*, ✂ ~marks~ — stay exactly as the editor left them; the
+// doubtful-word marks travel with their words.
+// opts: { words: 1-12 (1 = karaoke), maxChars: line length, pause: seconds }
+function regroupCues(cues, opts) {
+  opts = opts || {};
+  const per = Math.max(1, Math.min(12, Number(opts.words) || 1));
+  const maxChars = Math.max(8, Number(opts.maxChars) || 42);
+  const pause = opts.pause == null ? 0.8 : Number(opts.pause);
+  const W = cleanupWords(cues);
+  const groups = [];
+  let cur = [];
+  const len = (g) => g.reduce((n, x) => n + Array.from(x.w.replace(/[*~]/g, '')).length + 1, -1);
+  // a ✂ run (~a b~) or a ★ run (*a b*) is never split across two captions
+  let openStar = false, openCut = false;
+  W.forEach((x, i) => {
+    const prev = W[i - 1];
+    const brk = cur.length && !openStar && !openCut && (
+      cur.length >= per ||
+      (prev && x.s - prev.e > pause) ||
+      (per > 1 && len(cur.concat([x])) > maxChars) ||
+      (prev && /[።?!፧]$/.test(prev.w.replace(/[*~]+$/, ''))));
+    if (brk) { groups.push(cur); cur = []; }
+    cur.push(x);
+    const stars = (x.w.match(/\*/g) || []).length, cuts = (x.w.match(/~/g) || []).length;
+    if (stars % 2) openStar = !openStar;
+    if (cuts % 2) openCut = !openCut;
+  });
+  if (cur.length) groups.push(cur);
+  const out = groups.map((g, gi) => {
+    const text = g.map((x) => x.w).join(' ');
+    const plain = g.map((x) => cleanupNorm(x.w));
+    const from = (key) => {
+      const all = [];
+      g.forEach((x) => { const c = cues[x.cue]; (c && Array.isArray(c[key]) ? c[key] : []).forEach((w) => { if (all.indexOf(w) < 0) all.push(w); }); });
+      return all.filter((w) => plain.indexOf(cleanupNorm(w)) >= 0);
+    };
+    const q = { text, start: Math.round(g[0].s * 1000) / 1000, end: Math.round(g[g.length - 1].e * 1000) / 1000, _id: 'g' + gi };
+    const d = from('doubt'); if (d.length) q.doubt = d;
+    const f = from('_fixed'); if (f.length) q._fixed = f;
+    if (g.every((x) => x.exact)) q.wt = g.map((x) => [x.s, x.e]);
+    return q;
+  });
+  // readable: at least 0.3 s on screen (karaoke words can be shorter than a
+  // frame), never over the next caption
+  out.forEach((q, i) => {
+    const next = out[i + 1];
+    const limit = next ? next.start : Infinity;
+    if (q.end - q.start < 0.3) q.end = Math.round(Math.min(limit, q.start + 0.3) * 1000) / 1000;
+  });
+  return out;
+}
+
 // Node (tests) — no-op in the CEP browser where `module` is undefined.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -718,7 +774,7 @@ if (typeof module !== 'undefined' && module.exports) {
     validateLicense,
     cleanupWords, findSilences, findRepeats, findFillers, snapQuiet, mergeRanges, cutTime,
     remapCuesAfterCut, remapMediaAfterCut, CLEANUP_FILLERS, CLEANUP_FILLER_WORDS,
-    findZoomMoments, cutRanges, findTextCuts, exactWordTimes,
+    findZoomMoments, cutRanges, findTextCuts, exactWordTimes, regroupCues,
     LICENSE_TOKEN_PUBKEY_PEM, licenseTokenParse, verifyLicenseToken,
   };
 }
