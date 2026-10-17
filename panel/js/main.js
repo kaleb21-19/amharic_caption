@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.16.25';
+const APP_VERSION = '1.16.26';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,18 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.16.26': {
+    banner: {
+      am: '✂ እና 🔍 አሁን በትክክል በቃሉ ላይ ይሠራሉ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '✂ and 🔍 now land exactly on the word — your license stays the same.',
+    },
+    items: [
+      { am: '✂ አንድ ቃል ሲቆርጡ በትክክል ያ ቃል ብቻ ይቆረጣል', en: '✂ Cutting one word cuts exactly that word' },
+      { am: '🔍 ዙም በትክክል ቃሉ በሚነገርበት ቅጽበት ይጀምራል', en: '🔍 The zoom starts exactly when the word is said' },
+      { am: 'እ… ድምፆችም በትክክለኛ ቦታቸው ይቆረጣሉ', en: 'እ… sounds are cut at their exact place too' },
+      { am: 'ቅጂ መስራት አይዘገይም — ልክ እንደበፊቱ ፈጣን ነው', en: 'Transcription is just as fast as before' },
+    ],
+  },
   '1.16.25': {
     banner: {
       am: 'ፓነሉ ይበልጥ ቀላልና ፈጣን ሆኗል፦ ደረጃዎች፣ አቋራጭ ቁልፎችና ሌሎችም — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -2776,7 +2788,19 @@ function attributeCues(cues, items) {
 // Doubtful-word marks from the engine (<srt>.doubt.json, keyed by SRT cue
 // number): the words the model was unsure of, shown in orange in the review
 // so the editor checks those first. Missing/broken file = no marks.
+// Exact word times from the engine (<srt>.words.json, 1.16.26, keyed by SRT
+// cue number): ✂ and 🔍 land on the word itself. Missing file = estimated.
+function withWordTimes(cues, srtPath) {
+  let d = null;
+  try { d = JSON.parse(fs.readFileSync(srtPath + '.words.json', 'utf8')); } catch (e) { d = null; }
+  if (!d || typeof d !== 'object') return cues;
+  return cues.map((c, i) => {
+    const w = d[String(i + 1)];
+    return Array.isArray(w) && w.length ? Object.assign({}, c, { wt: w }) : c;
+  });
+}
 function withDoubts(cues, srtPath) {
+  cues = withWordTimes(cues, srtPath);
   let d = null;
   try { d = JSON.parse(fs.readFileSync(srtPath + '.doubt.json', 'utf8')); } catch (e) { d = null; }
   if (!d || typeof d !== 'object') return cues;
@@ -2864,7 +2888,7 @@ function resumeWorkPath(key) {
 
 // Move the finished work file (and its doubt marks) to the run's own output.
 function finishWork(work, outSrt) {
-  for (const ext of ['', '.doubt.json']) {
+  for (const ext of ['', '.doubt.json', '.words.json']) {
     try {
       if (fs.existsSync(work + ext)) {
         fs.copyFileSync(work + ext, outSrt + ext);
@@ -4467,14 +4491,16 @@ function cleanupFindAll() {
     items.push({ kind: 'pause', start: s.start, end: s.end, on: true })));
   findTextCuts(reviewCues).forEach((c) => {
     const env = cleanupEnvAt(c.start);
+    const r = c.exact ? 0.06 : 0.15;                    // exact engine times: only a nudge
     items.push({ kind: 'text', text: c.text, words: c.words, on: true,
-      start: c.whole ? c.start : snapQuiet(c.start, env, 0.15), end: c.whole ? c.end : snapQuiet(c.end, env, 0.15) });
+      start: c.whole ? c.start : snapQuiet(c.start, env, r), end: c.whole ? c.end : snapQuiet(c.end, env, r) });
   });
   findRepeats(reviewCues).forEach((r) => items.push({ kind: 'repeat', start: r.start, end: r.end, text: r.text, words: r.words, on: true }));
   findFillers(reviewCues).forEach((f) => {
     const env = cleanupEnvAt(f.start);
+    const r = f.exact ? 0.06 : 0.2;
     items.push({ kind: f.word ? 'word' : 'filler', text: f.text, words: f.words, on: !f.word,
-      start: snapQuiet(f.start, env, 0.2), end: snapQuiet(f.end, env, 0.2) });
+      start: snapQuiet(f.start, env, r), end: snapQuiet(f.end, env, r) });
   });
   items.sort((x, y) => x.start - y.start);
   CLEAN.items = items.filter((x) => x.end - x.start > 0.05);

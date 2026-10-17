@@ -485,6 +485,29 @@ t('text cuts: until cut from the video, the words stay in every subtitle file (o
   assert.strictEqual(core.findRepeats([{ text: '~ዛሬ ስለ ቡና~ ዛሬ ስለ ቡና ታሪክ', start: 0, end: 4 }]).length, 1);
 });
 
+// ── exact word times (1.16.26) ───────────────────────────────────────────────
+t('word times: the engine\'s exact times are used while they still fit the text', () => {
+  const c = { text: 'ዛሬ ~ስለ~ ቡና', start: 2, end: 3.1, wt: [[2.0, 2.3], [2.35, 2.55], [2.6, 3.1]] };
+  const W = core.cleanupWords([c]);
+  assert.deepStrictEqual(W.map((x) => [x.s, x.e, x.exact]), [[2.0, 2.3, true], [2.35, 2.55, true], [2.6, 3.1, true]]);
+  const cut = core.findTextCuts([c]);
+  assert.deepStrictEqual([cut[0].start, cut[0].end, cut[0].exact], [2.35, 2.55, true], 'a ✂ word: exactly that word');
+  // the editor added a word: the times no longer fit -> estimated
+  assert.ok(core.cleanupWords([Object.assign({}, c, { text: 'ዛሬ ስለ ቡና ታሪክ' })]).every((x) => !x.exact));
+  // times outside the caption (they belong to something else) -> estimated
+  assert.strictEqual(core.exactWordTimes({ text: 'ሀ', start: 10, end: 11, wt: [[2, 3]] }, 1), null);
+  assert.strictEqual(core.exactWordTimes({ text: 'ሀ', start: 10, end: 11 }, 1), null);
+});
+
+t('word times: after a cut they follow the timeline, cut words drop out', () => {
+  const cues = [{ text: 'ዛሬ ስለ ቡና', start: 2, end: 3.1, wt: [[2.0, 2.3], [2.35, 2.55], [2.6, 3.1]] }];
+  const out = core.remapCuesAfterCut(cues, [{ start: 2.33, end: 2.58 }], [[0, 1]]);
+  assert.strictEqual(out[0].text, 'ዛሬ ቡና');
+  assert.deepStrictEqual(out[0].wt, [[2, 2.3], [2.35, 2.85]]);
+  // a caption without times stays without
+  assert.strictEqual(core.remapCuesAfterCut([{ text: 'ሀ ለ', start: 0, end: 1 }], [], [])[0].wt, undefined);
+});
+
 (async () => {
   await Promise.all(pending);
   console.log('\n' + (fail === 0 ? 'ALL PASS' : 'FAILURES: ' + fail) +
