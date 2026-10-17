@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.16.23';
+const APP_VERSION = '1.16.24';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,18 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.16.24': {
+    banner: {
+      am: '✂ ቪዲዮውን በጽሑፍ ያርትዑ፦ ቃላትን ይሰርዙ፣ ከቪዲዮው ይቆረጣሉ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '✂ Edit the video by its text: strike words and they are cut from the video — your license stays the same.',
+    },
+    items: [
+      { am: '✂ በካፕሽኑ አጠገብ፦ ቃል ወይም ሙሉ ካፕሽን ይምረጡና ✂ ይጫኑ', en: '✂ next to each caption: pick a word or a whole caption and press ✂' },
+      { am: 'የተሰረዙት ቃላት በቀይ መስመር ይታያሉ፤ ✂ እንደገና = ይቆያል', en: 'Struck words show red with a line through; ✂ again keeps them' },
+      { am: 'በ«✂ ያጽዱ» ዝርዝር ውስጥ «የእርስዎ ቁርጥ» ሆነው ይመጣሉ', en: 'They come up in the ✂ Clean up list as "Your cut"' },
+      { am: 'ሲቆረጡ ከካፕሽኑም ይወጣሉ፤ ዋናው ሴኩዌንስ አይነካም', en: 'Once cut they leave the captions too; your sequence is never touched' },
+    ],
+  },
   '1.16.23': {
     banner: {
       am: '🔍 ራስ-ሰር ዙም፦ ቪዲዮዎ በ★ ቃላት፣ በቁጥሮችና በብር ላይ ይቀርባል — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -3968,6 +3980,13 @@ function renderReview() {
       doubtRanges(t, cue._fixed).forEach((r) => {
         if (!all.some((x) => r.start < x.end && x.start < r.end)) all.push({ start: r.start, end: r.end, cls: 'fix' });
       });
+      // ✂ struck words (1.16.24) win over the other marks
+      const cr = cutRanges(t);
+      if (cr.length) {
+        for (let q = all.length - 1; q >= 0; q--) if (cr.some((r) => all[q].start < r.end && r.start < all[q].end)) all.splice(q, 1);
+        cr.forEach((r) => all.push({ start: r.start, end: r.end, cls: 'cut' }));
+      }
+      row.classList.toggle('has-cut', cr.length > 0);
       all.sort((a, b) => a.start - b.start);
       back.textContent = '';
       let at = 0;
@@ -3996,6 +4015,16 @@ function renderReview() {
       toggleEmphasis(i, ta.selectionStart, ta.selectionEnd);
     });
     textBox.appendChild(pop);
+    const cutBtn = document.createElement('button');
+    cutBtn.type = 'button';
+    cutBtn.className = 'cut-word';
+    cutBtn.textContent = '✂';
+    cutBtn.title = L('Cut the word at the cursor (or the selected words) from the video — ✂ again: keep it');
+    cutBtn.addEventListener('mousedown', (e) => {
+      if (e && e.preventDefault) e.preventDefault();
+      toggleTextCut(i, ta.selectionStart, ta.selectionEnd);
+    });
+    if (cleanupAvailable()) textBox.appendChild(cutBtn);   // Premiere only (Clean up does the cutting)
     paint();
     ta.addEventListener('input', () => {
       cue.text = ta.value; paint(); fitReviewBox(ta); updateReviewCount();
@@ -4135,6 +4164,31 @@ function focusReviewCue(i, caret) {
 // get *asterisks*; pressing ★ on a marked word takes them off. The styled
 // captions draw a marked word bigger in the accent colour; plain captions and
 // exported files never show the asterisks.
+// ✂ next to the text (1.16.24): strike the word at the cursor or the selected
+// words (whole words; ✂ again on struck words takes the strike away). Struck
+// words are written ~like this~; ✂ Clean up offers them as "Your cut".
+function toggleTextCut(i, from, to) {
+  const cue = reviewCues[i];
+  if (!cue) return false;
+  const text = String(cue.text || '');
+  let a = Math.max(0, Math.min(Number(from) || 0, text.length));
+  let b = Math.max(a, Math.min(Number(to) || a, text.length));
+  while (a > 0 && !/\s/.test(text[a - 1])) a--;
+  while (b < text.length && !/\s/.test(text[b])) b++;
+  while (a < b && /\s/.test(text[a])) a++;
+  while (b > a && /\s/.test(text[b - 1])) b--;
+  if (a === b) return false;
+  pushReviewUndo('cut mark');
+  const inner = text.slice(a, b);
+  if (inner.startsWith('~') && inner.endsWith('~') && inner.length > 2 && inner.indexOf('~', 1) === inner.length - 1) {
+    cue.text = text.slice(0, a) + inner.slice(1, -1) + text.slice(b);
+  } else {
+    cue.text = text.slice(0, a) + '~' + inner.replace(/~/g, '') + '~' + text.slice(b);
+  }
+  renderReview();
+  schedulePreview();
+  return true;
+}
 function toggleEmphasis(i, from, to) {
   const cue = reviewCues[i];
   if (!cue) return false;
@@ -4376,6 +4430,11 @@ function cleanupFindAll() {
   const items = [];
   CLEAN.envs.forEach((env) => findSilences(env, { minLen: cleanupPause() }).forEach((s) =>
     items.push({ kind: 'pause', start: s.start, end: s.end, on: true })));
+  findTextCuts(reviewCues).forEach((c) => {
+    const env = cleanupEnvAt(c.start);
+    items.push({ kind: 'text', text: c.text, words: c.words, on: true,
+      start: c.whole ? c.start : snapQuiet(c.start, env, 0.15), end: c.whole ? c.end : snapQuiet(c.end, env, 0.15) });
+  });
   findRepeats(reviewCues).forEach((r) => items.push({ kind: 'repeat', start: r.start, end: r.end, text: r.text, words: r.words, on: true }));
   findFillers(reviewCues).forEach((f) => {
     const env = cleanupEnvAt(f.start);
@@ -4414,7 +4473,7 @@ function renderCleanupPanel() {
   });
   p.appendChild(seg);
   if (!CLEAN.envs.length) p.appendChild(el('div', 'mem-sub', L('Pauses: your footage could not be read here — repeats and sounds only.')));
-  const names = { pause: L('Pause'), repeat: L('Repeated take'), filler: L('Sound'), word: L('Filler word?') };
+  const names = { text: '✂ ' + L('Your cut'), pause: L('Pause'), repeat: L('Repeated take'), filler: L('Sound'), word: L('Filler word?') };
   const list = el('div', 'clean-list');
   if (!CLEAN.items.length) list.appendChild(el('div', 'mem-sub', L('Nothing to clean — it is already tight.')));
   CLEAN.items.forEach((it) => {
@@ -4952,7 +5011,7 @@ function renderStyleStrip() {
   renderStyleCustom();
 }
 function styleCues(cues) {
-  return (cues || []).filter((c) => (c.text || '').trim()).map((c) => [String(c.text).replace(/\s+/g, ' ').trim(), c.start, c.end]);
+  return (cues || []).filter((c) => (c.text || '').trim()).map((c) => [String(c.text).replace(/~/g, '').replace(/\s+/g, ' ').trim(), c.start, c.end]);
 }
 // Runs runtime/amh_styles.py render: "[style] 0.42" progress lines, then one
 // JSON line {ok, out, t0, duration}.
