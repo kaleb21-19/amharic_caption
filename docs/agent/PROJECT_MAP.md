@@ -49,7 +49,8 @@ the same PR that moves or renames the code. Keep this file under ~120 lines.
 - `app/app_mode.js` :: `saveSrt` — Save SRT (+ burned styled MP4 when a style is chosen)
 - `app/amh_app.py` :: `readBase64` — local bridge op (127.0.0.1 + token only)
 - `app/node_shim.js` :: `readBase64` — the fake CEP Node API the panel code uses in the app
-- `app/studio.js` :: `function draw` — Amharic Captions Studio: studio layout, timeline canvas, keys, projects (autosave, Recent)
+- `app/studio.js` :: `function openExport` — Amharic Captions Studio shell: top bar, tabs, Export sheet, drop-and-go, timeline, keys, projects (design: docs/agent/STUDIO_DESIGN.md)
+- `panel/js/core.js` :: `function regroupCues` — words per caption / line length after transcription, from the words' times
 - `app/studio_core.js` :: `function hitCaption` — Studio pure parts: timeline view maths, ruler, project files (tests: test_studio.js)
 - `app/amh_app.py` :: `def peaks_from_raw` — the timeline's sound wave (bridge op "peaks"; the text bridge cannot carry binary)
 

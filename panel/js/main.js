@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.17.0';
+const APP_VERSION = '1.18.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,19 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.18.0': {
+    banner: {
+      am: '🎬 Amharic Captions Studio በአዲስ መልክ፦ ቪዲዮ ይጣሉ፣ ወዲያውኑ ይጀምራል — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '🎬 Amharic Captions Studio, redesigned: drop a video and it starts at once — your license stays the same.',
+    },
+    items: [
+      { am: 'ቪዲዮ ሲጥሉ ስራው ወዲያውኑ ይጀምራል — ደረጃዎች የሉም', en: 'Drop a video and the work starts at once — no steps' },
+      { am: 'አንድ ስክሪን፦ ጽሑፍ በግራ፣ ቪዲዮ በመሃል፣ ስታይል በቀኝ፣ የጊዜ መስመር ከታች', en: 'One screen: text left, video middle, style right, timeline below' },
+      { am: 'ቃላት በአንድ ካፕሽን ከተጻፈ በኋላ ወዲያውኑ ይቀየራል — እንደገና መጻፍ የለም', en: 'Words per caption change instantly after transcription — nothing is redone' },
+      { am: '⬆ ይላኩ፦ .srt፣ ካፕሽን ያለው ቪዲዮ፣ ሌሎች ፋይሎች — በአንድ ቦታ', en: '⬆ Export: .srt, video with captions, more files — in one place' },
+      { am: 'ፕሮጀክቶች በራሳቸው ይቀመጣሉ፤ ያለ ቪዲዮ ፕሮጀክት ሲከፍቱ እንደገና አይጻፍም', en: 'Projects save themselves; an opened video with a project is never transcribed again' },
+    ],
+  },
   '1.17.0': {
     banner: {
       am: '🎬 አዲስ፦ Amharic Captions Studio — ለCapCut እና DaVinci ተጠቃሚዎች ሙሉ የስራ ቦታ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
