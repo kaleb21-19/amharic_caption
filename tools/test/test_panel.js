@@ -452,6 +452,18 @@ t('clean up: captions and footage follow the cut', () => {
     [[0, 3, 5], [3, 6.8, 6.2], [6.8, 17.8, 7.2]]);
 });
 
+// ── 🔍 Auto zoom (1.16.23) ───────────────────────────────────────────────────
+t('auto zoom: ★ words and numbers/money, one per caption, never two within 3 s', () => {
+  const cues = [{ text: 'ሰላም ናችሁ', start: 0, end: 1 }, { text: 'ዋጋው 5,000 ብር ነው', start: 1, end: 3 },
+    { text: 'በጣም *ጥሩ* ነው', start: 3.5, end: 5 }, { text: 'ዛሬ *ልዩ ቅናሽ* አለ', start: 8, end: 10 }, { text: '20% ብቻ', start: 10, end: 11 },
+    { text: 'አንድ ሚሊዮን ሰው', start: 20, end: 22 }];
+  const m = core.findZoomMoments(cues);
+  assert.deepStrictEqual(m.map((x) => [x.text, x.cue, x.star]), [['5,000', 1, false], ['ልዩ', 3, true], ['ሚሊዮን', 5, false]]);
+  assert.ok(m[0].word > 1 && m[0].word < 3, 'the zoom lands on the word, inside its caption');
+  assert.deepStrictEqual(core.findZoomMoments(cues, { auto: false }).map((x) => x.text), ['ጥሩ', 'ልዩ'], '★ only');
+  assert.strictEqual(core.findZoomMoments([{ text: 'ምንም የለም', start: 0, end: 2 }]).length, 0);
+});
+
 (async () => {
   await Promise.all(pending);
   console.log('\n' + (fail === 0 ? 'ALL PASS' : 'FAILURES: ' + fail) +

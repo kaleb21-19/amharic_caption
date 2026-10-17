@@ -601,6 +601,47 @@ function remapMediaAfterCut(media, cuts) {
   return out;
 }
 
+// ── 🔍 Auto zoom (1.16.23) ───────────────────────────────────────────────────
+// The moments worth a zoom: a ★ word (*marked*) and — with "Numbers too" —
+// numbers, money and percent (the same rule as the caption styles' emphasis,
+// amh_styles._mark_emphasis). One moment per caption, never two zooms closer
+// than `minGap` seconds (a zoom on every line stops meaning anything).
+const ZOOM_WORDS = ['ብር', 'ዶላር', 'ሚሊዮን', 'ቢሊዮን', 'ሺህ', 'ሺ', 'ፐርሰንት', 'በመቶ', 'birr', 'million', 'billion'];
+const ZOOM_NUM = /[0-9፩-፼%$]/;
+function findZoomMoments(cues, opts) {
+  opts = opts || {};
+  const auto = opts.auto !== false;
+  const minGap = opts.minGap == null ? 3 : Number(opts.minGap);
+  const out = [];
+  let lastEnd = -1e9;
+  let inside = false;
+  let run = 0;
+  const W = cleanupWords(cues);
+  let pick = null;
+  const flush = () => {
+    if (pick && pick.start >= lastEnd + minGap) { out.push(pick); lastEnd = pick.end; }
+    pick = null;
+  };
+  W.forEach((x, n) => {
+    if (n > 0 && W[n - 1].cue !== x.cue) flush();
+    const lead = x.w.charAt(0) === '*';
+    const trail = x.w.charAt(x.w.length - 1) === '*';
+    const clean = x.w.replace(/\*/g, '');
+    if (!clean) { inside = !inside; run = 0; return; }
+    const manual = inside || lead;
+    if (lead && !trail) { inside = true; run = 0; } else if (trail && !lead) inside = false;
+    if (inside && ++run >= 6) inside = false;
+    const plain = clean.toLowerCase().replace(/[.,!?።፣]/g, '');
+    const hit = manual || (auto && (ZOOM_NUM.test(clean) || ZOOM_WORDS.indexOf(plain) >= 0));
+    if (hit && !pick) {
+      const c = cues[x.cue];
+      pick = { cue: x.cue, start: Number(c.start), word: x.s, end: Number(c.end), text: clean, star: manual };
+    }
+  });
+  flush();
+  return out;
+}
+
 // Node (tests) — no-op in the CEP browser where `module` is undefined.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -611,6 +652,7 @@ if (typeof module !== 'undefined' && module.exports) {
     validateLicense,
     cleanupWords, findSilences, findRepeats, findFillers, snapQuiet, mergeRanges, cutTime,
     remapCuesAfterCut, remapMediaAfterCut, CLEANUP_FILLERS, CLEANUP_FILLER_WORDS,
+    findZoomMoments,
     LICENSE_TOKEN_PUBKEY_PEM, licenseTokenParse, verifyLicenseToken,
   };
 }

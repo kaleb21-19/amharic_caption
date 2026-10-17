@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.16.22';
+const APP_VERSION = '1.16.23';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,18 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.16.23': {
+    banner: {
+      am: '🔍 ራስ-ሰር ዙም፦ ቪዲዮዎ በ★ ቃላት፣ በቁጥሮችና በብር ላይ ይቀርባል — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '🔍 Auto zoom: your video zooms in on ★ words, numbers and money — your license stays the same.',
+    },
+    items: [
+      { am: '🔍 ዙም፦ ★ ባደረጉባቸው ቃላት፣ በቁጥሮችና በብር ላይ ቪዲዮው ይቀርባል', en: '🔍 Zoom: the video moves in on your ★ words, numbers and money' },
+      { am: 'ቀስ ብሎ ወይም በድንገት፤ 110%፣ 115% ወይም 125%', en: 'Smooth or punch; 110%, 115% or 125%' },
+      { am: 'ዝርዝሩን ያዩታል፣ ማንኛውንም ያስቀራሉ', en: 'You see the list and untick any moment' },
+      { am: 'በቅጂ ላይ ይሠራል፤ የራስዎ የScale እንቅስቃሴ አይነካም', en: 'Works on a copy; your own Scale animation is never touched' },
+    ],
+  },
   '1.16.22': {
     banner: {
       am: '✂ ማጽዳት በረጅም ቪዲዮዎች ላይ በጣም ፈጣን ሆኗል — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -3762,6 +3774,8 @@ function closeReview(keepArtifact) {
   hideTiming();
   CLEAN = null;
   closeCleanupPanel();
+  ZOOM = null;
+  closeZoomPanel();
   if (!keepArtifact && REVIEW && REVIEW.outSrt) removeTempCaptionArtifact(REVIEW.outSrt);
   if (!keepArtifact) lastSrtPath = null;
   reviewOpen = false;
@@ -4516,6 +4530,7 @@ function toggleCleanupPanel() {
   const open = p.style.display === 'none';
   closeMemoryPanel();
   closeClientPanel();
+  closeZoomPanel();
   p.style.display = open ? '' : 'none';
   if (open) {
     const b = $('revCleanup');
@@ -4525,6 +4540,129 @@ function toggleCleanupPanel() {
 }
 function closeCleanupPanel() {
   const p = $('cleanupPanel');
+  if (p) p.style.display = 'none';
+}
+
+// ── 🔍 Auto zoom (1.16.23) ───────────────────────────────────────────────────
+// One button in the review header: the moments worth a zoom (★ words, and
+// numbers / money unless "★ only") are listed with tick boxes (a click on a
+// line jumps the playhead there); "Add zooms" puts Scale keyframes on the
+// footage in a copy of the sequence (host amh_autoZoom). Premiere only.
+let ZOOM = null;             // { items, busy, done, error }
+const ZOOM_STRENGTHS = [110, 115, 125];
+function zoomSettings() {
+  const s = loadSettings();
+  return {
+    style: s.zoomStyle === 'punch' ? 'punch' : 'smooth',
+    strength: ZOOM_STRENGTHS.indexOf(Number(s.zoomStrength)) >= 0 ? Number(s.zoomStrength) : 115,
+    stars: !!s.zoomStars,
+  };
+}
+function zoomFind() {
+  const st = zoomSettings();
+  ZOOM.items = findZoomMoments(reviewCues, { auto: !st.stars }).map((m) => Object.assign(m, { on: true }));
+}
+function renderZoomPanel() {
+  const p = $('zoomPanel');
+  if (!p || p.style.display === 'none') return;
+  p.textContent = '';
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  p.appendChild(el('div', 'mem-head', '🔍 ' + L('Auto zoom')));
+  p.appendChild(el('div', 'mem-sub', L('A zoom on your video where it matters: ★ words, numbers and money — on a copy of your sequence.')));
+  if (!ZOOM) return;
+  if (ZOOM.done) {
+    p.appendChild(el('div', 'clean-done', L('Done') + ': ' + ZOOM.done.zoomed + ' ' + L('zooms') + ' — “' + ZOOM.done.sequence + '” ' + L('is open.')));
+    if (ZOOM.done.animated) p.appendChild(el('div', 'mem-sub', ZOOM.done.animated + ' ' + L('left alone: that clip already has your own Scale animation.')));
+    if (ZOOM.done.noClip) p.appendChild(el('div', 'mem-sub', ZOOM.done.noClip + ' ' + L('left alone: no video clip there.')));
+    return;
+  }
+  const st = zoomSettings();
+  const seg = (label, options, cur, key) => {
+    const row = el('div', 'clean-opt');
+    row.appendChild(el('span', '', label));
+    options.forEach(([v, text]) => {
+      const b = el('button', 'sc-opt' + (v === cur ? ' active' : ''), text);
+      b.type = 'button';
+      b.addEventListener('click', (e) => {
+        if (e && e.stopPropagation) e.stopPropagation();
+        const o = {}; o[key] = v; saveSettings(o);
+        if (key === 'zoomStars') zoomFind();
+        renderZoomPanel();
+      });
+      row.appendChild(b);
+    });
+    p.appendChild(row);
+  };
+  seg(L('Zoom'), [['smooth', L('Smooth')], ['punch', L('Punch')]], st.style, 'zoomStyle');
+  seg(L('Strength'), ZOOM_STRENGTHS.map((v) => [v, v + '%']), st.strength, 'zoomStrength');
+  seg(L('Where'), [[false, L('★ + numbers')], [true, L('★ only')]], st.stars, 'zoomStars');
+  const list = el('div', 'clean-list');
+  if (!ZOOM.items.length) list.appendChild(el('div', 'mem-sub', L('No moments yet: mark words with ★ in the captions (or numbers and money with “★ + numbers”).')));
+  ZOOM.items.forEach((it) => {
+    const row = el('label', 'clean-row' + (it.on ? '' : ' off'));
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = it.on;
+    cb.addEventListener('change', () => { it.on = cb.checked; renderZoomPanel(); });
+    row.appendChild(cb);
+    row.appendChild(el('span', 'clean-t', fmtReviewTs(it.word)));
+    const txt = el('span', 'clean-what', (it.star ? '★ ' : '') + '«' + it.text + '»');
+    txt.title = L('Listen: moves the playhead here');
+    txt.addEventListener('click', (e) => { if (e && e.preventDefault) e.preventDefault(); seekPlayhead(Math.max(0, it.start - 1)); });
+    row.appendChild(txt);
+    list.appendChild(row);
+  });
+  p.appendChild(list);
+  if (ZOOM.error) p.appendChild(el('div', 'clean-err', ZOOM.error));
+  const n = ZOOM.items.filter((x) => x.on).length;
+  const go = el('button', 'btn btn-primary clean-go', ZOOM.busy ? L('Adding zooms…') : '🔍 ' + L('Add zooms on a copy') + (n ? ' (' + n + ')' : ''));
+  go.type = 'button';
+  go.disabled = !n || !!ZOOM.busy;
+  go.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); applyZoom(); });
+  p.appendChild(go);
+  p.appendChild(el('div', 'mem-sub', L('Your sequence stays as it is. On your “- clean” copy the zooms go straight onto it.')));
+}
+async function applyZoom() {
+  const sel = ((ZOOM && ZOOM.items) || []).filter((x) => x.on);
+  if (!sel.length || ZOOM.busy) return null;
+  const st = zoomSettings();
+  ZOOM.busy = true;
+  ZOOM.error = '';
+  renderZoomPanel();
+  const media = Array.from(new Set(PREVIEW_MEDIA.map((m) => m.path)));
+  const r = await evalScript('amh_autoZoom(' + escJson(JSON.stringify({
+    moments: sel.map((m) => ({ start: m.start, word: m.word, end: m.end })), style: st.style, strength: st.strength, media,
+  })) + ')', 120000);
+  ZOOM.busy = false;
+  if (!r || !r.ok) {
+    ZOOM.error = L((r && r.error) || 'Premiere did not answer.');
+    log('Auto zoom: ' + ((r && r.error) || 'no answer'));
+    renderZoomPanel();
+    return r;
+  }
+  ZOOM.done = r;
+  log('🔍 Auto zoom: ' + r.zoomed + ' zoom(s) — "' + r.sequence + '"' + (r.animated ? ', ' + r.animated + ' left alone (own animation)' : ''));
+  renderZoomPanel();
+  return r;
+}
+function toggleZoomPanel() {
+  const p = $('zoomPanel');
+  if (!p) return;
+  const open = p.style.display === 'none';
+  closeMemoryPanel();
+  closeClientPanel();
+  closeCleanupPanel();
+  p.style.display = open ? '' : 'none';
+  if (open) {
+    const b = $('revZoom');
+    if (b && typeof b.offsetTop === 'number' && b.offsetHeight) p.style.top = (b.offsetTop + b.offsetHeight + 4) + 'px';
+    ZOOM = { items: [] };
+    zoomFind();
+    renderZoomPanel();
+  }
+}
+function closeZoomPanel() {
+  const p = $('zoomPanel');
   if (p) p.style.display = 'none';
 }
 
@@ -5399,6 +5537,11 @@ function initReview() {
     if (cleanupAvailable()) cleanBtn.addEventListener('click', toggleCleanupPanel);
     else cleanBtn.style.display = 'none';                   // Premiere only
   }
+  const zoomBtn = $('revZoom');
+  if (zoomBtn) {
+    if (cleanupAvailable()) zoomBtn.addEventListener('click', toggleZoomPanel);
+    else zoomBtn.style.display = 'none';                    // Premiere only
+  }
 
 
 
@@ -5412,6 +5555,7 @@ function initReview() {
     if (!(el && el.closest && el.closest('#memoryPanel, #revMemory'))) closeMemoryPanel();
     if (!(el && el.closest && el.closest('#clientPanel, #revClient'))) closeClientPanel();
     if (!(el && el.closest && el.closest('#cleanupPanel, #revCleanup'))) closeCleanupPanel();
+    if (!(el && el.closest && el.closest('#zoomPanel, #revZoom'))) closeZoomPanel();
     if (el && el.closest && el.closest('.row-more')) return;
     closeRowMenus();
   });

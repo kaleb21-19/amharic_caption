@@ -1533,3 +1533,149 @@ function amh_cleanupCut(argsJSON) {
                        removedSeconds: s.removedSeconds, removed: s.removed, moved: s.moved, list: p.list });
     });
 }
+
+/* ------------------------------------------------------------- auto zoom */
+
+// Auto zoom (1.16.23): a zoom on the video at the moments that matter (a
+// starred word, numbers, money). Scale keyframes on the clip's Motion effect,
+// relative to the clip's own scale (a 9:16 reframe at 56% zooms from 56%).
+// On a copy of the sequence ("<name> - zoom") - except on our own "- clean" /
+// "- zoom" copy, which is zoomed as it is. A clip that already has its own
+// Scale animation is never touched.
+// args = { moments: [{ start, word, end }], style: "smooth"|"punch",
+//          strength: 110|115|125, media: [paths] }
+
+// Copy the sequence, name the copy, open it. Returns the open copy or an
+// error text (nothing changed then).
+function amhCopyAndOpen(seq, suffix) {
+    var before = {};
+    for (var q = 0; q < app.project.sequences.numSequences; q++) { before[String(app.project.sequences[q].sequenceID)] = true; }
+    var origName = String(seq.name);
+    seq.clone();
+    var copy = null;
+    for (var r = 0; r < app.project.sequences.numSequences; r++) {
+        var sq = app.project.sequences[r];
+        if (!before[String(sq.sequenceID)]) { copy = sq; }
+    }
+    if (!copy) { return { error: "Premiere could not copy the sequence. Nothing was changed." }; }
+    try { copy.name = origName + suffix; } catch (e) {}
+    app.project.openSequence(copy.sequenceID);
+    var open = app.project.activeSequence;
+    if (!open || String(open.sequenceID) !== String(copy.sequenceID)) {
+        return { error: "Premiere could not open the copy of the sequence. Nothing was changed." };
+    }
+    return { seq: open };
+}
+
+// The Scale property of a clip's Motion effect (by internal name first: the
+// display names are translated in a non-English Premiere).
+function amhZoomScaleProp(clip) {
+    var comps = null;
+    try { comps = clip.components; } catch (e) { return null; }
+    if (!comps) { return null; }
+    for (var i = 0; i < comps.numItems; i++) {
+        var c = comps[i];
+        var mn = "", dn = "";
+        try { mn = String(c.matchName || ""); dn = String(c.displayName || ""); } catch (e) {}
+        if (mn === "AE.ADBE Motion" || dn === "Motion") {
+            var props = c.properties;
+            for (var j = 0; j < props.numItems; j++) {
+                var pn = "";
+                try { pn = String(props[j].displayName || ""); } catch (e) {}
+                if (pn === "Scale") { return props[j]; }
+            }
+            return props.numItems > 1 ? props[1] : null;      // Position, Scale, ...
+        }
+    }
+    return null;
+}
+
+// The picture at timeline second t: the clip on the LOWEST video track there
+// (the footage; titles, B-roll and our styled captions sit above it).
+function amhZoomClipAt(seq, t, eps) {
+    var vt = seq.videoTracks;
+    for (var v = 0; v < vt.numTracks; v++) {
+        var cl = vt[v].clips;
+        var k = amhCleanupFirstAfter(cl, t + eps);
+        if (k >= cl.numItems) { continue; }
+        var it = cl[k];
+        if (Number(it.start.seconds) > t + eps) { continue; }
+        var nm = amhClipName(it);
+        if (nm.indexOf("amhstyle_") === 0) { continue; }
+        var item = null;
+        try { item = it.projectItem; } catch (e) {}
+        var nested = false;
+        try { nested = !!(item && typeof item.isSequence === "function" && item.isSequence()); } catch (e) {}
+        if (amhMediaPath(item) || nested) { return it; }
+    }
+    return null;
+}
+
+function amh_autoZoom(argsJSON) {
+    return amhGuard(function () {
+        var args = JSON.parse(argsJSON);
+        if (!app || !app.project) { return amhErr("No project is open."); }
+        var seq = app.project.activeSequence;
+        if (!seq) { return amhErr("No active sequence. Open one first."); }
+        var moments = args.moments || [];
+        if (!moments.length) { return amhErr("Nothing to zoom."); }
+        var want = args.media || [];
+        if (want.length) {
+            var wantSet = {};
+            for (var m = 0; m < want.length; m++) { wantSet[amhCleanupKey(want[m])] = true; }
+            if (!amhCleanupHasMedia(seq, wantSet, 0)) {
+                return amhErr("The open sequence is not the one these captions were made from. Open that sequence, then try again.");
+            }
+        }
+        var origName = String(seq.name);
+        var copied = false;
+        if (!/ - (clean|zoom)$/.test(origName)) {
+            var c = amhCopyAndOpen(seq, " - zoom");
+            if (c.error) { return amhErr(c.error); }
+            seq = c.seq;
+            copied = true;
+        }
+        var fps = amhCleanupFps(), f = 1 / fps, eps = 0.5 / fps;
+        var z = Number(args.strength) > 100 && Number(args.strength) <= 150 ? Number(args.strength) / 100 : 1.15;
+        var punch = args.style === "punch";
+        var done = 0, animated = 0, noClip = 0;
+        var ours = {}, base = {};
+        for (var n = 0; n < moments.length; n++) {
+            var mo = moments[n];
+            var clip = amhZoomClipAt(seq, Number(mo.word), eps);
+            if (!clip) { noClip++; continue; }
+            var prop = amhZoomScaleProp(clip);
+            if (!prop) { noClip++; continue; }
+            var cs = Number(clip.start.seconds), ce = Number(clip.end.seconds), cin = Number(clip.inPoint.seconds);
+            var key = amhClipName(clip) + "@" + cs;
+            if (!ours[key]) {
+                var tv = false;
+                try { tv = !!prop.isTimeVarying(); } catch (e) {}
+                if (tv) { animated++; continue; }             // the editor's own animation stays
+                base[key] = Number(prop.getValue());
+                if (!(base[key] > 0)) { base[key] = 100; }
+                prop.setTimeVarying(true);
+                ours[key] = true;
+            }
+            var b = base[key], zz = Math.round(b * z * 100) / 100;
+            var src = function (t) { return cin + (t - cs); };      // keyframe times are the clip's own (source) time
+            var a = Math.max(Number(mo.start), cs);
+            var w = Math.min(Math.max(Number(mo.word), cs + f), ce - 2 * f);
+            var e = Math.min(Number(mo.end), ce - f);
+            if (e <= w) { e = Math.min(w + 1, ce - f); }
+            var keys = punch
+                ? [[w - f, b], [w, zz], [e, zz], [e + f, b]]
+                : [[a, b], [e, zz], [e + f, b]];
+            for (var k = 0; k < keys.length; k++) {
+                var kt = keys[k][0];
+                if (kt < cs - eps || kt > ce + eps) { continue; }
+                var st = src(kt);
+                prop.addKey(st);
+                prop.setValueAtKey(st, keys[k][1], true);
+            }
+            done++;
+        }
+        return amhOk({ sequence: String(seq.name), copied: copied, original: origName,
+                       zoomed: done, animated: animated, noClip: noClip });
+    });
+}

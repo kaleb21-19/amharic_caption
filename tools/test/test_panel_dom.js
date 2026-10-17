@@ -237,7 +237,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.16.22');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.16.23');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1538,6 +1538,48 @@ await t('4l. ✂ clean up (1.16.20): pauses from the footage, repeats and እ so
   try {
     await flush(10);
     assert.strictEqual(q.els('revCleanup').style.display, 'none');
+  } finally { q.close(); }
+});
+
+await t('4m. 🔍 auto zoom (1.16.23): ★ words and numbers listed with tick boxes; zooms go to Premiere with the chosen look', async () => {
+  let sent = null;
+  let reply = null;
+  const p = loadPanel({ csiRaw: (jsx) => {
+    if (/amh_autoZoom/.test(jsx)) { sent = jsx.split('\\').join(''); return JSON.stringify(reply); }
+    return JSON.stringify(defaultCsiReply);
+  } });
+  try {
+    await flush(10);
+    p.evalVm('LICENSED = true; renderPreview = async () => {}; lastCues = [' +
+      '{ start: 1, end: 3, text: "ዋጋው 5,000 ብር ነው" }, { start: 8, end: 10, text: "ዛሬ *ልዩ* ቅናሽ" }, { start: 20, end: 22, text: "ሰላም" }];');
+    const tmp = path.join(os.tmpdir(), 'amh_review_' + Date.now() + '.srt');
+    fs.writeFileSync(tmp, '1\n00:00:01,000 --> 00:00:02,000\nx\n');
+    await p.evalVm('openReview(' + JSON.stringify(tmp) + ', "talk.mp4", 0, {})');
+    p.evalVm('setPreviewMedia([{ path: "C:/v/talk.mp4", offset: 0 }])');
+    assert.notStrictEqual(p.els('revZoom').style.display, 'none', 'the 🔍 button is in the review header (Premiere)');
+    p.evalVm('toggleZoomPanel()');
+    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(ZOOM.items.map((x) => x.text))')), ['5,000', 'ልዩ']);
+    // ★ only
+    p.evalVm('saveSettings({ zoomStars: true }); zoomFind();');
+    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(ZOOM.items.map((x) => x.text))')), ['ልዩ']);
+    p.evalVm('saveSettings({ zoomStars: false, zoomStyle: "punch", zoomStrength: 125 }); zoomFind(); ZOOM.items[1].on = false;');
+    // Premiere says no: the reason is shown
+    reply = { ok: false, error: 'The open sequence is not the one these captions were made from. Open that sequence, then try again.' };
+    await p.evalVm('applyZoom()');
+    assert.ok(p.evalVm('ZOOM.error'));
+    reply = { ok: true, sequence: 'talk - zoom', copied: true, zoomed: 1, animated: 0, noClip: 0 };
+    await p.evalVm('applyZoom()');
+    assert.ok(/"style":"punch"/.test(sent) && /"strength":125/.test(sent), 'the chosen look: ' + sent);
+    assert.ok(/"moments":\[\{"start":1,/.test(sent) && !/"start":8/.test(sent), 'only the ticked moment');
+    assert.ok(/C:\/v\/talk\.mp4/.test(sent), 'the footage, so the right sequence is checked');
+    assert.ok(p.evalVm('!!ZOOM.done'));
+    p.evalVm('closeReview()');
+    assert.strictEqual(p.evalVm('ZOOM'), null);
+  } finally { p.close(); }
+  const q = loadPanel({ hostApp: 'AEFT' });
+  try {
+    await flush(10);
+    assert.strictEqual(q.els('revZoom').style.display, 'none', 'After Effects: no 🔍 button');
   } finally { q.close(); }
 });
 
