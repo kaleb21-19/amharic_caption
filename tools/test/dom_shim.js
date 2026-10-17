@@ -180,6 +180,8 @@ const KNOWN = [
   'buyBtn', 'buyPending', 'bankDetails', 'bankBox',
   'revUndo', 'revMemory', 'memoryPanel',
   'revClient', 'clientPanel', 'revCleanup', 'cleanupPanel', 'revZoom', 'zoomPanel',
+  'srcLine', 'wpcSeg', 'wpc1', 'wpc2', 'wpc3', 'wpc4', 'wpc5', 'wpcField', 'capField',
+  'reviewSteps', 'stepText', 'stepStyle', 'stepPlace',
   // next-step card after a free caption
   'trialCard', 'tcGroup', 'tcBuy', 'tcLater', 'tcLeftText', 'tcCutText',
   'freeMinBox', 'freeMinTitle', 'freeMinBtn', 'freeMinWait',
@@ -223,7 +225,8 @@ function makeDocument(tagFor) {
     diag: ['a', null], credits: ['a', null], onboardStart: ['button', null],
     licenseActivate: ['button', null], machineIdCopy: ['button', null],
     buyBtn: ['button', null], bankDetails: ['a', null],
-    revUndo: ['button', null], revMemory: ['button', null], revClient: ['button', null], revCleanup: ['button', null], revZoom: ['button', null],
+    revUndo: ['button', null], revMemory: ['button', null], revClient: ['button', null], revCleanup: ['button', null], revZoom: ['button', null], wpc1: ['button', null], wpc2: ['button', null], wpc3: ['button', null], wpc4: ['button', null], wpc5: ['button', null],
+    stepText: ['button', null], stepStyle: ['button', null], stepPlace: ['button', null],
     tcGroup: ['button', null], tcBuy: ['button', null], tcLater: ['button', null], freeMinBtn: ['button', null], reportBtn: ['button', null], feedbackSend: ['button', null], feedbackCancel: ['button', null], feedbackText: ['textarea', null], feedbackTg: ['input', null],
     reviewAdd: ['button', null], reviewExport: ['button', null],
     reviewDiscard: ['button', null], reviewBurn: ['button', null],
@@ -246,6 +249,9 @@ function makeDocument(tagFor) {
   ids.capWords.dataset.cap = 'words'; ids.capGroup.dataset.cap = 'grouped';
   ids.srcSeg.appendChild(ids.srcClip); ids.srcSeg.appendChild(ids.srcWork); ids.srcSeg.appendChild(ids.srcWhole);
   ids.capSeg.appendChild(ids.capWords); ids.capSeg.appendChild(ids.capGroup);
+  [1, 2, 3, 4, 5].forEach((n) => { ids['wpc' + n].dataset.wpc = String(n); ids.wpcSeg.appendChild(ids['wpc' + n]); });
+  ids.reviewSteps.appendChild(ids.stepText); ids.reviewSteps.appendChild(ids.revCleanup); ids.reviewSteps.appendChild(ids.revZoom);
+  ids.reviewSteps.appendChild(ids.stepStyle); ids.reviewSteps.appendChild(ids.stepPlace);
   ids.fmtH.dataset.fmt = 'h'; ids.fmtV.dataset.fmt = 'v';
   ids.fmtSeg.appendChild(ids.fmtH); ids.fmtSeg.appendChild(ids.fmtV);
   ids.fmtH.classList.add('active');

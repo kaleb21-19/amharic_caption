@@ -548,6 +548,19 @@
   .row-hint .hint-btn.danger { color: var(--err); }
   .row-hint .hint-btn.close { border-color: transparent; background: transparent; color: var(--text-secondary); padding: 3px 6px; }
   .memory-panel .mem-head { font-weight: 700; margin-bottom: 2px; }
+  /* 1.16.25: what will be captioned, under Source */
+  .src-line { margin-top: 6px; font-size: var(--font-s); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .src-line.ok { color: var(--text-secondary); }
+  .src-line.warn { color: var(--warn); white-space: normal; }
+  /* 1.16.25: the review step bar */
+  .review-steps { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 6px; }
+  .review-steps .rstep { border: 1px solid var(--border); background: var(--bg-card); color: var(--text-secondary);
+    border-radius: 999px; padding: 3px 9px; font-size: var(--font-s); cursor: pointer; white-space: nowrap; }
+  .review-steps .rstep:hover { color: var(--text-primary); border-color: var(--accent); }
+  .review-steps .rstep.done { color: var(--ok); border-color: rgba(46,204,113,.45); }
+  .review-steps .rstep.warn { color: var(--warn); border-color: var(--warn); }
+  .review-steps .rstep.last { color: var(--text-primary); }
+  #reviewPlace.pulse { box-shadow: 0 0 0 3px rgba(46,204,113,.55); }
   /* ✂ Clean up (1.16.20) */
   .cleanup-panel { width: 330px; max-height: 70vh; }
   .cleanup-panel .clean-opt { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin: 4px 0 6px; color: var(--text-secondary); }
@@ -798,6 +811,7 @@
         <button id="srcWork" data-src="work" data-i18n="src.work">Work Area</button>
         <button id="srcWhole" data-src="whole" data-i18n="src.whole">Whole Edit</button>
       </div>
+      <div class="src-line" id="srcLine" style="display:none;" role="status" aria-live="polite"></div>
       <div style="height:4px;"></div>
       <input type="file" id="fileInput" accept="audio/*,video/*,.mp3,.wav,.m4a,.aac,.mp4,.mov,.mkv,.wmv" style="display:none;">
     </div>
@@ -808,7 +822,17 @@
         <div class="step-num">2</div>
         <span class="card-title" data-i18n="opt.title">Options</span>
       </div>
-      <div class="field">
+      <div class="field" id="wpcField">
+          <label class="field-label" for="wpcSeg" data-i18n="opt.wpc">Words per caption</label>
+          <div class="seg" id="wpcSeg" role="radiogroup" aria-label="Words per caption">
+            <button id="wpc1" data-wpc="1" data-i18n="opt.wpc1">1 · Karaoke</button>
+            <button id="wpc2" data-wpc="2">2</button>
+            <button id="wpc3" data-wpc="3">3</button>
+            <button id="wpc4" data-wpc="4">4</button>
+            <button id="wpc5" data-wpc="5">5</button>
+          </div>
+        </div>
+        <div class="field" id="capField" style="display:none;">
         <label class="field-label" for="capSeg" data-i18n="opt.style">Caption style</label>
         <div class="seg" id="capSeg" role="radiogroup" aria-label="Caption style">
           <button data-cap="words" class="active" data-i18n="opt.karaoke">Karaoke</button>
@@ -952,7 +976,7 @@
     <div class="recent-list" id="recentList"></div>
   </div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.16.24</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span></span>
+    <span>v<span id="panelVersion">1.16.25</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span></span>
     <span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="updateCheck" title="Check for updates" data-i18n="update.check" data-i18n-title="update.checkTitle">↻ Check for updates</a>
@@ -986,9 +1010,14 @@
         <button type="button" id="revUndo" class="btn btn-neutral" style="display:none;"></button>
         <button type="button" id="revMemory" class="btn btn-neutral" style="display:none;">🧠 Memory</button>
         <button type="button" id="revClient" class="btn btn-neutral" data-i18n="cli.button">👤 Client</button>
-        <button type="button" id="revCleanup" class="btn btn-neutral" data-i18n="clean.button" title="Cut long pauses, repeated takes and hesitation sounds" data-i18n-title="clean.title">✂ Clean up</button>
-        <button type="button" id="revZoom" class="btn btn-neutral" data-i18n="zoom.button" title="Zoom in on the video at ★ words, numbers and money" data-i18n-title="zoom.title">🔍 Zoom</button>
       </span>
+    </div>
+    <div class="review-steps" id="reviewSteps" role="navigation" aria-label="Steps">
+      <button type="button" class="rstep" id="stepText" title="Go to the first doubtful word" data-i18n-title="step.textTitle"></button>
+      <button type="button" class="rstep" id="revCleanup" title="Cut long pauses, repeated takes and hesitation sounds" data-i18n-title="clean.title"></button>
+      <button type="button" class="rstep" id="revZoom" title="Zoom in on the video at ★ words, numbers and money" data-i18n-title="zoom.title"></button>
+      <button type="button" class="rstep" id="stepStyle" title="Choose how the captions look" data-i18n-title="step.styleTitle"></button>
+      <button type="button" class="rstep" id="stepPlace" title="Put the captions on the timeline" data-i18n-title="step.placeTitle"></button>
     </div>
     <div class="memory-panel" id="memoryPanel" style="display:none;"></div>
     <div class="memory-panel client-panel" id="clientPanel" style="display:none;"></div>

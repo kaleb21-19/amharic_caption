@@ -237,7 +237,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.16.24');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.16.25');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1633,6 +1633,71 @@ await t('4n. ✂ text cuts (1.16.24): strike words next to the caption; they go 
   } finally { p.close(); }
 });
 
+await t('4o. panel polish (1.16.25): what will be captioned, the review step bar, keyboard shortcuts', async () => {
+  let clipReply = { ok: true, name: 'interview.mp4', duration: 754, via: 'selected' };
+  let seqReply = { ok: true, sequence: 'Episode 3', clips: [{ timelineStart: 10, duration: 100 }, { timelineStart: 120, duration: 50 }] };
+  const p = loadPanel({ csiRaw: (jsx) => {
+    if (/amharic_getSelectedClip/.test(jsx)) return JSON.stringify(clipReply);
+    if (/amharic_getSequenceInfo/.test(jsx)) return JSON.stringify(seqReply);
+    return JSON.stringify(defaultCsiReply);
+  } });
+  try {
+    await flush(10);
+    // ── the line under Source
+    p.evalVm('SOURCE = "clip"');
+    await p.evalVm('refreshSourceLine(true)');
+    assert.ok(/interview\.mp4 · 12:34/.test(p.els('srcLine').textContent), p.els('srcLine').textContent);
+    assert.ok(/ok/.test(p.els('srcLine').className));
+    clipReply = { ok: true, name: 'interview.mp4', duration: 30, via: 'playhead (no explicit selection found)' };
+    await p.evalVm('refreshSourceLine(true)');
+    assert.ok(/playhead|ማጫወቻው/.test(p.els('srcLine').textContent), 'says it is the clip under the playhead');
+    clipReply = { ok: false, error: 'No clip found' };
+    await p.evalVm('refreshSourceLine(true)');
+    assert.ok(/warn/.test(p.els('srcLine').className) && /⚠/.test(p.els('srcLine').textContent), 'nothing to use: says what to do');
+    p.evalVm('SOURCE = "work"');
+    await p.evalVm('refreshSourceLine(true)');
+    assert.ok(/Episode 3 · 2 .* · 2:40/.test(p.els('srcLine').textContent), p.els('srcLine').textContent);
+    assert.strictEqual(await p.evalVm('refreshSourceLine(false)'), null, 'not asked again within 1.5 s');
+    // ── the review step bar
+    p.evalVm('SOURCE = "clip"; LICENSED = true; renderPreview = async () => {}; lastCues = [' +
+      '{ start: 0, end: 2, text: "ሰላም ናችሁ" }, { start: 2, end: 4, text: "ዛሬ ስለ ቡና", doubt: [[3, 5]] }, { start: 4, end: 6, text: "ጥሩ ነው" }];');
+    const tmp = path.join(os.tmpdir(), 'amh_review_' + Date.now() + '.srt');
+    fs.writeFileSync(tmp, '1\n00:00:01,000 --> 00:00:02,000\nx\n');
+    await p.evalVm('openReview(' + JSON.stringify(tmp) + ', "talk.mp4", 0, {})');
+    p.evalVm('syncReviewSteps()');
+    const txt = (id) => p.els(id).textContent;
+    assert.ok(/^① /.test(txt('stepText')), txt('stepText'));
+    const doubts = p.evalVm('reviewDoubtCount()');
+    if (doubts) assert.ok(/\?/.test(txt('stepText')) && /warn/.test(p.els('stepText').className), 'doubtful words left: orange, with the count');
+    assert.ok(/^② ✂/.test(txt('revCleanup')) && /^③ 🔍/.test(txt('revZoom')), txt('revCleanup') + ' / ' + txt('revZoom'));
+    p.evalVm('CLEAN = { done: { sequence: "x" }, items: [] }; ZOOM = { done: { zoomed: 1 }, items: [] }; syncReviewSteps();');
+    assert.ok(/✓/.test(txt('revCleanup')) && /done/.test(p.els('revCleanup').className), 'a finished step gets ✓');
+    assert.ok(/✓/.test(txt('revZoom')));
+    p.evalVm('CLEAN = null; ZOOM = null;');
+    // ── shortcuts in a caption: Ctrl+B = ★, Ctrl+D = ✂, Ctrl+↓ = next caption
+    const ta = (i) => { const row = p.els('reviewList').children[i]; const f = (n) => { if (n.tagName === 'TEXTAREA') return n; for (const c of (n.children || [])) { const x = f(c); if (x) return x; } return null; }; return f(row); };
+    let a = ta(0);
+    a.selectionStart = 0; a.selectionEnd = 3;
+    a.fire('keydown', { key: 'b', ctrlKey: true, metaKey: false, preventDefault() {} });
+    assert.strictEqual(p.evalVm('reviewCues[0].text'), '*ሰላም* ናችሁ', 'Ctrl+B = ★');
+    a = ta(2);
+    a.selectionStart = 0; a.selectionEnd = 2;
+    a.fire('keydown', { key: 'd', ctrlKey: true, metaKey: false, preventDefault() {} });
+    assert.strictEqual(p.evalVm('reviewCues[2].text'), '~ጥሩ~ ነው', 'Ctrl+D = ✂');
+    p.evalVm('closeReview()');
+  } finally { p.close(); }
+  // the desktop app has no Premiere to ask: no line
+  const q = loadPanel({ hostApp: 'AEFT' });
+  try {
+    await flush(10);
+    q.evalVm('SOURCE = "clip"');
+    await q.evalVm('refreshSourceLine(true)');
+    assert.ok(/⚠|▶/.test(q.els('srcLine').textContent), 'After Effects: the line works too');
+    q.evalVm('syncReviewSteps()');
+    assert.strictEqual(q.els('revCleanup').style.display, 'none', 'After Effects: no Clean up / Zoom steps');
+  } finally { q.close(); }
+});
+
 await t('5. review: cache-hit transcribe -> edit -> export (speaker tags) -> nudge -> add -> discard', async () => {
   const fixture = path.join(REPO, 'tools', 'test', 'fixtures', 'twospeaker.wav');
   assert.ok(fs.existsSync(fixture), 'fixture present');
@@ -2566,12 +2631,22 @@ await t('17. polish: Amharic errors/progress, compact idle UI, simple license st
     p.evalVm("i18nSetLang('am')");
 
     // Karaoke hides the words-per-caption field; Grouped shows it
-    p.els('capWords').fire('click');
-    assert.strictEqual(p.els('groupSizeField').style.display, 'none', 'karaoke: no words-per-caption');
+    // 1.16.25: one row "Words per caption: 1 · 2 · 3 · 4 · 5" (the number box only for an old setting above 5)
+    p.els('wpc1').fire('click');
+    assert.strictEqual(p.evalVm('CAP'), 'words');
+    assert.ok(p.els('wpc1').classList.contains('active') && p.els('capWords').classList.contains('active'));
+    assert.strictEqual(p.els('groupSizeField').style.display, 'none', 'karaoke: no number box');
     assert.strictEqual(p.els('fmtField').style.display, 'none', 'karaoke: no video shape');
-    p.els('capGroup').fire('click');
-    assert.strictEqual(p.els('groupSizeField').style.display, '', 'grouped: words-per-caption shown');
+    p.els('wpc4').fire('click');
+    assert.deepStrictEqual([p.evalVm('CAP'), p.evalVm('GROUP_SIZE')], ['grouped', 4]);
+    assert.ok(p.els('wpc4').classList.contains('active') && !p.els('wpc1').classList.contains('active'));
+    assert.strictEqual(p.els('groupSizeField').style.display, 'none', '4 is in the row: no number box');
     assert.strictEqual(p.els('fmtField').style.display, '', 'grouped: video shape shown');
+    p.els('capGroup').fire('click');
+    p.els('groupSize').value = '8'; p.els('groupSize').fire('input');
+    p.els('capWords').fire('click'); p.els('capGroup').fire('click');
+    assert.strictEqual(p.els('groupSizeField').style.display, '', 'an old setting of 8: the number box shows it');
+    p.els('wpc3').fire('click');
 
     // trial used up: said once (banner), not twice
     p.evalVm("TRIAL_MIN = { status: 'active', seconds_left: 0, seconds_total: 1200, minutes: 20 }; updateLicenseUI()");
@@ -2774,7 +2849,13 @@ await t('14b. editing shortcuts (Ctrl/Cmd + C V X A Z Y, + Shift) stay in the pa
         assert.ok(keys.some((k) => k.keyCode === code && k[mod] === true && !k.shiftKey), hostApp + ': key ' + code);
         assert.ok(keys.some((k) => k.keyCode === code && k[mod] === true && k.shiftKey === true), hostApp + ': Shift+key ' + code);
       }
-      assert.strictEqual(keys.length, want.length * 2, 'nothing else is taken from the host');
+      // 1.16.25: B (★), D (✂), ↓ ↑ (next / previous caption) — without Shift
+      const extra = mac ? [11, 2, 125, 126] : [66, 68, 40, 38];
+      for (const code of extra) {
+        assert.ok(keys.some((k) => k.keyCode === code && k[mod] === true && !k.shiftKey), hostApp + ': key ' + code);
+        assert.ok(!keys.some((k) => k.keyCode === code && k.shiftKey), hostApp + ': Shift+' + code + ' stays with the host');
+      }
+      assert.strictEqual(keys.length, want.length * 2 + extra.length, 'nothing else is taken from the host');
     } finally { p.close(); }
   }
 });
