@@ -237,7 +237,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.16.23');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.16.24');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1581,6 +1581,56 @@ await t('4m. 🔍 auto zoom (1.16.23): ★ words and numbers listed with tick bo
     await flush(10);
     assert.strictEqual(q.els('revZoom').style.display, 'none', 'After Effects: no 🔍 button');
   } finally { q.close(); }
+});
+
+await t('4n. ✂ text cuts (1.16.24): strike words next to the caption; they go out with Clean up and leave the text', async () => {
+  let reply = null;
+  const p = loadPanel({ csiRaw: (jsx) => {
+    if (/amh_cleanupPrepare/.test(jsx)) return JSON.stringify(reply);
+    if (/amh_cleanupSome/.test(jsx)) return JSON.stringify({ ok: true, removedSeconds: 1 });
+    return JSON.stringify(defaultCsiReply);
+  } });
+  try {
+    await flush(10);
+    p.evalVm('LICENSED = true; renderPreview = async () => {}; lastCues = [' +
+      '{ start: 0, end: 3, text: "ዛሬ ስለ ቡና እናወራለን" }, { start: 3, end: 5, text: "ይህንን ቁረጡ" }, { start: 5, end: 7, text: "ጥሩ ነው" }];');
+    const tmp = path.join(os.tmpdir(), 'amh_review_' + Date.now() + '.srt');
+    fs.writeFileSync(tmp, '1\n00:00:01,000 --> 00:00:02,000\nx\n');
+    await p.evalVm('openReview(' + JSON.stringify(tmp) + ', "talk.mp4", 0, {})');
+    p.evalVm('setPreviewMedia([{ path: "C:/v/talk.mp4", offset: 0 }])');
+    // the ✂ button sits next to ★ in every caption box
+    const row0 = p.els('reviewList').children[0];
+    const find = (n, cls) => { if (n.className && String(n.className).split(' ').indexOf(cls) >= 0) return n; for (const c of (n.children || [])) { const f = find(c, cls); if (f) return f; } return null; };
+    assert.ok(find(row0, 'cut-word') && find(row0, 'pop-word'), 'the ✂ button is right next to the caption');
+    // cursor inside "ቡና" (half a word grows to the whole word), then the whole 2nd caption
+    assert.ok(p.evalVm('toggleTextCut(0, 7, 8)'));
+    assert.strictEqual(p.evalVm('reviewCues[0].text'), 'ዛሬ ስለ ~ቡና~ እናወራለን');
+    assert.ok(p.evalVm('toggleTextCut(1, 0, 9)'));
+    assert.strictEqual(p.evalVm('reviewCues[1].text'), '~ይህንን ቁረጡ~');
+    // shown struck through (red) right in the caption
+    const row = p.els('reviewList').children[0];
+    assert.ok(find(row, 'cut'), 'the struck word is marked in the caption');
+    // ✂ again: kept; undo brings the strike back
+    p.evalVm('toggleTextCut(0, 8, 8)');
+    assert.strictEqual(p.evalVm('reviewCues[0].text'), 'ዛሬ ስለ ቡና እናወራለን');
+    p.evalVm('undoReview()');
+    assert.strictEqual(p.evalVm('reviewCues[0].text'), 'ዛሬ ስለ ~ቡና~ እናወራለን');
+    // styled captions never show the marks
+    assert.ok(!/~/.test(p.evalVm('JSON.stringify(styleCues(reviewCues))')));
+    // ✂ Clean up lists them first, ticked
+    p.els('cleanupPanel').style.display = '';
+    await p.evalVm('analyzeCleanup(null)');
+    const items = JSON.parse(p.evalVm('JSON.stringify(CLEAN.items.filter((x) => x.kind === "text").map((x) => [x.text, x.on, x.start, x.end]))'));
+    assert.deepStrictEqual(items.map((x) => [x[0], x[1]]), [['ቡና', true], ['ይህንን ቁረጡ', true]]);
+    assert.deepStrictEqual([items[1][2], items[1][3]], [3, 5], 'a whole caption: its exact times');
+    // cut: the struck words leave the text, the struck caption is gone
+    reply = { ok: true, sequence: 'talk - clean', sequenceID: 's2', fps: 25, original: 'talk',
+      list: JSON.parse(p.evalVm('JSON.stringify(mergeRanges(cleanupSelected()).map((c) => [c.start, c.end]))')) };
+    await p.evalVm('applyCleanup()');
+    const after = JSON.parse(p.evalVm('JSON.stringify(reviewCues.map((c) => c.text))'));
+    assert.deepStrictEqual(after, ['ዛሬ ስለ እናወራለን', 'ጥሩ ነው']);
+    p.evalVm('closeReview()');
+  } finally { p.close(); }
 });
 
 await t('5. review: cache-hit transcribe -> edit -> export (speaker tags) -> nudge -> add -> discard', async () => {

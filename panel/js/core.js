@@ -107,7 +107,7 @@ function srtTextFromCues(cues) {
 // ★ marks (*word*) are for the styled captions only: never in what viewers
 // see as plain captions, nor in exported files (1.16.16).
 function noEmph(text) {
-  return String(text || '').replace(/\*/g, '').replace(/ {2,}/g, ' ').trim();
+  return String(text || '').replace(/[*~]/g, '').replace(/ {2,}/g, ' ').trim();   // ★ and ✂ marks
 }
 
 function displaySrtTextFromCues(cues) {
@@ -434,7 +434,7 @@ function applyFixes(text, fixes) {
 const CLEANUP_FILLERS = ['እ', 'እእ', 'እእእ', 'ኧ', 'ኧኧ', 'ኧኧኧ', 'እም', 'እምም', 'ኧም', 'ኤ', 'ኤኤ', 'ም', 'ምም', 'ምምም', 'አአ', 'አአአ'];
 // Words that are often only filling, but not always: offered, never ticked.
 const CLEANUP_FILLER_WORDS = ['እንግዲህ', 'ያው', 'ማለቴ'];
-const CLEANUP_STRIP = /[*።፣፤፥፦፧፨?!.,;:"'“”‘’«»()[\]…-]/g;
+const CLEANUP_STRIP = /[*~።፣፤፥፦፧፨?!.,;:"'“”‘’«»()[\]…-]/g;
 function cleanupNorm(w) { return String(w || '').replace(CLEANUP_STRIP, '').trim(); }
 
 // Every word of the captions with an estimated time (the caption's time shared
@@ -444,7 +444,7 @@ function cleanupWords(cues) {
   (cues || []).forEach((c, ci) => {
     const parts = String(c.text || '').replace(/\n/g, ' ').split(/\s+/).filter(Boolean);
     if (!parts.length) return;
-    const weight = parts.map((w) => Array.from(w).length + 1);
+    const weight = parts.map((w) => Array.from(w.replace(/[~*]/g, '')).length + 1);   // marks take no time
     const total = weight.reduce((x, y) => x + y, 0);
     const span = Math.max(0, Number(c.end) - Number(c.start));
     let t = Number(c.start);
@@ -642,6 +642,54 @@ function findZoomMoments(cues, opts) {
   return out;
 }
 
+// ── ✂ Text cuts (1.16.24) ────────────────────────────────────────────────────
+// The editor strikes words in the captions (✂ next to the text): they are
+// written ~like this~ in the caption text, shown red and struck through,
+// and offered in the ✂ Clean up list as "Your cut". Until they are cut from
+// the video the words stay in the captions (only the ~ marks are dropped).
+// A whole struck caption is cut exactly at the caption's own times; a few
+// words inside a caption at their estimated times (the panel snaps the edges
+// to the quietest moment nearby).
+function cutRanges(text) {
+  const t = String(text || '');
+  const out = [];
+  const re = /~([^~]+)~/g;
+  let m;
+  while ((m = re.exec(t)) !== null) out.push({ start: m.index, end: m.index + m[0].length });
+  return out;
+}
+function findTextCuts(cues) {
+  const out = [];
+  (cues || []).forEach((c, ci) => {
+    const text = String(c.text || '').replace(/\n/g, ' ');
+    const ranges = cutRanges(text);
+    if (!ranges.length) return;
+    const W = cleanupWords([c]);                   // same words, same order as /\S+/
+    const pos = [];
+    const re = /\S+/g;
+    let m;
+    while ((m = re.exec(text)) !== null) pos.push([m.index, m.index + m[0].length]);
+    const isCut = (k) => pos[k] && ranges.some((r) => pos[k][0] >= r.start && pos[k][1] <= r.end);
+    const runs = [];
+    W.forEach((x) => {
+      if (!isCut(x.k)) return;
+      const last = runs[runs.length - 1];
+      if (last && last[last.length - 1].k === x.k - 1) last.push(x); else runs.push([x]);
+    });
+    const n = runs.reduce((a, r) => a + r.length, 0);
+    if (!n) return;
+    const whole = n === W.length;
+    runs.forEach((r) => {
+      const first = r[0], last = r[r.length - 1];
+      out.push({
+        start: whole ? Number(c.start) : first.s, end: whole ? Number(c.end) : last.e, whole,
+        text: r.map((x) => x.w.replace(/[~*]/g, '')).join(' '), words: r.map((x) => [ci, x.k]),
+      });
+    });
+  });
+  return out;
+}
+
 // Node (tests) — no-op in the CEP browser where `module` is undefined.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -652,7 +700,7 @@ if (typeof module !== 'undefined' && module.exports) {
     validateLicense,
     cleanupWords, findSilences, findRepeats, findFillers, snapQuiet, mergeRanges, cutTime,
     remapCuesAfterCut, remapMediaAfterCut, CLEANUP_FILLERS, CLEANUP_FILLER_WORDS,
-    findZoomMoments,
+    findZoomMoments, cutRanges, findTextCuts,
     LICENSE_TOKEN_PUBKEY_PEM, licenseTokenParse, verifyLicenseToken,
   };
 }

@@ -464,6 +464,27 @@ t('auto zoom: ★ words and numbers/money, one per caption, never two within 3 s
   assert.strictEqual(core.findZoomMoments([{ text: 'ምንም የለም', start: 0, end: 2 }]).length, 0);
 });
 
+// ── ✂ Text cuts (1.16.24) ────────────────────────────────────────────────────
+t('text cuts: ~struck~ words become cuts; a whole struck caption is cut at its exact times', () => {
+  const cues = [{ text: 'ዛሬ ~ስለ ቡና~ እናወራለን', start: 0, end: 3 }, { text: '~ይህንን ቁረጡ~', start: 3, end: 5 },
+    { text: 'ሀ ~ለ~ መ ~ረ~', start: 5, end: 7 }, { text: 'ምንም የለም', start: 7, end: 8 }];
+  const c = core.findTextCuts(cues);
+  assert.deepStrictEqual(c.map((x) => [x.text, x.whole, x.words]), [
+    ['ስለ ቡና', false, [[0, 1], [0, 2]]], ['ይህንን ቁረጡ', true, [[1, 0], [1, 1]]], ['ለ', false, [[2, 1]]], ['ረ', false, [[2, 3]]]]);
+  assert.deepStrictEqual([c[1].start, c[1].end], [3, 5], 'whole caption: exact');
+  assert.ok(c[0].start > 0 && c[0].end < 3 && c[0].start < c[0].end, 'inside a caption: estimated, inside it');
+  assert.deepStrictEqual(core.cutRanges('ሀ ~ለ~ መ'), [{ start: 2, end: 5 }]);
+});
+
+t('text cuts: until cut from the video, the words stay in every subtitle file (only the marks go)', () => {
+  const cues = [{ text: 'ዛሬ ~ስለ~ *ቡና*', start: 0, end: 2 }];
+  assert.strictEqual(core.noEmph(cues[0].text), 'ዛሬ ስለ ቡና');
+  assert.ok(core.displaySrtTextFromCues(cues).includes('ዛሬ ስለ ቡና') && !core.displaySrtTextFromCues(cues).includes('~'));
+  assert.ok(!core.vttTextFromCues(cues).includes('~') && !core.txtTextFromCues(cues).includes('~'));
+  // and repeats are found through the marks
+  assert.strictEqual(core.findRepeats([{ text: '~ዛሬ ስለ ቡና~ ዛሬ ስለ ቡና ታሪክ', start: 0, end: 4 }]).length, 1);
+});
+
 (async () => {
   await Promise.all(pending);
   console.log('\n' + (fail === 0 ? 'ALL PASS' : 'FAILURES: ' + fail) +
