@@ -108,8 +108,63 @@
     return (list || []).filter(Boolean).sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, n || 12);
   }
 
+  // ── the Script view (1.18.1) ──────────────────────────────────────────────
+  // Words (from core cleanupWords: { w, s, e, cue, k }) as paragraphs: a new
+  // paragraph after a long pause, or after a sentence end with a pause.
+  function scriptParagraphs(words, longGap, sentenceGap) {
+    longGap = longGap == null ? 1.2 : longGap;
+    sentenceGap = sentenceGap == null ? 0.45 : sentenceGap;
+    const out = [];
+    let cur = [];
+    (words || []).forEach((x, i) => {
+      const prev = words[i - 1];
+      if (prev && cur.length) {
+        const gap = x.s - prev.e;
+        const endsSentence = /[።?!፧]$/.test(String(prev.w).replace(/[*~]+$/, ''));
+        // and a long stretch without one breaks at a small pause (readable blocks)
+        if (gap > longGap || (endsSentence && gap > sentenceGap) || (cur.length >= 35 && gap > 0.25) || cur.length >= 60) { out.push(cur); cur = []; }
+      }
+      cur.push(x);
+    });
+    if (cur.length) out.push(cur);
+    return out;
+  }
+  // [start, end) character range of each word of a caption's text (the same
+  // words, same order as core cleanupWords).
+  function wordRanges(text) {
+    const t = String(text || '').replace(/\n/g, ' ');
+    const out = [];
+    const re = /\S+/g;
+    let m;
+    while ((m = re.exec(t)) !== null) out.push([m.index, m.index + m[0].length]);
+    return out;
+  }
+  // The word being spoken at t (binary search over start times): its index,
+  // or -1 before the first word / in a pause longer than `hold` after one.
+  function wordAt(words, t, hold) {
+    hold = hold == null ? 0.25 : hold;
+    let lo = 0, hi = (words || []).length - 1, best = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (words[mid].s <= t) { best = mid; lo = mid + 1; } else hi = mid - 1;
+    }
+    if (best < 0) return -1;
+    return t <= words[best].e + hold ? best : -1;
+  }
+  // The selected words grouped per caption: [{ cue, from, to }] — character
+  // ranges in that caption's text, ready for toggleEmphasis / toggleTextCut.
+  function selectionByCaption(cues, picked) {
+    const by = {};
+    (picked || []).forEach((p) => { (by[p.cue] = by[p.cue] || []).push(p.k); });
+    return Object.keys(by).map(Number).sort((a, b) => a - b).map((ci) => {
+      const r = wordRanges(cues[ci] && cues[ci].text);
+      const ks = by[ci].sort((a, b) => a - b);
+      return { cue: ci, from: r[ks[0]] ? r[ks[0]][0] : 0, to: r[ks[ks.length - 1]] ? r[ks[ks.length - 1]][1] : 0, words: ks };
+    });
+  }
+
   const api = { MAX_PPS, minPps, clampView, fitView, timeToX, xToTime, zoomAt, follow, hitCaption, ticks, fmtClock,
-    projectId, projectFileName, makeProject, parseProject, recentProjects };
+    projectId, projectFileName, makeProject, parseProject, recentProjects, scriptParagraphs, wordRanges, wordAt, selectionByCaption };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhStudio = api;
 })(typeof window !== 'undefined' ? window : this);

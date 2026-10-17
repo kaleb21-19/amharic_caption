@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.18.0';
+const APP_VERSION = '1.18.1';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,19 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.18.1': {
+    banner: {
+      am: '¶ Studio፦ ጽሑፉን እንደ ሰነድ ያንብቡና ያርሙ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '¶ Studio: read and fix the words like a document — your license stays the same.',
+    },
+    items: [
+      { am: '¶ ጽሑፍ፦ ካፕሽኖቹ እንደ አንቀጽ ይነበባሉ፤ የሚነገረው ቃል በአረንጓዴ ይታያል', en: '¶ Script: the captions read as paragraphs; the word being spoken is green' },
+      { am: 'ቃላትን ይምረጡ — ★ ጎልቶ · ✎ አርም · ▶ አጫውት እዚያው ይታያሉ', en: 'Select words — ★ Pop · ✎ Fix · ▶ Play appear right there' },
+      { am: 'ቃሉን ሁለቴ ይጫኑ፦ ወዲያውኑ ያርሙት', en: 'Double-click a word to fix it at once' },
+      { am: '⚠ ቁጥሩን ሲጫኑ ወደ መጀመሪያው የሚፈተሽ ቃል ይሄዳል', en: 'Click ⚠ to go to the first word to check' },
+      { am: '☰ ዝርዝር፦ ለትክክለኛ ጊዜ የካፕሽን ሳጥኖቹ አንድ ጠቅታ ርቀው ናቸው', en: '☰ List: the caption boxes for exact timing are one click away' },
+    ],
+  },
   '1.18.0': {
     banner: {
       am: '🎬 Amharic Captions Studio በአዲስ መልክ፦ ቪዲዮ ይጣሉ፣ ወዲያውኑ ይጀምራል — ፈቃድዎ እንደቀድሞው ይቀጥላል።',

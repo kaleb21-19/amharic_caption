@@ -64,4 +64,25 @@ test('projects: one file per video, only what is needed, broken files ignored, n
   assert.deepStrictEqual(list.map((x) => x.at), [3, 2]);
 });
 
+test('Script view: paragraphs at pauses and sentence ends; long stretches break at a small pause', () => {
+  const w = (t, s, e) => ({ w: t, s, e });
+  const paras = S.scriptParagraphs([w('ሰላም', 0, 0.4), w('ናችሁ።', 0.5, 1), w('ዛሬ', 1.6, 2), w('ቡና', 2.1, 2.5), w('ነው', 4, 4.4)]);
+  assert.deepStrictEqual(paras.map((p) => p.map((x) => x.w)), [['ሰላም', 'ናችሁ።'], ['ዛሬ', 'ቡና'], ['ነው']]);
+  const many = [];
+  for (let i = 0; i < 70; i++) many.push(w('ቃል', i * 0.5, i * 0.5 + 0.2));       // a 0.3 s gap after every word
+  assert.ok(S.scriptParagraphs(many).every((p) => p.length <= 60) && S.scriptParagraphs(many).length >= 2, 'no wall of text');
+});
+
+test('Script view: the word being spoken; the selected words per caption', () => {
+  const words = [{ s: 0, e: 0.4 }, { s: 0.5, e: 1 }, { s: 3, e: 3.5 }];
+  assert.strictEqual(S.wordAt(words, 0.2), 0);
+  assert.strictEqual(S.wordAt(words, 1.1), 1, 'just after a word: still that word');
+  assert.strictEqual(S.wordAt(words, 2), -1, 'in a pause: none');
+  assert.strictEqual(S.wordAt(words, -1), -1);
+  assert.deepStrictEqual(S.wordRanges('ሰላም  *ቡና*\nነው'), [[0, 3], [5, 9], [10, 12]]);
+  const cues = [{ text: 'ሰላም ናችሁ ዛሬ' }, { text: 'ስለ ቡና' }];
+  assert.deepStrictEqual(S.selectionByCaption(cues, [{ cue: 1, k: 0 }, { cue: 0, k: 2 }, { cue: 0, k: 1 }]),
+    [{ cue: 0, from: 4, to: 10, words: [1, 2] }, { cue: 1, from: 0, to: 2, words: [0] }]);
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');

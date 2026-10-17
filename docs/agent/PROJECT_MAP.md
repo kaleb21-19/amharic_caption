@@ -51,6 +51,7 @@ the same PR that moves or renames the code. Keep this file under ~120 lines.
 - `app/node_shim.js` :: `readBase64` — the fake CEP Node API the panel code uses in the app
 - `app/studio.js` :: `function openExport` — Amharic Captions Studio shell: top bar, tabs, Export sheet, drop-and-go, timeline, keys, projects (design: docs/agent/STUDIO_DESIGN.md)
 - `panel/js/core.js` :: `function regroupCues` — words per caption / line length after transcription, from the words' times
+- `app/studio_script.js` :: `function fix` — Studio Script view: flowing text, selection bar (★ Pop · ✎ Fix · ▶ Play), word following playback
 - `app/studio_core.js` :: `function hitCaption` — Studio pure parts: timeline view maths, ruler, project files (tests: test_studio.js)
 - `app/amh_app.py` :: `def peaks_from_raw` — the timeline's sound wave (bridge op "peaks"; the text bridge cannot carry binary)
 
