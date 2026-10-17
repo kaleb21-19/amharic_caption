@@ -160,6 +160,7 @@
     current = p;
     bar.textContent = '';
     bar.appendChild(action('★', tx('ጎልቶ', 'Pop'), 'Ctrl+B', star));
+    if (window.__amhStudioCuts) bar.appendChild(action('✂', tx('ቁረጥ', 'Cut'), 'Ctrl+D', cut));
     bar.appendChild(action('✎', tx('አርም', 'Fix'), 'Enter', () => openFix(current)));
     bar.appendChild(action('▶', tx('አጫውት', 'Play'), '', play));
     bar.style.display = '';
@@ -173,6 +174,18 @@
     const n = REVIEW_UNDO.length;
     groups.forEach((g) => toggleEmphasis(g.cue, g.from, g.to));
     // one action = one undo step, however many captions it touched
+    if (REVIEW_UNDO.length > n + 1) { REVIEW_UNDO.splice(n + 1); if (typeof syncReviewUndo === 'function') syncReviewUndo(); }
+    hideBar();
+    if (typeof schedulePreview === 'function') schedulePreview();
+  }
+  // ✂: strike the words (~like this~) — ✂ Clean up then cuts them from the
+  // exported video; again on struck words: keep them. One undo step.
+  function cut() {
+    const p = current;
+    if (!p.length) return;
+    const groups = S.selectionByCaption(reviewCues, p);
+    const n = REVIEW_UNDO.length;
+    groups.forEach((g) => toggleTextCut(g.cue, g.from, g.to));
     if (REVIEW_UNDO.length > n + 1) { REVIEW_UNDO.splice(n + 1); if (typeof syncReviewUndo === 'function') syncReviewUndo(); }
     hideBar();
     if (typeof schedulePreview === 'function') schedulePreview();
@@ -237,9 +250,10 @@
   document.addEventListener('mousedown', (e) => { if (bar.style.display !== 'none' && !bar.contains(e.target) && !box.contains(e.target)) hideBar(); });
   document.addEventListener('keydown', (e) => {
     if (mode !== 'script' || !review.classList.contains('show')) return;
-    if ((e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === 'b') {
+    if ((e.ctrlKey || e.metaKey) && /^[bd]$/.test(String(e.key).toLowerCase())) {
       const p = picked();
-      if (p.length) { e.preventDefault(); current = p; star(); }
+      const k = String(e.key).toLowerCase();
+      if (p.length && (k === 'b' || window.__amhStudioCuts)) { e.preventDefault(); current = p; if (k === 'b') star(); else cut(); }
     } else if (e.key === 'Enter' && bar.style.display !== 'none' && current.length && document.activeElement && !document.activeElement.classList.contains('st-fix')) {
       e.preventDefault(); openFix(current);
     } else if (e.key === 'Escape' && bar.style.display !== 'none') { e.preventDefault(); hideBar(); }
@@ -295,5 +309,6 @@
     .observe(review, { attributes: true, attributeFilter: ['class'] });
   relabel();
   setMode(mode);
-  window.__amhScript = { render, setMode, mode: () => mode, words: () => words, showBar, openFix, fix: (p, t) => fix(p, t), star: (p) => { current = p; star(); } };
+  window.__amhScript = { render, setMode, mode: () => mode, words: () => words, showBar, openFix, fix: (p, t) => fix(p, t),
+    star: (p) => { current = p; star(); }, cut: (p) => { current = p; cut(); } };
 })();

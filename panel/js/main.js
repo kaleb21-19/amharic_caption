@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.18.1';
+const APP_VERSION = '1.19.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,19 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.19.0': {
+    banner: {
+      am: '✂ Studio፦ ዝምታ፣ የተደገመ አባባልና እ… ድምፆችን ቆርጠው የጸዳ ቪዲዮ ይላኩ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '✂ Studio: cut pauses, repeated takes and እ… sounds, and export a clean video — your license stays the same.',
+    },
+    items: [
+      { am: '✂ ማጽዳት፦ ዝምታ፣ የተደገመ አባባልና እ… ድምፆች ይገኛሉ፤ የሚቆረጠውን ይመርጣሉ', en: '✂ Clean up: pauses, repeated takes and እ… sounds are found; you choose what goes' },
+      { am: 'በጽሑፉ ውስጥ ቃላትን ይምረጡ → ✂ ቁረጥ', en: 'Select words in the Script → ✂ Cut' },
+      { am: 'ሲጫወት የሚቆረጠውን ይዘላል — የጸዳውን ወዲያው ይሰማሉ፤ በጊዜ መስመሩ ላይ በቀይ ይታያል', en: 'Playback skips the cuts — you hear the clean edit at once; red on the timeline' },
+      { am: 'ይላኩ፦ ካፕሽን ያለው የጸዳ ቪዲዮ፣ ያለ ካፕሽን የጸዳ ቪዲዮ፣ ከእሱ ጋር የሚሄድ .srt', en: 'Export: the clean video with captions, without captions, and the .srt that matches' },
+      { am: 'ዋናው ቪዲዮዎ ፈጽሞ አይነካም', en: 'Your original video is never changed' },
+    ],
+  },
   '1.18.1': {
     banner: {
       am: '¶ Studio፦ ጽሑፉን እንደ ሰነድ ያንብቡና ያርሙ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -4103,7 +4116,7 @@ function renderReview() {
       if (e && e.preventDefault) e.preventDefault();
       toggleTextCut(i, ta.selectionStart, ta.selectionEnd);
     });
-    if (cleanupAvailable()) textBox.appendChild(cutBtn);   // Premiere only (Clean up does the cutting)
+    if (textCutAvailable()) textBox.appendChild(cutBtn);   // where something can cut (Premiere Clean up, Studio export)
     paint();
     ta.addEventListener('input', () => {
       cue.text = ta.value; paint(); fitReviewBox(ta); updateReviewCount();
@@ -4124,7 +4137,7 @@ function renderReview() {
       // 1.16.25: Ctrl/⌘+B = ★, Ctrl/⌘+D = ✂, Ctrl/⌘+↓ / ↑ = next / previous caption
       if ((e.ctrlKey || e.metaKey) && !e.altKey) {
         const k = String(e.key || '').toLowerCase();
-        if (k === 'b' || (k === 'd' && cleanupAvailable())) {
+        if (k === 'b' || (k === 'd' && textCutAvailable())) {
           if (e.preventDefault) e.preventDefault();
           cue.text = ta.value;
           const at = ta.selectionEnd;
@@ -4471,6 +4484,9 @@ function showTiming(i, row, tIn, tOut) {
 let CLEAN = null;            // { envs, items, busy, done, error }
 const CLEAN_PAUSES = [0.5, 0.8, 1.2];
 function cleanupAvailable() { return !IS_AE && !IS_APP_MODE(); }
+// ✂ text cuts: Premiere (Clean up cuts the sequence) and the Studio, whose
+// export cuts the video (1.19.0, window.__amhStudioCuts)
+function textCutAvailable() { return cleanupAvailable() || !!(typeof window !== 'undefined' && window.__amhStudioCuts); }
 function fmtDur(sec) {
   const s = Math.max(0, Math.round(Number(sec) || 0));
   return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');

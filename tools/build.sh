@@ -217,7 +217,7 @@ find "${BUILD_DIR}/${NAME}" -name '_preview*' -exec rm -rf {} + 2>/dev/null || t
 echo "  [ok] panel files"
 # desktop app for CapCut / DaVinci users (the panel in its own window, app/)
 mkdir -p "${BUILD_DIR}/${NAME}/app"
-for f in amh_app.py node_shim.js app_mode.js app.css studio_core.js studio.js studio_script.js; do
+for f in amh_app.py node_shim.js app_mode.js app.css studio_core.js studio.js studio_script.js studio_cuts.js; do
   cp "$ROOT/app/$f" "${BUILD_DIR}/${NAME}/app/$f"
 done
 if ! ls -d "$RT"/python/lib/python3.11/site-packages/webview >/dev/null 2>&1; then

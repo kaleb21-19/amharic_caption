@@ -157,11 +157,14 @@
       (extra || []).forEach((b) => row.appendChild(b));
       out.appendChild(row);
     };
+    const C = window.__amhCuts && window.__amhCuts.active() ? window.__amhCuts : null;
+    if (C) box.appendChild(el('div', 'st-cutnote', '✂ ' + C.summary() + ' — ' + tx('ሁሉም በጸዳው ቪዲዮ መሰረት ይላካል', 'everything is exported for the cleaned video')));
     // 1. subtitles
-    const a = card('📝', tx('ንዑስ ጽሑፍ (.srt)', 'Subtitles (.srt)'), tx('ለ CapCut፣ DaVinci፣ YouTube', 'For CapCut, DaVinci, YouTube'));
-    a.h.appendChild(btn('st-btn primary', tx('አስቀምጥ', 'Save'), '', () => {
+    const a = card('📝', tx('ንዑስ ጽሑፍ (.srt)', 'Subtitles (.srt)'),
+      C ? tx('ከጸዳው ቪዲዮ ጋር የሚሄድ', 'Matches the cleaned video') : tx('ለ CapCut፣ DaVinci፣ YouTube', 'For CapCut, DaVinci, YouTube'));
+    const saveSrt = (forOriginal) => {
       let r = null;
-      try { r = X.srt(); } catch (e) { a.out.textContent = e.message; return; }
+      try { r = X.srt(C && !forOriginal ? { cues: C.cues(), suffix: ' (' + tx('የጸዳ', 'clean') + ')' } : undefined); } catch (e) { a.out.textContent = e.message; return; }
       const here = X.editors ? X.editors() : {};
       const eds = (X.EDITORS || []).filter((ed) => here[ed.id]).map((ed) => btn('st-btn', ed.icon + ' ' + tx('በ ' + ed.name + ' ክፈት', 'Open in ' + ed.name), '', () => {
         try { APP.call('copyText', [r.file]); } catch (e) {}
@@ -171,7 +174,12 @@
       }));
       done(a.out, r.file, eds);
       saveProject(true);
-    }));
+    };
+    a.h.appendChild(btn('st-btn primary', tx('አስቀምጥ', 'Save'), '', () => saveSrt(false)));
+    if (C) {
+      const orig = btn('st-link', tx('ለዋናው (ያልተቆረጠ) ቪዲዮ', 'For the original (uncut) video'), '', () => saveSrt(true));
+      a.c.appendChild(orig);
+    }
     // 2. the video with the captions drawn in
     const v = card('🎬', tx('ካፕሽን ያለው ቪዲዮ (MP4)', 'Video with captions (MP4)'),
       (typeof STYLE !== 'undefined' && STYLE !== 'plain') ? tx('በ ' + (STYLE_NAMES[STYLE] || STYLE) + ' ስታይል፣ ለመለጠፍ ዝግጁ', 'In the ' + (STYLE_NAMES[STYLE] || STYLE) + ' style, ready to post')
@@ -183,13 +191,38 @@
         go.disabled = true;
         v.out.innerHTML = '<div class="st-busy-bar"><i></i></div><div class="st-sub"></div>';
         const bar = v.out.querySelector('i'), lbl = v.out.querySelector('.st-sub');
+        const show = (x) => { bar.style.width = Math.round(x * 100) + '%'; lbl.textContent = tx('እየሰራ ነው… ', 'Making… ') + Math.round(x * 100) + '%'; };
+        let tmp = null;
         try {
-          const r = await X.video((x) => { bar.style.width = Math.round(x * 100) + '%'; lbl.textContent = tx('እየሰራ ነው… ', 'Making… ') + Math.round(x * 100) + '%'; });
+          let r;
+          if (C) {
+            // cut first (fast, near-lossless), then draw the captions on it
+            tmp = path.join(os.tmpdir(), 'amh_clean_' + Date.now() + '.mp4');
+            await C.render(tmp, (x) => show(x * 0.45), true);
+            r = await X.video((x) => show(0.45 + x * 0.55), null, { cues: C.cues(), video: tmp, suffix: ' (' + tx('የጸዳ', 'clean') + ')' });
+          } else r = await X.video(show);
           done(v.out, r.file, []);
         } catch (e) { v.out.textContent = tx('ቪዲዮው አልተሰራም፦ ', 'The video could not be made: ') + (e && e.message ? e.message : e); }
+        if (tmp) { try { fs.unlinkSync(tmp); } catch (e) {} }
         go.disabled = false;
       });
       v.h.appendChild(go);
+    }
+    // 2b. the cleaned video without captions (to keep editing elsewhere)
+    if (C) {
+      const k = card('✂', tx('የጸዳ ቪዲዮ (MP4)', 'Cleaned video (MP4)'), tx('ያለ ካፕሽን — በ CapCut ወይም DaVinci መስራትዎን ለመቀጠል', 'Without captions — to keep editing in CapCut or DaVinci'));
+      const go2 = btn('st-btn primary', tx('ይስሩ', 'Make'), '', async () => {
+        go2.disabled = true;
+        k.out.innerHTML = '<div class="st-busy-bar"><i></i></div><div class="st-sub"></div>';
+        const bar2 = k.out.querySelector('i'), lbl2 = k.out.querySelector('.st-sub');
+        try {
+          const out = C.cleanPath();
+          await C.render(out, (x) => { bar2.style.width = Math.round(x * 100) + '%'; lbl2.textContent = tx('እየቆረጠ ነው… ', 'Cutting… ') + Math.round(x * 100) + '%'; });
+          done(k.out, out, []);
+        } catch (e) { k.out.textContent = tx('አልተሰራም፦ ', 'Could not be made: ') + (e && e.message ? e.message : e); }
+        go2.disabled = false;
+      });
+      k.h.appendChild(go2);
     }
     // 3. more subtitle files (SRT + VTT + TXT, a folder you choose)
     const m = card('📄', tx('ሌሎች ፋይሎች (SRT · VTT · TXT)', 'More files (SRT · VTT · TXT)'), tx('እርስዎ በሚመርጡት ፎልደር', 'To a folder you choose'));
@@ -285,6 +318,7 @@
         drawSoon();
       });
   }
+  const overlays = [];
   let pending = 0;
   function drawSoon() { if (!pending) pending = requestAnimationFrame(() => { pending = 0; draw(); }); }
   function draw() {
@@ -339,6 +373,7 @@
         ctx.restore();
       }
     });
+    overlays.forEach((f) => { try { f(ctx, view, w, h, { ruler: RULER, laneTop, lane: LANE }); } catch (e) {} });
     const px = S.timeToX(t, view);
     ctx.fillStyle = '#ff5c5c'; ctx.fillRect(Math.round(px) - 1, 0, 2, h);
     const tm = $('tlTime'); if (tm) tm.textContent = S.fmtClock(t, true) + ' / ' + S.fmtClock(dur());
@@ -441,13 +476,14 @@
     const c = chosenVideo();
     if (!c || typeof reviewCues === 'undefined' || !reviewCues.length) return null;
     return S.makeProject({ video: c.path, name: c.name, duration: dur(), style: typeof STYLE !== 'undefined' ? STYLE : 'plain',
-      styleOpts: typeof styleOpts === 'function' && typeof STYLE !== 'undefined' ? styleOpts(STYLE) : null, cues: reviewCues });
+      styleOpts: typeof styleOpts === 'function' && typeof STYLE !== 'undefined' ? styleOpts(STYLE) : null, cues: reviewCues,
+      cleanup: window.__amhCuts ? window.__amhCuts.save() : null });
   }
   function saveProject(force) {
     if (!review.classList.contains('show') || !reviewOpen || (typeof REVIEW_LIVE !== 'undefined' && REVIEW_LIVE)) return false;
     const p = currentProject();
     if (!p) return false;
-    const sig = JSON.stringify([p.cues, p.style, p.styleOpts]);
+    const sig = JSON.stringify([p.cues, p.style, p.styleOpts, p.cleanup]);
     if (sig === lastSaved && !force) return false;
     try {
       if (!fs.existsSync(projDir())) fs.mkdirSync(projDir(), { recursive: true });
@@ -488,7 +524,9 @@
     fs.writeFileSync(tmp, srtTextFromCues(p.cues.map((c) => ({ start: c.start, end: c.end, text: String(c.text).replace(/[*~]/g, '') }))), { encoding: 'utf8' });
     await openReview(tmp, p.name || 'captions', 0, { projectId: p.name });
     reviewCues = p.cues.map((c, i) => Object.assign({ _id: 'p' + i }, c));
-    lastSaved = JSON.stringify([currentProject() && currentProject().cues, p.style, p.styleOpts]);
+    if (window.__amhCuts) window.__amhCuts.load(p.cleanup);
+    const cp = currentProject();
+    lastSaved = JSON.stringify([cp && cp.cues, p.style, p.styleOpts, cp && cp.cleanup]);
     savedEl.textContent = '✓ ' + tx('ተቀምጧል', 'Saved');
     renderReview();
     if (typeof renderStyleStrip === 'function') renderStyleStrip();
@@ -596,6 +634,7 @@
       if (ready || ++tries > 60) { clearInterval(t); const c = chosenVideo(); if (ready && c) window.__amhOnChosen(c); }
     }, 250);
   }
-  window.__amhStudio = { draw, drawSoon, saveProject, listProjects, openProject, renderRecent, openExport, closeSheet, showTab, regroup, goHome,
-    view: () => view, setPeaks: (p) => { peaks = p; drawSoon(); } };
+  window.__amhStudio = { draw, drawSoon, saveProject, saveSoon, listProjects, openProject, renderRecent, openExport, closeSheet, showTab, regroup, goHome,
+    addTab: (id, label, pane) => { addTab(id, label, pane); relabel(); showTab(tabNow); }, overlays, seek, dur,
+    view: () => view, peaks: () => peaks, setPeaks: (p) => { peaks = p; drawSoon(); } };
 })();

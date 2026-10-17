@@ -51,7 +51,7 @@ for d in (os.path.join(HERE, "deps"), os.path.join(HERE, "..", "runtime", "app_d
 IS_WIN = sys.platform == "win32"
 API_URL = os.environ.get("AMH_API_URL", "https://amharic-captions-bot.amhcaps.workers.dev")
 TOKEN = secrets.token_hex(16)
-APP_FILES = {"node_shim.js", "app_mode.js", "app.css", "studio_core.js", "studio.js", "studio_script.js"}   # + boot.js (generated)
+APP_FILES = {"node_shim.js", "app_mode.js", "app.css", "studio_core.js", "studio.js", "studio_script.js", "studio_cuts.js"}   # + boot.js (generated)
 WINDOW = None          # the pywebview window, set once created
 PORT = 0
 
@@ -602,7 +602,7 @@ class Handler(BaseHTTPRequestHandler):
             html = html.replace('<script src="./js/main.js"></script>',
                                 '<script src="./js/main.js"></script>\n  <script src="/__app/app_mode.js"></script>'
                                 '\n  <script src="/__app/studio_core.js"></script>\n  <script src="/__app/studio.js"></script>'
-                                '\n  <script src="/__app/studio_script.js"></script>', 1)
+                                '\n  <script src="/__app/studio_script.js"></script>\n  <script src="/__app/studio_cuts.js"></script>', 1)
             data = html.encode("utf-8")
             ctype = "text/html; charset=utf-8"
         elif ctype.startswith("text/") or ctype.endswith("javascript"):

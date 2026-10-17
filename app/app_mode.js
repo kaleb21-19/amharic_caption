@@ -119,17 +119,21 @@
   function baseName() {
     return safeFileName((chosen && chosen.name.replace(/\.[^.]+$/, '')) || (REVIEW && REVIEW.label) || 'captions');
   }
-  function exportSrt() {
-    const cues = reviewedCues();
+  // opts (Studio Clean up, 1.19.0): { cues, suffix } — the captions of the
+  // cleaned video, saved as "<name> (clean).srt".
+  function exportSrt(opts) {
+    opts = opts || {};
+    const cues = opts.cues ? opts.cues.filter((c) => (c.text || '').trim().length > 0) : reviewedCues();
     if (!cues.length) throw new Error(tx('የሚቀመጥ ካፕሽን የለም።', 'Nothing to save yet.'));
     const src = chosen && chosen.path;
     const dir = src ? APP.path.dirname(src) : ensureCaptionsDir();
-    let out = uniquePath(dir, baseName(), '.srt');
+    const base = baseName() + (opts.suffix || '');
+    let out = uniquePath(dir, base, '.srt');
     try {
       fs.writeFileSync(out, displaySrtTextFromCues(cues), { encoding: 'utf8' });
     } catch (e) {
       // e.g. a read-only folder or a memory card: fall back to Documents.
-      out = uniquePath(ensureCaptionsDir(), baseName(), '.srt');
+      out = uniquePath(ensureCaptionsDir(), base, '.srt');
       fs.writeFileSync(out, displaySrtTextFromCues(cues), { encoding: 'utf8' });
     }
     lastSaved = out;
@@ -137,18 +141,21 @@
     log(tx('ተቀምጧል፦ ', 'Saved: ') + out);
     return { file: out, count: cues.length };
   }
-  async function exportVideo(onProgress, dirHint) {
-    const cues = reviewedCues();
-    const src = chosen && chosen.path;
+  // opts (Studio Clean up): { cues, video, suffix } — the cleaned video with
+  // its own captions.
+  async function exportVideo(onProgress, dirHint, opts) {
+    opts = opts || {};
+    const cues = opts.cues ? opts.cues.filter((c) => (c.text || '').trim().length > 0) : reviewedCues();
+    const src = opts.video || (chosen && chosen.path);
     if (!cues.length || !src) throw new Error(tx('የሚቀመጥ ካፕሽን የለም።', 'Nothing to save yet.'));
     if (typeof STYLE === 'undefined' || STYLE === 'plain' || !STYLE_OK) throw new Error('no style');
-    const dir = dirHint || APP.path.dirname(src);
-    const vout = uniquePath(dir, baseName() + ' (' + STYLE_NAMES[STYLE] + ')', '.mp4');
+    const dir = dirHint || APP.path.dirname((chosen && chosen.path) || src);
+    const vout = uniquePath(dir, baseName() + (opts.suffix || '') + ' (' + STYLE_NAMES[STYLE] + ')', '.mp4');
     await renderStyled({ cues: styleCues(cues), style: STYLE, opts: styleOpts(STYLE), mode: 'burn', video: src, out: vout, tag: !LICENSED }, onProgress);
     log(tx('ካፕሽኑ የተጻፈበት ቪዲዮ፦ ', 'Video with the captions: ') + vout);
     return { file: vout };
   }
-  window.__amhAppExport = { srt: exportSrt, video: exportVideo, chosen: () => chosen };
+  window.__amhAppExport = { srt: exportSrt, video: exportVideo, chosen: () => chosen, uniquePath, baseName };
 
   async function saveSrt() {
     if (!reviewOpen || saving) return;

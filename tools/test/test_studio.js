@@ -85,4 +85,22 @@ test('Script view: the word being spoken; the selected words per caption', () =>
     [{ cue: 0, from: 4, to: 10, words: [1, 2] }, { cue: 1, from: 0, to: 2, words: [0] }]);
 });
 
+test('Clean up on export: what stays (overlaps merged, slivers dropped, ends kept)', () => {
+  assert.deepStrictEqual(S.keepRanges([{ start: 2, end: 3 }, { start: 2.5, end: 4 }, { start: 9.98, end: 10 }], 10), [[0, 2], [4, 9.98]]);
+  assert.deepStrictEqual(S.keepRanges([{ start: 0, end: 1 }], 5), [[1, 5]], 'a cut at the very start');
+  assert.deepStrictEqual(S.keepRanges([{ start: 1, end: 1.03 }, { start: 1.05, end: 2 }], 3), [[0, 1], [2, 3]], 'a 20 ms sliver between two cuts goes');
+  assert.deepStrictEqual(S.keepRanges([], 4), [[0, 4]]);
+  assert.strictEqual(S.keptLength([[0, 2], [4, 9.98]]), 7.98);
+});
+
+test('Clean up on export: one ffmpeg graph, frame-exact joins, a soft sound edge at every join', () => {
+  const g = S.cutFilter([[0, 2], [4, 9.98]], true);
+  assert.ok(/\[0:v\]trim=start=0:end=2,setpts=PTS-STARTPTS\[v0\]/.test(g));
+  assert.ok(/\[0:a\]atrim=start=4:end=9.98,asetpts=PTS-STARTPTS,afade=t=in:d=0.010,afade=t=out:st=5.970:d=0.010\[a1\]/.test(g));
+  assert.ok(/\[v0\]\[a0\]\[v1\]\[a1\]concat=n=2:v=1:a=1\[v\]\[a\]$/.test(g));
+  const a = S.cutFilter([[0, 1]], false);
+  assert.ok(!/\[0:v\]/.test(a) && /concat=n=1:v=0:a=1\[a\]$/.test(a), 'sound only: no picture');
+  assert.ok(/afade=t=in:d=0.010/.test(S.cutFilter([[0, 0.02]], false)) === false, 'a fade never longer than a quarter of a tiny piece');
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');
