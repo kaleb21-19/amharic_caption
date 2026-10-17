@@ -90,6 +90,7 @@
       kind: 'amharic-captions-studio', v: 1, at: p.at || Date.now(),
       video: String(p.video || ''), name: String(p.name || ''), duration: Number(p.duration) || 0,
       style: String(p.style || 'plain'), styleOpts: p.styleOpts || null,
+      cleanup: p.cleanup || null,
       cues: (p.cues || []).map((c) => {
         const o = {};
         PROJECT_KEYS.forEach((k) => { if (c[k] != null) o[k] = c[k]; });
@@ -163,8 +164,41 @@
     });
   }
 
+  // ── Clean up on export (1.19.0) ───────────────────────────────────────────
+  // The stretches of the video that stay: everything outside the cuts
+  // (merged, sorted), dropping slivers shorter than `minKeep`.
+  function keepRanges(cuts, duration, minKeep) {
+    minKeep = minKeep == null ? 0.04 : minKeep;
+    const c = (cuts || []).map((x) => [Math.max(0, Number(x.start)), Math.min(duration, Number(x.end))])
+      .filter((x) => x[1] > x[0]).sort((a, b) => a[0] - b[0]);
+    const keeps = [];
+    let at = 0;
+    c.forEach(([a, b]) => { if (a - at >= minKeep) keeps.push([at, a]); at = Math.max(at, b); });
+    if (duration - at >= minKeep) keeps.push([at, duration]);
+    return keeps.map(([a, b]) => [Math.round(a * 1000) / 1000, Math.round(b * 1000) / 1000]);
+  }
+  // One ffmpeg filter graph that keeps those stretches and joins them,
+  // frame-exact; a 10 ms sound fade at every join (no clicks).
+  function cutFilter(keeps, hasVideo, fade) {
+    fade = fade == null ? 0.01 : fade;
+    const parts = [];
+    const ins = [];
+    keeps.forEach(([a, b], i) => {
+      const d = Math.max(0, b - a);
+      const f = Math.min(fade, d / 4).toFixed(3);
+      if (hasVideo) parts.push('[0:v]trim=start=' + a + ':end=' + b + ',setpts=PTS-STARTPTS[v' + i + ']');
+      parts.push('[0:a]atrim=start=' + a + ':end=' + b + ',asetpts=PTS-STARTPTS,afade=t=in:d=' + f +
+        ',afade=t=out:st=' + Math.max(0, d - f).toFixed(3) + ':d=' + f + '[a' + i + ']');
+      ins.push((hasVideo ? '[v' + i + ']' : '') + '[a' + i + ']');
+    });
+    parts.push(ins.join('') + 'concat=n=' + keeps.length + ':v=' + (hasVideo ? 1 : 0) + ':a=1' + (hasVideo ? '[v][a]' : '[a]'));
+    return parts.join(';');
+  }
+  const keptLength = (keeps) => keeps.reduce((n, k) => n + (k[1] - k[0]), 0);
+
   const api = { MAX_PPS, minPps, clampView, fitView, timeToX, xToTime, zoomAt, follow, hitCaption, ticks, fmtClock,
-    projectId, projectFileName, makeProject, parseProject, recentProjects, scriptParagraphs, wordRanges, wordAt, selectionByCaption };
+    projectId, projectFileName, makeProject, parseProject, recentProjects, scriptParagraphs, wordRanges, wordAt, selectionByCaption,
+    keepRanges, cutFilter, keptLength };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhStudio = api;
 })(typeof window !== 'undefined' ? window : this);

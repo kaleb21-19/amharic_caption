@@ -53,7 +53,8 @@ States inside the workspace:
   full screen; later 9:16 / 16:9 framing.
 - **Right tabs** — only tabs that work here: 🎨 Style (styles grid + size,
   position, font, animation), Aa Captions (words per caption 1–5, line length,
-  instantly), later ✂ Clean up, 🔍 Zoom, 🔊 Sound.
+  instantly), ✂ Clean up (1.19.0: non-destructive — playback skips the ticked parts,
+  red stripes on the timeline, the cut happens on export), later 🔍 Zoom (owner: not yet), 🔊 Sound.
 - **Timeline (bottom)** — ruler, sound wave, caption blocks (drag edges),
   playhead; later cut ranges (red stripes) and zooms (yellow marks).
 - **Top bar** — ⌂ Home, project name, ↶ Undo, ✓ Saved, license chip, language,
