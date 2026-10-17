@@ -68,6 +68,9 @@
     choose(p);
   }
 
+  // Amharic Captions Studio (studio.js) opens projects with these.
+  window.__amhAppChoose = (p) => choose(p);
+  window.__amhAppChosen = () => chosen;
   drop.addEventListener('click', pick);
   drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
   ['dragenter', 'dragover'].forEach((ev) => document.addEventListener(ev, (e) => {

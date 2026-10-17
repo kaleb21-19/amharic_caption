@@ -202,7 +202,7 @@ Get-ChildItem $BNAME -Filter "_preview*" -Recurse -ErrorAction SilentlyContinue 
 # desktop app for CapCut / DaVinci users (the panel in its own window, app\)
 $APPDST = Join-Path $BNAME "app"
 New-Item -ItemType Directory -Force $APPDST | Out-Null
-foreach ($f in @("amh_app.py", "node_shim.js", "app_mode.js", "app.css")) {
+foreach ($f in @("amh_app.py", "node_shim.js", "app_mode.js", "app.css", "studio_core.js", "studio.js")) {
     Copy-Item (Join-Path $ROOT "app\$f") (Join-Path $APPDST $f)
 }
 if (-not (Test-Path (Join-Path $SITE "webview"))) { throw "pywebview missing from the bundled python (tools/prepare_python.sh)" }

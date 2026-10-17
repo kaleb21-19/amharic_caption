@@ -202,6 +202,9 @@ jobs:
       - name: Auto zoom — Scale keyframes on a copy, never over the editor's own (1.16.23)
         run: node tools/test/test_host_zoom.js
 
+      - name: Amharic Captions Studio — timeline maths and projects (1.17.0)
+        run: node tools/test/test_studio.js
+
       - name: Caption styles — every style, smoothness rules, real drawing with ffmpeg (1.11)
         run: |
           if command -v ffmpeg >/dev/null; then export AMH_FFMPEG="$(command -v ffmpeg)"; fi
