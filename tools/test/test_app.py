@@ -126,6 +126,8 @@ def t_index():
     i_boot, i_shim = html.find("/__app/boot.js"), html.find("/__app/node_shim.js")
     i_csi, i_main, i_mode = html.find("./js/CSInterface.js"), html.find("./js/main.js"), html.find("/__app/app_mode.js")
     assert 0 < i_boot < i_shim < i_csi < i_main < i_mode, "boot, shim before CSInterface; app_mode after main.js"
+    i_core, i_studio = html.find("/__app/studio_core.js"), html.find("/__app/studio.js")
+    assert i_mode < i_core < i_studio, "the Studio (1.17.0) after app_mode.js, its pure part first"
     assert "/__app/app.css" in html
     assert "script-src 'self'" in html, "the panel's CSP stays strict (no inline script needed)"
     st, js = req("GET", "/__app/boot.js", token=False)
@@ -133,8 +135,36 @@ def t_index():
     assert st == 200 and boot["token"] == TOKEN and boot["ext"] == os.path.realpath(EXT)
     assert boot["api"] == API and boot["files"] == [os.path.join(REPO, "README.md")]
     assert boot["info"]["platform"] == sys.platform and boot["info"]["tmp"]
-    for f in ("node_shim.js", "app_mode.js", "app.css"):
+    for f in ("node_shim.js", "app_mode.js", "app.css", "studio_core.js", "studio.js"):
         assert req("GET", "/__app/" + f, token=False)[0] == 200, f
+
+
+def t_peaks():
+    # the Studio timeline's sound wave: ffmpeg's raw sound -> loudness steps
+    import array
+    raw = os.path.join(tempfile.gettempdir(), "amh_peaks_test_%d.raw" % os.getpid())
+    a = array.array("h", [0] * 40 + [16000] * 40 + [-32000] * 40)      # quiet, half, full (negative)
+    with open(raw, "wb") as f:
+        f.write(a.tobytes() if sys.byteorder == "little" else a.byteswap() or a.tobytes())
+    r = sync("peaks", raw, 2000, 50)                                    # 40 samples a step
+    assert r["result"] == [0, 50, 100], r
+    assert not os.path.exists(raw), "the temp file is removed"
+    # only our own temp files
+    other = os.path.join(WORK, "amh_peaks_x.raw")
+    with open(other, "wb") as f:
+        f.write(b"\0\0")
+    assert "err" in sync("peaks", other, 2000, 50)
+    assert "err" in sync("peaks", os.path.join(tempfile.gettempdir(), "secret.raw"), 2000, 50)
+
+
+def t_packed():
+    # every file the app serves is packed by BOTH builds (1.17.0: the Studio's
+    # two new files were almost left out of the zips)
+    win = open(os.path.join(REPO, "tools", "build_win.ps1"), encoding="utf-8").read()
+    mac = open(os.path.join(REPO, "tools", "build.sh"), encoding="utf-8").read()
+    for f in sorted(amh_app.APP_FILES | {"amh_app.py"}):
+        assert '"%s"' % f in win, "build_win.ps1 does not pack app/" + f
+        assert (" %s " % f in mac) or (" %s;" % f in mac), "build.sh does not pack app/" + f
 
 
 def t_fs():
@@ -369,6 +399,8 @@ def t_editors():
 print("desktop app server (app/amh_app.py) on %s" % HOST)
 t("security: foreign Host, no/wrong token, cross-site boot.js, CORS preflight, traversal refused", t_security)
 t("index.html: app scripts injected around the panel's own; CSP unchanged; boot.js carries token + dropped file", t_index)
+t("peaks: the Studio timeline's sound wave from ffmpeg's raw sound; only our own temp files", t_peaks)
+t("builds: every app file is packed for Windows and Mac", t_packed)
 t("fs: Amharic round-trip, stat, copy/rename/readdir/unlink, ENOENT, hashes like Node", t_fs)
 t("spawn: stdout, stderr, stdin (Amharic) and exit code arrive in order", t_spawn)
 t("spawn: kill stops a running child", t_kill)

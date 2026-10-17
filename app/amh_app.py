@@ -51,7 +51,7 @@ for d in (os.path.join(HERE, "deps"), os.path.join(HERE, "..", "runtime", "app_d
 IS_WIN = sys.platform == "win32"
 API_URL = os.environ.get("AMH_API_URL", "https://amharic-captions-bot.amhcaps.workers.dev")
 TOKEN = secrets.token_hex(16)
-APP_FILES = {"node_shim.js", "app_mode.js", "app.css"}   # + boot.js (generated)
+APP_FILES = {"node_shim.js", "app_mode.js", "app.css", "studio_core.js", "studio.js"}   # + boot.js (generated)
 WINDOW = None          # the pywebview window, set once created
 PORT = 0
 
@@ -341,7 +341,41 @@ def sync_op(op, a):
         return cid
     if op == "media":
         return media_url(a[0])
+    if op == "peaks":
+        return peaks_from_raw(a[0], int(a[1]), int(a[2]))
     raise ValueError("unknown op " + op)
+
+
+# ── the Studio timeline's sound wave (1.17.0) ────────────────────────────────
+# The page cannot read ffmpeg's binary output through the text bridge, so
+# ffmpeg writes the sound (16-bit mono) to a temp file and this turns it into
+# loudness steps 0-100, `per_sec` of them a second. Only our own temp files.
+def peaks_from_raw(path, rate, per_sec):
+    import array
+    import tempfile
+    path = os.path.realpath(path)
+    if not os.path.basename(path).startswith("amh_peaks_") or \
+            os.path.dirname(path) != os.path.realpath(tempfile.gettempdir()):
+        raise ValueError("not a peaks file")
+    a = array.array("h")
+    with open(path, "rb") as f:
+        a.frombytes(f.read())
+    if sys.byteorder != "little":
+        a.byteswap()
+    step = max(1, int(rate // max(1, per_sec)))
+    out = []
+    top = 1
+    for i in range(0, len(a), step):
+        chunk = a[i:i + step]
+        v = max(max(chunk), -min(chunk))
+        out.append(v)
+        if v > top:
+            top = v
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+    return [int(round(v * 100.0 / top)) for v in out]
 
 
 # ── the video for the review preview ─────────────────────────────────────────
@@ -566,7 +600,8 @@ class Handler(BaseHTTPRequestHandler):
             html = html.replace('<script src="./js/CSInterface.js">', boot + '<script src="./js/CSInterface.js">', 1)
             html = html.replace('</head>', '  <link rel="stylesheet" href="/__app/app.css">\n</head>', 1)
             html = html.replace('<script src="./js/main.js"></script>',
-                                '<script src="./js/main.js"></script>\n  <script src="/__app/app_mode.js"></script>', 1)
+                                '<script src="./js/main.js"></script>\n  <script src="/__app/app_mode.js"></script>'
+                                '\n  <script src="/__app/studio_core.js"></script>\n  <script src="/__app/studio.js"></script>', 1)
             data = html.encode("utf-8")
             ctype = "text/html; charset=utf-8"
         elif ctype.startswith("text/") or ctype.endswith("javascript"):
@@ -697,9 +732,17 @@ def main():
         w.dom.document.events.dragover += DOMEventHandler(lambda e: None, True, True)
         w.dom.document.events.drop += DOMEventHandler(on_drop, True, True)
 
+    # Amharic Captions Studio (1.17.0): a desktop-sized window (the Studio
+    # layout needs room); a small screen gets most of it, never more.
+    w, h = 1280, 820
+    try:
+        sc = webview.screens[0]
+        w, h = min(w, int(sc.width * 0.92)), min(h, int(sc.height * 0.88))
+    except Exception:
+        pass
     WINDOW = webview.create_window(
-        "Amharic Captions Pro", "http://127.0.0.1:%d/index.html" % PORT,
-        width=520, height=860, min_size=(420, 600), background_color="#1e1f22")
+        "Amharic Captions Studio", "http://127.0.0.1:%d/index.html" % PORT,
+        width=max(520, w), height=max(600, h), min_size=(420, 600), background_color="#1e1f22")
     storage = os.path.join(os.path.expanduser("~"), ".amharic_captions_app")
     try:
         webview.start(on_start, WINDOW, private_mode=False, storage_path=storage, debug=a.debug)

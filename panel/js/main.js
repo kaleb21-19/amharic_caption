@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.16.26';
+const APP_VERSION = '1.17.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,19 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.17.0': {
+    banner: {
+      am: '🎬 አዲስ፦ Amharic Captions Studio — ለCapCut እና DaVinci ተጠቃሚዎች ሙሉ የስራ ቦታ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '🎬 New: Amharic Captions Studio — a full workspace for CapCut and DaVinci users — your license stays the same.',
+    },
+    items: [
+      { am: '🎬 የዴስክቶፕ መተግበሪያው አሁን «Amharic Captions Studio» ነው', en: '🎬 The desktop app is now "Amharic Captions Studio"' },
+      { am: 'ትልቅ ቪዲዮ ማጫወቻ፣ ካፕሽኖቹ በላዩ ላይ፤ በቀኝ የካፕሽን ዝርዝሩ', en: 'A big video player with the captions on it; the caption list on the right' },
+      { am: 'የጊዜ መስመር፦ የሙሉ ቪዲዮው የድምፅ ሞገድ፣ ካፕሽኖቹን ጎትተው ጊዜያቸውን ያስተካክሉ', en: 'A timeline: the whole video\u2019s sound wave; drag captions to retime them' },
+      { am: '📁 ፕሮጀክቶች በራሳቸው ይቀመጣሉ — «የቅርብ ጊዜ ፕሮጀክቶች» እንደገና ሳይጻፉ ይከፈታሉ', en: '📁 Projects save themselves — "Recent projects" reopen without transcribing again' },
+      { am: 'ቁልፎች፦ Space ያጫውቱ/ያቁሙ · J/L ±1 ሰከንድ · ←/→ አንድ ፍሬም', en: 'Keys: Space play/pause · J/L ±1 s · ←/→ one frame' },
+    ],
+  },
   '1.16.26': {
     banner: {
       am: '✂ እና 🔍 አሁን በትክክል በቃሉ ላይ ይሠራሉ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -4328,11 +4341,14 @@ function setTimingEdge(i, which, t) {
   const prev = reviewCues[i - 1];
   const next = reviewCues[i + 1];
   t = Math.round(Number(t) * 100) / 100;
+  // never shorter than TIMING_MIN — but a caption already shorter (one
+  // karaoke word) only cannot shrink; it never jumps longer (1.17.0)
+  const min = Math.min(TIMING_MIN, Math.max(0.05, c.end - c.start));
   if (which === 'start') {
-    t = Math.max(prev ? prev.end : 0, Math.min(t, c.end - TIMING_MIN));
+    t = Math.max(prev ? prev.end : 0, Math.min(t, c.end - min));
     c.start = t;
   } else {
-    t = Math.min(next ? next.start : 1e9, Math.max(t, c.start + TIMING_MIN));
+    t = Math.min(next ? next.start : 1e9, Math.max(t, c.start + min));
     c.end = t;
   }
   return t;

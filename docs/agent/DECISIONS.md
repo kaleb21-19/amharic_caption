@@ -37,3 +37,4 @@ Add a line (with the date) when the owner decides something. Keep < 60 lines.
   Any later change = new branch + new version.
 - Migrations: `npm run migrate` BEFORE `npm run deploy`.
 - 2026-10-18: ✂ text cuts are written in the caption text as ~word~ (like ★ = *word*); every output strips the marks and KEEPS the words until the editor actually cuts them from the video.
+- 2026-10-18 (owner): the desktop app is "Amharic Captions Studio"; same license/price as the panel for now; weak PCs: do our best (GPU encoders, export time estimate, light preview) rather than block. Quick mode (drop -> Save SRT) stays.

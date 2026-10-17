@@ -37,7 +37,8 @@ def suites(area):
         "styles": [("styles", py + ["tools/test/test_styles.py"], ROOT)],
         "texts": [("trial texts", py + ["tools/test/test_trial_texts.py"], ROOT)],
         "engine": [("word times", engine_py + ["tools/test/test_word_times.py"], ROOT)],
-        "app": [("app", py + ["tools/test/test_app.py"], ROOT), ("app shim", node + ["tools/test/test_app_shim.js"], ROOT)],
+        "app": [("app", py + ["tools/test/test_app.py"], ROOT), ("app shim", node + ["tools/test/test_app_shim.js"], ROOT),
+                ("studio", node + ["tools/test/test_studio.js"], ROOT)],
         "bot": [("bot e2e", node + ["test/e2e.mjs"], os.path.join(ROOT, "tools", "telegram-worker"))],
         "versions": [("versions", ["bash", "tools/check_versions.sh"], ROOT)],
     }
