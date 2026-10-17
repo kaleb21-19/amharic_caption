@@ -232,8 +232,8 @@
     tCount.textContent = cues.length ? cues.length + ' ' + tx('ካፕሽኖች', 'captions') : '';
     const d = typeof reviewDoubtCount === 'function' ? reviewDoubtCount() : 0;
     doubtB.style.display = d ? '' : 'none';
-    doubtB.textContent = '⚠ ' + d + ' ' + tx('ይፈትሹ', 'to check');
-    doubtB.title = tx('ወደ መጀመሪያው አጠራጣሪ ቃል', 'Go to the first doubtful word');
+    doubtB.textContent = '⚠ ' + d;
+    doubtB.title = d + ' ' + tx('የሚፈተሹ ቃላት — ወደ መጀመሪያው ይሂዱ', 'words to check — go to the first one');
     const c = window.__amhAppChosen && window.__amhAppChosen();
     projEl.textContent = c ? '/ ' + c.name : '';
     memB.style.display = ($('revMemory') && $('revMemory').style.display !== 'none') ? '' : 'none';
