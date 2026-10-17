@@ -32,6 +32,8 @@ the same PR that moves or renames the code. Keep this file under ~120 lines.
 - `panel/js/main.js` :: `function analyzeCleanup` — ✂ Clean up: pauses (footage loudness) + repeats/እ sounds (core.js findSilences/findRepeats/findFillers)
 - `panel/js/main.js` :: `function applyCleanup` — cut on a copy (host amh_cleanupCut), captions + footage follow the cut
 - `panel/js/main.js` :: `function applyZoom` — 🔍 Auto zoom: moments from core findZoomMoments -> host amh_autoZoom
+- `panel/js/main.js` :: `function syncReviewSteps` — the review step bar ① Text ② ✂ ③ 🔍 ④ 🎨 ⑤ Place (✓ per finished step)
+- `panel/js/main.js` :: `function refreshSourceLine` — the line under Source: what Generate would use, or what to do
 - `panel/js/main.js` :: `function memoryRuleFor` — which store a green word came from (🧠 machine or 👤 client)
 - `panel/js/i18n.js` :: `'NEW'` — Amharic UI strings (key = the English text)
 - `panel/index.html` :: `id="review"` — markup + all panel CSS (dark only)

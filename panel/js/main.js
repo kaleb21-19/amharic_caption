@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.16.24';
+const APP_VERSION = '1.16.25';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,19 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.16.25': {
+    banner: {
+      am: 'ፓነሉ ይበልጥ ቀላልና ፈጣን ሆኗል፦ ደረጃዎች፣ አቋራጭ ቁልፎችና ሌሎችም — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: 'A clearer, faster panel: steps, keyboard shortcuts and more — your license stays the same.',
+    },
+    items: [
+      { am: '▶ ከGenerate በፊት የሚጻፍለትን ክሊፕና ርዝመቱን ያያሉ', en: '▶ Before Generate you see which clip will be captioned, and how long it is' },
+      { am: 'ቃላት በአንድ ካፕሽን፦ 1 · 2 · 3 · 4 · 5 — በአንድ መስመር', en: 'Words per caption: 1 · 2 · 3 · 4 · 5 — in one row' },
+      { am: 'በግምገማው ላይ ደረጃዎች፦ ① ጽሑፍ ② ✂ ③ 🔍 ④ 🎨 ⑤ ያስቀምጡ', en: 'Steps in the review: ① Text ② ✂ ③ 🔍 ④ 🎨 ⑤ Place' },
+      { am: '① ሲጫኑ ወደ መጀመሪያው አጠራጣሪ ቃል ይወስድዎታል', en: '① takes you to the first doubtful word' },
+      { am: 'አቋራጮች፦ Ctrl+B = ★ · Ctrl+D = ✂ · Ctrl+↓/↑ = ቀጣይ/ቀዳሚ ካፕሽን', en: 'Shortcuts: Ctrl+B = ★ · Ctrl+D = ✂ · Ctrl+↓/↑ = next/previous caption' },
+    ],
+  },
   '1.16.24': {
     banner: {
       am: '✂ ቪዲዮውን በጽሑፍ ያርትዑ፦ ቃላትን ይሰርዙ፣ ከቪዲዮው ይቆረጣሉ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -792,15 +805,18 @@ document.documentElement.setAttribute('data-theme', 'dark');
 // Effects must have keyframes selected in order to export them as text"; in
 // Premiere, Ctrl+Z in the review box could undo the timeline instead.
 // Key codes are the OS virtual-key codes (Windows VK_*, macOS kVK_ANSI_*).
+const SHORTCUT_MOD = (typeof process !== 'undefined' && process.platform === 'darwin') ? '⌘' : 'Ctrl+';
 const PANEL_SHORTCUT_KEYS = (() => {
   const mac = (typeof process !== 'undefined' && process.platform === 'darwin');
-  const codes = mac ? { a: 0, z: 6, x: 7, c: 8, v: 9, y: 16 }
-                    : { a: 65, c: 67, v: 86, x: 88, y: 89, z: 90 };
+  const codes = mac ? { a: 0, z: 6, x: 7, c: 8, v: 9, y: 16, b: 11, d: 2, down: 125, up: 126 }
+                    : { a: 65, c: 67, v: 86, x: 88, y: 89, z: 90, b: 66, d: 68, down: 40, up: 38 };
   const mod = mac ? 'metaKey' : 'ctrlKey';
   const list = [];
   Object.keys(codes).forEach((k) => {
     list.push({ keyCode: codes[k], [mod]: true });
-    list.push({ keyCode: codes[k], [mod]: true, shiftKey: true });   // redo = Shift+Z
+    // Shift only for the editing keys (redo = Shift+Z); B / D / arrows (1.16.25:
+    // ★, ✂, next/previous caption) leave Shift+ to Premiere
+    if (k.length === 1 && 'acvxyz'.indexOf(k) >= 0) list.push({ keyCode: codes[k], [mod]: true, shiftKey: true });
   });
   return list;
 })();
@@ -4009,7 +4025,7 @@ function renderReview() {
     pop.type = 'button';
     pop.className = 'pop-word';
     pop.textContent = '★';
-    pop.title = L('Make the word at the cursor pop (★ again: back to normal)');
+    pop.title = L('Make the word at the cursor pop (★ again: back to normal)') + ' — ' + SHORTCUT_MOD + 'B';
     pop.addEventListener('mousedown', (e) => {
       if (e && e.preventDefault) e.preventDefault();
       toggleEmphasis(i, ta.selectionStart, ta.selectionEnd);
@@ -4019,7 +4035,7 @@ function renderReview() {
     cutBtn.type = 'button';
     cutBtn.className = 'cut-word';
     cutBtn.textContent = '✂';
-    cutBtn.title = L('Cut the word at the cursor (or the selected words) from the video — ✂ again: keep it');
+    cutBtn.title = L('Cut the word at the cursor (or the selected words) from the video — ✂ again: keep it') + ' — ' + SHORTCUT_MOD + 'D';
     cutBtn.addEventListener('mousedown', (e) => {
       if (e && e.preventDefault) e.preventDefault();
       toggleTextCut(i, ta.selectionStart, ta.selectionEnd);
@@ -4042,6 +4058,25 @@ function renderReview() {
     // is still composing a letter.
     ta.addEventListener('keydown', (e) => {
       if (e.isComposing || e.keyCode === 229) return;
+      // 1.16.25: Ctrl/⌘+B = ★, Ctrl/⌘+D = ✂, Ctrl/⌘+↓ / ↑ = next / previous caption
+      if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+        const k = String(e.key || '').toLowerCase();
+        if (k === 'b' || (k === 'd' && cleanupAvailable())) {
+          if (e.preventDefault) e.preventDefault();
+          cue.text = ta.value;
+          const at = ta.selectionEnd;
+          if (k === 'b') toggleEmphasis(i, ta.selectionStart, ta.selectionEnd);
+          else toggleTextCut(i, ta.selectionStart, ta.selectionEnd);
+          focusReviewCue(i, at + 1);
+          return;
+        }
+        if ((e.key === 'ArrowDown' && i + 1 < reviewCues.length) || (e.key === 'ArrowUp' && i > 0)) {
+          if (e.preventDefault) e.preventDefault();
+          cue.text = ta.value;
+          focusReviewCue(e.key === 'ArrowDown' ? i + 1 : i - 1, 0);
+          return;
+        }
+      }
       if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
         if (e.preventDefault) e.preventDefault();
         cue.text = ta.value;
@@ -4446,6 +4481,7 @@ function cleanupFindAll() {
 }
 function cleanupSelected() { return ((CLEAN && CLEAN.items) || []).filter((x) => x.on); }
 function renderCleanupPanel() {
+  syncReviewSteps();
   const p = $('cleanupPanel');
   if (!p || p.style.display === 'none') return;
   p.textContent = '';
@@ -4622,6 +4658,7 @@ function zoomFind() {
   ZOOM.items = findZoomMoments(reviewCues, { auto: !st.stars }).map((m) => Object.assign(m, { on: true }));
 }
 function renderZoomPanel() {
+  syncReviewSteps();
   const p = $('zoomPanel');
   if (!p || p.style.display === 'none') return;
   p.textContent = '';
@@ -4723,6 +4760,139 @@ function toggleZoomPanel() {
 function closeZoomPanel() {
   const p = $('zoomPanel');
   if (p) p.style.display = 'none';
+}
+
+// ── Review step bar (1.16.25) ────────────────────────────────────────────────
+// One row under the review title shows the way through, in order:
+// ① Text (doubtful words left, or ✓) → ② ✂ Clean up → ③ 🔍 Zoom → ④ 🎨 Style
+// → ⑤ Place. A finished step gets ✓; each step is a button that goes there.
+// Clean up / Zoom are Premiere only; Style only where styles can be drawn —
+// the numbers follow what is shown.
+const STEP_NUMS = ['①', '②', '③', '④', '⑤'];
+function reviewDoubtCount() {
+  return reviewCues.reduce((n, c) => n + doubtRanges(c.text || '', c.doubt).length, 0);
+}
+function syncReviewSteps() {
+  const box = $('reviewSteps');
+  if (!box) return;
+  const tools = cleanupAvailable();
+  const strip = $('styleStrip');
+  const styles = !!(strip && strip.style.display !== 'none');
+  const doubts = reviewDoubtCount();
+  const steps = [
+    ['stepText', true, L('Text') + (doubts ? ' · ' + doubts + ' ?' : ' ✓'), doubts ? 'warn' : 'done'],
+    ['revCleanup', tools, '✂ ' + L('Clean up') + (CLEAN && CLEAN.done ? ' ✓' : ''), CLEAN && CLEAN.done ? 'done' : ''],
+    ['revZoom', tools, '🔍 ' + L('Zoom') + (ZOOM && ZOOM.done ? ' ✓' : ''), ZOOM && ZOOM.done ? 'done' : ''],
+    ['stepStyle', styles, '🎨 ' + (STYLE === 'plain' ? L('Style') : L(STYLE_NAMES[STYLE] || STYLE) + ' ✓'), STYLE === 'plain' ? '' : 'done'],
+    ['stepPlace', true, L('Place'), 'last'],
+  ];
+  let n = 0;
+  steps.forEach(([id, show, text, cls]) => {
+    const b = $(id);
+    if (!b) return;
+    b.style.display = show ? '' : 'none';
+    if (!show) return;
+    b.textContent = STEP_NUMS[n++] + ' ' + text;
+    b.className = 'rstep' + (cls ? ' ' + cls : '');
+  });
+}
+// ① goes to the first doubtful word (selected, so typing replaces it).
+function goFirstDoubt() {
+  for (let i = 0; i < reviewCues.length; i++) {
+    const r = doubtRanges(reviewCues[i].text || '', reviewCues[i].doubt)[0];
+    if (!r) continue;
+    focusReviewCue(i, r.start);
+    const row = $('reviewList') && $('reviewList').children[i];
+    const ta = row && row.querySelector ? row.querySelector('textarea') : null;
+    try { if (ta && ta.setSelectionRange) ta.setSelectionRange(r.start, r.end); } catch (e) {}
+    try { if (row && row.scrollIntoView) row.scrollIntoView({ block: 'center' }); } catch (e) {}
+    return i;
+  }
+  focusReviewCue(0, 0);
+  return -1;
+}
+function initReviewSteps() {
+  const on = (id, fn) => { const b = $(id); if (b) b.addEventListener('click', (e) => { if (e && e.preventDefault) e.preventDefault(); fn(); }); };
+  on('stepText', goFirstDoubt);
+  on('stepStyle', () => {
+    const s = $('styleStrip');
+    try { if (s && s.scrollIntoView) s.scrollIntoView({ block: 'nearest' }); } catch (e) {}
+  });
+  on('stepPlace', () => {
+    const b = $('reviewPlace');
+    if (!b) return;
+    try { if (b.scrollIntoView) b.scrollIntoView({ block: 'nearest' }); if (b.focus) b.focus(); } catch (e) {}
+    b.classList.add('pulse');
+    setTimeout(() => b.classList.remove('pulse'), 1400);
+  });
+}
+
+// ── What will be captioned (1.16.25) ────────────────────────────────────────
+// A line under Source, before Generate: the clip (or the edit) the panel would
+// use right now, with its length — or, in orange, why there is nothing to use.
+// Asked again when the mouse comes back to the panel (the editor just clicked
+// something in the timeline), when the source changes, and after a run.
+let SRC_PEEK_BUSY = false;
+let SRC_PEEK_AT = 0;
+async function refreshSourceLine(force) {
+  const el = $('srcLine');
+  if (!el || IS_APP_MODE()) return null;
+  const now = Date.now();
+  if (SRC_PEEK_BUSY || reviewOpen || (!force && now - SRC_PEEK_AT < 1500)) return null;
+  if ($('runBtn') && $('runBtn').disabled && $('progWrap') && $('progWrap').style.display !== 'none') return null;   // a run is going
+  SRC_PEEK_BUSY = true;
+  SRC_PEEK_AT = now;
+  const show = (ok, text) => { el.className = 'src-line ' + (ok ? 'ok' : 'warn'); el.textContent = text; el.style.display = ''; };
+  try {
+    if (SOURCE === 'clip') {
+      const c = await getSelectedClip();
+      if (c && c.ok && c.name) {
+        const at = /playhead/.test(String(c.via || '')) ? ' · ' + L('the clip under the playhead') : '';
+        show(true, '▶ ' + c.name + ' · ' + fmtDur(c.duration) + at);
+      } else {
+        show(false, '⚠ ' + L(IS_AE ? 'Select the layer with the speech in the composition.' : 'Select the clip with the speech on the timeline.'));
+      }
+    } else {
+      const info = await getSequenceInfo(SOURCE === 'whole');
+      const clips = ((info && info.clips) || []).filter((x) => !x.unsupported);
+      if (info && info.ok && clips.length) {
+        const a = Math.min.apply(null, clips.map((x) => x.timelineStart));
+        const b = Math.max.apply(null, clips.map((x) => x.timelineStart + x.duration));
+        show(true, '▶ ' + (info.sequence ? info.sequence + ' · ' : '') + clips.length + ' ' + L(clips.length === 1 ? 'clip' : 'clips') + ' · ' + fmtDur(b - a));
+      } else {
+        show(false, '⚠ ' + L(SOURCE === 'work' ? 'Nothing with speech inside the Work Area — move the Work Area bar over your video.' : 'No clips with speech in this sequence.'));
+      }
+    }
+  } catch (e) {
+    el.style.display = 'none';
+  } finally {
+    SRC_PEEK_BUSY = false;
+  }
+  return el.textContent;
+}
+function initSourceLine() {
+  if (IS_APP_MODE()) return;
+  const body = document.querySelector ? document.querySelector('.panel-body') : null;
+  if (body) body.addEventListener('mouseenter', () => refreshSourceLine(false));
+  window.addEventListener('focus', () => refreshSourceLine(false));
+  document.querySelectorAll('#srcSeg button').forEach((b) => b.addEventListener('click', () => refreshSourceLine(true)));
+  setTimeout(() => refreshSourceLine(true), 1200);
+}
+
+// ── Words per caption (1.16.25) ─────────────────────────────────────────────
+// One row: 1 (karaoke) · 2 · 3 · 4 · 5 — instead of "Karaoke / Grouped" plus a
+// number box (both kept, hidden, as the settings underneath).
+function syncWpc() {
+  const n = CAP === 'words' ? 1 : GROUP_SIZE;
+  document.querySelectorAll('#wpcSeg button').forEach((b) => b.classList.toggle('active', Number(b.dataset.wpc) === n));
+}
+function setWpc(n) {
+  n = Math.max(1, Math.min(12, Number(n) || 1));
+  CAP = n === 1 ? 'words' : 'grouped';
+  if (n > 1) { GROUP_SIZE = n; if ($('groupSize')) $('groupSize').value = n; saveSettings({ group: n }); }
+  saveSettings({ cap: CAP });
+  document.querySelectorAll('#capSeg button').forEach((x) => x.classList.toggle('active', x.dataset.cap === CAP));
+  syncWpc();
 }
 
 function nudgeReview(i, delta) {
@@ -4941,6 +5111,7 @@ function styleChip(id, label, img, onClick) {
   return b;
 }
 function renderStyleStrip() {
+  syncReviewSteps();
   const strip = $('styleStrip');
   const chips = $('styleChips');
   if (!strip || !chips) return;
@@ -5596,6 +5767,8 @@ function initReview() {
     if (cleanupAvailable()) cleanBtn.addEventListener('click', toggleCleanupPanel);
     else cleanBtn.style.display = 'none';                   // Premiere only
   }
+  initReviewSteps();
+  initSourceLine();
   const zoomBtn = $('revZoom');
   if (zoomBtn) {
     if (cleanupAvailable()) zoomBtn.addEventListener('click', toggleZoomPanel);
@@ -7075,12 +7248,17 @@ function setup() {
   // so the options card stays short.
   const syncStyleControls = () => {
     $('groupSize').disabled = (CAP !== 'grouped');
-    ['groupSizeField', 'fmtField'].forEach((id) => {
-      const field = $(id);
-      if (field) field.style.display = (CAP === 'grouped') ? '' : 'none';
-    });
+    const fmt = $('fmtField');
+    if (fmt) fmt.style.display = (CAP === 'grouped') ? '' : 'none';
+    // the number box only for an old setting above 5 (the row has 1-5)
+    const gs = $('groupSizeField');
+    if (gs) gs.style.display = (CAP === 'grouped' && GROUP_SIZE > 5) ? '' : 'none';
+    syncWpc();
   };
   syncStyleControls();
+  document.querySelectorAll('#wpcSeg button').forEach((b) => {
+    b.addEventListener('click', () => { setWpc(Number(b.dataset.wpc)); syncStyleControls(); });
+  });
 
   // Source segmented control
   document.querySelectorAll('#srcSeg button').forEach((b) => {
@@ -7106,6 +7284,7 @@ function setup() {
   $('groupSize').addEventListener('input', (e) => {
     GROUP_SIZE = Math.max(1, Math.min(12, Number(e.target.value) || 3));
     saveSettings({ group: GROUP_SIZE });
+    syncWpc();
   });
   document.querySelectorAll('#fmtSeg button').forEach((b) => {
     b.addEventListener('click', () => {
