@@ -237,7 +237,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.16.25');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.16.26');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1696,6 +1696,23 @@ await t('4o. panel polish (1.16.25): what will be captioned, the review step bar
     q.evalVm('syncReviewSteps()');
     assert.strictEqual(q.els('revCleanup').style.display, 'none', 'After Effects: no Clean up / Zoom steps');
   } finally { q.close(); }
+});
+
+await t('4p. exact word times (1.16.26): <srt>.words.json from the engine reaches the review', async () => {
+  const p = loadPanel({});
+  try {
+    await flush(10);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_wt_'));
+    const srt = path.join(dir, 'x.srt');
+    fs.writeFileSync(srt, '1\n00:00:02,000 --> 00:00:03,100\nዛሬ ስለ ቡና\n\n2\n00:00:04,000 --> 00:00:05,000\nጥሩ ነው\n');
+    fs.writeFileSync(srt + '.words.json', JSON.stringify({ 1: [[2.0, 2.3], [2.35, 2.55], [2.6, 3.1]] }));
+    const cues = JSON.parse(p.evalVm('JSON.stringify(withDoubts(normalizeCues(parseSrt(fs.readFileSync(' + JSON.stringify(srt) + ', "utf8"))), ' + JSON.stringify(srt) + '))'));
+    assert.deepStrictEqual(cues[0].wt, [[2.0, 2.3], [2.35, 2.55], [2.6, 3.1]]);
+    assert.strictEqual(cues[1].wt, undefined, 'no times for that caption: estimated');
+    fs.unlinkSync(srt + '.words.json');
+    const none = JSON.parse(p.evalVm('JSON.stringify(withDoubts(normalizeCues(parseSrt(fs.readFileSync(' + JSON.stringify(srt) + ', "utf8"))), ' + JSON.stringify(srt) + '))'));
+    assert.strictEqual(none[0].wt, undefined, 'no file (older engine, cache): estimated as before');
+  } finally { p.close(); }
 });
 
 await t('5. review: cache-hit transcribe -> edit -> export (speaker tags) -> nudge -> add -> discard', async () => {

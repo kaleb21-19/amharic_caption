@@ -437,13 +437,26 @@ const CLEANUP_FILLER_WORDS = ['እንግዲህ', 'ያው', 'ማለቴ'];
 const CLEANUP_STRIP = /[*~።፣፤፥፦፧፨?!.,;:"'“”‘’«»()[\]…-]/g;
 function cleanupNorm(w) { return String(w || '').replace(CLEANUP_STRIP, '').trim(); }
 
-// Every word of the captions with an estimated time (the caption's time shared
-// by letters), in order: { w, n (normalized), s, e, cue, k (word index) }.
+// Every word of the captions with its time, in order:
+// { w, n (normalized), s, e, cue, k (word index), exact }. The engine's exact
+// word times (cue.wt, 1.16.26) when they still belong to this text — one per
+// word, inside the caption; otherwise the caption's time shared by letters.
+function exactWordTimes(c, n) {
+  const wt = c && c.wt;
+  if (!Array.isArray(wt) || wt.length !== n) return null;
+  const a = Number(c.start) - 0.5, b = Number(c.end) + 0.5;
+  return wt.every((x) => Array.isArray(x) && x[0] >= a && x[1] <= b && x[1] >= x[0]) ? wt : null;
+}
 function cleanupWords(cues) {
   const out = [];
   (cues || []).forEach((c, ci) => {
     const parts = String(c.text || '').replace(/\n/g, ' ').split(/\s+/).filter(Boolean);
     if (!parts.length) return;
+    const wt = exactWordTimes(c, parts.length);
+    if (wt) {
+      parts.forEach((w, k) => out.push({ w, n: cleanupNorm(w), s: Number(wt[k][0]), e: Number(wt[k][1]), cue: ci, k, exact: true }));
+      return;
+    }
     const weight = parts.map((w) => Array.from(w.replace(/[~*]/g, '')).length + 1);   // marks take no time
     const total = weight.reduce((x, y) => x + y, 0);
     const span = Math.max(0, Number(c.end) - Number(c.start));
@@ -518,7 +531,7 @@ function findFillers(cues) {
   cleanupWords(cues).forEach((x) => {
     const sound = CLEANUP_FILLERS.indexOf(x.n) >= 0;
     const word = CLEANUP_FILLER_WORDS.indexOf(x.n) >= 0;
-    if (sound || word) out.push({ start: x.s, end: x.e, text: x.w, word: !sound, words: [[x.cue, x.k]] });
+    if (sound || word) out.push({ start: x.s, end: x.e, text: x.w, word: !sound, words: [[x.cue, x.k]], exact: !!x.exact });
   });
   return out;
 }
@@ -566,14 +579,19 @@ function remapCuesAfterCut(cues, cuts, drop) {
   const out = [];
   (cues || []).forEach((c, ci) => {
     let text = c.text;
-    if (gone[ci]) {
-      text = String(c.text || '').replace(/\n/g, ' ').split(/\s+/).filter(Boolean)
-        .filter((w, k) => !gone[ci][k]).join(' ');
-    }
+    const parts = String(c.text || '').replace(/\n/g, ' ').split(/\s+/).filter(Boolean);
+    if (gone[ci]) text = parts.filter((w, k) => !gone[ci][k]).join(' ');
     const start = cutTime(Number(c.start), cuts);
     const end = cutTime(Number(c.end), cuts);
     if (!String(text || '').trim() || end - start < 0.05) return;
-    out.push(Object.assign({}, c, { text, start: Math.round(start * 1000) / 1000, end: Math.round(end * 1000) / 1000 }));
+    const q = Object.assign({}, c, { text, start: Math.round(start * 1000) / 1000, end: Math.round(end * 1000) / 1000 });
+    const wt = exactWordTimes(c, parts.length);
+    delete q.wt;
+    if (wt) {
+      q.wt = wt.filter((x, k) => !(gone[ci] && gone[ci][k]))
+        .map((x) => [Math.round(cutTime(x[0], cuts) * 1000) / 1000, Math.round(cutTime(x[1], cuts) * 1000) / 1000]);
+    }
+    out.push(q);
   });
   return out;
 }
@@ -683,7 +701,7 @@ function findTextCuts(cues) {
       const first = r[0], last = r[r.length - 1];
       out.push({
         start: whole ? Number(c.start) : first.s, end: whole ? Number(c.end) : last.e, whole,
-        text: r.map((x) => x.w.replace(/[~*]/g, '')).join(' '), words: r.map((x) => [ci, x.k]),
+        text: r.map((x) => x.w.replace(/[~*]/g, '')).join(' '), words: r.map((x) => [ci, x.k]), exact: !!first.exact,
       });
     });
   });
@@ -700,7 +718,7 @@ if (typeof module !== 'undefined' && module.exports) {
     validateLicense,
     cleanupWords, findSilences, findRepeats, findFillers, snapQuiet, mergeRanges, cutTime,
     remapCuesAfterCut, remapMediaAfterCut, CLEANUP_FILLERS, CLEANUP_FILLER_WORDS,
-    findZoomMoments, cutRanges, findTextCuts,
+    findZoomMoments, cutRanges, findTextCuts, exactWordTimes,
     LICENSE_TOKEN_PUBKEY_PEM, licenseTokenParse, verifyLicenseToken,
   };
 }

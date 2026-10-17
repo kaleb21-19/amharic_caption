@@ -25,6 +25,10 @@ SUM_RE = re.compile(r"ALL PASS|FAILURES|\d+ checks|\d+ passed|all green|versions
 def suites(area):
     node = ["node"]
     py = [sys.executable]
+    # the engine imports numpy/soundfile: the installed panel's own Python has them
+    cep_py = os.path.join(os.environ.get("APPDATA", ""), "Adobe", "CEP", "extensions", "com.amharic.captions",
+                          "runtime", "python", "python.exe" if WIN else "bin/python3")
+    engine_py = [cep_py, "-E", "-s"] if os.path.exists(cep_py) and os.path.getsize(cep_py) > 0 else py
     host = sorted(f for f in os.listdir(os.path.join(ROOT, "tools", "test")) if f.startswith("test_host_") and f.endswith(".js"))
     table = {
         "panel": [("panel unit", node + ["tools/test/test_panel.js"], ROOT),
@@ -32,12 +36,13 @@ def suites(area):
         "host": [(f[:-3], node + ["tools/test/" + f], ROOT) for f in host],
         "styles": [("styles", py + ["tools/test/test_styles.py"], ROOT)],
         "texts": [("trial texts", py + ["tools/test/test_trial_texts.py"], ROOT)],
+        "engine": [("word times", engine_py + ["tools/test/test_word_times.py"], ROOT)],
         "app": [("app", py + ["tools/test/test_app.py"], ROOT), ("app shim", node + ["tools/test/test_app_shim.js"], ROOT)],
         "bot": [("bot e2e", node + ["test/e2e.mjs"], os.path.join(ROOT, "tools", "telegram-worker"))],
         "versions": [("versions", ["bash", "tools/check_versions.sh"], ROOT)],
     }
     if area == "all":
-        return [s for k in ("versions", "panel", "host", "styles", "texts", "app", "bot") for s in table[k]]
+        return [s for k in ("versions", "panel", "host", "styles", "texts", "engine", "app", "bot") for s in table[k]]
     if area not in table:
         sys.exit("area must be one of: %s, all" % ", ".join(table))
     return table[area]

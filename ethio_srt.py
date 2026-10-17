@@ -509,10 +509,14 @@ class Span(tuple):
 
 
 class Cue(tuple):
-    """(text, start, end) plus .doubt: the words in it the model was unsure of."""
-    def __new__(cls, text, s, e, doubt=()):
+    """(text, start, end) plus .doubt: the words in it the model was unsure of,
+    and .wt: the exact [start, end] of each of its words (1.16.26 - the panel
+    cuts and zooms on a word with these; empty when they could not be matched
+    to the words of the text)."""
+    def __new__(cls, text, s, e, doubt=(), wt=()):
         t = tuple.__new__(cls, (text, s, e))
         t.doubt = list(doubt)
+        t.wt = [list(x) for x in wt]
         return t
 
 
@@ -522,6 +526,23 @@ def _span_conf(sp):
 
 def _cue_doubt(c):
     return getattr(c, "doubt", [])
+
+
+def _cue_wt(c):
+    return getattr(c, "wt", [])
+
+
+def _shift_cue(c, off):
+    """The same cue `off` seconds later (its word times too)."""
+    return Cue(c[0], c[1] + off, c[2] + off, _cue_doubt(c), [[a + off, b + off] for a, b in _cue_wt(c)])
+
+
+def _word_times(text, cs, ce, words):
+    """The exact times of the words of one cue: the words that start inside
+    it, but only when they are exactly the cue's words (one per word of the
+    text) - otherwise nothing, and the panel estimates."""
+    wt = [[round(ws, 3), round(we, 3)] for _t, ws, we in words if cs - 1e-6 <= ws < ce + 1e-6]
+    return wt if len(wt) == len(str(text).split()) else []
 
 
 def _spans_with_conf(spans, logits):
@@ -555,7 +576,7 @@ def _attach_doubts(cues, words, units):
     are matched by time, not by text."""
     import bisect
     if not units or not any(u[2] < DOUBT_THRESHOLD for u in units):
-        return [Cue(t, s, e) for t, s, e in cues]
+        return [Cue(t, s, e, (), _word_times(t, s, e, words)) for t, s, e in cues]
     starts = [u[0] for u in units]
     doubt_words = []  # (start, text)
     for text, ws, we in words:
@@ -571,7 +592,7 @@ def _attach_doubts(cues, words, units):
     out = []
     for text, cs, ce in cues:
         d = [w for ws, w in doubt_words if cs - 1e-6 <= ws < ce + 1e-6 and w and w in text]
-        out.append(Cue(text, cs, ce, d))
+        out.append(Cue(text, cs, ce, d, _word_times(text, cs, ce, words)))
     return out
 
 
@@ -918,7 +939,7 @@ def enforce_min_duration(cues, min_dur=1.0, max_dur=5.0, tail_room=0.15):
                 # which put two captions on screen at once in Premiere. Seen on
                 # 2/19 real clips in karaoke mode (TESTING.md 1.2k).
                 e = max(s, nxt_s)
-        out.append(Cue(txt, s, e, _cue_doubt(cue)))
+        out.append(Cue(txt, s, e, _cue_doubt(cue), _cue_wt(cue)))
     return out
 
 
@@ -1406,6 +1427,7 @@ def _remap_spans(spans, frame_dur, seg_table, sr=16000):
 def write_srt(out_path, cues, offset):
     idx = 0
     doubts = {}
+    wts = {}
     with open(out_path, "w", encoding="utf-8") as f:
         for cue in cues:
             text_cue, start, end = cue
@@ -1417,6 +1439,18 @@ def write_srt(out_path, cues, offset):
             f.write(f"{text_cue}\n\n")
             if _cue_doubt(cue):
                 doubts[str(idx)] = _cue_doubt(cue)
+            if _cue_wt(cue):
+                wts[str(idx)] = [[round(a + offset, 3), round(b + offset, 3)] for a, b in _cue_wt(cue)]
+    # Exact word times for the review (1.16.26), keyed by SRT cue number.
+    wside = out_path + ".words.json"
+    try:
+        if wts:
+            with open(wside, "w", encoding="utf-8") as f:
+                json.dump(wts, f)
+        elif os.path.exists(wside):
+            os.remove(wside)
+    except OSError:
+        pass
     # Doubtful-word marks for the review screen, keyed by SRT cue number.
     side = out_path + ".doubt.json"
     try:
@@ -1819,11 +1853,11 @@ def handle_server_one(engine, req, rid, out):
 # (finished clips, and the finished windows of the clip in progress, are kept
 # when their audio is the same).
 def _cue_row(c):
-    return [c[0], c[1], c[2], list(_cue_doubt(c))]
+    return [c[0], c[1], c[2], list(_cue_doubt(c)), _cue_wt(c)]
 
 
 def _cue_from_row(r):
-    return Cue(r[0], r[1], r[2], tuple(r[3]) if len(r) > 3 and r[3] else ())
+    return Cue(r[0], r[1], r[2], tuple(r[3]) if len(r) > 3 and r[3] else (), r[4] if len(r) > 4 and r[4] else ())
 
 
 def _batch_long_clip(engine, wav, mode, group_size, max_chars, fp, state, flush):
@@ -1887,7 +1921,7 @@ def handle_server_batch(engine, req, rid, out):
     def flush(cur_cues=None, cur_off=0.0):
         rows = list(all_cues)
         for c in cur_cues or []:
-            rows.append(Cue(c[0], c[1] + cur_off, c[2] + cur_off, _cue_doubt(c)))
+            rows.append(_shift_cue(c, cur_off))
         try:
             write_srt(out_srt, rows, 0.0)          # partial, fully valid SRT
             with open(jpath, "w", encoding="utf-8") as f:
@@ -1942,7 +1976,7 @@ def handle_server_batch(engine, req, rid, out):
                 continue
             all_text.append(text)
             for c in cues:
-                all_cues.append(Cue(c[0], c[1] + off, c[2] + off, _cue_doubt(c)))
+                all_cues.append(_shift_cue(c, off))
             if live:
                 flush()
     _clear_prefetch(engine)
@@ -2044,7 +2078,7 @@ def run_batch():
                 continue
             off = float(req.get("offset") or 0.0)
             for c in cues:
-                all_cues.append(Cue(c[0], c[1] + off, c[2] + off, _cue_doubt(c)))
+                all_cues.append(_shift_cue(c, off))
             print("--- full transcription ---")
             print(text)
 
