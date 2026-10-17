@@ -83,10 +83,11 @@ class _EngineLog:
 
 def drop_sidecars(srt_path):
     """Only the .srt belongs next to the video. The engine also writes
-    <name>.srt.doubt.json (doubtful-word marks for the panel's review screen)
+    <name>.srt.doubt.json (doubtful-word marks for the panel's review screen),
+    <name>.srt.words.json (exact word times for the panel's cuts, 1.16.26)
     and a <name>.srt.part.json resume journal — meaningless in CapCut or
     DaVinci, and customers asked what the .json file was."""
-    for ext in (".doubt.json", ".part.json"):
+    for ext in (".doubt.json", ".words.json", ".part.json"):
         try:
             os.remove(srt_path + ext)
         except OSError:
