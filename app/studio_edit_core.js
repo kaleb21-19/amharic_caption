@@ -279,7 +279,71 @@
     return head.concat(ev).join('\n') + '\n';
   }
 
+
+  // ── sound (1.23.0): the music track, ducking, clean voice, loudness ──────
+  // music: { id, m, in, out, start, volume, fadeIn, fadeOut, duck (0-1: how
+  // much quieter while someone speaks) }. snd: { clean: true|false (a gentle
+  // FFT noise reduction + rumble cut on the voice), loud: 'off' | 'web' (-14
+  // LUFS, YouTube/TikTok) | 'tv' (-23 LUFS) }.
+  const LOUD = { web: -14, tv: -23 };
+  const MUS_DEFAULT = { volume: 0.35, fadeIn: 1, fadeOut: 2, duck: 0.8 };
+  const musV = (o, k) => (o[k] == null ? MUS_DEFAULT[k] : Number(o[k]));
+  // the music's loudness at time t of the edit (for the preview): volume,
+  // fades, and ducked while one of the speech ranges is on
+  function musicGain(o, t, totalLen, speech) {
+    const len = Math.min(ovLen(o), (totalLen == null ? Infinity : totalLen) - o.start);
+    const x = t - o.start;
+    if (x < 0 || x >= len) return 0;
+    let g = musV(o, 'volume');
+    const fi = musV(o, 'fadeIn'), fo = musV(o, 'fadeOut');
+    if (fi > 0 && x < fi) g *= x / fi;
+    if (fo > 0 && x > len - fo) g *= Math.max(0, (len - x) / fo);
+    if ((speech || []).some((r) => t >= r.start && t < r.end)) g *= 1 - 0.75 * Math.max(0, Math.min(1, musV(o, 'duck')));
+    return g;
+  }
+  // the audio after the voice [vin]: clean, music (ducked by the voice), loudness -> [a]
+  function soundChain(parts, vin, totalLen, media, mus, snd) {
+    snd = snd || {};
+    let v = vin;
+    if (snd.clean) { parts.push('[' + v + ']highpass=f=80,afftdn=nr=12:nf=-40[vcl]'); v = 'vcl'; }
+    const list = (mus || []).filter((o) => media[o.m] && media[o.m].audio && o.start < totalLen && ovLen(o) > 0);
+    const ducked = list.filter((o) => musV(o, 'duck') > 0);
+    let keys = [];
+    if (ducked.length) {
+      keys = ducked.map((o, k) => 'vk' + k);
+      parts.push('[' + v + ']asplit=' + (keys.length + 1) + '[vmain]' + keys.map((k) => '[' + k + ']').join(''));
+      v = 'vmain';
+    }
+    const mix = ['[' + v + ']'];
+    list.forEach((o, k) => {
+      const m = media[o.m];
+      const d = r3(Math.min(ovLen(o), totalLen - o.start));
+      const fi = Math.min(musV(o, 'fadeIn'), d / 2), fo = Math.min(musV(o, 'fadeOut'), d / 2);
+      const ms = Math.round(o.start * 1000);
+      let f = '[' + m.idx + ':a]atrim=start=' + o.in + ':end=' + r3(o.in + d) + ',asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,volume=' + musV(o, 'volume');
+      if (fi > 0) f += ',afade=t=in:d=' + r3(fi);
+      if (fo > 0) f += ',afade=t=out:st=' + r3(d - fo) + ':d=' + r3(fo);
+      f += ',adelay=' + ms + '|' + ms + ',apad';
+      const di = ducked.indexOf(o);
+      if (di >= 0) {
+        // a real sidechain compressor: the voice pushes the music down; a strong
+        // one, mixed with the music by the duck amount (0.7 = about -7 dB under steady talk)
+        parts.push(f + '[mu' + k + ']');
+        parts.push('[mu' + k + '][' + keys[di] + ']sidechaincompress=threshold=0.01:ratio=20:attack=20:release=800:mix=' + r3(Math.min(1, musV(o, 'duck'))) + '[md' + k + ']');
+        mix.push('[md' + k + ']');
+      } else {
+        parts.push(f + '[md' + k + ']');
+        mix.push('[md' + k + ']');
+      }
+    });
+    const lo = LOUD[snd.loud];
+    let tail = lo ? ',loudnorm=I=' + lo + ':TP=-1.5:LRA=11,aresample=48000' : '';
+    if (mix.length > 1) parts.push(mix.join('') + 'amix=inputs=' + mix.length + ':duration=first:normalize=0' + tail + '[a]');
+    else parts.push('[' + v + ']' + (tail ? tail.slice(1) : 'anull') + '[a]');
+  }
+
   // media: { id: { idx (ffmpeg input number), w, h, video, audio, image } }
+  // opts.mus / opts.snd: the music track and the sound settings (1.23.0)
   // opts.ass: a libass script (file name, in the folder ffmpeg runs in, with a
   // fonts/ folder) drawn over everything — the text track
   function editGraph(clips, media, fmt, fps, ovl, opts) {
@@ -310,7 +374,9 @@
     });
     const list = (ovl || []).filter((o) => media[o.m] && o.start < total(clips) && ovLen(o) > 0);
     const vOut = opts.ass ? 'vx' : 'v';
-    parts.push(ins.join('') + 'concat=n=' + L.length + ':v=1:a=1' + (list.length ? '[vm][am]' : '[' + vOut + '][a]'));
+    const soundOn = (opts.mus || []).some((o) => media[o.m]) || (opts.snd && (opts.snd.clean || LOUD[opts.snd.loud]));
+    const aOut = soundOn ? 'av' : 'a';
+    parts.push(ins.join('') + 'concat=n=' + L.length + ':v=1:a=1' + (list.length ? '[vm][am]' : '[' + vOut + '][' + aOut + ']'));
     if (list.length) {
       let base = 'vm';
       const mix = ['[am]'];
@@ -333,16 +399,17 @@
           mix.push('[oa' + k + ']');
         }
       });
-      if (mix.length > 1) parts.push(mix.join('') + 'amix=inputs=' + mix.length + ':duration=first:normalize=0[a]');
-      else parts.push('[am]anull[a]');
+      if (mix.length > 1) parts.push(mix.join('') + 'amix=inputs=' + mix.length + ':duration=first:normalize=0[' + aOut + ']');
+      else parts.push('[am]anull[' + aOut + ']');
     }
+    if (soundOn) soundChain(parts, aOut, total(clips), media, opts.mus, opts.snd);
     if (opts.ass) parts.push('[vx]subtitles=' + opts.ass + ':fontsdir=fonts,format=yuv420p[v]');
     return { graph: parts.join(';'), w: W, h: H, duration: total(clips) };
   }
 
   const api = { MIN, layout, total, locate, sourceToEdit, splitAt, removeClip, trimClip, moveClip, dropIndex, cutRange,
     words, deriveCaptions, syncBack, FORMATS, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
-    TFONTS, TPRESETS, assColor, textAnchor, textAss };
+    TFONTS, TPRESETS, assColor, textAnchor, textAss, LOUD, MUS_DEFAULT, musicGain };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhEdit = api;
 })(typeof window !== 'undefined' ? window : this);

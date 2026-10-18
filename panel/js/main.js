@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.22.0';
+const APP_VERSION = '1.23.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,19 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.23.0': {
+    banner: {
+      am: '♪ Studio፦ ሙዚቃ፣ ሰው ሲናገር ራሱ የሚቀንስ ሙዚቃ፣ የድምፅ ማጽጃ እና የYouTube/TikTok የድምፅ መጠን — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '♪ Studio: music, music that gets quieter by itself while people speak, voice cleaning and YouTube/TikTok loudness — your license stays the same.',
+    },
+    items: [
+      { am: '♪ የሙዚቃ መስመር፦ mp3፣ wav፣ m4a ይጎትቱ — ከዋናው መስመር በታች ይገባል', en: '♪ Music track: drop an mp3, wav or m4a — it goes under the main track' },
+      { am: 'ሰው ሲናገር ሙዚቃው ራሱ ይቀንሳል፣ ዝም ሲል ይመለሳል', en: 'The music gets quieter by itself while someone speaks, and comes back in the pauses' },
+      { am: 'የሙዚቃ መግቢያና መውጫ (fade)፣ ድምፅ', en: 'Music fade in / fade out, volume' },
+      { am: '🔊 ድምፅ፦ የንግግር ድምፅ ማጽጃ (ጫጫታና ጉምጉምታ)', en: '🔊 Sound: clean the voice (hiss and rumble)' },
+      { am: 'የድምፅ መጠን፦ YouTube · TikTok (−14 LUFS) ወይም ቲቪ (−23)', en: 'Loudness: YouTube · TikTok (−14 LUFS) or TV (−23)' },
+    ],
+  },
   '1.22.0': {
     banner: {
       am: 'T Studio፦ ርዕስ፣ የስም ጽሑፍ (lower third) እና በሳጥን ላይ ጽሑፍ በአማርኛ ፊደሎች — ፈቃድዎ እንደቀድሞው ይቀጥላል።',

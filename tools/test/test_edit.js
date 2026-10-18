@@ -158,4 +158,28 @@ test('text track: titles, lower thirds, boxes as libass lines — our fonts, col
   assert.ok(g.graph.endsWith('concat=n=1:v=1:a=1[vx][a];[vx]subtitles=t.ass:fontsdir=fonts,format=yuv420p[v]'), 'drawn over everything in the same pass');
 });
 
+test('sound: music with fades, ducked under the voice by a sidechain, clean voice, loudness', () => {
+  const media = { v: { idx: 0, w: 1920, h: 1080, video: true, audio: true }, s: { idx: 1, audio: true } };
+  const clips = [{ id: 'a', m: 'v', in: 0, out: 12 }];
+  const mus = [{ id: 'u', m: 's', in: 5, out: 65, start: 2, volume: 0.4, fadeIn: 1, fadeOut: 3, duck: 0.5 }];
+  const g = E.editGraph(clips, media, '16:9', 30, [], { mus, snd: { clean: true, loud: 'web' } }).graph;
+  assert.ok(g.includes('concat=n=1:v=1:a=1[v][av]'), 'the voice goes on to the sound chain');
+  assert.ok(g.includes('[av]highpass=f=80,afftdn=nr=12:nf=-40[vcl]'), 'clean voice');
+  assert.ok(g.includes('[vcl]asplit=2[vmain][vk0]'), 'the voice also drives the ducking');
+  assert.ok(g.includes('[1:a]atrim=start=5:end=15,asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,volume=0.4,afade=t=in:d=1,afade=t=out:st=7:d=3,adelay=2000|2000,apad[mu0]'), 'music: cut to the edit, fades, at its time');
+  assert.ok(g.includes('[mu0][vk0]sidechaincompress=threshold=0.01:ratio=20:attack=20:release=800:mix=0.5[md0]'), 'ducked by the voice');
+  assert.ok(g.endsWith('[vmain][md0]amix=inputs=2:duration=first:normalize=0,loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]'), 'mixed, as long as the edit, YouTube loudness');
+  const nod = E.editGraph(clips, media, '16:9', 30, [], { mus: [Object.assign({}, mus[0], { duck: 0 })] }).graph;
+  assert.ok(!nod.includes('sidechaincompress') && nod.endsWith('[av][md0]amix=inputs=2:duration=first:normalize=0[a]'), 'no ducking: just mixed');
+  assert.ok(E.editGraph(clips, media, '16:9', 30, [], { snd: { loud: 'tv' } }).graph.endsWith('[av]loudnorm=I=-23:TP=-1.5:LRA=11,aresample=48000[a]'), 'TV loudness alone');
+  assert.ok(E.editGraph(clips, media, '16:9', 30, [], { mus: [Object.assign({}, mus[0], { start: 20 })] }).graph.endsWith('[av]anull[a]'), 'music past the end: ignored');
+  // the preview hears the same: fades and ducking while a caption is on
+  const sp = [{ start: 6, end: 8 }];
+  assert.strictEqual(E.musicGain(mus[0], 2.5, 12, sp), 0.2, 'half way into the fade in');
+  assert.strictEqual(E.musicGain(mus[0], 5, 12, sp), 0.4);
+  assert.ok(Math.abs(E.musicGain(mus[0], 7, 12, sp) - 0.4 * (1 - 0.375)) < 1e-9, 'ducked while speaking');
+  assert.ok(Math.abs(E.musicGain(mus[0], 10.5, 12, sp) - 0.2) < 1e-9, 'fading out at the end of the edit');
+  assert.strictEqual(E.musicGain(mus[0], 1, 12, sp), 0, 'before it starts');
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');

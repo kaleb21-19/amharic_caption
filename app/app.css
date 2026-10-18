@@ -370,3 +370,10 @@ html.amh-editor .ed-cwrap { height: 186px; }
 .ed-sw { width: 26px; height: 26px; border-radius: 50%; border: 2px solid #33433d; cursor: pointer; }
 .ed-sw.on { border-color: var(--accent); box-shadow: 0 0 0 2px #0d1210, 0 0 0 4px var(--accent); }
 
+/* 1.23.0 sound: the music lane, the 🔊 Sound tab */
+html.amh-editor .ed-cwrap { height: 222px; }
+.ed-lmus { height: 36px; display: flex; align-items: center; padding-left: 10px; }
+.ed-check { display: flex; gap: 8px; align-items: flex-start; padding: 6px 2px; cursor: pointer; line-height: 1.35; }
+.ed-check input { margin-top: 3px; }
+.ed-sound .st-seg button { flex: 1; }
+.ed-mrow { display: block; width: 100%; text-align: left; margin: 4px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
