@@ -102,7 +102,11 @@
 
   // ── click / select ─────────────────────────────────────────────────────
   const video = () => $('appVideo');
-  function seek(t) { const v = video(); if (v && v.getAttribute('src')) { try { v.currentTime = Math.max(0, t + 0.01); } catch (e) {} } }
+  function seek(t) {
+    if (window.__amhSeek) { window.__amhSeek(Math.max(0, t + 0.01)); return; }
+    const v = video(); if (v && v.getAttribute('src')) { try { v.currentTime = Math.max(0, t + 0.01); } catch (e) {} }
+  }
+  const nowT = () => { const v = video(); return window.__amhEditTime ? window.__amhEditTime() : (v ? v.currentTime : 0); };
   function picked() {
     const sel = window.getSelection ? window.getSelection() : null;
     if (!sel || sel.isCollapsed || !sel.rangeCount) return [];
@@ -196,10 +200,11 @@
     const v = video();
     if (!v) return;
     const end = p[p.length - 1].e;
+    const ed = window.__amhEditor;
     seek(p[0].s);
-    const stop = () => { if (v.currentTime >= end) { v.pause(); v.removeEventListener('timeupdate', stop); } };
+    const stop = () => { if (nowT() >= end) { if (ed) ed.pause(); else v.pause(); v.removeEventListener('timeupdate', stop); } };
     v.addEventListener('timeupdate', stop);
-    v.play().catch(() => {});
+    if (ed) setTimeout(() => ed.play(), 60); else v.play().catch(() => {});
     hideBar();
   }
   function openFix(p) {
@@ -263,7 +268,7 @@
   let nowIdx = -1;
   function follow(scroll) {
     const v = video();
-    const i = v ? S.wordAt(words, v.currentTime) : -1;
+    const i = v ? S.wordAt(words, nowT()) : -1;
     if (i === nowIdx) return;
     if (spans[nowIdx]) spans[nowIdx].classList.remove('now');
     nowIdx = i;

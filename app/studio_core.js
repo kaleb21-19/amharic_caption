@@ -91,6 +91,7 @@
       video: String(p.video || ''), name: String(p.name || ''), duration: Number(p.duration) || 0,
       style: String(p.style || 'plain'), styleOpts: p.styleOpts || null,
       cleanup: p.cleanup || null,
+      edit: p.edit || null,
       cues: (p.cues || []).map((c) => {
         const o = {};
         PROJECT_KEYS.forEach((k) => { if (c[k] != null) o[k] = c[k]; });

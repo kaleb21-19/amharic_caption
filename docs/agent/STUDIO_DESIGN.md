@@ -76,3 +76,18 @@ Ctrl+E Export.
 ## 6. Look
 8 px spacing grid; three text sizes; one accent (the green); dark only; focus
 rings on everything; 150 ms transitions; icons + short words, never icons alone.
+
+## 7. The editor (1.20.0 →)
+The Studio is a real editor (CapCut-like layout, our captions inside):
+media left (📁), canvas middle (format 16:9 / 9:16 / 1:1 / 4:5, drag to place),
+settings right (⚙ Clip, 🎨 Style, Aa Captions, ✂ Clean up), multi-track
+timeline bottom. Rules:
+- **The edit is data** (project `edit`: fmt, media, clips); the preview plays it,
+  the export renders it in one ffmpeg pass — what you see is what you get.
+- **Captions belong to the source files**; the edit's captions are derived and
+  every change goes back (never lose a fixed word).
+- **Everything undoable, redo too.**
+- Order: 1.20 timeline · 1.21 overlay track (B-roll, photos, logo) · 1.22 text
+  & lower thirds · 1.23 sound (music, ducking, fades, noise, loudness) ·
+  1.24 transitions, speed, colour · 1.25 export presets, GPU, queue, templates.
+

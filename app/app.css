@@ -269,3 +269,58 @@ html.amh-studio .st-pill { white-space: nowrap; flex: 0 0 auto; }
 .st-cutnote { margin: -2px 0 10px; padding: 8px 10px; border-radius: 9px; background: rgba(231,76,60,.12); color: #ffb3b3; font-size: var(--font-s); }
 .st-link { display: block; margin-top: 8px; border: 0; background: none; padding: 0; color: var(--text-secondary); font-size: var(--font-s); text-decoration: underline; cursor: pointer; }
 .st-link:hover { color: var(--accent); }
+
+/* ── the editor (1.20.0, studio_edit.js) ─────────────────────────────────── */
+/* the player: format buttons, the canvas, our own transport */
+html.amh-editor #review #appPreview { gap: 8px; }
+.ed-fmt { display: flex; align-self: center; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; flex: 0 0 auto; }
+.ed-fmt button { height: 26px; padding: 0 12px; border: 0; background: none; color: var(--text-secondary); font-size: var(--font-s); cursor: pointer; }
+.ed-fmt button.on { background: #22302b; color: var(--text-primary); font-weight: 700; }
+html.amh-editor .app-video-wrap { background: #070908; }
+.ed-canvas { position: relative; overflow: hidden; background: #000; border-radius: 4px; box-shadow: 0 0 0 1px #24302b; cursor: move; }
+.ed-canvas video { position: absolute; max-width: none; max-height: none; object-fit: fill; }
+.ed-canvas.sel { box-shadow: 0 0 0 2px var(--accent); }
+html.amh-editor .ed-canvas .app-cap { bottom: 12%; }
+.ed-transport { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; padding: 0 4px; }
+.ed-tbtn { width: 30px; height: 30px; border: 0; border-radius: 8px; background: none; color: var(--text-secondary); font-size: 14px; cursor: pointer; }
+.ed-tbtn:hover { color: var(--text-primary); background: #1b2521; }
+.ed-play { width: 38px; height: 38px; border: 0; border-radius: 50%; background: var(--accent); color: #06110c; font-size: 15px; cursor: pointer; }
+.ed-time { font-variant-numeric: tabular-nums; color: var(--text-secondary); font-size: var(--font-s); }
+
+/* the timeline: tools, track names, lanes */
+html.amh-editor #review .ed-tl { padding: 0; }
+.ed-tbar { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--border); }
+.ed-tool { height: 28px; padding: 0 11px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-card); color: var(--text-primary); font-size: var(--font-s); cursor: pointer; }
+.ed-tool:hover { border-color: var(--accent); }
+.ed-tool:disabled { opacity: .4; cursor: default; }
+.ed-hint { color: var(--warn); font-size: var(--font-s); margin-left: 6px; }
+.ed-lanes { display: grid; grid-template-columns: 92px minmax(0, 1fr); }
+.ed-labels { border-right: 1px solid var(--border); font-size: 11px; color: var(--text-secondary); }
+.ed-lh { height: 24px; }
+.ed-lcap { height: 36px; display: flex; align-items: center; padding-left: 10px; }
+.ed-lmain { height: 54px; display: flex; align-items: center; padding-left: 10px; }
+html.amh-editor .ed-cwrap { height: 126px; border: 0; border-radius: 0; }
+
+/* 📁 Media */
+.ed-media { display: none; overflow-y: auto; padding: 12px; background: #111816; }
+html.amh-studio #review.ed-mediamode .ed-media { display: block; }
+html.amh-studio #review.ed-mediamode .st-script, html.amh-studio #review.ed-mediamode #reviewList { display: none !important; }
+.ed-mhead { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.ed-mgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+.ed-mitem { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: #16201c; padding-bottom: 8px; }
+.ed-mthumb { position: relative; height: 70px; display: flex; align-items: center; justify-content: center; font-size: 24px;
+  background: linear-gradient(135deg, #24455b, #1b322b); }
+.ed-mthumb b { position: absolute; right: 6px; bottom: 5px; font-size: 10px; background: rgba(0,0,0,.6); padding: 1px 5px; border-radius: 4px; }
+.ed-mname { padding: 6px 8px 0; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ed-mmeta { padding: 2px 8px 6px; font-size: 10.5px; color: var(--text-secondary); }
+.ed-mitem .st-btn { margin: 0 8px; height: 26px; width: calc(100% - 16px); }
+
+/* ⚙ Clip */
+.ed-cname { font-weight: 700; margin-bottom: 12px; overflow-wrap: anywhere; }
+.ed-sec { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-secondary); margin: 14px 0 8px; }
+.ed-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.ed-lab { width: 56px; font-size: var(--font-s); color: var(--text-secondary); }
+.ed-row input[type=range] { flex: 1; accent-color: var(--accent); }
+.ed-val { width: 44px; text-align: right; font-variant-numeric: tabular-nums; font-size: var(--font-s); }
+.ed-clip .st-row { margin-top: 14px; }
+@media (min-width: 900px) { html.amh-studio #review .ed-media { grid-area: list; border-right: 1px solid var(--border); min-height: 0; } }
