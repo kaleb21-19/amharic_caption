@@ -564,6 +564,36 @@ t('amharic typing: only what it just typed changes; other keys pass through', ()
   assert.strictEqual(core.amhType('', '-', 0), null, 'a dash alone is a dash');
 });
 
+// ───────────────────────── styled captions you can edit (1.27.0)
+t('styled update: one word fixed -> only its block is drawn again, with every caption of that block', () => {
+  const old = [['ሰላም ለሁሉም', 0, 1.5], ['እንኳን ደህና', 1.6, 3], ['መጣችሁ', 3.2, 4], ['ዛሬ', 10, 11], ['ስለ ቡና', 11.2, 12.5], ['እንናገራለን', 30, 32]];
+  const now = old.map((c) => c.slice());
+  now[4] = ['ስለ ቡና ታሪክ', 11.2, 12.5];
+  const r = core.styledUpdatePlan(old, now);
+  assert.strictEqual(r.whole, false);
+  assert.strictEqual(r.windows.length, 1);
+  assert.deepStrictEqual([r.windows[0].start, r.windows[0].end], [10, 12.5], 'the whole block 10-12.5, nothing else');
+  assert.deepStrictEqual(r.windows[0].cues.map((c) => c[0]), ['ዛሬ', 'ስለ ቡና ታሪክ']);
+});
+t('styled update: nothing changed -> nothing drawn; a deleted caption -> its block, without it; far edits -> two windows', () => {
+  const old = [['ሀ', 0, 1], ['ለ', 1.2, 2], ['ሐ', 10, 11], ['መ', 20, 21], ['ሠ', 30, 31], ['ረ', 40, 41], ['ሰ', 50, 51]];
+  assert.deepStrictEqual(core.styledUpdatePlan(old, old.map((c) => c.slice())), { whole: false, windows: [] });
+  const del = old.filter((c) => c[0] !== 'ለ');
+  const r = core.styledUpdatePlan(old, del);
+  assert.deepStrictEqual(r.windows.map((w) => [w.start, w.end, w.cues.length]), [[0, 2, 1]], 'the old block is cleared, ሀ drawn alone');
+  const two = old.map((c) => c.slice());
+  two[0][0] = 'ሁ'; two[6][0] = 'ሱ';
+  assert.deepStrictEqual(core.styledUpdatePlan(old, two).windows.map((w) => [w.start, w.end]), [[0, 2], [50, 51]]);
+});
+t('styled update: a time moved into the next block joins both; most of it changed -> draw everything', () => {
+  const old = [['ሀ', 0, 1], ['ለ', 1.2, 2], ['ሐ', 10, 11], ['መ', 11.3, 12]];
+  const moved = old.map((c) => c.slice());
+  moved[1] = ['ለ', 1.2, 9.6];
+  const r = core.styledUpdatePlan(old, moved);
+  assert.deepStrictEqual(r.windows.map((w) => [w.start, w.end]), [[0, 12]]);
+  assert.strictEqual(r.whole, true, '0-12 of 0-12 changed');
+});
+
 (async () => {
   await Promise.all(pending);
   console.log('\n' + (fail === 0 ? 'ALL PASS' : 'FAILURES: ' + fail) +

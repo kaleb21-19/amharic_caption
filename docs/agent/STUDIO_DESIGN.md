@@ -89,5 +89,5 @@ timeline bottom. Rules:
 - **Everything undoable, redo too.**
 - Order: 1.20 timeline · 1.21 overlay track (B-roll, photos, logo) · 1.22 text
   & lower thirds · 1.23 sound (music, ducking, fades, noise, loudness) — done ·
-  1.24 transitions, speed, colour — done · 1.25 export presets, GPU, queue — done · 1.26 Amharic typing (selam → ሰላም) — done · 1.27 brand kit (logo, intro/outro, fonts, colours).
+  1.24 transitions, speed, colour — done · 1.25 export presets, GPU, queue — done · 1.26 Amharic typing (selam → ሰላም) — done · 1.27 editable styled captions in Premiere (clips per phrase) · next: brand kit, real Premiere text (MOGRT).
 

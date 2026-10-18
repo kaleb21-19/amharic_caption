@@ -28,7 +28,26 @@ function makeTrack(clips) {
   clips.forEach(([s, e, name]) => list.push(mk(s, e, name)));
   const placed = [];
   return { list, placed, clips: coll(list, 'numItems'),
-           overwriteClip(item, at) { placed.push([item.name, at]); list.push(mk(at, at + 5, item.name)); return true; } };
+           overwriteClip(item, at) {
+             placed.push([item.name, at]);
+             const len = item._in != null && item._out != null ? item._out - item._in : 5;
+             list.push(mk(at, at + len, item.name));
+             return true;
+           } };
+}
+// a project item; range: how the fake Premiere reads setInPoint / setOutPoint
+// ('seconds', 'ticks' = a ticks string or number, 'ignore' = in / out do nothing)
+function makeItem(name, range) {
+  const TPS = 254016000000;
+  const conv = (v) => (range === 'ticks' ? (typeof v === 'string' || v > 1e6 ? Number(v) / TPS : null) : (typeof v === 'number' && v < 1e6 ? v : null));
+  return {
+    name, _in: null, _out: null,
+    setInPoint(v) { if (range !== 'ignore') { const x = conv(v); if (x != null) this._in = x; } return 0; },
+    setOutPoint(v) { if (range !== 'ignore') { const x = conv(v); if (x != null) this._out = x; } return 0; },
+    getInPoint() { return { seconds: this._in == null ? 0 : this._in }; },
+    getOutPoint() { return { seconds: this._out == null ? 5 : this._out }; },
+    clearInPoint() { this._in = null; }, clearOutPoint() { this._out = null; },
+  };
 }
 function makePremiere(trackClips, opts) {
   opts = opts || {};
@@ -41,6 +60,7 @@ function makePremiere(trackClips, opts) {
     frameSizeHorizontal: 1080, frameSizeVertical: 1920, timebase: String(254016000000 / 25),
     getSettings() { return opts.noRate ? {} : { videoFrameRate: { seconds: 1 / 29.97 } }; },
     videoTracks: coll(vt, 'numTracks'),
+    getSelection() { return opts.selection ? opts.selection(vt) : []; },
   };
   const qeLog = [];
   const ctx = {
@@ -49,7 +69,7 @@ function makePremiere(trackClips, opts) {
     app: {
       project: {
         activeSequence: seq, rootItem: root,
-        importFiles(paths) { if (opts.refuse) return false; for (const p of paths) kids.push({ name: path.basename(p) }); return true; },
+        importFiles(paths) { if (opts.refuse) return false; for (const p of paths) kids.push(makeItem(path.basename(p), opts.range || 'seconds')); return true; },
       },
       enableQE() {},
     },
@@ -147,6 +167,63 @@ test('placing again replaces our earlier layer for the same captions, nothing el
   const r2 = qq.call('amh_placeOverlay(' + JSON.stringify(JSON.stringify({ path: tmp, startSeconds: 0, duration: 30, replacePrefix: 'video' })) + ')');
   assert.strictEqual(r2.replaced, 0);
   assert.strictEqual(qq.vt[1].list.length, 1);
+});
+
+// ── 1.27.0: one clip per phrase, so each caption can be edited on its own ──
+const J = (o) => JSON.stringify(JSON.stringify(o));
+function placeCut(pp, spans, extra) {
+  const prep = pp.call('amh_overlayPrepare(' + J(Object.assign({ path: tmp, rangeStart: 10 + spans[0][0], rangeEnd: 10 + spans[spans.length - 1][1],
+    replacePrefix: 'amhstyle_talk__' }, extra || {})) + ')');
+  if (!prep.ok) return { prep };
+  const r = pp.call('amh_overlaySpans(' + J({ itemName: prep.itemName, track: prep.track, base: 10, spans, check: true }) + ')');
+  return { prep, r };
+}
+const SP = [[0.25, 1.4], [1.4, 2.6], [4, 5.5]];
+for (const range of ['seconds', 'ticks']) {
+  test('one clip per phrase, each exactly its phrase (Premiere reads in / out as ' + range + ')', () => {
+    const pp = makePremiere([[[0, 60]], []], { range });
+    const { prep, r } = placeCut(pp, SP);
+    assert.ok(prep.ok && r.ok, JSON.stringify([prep, r]));
+    assert.strictEqual(r.placed, 3);
+    assert.strictEqual(prep.track, 2);
+    const got = pp.vt[1].list.map((c) => [c.start.seconds, Math.round(c.end.seconds * 100) / 100]);
+    assert.deepStrictEqual(got, [[10.25, 11.4], [11.4, 12.6], [14, 15.5]]);
+    const item = pp.ctx.app.project.rootItem.children[0].children[0];
+    assert.strictEqual(item._in, null, 'the in / out points are cleared afterwards');
+  });
+}
+test('Premiere ignores in / out points: nothing is left on the timeline, the panel is told to place one layer', () => {
+  const pp = makePremiere([[[0, 60]], []], { range: 'ignore' });
+  const { r } = placeCut(pp, SP);
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.range, true);
+  assert.strictEqual(pp.vt[1].list.length, 0);
+});
+test('an edit: only our clips in that range are replaced, on the same track; the rest stays', () => {
+  const nm = 'amhstyle_talk__bold_1.mov';
+  const pp = makePremiere([[[0, 60]], [[10.25, 11.4, nm], [11.4, 12.6, nm], [14, 15.5, nm], [30, 31, nm]], [[0, 60, 'title.mov']]]);
+  const prep = pp.call('amh_overlayPrepare(' + J({ path: tmp, rangeStart: 13.9, rangeEnd: 15.6, replacePrefix: 'amhstyle_talk__', preferTrack: 2 }) + ')');
+  assert.ok(prep.ok, JSON.stringify(prep));
+  assert.strictEqual(prep.replaced, 1, 'only the edited phrase');
+  assert.strictEqual(prep.track, 2, 'back where it was, under the title on V3');
+  const r = pp.call('amh_overlaySpans(' + J({ itemName: prep.itemName, track: prep.track, base: 13.75, spans: [[0.25, 1.9]] }) + ')');
+  assert.ok(r.ok && r.placed === 1);
+  assert.deepStrictEqual(pp.vt[1].list.map((c) => c.start.seconds).sort((a, b) => a - b), [10.25, 11.4, 14, 30]);
+});
+test('a caption deleted in the panel: its clip is taken off, nothing else', () => {
+  const nm = 'amhstyle_talk__bold_1.mov';
+  const pp = makePremiere([[[0, 60]], [[10.25, 11.4, nm], [14, 15.5, nm], [14.2, 15, 'title.mov']]]);
+  const r = pp.call('amh_removeStyledRange(' + J({ replacePrefix: 'amhstyle_talk__', rangeStart: 13.9, rangeEnd: 16.1 }) + ')');
+  assert.strictEqual(r.removed, 1);
+  assert.deepStrictEqual(pp.vt[1].list.map((c) => c.projectItem.name), [nm, 'title.mov']);
+});
+test('the selected caption clip is found (ours only)', () => {
+  const nm = 'amhstyle_talk__bold_1.mov';
+  let pp = makePremiere([[[0, 60]], [[10.25, 11.4, nm]]], { selection: (vt) => [vt[0].list[0], vt[1].list[0]] });
+  let r = pp.call('amh_selectedStyled()');
+  assert.deepStrictEqual([r.name, r.start, r.end], [nm, 10.25, 11.4]);
+  pp = makePremiere([[[0, 60]], [[10.25, 11.4, nm]]], { selection: (vt) => [vt[0].list[0]] });
+  assert.strictEqual(pp.call('amh_selectedStyled()').none, true);
 });
 
 console.log('\nALL PASS  (' + passed + ' tests)');

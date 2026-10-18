@@ -727,86 +727,231 @@ function amhTrackFree(track, start, end) {
     return true;
 }
 
+// Import a styled caption file into our bin and return its project item.
+function amhImportCaptionFile(filePath) {
+    var f = new File(filePath);
+    if (!f.exists) { return { error: "Styled caption file not found: " + filePath }; }
+    var bin = amhFindOrCreateBin(AMH_CAPTION_BIN);
+    var fileName = String(filePath).replace(/\\/g, "/").split("/").pop();
+    var ok = app.project.importFiles([filePath], true, bin, false);
+    if (!ok) { return { error: "Premiere refused to import the styled caption file." }; }
+    var item = amhCaptionItem(fileName);
+    if (!item) { return { error: "The styled caption file was imported but could not be found in the bin." }; }
+    return { item: item };
+}
+function amhCaptionItem(fileName) {
+    var bin = amhFindOrCreateBin(AMH_CAPTION_BIN);
+    for (var i = bin.children.numItems - 1; i >= 0; i--) {
+        var ch = bin.children[i];
+        if (ch && String(ch.name) === fileName) { return ch; }
+    }
+    return null;
+}
+
+// Placing again (after an edit) replaces: our earlier styled clips for the
+// same captions (file name starts with prefix) in this time range are taken
+// off the timeline first. Nothing else is ever touched.
+function amhRemoveStyled(seq, prefix, start, end) {
+    var removed = 0;
+    var pre = String(prefix || "");
+    if (!(pre.length > 9 && pre.indexOf("amhstyle_") === 0)) { return 0; }
+    var vts = seq.videoTracks;
+    for (var r = 0; r < vts.numTracks; r++) {
+        try {
+            for (var k = vts[r].clips.numItems - 1; k >= 0; k--) {
+                var cl = vts[r].clips[k];
+                var nm = "";
+                try { nm = String(cl.projectItem.name || ""); } catch (e) {}
+                if (nm.indexOf(pre) !== 0) { continue; }
+                var cs = Number(cl.start.seconds), ce = Number(cl.end.seconds);
+                // Only a layer MOSTLY inside the new captions' time is the
+                // same captions placed before; a neighbouring cut part of the
+                // same video only touches it and stays (owner report, 1.16.12).
+                var ov = Math.min(ce, end) - Math.max(cs, start);
+                if (ce > cs && ov > 0.5 * (ce - cs)) {
+                    try { cl.remove(false, false); removed++; } catch (e) {}
+                }
+            }
+        } catch (e) {}
+    }
+    return removed;
+}
+
+// The first empty video track ABOVE every track with something between
+// start and end (a track is added when there is none); prefer = a track
+// index to use when it is free (an update goes back where it was).
+function amhStyledTarget(seq, start, end, prefer) {
+    var tracks = seq.videoTracks;
+    if (prefer >= 0 && prefer < tracks.numTracks && amhTrackFree(tracks[prefer], start, end)) {
+        return { target: prefer, added: false };
+    }
+    var top = -1;
+    for (var t = 0; t < tracks.numTracks; t++) {
+        if (!amhTrackFree(tracks[t], start, end)) { top = t; }
+    }
+    var target = -1;
+    for (var u = top + 1; u < tracks.numTracks; u++) {
+        if (amhTrackFree(tracks[u], start, end)) { target = u; break; }
+    }
+    var added = false;
+    if (target < 0) {
+        try {
+            app.enableQE();
+            qe.project.getActiveSequence().addTracks(1, tracks.numTracks, 0);
+            added = true;
+        } catch (e) {}
+        tracks = seq.videoTracks;
+        if (added && tracks.numTracks > 0 && amhTrackFree(tracks[tracks.numTracks - 1], start, end)) {
+            target = tracks.numTracks - 1;
+        }
+    }
+    return { target: target, added: added };
+}
+
 /**
  * Put the transparent styled-caption video (args.path) on the timeline at
  * args.startSeconds, on the first empty video track ABOVE every track that
  * has something in that time range (a new track is added when there is none).
+ * One layer for all the captions (the fallback since 1.27.0).
  */
 function amh_placeOverlay(argsJSON) {
     return amhGuard(function () {
         var args = JSON.parse(argsJSON);
         var seq = app.project.activeSequence;
         if (!seq) { return amhErr("No active sequence. Open one first."); }
-        var f = new File(args.path);
-        if (!f.exists) { return amhErr("Styled caption file not found: " + args.path); }
         var start = Number(args.startSeconds || 0);
         var end = start + Number(args.duration || 0);
-        var bin = amhFindOrCreateBin(AMH_CAPTION_BIN);
-        var fileName = String(args.path).replace(/\\/g, "/").split("/").pop();
-        var ok = app.project.importFiles([args.path], true, bin, false);
-        if (!ok) { return amhErr("Premiere refused to import the styled caption file."); }
-        var item = null;
-        for (var i = bin.children.numItems - 1; i >= 0; i--) {
-            var ch = bin.children[i];
-            if (ch && String(ch.name) === fileName) { item = ch; break; }
-        }
-        if (!item) { return amhErr("The styled caption file was imported but could not be found in the bin."); }
-
-        // Placing again (after an edit) replaces: our earlier styled layer for
-        // the same captions (its file name starts with args.replacePrefix)
-        // in this time range is taken off the timeline first. Nothing else is
-        // ever touched.
-        var removed = 0;
-        var pre = String(args.replacePrefix || "");
-        if (pre.length > 9 && pre.indexOf("amhstyle_") === 0) {
-            var vts = seq.videoTracks;
-            for (var r = 0; r < vts.numTracks; r++) {
-                try {
-                    for (var k = vts[r].clips.numItems - 1; k >= 0; k--) {
-                        var cl = vts[r].clips[k];
-                        var nm = "";
-                        try { nm = String(cl.projectItem.name || ""); } catch (e) {}
-                        if (nm.indexOf(pre) !== 0) { continue; }
-                        var cs = Number(cl.start.seconds), ce = Number(cl.end.seconds);
-                        // Only a layer MOSTLY inside the new captions' time is
-                        // the same captions placed before; a neighbouring cut
-                        // part of the same video only touches it and stays
-                        // (owner report, 1.16.12).
-                        var ov = Math.min(ce, end) - Math.max(cs, start);
-                        if (ce > cs && ov > 0.5 * (ce - cs)) {
-                            try { cl.remove(false, false); removed++; } catch (e) {}
-                        }
-                    }
-                } catch (e) {}
-            }
-        }
-
-        var tracks = seq.videoTracks;
-        var top = -1;
-        for (var t = 0; t < tracks.numTracks; t++) {
-            if (!amhTrackFree(tracks[t], start, end)) { top = t; }
-        }
-        var target = -1;
-        for (var u = top + 1; u < tracks.numTracks; u++) {
-            if (amhTrackFree(tracks[u], start, end)) { target = u; break; }
-        }
-        var added = false;
-        if (target < 0) {
-            try {
-                app.enableQE();
-                qe.project.getActiveSequence().addTracks(1, tracks.numTracks, 0);
-                added = true;
-            } catch (e) {}
-            tracks = seq.videoTracks;
-            if (added && tracks.numTracks > 0 && amhTrackFree(tracks[tracks.numTracks - 1], start, end)) {
-                target = tracks.numTracks - 1;
-            }
-        }
-        if (target < 0) {
+        var imp = amhImportCaptionFile(args.path);
+        if (imp.error) { return amhErr(imp.error); }
+        var removed = amhRemoveStyled(seq, args.replacePrefix, start, end);
+        var tg = amhStyledTarget(seq, start, end, -1);
+        if (tg.target < 0) {
             return amhErr("No empty video track above your video. Add one video track (right-click the track headers > Add Track), then press Place again.");
         }
-        tracks[target].overwriteClip(item, start);
-        return amhOk({ placed: true, track: target + 1, addedTrack: added, replaced: removed, itemName: String(item.name) });
+        seq.videoTracks[tg.target].overwriteClip(imp.item, start);
+        return amhOk({ placed: true, track: tg.target + 1, addedTrack: tg.added, replaced: removed, itemName: String(imp.item.name) });
+    });
+}
+
+// -- Styled captions as one clip per phrase (1.27.0) ------------------------------
+// Each caption on screen is its own clip (move, trim, delete it on its own),
+// cut from one rendered file with the project item's in / out points. The
+// scripting guide gives the in point in ticks and the out point in seconds,
+// so both are tried and read back; the way that works is remembered.
+var AMH_RANGE_WAY = -1;
+function amhSetRange(item, a, b) {
+    var ways = [
+        function () { item.setInPoint(a, 4); item.setOutPoint(b, 4); },
+        function () { item.setInPoint(amhSecondsToTicks(a), 4); item.setOutPoint(amhSecondsToTicks(b), 4); },
+        function () { item.setInPoint(amhSecondsToTicks(a), 4); item.setOutPoint(b, 4); }
+    ];
+    var order = AMH_RANGE_WAY >= 0 ? [AMH_RANGE_WAY] : [0, 1, 2];
+    for (var k = 0; k < order.length; k++) {
+        try {
+            ways[order[k]]();
+            var gi = Number(item.getInPoint().seconds), go = Number(item.getOutPoint().seconds);
+            if (Math.abs(gi - a) < 0.02 && Math.abs(go - b) < 0.06) { AMH_RANGE_WAY = order[k]; return true; }
+        } catch (e) {}
+    }
+    return false;
+}
+function amhClearRange(item) {
+    try { item.clearInPoint(); } catch (e) {}
+    try { item.clearOutPoint(); } catch (e) {}
+}
+
+// args: { path, rangeStart, rangeEnd, replacePrefix, preferTrack (1-based, optional) }
+// -> imports the file, removes our earlier clips in the range, picks the track.
+function amh_overlayPrepare(argsJSON) {
+    return amhGuard(function () {
+        var args = JSON.parse(argsJSON);
+        var seq = app.project.activeSequence;
+        if (!seq) { return amhErr("No active sequence. Open one first."); }
+        var start = Number(args.rangeStart || 0), end = Number(args.rangeEnd || 0);
+        var imp = amhImportCaptionFile(args.path);
+        if (imp.error) { return amhErr(imp.error); }
+        var removed = amhRemoveStyled(seq, args.replacePrefix, start, end);
+        var tg = amhStyledTarget(seq, start, end, Number(args.preferTrack || 0) - 1);
+        if (tg.target < 0) {
+            return amhErr("No empty video track above your video. Add one video track (right-click the track headers > Add Track), then press Place again.");
+        }
+        return amhOk({ itemName: String(imp.item.name), track: tg.target + 1, addedTrack: tg.added, replaced: removed });
+    });
+}
+
+// args: { itemName, track (1-based), base (sequence seconds of the file's 0),
+// spans: [[a, b], ...] (file seconds) } -> one clip per span. The first clip
+// is checked: if Premiere ignored the in / out points it is taken off and
+// { ok: false, range: true } tells the panel to place one layer instead.
+function amh_overlaySpans(argsJSON) {
+    return amhGuard(function () {
+        var args = JSON.parse(argsJSON);
+        var seq = app.project.activeSequence;
+        if (!seq) { return amhErr("No active sequence. Open one first."); }
+        var item = amhCaptionItem(String(args.itemName));
+        if (!item) { return amhErr("The styled caption file is not in the bin any more."); }
+        var track = seq.videoTracks[Number(args.track) - 1];
+        if (!track) { return amhErr("The caption track is gone."); }
+        var base = Number(args.base || 0);
+        var spans = args.spans || [];
+        var placed = 0;
+        try {
+            for (var i = 0; i < spans.length; i++) {
+                var a = Number(spans[i][0]), b = Number(spans[i][1]);
+                if (!(b > a)) { continue; }
+                if (!amhSetRange(item, a, b)) {
+                    return JSON.stringify({ ok: false, range: true, placed: placed, error: "Premiere did not take the caption in / out points." });
+                }
+                track.overwriteClip(item, base + a);
+                if (placed === 0 && args.check) {
+                    // the clip just placed must be this phrase only
+                    var got = null;
+                    for (var c = 0; c < track.clips.numItems; c++) {
+                        var cl = track.clips[c];
+                        if (Math.abs(Number(cl.start.seconds) - (base + a)) < 0.05) { got = cl; }
+                    }
+                    var len = got ? Number(got.end.seconds) - Number(got.start.seconds) : -1;
+                    if (!got || Math.abs(len - (b - a)) > 0.1) {
+                        if (got) { try { got.remove(false, false); } catch (e) {} }
+                        return JSON.stringify({ ok: false, range: true, placed: 0, error: "Premiere placed the whole file, not the caption (" + len + " s)." });
+                    }
+                }
+                placed++;
+            }
+        } finally {
+            amhClearRange(item);
+        }
+        return amhOk({ placed: placed });
+    });
+}
+
+// args: { replacePrefix, rangeStart, rangeEnd } -> our styled clips mostly in
+// that range are taken off (a caption deleted in the panel).
+function amh_removeStyledRange(argsJSON) {
+    return amhGuard(function () {
+        var args = JSON.parse(argsJSON);
+        var seq = app.project.activeSequence;
+        if (!seq) { return amhErr("No active sequence. Open one first."); }
+        return amhOk({ removed: amhRemoveStyled(seq, args.replacePrefix, Number(args.rangeStart || 0), Number(args.rangeEnd || 0)) });
+    });
+}
+
+// The styled caption clip selected on the timeline (ours: its file name starts
+// with amhstyle_), so the panel can open that caption for editing.
+function amh_selectedStyled() {
+    return amhGuard(function () {
+        var seq = app.project.activeSequence;
+        if (!seq) { return amhOk({ none: true }); }
+        var sel = [];
+        try { sel = seq.getSelection() || []; } catch (e) { sel = []; }
+        for (var i = 0; i < sel.length; i++) {
+            var nm = "";
+            try { nm = String(sel[i].projectItem.name || ""); } catch (e) {}
+            if (nm.indexOf("amhstyle_") === 0) {
+                return amhOk({ name: nm, start: Number(sel[i].start.seconds), end: Number(sel[i].end.seconds) });
+            }
+        }
+        return amhOk({ none: true });
     });
 }
 

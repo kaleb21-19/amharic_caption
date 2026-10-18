@@ -694,6 +694,11 @@
   cursor: pointer; opacity: .9; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
 .amh-type-badge.off { background: #3a4540; color: #cfd8d3; }
 .amh-type-badge:hover { opacity: 1; }
+/* ✎ Edit the selected caption (1.27.0) */
+.sel-cap-bar { display: flex; align-items: center; gap: 8px; margin: 6px 0; padding: 8px 10px; border: 1px solid #2ecc71;
+  border-radius: 10px; background: rgba(46, 204, 113, .08); }
+.sel-cap-bar .sel-cap-btn { flex: 0 0 auto; }
+.sel-cap-bar .sel-cap-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .85; }
 </style>
 </head>
 <body>
@@ -981,8 +986,9 @@
     <div class="recent-hint" data-i18n="recent.hint">Tap one to reopen it, edit, and place it again — it replaces the old captions.</div>
     <div class="recent-list" id="recentList"></div>
   </div>
+  <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.26.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span></span>
+    <span>v<span id="panelVersion">1.27.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span></span>
     <span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="updateCheck" title="Check for updates" data-i18n="update.check" data-i18n-title="update.checkTitle">↻ Check for updates</a>

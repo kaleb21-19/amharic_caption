@@ -342,6 +342,15 @@ if ff and A.supported(ff):
 else:
     print("  skip  drawing tests (no ffmpeg with libass; set AMH_FFMPEG)")
 
+# phrase times (1.27.0): one Premiere clip per phrase
+A._SPAN_LOG = []
+A.build(A.words_from_cues([("ሰላም እንዴት ነህ ደህና", 0.0, 2.0), ("እንደምን ዋልክ", 2.3, 3.5), ("ሩቅ", 6.0, 6.6)]), "bold", 1080, 1920,
+        opts={"words": 2})
+_sp = sorted(A._SPAN_LOG)
+A._SPAN_LOG = None
+check(len(_sp) == 4 and _sp[0][0] == 0.0 and all(abs(_sp[i][1] - _sp[i + 1][0]) < 1e-9 for i in range(2)) and _sp[2][1] < _sp[3][0] - 1,
+      "phrase times: held through short pauses, a long pause stays empty (%s)" % (_sp,))
+
 # script mode (1.25.0): only the ASS script, for the Studio's single render
 _sd = tempfile.mkdtemp()
 try:
