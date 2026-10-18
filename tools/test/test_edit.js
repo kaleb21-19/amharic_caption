@@ -252,4 +252,19 @@ test('export choices: presets, 720p, encoders (graphics card or x264), captions 
   assert.strictEqual(E.eta(0.25, 30), 90);
 });
 
+test('fonts (1.28.0): 12 Amharic fonts, each the same size on screen, and the preview sized exactly like the export', () => {
+  assert.strictEqual(Object.keys(E.TFONTS).length, 12);
+  const metrics = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, '..', 'fonts', 'metrics.json'), 'utf8'));
+  E.setFontInfo(metrics);
+  assert.deepStrictEqual(E.fontInfo('sans'), { scale: 1, css: 1000 / 1362 }, 'Noto Sans: unchanged, a browser px is 0.734 libass sizes');
+  assert.strictEqual(E.fontInfo('menbere').scale, 1, 'the first four fonts keep their size');
+  assert.ok(E.fontInfo('yebse').scale < 0.8 && E.fontInfo('agbalumo').scale > 1.2, 'big letters drawn smaller, small letters bigger');
+  const t = { preset: 'title', font: 'yebse' };
+  assert.strictEqual(E.textSize(t, 1920), Math.round(1920 * 0.085 * E.fontInfo('yebse').scale));
+  assert.ok(E.textAss([Object.assign({ text: 'ሰላም', start: 0, in: 0, out: 2 }, t)], 1080, 1920, 5).includes('\\fs' + E.textSize(t, 1920) + '\\'), 'the export uses that size');
+  assert.deepStrictEqual(E.fontInfo('nope'), E.fontInfo('sans'), 'an unknown font: the default');
+  E.setFontInfo(null);
+  assert.deepStrictEqual(E.fontInfo('yebse'), { scale: 1, css: 1 }, 'no measurements: plain sizes');
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');

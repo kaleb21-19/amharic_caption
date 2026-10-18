@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.27.0';
+const APP_VERSION = '1.28.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,19 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.28.0': {
+    banner: {
+      am: '🔤 8 አዳዲስ የአማርኛ ፊደሎች — አሁን 12 ፊደሎች ለካፕሽንና ለርዕስ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '🔤 8 new Amharic fonts — now 12 fonts for captions and titles — your license stays the same.',
+    },
+    items: [
+      { am: 'አዲስ፦ Yebse (ወፍራም)፣ WashRa (ደማቅ)፣ Agbalumo (ተጫዋች)፣ Tint (ብሩሽ)፣ Fantuwua (የእጅ ጽሑፍ)፣ Jiret (መጽሐፍ)፣ Hibur Mono (ታይፕራይተር)፣ Gothic (ያጌጠ)',
+        en: 'New: Yebse (heavy), WashRa (bold), Agbalumo (playful), Tint (brush), Fantuwua (handwritten), Jiret (book), Hibur Mono (typewriter), Gothic (ornate)' },
+      { am: 'ሁሉም ፊደሎች በአንድ መጠን ይታያሉ — ለTikTok እና Reels የተዘጋጁ', en: 'Every font looks the same size — made for TikTok and Reels' },
+      { am: '⬇ "እነዚህን ፊደሎች በዚህ ኮምፒውተር ላይ ይጫኑ"፦ በPremiere ርዕሶች፣ CapCut እና DaVinci ውስጥም ይጠቀሙባቸው', en: '⬇ "Install these fonts on this PC": use them in Premiere titles, CapCut and DaVinci too' },
+      { am: 'Studio፦ የርዕሶች መጠን በማጫወቻው ልክ እንደሚላከው ይታያል', en: 'Studio: titles now show in the player at exactly the size they are exported' },
+    ],
+  },
   '1.27.0': {
     banner: {
       am: '✎ የስታይል ካፕሽኖች አሁን ይታረማሉ፦ እያንዳንዱ ካፕሽን የራሱ ክሊፕ ነው — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -5636,6 +5649,44 @@ function selCapSoon() {
 document.addEventListener('mousemove', selCapSoon, { passive: true });
 window.addEventListener('focus', selCapSoon);
 
+// ── Install the Amharic fonts on this computer (1.28.0) ──────────────────────
+// runtime/amh_styles.py install-fonts: this user's font folder (no admin),
+// so Premiere's own titles, CapCut and DaVinci get the same 12 fonts.
+function installFonts() {
+  return new Promise((resolve, reject) => {
+    let out = '';
+    let child;
+    try {
+      child = spawn(PYTHON, ['-E', '-s', runtimePath('amh_styles.py'), 'install-fonts', runtimePath('fonts')], { env: AMH_ENV, windowsHide: true });
+    } catch (e) { reject(e); return; }
+    child.stdout.on('data', (b) => { out += b.toString('utf8'); });
+    child.stderr.on('data', () => {});
+    child.on('error', reject);
+    child.on('close', () => {
+      let r = null;
+      try { r = JSON.parse(out.trim().split('\n').pop()); } catch (e) {}
+      if (r && r.ok) resolve(r); else reject(new Error((r && r.error) || 'the fonts could not be installed'));
+    });
+  });
+}
+async function installFontsClick(btn) {
+  if (!btn || btn.disabled) return;
+  btn.disabled = true;
+  btn.textContent = '⏳ ' + L('Installing the fonts…');
+  try {
+    const r = await installFonts();
+    const n = (r.installed || []).length + (r.already || []).length;
+    btn.textContent = '✓ ' + L('Fonts installed') + ' (' + n + ')';
+    log(L('Amharic fonts installed on this PC') + ' (' + n + '): ' + r.dir + ' — ' +
+      L('restart Premiere, CapCut or DaVinci to see them in their own font lists.'));
+    if ((r.failed || []).length) log('Not installed: ' + r.failed.join('; '));
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = '⬇ ' + L('Install these fonts on this PC');
+    log(L('The fonts could not be installed') + ': ' + (e && e.message ? e.message : e));
+  }
+}
+
 // ── Customize + live preview (1.12) ──────────────────────────────────────────
 // Per style: highlight colour, text colour, size, position (incl. TikTok-safe),
 // words per line, box. Remembered per style. The preview is a few seconds of
@@ -5649,7 +5700,10 @@ const STYLE_WORDS = [0, 1, 2, 3, 4, 5];
 // Entrance animations (amh_styles.ANIMS); Auto = the style's own.
 const STYLE_ANIMS = [['auto', 'Auto'], ['none', 'None'], ['fade', 'Fade'], ['slide', '↑ Slide'], ['drop', '↓ Slide'],
   ['pop', 'Pop'], ['zoom', 'Zoom'], ['blur', 'Blur']];
-const STYLE_FONTS = [['sans', 'Modern'], ['menbere', 'Rounded'], ['serif', 'Classic'], ['abyssinica', 'Traditional']];
+const STYLE_FONTS = [['sans', 'Modern'], ['menbere', 'Rounded'], ['serif', 'Classic'], ['abyssinica', 'Traditional'],
+  // 1.28.0
+  ['yebse', 'Heavy'], ['washra', 'Bold'], ['agbalumo', 'Playful'], ['tint', 'Brush'], ['fantuwua', 'Handwritten'],
+  ['jiret', 'Book'], ['hibur', 'Typewriter'], ['gothic', 'Ornate']];
 let STYLE_FRAME = null;          // { width, height } of the sequence / video
 let PREVIEW_TIMER = null;
 let PREVIEW_SEQ = 0;
@@ -5768,6 +5822,7 @@ function segRow(parent, label, items, current, key, pills) {
     box.appendChild(b);
   });
   row.appendChild(box);
+  return row;
 }
 function switchRow(parent, label, on, key) {
   const row = scRow(parent, label);
@@ -5814,7 +5869,18 @@ function renderStyleCustom() {
   popHint.textContent = L('★ = click a word in a caption, then press the ★ next to it. Numbers and money can pop by themselves.');
   const popRow = opts.lastChild;            // the hint sits inside the Pop words row
   if (popRow) { popRow.className = (popRow.className || '') + ' wrap'; popRow.appendChild(popHint); }
-  segRow(opts, 'Font', STYLE_FONTS.map(([id, name]) => [id, L(name)]), o.font, 'font');
+  const fontRow = segRow(opts, 'Font', STYLE_FONTS.map(([id, name]) => [id, L(name)]), o.font, 'font', true);
+  if (fontRow) {
+    fontRow.className = (fontRow.className || '') + ' wrap';
+    const inst = document.createElement('button');
+    inst.type = 'button';
+    inst.className = 'sc-install';
+    inst.id = 'fontInstall';
+    inst.textContent = '⬇ ' + L('Install these fonts on this PC');
+    inst.title = L('So Premiere titles, CapCut and DaVinci can use the same Amharic fonts.');
+    inst.addEventListener('click', () => installFontsClick(inst));
+    fontRow.appendChild(inst);
+  }
   segRow(opts, 'Size', [['s', 'S'], ['m', 'M'], ['l', 'L'], ['xl', 'XL']], o.size, 'size');
   segRow(opts, 'Position', [['bottom', L('Bottom')], ['middle', L('Middle')], ['top', L('Top')], ['safe', 'TikTok']], o.pos, 'pos');
   segRow(opts, 'Words', [[0, L('Auto')], [1, '1'], [2, '2'], [3, '3'], [4, '4'], [5, '5']], o.words, 'words');
@@ -7743,7 +7809,9 @@ function setup() {
     log('');
     log('Caption styles fonts, all SIL Open Font License 1.1:');
     log('Noto Sans Ethiopic and Noto Serif Ethiopic (https://github.com/notofonts/ethiopic),');
-    log('Menbere (https://github.com/SorkinType/Menbere), Abyssinica SIL (https://software.sil.org/abyssinica/).');
+    log('Menbere (https://github.com/SorkinType/Menbere), Abyssinica SIL (https://software.sil.org/abyssinica/),');
+    log('Agbalumo (https://github.com/SorkinType/Agbalumo), Hibur Mono by TypeHabesha (https://github.com/typehabesha/HiburMono),');
+    log('the Senamirmir fonts Yebse, WashRa, Tint, Fantuwua, Jiret, Yigezu Bisrat Gothic (http://www.senamirmir.org).');
     log('');
     log('Voice activity detection: Silero VAD (https://github.com/snakers4/silero-vad).');
     log('License: MIT.');

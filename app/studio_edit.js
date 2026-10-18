@@ -316,12 +316,16 @@
   window.addEventListener('resize', () => { frame(); drawSoon(); });
   // the shipped Amharic fonts, so the text on the canvas is the exported text
   const FONTFILES = { sans: ['NotoSansEthiopic-Regular.ttf', 'NotoSansEthiopic-Bold.ttf'], menbere: ['Menbere-Regular.ttf', 'Menbere-Bold.ttf'],
-    serif: ['NotoSerifEthiopic-Regular.ttf', 'NotoSerifEthiopic-Bold.ttf'], abyssinica: ['AbyssinicaSIL-Regular.ttf', 'AbyssinicaSIL-Regular.ttf'] };
+    serif: ['NotoSerifEthiopic-Regular.ttf', 'NotoSerifEthiopic-Bold.ttf'], abyssinica: ['AbyssinicaSIL-Regular.ttf', 'AbyssinicaSIL-Regular.ttf'],
+    yebse: ['yebse.ttf', 'yebse.ttf'], washra: ['washrab.ttf', 'washrab.ttf'], agbalumo: ['Agbalumo-Regular.ttf', 'Agbalumo-Regular.ttf'],
+    tint: ['tint.ttf', 'tint.ttf'], fantuwua: ['fantuwua.ttf', 'fantuwua.ttf'], jiret: ['jiret.ttf', 'jiret.ttf'],
+    hibur: ['HiburMono-Regular.ttf', 'HiburMono-Regular.ttf'], gothic: ['yigezubisratgothic.ttf', 'yigezubisratgothic.ttf'] };
   const fontsDir = () => (typeof RUNTIME !== 'undefined' && RUNTIME ? path.join(RUNTIME, 'fonts') : '');
   let fontsReady = false;
   function loadFonts() {
     if (fontsReady || !fontsDir()) return;
     fontsReady = true;
+    try { E.setFontInfo(JSON.parse(fs.readFileSync(path.join(fontsDir(), 'metrics.json'), 'utf8'))); } catch (e) {}
     const css = [];
     Object.keys(FONTFILES).forEach((id) => {
       FONTFILES[id].forEach((f, bold) => {
@@ -355,7 +359,7 @@
         TXEL[it.id] = e;
       }
       const preset = E.TPRESETS[it.preset] ? it.preset : 'plain';
-      const fsz = (Number(it.size) || E.TPRESETS[preset].size) * H * k;
+      const fsz = E.textSize(it, H) * E.fontInfo(it.font).css * k;   // exactly the size libass draws
       const a = E.textAnchor(it, W, H);
       e.className = 'ed-tx ed-tx-' + preset + (it.id === sel ? ' sel' : '');
       e.style.display = '';
@@ -1381,7 +1385,13 @@
       clipPane.appendChild(row);
     };
     seg(tx('አይነት', 'Kind'), [['title', tx('ርዕስ', 'Title')], ['lower', tx('ስም', 'Name')], ['box', tx('ሳጥን', 'Box')], ['plain', tx('ቀላል', 'Plain')]], it.preset || 'plain', 'preset');
-    seg(tx('ፊደል', 'Font'), [['sans', 'Sans'], ['menbere', 'Menbere'], ['serif', 'Serif'], ['abyssinica', 'Abyssinica']], it.font || 'sans', 'font');
+    seg(tx('ፊደል', 'Font'), [['sans', 'Sans'], ['menbere', 'Menbere'], ['serif', 'Serif'], ['abyssinica', 'Abyssinica'], ['yebse', 'Yebse'],
+      ['washra', 'WashRa'], ['agbalumo', 'Agbalumo'], ['tint', 'Tint'], ['fantuwua', 'Fantuwua'], ['jiret', 'Jiret'], ['hibur', 'Hibur'], ['gothic', 'Gothic']],
+      it.font || 'sans', 'font');
+    const fontRow = clipPane.lastChild;
+    if (fontRow) fontRow.classList.add('ed-fonts');
+    // every font name drawn in its own letters
+    if (fontRow) Array.from(fontRow.children).forEach((b, k) => { const id = Object.keys(FONTFILES)[k]; if (id) b.style.fontFamily = "'AC " + id + "', serif"; });
     const row = el('div', 'ed-row');
     row.appendChild(el('span', 'ed-lab', tx('መጠን', 'Size')));
     const r = el('input'); r.type = 'range'; r.min = 0.02; r.max = 0.16; r.step = 0.002;

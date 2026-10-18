@@ -237,7 +237,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.27.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.28.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1203,7 +1203,18 @@ await t('4g. customize (1.12): colour, size, position, words, box remembered per
       ['auto', 'none', 'fade', 'slide', 'drop', 'pop', 'zoom', 'blur']);
     assert.ok(rows[2].children[1].className === 'sc-seg pills', 'animations wrap as pills');
     assert.deepStrictEqual(Array.from(rows[3].children[1].children).map((b) => b.dataset.value), ['auto', 'off'], 'emphasis: numbers & ★ / ★ only');
-    assert.deepStrictEqual(Array.from(rows[4].children[1].children).map((b) => b.dataset.value), ['sans', 'menbere', 'serif', 'abyssinica']);
+    assert.deepStrictEqual(Array.from(rows[4].children[1].children).map((b) => b.dataset.value),
+      ['sans', 'menbere', 'serif', 'abyssinica', 'yebse', 'washra', 'agbalumo', 'tint', 'fantuwua', 'jiret', 'hibur', 'gothic'], '12 Amharic fonts (1.28.0)');
+    assert.ok(rows[4].children[1].className === 'sc-seg pills', 'the fonts wrap as pills');
+    // ⬇ Install these fonts on this PC (1.28.0)
+    p.evalVm('globalThis.__inst = 0; installFonts = async () => { __inst++; return { ok: true, installed: ["a", "b"], already: ["c"], failed: [], dir: "C:/Users/x/Fonts" }; };');
+    const inst = Array.from(rows[4].children).find((c) => c.className === 'sc-install');
+    assert.ok(inst && /Install these fonts/.test(inst.textContent), 'the button sits under the fonts');
+    await inst.fire('click');
+    await new Promise((r) => setTimeout(r, 20));
+    assert.strictEqual(p.evalVm('__inst'), 1);
+    has(inst.textContent, 'Fonts installed (3)');
+    has(p.els('logBox').textContent, 'restart Premiere, CapCut or DaVinci');
     pick(0, '#FF3B30');
     pick(2, 'slide');
     pick(3, 'off');

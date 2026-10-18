@@ -165,12 +165,50 @@ check("fscx115" not in t0, "nothing marked + off: the style exactly as before")
 pl = A._place([A.EM + "ሰላም", "ሰላም"], "Noto Sans Ethiopic", 100, 1080, 1920, A.options({}), 0.24)
 check(abs(pl[0][2] / pl[1][2] - A.EMPH_SCALE / 100.0) < 0.01, "self-placed styles make room for a bigger word")
 
-FONT_FILES = {"sans": "NotoSansEthiopic", "menbere": "Menbere", "serif": "NotoSerifEthiopic", "abyssinica": "AbyssinicaSIL"}
+FONT_FILES = {"sans": "NotoSansEthiopic-Regular.ttf", "menbere": "Menbere-Regular.ttf", "serif": "NotoSerifEthiopic-Regular.ttf",
+              "abyssinica": "AbyssinicaSIL-Regular.ttf", "yebse": "yebse.ttf", "washra": "washrab.ttf", "agbalumo": "Agbalumo-Regular.ttf",
+              "tint": "tint.ttf", "fantuwua": "fantuwua.ttf", "jiret": "jiret.ttf", "hibur": "HiburMono-Regular.ttf",
+              "gothic": "yigezubisratgothic.ttf"}
 shipped = os.listdir(os.path.join(REPO, "tools", "fonts"))
-check(set(FONT_FILES) == set(A.FONTS) and all(FONT_FILES[f] + "-Regular.ttf" in shipped for f in A.FONTS),
-      "every font is shipped in tools/fonts")
-check(all(n in shipped for n in ("OFL.txt", "OFL-Menbere.txt", "OFL-NotoSerifEthiopic.txt", "OFL-AbyssinicaSIL.txt")),
+check(set(FONT_FILES) == set(A.FONTS) and all(FONT_FILES[f] in shipped for f in A.FONTS),
+      "every font is shipped in tools/fonts (12)")
+check(all(n in shipped for n in ("OFL.txt", "OFL-Menbere.txt", "OFL-NotoSerifEthiopic.txt", "OFL-AbyssinicaSIL.txt",
+                                 "OFL-Agbalumo.txt", "OFL-HiburMono.txt", "OFL-Senamirmir.txt", "FONTLOG-Senamirmir.txt")),
       "every font's license is shipped")
+_m = A._metrics()
+check(all(("%s|1" % fam) in _m and ("%s|0" % fam) in _m for fam in A.FONTS.values()), "every font has letter widths (Glide / Spotlight / Bounce)")
+check(all(f in shipped for f, _ in A.FONT_INSTALL) and len(A.FONT_INSTALL) == 15, "Install fonts: every shipped file, under its own name")
+
+# Install fonts on this PC (1.28.0): into a test folder (and a test registry key on Windows), never the real ones
+_fd = tempfile.mkdtemp()
+_old = (os.environ.get("AMH_FONT_INSTALL_DIR"), os.environ.get("AMH_FONT_REG_KEY"))
+os.environ["AMH_FONT_INSTALL_DIR"] = _fd
+os.environ["AMH_FONT_REG_KEY"] = r"Software\AmharicCaptionsTest\Fonts"
+try:
+    _r1 = A.install_fonts(os.path.join(REPO, "tools", "fonts"))
+    _r2 = A.install_fonts(os.path.join(REPO, "tools", "fonts"))
+    check(len(_r1["installed"]) == 15 and not _r1["failed"] and sorted(os.listdir(_fd)) == sorted(f for f, _ in A.FONT_INSTALL),
+          "install: all 15 font files copied (%s)" % (_r1["failed"],))
+    check(len(_r2["already"]) == 15 and not _r2["installed"], "install again: nothing copied twice")
+    if sys.platform == "win32":
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\AmharicCaptionsTest\Fonts") as k:
+            v, _t = winreg.QueryValueEx(k, "Ethiopic Yebse (TrueType)")
+        check(v == os.path.join(_fd, "yebse.ttf"), "install: listed for this user in the registry (test key)")
+finally:
+    if sys.platform == "win32":
+        import winreg
+        for _k in (r"Software\AmharicCaptionsTest\Fonts", r"Software\AmharicCaptionsTest"):
+            try:
+                winreg.DeleteKey(winreg.HKEY_CURRENT_USER, _k)
+            except OSError:
+                pass
+    for _n, _v in zip(("AMH_FONT_INSTALL_DIR", "AMH_FONT_REG_KEY"), _old):
+        if _v is None:
+            os.environ.pop(_n, None)
+        else:
+            os.environ[_n] = _v
+    shutil.rmtree(_fd, ignore_errors=True)
 
 # real drawing (needs an ffmpeg with libass; skipped otherwise)
 ff = os.environ.get("AMH_FFMPEG") or shutil.which("ffmpeg")

@@ -59,6 +59,17 @@ BUNDLED = [
     ("fonts/AbyssinicaSIL-Regular.ttf", "Abyssinica SIL (caption styles), unmodified — SIL Open Font License 1.1, "
      "Copyright (c) 2000-2024 SIL Global; the full license is in runtime/fonts/OFL-AbyssinicaSIL.txt",
      "https://software.sil.org/abyssinica/"),
+    ("fonts/Agbalumo-Regular.ttf", "Agbalumo (caption styles), unmodified — SIL Open Font License 1.1, "
+     "Copyright 2023 The Agbalumo Project Authors; the full license is in runtime/fonts/OFL-Agbalumo.txt",
+     "https://github.com/SorkinType/Agbalumo"),
+    ("fonts/HiburMono-Regular.ttf", "Hibur Mono by TypeHabesha (caption styles), unmodified — SIL Open Font License 1.1, "
+     "Copyright 2025-2026 The Hibur Mono Font Project Authors; the full license is in runtime/fonts/OFL-HiburMono.txt",
+     "https://github.com/typehabesha/HiburMono"),
+    ("fonts/yebse.ttf", "Senamirmir fonts Ethiopic Yebse, Ethiopic WashRa Bold, Ethiopic Tint, Ethiopic Fantuwua, Ethiopia Jiret, "
+     "Ethiopic Yigezu Bisrat Gothic (caption styles), unmodified (Reserved Font Names) — SIL Open Font License 1.1, "
+     "Copyright (c) 1998-2008 Senamirmir Project; the full license is in runtime/fonts/OFL-Senamirmir.txt, "
+     "the font log in runtime/fonts/FONTLOG-Senamirmir.txt",
+     "http://www.senamirmir.org/projects/typography/typeface.html"),
 ]
 
 # Shipped inside the panel itself (not the runtime).

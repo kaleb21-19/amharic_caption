@@ -699,6 +699,11 @@
   border-radius: 10px; background: rgba(46, 204, 113, .08); }
 .sel-cap-bar .sel-cap-btn { flex: 0 0 auto; }
 .sel-cap-bar .sel-cap-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .85; }
+/* Install the Amharic fonts on this PC (1.28.0) */
+.sc-install { margin-top: 6px; padding: 4px 10px; border: 1px dashed #3d5a4c; border-radius: 8px; background: none; color: #9fd8b8;
+  font-size: 11px; cursor: pointer; }
+.sc-install:hover:not(:disabled) { border-style: solid; color: #c8f2da; }
+.sc-install:disabled { opacity: .8; cursor: default; }
 </style>
 </head>
 <body>
@@ -988,7 +993,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.27.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span></span>
+    <span>v<span id="panelVersion">1.28.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span></span>
     <span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="updateCheck" title="Check for updates" data-i18n="update.check" data-i18n-title="update.checkTitle">↻ Check for updates</a>
