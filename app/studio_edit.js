@@ -31,6 +31,7 @@
   // ── state ──────────────────────────────────────────────────────────────
   let media = {};          // id -> { id, path, name, dur, w, h, video, audio }
   let clips = [];          // the main track
+  let ovl = [];            // the overlay track (1.21.0): B-roll, photos, logos
   let SRC = {};            // the captions of each file, in that file's time
   let fmt = '16:9';
   let sel = null;          // the selected clip's id
@@ -42,12 +43,14 @@
   const total = () => Math.max(0.1, E.total(clips));
 
   // ── files: what is in them (ffmpeg -i), their sound wave ───────────────
+  const IMAGE = /\.(png|jpe?g|webp)$/i;
   function probe(p) {
     return new Promise((resolve) => {
       execFile(FFMPEG, ['-hide_banner', '-i', p], { timeout: 30000 }, (err, out, errText) => {
         const t = String(errText || (err && err.message) || '');
         const d = t.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
         const vm = t.match(/Stream[^\n]*Video:[^\n]*?\s(\d{2,5})x(\d{2,5})/);
+        if (IMAGE.test(p)) { resolve({ dur: 0, image: true, w: vm ? Number(vm[1]) : 0, h: vm ? Number(vm[2]) : 0, video: !!vm, audio: false }); return; }
         resolve({ dur: d ? Number(d[1]) * 3600 + Number(d[2]) * 60 + Number(d[3]) : 0,
           w: vm ? Number(vm[1]) : 0, h: vm ? Number(vm[2]) : 0, video: !!vm && !/attached pic/.test(t.slice(t.indexOf(vm[0]), t.indexOf(vm[0]) + 300)),
           audio: /Stream[^\n]*Audio:/.test(t) });
@@ -82,7 +85,7 @@
   async function addMedia(p, opts) {
     opts = opts || {};
     const info = await probe(p);
-    if (!info.dur) { log(tx('ይህ ፋይል ሊከፈት አልቻለም፦ ', 'This file could not be opened: ') + path.basename(p)); return null; }
+    if (!info.dur && !(info.image && info.w)) { log(tx('ይህ ፋይል ሊከፈት አልቻለም፦ ', 'This file could not be opened: ') + path.basename(p)); return null; }
     const id = opts.id || ('m' + (Object.keys(media).length + 1) + '_' + Date.now().toString(36));
     media[id] = Object.assign({ id, path: p, name: path.basename(p) }, info);
     loadPeaks(id);
@@ -114,10 +117,10 @@
   const origUndo = window.undoReview;
   const REDO = [];
   let redoing = false;
-  const snap = () => JSON.stringify({ clips, fmt, media, SRC: built ? E.syncBack(clips, SRC, reviewCues) : SRC });
+  const snap = () => JSON.stringify({ clips, ovl, fmt, media, SRC: built ? E.syncBack(clips, SRC, reviewCues) : SRC });
   function restore(json) {
     const o = JSON.parse(json);
-    clips = o.clips; fmt = o.fmt; SRC = o.SRC;
+    clips = o.clips; ovl = o.ovl || []; fmt = o.fmt; SRC = o.SRC;
     Object.keys(o.media || {}).forEach((k) => { if (!media[k]) { media[k] = o.media[k]; loadPeaks(k); } });
   }
   window.pushReviewUndo = function (what) {
@@ -272,24 +275,83 @@
     v.style.left = (p.x * k) + 'px'; v.style.top = (p.y * k) + 'px';
     v.style.width = (p.sw * k) + 'px'; v.style.height = (p.sh * k) + 'px';
     stage.classList.toggle('sel', !!sel && c.id === sel);
+    syncOverlays(time());
   }
   window.addEventListener('resize', () => { frame(); drawSoon(); });
+  // overlay pictures on the canvas, placed exactly as the export places them
+  const OVEL = {};
+  function ovEl(o) {
+    let e = OVEL[o.id];
+    const m = media[o.m];
+    if (!m) return null;
+    if (!e || e.dataset.m !== o.m) {
+      if (e) e.remove();
+      e = document.createElement(m.image ? 'img' : 'video');
+      e.className = 'ed-ov';
+      e.dataset.m = o.m;
+      if (!m.image) { e.muted = true; e.playsInline = true; e.preload = 'auto'; }
+      e.src = urlOf(o.m);
+      e.addEventListener('mousedown', (ev) => { ev.stopPropagation(); ev.preventDefault(); startMove(o.id, ev); });
+      const cap = $('appCap');
+      stage.insertBefore(e, cap && cap.parentNode === stage ? cap : null);
+      OVEL[o.id] = e;
+    }
+    return e;
+  }
+  function syncOverlays(t) {
+    const { w: W, h: H } = E.canvasSize(fmt);
+    const k = stage.clientWidth / W || 0;
+    const on = {};
+    E.ovAt(ovl, t).forEach((o) => {
+      if (t >= total()) return;
+      const e = ovEl(o);
+      if (!e) return;
+      on[o.id] = 1;
+      const p = E.placement(media[o.m], o, W, H);
+      e.style.display = '';
+      e.style.left = (p.x * k) + 'px'; e.style.top = (p.y * k) + 'px';
+      e.style.width = (p.sw * k) + 'px'; e.style.height = (p.sh * k) + 'px';
+      e.style.opacity = o.opacity == null ? 1 : o.opacity;
+      e.classList.toggle('sel', o.id === sel);
+      if (e.tagName === 'VIDEO') {
+        const want = o.in + (t - o.start);
+        e.muted = !(Number(o.volume) > 0);
+        if (!e.muted) e.volume = Math.min(1, Number(o.volume));
+        if (playing) { if (e.paused) { try { e.currentTime = want; } catch (x) {} e.play().catch(() => {}); } else if (Math.abs(e.currentTime - want) > 0.25) { try { e.currentTime = want; } catch (x) {} } }
+        else { if (!e.paused) e.pause(); if (Math.abs(e.currentTime - want) > 0.04) { try { e.currentTime = want; } catch (x) {} } }
+      }
+    });
+    Object.keys(OVEL).forEach((id) => {
+      if (on[id]) return;
+      const e = OVEL[id];
+      if (!ovl.some((o) => o.id === id)) { e.remove(); delete OVEL[id]; return; }
+      e.style.display = 'none';
+      if (e.tagName === 'VIDEO' && !e.paused) e.pause();
+    });
+  }
   // drag the picture to move the selected clip (one undo step per drag)
   let moving = null;
-  stage.addEventListener('mousedown', (e) => {
-    const c = L()[cur];
-    if (!c || e.button !== 0) return;
-    e.preventDefault();
-    if (sel !== c.id) { sel = c.id; renderInspector(); ST.showTab('clip'); }
-    const { w: W } = E.canvasSize(fmt);
-    const k = stage.clientWidth / W;
+  const findItem = (id) => clips.find((c) => c.id === id) || ovl.find((o) => o.id === id);
+  function startMove(id, e) {
+    const it = findItem(id);
+    if (!it || e.button !== 0) return;
+    if (sel !== id) { sel = id; renderInspector(); ST.showTab('clip'); }
+    const { w: W, h: H } = E.canvasSize(fmt);
     pushReviewUndo('move picture');
-    moving = { id: c.id, x0: e.clientX, y0: e.clientY, cx: Number(c.x) || 0, cy: Number(c.y) || 0, k, W, H: E.canvasSize(fmt).h };
+    moving = { id, x0: e.clientX, y0: e.clientY, cx: Number(it.x) || 0, cy: Number(it.y) || 0, k: stage.clientWidth / W, W, H };
+  }
+  stage.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const sOv = ovl.find((o) => o.id === sel && E.ovAt([o], time()).length);
+    const c = L()[cur];
+    if (sOv) startMove(sOv.id, e); else if (c) startMove(c.id, e);
   });
   document.addEventListener('mousemove', (e) => {
     if (!moving) return;
     const dx = (e.clientX - moving.x0) / moving.k / moving.W, dy = (e.clientY - moving.y0) / moving.k / moving.H;
-    clips = clips.map((c) => (c.id === moving.id ? Object.assign({}, c, { x: Math.round((moving.cx + dx) * 1000) / 1000, y: Math.round((moving.cy + dy) * 1000) / 1000 }) : c));
+    const upd = (x) => (x.id === moving.id ? Object.assign({}, x, { x: Math.round((moving.cx + dx) * 1000) / 1000, y: Math.round((moving.cy + dy) * 1000) / 1000 }) : x);
+    clips = clips.map(upd); ovl = ovl.map(upd);
     frame(); renderInspector();
   });
   document.addEventListener('mouseup', () => { if (moving) { moving = null; ST.saveSoon(); } });
@@ -315,16 +377,30 @@
   tl.appendChild(tbar); tl.appendChild(lanes);
   review.appendChild(tl);
   const ctx = canvas.getContext ? canvas.getContext('2d') : null;
-  const RULER = 20, CAP = 30, MAIN = 54, GAP = 6;
-  const capTop = RULER + 4, mainTop = capTop + CAP + GAP;
+  const RULER = 20, CAP = 30, OVL = 34, MAIN = 50, GAP = 6;
+  const capTop = RULER + 4, ovTop = capTop + CAP + GAP, mainTop = ovTop + OVL + GAP;
   let view = { start: 0, pps: 50 };
   let fitted = false;
   const width = () => Math.max(50, cwrap.clientWidth || 600);
   let drag = null, hover = null;
   let pending = 0;
   function drawSoon() { if (!pending) pending = requestAnimationFrame(() => { pending = 0; draw(); }); }
+  // overlapping overlays get their own row inside the overlay lane (up to 3)
+  function ovRows() {
+    const ends = [];
+    const row = {};
+    ovl.slice().sort((a, b) => a.start - b.start).forEach((o) => {
+      let r = ends.findIndex((e) => e <= o.start + 1e-6);
+      if (r < 0) { r = Math.min(ends.length, 2); }
+      ends[r] = Math.max(ends[r] || 0, E.ovEnd(o));
+      row[o.id] = r;
+    });
+    const n = Math.max(1, Math.min(3, ends.length));
+    return { row, n, h: OVL / n };
+  }
   function tick(follow) {
     const t = time();
+    syncOverlays(t);
     tTime.textContent = S.fmtClock(t, true) + ' / ' + S.fmtClock(total());
     if (follow) view = S.follow(view, t, total(), width());
     draw();
@@ -379,6 +455,26 @@
         ctx.restore();
       }
     });
+    // 🎞 overlays
+    const R = ovRows();
+    ovl.forEach((o) => {
+      const x0 = S.timeToX(o.start, view), x1 = S.timeToX(E.ovEnd(o), view);
+      if (x1 < 0 || x0 > w) return;
+      const isSel = o.id === sel, m = media[o.m];
+      const y0 = ovTop + R.row[o.id] * R.h, hh = R.h - (R.n > 1 ? 1 : 0);
+      ctx.fillStyle = isSel ? '#6a52a0' : '#4b3a6b';
+      ctx.fillRect(x0 + 1, y0, Math.max(2, x1 - x0 - 2), hh);
+      ctx.strokeStyle = isSel ? '#ffffff' : '#8b6fc0';
+      ctx.lineWidth = isSel ? 2 : 1;
+      ctx.strokeRect(x0 + 1.5, y0 + 0.5, Math.max(2, x1 - x0 - 3), hh - 1);
+      if (hover && hover.lane === 'ov' && hover.id === o.id && hover.edge !== 'body') { ctx.fillStyle = '#fff'; ctx.fillRect(hover.edge === 'in' ? x0 + 1 : x1 - 4, y0, 3, hh); }
+      if (x1 - x0 > 24) {
+        ctx.save(); ctx.beginPath(); ctx.rect(x0 + 5, y0, x1 - x0 - 10, hh); ctx.clip();
+        ctx.fillStyle = '#f0e8ff'; ctx.font = '600 ' + (R.n > 1 ? 10 : 11) + 'px "Segoe UI", sans-serif';
+        ctx.fillText((m && m.image ? '🖼 ' : '🎞 ') + (m ? m.name : ''), x0 + 6, y0 + hh / 2);
+        ctx.restore();
+      }
+    });
     if (drag && drag.kind === 'move' && drag.moved) {
       const x = S.timeToX(drag.dropT, view);
       ctx.fillStyle = '#ffd60a'; ctx.fillRect(x - 1, mainTop - 3, 3, MAIN + 6);
@@ -411,6 +507,19 @@
   }
   function xy(e) { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
   function hitAt(p) {
+    if (p.y >= ovTop && p.y <= ovTop + OVL) {
+      const R = ovRows();
+      const r = Math.min(R.n - 1, Math.floor((p.y - ovTop) / R.h));
+      for (let k = ovl.length - 1; k >= 0; k--) {
+        const o = ovl[k];
+        if (R.row[o.id] !== r) continue;
+        const x0 = S.timeToX(o.start, view), x1 = S.timeToX(E.ovEnd(o), view);
+        if (Math.abs(p.x - x0) <= 6 && p.x >= x0 - 2) return { lane: 'ov', id: o.id, edge: 'in' };
+        if (Math.abs(p.x - x1) <= 6 && p.x <= x1 + 2) return { lane: 'ov', id: o.id, edge: 'out' };
+        if (p.x > x0 && p.x < x1) return { lane: 'ov', id: o.id, edge: 'body' };
+      }
+      return null;
+    }
     if (p.y >= mainTop && p.y <= mainTop + MAIN) {
       const LL = L();
       for (const c of LL) {
@@ -433,7 +542,13 @@
     const p = xy(e);
     const hit = hitAt(p);
     if (playing) pause();
-    if (hit && hit.lane === 'main') {
+    if (hit && hit.lane === 'ov') {
+      const o = ovl.find((x) => x.id === hit.id);
+      if (sel !== hit.id) { sel = hit.id; renderInspector(); ST.showTab('clip'); }
+      pushReviewUndo(hit.edge === 'body' ? 'move overlay' : 'trim overlay');
+      drag = { kind: 'ov', id: hit.id, edge: hit.edge, x0: p.x, start0: o.start, end0: E.ovEnd(o), len: media[o.m] && !media[o.m].image ? media[o.m].dur : null };
+      if (hit.edge === 'body') seek(S.xToTime(p.x, view));
+    } else if (hit && hit.lane === 'main') {
       const c = clips.find((x) => x.id === hit.id);
       if (sel !== hit.id) { sel = hit.id; renderInspector(); ST.showTab('clip'); }
       if (hit.edge !== 'body') {
@@ -460,6 +575,18 @@
     if (drag) {
       if (drag.kind === 'seek') { seek(S.xToTime(p.x, view)); return; }
       if (drag.kind === 'cap') { setTimingEdge(drag.i, drag.edge, S.xToTime(p.x, view)); drawSoon(); return; }
+      if (drag.kind === 'ov') {
+        const d = (p.x - drag.x0) / view.pps;
+        if (drag.edge === 'body') {
+          // snaps to the playhead and the main clips' edges (8 px)
+          let st = drag.start0 + d;
+          const snaps = [0, time()].concat(L().map((c) => c.s), L().map((c) => c.e));
+          const near = snaps.find((x) => Math.abs((x - st) * view.pps) < 8);
+          if (near != null) st = near;
+          ovl = E.ovMove(ovl, drag.id, st);
+        } else ovl = E.ovTrim(ovl, drag.id, drag.edge, (drag.edge === 'in' ? drag.start0 : drag.end0) + d, drag.len);
+        frame(); drawSoon(); return;
+      }
       if (drag.kind === 'trim') {
         const d = (p.x - drag.x0) / view.pps;
         clips = E.trimClip(clips, drag.id, drag.edge, drag.edge === 'in' ? drag.in0 + d : drag.out0 + d, drag.len);
@@ -483,7 +610,7 @@
     }
     if (e.target === canvas) {
       const hit = hitAt(p);
-      canvas.style.cursor = hit && hit.edge && hit.edge !== 'body' ? 'ew-resize' : (hit && hit.lane === 'main' ? 'grab' : (hit ? 'pointer' : 'text'));
+      canvas.style.cursor = hit && hit.edge && hit.edge !== 'body' ? 'ew-resize' : (hit && (hit.lane === 'main' || hit.lane === 'ov') ? 'grab' : (hit ? 'pointer' : 'text'));
       if (JSON.stringify(hit) !== JSON.stringify(hover)) { hover = hit; drawSoon(); }
     }
   });
@@ -492,6 +619,7 @@
     const d = drag;
     drag = null;
     if (d.kind === 'trim') { derive(); after(); }
+    else if (d.kind === 'ov') { after(); }
     else if (d.kind === 'cap') { renderReview(); ST.saveSoon(); }
     else if (d.kind === 'move' && d.moved && d.idx != null) {
       const from = clips.findIndex((c) => c.id === d.id);
@@ -516,6 +644,11 @@
     after();
   }
   function deleteSel() {
+    if (sel && ovl.some((o) => o.id === sel)) {
+      const oid = sel;
+      change('delete overlay', () => { ovl = ovl.filter((o) => o.id !== oid); });
+      sel = null; after(); return;
+    }
     if (!sel) { hint.textContent = tx('መጀመሪያ ክሊፕ ይምረጡ', 'Select a clip first'); setTimeout(() => { hint.textContent = ''; }, 2000); return; }
     if (clips.length <= 1) { hint.textContent = tx('የመጨረሻው ክሊፕ ሊሰረዝ አይችልም', 'The last clip cannot be removed'); setTimeout(() => { hint.textContent = ''; }, 2500); return; }
     const id = sel;
@@ -575,10 +708,20 @@
     try { p = APP.call('dialog', ['open', tx('ቪዲዮ ወይም ድምፅ ይምረጡ', 'Choose a video or sound')]); } catch (e) {}
     if (p) await addAndPlace(p);
   }
+  // above the main video, from the playhead: B-roll up to 5 s (silent), a photo 5 s
+  function addOverlay(id) {
+    const m = media[id];
+    const at = Math.min(time(), Math.max(0, total() - 0.5));
+    const len = m.image ? 5 : Math.min(5, m.dur);
+    const oid = newId();
+    change('add overlay', () => { ovl = ovl.concat([{ id: oid, m: id, in: 0, out: Math.round(len * 1000) / 1000, start: Math.round(at * 1000) / 1000, volume: 0 }]); });
+    sel = oid; after(); ST.showTab('clip');
+  }
   async function addAndPlace(p) {
     const id = await addMedia(p);
     if (!id) return;
     const m = media[id];
+    if (m.image) { addOverlay(id); renderMedia(); return; }
     change('add clip', () => { clips = clips.concat([{ id: newId(), m: id, in: 0, out: Math.round(m.dur * 1000) / 1000 }]); });
     view = S.fitView(total(), width());
     renderMedia();
@@ -593,16 +736,20 @@
     Object.keys(media).forEach((id) => {
       const m = media[id];
       const it = el('div', 'ed-mitem');
-      const th = el('div', 'ed-mthumb', m.video ? '🎬' : '♪');
-      th.appendChild(el('b', '', S.fmtClock(m.dur)));
+      const th = el('div', 'ed-mthumb', m.image ? '' : (m.video ? '🎬' : '♪'));
+      if (m.image) { const im = el('img'); im.src = urlOf(id); th.appendChild(im); }
+      th.appendChild(el('b', '', m.image ? '🖼' : S.fmtClock(m.dur)));
       it.appendChild(th);
       it.appendChild(el('div', 'ed-mname', m.name));
-      const used = clips.filter((c) => c.m === id).length;
+      const used = clips.filter((c) => c.m === id).length + ovl.filter((o) => o.m === id).length;
       const caps = (SRC[id] || []).length;
       it.appendChild(el('div', 'ed-mmeta', (caps ? '✓ ' + tx('ካፕሽን አለው', 'captions') : tx('ካፕሽን የለውም', 'no captions')) + (used ? ' · ' + used + '× ' + tx('በጊዜ መስመሩ', 'on timeline') : '')));
-      it.appendChild(btn('st-btn', '＋ ' + tx('ወደ ጊዜ መስመሩ', 'To timeline'), '', () => change('add clip', () => {
+      const row = el('div', 'ed-madd');
+      if (!m.image) row.appendChild(btn('st-btn', '＋ ' + tx('ዋና', 'Main'), tx('በዋናው መስመር መጨረሻ', 'At the end of the main track'), () => change('add clip', () => {
         clips = clips.concat([{ id: newId(), m: id, in: 0, out: Math.round(m.dur * 1000) / 1000 }]);
       })));
+      if (m.video) row.appendChild(btn('st-btn', '＋ ' + tx('ተደራቢ', 'Overlay'), tx('ከዋናው ቪዲዮ በላይ፣ ማጫወቻው ባለበት', 'Above the main video, at the playhead'), () => addOverlay(id)));
+      it.appendChild(row);
       grid.appendChild(it);
     });
     mediaPane.appendChild(grid);
@@ -622,6 +769,8 @@
   ST.addTab('clip', () => '⚙ ' + tx('ክሊፕ', 'Clip'), clipPane);
   function renderInspector() {
     clipPane.textContent = '';
+    const ov = ovl.find((x) => x.id === sel);
+    if (ov) { renderOverlayInspector(ov); return; }
     const c = clips.find((x) => x.id === sel);
     if (!c) { clipPane.appendChild(el('div', 'st-note', tx('በጊዜ መስመሩ ላይ ክሊፕ ይምረጡ — ከዚያ መጠኑን፣ ቦታውንና ድምፁን እዚህ ያስተካክሉ።', 'Select a clip on the timeline — then set its size, position and volume here.'))); return; }
     const lc = L().find((x) => x.id === c.id);
@@ -659,22 +808,67 @@
     clipPane.appendChild(row);
   }
 
+  function renderOverlayInspector(o) {
+    const m = media[o.m] || {};
+    clipPane.appendChild(el('div', 'ed-cname', (m.image ? '🖼 ' : '🎞 ') + (m.name || '') + ' · ' + S.fmtClock(E.ovLen(o), true)));
+    const slider = (label, key, min, max, step, dflt, show) => {
+      const row = el('div', 'ed-row');
+      row.appendChild(el('span', 'ed-lab', label));
+      const r = el('input'); r.type = 'range'; r.min = min; r.max = max; r.step = step;
+      r.value = o[key] == null ? dflt : o[key];
+      const val = el('span', 'ed-val', show(Number(r.value)));
+      let started = false;
+      r.addEventListener('input', () => {
+        if (!started) { pushReviewUndo('overlay'); started = true; }
+        const v = Number(r.value);
+        ovl = ovl.map((x) => (x.id === o.id ? Object.assign({}, x, { [key]: v }) : x));
+        val.textContent = show(v);
+        frame();
+      });
+      r.addEventListener('change', () => { started = false; ST.saveSoon(); drawSoon(); });
+      row.appendChild(r); row.appendChild(val);
+      clipPane.appendChild(row);
+    };
+    clipPane.appendChild(el('div', 'ed-sec', tx('ቦታና መጠን', 'Size and position')));
+    slider(tx('መጠን', 'Size'), 'scale', 0.05, 3, 0.01, 1, (v) => Math.round(v * 100) + '%');
+    slider('X', 'x', -0.6, 0.6, 0.005, 0, (v) => Math.round(v * 100));
+    slider('Y', 'y', -0.6, 0.6, 0.005, 0, (v) => Math.round(v * 100));
+    slider(tx('ግልጽነት', 'Opacity'), 'opacity', 0, 1, 0.01, 1, (v) => Math.round(v * 100) + '%');
+    const fitRow = el('div', 'st-seg ed-fit');
+    [['cover', tx('ሙላ', 'Fill')], ['contain', tx('ሙሉውን አሳይ', 'Whole')]].forEach(([f, t]) => {
+      const cur2 = o.fit || (m.image ? 'contain' : 'cover');
+      fitRow.appendChild(btn(cur2 === f ? 'on' : '', t, '', () => change('overlay', () => { ovl = ovl.map((x) => (x.id === o.id ? Object.assign({}, x, { fit: f }) : x)); })));
+    });
+    clipPane.appendChild(fitRow);
+    if (!m.image && m.audio) {
+      clipPane.appendChild(el('div', 'ed-sec', tx('ድምፅ', 'Sound')));
+      slider(tx('ድምፅ', 'Volume'), 'volume', 0, 2, 0.01, 0, (v) => (v ? Math.round(v * 100) + '%' : tx('ድምፅ የለም', 'muted')));
+    }
+    const row = el('div', 'st-row');
+    row.appendChild(btn('st-btn', tx('ወደ መጀመሪያው መልስ', 'Reset'), '', () => change('overlay', () => {
+      ovl = ovl.map((x) => (x.id === o.id ? Object.assign({}, x, { scale: 1, x: 0, y: 0, opacity: 1 }) : x));
+    })));
+    row.appendChild(btn('st-btn', '⤓ ' + tx('ወደ ማጫወቻው', 'To playhead'), tx('እዚህ እንዲጀምር', 'Start it here'), () => change('move overlay', () => { ovl = E.ovMove(ovl, o.id, time()); })));
+    row.appendChild(btn('st-btn', '🗑 ' + tx('ሰርዝ', 'Delete'), '', deleteSel));
+    clipPane.appendChild(row);
+  }
+
   // ── export: the whole edit, then the captions drawn in ─────────────────
   function render(out, onProgress, fast) {
     return new Promise((resolve, reject) => {
       const used = [];
-      clips.forEach((c) => { if (used.indexOf(c.m) < 0) used.push(c.m); });
+      clips.concat(ovl).forEach((c) => { if (media[c.m] && used.indexOf(c.m) < 0) used.push(c.m); });
       const info = {};
       used.forEach((id, i) => { info[id] = Object.assign({ idx: i }, media[id]); });
-      const g = E.editGraph(clips, info, fmt, 30);
+      const g = E.editGraph(clips, info, fmt, 30, ovl);
       const args = ['-v', 'error', '-y'];
-      used.forEach((id) => args.push('-i', media[id].path));
+      used.forEach((id) => { if (media[id].image) args.push('-loop', '1', '-framerate', '30'); args.push('-i', media[id].path); });
       if (g.graph.length > 6000) {
         const f = path.join(os.tmpdir(), 'amh_edit_' + Date.now() + '.txt');
         fs.writeFileSync(f, g.graph, { encoding: 'utf8' });
         args.push('-/filter_complex', f);
       } else args.push('-filter_complex', g.graph);
-      args.push('-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', fast ? 'veryfast' : 'medium', '-crf', fast ? '16' : '18',
+      args.push('-map', '[v]', '-map', '[a]', '-t', String(g.duration), '-c:v', 'libx264', '-preset', fast ? 'veryfast' : 'medium', '-crf', fast ? '16' : '18',
         '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', '-progress', 'pipe:1', '-nostats', out);
       const p = spawn(FFMPEG, args);
       let err = '';
@@ -718,6 +912,7 @@
     labels.innerHTML = '';
     labels.appendChild(el('div', 'ed-lh', ''));
     labels.appendChild(el('div', 'ed-lcap', '💬 ' + tx('ካፕሽን', 'Captions')));
+    labels.appendChild(el('div', 'ed-lov', '🎞 ' + tx('ተደራቢ', 'Overlay')));
     labels.appendChild(el('div', 'ed-lmain', '🎬 ' + tx('ዋና', 'Main')));
     renderInspector();
     if (review.classList.contains('ed-mediamode')) renderMedia();
@@ -748,26 +943,27 @@
   function saveState() {
     if (!built) return null;
     syncSrc();
-    return { v: 1, fmt, clips, media, S: SRC };
+    return { v: 1, fmt, clips, ovl, media, S: SRC };
   }
   function loadState(ed, cues) {
     opening = null;
     if (ed && Array.isArray(ed.clips) && ed.clips.length && ed.media) {
-      media = ed.media; clips = ed.clips; fmt = ed.fmt || '16:9'; SRC = ed.S || {};
+      media = ed.media; clips = ed.clips; ovl = ed.ovl || []; fmt = ed.fmt || '16:9'; SRC = ed.S || {};
       Object.keys(media).forEach(loadPeaks);
       built = true; fitted = false; cur = 0; ET = 0; sel = null;
       reviewCues = E.deriveCaptions(clips, SRC);
       renderReview();
       seek(0); after(); renderMedia(); syncUndo();
     } else {
-      built = false; media = {}; clips = []; SRC = {};
+      built = false; media = {}; clips = []; ovl = []; SRC = {};
       void cues;
       open();
     }
   }
   function reset() {
     pause();
-    built = false; media = {}; clips = []; SRC = {}; sel = null; fitted = false; REDO.length = 0; opening = null;
+    built = false; media = {}; clips = []; ovl = []; SRC = {}; sel = null; fitted = false; REDO.length = 0; opening = null;
+    Object.keys(OVEL).forEach((id) => { OVEL[id].remove(); delete OVEL[id]; });
     const v = V(); if (v) delete v.dataset.m;
     setLeft(false);
   }
@@ -776,6 +972,6 @@
 
   relabel();
   ST.attachEditor({ draw, drawSoon, seek, duration: total, peaks: editPeaks, open, shown, saveState, loadState, exportVideo, format: () => fmt });
-  window.__amhEditor = { state: () => ({ clips, media, SRC, fmt, sel, built }), seek, play, pause, time, splitHere, deleteSel, cutRanges, redo,
+  window.__amhEditor = { state: () => ({ clips, ovl, media, SRC, fmt, sel, built }), addOverlay, seek, play, pause, time, splitHere, deleteSel, cutRanges, redo,
     select: (id) => { sel = id; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, render, exportVideo, frame, setFormat: (f) => change('format', () => { fmt = f; }) };
 })();

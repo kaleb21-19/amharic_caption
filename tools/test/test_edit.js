@@ -104,4 +104,37 @@ test('export: the whole edit is one ffmpeg graph (fill the canvas, the clip\'s o
   assert.deepStrictEqual(E.canvasSize('4:5'), { w: 1080, h: 1350 });
 });
 
+test('overlay track: free in time; move, trim (start edge moves where the file starts), what is on screen at t', () => {
+  let o = [{ id: 'o', m: 'b', in: 2, out: 6, start: 3 }];
+  assert.strictEqual(E.ovEnd(o[0]), 7);
+  assert.deepStrictEqual(E.ovAt(o, 5).map((x) => x.id), ['o']);
+  assert.deepStrictEqual(E.ovAt(o, 7), []);
+  o = E.ovMove(o, 'o', -4);
+  assert.strictEqual(o[0].start, 0, 'never before the start');
+  o = E.ovTrim([{ id: 'o', m: 'b', in: 2, out: 6, start: 3 }], 'o', 'in', 4, 30);
+  assert.deepStrictEqual([o[0].start, o[0].in, o[0].out], [4, 3, 6], 'the start edge: later start, later in the file');
+  o = E.ovTrim([{ id: 'o', m: 'b', in: 2, out: 6, start: 3 }], 'o', 'in', 0, 30);
+  assert.deepStrictEqual([o[0].start, o[0].in], [1, 0], 'not before the file starts');
+  o = E.ovTrim([{ id: 'o', m: 'b', in: 2, out: 6, start: 3 }], 'o', 'out', 99, 10);
+  assert.strictEqual(o[0].out, 10, 'not past the file');
+  o = E.ovTrim([{ id: 'p', m: 'l', in: 0, out: 5, start: 0 }], 'p', 'out', 20);
+  assert.strictEqual(o[0].out, 20, 'a photo can show as long as you like');
+});
+
+test('export with overlays: drawn above the edit at their time, photos whole, B-roll silent unless raised', () => {
+  const media = { v: { idx: 0, w: 1920, h: 1080, video: true, audio: true }, b: { idx: 1, w: 1080, h: 1920, video: true, audio: true },
+    l: { idx: 2, w: 400, h: 400, video: true, image: true } };
+  const ovl = [{ id: 'o1', m: 'b', in: 2, out: 6, start: 3 }, { id: 'o2', m: 'l', in: 0, out: 12, start: 0, scale: 0.2, opacity: 0.85 }];
+  const g = E.editGraph([{ id: 'a', m: 'v', in: 0, out: 12 }], media, '16:9', 30, ovl);
+  assert.ok(g.graph.includes('concat=n=1:v=1:a=1[vm][am]'));
+  assert.ok(g.graph.includes("[1:v]trim=start=2:end=6,setpts=PTS-STARTPTS+3/TB"), 'B-roll from its own second, at its time');
+  assert.ok(g.graph.includes("overlay=0:-1167:enable='between(t,3,7)':eof_action=pass[vo0]"), g.graph);
+  assert.ok(g.graph.includes('[2:v]trim=duration=12,setpts=PTS-STARTPTS+0/TB') && g.graph.includes('colorchannelmixer=aa=0.85'), 'the logo: whole length, see-through');
+  assert.ok(g.graph.includes('scale=216:216'), 'a photo fits whole (contain) × its size');
+  assert.ok(g.graph.includes('[am]anull[a]'), 'B-roll silent');
+  const loud = E.editGraph([{ id: 'a', m: 'v', in: 0, out: 12 }], media, '16:9', 30, [Object.assign({}, ovl[0], { volume: 0.5 })]);
+  assert.ok(loud.graph.includes('adelay=3000|3000') && loud.graph.includes('amix=inputs=2:duration=first:normalize=0[a]'), 'raised: mixed in at its time');
+  assert.ok(!E.editGraph([{ id: 'a', m: 'v', in: 0, out: 12 }], media, '16:9', 30, [{ id: 'z', m: 'b', in: 0, out: 2, start: 30 }]).graph.includes('[vm]'), 'past the end: ignored');
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');

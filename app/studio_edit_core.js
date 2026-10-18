@@ -170,15 +170,39 @@
   // ── the export: the whole edit as one ffmpeg graph ───────────────────────
   const FORMATS = { '16:9': [1920, 1080], '9:16': [1080, 1920], '1:1': [1080, 1080], '4:5': [1080, 1350] };
   const canvasSize = (fmt) => { const s = FORMATS[fmt] || FORMATS['16:9']; return { w: s[0], h: s[1] }; };
-  // fill the canvas (cover), then the clip's own size and position
+  // fill the canvas (cover) — or, for a photo / logo, show it whole
+  // (contain) — then the clip's own size and position
   function placement(media, clip, W, H) {
     const mw = media.w || W, mh = media.h || H;
-    const k = Math.max(W / mw, H / mh) * (Number(clip.scale) || 1);
+    const fit = clip.fit || (media.image ? 'contain' : 'cover');
+    const k = (fit === 'contain' ? Math.min(W / mw, H / mh) : Math.max(W / mw, H / mh)) * (Number(clip.scale) || 1);
     const sw = Math.max(2, Math.round(mw * k / 2) * 2), sh = Math.max(2, Math.round(mh * k / 2) * 2);
     return { sw, sh, x: Math.round((W - sw) / 2 + (Number(clip.x) || 0) * W), y: Math.round((H - sh) / 2 + (Number(clip.y) || 0) * H) };
   }
-  // media: { id: { idx (ffmpeg input number), w, h, video, audio } }
-  function editGraph(clips, media, fmt, fps) {
+  // ── the overlay track (1.21.0): B-roll, photos, logos ABOVE the main track ──
+  // free placement in time: { id, m, in, out, start, scale, x, y, opacity,
+  // volume (B-roll is silent unless raised), fit }. A photo has no length of
+  // its own: in = 0, out = how long it shows.
+  const ovLen = (o) => r3(Math.max(0, o.out - o.in));
+  const ovEnd = (o) => r3(o.start + ovLen(o));
+  function ovAt(ovl, t) { return (ovl || []).filter((o) => t >= o.start && t < ovEnd(o)); }
+  function ovMove(ovl, id, start) { return ovl.map((o) => (o.id === id ? Object.assign({}, o, { start: r3(Math.max(0, start)) }) : o)); }
+  // drag an edge: the start edge also moves where the file starts (a photo just
+  // gets shorter / longer); never shorter than MIN, never past the file
+  function ovTrim(ovl, id, edge, t, mediaDur) {
+    return ovl.map((o) => {
+      if (o.id !== id) return o;
+      if (edge === 'in') {
+        const ns = Math.max(0, Math.max(o.start - o.in, Math.min(ovEnd(o) - MIN, t)));
+        return Object.assign({}, o, { start: r3(ns), in: r3(o.in + (ns - o.start)) });
+      }
+      const end = Math.min(o.start + ((mediaDur == null ? Infinity : mediaDur) - o.in), Math.max(o.start + MIN, t));
+      return Object.assign({}, o, { out: r3(o.in + (end - o.start)) });
+    });
+  }
+
+  // media: { id: { idx (ffmpeg input number), w, h, video, audio, image } }
+  function editGraph(clips, media, fmt, fps, ovl) {
     fps = fps || 30;
     const { w: W, h: H } = canvasSize(fmt);
     const L = layout(clips);
@@ -203,12 +227,38 @@
       }
       ins.push('[v' + i + '][a' + i + ']');
     });
-    parts.push(ins.join('') + 'concat=n=' + L.length + ':v=1:a=1[v][a]');
+    const list = (ovl || []).filter((o) => media[o.m] && o.start < total(clips) && ovLen(o) > 0);
+    parts.push(ins.join('') + 'concat=n=' + L.length + ':v=1:a=1' + (list.length ? '[vm][am]' : '[v][a]'));
+    if (list.length) {
+      let base = 'vm';
+      const mix = ['[am]'];
+      list.forEach((o, k) => {
+        const m = media[o.m];
+        const p = placement(m, o, W, H);
+        const d = Math.min(ovLen(o), total(clips) - o.start);
+        const src = m.image ? '[' + m.idx + ':v]trim=duration=' + r3(d) : '[' + m.idx + ':v]trim=start=' + o.in + ':end=' + r3(o.in + d);
+        const op = o.opacity == null ? 1 : Number(o.opacity);
+        parts.push(src + ',setpts=PTS-STARTPTS+' + o.start + '/TB,fps=' + fps + ',scale=' + p.sw + ':' + p.sh + ',setsar=1,format=yuva420p' +
+          (op < 1 ? ',colorchannelmixer=aa=' + op : '') + '[o' + k + ']');
+        const next = k === list.length - 1 ? 'v' : 'vo' + k;
+        parts.push('[' + base + '][o' + k + ']overlay=' + p.x + ':' + p.y + ":enable='between(t," + o.start + ',' + r3(o.start + d) + ")':eof_action=pass" +
+          (k === list.length - 1 ? ',format=yuv420p' : '') + '[' + next + ']');
+        base = next;
+        if (m.audio && !m.image && Number(o.volume) > 0) {
+          const ms = Math.round(o.start * 1000);
+          parts.push('[' + m.idx + ':a]atrim=start=' + o.in + ':end=' + r3(o.in + d) + ',asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,volume=' +
+            Number(o.volume) + ',adelay=' + ms + '|' + ms + '[oa' + k + ']');
+          mix.push('[oa' + k + ']');
+        }
+      });
+      if (mix.length > 1) parts.push(mix.join('') + 'amix=inputs=' + mix.length + ':duration=first:normalize=0[a]');
+      else parts.push('[am]anull[a]');
+    }
     return { graph: parts.join(';'), w: W, h: H, duration: total(clips) };
   }
 
   const api = { MIN, layout, total, locate, sourceToEdit, splitAt, removeClip, trimClip, moveClip, dropIndex, cutRange,
-    words, deriveCaptions, syncBack, FORMATS, canvasSize, placement, editGraph };
+    words, deriveCaptions, syncBack, FORMATS, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhEdit = api;
 })(typeof window !== 'undefined' ? window : this);

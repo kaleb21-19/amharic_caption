@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.20.0';
+const APP_VERSION = '1.21.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,19 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.21.0': {
+    banner: {
+      am: '🎞 Studio፦ B-roll፣ ፎቶና ሎጎ ከዋናው ቪዲዮ በላይ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '🎞 Studio: B-roll, photos and a logo above the main video — your license stays the same.',
+    },
+    items: [
+      { am: '🎞 ተደራቢ መስመር፦ B-roll ቪዲዮ፣ ፎቶ ወይም ሎጎ በማንኛውም ሰዓት', en: '🎞 Overlay track: B-roll, a photo or a logo at any time' },
+      { am: 'በምስሉ ላይ ጎትተው ቦታውን ያስተካክሉ፤ መጠን፣ ግልጽነት፣ ሙላ/ሙሉውን አሳይ', en: 'Drag it on the picture; size, opacity, fill / whole' },
+      { am: 'በጊዜ መስመሩ ላይ ጎትተው ያንቀሳቅሱ፣ ጠርዙን ጎትተው ያሳጥሩ — ወደ ማጫወቻውና ወደ ክሊፕ ጠርዝ ይጣበቃል', en: 'Drag it on the timeline, trim its edges — it snaps to the playhead and clip edges' },
+      { am: 'B-roll በነባሪ ድምፅ የለውም፤ ከፈለጉ ድምፁን ከፍ ያድርጉ', en: 'B-roll is silent by default; raise its volume if you want' },
+      { am: 'ሲልኩ ሁሉም በአንድ ቪዲዮ ውስጥ በትክክል እንዳዩት', en: 'Export shows them exactly as you placed them' },
+    ],
+  },
   '1.20.0': {
     banner: {
       am: '🎬 Amharic Captions Studio አሁን እውነተኛ ኤዲተር ነው፦ ክሊፖች፣ ቁረጥ፣ አንቀሳቅስ፣ 9:16 — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
