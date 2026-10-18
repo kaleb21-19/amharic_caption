@@ -1356,6 +1356,7 @@
     };
     clipPane.appendChild(el('div', 'ed-sec', tx('ጽሑፍ', 'Text')));
     const ta = el('textarea', 'ed-ta');
+    ta.dataset.amhType = '1';
     ta.value = it.text || '';
     ta.rows = 2;
     let started = false;
@@ -1365,6 +1366,7 @@
     clipPane.appendChild(ta);
     if (it.preset === 'lower') {
       const sb = el('input', 'ed-in');
+      sb.dataset.amhType = '1';
       sb.value = it.sub || '';
       sb.placeholder = tx('ሁለተኛ መስመር (ማዕረግ)', 'Second line (title)');
       let s2 = false;
