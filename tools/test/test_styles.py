@@ -342,5 +342,18 @@ if ff and A.supported(ff):
 else:
     print("  skip  drawing tests (no ffmpeg with libass; set AMH_FFMPEG)")
 
+# script mode (1.25.0): only the ASS script, for the Studio's single render
+_sd = tempfile.mkdtemp()
+try:
+    _o = os.path.join(_sd, "c.ass")
+    _r = A.render({"cues": [("ሰላም እንዴት ነህ", 0.5, 2.0)], "style": "bold", "mode": "script", "width": 1080, "height": 1920,
+                   "duration": 12.0, "out": _o, "tag": True, "ffmpeg": "no-ffmpeg-needed", "fonts": _sd})
+    _t = open(_o, encoding="utf-8").read()
+    check(_r["out"] == _o and "PlayResX: 1080" in _t and "PlayResY: 1920" in _t and "ሰላም" in _t,
+          "script mode writes the caption script at the given size, no ffmpeg")
+    check(_t.count("\\an9") >= 1 and "0:00:12.00" in _t, "script mode keeps the free tag, as long as the video")
+finally:
+    shutil.rmtree(_sd, ignore_errors=True)
+
 print("\nALL PASS" if not fails else "\nFAILURES: %d" % fails)
 sys.exit(1 if fails else 0)

@@ -235,4 +235,21 @@ test('colour: one matrix for the export and the preview; looks; nothing added wh
   assert.ok(f.startsWith(',colorchannelmixer=rr=0.213:rg=0.715:rb=0.072:') && f.includes("lutrgb=r='clip(val+13,0,255)'"), f);
 });
 
+test('export choices: presets, 720p, encoders (graphics card or x264), captions drawn in the same pass, time left', () => {
+  assert.deepStrictEqual(E.canvasSize('9:16', 720), { w: 720, h: 1280 });
+  assert.deepStrictEqual(E.canvasSize('4:5', 720), { w: 720, h: 900 });
+  assert.deepStrictEqual(E.canvasSize('16:9'), { w: 1920, h: 1080 });
+  assert.strictEqual(E.presetFor('9:16'), 'shorts');
+  assert.strictEqual(E.presetFor('3:2'), 'youtube');
+  const x = E.encoderArgs('libx264', 'high', 1080).join(' ');
+  assert.ok(x.startsWith('-c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -c:a aac -b:a 192k'), x);
+  assert.ok(E.encoderArgs('h264_nvenc', 'small', 720).join(' ').includes('-cq 27 -b:v 0 -maxrate 2500k'), 'a light file for Telegram');
+  assert.ok(E.encoderArgs('h264_videotoolbox', 'high', 1080).join(' ').includes('-b:v 12M'));
+  assert.ok(E.encoderArgs('h264_amf', 'master', 1080).join(' ').includes('-qp_i 16 -qp_p 18') && E.encoderArgs('h264_amf', 'master', 1080).includes('320k'));
+  const g = E.editGraph([{ id: 'a', m: 'v', in: 0, out: 12 }], { v: { idx: 0, w: 1920, h: 1080, video: true, audio: true } }, '9:16', 30, [], { ass: ['t.ass', 'c.ass'], res: 720 }).graph;
+  assert.ok(g.includes('s=720x1280') && g.endsWith('[vx]subtitles=t.ass:fontsdir=fonts,subtitles=c.ass:fontsdir=fonts,format=yuv420p[v]'), 'text, then captions on top, one pass');
+  assert.strictEqual(E.eta(0.01, 5), null, 'no guess at the very start');
+  assert.strictEqual(E.eta(0.25, 30), 90);
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');

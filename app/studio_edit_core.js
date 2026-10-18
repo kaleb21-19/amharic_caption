@@ -231,7 +231,41 @@
 
   // ── the export: the whole edit as one ffmpeg graph ───────────────────────
   const FORMATS = { '16:9': [1920, 1080], '9:16': [1080, 1920], '1:1': [1080, 1080], '4:5': [1080, 1350] };
-  const canvasSize = (fmt) => { const s = FORMATS[fmt] || FORMATS['16:9']; return { w: s[0], h: s[1] }; };
+  // res: the short side (1080 or 720); the canvas keeps its shape
+  const even = (x) => Math.max(2, Math.round(x / 2) * 2);
+  const canvasSize = (fmt, res) => { const s = FORMATS[fmt] || FORMATS['16:9']; const k = (Number(res) || 1080) / 1080; return { w: even(s[0] * k), h: even(s[1] * k) }; };
+
+  // ── export choices (1.25.0): where it goes, how big, which encoder ───────
+  // fmt null = the edit's own format
+  const PRESETS = {
+    youtube: { fmt: '16:9', res: 1080, q: 'high' },
+    shorts: { fmt: '9:16', res: 1080, q: 'high' },
+    insta: { fmt: '4:5', res: 1080, q: 'high' },
+    square: { fmt: '1:1', res: 1080, q: 'high' },
+    telegram: { fmt: null, res: 720, q: 'small' },
+    master: { fmt: null, res: 1080, q: 'master' },
+  };
+  const presetFor = (fmt) => ({ '16:9': 'youtube', '9:16': 'shorts', '4:5': 'insta', '1:1': 'square' }[fmt] || 'youtube');
+  // the graphics card's encoder when there is one (found by a tiny test
+  // encode), else x264; q: high | small (a light file to send) | master
+  const GPU_ENCODERS = { win32: ['h264_nvenc', 'h264_qsv', 'h264_amf'], darwin: ['h264_videotoolbox'], linux: ['h264_nvenc'] };
+  function encoderArgs(enc, q, h) {
+    const Q = { high: 0, small: 1, master: 2 }[q] || 0;
+    const pick = (a) => a[Q];
+    let v;
+    if (enc === 'h264_nvenc') v = ['-c:v', 'h264_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', String(pick([20, 27, 16])), '-b:v', '0'];
+    else if (enc === 'h264_qsv') v = ['-c:v', 'h264_qsv', '-preset', 'medium', '-global_quality', String(pick([20, 27, 16]))];
+    else if (enc === 'h264_amf') { const k = pick([20, 27, 16]); v = ['-c:v', 'h264_amf', '-quality', 'quality', '-rc', 'cqp', '-qp_i', String(k), '-qp_p', String(k + 2)]; }
+    else if (enc === 'h264_videotoolbox') v = ['-c:v', 'h264_videotoolbox', '-b:v', pick([h >= 1000 ? '12M' : '6M', '2500k', h >= 1000 ? '25M' : '12M'])];
+    else v = ['-c:v', 'libx264', '-preset', pick(['medium', 'medium', 'slow']), '-crf', String(pick([18, 24, 14]))];
+    if (Q === 1 && enc !== 'h264_videotoolbox') v = v.concat(['-maxrate', '2500k', '-bufsize', '5000k']);
+    return v.concat(['-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', pick(['192k', '128k', '320k'])]);
+  }
+  // seconds left, from how far it is and how long it took so far (none at first)
+  function eta(progress, elapsed) {
+    if (!(progress > 0.03) || !(elapsed > 2)) return null;
+    return Math.max(0, Math.round(elapsed * (1 - progress) / progress));
+  }
   // fill the canvas (cover) — or, for a photo / logo, show it whole
   // (contain) — then the clip's own size and position
   function placement(media, clip, W, H) {
@@ -411,7 +445,7 @@
   function editGraph(clips, media, fmt, fps, ovl, opts) {
     opts = opts || {};
     fps = fps || 30;
-    const { w: W, h: H } = canvasSize(fmt);
+    const { w: W, h: H } = canvasSize(fmt, opts.res);
     const L = layout(clips);
     const parts = [], ins = [];
     const D = L.map((c, i) => trDur(clips, i));            // D[i]: the transition into clip i
@@ -499,13 +533,15 @@
       else parts.push('[am]anull[' + aOut + ']');
     }
     if (soundOn) soundChain(parts, aOut, total(clips), media, opts.mus, opts.snd);
-    if (opts.ass) parts.push('[vx]subtitles=' + opts.ass + ':fontsdir=fonts,format=yuv420p[v]');
+    // opts.ass: one script or several (the text track, then the captions on top)
+    if (opts.ass) parts.push('[vx]' + [].concat(opts.ass).map((a) => 'subtitles=' + a + ':fontsdir=fonts').join(',') + ',format=yuv420p[v]');
     return { graph: parts.join(';'), w: W, h: H, duration: total(clips) };
   }
 
   const api = { MIN, layout, total, locate, sourceToEdit, splitAt, removeClip, trimClip, moveClip, dropIndex, cutRange,
     words, deriveCaptions, syncBack, FORMATS, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
     TFONTS, TPRESETS, assColor, textAnchor, textAss, LOUD, MUS_DEFAULT, musicGain,
+    PRESETS, presetFor, GPU_ENCODERS, encoderArgs, eta,
     speedOf: sp, clipLen, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhEdit = api;

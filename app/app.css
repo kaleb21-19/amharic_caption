@@ -387,3 +387,19 @@ html.amh-editor .ed-cwrap { height: 222px; }
 .ed-look { display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 4px; border-radius: 6px; border: 1px solid #2a3631; background: #151c19; color: inherit; font-size: 11px; cursor: pointer; }
 .ed-look.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .ed-lsw { display: block; height: 22px; border-radius: 4px; }
+
+/* 1.25.0 exports: presets, graphics card, queue */
+.st-presets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin: 10px 0 4px; }
+.st-pchip { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; background: none; color: var(--text-primary); font-size: var(--font-s); cursor: pointer; text-align: left; }
+.st-pchip span { color: var(--text-secondary); font-size: 11px; }
+.st-pchip.on { border-color: var(--accent); background: rgba(46, 204, 113, .12); box-shadow: 0 0 0 1px var(--accent); }
+.st-pnote:empty { display: none; }
+.st-pnote { margin: 4px 0; }
+.st-gpu { margin: 6px 0; }
+.st-check { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+.st-queue { margin-top: 8px; }
+.st-qrow { border-top: 1px solid var(--border); padding: 8px 0 4px; }
+.st-qtop { display: flex; align-items: center; gap: 8px; }
+.st-err { color: #ff8a80; }
+.st-export.busy { background: #1f7a4c; }
+@media (max-width: 720px) { .st-presets { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

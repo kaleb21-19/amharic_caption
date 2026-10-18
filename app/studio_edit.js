@@ -1406,61 +1406,175 @@
     clipPane.appendChild(el('div', 'st-note', tx('በምስሉ ላይ ጎትተው ቦታውን ይቀይሩ።', 'Drag it on the picture to place it.')));
   }
 
-  // ── export: the whole edit, then the captions drawn in ─────────────────
-  function render(out, onProgress, fast) {
+  // ── export (1.25.0): jobs, the graphics card, the queue ────────────────
+  // A job is a snapshot of the edit + where it goes; the captions (when a
+  // style is chosen) are drawn in the SAME render as the edit (one encode).
+  const snapshot = () => JSON.parse(JSON.stringify({ clips, ovl, txt, mus, snd, media, fmt }));
+  let GPU = null;                                  // promise -> encoder name or null
+  function detectGpu() {
+    if (GPU) return GPU;
+    const list = E.GPU_ENCODERS[process.platform] || [];
+    GPU = list.reduce((pr, enc) => pr.then((found) => found || new Promise((res) => {
+      execFile(FFMPEG, ['-hide_banner', '-v', 'error', '-f', 'lavfi', '-i', 'color=c=black:s=640x360:r=30:d=0.3', '-c:v', enc, '-f', 'null', '-'],
+        { timeout: 20000 }, (err) => res(err ? null : enc));
+    })), Promise.resolve(null));
+    return GPU;
+  }
+  // file names stay short and in Latin letters (they travel to phones, Telegram, YouTube)
+  const FILE_TAGS = { youtube: 'YouTube', shorts: 'TikTok Reels Shorts', insta: 'Instagram 4x5', square: 'Square', telegram: 'Telegram 720p', master: 'Master' };
+  const GPU_NAMES = { h264_nvenc: 'NVIDIA', h264_qsv: 'Intel', h264_amf: 'AMD', h264_videotoolbox: 'Apple' };
+  function runFfmpeg(args, cwd, dur, onProgress, ctl) {
     return new Promise((resolve, reject) => {
-      const used = [];
-      clips.concat(ovl, mus).forEach((c) => { if (media[c.m] && used.indexOf(c.m) < 0) used.push(c.m); });
-      const info = {};
-      used.forEach((id, i) => { info[id] = Object.assign({ idx: i }, media[id]); });
-      // the text track: a libass script + the fonts in a temp folder ffmpeg runs in
-      const shown = txt.filter((t) => t.start < total() && String(t.text || '').trim());
-      let cwd = null;
-      if (shown.length) {
-        cwd = path.join(os.tmpdir(), 'amh_text_' + Date.now());
-        fs.mkdirSync(path.join(cwd, 'fonts'), { recursive: true });
-        const { w: W, h: H } = E.canvasSize(fmt);
-        fs.writeFileSync(path.join(cwd, 't.ass'), E.textAss(shown, W, H, total()), { encoding: 'utf8' });
-        try { fs.readdirSync(fontsDir()).filter((f) => /\.(ttf|otf)$/i.test(f)).forEach((f) => fs.copyFileSync(path.join(fontsDir(), f), path.join(cwd, 'fonts', f))); } catch (e) {}
-      }
-      const g = E.editGraph(clips, info, fmt, 30, ovl, Object.assign(cwd ? { ass: 't.ass' } : {}, { mus, snd }));
-      const args = ['-v', 'error', '-y'];
-      used.forEach((id) => { if (media[id].image) args.push('-loop', '1', '-framerate', '30'); args.push('-i', media[id].path); });
-      if (g.graph.length > 6000) {
-        const f = path.join(os.tmpdir(), 'amh_edit_' + Date.now() + '.txt');
-        fs.writeFileSync(f, g.graph, { encoding: 'utf8' });
-        args.push('-/filter_complex', f);
-      } else args.push('-filter_complex', g.graph);
-      args.push('-map', '[v]', '-map', '[a]', '-t', String(g.duration), '-c:v', 'libx264', '-preset', fast ? 'veryfast' : 'medium', '-crf', fast ? '16' : '18',
-        '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', '-progress', 'pipe:1', '-nostats', out);
       const p = spawn(FFMPEG, args, cwd ? { cwd } : undefined);
+      ctl.kill = () => { ctl.stopped = true; try { p.kill(); } catch (e) {} };
       let err = '';
       p.stdout.on('data', (d) => {
         const m = String(d).match(/out_time_(?:us|ms)=(\d+)/g);
-        if (m && onProgress) onProgress(Math.min(1, Number(m[m.length - 1].split('=')[1]) / 1e6 / Math.max(0.1, g.duration)));
+        if (m && onProgress) onProgress(Math.min(0.999, Number(m[m.length - 1].split('=')[1]) / 1e6 / Math.max(0.1, dur)));
       });
       p.stderr.on('data', (d) => { err = (err + d).slice(-2000); });
       p.on('close', (code) => {
-        if (code === 0 && fs.existsSync(out)) { if (onProgress) onProgress(1); resolve(out); }
+        ctl.kill = null;
+        if (ctl.stopped) reject(new Error('stopped'));
+        else if (code === 0) resolve();
         else reject(new Error(err.trim().split('\n').pop() || ('ffmpeg ' + code)));
       });
     });
   }
+  // job: { state, fmt, res, q, enc, caps: styled-caption args or null }
+  async function renderJob(job, out, onProgress, ctl) {
+    ctl = ctl || {};
+    const st = job.state;
+    const f = job.fmt || st.fmt;
+    const tot = E.total(st.clips);
+    const used = [];
+    st.clips.concat(st.ovl || [], st.mus || []).forEach((c) => { if (st.media[c.m] && used.indexOf(c.m) < 0) used.push(c.m); });
+    const info = {};
+    used.forEach((id, i) => { info[id] = Object.assign({ idx: i }, st.media[id]); });
+    const { w: W, h: H } = E.canvasSize(f, job.res);
+    const shown = (st.txt || []).filter((t) => t.start < tot && String(t.text || '').trim());
+    let cwd = null;
+    const made = [];
+    const ass = [];
+    const folder = () => {
+      if (cwd) return;
+      cwd = path.join(os.tmpdir(), 'amh_exp_' + Date.now() + '_' + (++nid));
+      fs.mkdirSync(path.join(cwd, 'fonts'), { recursive: true });
+      try { fs.readdirSync(fontsDir()).filter((x) => /\.(ttf|otf)$/i.test(x)).forEach((x) => { fs.copyFileSync(path.join(fontsDir(), x), path.join(cwd, 'fonts', x)); made.push(path.join(cwd, 'fonts', x)); }); } catch (e) {}
+    };
+    try {
+      if (shown.length) {
+        folder();
+        fs.writeFileSync(path.join(cwd, 't.ass'), E.textAss(shown, W, H, tot), { encoding: 'utf8' });
+        made.push(path.join(cwd, 't.ass')); ass.push('t.ass');
+      }
+      if (job.caps && typeof renderStyled === 'function') {
+        folder();
+        await renderStyled(Object.assign({}, job.caps, { mode: 'script', width: W, height: H, fps: 30, duration: tot, out: path.join(cwd, 'c.ass') }));
+        made.push(path.join(cwd, 'c.ass')); ass.push('c.ass');
+      }
+      const g = E.editGraph(st.clips, info, f, 30, st.ovl || [], { ass: ass.length ? ass : null, res: job.res, mus: st.mus, snd: st.snd });
+      let gfile = null;
+      const args = (enc) => {
+        const a = ['-v', 'error', '-y'];
+        used.forEach((id) => { if (st.media[id].image) a.push('-loop', '1', '-framerate', '30'); a.push('-i', st.media[id].path); });
+        if (g.graph.length > 6000) {
+          if (!gfile) { gfile = path.join(os.tmpdir(), 'amh_edit_' + Date.now() + '_' + nid + '.txt'); fs.writeFileSync(gfile, g.graph, { encoding: 'utf8' }); made.push(gfile); }
+          a.push('-/filter_complex', gfile);
+        } else a.push('-filter_complex', g.graph);
+        return a.concat(['-map', '[v]', '-map', '[a]', '-t', String(g.duration)], E.encoderArgs(enc, job.q, H), ['-movflags', '+faststart', '-progress', 'pipe:1', '-nostats', out]);
+      };
+      const enc = job.enc || 'libx264';
+      try { await runFfmpeg(args(enc), cwd, g.duration, onProgress, ctl); }
+      catch (e) {
+        // the graphics card refused (driver, size, busy): the processor does it
+        if (ctl.stopped || enc === 'libx264') throw e;
+        job.enc = 'libx264'; if (ctl.onEncoder) ctl.onEncoder('libx264');
+        await runFfmpeg(args('libx264'), cwd, g.duration, onProgress, ctl);
+      }
+      if (!fs.existsSync(out)) throw new Error('no file');
+      if (onProgress) onProgress(1);
+      return out;
+    } finally {
+      made.forEach((x) => { try { fs.unlinkSync(x); } catch (e) {} });
+    }
+  }
+  // the old one-file calls (tests, the narrow window)
+  function render(out, onProgress) { return renderJob({ state: snapshot(), res: 1080, q: 'high', enc: 'libx264' }, out, onProgress); }
   async function exportVideo(onProgress, styled) {
     const X = window.__amhAppExport;
     const c = window.__amhAppChosen && window.__amhAppChosen();
-    const dir = c ? path.dirname(c.path) : os.tmpdir();
-    if (!styled) {
-      const out = X.uniquePath(dir, X.baseName() + ' (' + fmt.replace(':', 'x') + ')', '.mp4');
-      await render(out, onProgress, false);
-      return { file: out };
-    }
-    const tmp = path.join(os.tmpdir(), 'amh_edit_' + Date.now() + '.mp4');
-    try {
-      await render(tmp, (x) => onProgress(x * 0.5), true);
-      return await X.video((x) => onProgress(0.5 + x * 0.5), dir, { cues: reviewCues, video: tmp, suffix: ' (' + fmt.replace(':', 'x') + ')' });
-    } finally { try { fs.unlinkSync(tmp); } catch (e) {} }
+    const out = X.uniquePath(c ? path.dirname(c.path) : os.tmpdir(), X.baseName() + ' (' + fmt.replace(':', 'x') + ')', '.mp4');
+    await renderJob({ state: snapshot(), res: 1080, q: 'high', enc: 'libx264', caps: styled ? capsNow() : null }, out, onProgress);
+    return { file: out };
   }
+  function capsNow() {
+    if (typeof STYLE === 'undefined' || STYLE === 'plain' || !STYLE_OK) return null;
+    const cues = ((typeof reviewCues !== 'undefined' && reviewCues) || []).filter((q) => String(q.text || '').trim());
+    if (!cues.length) return null;
+    return { cues: styleCues(cues), style: STYLE, opts: styleOpts(STYLE), tag: !LICENSED, ffmpeg: FFMPEG, fonts: fontsDir() };
+  }
+  // the queue: one export at a time, editing goes on meanwhile
+  const QUEUE = [];
+  const qWatch = [];
+  let qTimer = 0;
+  const qChanged = () => { qTimer = 0; qWatch.forEach((f) => { try { f(QUEUE); } catch (e) {} }); };
+  const qSoon = () => { if (!qTimer) qTimer = setTimeout(qChanged, 250); };
+  const taken = {};
+  function freePath(dir, base) {
+    const X = window.__amhAppExport;
+    let p2 = X.uniquePath(dir, base, '.mp4');
+    for (let n = 2; taken[p2]; n++) p2 = X.uniquePath(dir, base + ' (' + n + ')', '.mp4');
+    taken[p2] = 1;
+    return p2;
+  }
+  // ids: preset ids; styled: draw the captions; useGpu: the graphics card if found
+  async function queueExports(ids, styled, useGpu, names) {
+    const X = window.__amhAppExport;
+    const c = window.__amhAppChosen && window.__amhAppChosen();
+    const dir = c ? path.dirname(c.path) : os.tmpdir();
+    const enc = useGpu ? ((await detectGpu()) || 'libx264') : 'libx264';
+    const state = snapshot();
+    const caps = styled ? capsNow() : null;
+    (ids || []).forEach((id) => {
+      const P = E.PRESETS[id];
+      if (!P) return;
+      const label = (names && names[id]) || id;
+      QUEUE.push({ id: newId(), label, preset: id, out: freePath(dir, X.baseName() + ' (' + FILE_TAGS[id] + ')'),
+        status: 'wait', p: 0, eta: null, enc, job: { state, fmt: P.fmt || state.fmt, res: P.res, q: P.q, enc, caps } });
+    });
+    qChanged();
+    runQueue();
+  }
+  let qRunning = false;
+  async function runQueue() {
+    if (qRunning) return;
+    qRunning = true;
+    for (;;) {
+      const it = QUEUE.find((x) => x.status === 'wait');
+      if (!it) break;
+      it.status = 'run'; it.t0 = Date.now(); it.ctl = { onEncoder: (e) => { it.enc = e; qSoon(); } };
+      qChanged();
+      try {
+        await renderJob(it.job, it.out, (x) => { it.p = x; it.eta = E.eta(x, (Date.now() - it.t0) / 1000); qSoon(); }, it.ctl);
+        it.status = 'done'; it.p = 1; it.secs = Math.round((Date.now() - it.t0) / 1000);
+      } catch (e) {
+        it.status = it.ctl.stopped ? 'stop' : 'fail';
+        it.err = e && e.message ? e.message : String(e);
+        try { fs.unlinkSync(it.out); } catch (x) {}
+      }
+      delete taken[it.out];
+      qChanged();
+    }
+    qRunning = false;
+  }
+  function stopExport(id) {
+    const it = QUEUE.find((x) => x.id === id);
+    if (!it) return;
+    if (it.status === 'wait') { it.status = 'stop'; delete taken[it.out]; qChanged(); }
+    else if (it.status === 'run' && it.ctl && it.ctl.kill) it.ctl.kill();
+  }
+  function clearDone() { for (let k = QUEUE.length - 1; k >= 0; k--) if (/done|fail|stop/.test(QUEUE[k].status)) QUEUE.splice(k, 1); qChanged(); }
 
   // ── labels ─────────────────────────────────────────────────────────────
   function relabel() {
@@ -1545,7 +1659,9 @@
 
   relabel();
   loadFonts();
-  ST.attachEditor({ draw, drawSoon, seek, duration: total, peaks: editPeaks, open, shown, saveState, loadState, exportVideo, format: () => fmt });
-  window.__amhEditor = { state: () => ({ clips, ovl, txt, mus, snd, media, SRC, fmt, sel, built }), addOverlay, addText, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, redo,
+  ST.attachEditor({ draw, drawSoon, seek, duration: total, peaks: editPeaks, open, shown, saveState, loadState, exportVideo, format: () => fmt,
+    queueExports, stopExport, clearDone, detectGpu, gpuName: (e) => GPU_NAMES[e] || '', queue: () => QUEUE, onQueue: (f) => qWatch.push(f),
+    setFormat: (f) => { if (f !== fmt) change('format', () => { fmt = f; }); } });
+  window.__amhEditor = { renderJob, snapshot, state: () => ({ clips, ovl, txt, mus, snd, media, SRC, fmt, sel, built }), addOverlay, addText, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, redo,
     select: (id) => { sel = id; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, render, exportVideo, frame, setFormat: (f) => change('format', () => { fmt = f; }) };
 })();

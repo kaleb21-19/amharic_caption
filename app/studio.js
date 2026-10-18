@@ -180,18 +180,8 @@
     const v = card('🎬', tx('ቪዲዮ (MP4)', 'Video (MP4)'),
       (styled ? tx('ካፕሽኑ በ ' + (STYLE_NAMES[STYLE] || STYLE) + ' ስታይል ተጽፎበት', 'With the captions in the ' + (STYLE_NAMES[STYLE] || STYLE) + ' style')
         : tx('ያለ ካፕሽን — ካፕሽን ለመጻፍ ስታይል ይምረጡ', 'Without captions — choose a style to draw them in')) + ' · ' + fmtName);
-    const go = btn('st-btn primary', tx('ቪዲዮ ይስሩ', 'Make video'), '', async () => {
-      if (!editor) return;
-      go.disabled = true;
-      v.out.innerHTML = '<div class="st-busy-bar"><i></i></div><div class="st-sub"></div>';
-      const bar = v.out.querySelector('i'), lbl = v.out.querySelector('.st-sub');
-      const show = (x) => { bar.style.width = Math.round(x * 100) + '%'; lbl.textContent = tx('እየሰራ ነው… ', 'Making… ') + Math.round(x * 100) + '%'; };
-      try { done(v.out, (await editor.exportVideo(show, styled)).file, []); }
-      catch (e) { v.out.textContent = tx('ቪዲዮው አልተሰራም፦ ', 'The video could not be made: ') + (e && e.message ? e.message : e); }
-      go.disabled = false;
-    });
-    v.h.appendChild(go);
     if (!styled) v.c.appendChild(btn('st-link', '🎨 ' + tx('ስታይል ይምረጡ', 'Choose a style'), '', () => { closeSheet(); showTab('style'); }));
+    if (editor && editor.queueExports) videoChoices(v, styled, fmtName);
     // 3. more subtitle files (SRT + VTT + TXT, a folder you choose)
     const m = card('📄', tx('ሌሎች ፋይሎች (SRT · VTT · TXT)', 'More files (SRT · VTT · TXT)'), tx('እርስዎ በሚመርጡት ፎልደር', 'To a folder you choose'));
     m.h.appendChild(btn('st-btn', tx('ይምረጡ…', 'Choose…'), '', () => { if (typeof exportReviewFiles === 'function') exportReviewFiles(); }));
@@ -199,6 +189,103 @@
     sheet.style.display = '';
   }
   sheet.addEventListener('click', (e) => { if (e.target === sheet) closeSheet(); });
+
+  // ── 🎬 video exports (1.25.0): where it goes (several at once), the
+  // graphics card, the queue — editing goes on while it works ──────────────
+  const PRESETS = () => [['youtube', 'YouTube', '16:9'], ['shorts', 'TikTok · Reels · Shorts', '9:16'], ['insta', 'Instagram', '4:5'],
+    ['square', tx('ካሬ', 'Square'), '1:1'], ['telegram', tx('ቴሌግራም — ቀላል ፋይል', 'Telegram — light file'), '720p'], ['master', tx('ማስተር — ምርጥ ጥራት', 'Master — best quality'), '']];
+  const PFMT = { youtube: '16:9', shorts: '9:16', insta: '4:5', square: '1:1' };
+  let picked = null;
+  let useGpu = true;
+  try { useGpu = localStorage.getItem('amh_gpu') !== '0'; } catch (e) {}
+  let qList = null;
+  const mins = (sec) => (sec < 60 ? Math.max(1, Math.round(sec)) + ' ' + tx('ሰከንድ', 's') : Math.round(sec / 60) + ' ' + tx('ደቂቃ', 'min'));
+  function videoChoices(v, styled, fmtName) {
+    const want = { '16:9': 'youtube', '9:16': 'shorts', '4:5': 'insta', '1:1': 'square' }[fmtName] || 'youtube';
+    if (!picked) picked = [want];
+    const chips = el('div', 'st-presets');
+    const note = el('div', 'st-sub st-pnote');
+    const gpuRow = el('div', 'st-sub st-gpu');
+    const make = btn('st-btn primary', '', '', async () => {
+      if (!picked.length) return;
+      make.disabled = true;
+      const names = {};
+      PRESETS().forEach(([id, name]) => { names[id] = name; });
+      try { await editor.queueExports(picked.slice(), styled, useGpu, names); } finally { make.disabled = false; }
+    });
+    const paint = () => {
+      chips.textContent = '';
+      PRESETS().forEach(([id, name, sub]) => {
+        const b = btn('st-pchip' + (picked.indexOf(id) >= 0 ? ' on' : ''), '', '', () => {
+          picked = picked.indexOf(id) >= 0 ? picked.filter((x) => x !== id) : picked.concat([id]);
+          paint();
+        });
+        b.appendChild(el('b', '', name));
+        if (sub) b.appendChild(el('span', '', sub));
+        chips.appendChild(b);
+      });
+      const other = picked.map((id) => PFMT[id]).filter((f) => f && f !== fmtName);
+      note.textContent = '';
+      if (other.length) {
+        note.appendChild(el('span', '', '↻ ' + tx(other.join(' · ') + ' ከ ' + fmtName + ' ኤዲትዎ በራሱ ይሰራል (ምስሉ ፍሬሙን ይሞላል)። ',
+          other.join(' · ') + ' is made from your ' + fmtName + ' edit automatically (the picture fills the frame). ')));
+        note.appendChild(btn('st-link', tx(other[0] + ' በማጫወቻው ይዩ', 'See ' + other[0] + ' in the player'), '', () => { editor.setFormat(other[0]); closeSheet(); }));
+      }
+      make.textContent = picked.length > 1 ? tx(picked.length + ' ቪዲዮዎች ይስሩ', 'Make ' + picked.length + ' videos') : tx('ቪዲዮ ይስሩ', 'Make video');
+      make.disabled = !picked.length;
+    };
+    paint();
+    v.h.appendChild(make);
+    v.c.appendChild(chips);
+    v.c.appendChild(note);
+    v.c.appendChild(gpuRow);
+    gpuRow.textContent = tx('የግራፊክስ ካርድ እየተፈለገ ነው…', 'Looking for a graphics card…');
+    editor.detectGpu().then((enc) => {
+      gpuRow.textContent = '';
+      if (!enc) { gpuRow.textContent = tx('በፕሮሰሰሩ ይሰራል (የቪዲዮ ግራፊክስ ካርድ አልተገኘም)።', 'Made by the processor (no graphics card encoder found).'); return; }
+      const lab = el('label', 'st-check');
+      const cb = el('input'); cb.type = 'checkbox'; cb.checked = useGpu;
+      cb.addEventListener('change', () => { useGpu = cb.checked; try { localStorage.setItem('amh_gpu', useGpu ? '1' : '0'); } catch (e) {} });
+      lab.appendChild(cb);
+      lab.appendChild(el('span', '', '⚡ ' + tx('የግራፊክስ ካርዱን ይጠቀሙ (' + editor.gpuName(enc) + ') — በጣም ፈጣን', 'Use the graphics card (' + editor.gpuName(enc) + ') — much faster')));
+      gpuRow.appendChild(lab);
+    });
+    qList = el('div', 'st-queue');
+    v.c.appendChild(qList);
+    paintQueue(editor.queue());
+  }
+  function paintQueue(Q) {
+    if (!qList || !qList.isConnected) return;
+    qList.textContent = '';
+    (Q || []).forEach((it) => {
+      const row = el('div', 'st-qrow st-q-' + it.status);
+      const top = el('div', 'st-qtop');
+      top.appendChild(el('b', '', it.label));
+      top.appendChild(el('span', 'st-flex'));
+      if (it.status === 'run' || it.status === 'wait') top.appendChild(btn('st-ico', '✕', tx('አቁም', 'Stop'), () => editor.stopExport(it.id)));
+      if (it.status === 'done') top.appendChild(btn('st-btn', '📂 ' + tx('ፎልደሩን ክፈት', 'Show in folder'), '', () => { try { APP.call('reveal', [it.out]); } catch (e) {} }));
+      row.appendChild(top);
+      if (it.status === 'run') {
+        const bar = el('div', 'st-busy-bar'); const i = el('i'); i.style.width = Math.round(it.p * 100) + '%'; bar.appendChild(i);
+        row.appendChild(bar);
+        row.appendChild(el('div', 'st-sub', Math.round(it.p * 100) + '%' + (it.eta != null ? ' · ' + tx('የቀረው ' + mins(it.eta) + ' ገደማ', 'about ' + mins(it.eta) + ' left') : '') +
+          ' · ' + (it.enc && it.enc !== 'libx264' ? '⚡ ' + editor.gpuName(it.enc) : tx('ፕሮሰሰር', 'processor'))));
+      } else if (it.status === 'wait') row.appendChild(el('div', 'st-sub', tx('በተራ ይጠብቃል…', 'Waiting its turn…')));
+      else if (it.status === 'done') row.appendChild(el('div', 'st-ok', '✓ ' + APP.path.basename(it.out) + ' · ' + mins(it.secs || 0)));
+      else if (it.status === 'stop') row.appendChild(el('div', 'st-sub', tx('ቆሟል', 'Stopped')));
+      else row.appendChild(el('div', 'st-sub st-err', tx('አልተሰራም፦ ', 'Not made: ') + (it.err || '')));
+      qList.appendChild(row);
+    });
+    if ((Q || []).some((x) => /done|fail|stop/.test(x.status))) qList.appendChild(btn('st-link', tx('የተጠናቀቁትን አጽዳ', 'Clear finished'), '', () => editor.clearDone()));
+  }
+  // the top bar shows the export while it works (the sheet may be closed)
+  function onQueue(Q) {
+    const run = Q.find((x) => x.status === 'run');
+    const left = Q.filter((x) => x.status === 'wait').length;
+    exportB.textContent = run ? '⬆ ' + Math.round(run.p * 100) + '%' + (left ? ' (+' + left + ')' : '') : '⬆ ' + tx('ይላኩ', 'Export');
+    exportB.classList.toggle('busy', !!run);
+    paintQueue(Q);
+  }
 
   // license: the chip opens the panel's own license section (buy / key)
   function openLicense() {
@@ -424,5 +511,5 @@
   }
   window.__amhStudio = { draw, drawSoon, saveProject, saveSoon, listProjects, openProject, renderRecent, openExport, closeSheet, showTab, regroup, goHome,
     addTab: (id, label, pane) => { addTab(id, label, pane); relabel(); showTab(tabNow); }, overlays, seek, dur, peaks,
-    attachEditor: (e) => { editor = e; }, relabel, savedEl, projDir, chosenVideo, tx };
+    attachEditor: (e) => { editor = e; if (e.onQueue) e.onQueue(onQueue); }, relabel, savedEl, projDir, chosenVideo, tx };
 })();
