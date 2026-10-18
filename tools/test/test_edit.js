@@ -182,4 +182,57 @@ test('sound: music with fades, ducked under the voice by a sidechain, clean voic
   assert.strictEqual(E.musicGain(mus[0], 1, 12, sp), 0, 'before it starts');
 });
 
+test('speed: a clip lasts (out-in)/speed, captions keep their words, every change goes back to the file', () => {
+  const S = { v: [{ start: 2, end: 4, text: 'ሰላም ለሁሉም', wt: [[2, 3], [3, 4]] }, { start: 6, end: 8, text: 'እንኳን ደህና' }] };
+  const clips = [{ id: 'a', m: 'v', in: 0, out: 10, speed: 2 }];
+  assert.strictEqual(E.total(clips), 5);
+  assert.deepStrictEqual(E.locate(clips, 1.5).src, 3, 'edit 1.5 s = file 3 s at 2x');
+  assert.deepStrictEqual(E.sourceToEdit(clips, 'v', 6), [3]);
+  const D = E.deriveCaptions(clips, S);
+  assert.deepStrictEqual([D[0].start, D[0].end, D[0].wt], [1, 2, [[1, 1.5], [1.5, 2]]], 'times halve, word times too');
+  D[1] = Object.assign({}, D[1], { text: 'እንኳን ደህና መጡ' });
+  const back = E.syncBack(clips, S, D);
+  assert.deepStrictEqual([back.v[1].start, back.v[1].end, back.v[1].text], [6, 8, 'እንኳን ደህና መጡ'], 'a fix lands at the file time');
+  assert.deepStrictEqual(E.syncBack(clips, S, E.deriveCaptions(clips, S)), S, 'nothing changed: the same source');
+  const sp = E.splitAt(clips, 2.5, 'b');
+  assert.deepStrictEqual(sp.map((c) => [c.in, c.out, c.speed]), [[0, 5, 2], [5, 10, 2]], 'split at edit 2.5 = file 5');
+  assert.deepStrictEqual(E.atempo(4), ['atempo=2', 'atempo=2']);
+  assert.deepStrictEqual(E.atempo(0.25), ['atempo=0.5', 'atempo=0.5']);
+  assert.deepStrictEqual(E.atempo(1), []);
+  const g = E.editGraph(clips, { v: { idx: 0, w: 1920, h: 1080, video: true, audio: true, dur: 10 } }, '16:9', 30, []).graph;
+  assert.ok(g.includes('setpts=(PTS-STARTPTS)/2,fps=30') && g.includes(',atempo=2,') && g.includes(':d=5[b0]'), 'picture and voice at 2x, pitch kept');
+});
+
+test('transitions: centred on the cut, from the media past it (or the edge frame held) — the video keeps its length', () => {
+  const media = { v: { idx: 0, w: 1920, h: 1080, video: true, audio: true, dur: 30 } };
+  const clips = [{ id: 'a', m: 'v', in: 0, out: 6 }, { id: 'b', m: 'v', in: 10, out: 16, tr: { type: 'fade', d: 1 } },
+    { id: 'c', m: 'v', in: 0, out: 5, tr: { type: 'fadeblack', d: 0.8 } }, { id: 'd', m: 'v', in: 20, out: 21, tr: { type: 'wipeleft', d: 5 } }];
+  assert.deepStrictEqual(clips.map((c, i) => E.trDur(clips, i)), [0, 1, 0.8, 1], 'never longer than the clips around it');
+  const g = E.editGraph(clips, media, '16:9', 30, []).graph;
+  assert.ok(g.includes('[0:v]trim=start=0:end=6.5,'), 'A plays half the transition past its end');
+  assert.ok(g.includes('[0:v]trim=start=9.5:end=16.4,'), 'B starts half before its start');
+  assert.ok(g.includes('[0:v]trim=start=0:end=5.5,setpts=PTS-STARTPTS,fps=30,tpad=start_mode=clone:start_duration=0.4,'), 'a file start: the first frame is held');
+  assert.ok(g.includes('adelay=400:all=1'), 'and silence under it');
+  assert.ok(g.includes('[v0][v1]xfade=transition=fade:duration=1:offset=5.5[jv1]') && g.includes('[a0][a1]acrossfade=d=1:c1=tri:c2=tri[ja1]'));
+  assert.ok(g.includes('xfade=transition=fadeblack:duration=0.8:offset=11.6[jv2]'), 'offsets add up (cut at 12 s)');
+  assert.ok(g.includes('xfade=transition=wipeleft:duration=1:offset=16.5[v]'), 'the last one ends the video (cut at 17 s)');
+  const mixed = E.editGraph([clips[0], Object.assign({}, clips[1], { tr: null }), clips[2]], media, '16:9', 30, []).graph;
+  assert.ok(mixed.includes('[v0][a0][v1][a1]concat=n=2:v=1:a=1[jc1][ja1];[jc1]settb=1/30[jv1]') && mixed.includes('[jv1][v2]xfade='), 'a plain cut then a transition: same time base for xfade');
+  const plain = E.editGraph([clips[0], Object.assign({}, clips[1], { tr: null })], media, '16:9', 30, []).graph;
+  assert.ok(plain.includes('concat=n=2:v=1:a=1[v][a]') && !plain.includes('xfade'), 'no transitions: the same graph as before');
+});
+
+test('colour: one matrix for the export and the preview; looks; nothing added when neutral', () => {
+  assert.strictEqual(E.colorFilter(null), '');
+  assert.strictEqual(E.colorFilter(E.LOOKS.none), '');
+  const bw = E.colorMatrix(E.LOOKS.bw);
+  assert.ok(bw.m.slice(0, 3).every((v, i) => v === bw.m[3 + i] && v === bw.m[6 + i]), 'black and white: every channel the same');
+  const warm = E.colorMatrix({ temp: 1 });
+  assert.ok(warm.m[0] > 1 && warm.m[8] < 1 && warm.o === 0, 'warm: more red, less blue');
+  assert.strictEqual(E.colorMatrix({ contrast: 1.2 }).o, -0.1, 'contrast around the middle');
+  assert.strictEqual(E.colorMatrix({ bright: 0.4 }).o, 0.1);
+  const f = E.colorFilter({ sat: 0, bright: 0.2 });
+  assert.ok(f.startsWith(',colorchannelmixer=rr=0.213:rg=0.715:rb=0.072:') && f.includes("lutrgb=r='clip(val+13,0,255)'"), f);
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');
