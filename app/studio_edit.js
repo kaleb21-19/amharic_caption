@@ -114,7 +114,9 @@
     syncSrc();
     fn();
     derive();
-    if (sel && !clips.some((c) => c.id === sel)) sel = null;
+    // keep the selection while it still exists: a text, an overlay or music
+    // too (their own settings buttons used to unselect them - 1.29.0)
+    if (sel && !findItem(sel)) sel = null;
     after();
   }
   function after() { frame(); renderInspector(); if (typeof renderSound === 'function') renderSound(); drawSoon(); ST.saveSoon(); }
@@ -1072,6 +1074,18 @@
       const used = clips.filter((c) => c.m === id).length + ovl.filter((o) => o.m === id).length + mus.filter((o) => o.m === id).length;
       const caps = (SRC[id] || []).length;
       it.appendChild(el('div', 'ed-mmeta', (caps ? '✓ ' + tx('ካፕሽን አለው', 'captions') : tx('ካፕሽን የለውም', 'no captions')) + (used ? ' · ' + used + '× ' + tx('በጊዜ መስመሩ', 'on timeline') : '')));
+      // 💬 captions for this file too (1.29.0)
+      // (a song used only as music needs none)
+      const onlyMusic = !m.video && !clips.some((c) => c.m === id) && mus.some((o) => o.m === id);
+      if (!caps && m.audio && !m.image && !onlyMusic) {
+        const job = CAPJOBS[id];
+        if (job && job.busy) {
+          it.appendChild(el('div', 'ed-mcap busy', '⏳ ' + tx('ካፕሽን እየተሰራ ነው… ', 'Making captions… ') + S.fmtClock((Date.now() - job.t0) / 1000)));
+        } else {
+          if (job && job.err) it.appendChild(el('div', 'ed-mcap err', job.err));
+          it.appendChild(btn('st-btn primary ed-mcapbtn', '💬 ' + tx('ካፕሽን ይስሩ', 'Make captions'), tx('ይህን ፋይል ወደ ጽሑፍ ቀይር', 'Turn this file\'s speech into captions'), () => makeCaptions(id)));
+        }
+      }
       const row = el('div', 'ed-madd');
       if (!m.image) row.appendChild(btn('st-btn', '＋ ' + tx('ዋና', 'Main'), tx('በዋናው መስመር መጨረሻ', 'At the end of the main track'), () => change('add clip', () => {
         clips = clips.concat([{ id: newId(), m: id, in: 0, out: Math.round(m.dur * 1000) / 1000 }]);
@@ -1083,6 +1097,34 @@
     });
     mediaPane.appendChild(grid);
   }
+  // 💬 captions for another file of the project: the same engine as the first
+  // one; they belong to that file, so every clip of it shows them
+  const CAPJOBS = {};
+  let capTimer = 0;
+  async function makeCaptions(id) {
+    const m = media[id];
+    if (!m || (CAPJOBS[id] && CAPJOBS[id].busy) || typeof transcribeExtra !== 'function') return;
+    CAPJOBS[id] = { busy: true, t0: Date.now() };
+    renderMedia();
+    if (!capTimer) capTimer = setInterval(() => { if (Object.keys(CAPJOBS).some((k) => CAPJOBS[k].busy)) { if (review.classList.contains('ed-mediamode')) renderMedia(); } else { clearInterval(capTimer); capTimer = 0; } }, 1000);
+    try {
+      const cues = await transcribeExtra(m.path);
+      if (!media[id]) return;                     // the project was closed meanwhile
+      const clean = cues.filter((c) => String(c.text || '').trim()).map((c) => {
+        const o = { start: Number(c.start), end: Number(c.end), text: String(c.text) };
+        if (Array.isArray(c.wt)) o.wt = c.wt;
+        return o;
+      });
+      CAPJOBS[id] = { busy: false };
+      if (!clean.length) { CAPJOBS[id].err = tx('በዚህ ፋይል ንግግር አልተገኘም።', 'No speech was found in this file.'); renderMedia(); return; }
+      change('captions', () => { SRC[id] = clean; });
+      log(tx('✓ ካፕሽን ተሰራ፦ ', '✓ Captions made: ') + m.name + ' (' + clean.length + ')');
+    } catch (e) {
+      CAPJOBS[id] = { busy: false, err: (e && e.message) ? e.message : String(e) };
+    }
+    renderMedia();
+  }
+
   // a video dropped while editing joins the project (never replaces it)
   const origDropped = window.__amhDropped;
   window.__amhDropped = (paths) => {

@@ -7501,6 +7501,44 @@ async function runFile(filePath, fileName) {
   }
 }
 
+// ── Captions for another video of a Studio project (1.29.0) ────────────────
+// The same engine and the same rules as a normal run (runtime, model,
+// license or free minutes, refund when it fails), but the open review, its
+// captions and its file are left exactly as they are. -> the captions.
+async function transcribeExtra(filePath) {
+  if (runInProgress || runStartInProgress) throw new Error(L('Captions are already being made — wait for them to finish.'));
+  if (!RUNTIME || !PYTHON || !FFMPEG || !fs.existsSync(PYTHON) || !fs.existsSync(FFMPEG)) {
+    throw new Error(L('The transcription runtime is missing — reinstall the app.'));
+  }
+  if (!modelReadyForRun(null)) throw new Error(L('The Amharic model is downloading — try again when it is ready.'));
+  runStartInProgress = true;
+  try { await refreshTrialFromServer(); } finally { runStartInProgress = false; }
+  if (!assertCanRun(null)) throw new Error(L('No free minutes left — a license makes captions for every video.'));
+  const keep = { cues: lastCues, srt: lastSrtPath, charged: reviewTrialCharged };
+  const outSrt = path.join(os.tmpdir(), 'amh_extra_' + Date.now() + '.srt');
+  cancelRequested = false;
+  runFailed = false;
+  activeRunId = newRunId();
+  runInProgress = true;
+  track('run_click');
+  try {
+    const r = await transcribe(filePath, outSrt);
+    return (r.cues || []).map((c) => Object.assign({}, c));
+  } catch (e) {
+    runFailed = true;
+    throw e;
+  } finally {
+    if (TRIAL_CHARGED_RUN && (cancelRequested || runFailed)) refundTrialRun();
+    else TRIAL_CHARGED_RUN = null;
+    lastCues = keep.cues;
+    lastSrtPath = keep.srt;
+    reviewTrialCharged = keep.charged;
+    runInProgress = false;
+    try { fs.unlinkSync(outSrt); } catch (e) {}
+    updateLicenseUI();
+  }
+}
+
 // ------------------------------------------------------------------ wiring
 // ── One-time model download (lite packages) ────────────────────────────────
 // Runs runtime/amh_model.py download, which resumes a partial file, verifies
