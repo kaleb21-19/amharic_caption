@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.24.0';
+const APP_VERSION = '1.25.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,18 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.25.0': {
+    banner: {
+      am: '⬆ Studio፦ ለYouTube፣ TikTok፣ Instagram፣ ቴሌግራም በአንድ ጊዜ ይላኩ — በግራፊክስ ካርድ በጣም ፈጣን — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '⬆ Studio: export for YouTube, TikTok, Instagram and Telegram at once — much faster with the graphics card — your license stays the same.',
+    },
+    items: [
+      { am: 'ለብዙ መድረኮች በአንድ ጊዜ፦ YouTube · TikTok/Reels/Shorts · Instagram · ካሬ · ቴሌግራም (ቀላል ፋይል) · ማስተር', en: 'Several platforms at once: YouTube · TikTok/Reels/Shorts · Instagram · Square · Telegram (light file) · Master' },
+      { am: '⚡ የግራፊክስ ካርድ (NVIDIA፣ Intel፣ AMD፣ Apple) ካለ በራሱ ይጠቀማል', en: '⚡ Uses your graphics card (NVIDIA, Intel, AMD, Apple) when there is one' },
+      { am: 'ካፕሽኑ ከቪዲዮው ጋር በአንድ ዙር ይጻፋል — ፈጣንና ጥራቱ አይቀንስም', en: 'Captions are drawn in the same pass as the video — faster, no quality lost' },
+      { am: 'ተራ፦ ቪዲዮው ሲሰራ ማረምዎን ይቀጥሉ፤ የቀረው ጊዜ ይታያል፣ ማቆም ይቻላል', en: 'Queue: keep editing while it works; time left shown; stop any time' },
+    ],
+  },
   '1.24.0': {
     banner: {
       am: '⧓ Studio፦ ሽግግሮች፣ ፍጥነት (0.25×–4×) እና ቀለም — ፈቃድዎ እንደቀድሞው ይቀጥላል።',

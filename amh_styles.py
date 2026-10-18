@@ -911,9 +911,11 @@ def _caption_band(ffmpeg, tmp, w, h, dur):
 
 def render(job, progress=None):
     """Render styled captions with ffmpeg. job: {cues, style, width, height,
-    fps, out, ffmpeg, fonts, mode: "overlay" | "burn", video, tag}.
+    fps, out, ffmpeg, fonts, mode: "overlay" | "burn" | "script", video, tag}.
     overlay: a transparent QuickTime Animation .mov covering the captions only;
     returns {t0, duration}. burn: the video with the captions drawn in (MP4).
+    script (1.25.0): only the ASS script, written to out (width, height and
+    duration given) - the Studio draws it in its own single render.
     The ASS script and the fonts sit in a temp folder that ffmpeg runs in, so
     no Windows path ever has to be escaped inside the filter."""
     import shutil
@@ -925,7 +927,7 @@ def render(job, progress=None):
         job = dict(job, width=pw, height=ph, duration=job.get("duration") or pdur)
     w, h = int(job["width"]), int(job["height"])
     fps = float(job.get("fps") or 30)
-    if mode == "burn":
+    if mode in ("burn", "script"):
         t0, words = 0.0, words_from_cues(job["cues"])
         dur = float(job.get("duration") or (words[-1][2] if words else 0))
     else:
@@ -944,6 +946,10 @@ def render(job, progress=None):
     captions_only = script
     if job.get("tag"):
         script += _tag_line(w, h, 0, dur) + "\n"
+    if mode == "script":
+        with open(job["out"], "w", encoding="utf-8") as f:
+            f.write(script)
+        return {"t0": 0.0, "duration": round(dur, 3), "out": job["out"]}
     used_video = False          # preview over the real footage (falls back to the gradient)
     tmp = tempfile.mkdtemp(prefix="amh_style_")
     try:
