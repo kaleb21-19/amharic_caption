@@ -6,6 +6,8 @@ venv/
 
 # Build artifacts (large; built in CI or via tools/*.sh)
 dist/
+# the Studio's vendored JASSUB keeps its own dist/ folder (1.29.0)
+!app/vendor/jassub/dist/
 tools/stage/
 
 # The fp32 source model is large and fetched from HF in CI (tools/fetch_model.sh).
