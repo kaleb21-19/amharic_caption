@@ -133,13 +133,30 @@ def t_index():
     assert i_mode < i_core < i_studio < i_script, "the Studio after app_mode.js: its pure part, the shell, the Script view"
     assert "/__app/app.css" in html
     assert "script-src 'self'" in html, "the panel's CSP stays strict (no inline script needed)"
+    assert "script-src 'self' 'wasm-unsafe-eval';" in html and "unsafe-eval'" not in html.replace("'wasm-unsafe-eval'", ""), \
+        "only WebAssembly is added (live caption style), never eval"
     st, js = req("GET", "/__app/boot.js", token=False)
     boot = json.loads(js[js.index("=") + 1:].rstrip(";"))
     assert st == 200 and boot["token"] == TOKEN and boot["ext"] == os.path.realpath(EXT)
     assert boot["api"] == API and boot["files"] == [os.path.join(REPO, "README.md")]
     assert boot["info"]["platform"] == sys.platform and boot["info"]["tmp"]
-    for f in ("node_shim.js", "app_mode.js", "app.css", "studio_core.js", "studio.js", "studio_script.js", "studio_cuts.js", "studio_edit_core.js", "studio_edit.js"):
+    for f in ("node_shim.js", "app_mode.js", "app.css", "studio_core.js", "studio.js", "studio_script.js", "studio_cuts.js", "studio_edit_core.js", "studio_edit.js", "studio_subs.js"):
         assert req("GET", "/__app/" + f, token=False)[0] == 200, f
+    assert html.find("/__app/studio_cuts.js") < html.find("/__app/studio_subs.js"), "the live caption style last"
+    # app/vendor (JASSUB): served with the types a browser needs, never outside the folder
+    import urllib.request
+    def raw(path):
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:%d%s" % (amh_app.PORT, path), timeout=10) as r:
+                return r.status, r.headers.get("Content-Type", ""), r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, "", b""
+    st, ct, body = raw("/__app/vendor/jassub/dist/jassub.js")
+    assert st == 200 and ct.startswith("text/javascript") and b"../../abslink/src/abslink.js" in body, (st, ct)
+    st, ct, body = raw("/__app/vendor/jassub/dist/wasm/jassub-worker.wasm")
+    assert st == 200 and ct == "application/wasm" and body[:4] == b"\0asm", (st, ct)
+    for bad in ("/__app/vendor/../amh_app.py", "/__app/vendor/%2e%2e/amh_app.py", "/__app/vendor/NOTICE.txt", "/__app/vendor/nope.js"):
+        assert raw(bad)[0] == 404, bad
 
 
 def t_peaks():
@@ -168,6 +185,9 @@ def t_packed():
     for f in sorted(amh_app.APP_FILES | {"amh_app.py"}):
         assert '"%s"' % f in win, "build_win.ps1 does not pack app/" + f
         assert (" %s " % f in mac) or (" %s;" % f in mac), "build.sh does not pack app/" + f
+    assert 'Copy-Item -Recurse (Join-Path $ROOT "app\\vendor")' in win and 'cp -R "$ROOT/app/vendor"' in mac, "app/vendor (JASSUB) is packed"
+    assert os.path.isfile(os.path.join(REPO, "app", "vendor", "NOTICE.txt")), "the vendored code's licenses are listed"
+    assert not os.path.exists(os.path.join(REPO, "app", "vendor", "rvfc-polyfill")), "no GPL code in app/vendor"
 
 
 def t_fs():

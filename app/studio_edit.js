@@ -622,6 +622,7 @@
     syncOverlays(t);
     syncTexts(t);
     syncMusic(t);
+    if (window.__amhSubsTick) window.__amhSubsTick(t);   // the caption style, live (studio_subs.js)
     tTime.textContent = S.fmtClock(t, true) + ' / ' + S.fmtClock(total());
     if (follow) view = S.follow(view, t, total(), width());
     draw();
