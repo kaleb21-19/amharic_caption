@@ -404,3 +404,13 @@ html.amh-editor .ed-cwrap { height: 222px; }
 .st-export.busy { background: #1f7a4c; }
 @media (max-width: 720px) { .st-presets { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .ed-fonts { flex-wrap: wrap; } .ed-fonts button { flex: 1 0 22%; }
+
+/* 1.29.0 captions for every file of the project */
+.ed-mcap { font-size: 11px; margin-top: 4px; color: var(--text-secondary); }
+.ed-mcap.busy { color: #9fd8b8; }
+.ed-mcap.err { color: #ff8a80; }
+.ed-mcapbtn { margin-top: 6px; width: 100%; }
+
+/* 1.29.0 the chosen caption style live in the player (libass / JASSUB) */
+.ed-canvas .ed-subs { position: absolute; left: 0; top: 0; width: 100%; height: 100%; z-index: 3; pointer-events: none; }
+.ed-canvas.ed-styled .app-cap { visibility: hidden; }

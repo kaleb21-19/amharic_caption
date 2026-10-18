@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.28.0';
+const APP_VERSION = '1.29.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,18 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.29.0': {
+    banner: {
+      am: '🎬 Studio፦ የመረጡት የካፕሽን ስታይል በማጫወቻው ውስጥ ይታያል — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '🎬 Studio: the caption style you choose now plays in the player — your license stays the same.',
+    },
+    items: [
+      { am: 'የመረጡት ስታይል (Glide፣ Bounce…) በማጫወቻው ውስጥ በእንቅስቃሴው ልክ እንደሚላከው ይታያል', en: 'The style you choose (Glide, Bounce…) plays in the player exactly as it is exported, animations too' },
+      { am: 'ካፕሽን ሲያርሙ ወይም ስታይል ሲቀይሩ ወዲያው ይታደሳል', en: 'It updates as soon as you fix a caption or change the style' },
+      { am: '📁 ሚዲያ፦ ለሌሎቹ ቪዲዮዎችም "💬 ካፕሽን ይስሩ"', en: '📁 Media: "💬 Make captions" for your other videos too' },
+      { am: 'ጽሑፍ፣ ተደራቢ ወይም ሙዚቃ ሲያስተካክሉ ከእንግዲህ አይጠፋም (አይለቀቅም)', en: 'A text, overlay or music no longer gets unselected while you change its settings' },
+    ],
+  },
   '1.28.0': {
     banner: {
       am: '🔤 8 አዳዲስ የአማርኛ ፊደሎች — አሁን 12 ፊደሎች ለካፕሽንና ለርዕስ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -7501,6 +7513,44 @@ async function runFile(filePath, fileName) {
   }
 }
 
+// ── Captions for another video of a Studio project (1.29.0) ────────────────
+// The same engine and the same rules as a normal run (runtime, model,
+// license or free minutes, refund when it fails), but the open review, its
+// captions and its file are left exactly as they are. -> the captions.
+async function transcribeExtra(filePath) {
+  if (runInProgress || runStartInProgress) throw new Error(L('Captions are already being made — wait for them to finish.'));
+  if (!RUNTIME || !PYTHON || !FFMPEG || !fs.existsSync(PYTHON) || !fs.existsSync(FFMPEG)) {
+    throw new Error(L('The transcription runtime is missing — reinstall the app.'));
+  }
+  if (!modelReadyForRun(null)) throw new Error(L('The Amharic model is downloading — try again when it is ready.'));
+  runStartInProgress = true;
+  try { await refreshTrialFromServer(); } finally { runStartInProgress = false; }
+  if (!assertCanRun(null)) throw new Error(L('No free minutes left — a license makes captions for every video.'));
+  const keep = { cues: lastCues, srt: lastSrtPath, charged: reviewTrialCharged };
+  const outSrt = path.join(os.tmpdir(), 'amh_extra_' + Date.now() + '.srt');
+  cancelRequested = false;
+  runFailed = false;
+  activeRunId = newRunId();
+  runInProgress = true;
+  track('run_click');
+  try {
+    const r = await transcribe(filePath, outSrt);
+    return (r.cues || []).map((c) => Object.assign({}, c));
+  } catch (e) {
+    runFailed = true;
+    throw e;
+  } finally {
+    if (TRIAL_CHARGED_RUN && (cancelRequested || runFailed)) refundTrialRun();
+    else TRIAL_CHARGED_RUN = null;
+    lastCues = keep.cues;
+    lastSrtPath = keep.srt;
+    reviewTrialCharged = keep.charged;
+    runInProgress = false;
+    try { fs.unlinkSync(outSrt); } catch (e) {}
+    updateLicenseUI();
+  }
+}
+
 // ------------------------------------------------------------------ wiring
 // ── One-time model download (lite packages) ────────────────────────────────
 // Runs runtime/amh_model.py download, which resumes a partial file, verifies
@@ -7812,6 +7862,9 @@ function setup() {
     log('Menbere (https://github.com/SorkinType/Menbere), Abyssinica SIL (https://software.sil.org/abyssinica/),');
     log('Agbalumo (https://github.com/SorkinType/Agbalumo), Hibur Mono by TypeHabesha (https://github.com/typehabesha/HiburMono),');
     log('the Senamirmir fonts Yebse, WashRa, Tint, Fantuwua, Jiret, Yigezu Bisrat Gothic (http://www.senamirmir.org).');
+    log('');
+    log('Desktop app, live caption style in the Studio player: JASSUB (MIT, https://github.com/ThaUnknown/jassub) =');
+    log('libass + FreeType + HarfBuzz + FriBidi (LGPL-2.1) in WebAssembly; notices in app/vendor/NOTICE.txt.');
     log('');
     log('Voice activity detection: Silero VAD (https://github.com/snakers4/silero-vad).');
     log('License: MIT.');

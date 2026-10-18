@@ -217,9 +217,11 @@ find "${BUILD_DIR}/${NAME}" -name '_preview*' -exec rm -rf {} + 2>/dev/null || t
 echo "  [ok] panel files"
 # desktop app for CapCut / DaVinci users (the panel in its own window, app/)
 mkdir -p "${BUILD_DIR}/${NAME}/app"
-for f in amh_app.py node_shim.js app_mode.js app.css studio_core.js studio.js studio_script.js studio_cuts.js studio_edit_core.js studio_edit.js; do
+for f in amh_app.py node_shim.js app_mode.js app.css studio_core.js studio.js studio_script.js studio_cuts.js studio_edit_core.js studio_edit.js studio_subs.js; do
   cp "$ROOT/app/$f" "${BUILD_DIR}/${NAME}/app/$f"
 done
+# the live caption-style preview (JASSUB = libass in WebAssembly; licenses in app/vendor/NOTICE.txt)
+cp -R "$ROOT/app/vendor" "${BUILD_DIR}/${NAME}/app/vendor"
 if ! ls -d "$RT"/python/lib/python3.11/site-packages/webview >/dev/null 2>&1; then
   echo "  [FAIL] pywebview missing from the bundled python (tools/prepare_python.sh)"; exit 1
 fi
