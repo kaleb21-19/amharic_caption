@@ -201,8 +201,89 @@
     });
   }
 
+
+  // ── the text track (1.22.0): titles, lower thirds, text on a box ─────────
+  // { id, text, sub (second line, lower third), preset: title | lower | box |
+  //   plain, font: sans | menbere | serif | abyssinica, size (share of the
+  //   canvas height), color, x, y (offset, share of the canvas), anim: auto |
+  //   none | fade | slide | pop, start, in: 0, out (= how long it shows) }.
+  // Drawn by libass (the caption styles' engine) with the shipped fonts.
+  const TFONTS = { sans: 'Noto Sans Ethiopic', menbere: 'Menbere', serif: 'Noto Serif Ethiopic', abyssinica: 'Abyssinica SIL' };
+  const TPRESETS = {
+    title: { size: 0.085, anim: 'pop' },
+    lower: { size: 0.05, anim: 'slide' },
+    box: { size: 0.055, anim: 'fade' },
+    plain: { size: 0.06, anim: 'fade' },
+  };
+  function assColor(hex, alpha) {
+    const h = /^#?([0-9a-f]{6})$/i.exec(String(hex || '')) ? String(hex).replace('#', '') : 'FFFFFF';
+    const a = Math.round(Math.max(0, Math.min(1, alpha == null ? 0 : alpha)) * 255).toString(16).padStart(2, '0');
+    return '&H' + a.toUpperCase() + h.slice(4, 6).toUpperCase() + h.slice(2, 4).toUpperCase() + h.slice(0, 2).toUpperCase() + '&';
+  }
+  const assText = (t) => String(t || '').replace(/[{}]/g, '').replace(/\\/g, '/').replace(/\r?\n/g, '\\N');
+  function assTime(t) {
+    const cs = Math.max(0, Math.round(t * 100));
+    return Math.floor(cs / 360000) + ':' + String(Math.floor(cs / 6000) % 60).padStart(2, '0') + ':' + String(Math.floor(cs / 100) % 60).padStart(2, '0') + '.' + String(cs % 100).padStart(2, '0');
+  }
+  // where a text item sits (pixels): its anchor point and alignment
+  function textAnchor(t, W, H) {
+    const preset = TPRESETS[t.preset] ? t.preset : 'plain';
+    if (preset === 'lower') return { an: 1, x: Math.round(W * 0.06 + (Number(t.x) || 0) * W), y: Math.round(H * (H > W ? 0.72 : 0.82) + (Number(t.y) || 0) * H) };
+    return { an: 5, x: Math.round(W / 2 + (Number(t.x) || 0) * W), y: Math.round(H / 2 + (Number(t.y) || 0) * H) };
+  }
+  function textAss(items, W, H, totalLen) {
+    const head = ['[Script Info]', 'ScriptType: v4.00+', 'PlayResX: ' + W, 'PlayResY: ' + H, 'WrapStyle: 0', 'ScaledBorderAndShadow: yes', '',
+      '[V4+ Styles]',
+      'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
+      'Style: T,Noto Sans Ethiopic,60,&H00FFFFFF,&H00FFFFFF,&H00000000,&H96000000,-1,0,0,0,100,100,0,0,1,3,2,5,0,0,0,1',
+      'Style: B,Noto Sans Ethiopic,60,&H00FFFFFF,&H00FFFFFF,&H4D0E1210,&H00000000,-1,0,0,0,100,100,0,0,3,14,0,5,0,0,0,1',
+      '', '[Events]', 'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text'];
+    const ev = [];
+    (items || []).forEach((t) => {
+      const st = Number(t.start) || 0;
+      const en = Math.min(totalLen == null ? Infinity : totalLen, st + Math.max(0, t.out - (t.in || 0)));
+      if (en <= st || !String(t.text || '').trim()) return;
+      const preset = TPRESETS[t.preset] ? t.preset : 'plain';
+      const P = TPRESETS[preset];
+      const fs = Math.round(H * (Number(t.size) || P.size));
+      const fn = TFONTS[t.font] || TFONTS.sans;
+      const col = assColor(t.color || '#FFFFFF');
+      const a = textAnchor(t, W, H);
+      const anim = t.anim && t.anim !== 'auto' ? t.anim : P.anim;
+      const fx = (x, y) => {
+        if (anim === 'fade') return '\\fad(300,250)\\pos(' + x + ',' + y + ')';
+        if (anim === 'slide') return '\\fad(200,200)\\move(' + (x - Math.round(W * 0.05)) + ',' + y + ',' + x + ',' + y + ',0,350)';
+        if (anim === 'pop') return '\\fad(120,180)\\pos(' + x + ',' + y + ')\\fscx70\\fscy70\\t(0,180,\\fscx106\\fscy106)\\t(180,300,\\fscx100\\fscy100)';
+        return '\\pos(' + x + ',' + y + ')';
+      };
+      const line = (style, tags, text) => ev.push('Dialogue: 0,' + assTime(st) + ',' + assTime(en) + ',' + style + ',,0,0,0,,{' + tags + '}' + assText(text));
+      if (preset === 'lower') {
+        // name on a dark box, title under it, an accent bar on the left
+        const sub = String(t.sub || '').trim();
+        const subFs = Math.round(fs * 0.62);
+        const nameY = sub ? a.y - Math.round(subFs * 1.5) : a.y;
+        const barH = sub ? Math.round(fs * 1.25 + subFs * 1.5) : Math.round(fs * 1.25);
+        // drawn from its top-left corner (a drawing anchored at the bottom with
+        // negative coordinates lands one bar-height too high in libass)
+        const bw = Math.max(4, Math.round(fs * 0.12));
+        ev.push('Dialogue: 1,' + assTime(st) + ',' + assTime(en) + ',T,,0,0,0,,{\\an7\\bord0\\shad0\\c' + assColor(t.accent || '#2ECC71') +
+          fx(a.x - Math.round(fs * 0.45), a.y - barH + Math.round(fs * 0.08)) + '\\p1}m 0 0 l ' + bw + ' 0 ' + bw + ' ' + barH + ' 0 ' + barH + '{\\p0}');
+        line('B', '\\an1\\fn' + fn + '\\fs' + fs + '\\c' + col + '\\b1' + fx(a.x, nameY), t.text);
+        if (sub) line('B', '\\an1\\fn' + fn + '\\fs' + subFs + '\\c' + assColor(t.subColor || '#C9D6CF') + '\\b0' + fx(a.x, a.y), sub);
+      } else if (preset === 'box') {
+        line('B', '\\an5\\fn' + fn + '\\fs' + fs + '\\c' + col + fx(a.x, a.y), t.text);
+      } else {
+        line('T', '\\an5\\fn' + fn + '\\fs' + fs + '\\c' + col + '\\bord' + (preset === 'title' ? 5 : 3) + '\\shad2' + fx(a.x, a.y), t.text);
+      }
+    });
+    return head.concat(ev).join('\n') + '\n';
+  }
+
   // media: { id: { idx (ffmpeg input number), w, h, video, audio, image } }
-  function editGraph(clips, media, fmt, fps, ovl) {
+  // opts.ass: a libass script (file name, in the folder ffmpeg runs in, with a
+  // fonts/ folder) drawn over everything — the text track
+  function editGraph(clips, media, fmt, fps, ovl, opts) {
+    opts = opts || {};
     fps = fps || 30;
     const { w: W, h: H } = canvasSize(fmt);
     const L = layout(clips);
@@ -228,7 +309,8 @@
       ins.push('[v' + i + '][a' + i + ']');
     });
     const list = (ovl || []).filter((o) => media[o.m] && o.start < total(clips) && ovLen(o) > 0);
-    parts.push(ins.join('') + 'concat=n=' + L.length + ':v=1:a=1' + (list.length ? '[vm][am]' : '[v][a]'));
+    const vOut = opts.ass ? 'vx' : 'v';
+    parts.push(ins.join('') + 'concat=n=' + L.length + ':v=1:a=1' + (list.length ? '[vm][am]' : '[' + vOut + '][a]'));
     if (list.length) {
       let base = 'vm';
       const mix = ['[am]'];
@@ -240,7 +322,7 @@
         const op = o.opacity == null ? 1 : Number(o.opacity);
         parts.push(src + ',setpts=PTS-STARTPTS+' + o.start + '/TB,fps=' + fps + ',scale=' + p.sw + ':' + p.sh + ',setsar=1,format=yuva420p' +
           (op < 1 ? ',colorchannelmixer=aa=' + op : '') + '[o' + k + ']');
-        const next = k === list.length - 1 ? 'v' : 'vo' + k;
+        const next = k === list.length - 1 ? vOut : 'vo' + k;
         parts.push('[' + base + '][o' + k + ']overlay=' + p.x + ':' + p.y + ":enable='between(t," + o.start + ',' + r3(o.start + d) + ")':eof_action=pass" +
           (k === list.length - 1 ? ',format=yuv420p' : '') + '[' + next + ']');
         base = next;
@@ -254,11 +336,13 @@
       if (mix.length > 1) parts.push(mix.join('') + 'amix=inputs=' + mix.length + ':duration=first:normalize=0[a]');
       else parts.push('[am]anull[a]');
     }
+    if (opts.ass) parts.push('[vx]subtitles=' + opts.ass + ':fontsdir=fonts,format=yuv420p[v]');
     return { graph: parts.join(';'), w: W, h: H, duration: total(clips) };
   }
 
   const api = { MIN, layout, total, locate, sourceToEdit, splitAt, removeClip, trimClip, moveClip, dropIndex, cutRange,
-    words, deriveCaptions, syncBack, FORMATS, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim };
+    words, deriveCaptions, syncBack, FORMATS, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
+    TFONTS, TPRESETS, assColor, textAnchor, textAss };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhEdit = api;
 })(typeof window !== 'undefined' ? window : this);
