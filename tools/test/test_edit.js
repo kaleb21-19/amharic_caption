@@ -137,4 +137,25 @@ test('export with overlays: drawn above the edit at their time, photos whole, B-
   assert.ok(!E.editGraph([{ id: 'a', m: 'v', in: 0, out: 12 }], media, '16:9', 30, [{ id: 'z', m: 'b', in: 0, out: 2, start: 30 }]).graph.includes('[vm]'), 'past the end: ignored');
 });
 
+test('text track: titles, lower thirds, boxes as libass lines — our fonts, colours, times, animations', () => {
+  const items = [
+    { text: 'ቡና፦ የኢትዮጵያ ስጦታ', preset: 'title', start: 0.3, in: 0, out: 3, font: 'menbere' },
+    { text: 'ዶ/ር መሰረት', sub: 'የቡና ተመራማሪ', preset: 'lower', start: 3.5, in: 0, out: 4 },
+    { text: 'ዋጋው {5,000} ብር\nብቻ', preset: 'box', start: 9, in: 0, out: 9, color: '#FFD60A', y: -0.3, anim: 'none' },
+    { text: '   ', preset: 'plain', start: 1, in: 0, out: 2 },
+  ];
+  const a = E.textAss(items, 1920, 1080, 12);
+  assert.ok(a.includes('PlayResX: 1920') && a.includes('PlayResY: 1080'));
+  assert.ok(a.includes('Dialogue: 0,0:00:00.30,0:00:03.30,T,,0,0,0,,{\\an5\\fnMenbere\\fs92\\c&H00FFFFFF&\\bord5\\shad2\\fad(120,180)\\pos(960,540)'), 'the title: Menbere, big, pops in, centred');
+  assert.ok(a.includes('\\fnNoto Sans Ethiopic\\fs54') && a.includes('\\move('), 'the lower third slides in');
+  assert.ok(/\\an7\\bord0\\shad0\\c&H0071CC2E&.*\\p1\}m 0 0 l 6 0 6 \d+ 0 \d+\{\\p0\}/.test(a), 'its accent bar is drawn from the top-left');
+  assert.ok(a.includes(',B,,0,0,0,,{\\an1\\fnNoto Sans Ethiopic\\fs33\\c&H00CFD6C9&\\b0'), 'its second line: smaller, softer');
+  assert.ok(a.includes('0:00:09.00,0:00:12.00,B,'), 'a text past the end stops with the video');
+  assert.ok(a.includes('\\c&H000AD6FF&\\pos(960,216)}ዋጋው 5,000 ብር\\Nብቻ'), 'yellow, moved up, braces removed, two lines');
+  assert.ok(!a.includes('0:00:01.00,0:00:03.00'), 'an empty text is not drawn');
+  assert.deepStrictEqual(E.textAnchor({ preset: 'lower' }, 1080, 1920), { an: 1, x: 65, y: 1382 }, 'a lower third sits higher on a vertical video');
+  const g = E.editGraph([{ id: 'a', m: 'v', in: 0, out: 12 }], { v: { idx: 0, w: 1920, h: 1080, video: true, audio: true } }, '16:9', 30, [], { ass: 't.ass' });
+  assert.ok(g.graph.endsWith('concat=n=1:v=1:a=1[vx][a];[vx]subtitles=t.ass:fontsdir=fonts,format=yuv420p[v]'), 'drawn over everything in the same pass');
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');

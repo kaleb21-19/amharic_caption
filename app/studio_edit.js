@@ -32,6 +32,7 @@
   let media = {};          // id -> { id, path, name, dur, w, h, video, audio }
   let clips = [];          // the main track
   let ovl = [];            // the overlay track (1.21.0): B-roll, photos, logos
+  let txt = [];            // the text track (1.22.0): titles, lower thirds, text on a box
   let SRC = {};            // the captions of each file, in that file's time
   let fmt = '16:9';
   let sel = null;          // the selected clip's id
@@ -117,10 +118,10 @@
   const origUndo = window.undoReview;
   const REDO = [];
   let redoing = false;
-  const snap = () => JSON.stringify({ clips, ovl, fmt, media, SRC: built ? E.syncBack(clips, SRC, reviewCues) : SRC });
+  const snap = () => JSON.stringify({ clips, ovl, txt, fmt, media, SRC: built ? E.syncBack(clips, SRC, reviewCues) : SRC });
   function restore(json) {
     const o = JSON.parse(json);
-    clips = o.clips; ovl = o.ovl || []; fmt = o.fmt; SRC = o.SRC;
+    clips = o.clips; ovl = o.ovl || []; txt = o.txt || []; fmt = o.fmt; SRC = o.SRC;
     Object.keys(o.media || {}).forEach((k) => { if (!media[k]) { media[k] = o.media[k]; loadPeaks(k); } });
   }
   window.pushReviewUndo = function (what) {
@@ -276,8 +277,74 @@
     v.style.width = (p.sw * k) + 'px'; v.style.height = (p.sh * k) + 'px';
     stage.classList.toggle('sel', !!sel && c.id === sel);
     syncOverlays(time());
+    syncTexts(time());
   }
   window.addEventListener('resize', () => { frame(); drawSoon(); });
+  // the shipped Amharic fonts, so the text on the canvas is the exported text
+  const FONTFILES = { sans: ['NotoSansEthiopic-Regular.ttf', 'NotoSansEthiopic-Bold.ttf'], menbere: ['Menbere-Regular.ttf', 'Menbere-Bold.ttf'],
+    serif: ['NotoSerifEthiopic-Regular.ttf', 'NotoSerifEthiopic-Bold.ttf'], abyssinica: ['AbyssinicaSIL-Regular.ttf', 'AbyssinicaSIL-Regular.ttf'] };
+  const fontsDir = () => (typeof RUNTIME !== 'undefined' && RUNTIME ? path.join(RUNTIME, 'fonts') : '');
+  let fontsReady = false;
+  function loadFonts() {
+    if (fontsReady || !fontsDir()) return;
+    fontsReady = true;
+    const css = [];
+    Object.keys(FONTFILES).forEach((id) => {
+      FONTFILES[id].forEach((f, bold) => {
+        const p2 = path.join(fontsDir(), f);
+        let u = null;
+        try { if (fs.existsSync(p2)) u = APP.call('media', [p2]); } catch (e) {}
+        if (u) css.push("@font-face{font-family:'AC " + id + "';src:url('" + u + "');font-weight:" + (bold ? 700 : 400) + ';}');
+      });
+    });
+    const st = document.createElement('style');
+    st.textContent = css.join('\n');
+    document.head.appendChild(st);
+  }
+  // the text items on the canvas — the same place, size, font and look as libass draws them
+  const TXEL = {};
+  function syncTexts(t) {
+    const { w: W, h: H } = E.canvasSize(fmt);
+    const k = stage.clientWidth / W || 0;
+    const on = {};
+    txt.forEach((it) => {
+      const vis = t >= it.start && t < it.start + E.ovLen(it) && t < total();
+      let e = TXEL[it.id];
+      if (!vis) { if (e) e.style.display = 'none'; return; }
+      on[it.id] = 1;
+      if (!e) {
+        e = el('div', 'ed-tx');
+        e.addEventListener('mousedown', (ev) => { ev.stopPropagation(); ev.preventDefault(); startMove(it.id, ev); });
+        e.addEventListener('dblclick', () => { const ta = clipPane.querySelector('textarea'); if (ta) ta.focus(); });
+        const cap = $('appCap');
+        stage.insertBefore(e, cap && cap.parentNode === stage ? cap : null);
+        TXEL[it.id] = e;
+      }
+      const preset = E.TPRESETS[it.preset] ? it.preset : 'plain';
+      const fsz = (Number(it.size) || E.TPRESETS[preset].size) * H * k;
+      const a = E.textAnchor(it, W, H);
+      e.className = 'ed-tx ed-tx-' + preset + (it.id === sel ? ' sel' : '');
+      e.style.display = '';
+      e.style.fontFamily = "'AC " + (FONTFILES[it.font] ? it.font : 'sans') + "', 'Abyssinica SIL', serif";
+      e.style.fontSize = fsz + 'px';
+      e.style.color = it.color || '#FFFFFF';
+      e.style.setProperty('--fs', fsz + 'px');
+      e.style.setProperty('--accent', it.accent || '#2ECC71');
+      e.textContent = '';
+      if (preset === 'lower') {
+        e.style.left = (a.x * k) + 'px'; e.style.top = ''; e.style.bottom = ((H - a.y) * k) + 'px';
+        e.appendChild(el('div', 'ed-tx-name', it.text || ''));
+        if (String(it.sub || '').trim()) { const sb = el('div', 'ed-tx-sub', it.sub); sb.style.color = it.subColor || '#C9D6CF'; e.appendChild(sb); }
+      } else {
+        e.style.left = (a.x * k) + 'px'; e.style.top = (a.y * k) + 'px'; e.style.bottom = '';
+        e.appendChild(el('span', 'ed-tx-line', it.text || ''));
+      }
+    });
+    Object.keys(TXEL).forEach((id) => {
+      if (!txt.some((x) => x.id === id)) { TXEL[id].remove(); delete TXEL[id]; }
+      else if (!on[id]) TXEL[id].style.display = 'none';
+    });
+  }
   // overlay pictures on the canvas, placed exactly as the export places them
   const OVEL = {};
   function ovEl(o) {
@@ -331,7 +398,7 @@
   }
   // drag the picture to move the selected clip (one undo step per drag)
   let moving = null;
-  const findItem = (id) => clips.find((c) => c.id === id) || ovl.find((o) => o.id === id);
+  const findItem = (id) => clips.find((c) => c.id === id) || ovl.find((o) => o.id === id) || txt.find((o) => o.id === id);
   function startMove(id, e) {
     const it = findItem(id);
     if (!it || e.button !== 0) return;
@@ -351,7 +418,7 @@
     if (!moving) return;
     const dx = (e.clientX - moving.x0) / moving.k / moving.W, dy = (e.clientY - moving.y0) / moving.k / moving.H;
     const upd = (x) => (x.id === moving.id ? Object.assign({}, x, { x: Math.round((moving.cx + dx) * 1000) / 1000, y: Math.round((moving.cy + dy) * 1000) / 1000 }) : x);
-    clips = clips.map(upd); ovl = ovl.map(upd);
+    clips = clips.map(upd); ovl = ovl.map(upd); txt = txt.map(upd);
     frame(); renderInspector();
   });
   document.addEventListener('mouseup', () => { if (moving) { moving = null; ST.saveSoon(); } });
@@ -367,7 +434,32 @@
   const zIn = btn('tl-btn', '+', '', () => { view = S.zoomAt(view, 1.6, S.timeToX(time(), view), total(), width()); drawSoon(); });
   const zFit = btn('tl-btn', '⤢', '', () => { view = S.fitView(total(), width()); drawSoon(); });
   const hint = el('span', 'ed-hint', '');
-  [bSplit, bDel, bUndo, bRedo, hint, el('span', 'st-flex'), zOut, zIn, zFit].forEach((x) => tbar.appendChild(x));
+  const bText = btn('ed-tool ed-tool-text', '', '', () => { tmenu.style.display = tmenu.style.display === 'none' ? '' : 'none'; });
+  const tmenu = el('div', 'ed-tmenu');
+  tmenu.style.display = 'none';
+  const tdrop = el('span', 'ed-tdrop');
+  tdrop.appendChild(bText); tdrop.appendChild(tmenu);
+  [bSplit, bDel, tdrop, bUndo, bRedo, hint, el('span', 'st-flex'), zOut, zIn, zFit].forEach((x) => tbar.appendChild(x));
+  document.addEventListener('mousedown', (e) => { if (tmenu.style.display !== 'none' && !tdrop.contains(e.target)) tmenu.style.display = 'none'; });
+  function renderTextMenu() {
+    tmenu.textContent = '';
+    [['title', tx('ርዕስ', 'Title'), tx('ትልቅ፣ በመሃል', 'Big, in the middle')], ['lower', tx('የስም ጽሑፍ', 'Lower third'), tx('ስምና ማዕረግ ከታች', 'Name and title, bottom left')],
+      ['box', tx('በሳጥን ላይ', 'On a box'), tx('ጽሑፍ በጨለማ ሳጥን ላይ', 'Text on a dark box')], ['plain', tx('ቀላል ጽሑፍ', 'Plain text'), tx('ነጭ ከጥቁር ጠርዝ ጋር', 'White with a dark edge')]].forEach(([pr, name, sub]) => {
+      const b = btn('ed-tmi', '', '', () => { tmenu.style.display = 'none'; addText(pr); });
+      b.appendChild(el('b', '', name)); b.appendChild(el('span', '', sub));
+      tmenu.appendChild(b);
+    });
+  }
+  function addText(preset) {
+    const at = Math.min(time(), Math.max(0, total() - 0.5));
+    const id = newId();
+    const it = { id, preset, start: Math.round(at * 1000) / 1000, in: 0, out: preset === 'lower' ? 4 : 3, font: 'sans',
+      text: preset === 'lower' ? tx('ስም', 'Name') : tx('ጽሑፍዎን እዚህ ይጻፉ', 'Your text'), sub: preset === 'lower' ? tx('ማዕረግ', 'Title') : '' };
+    if (preset === 'title') it.font = 'menbere';
+    change('add text', () => { txt = txt.concat([it]); });
+    sel = id; after(); ST.showTab('clip');
+    setTimeout(() => { const ta = clipPane.querySelector('textarea'); if (ta) { ta.focus(); ta.select(); } }, 30);
+  }
   const lanes = el('div', 'ed-lanes');
   const labels = el('div', 'ed-labels');
   const cwrap = el('div', 'tl-canvas-wrap ed-cwrap');
@@ -377,8 +469,8 @@
   tl.appendChild(tbar); tl.appendChild(lanes);
   review.appendChild(tl);
   const ctx = canvas.getContext ? canvas.getContext('2d') : null;
-  const RULER = 20, CAP = 30, OVL = 34, MAIN = 50, GAP = 6;
-  const capTop = RULER + 4, ovTop = capTop + CAP + GAP, mainTop = ovTop + OVL + GAP;
+  const RULER = 20, CAP = 28, TXT = 26, OVL = 34, MAIN = 48, GAP = 6;
+  const capTop = RULER + 4, txTop = capTop + CAP + GAP, ovTop = txTop + TXT + GAP, mainTop = ovTop + OVL + GAP;
   let view = { start: 0, pps: 50 };
   let fitted = false;
   const width = () => Math.max(50, cwrap.clientWidth || 600);
@@ -401,6 +493,7 @@
   function tick(follow) {
     const t = time();
     syncOverlays(t);
+    syncTexts(t);
     tTime.textContent = S.fmtClock(t, true) + ' / ' + S.fmtClock(total());
     if (follow) view = S.follow(view, t, total(), width());
     draw();
@@ -452,6 +545,24 @@
         ctx.save(); ctx.beginPath(); ctx.rect(x0 + 6, mainTop, x1 - x0 - 12, MAIN); ctx.clip();
         ctx.fillStyle = '#e6f2fa'; ctx.font = '600 11px "Segoe UI", sans-serif';
         ctx.fillText((media[c.m] ? media[c.m].name : '') + '  ·  ' + S.fmtClock(c.e - c.s, true), x0 + 7, mainTop + 11);
+        ctx.restore();
+      }
+    });
+    // T text
+    txt.forEach((it) => {
+      const x0 = S.timeToX(it.start, view), x1 = S.timeToX(it.start + E.ovLen(it), view);
+      if (x1 < 0 || x0 > w) return;
+      const isSel = it.id === sel;
+      ctx.fillStyle = isSel ? '#8a6428' : '#6b4b1f';
+      ctx.fillRect(x0 + 1, txTop, Math.max(2, x1 - x0 - 2), TXT);
+      ctx.strokeStyle = isSel ? '#ffffff' : '#c08a3d';
+      ctx.lineWidth = isSel ? 2 : 1;
+      ctx.strokeRect(x0 + 1.5, txTop + 0.5, Math.max(2, x1 - x0 - 3), TXT - 1);
+      if (hover && hover.lane === 'tx' && hover.id === it.id && hover.edge !== 'body') { ctx.fillStyle = '#fff'; ctx.fillRect(hover.edge === 'in' ? x0 + 1 : x1 - 4, txTop, 3, TXT); }
+      if (x1 - x0 > 20) {
+        ctx.save(); ctx.beginPath(); ctx.rect(x0 + 5, txTop, x1 - x0 - 10, TXT); ctx.clip();
+        ctx.fillStyle = '#fff3df'; ctx.font = '600 11px ' + "'AC sans', 'Abyssinica SIL', serif";
+        ctx.fillText('T  ' + String(it.text || '').replace(/\n/g, ' '), x0 + 6, txTop + TXT / 2);
         ctx.restore();
       }
     });
@@ -507,6 +618,16 @@
   }
   function xy(e) { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
   function hitAt(p) {
+    if (p.y >= txTop && p.y <= txTop + TXT) {
+      for (let k = txt.length - 1; k >= 0; k--) {
+        const it = txt[k];
+        const x0 = S.timeToX(it.start, view), x1 = S.timeToX(it.start + E.ovLen(it), view);
+        if (Math.abs(p.x - x0) <= 6 && p.x >= x0 - 2) return { lane: 'tx', id: it.id, edge: 'in' };
+        if (Math.abs(p.x - x1) <= 6 && p.x <= x1 + 2) return { lane: 'tx', id: it.id, edge: 'out' };
+        if (p.x > x0 && p.x < x1) return { lane: 'tx', id: it.id, edge: 'body' };
+      }
+      return null;
+    }
     if (p.y >= ovTop && p.y <= ovTop + OVL) {
       const R = ovRows();
       const r = Math.min(R.n - 1, Math.floor((p.y - ovTop) / R.h));
@@ -542,11 +663,13 @@
     const p = xy(e);
     const hit = hitAt(p);
     if (playing) pause();
-    if (hit && hit.lane === 'ov') {
-      const o = ovl.find((x) => x.id === hit.id);
+    if (hit && (hit.lane === 'ov' || hit.lane === 'tx')) {
+      const isTx = hit.lane === 'tx';
+      const o = (isTx ? txt : ovl).find((x) => x.id === hit.id);
       if (sel !== hit.id) { sel = hit.id; renderInspector(); ST.showTab('clip'); }
-      pushReviewUndo(hit.edge === 'body' ? 'move overlay' : 'trim overlay');
-      drag = { kind: 'ov', id: hit.id, edge: hit.edge, x0: p.x, start0: o.start, end0: E.ovEnd(o), len: media[o.m] && !media[o.m].image ? media[o.m].dur : null };
+      pushReviewUndo(hit.edge === 'body' ? 'move' : 'trim');
+      drag = { kind: 'ov', arr: isTx ? 'txt' : 'ovl', id: hit.id, edge: hit.edge, x0: p.x, start0: o.start, end0: E.ovEnd(o),
+        len: !isTx && media[o.m] && !media[o.m].image ? media[o.m].dur : null };
       if (hit.edge === 'body') seek(S.xToTime(p.x, view));
     } else if (hit && hit.lane === 'main') {
       const c = clips.find((x) => x.id === hit.id);
@@ -583,7 +706,9 @@
           const snaps = [0, time()].concat(L().map((c) => c.s), L().map((c) => c.e));
           const near = snaps.find((x) => Math.abs((x - st) * view.pps) < 8);
           if (near != null) st = near;
-          ovl = E.ovMove(ovl, drag.id, st);
+          if (drag.arr === 'txt') txt = E.ovMove(txt, drag.id, st); else ovl = E.ovMove(ovl, drag.id, st);
+        } else if (drag.arr === 'txt') {
+          txt = E.ovTrim(txt, drag.id, drag.edge, (drag.edge === 'in' ? drag.start0 : drag.end0) + d, null).map((x) => (x.id === drag.id ? Object.assign({}, x, { in: 0, out: Math.round((x.out - x.in) * 1000) / 1000 }) : x));
         } else ovl = E.ovTrim(ovl, drag.id, drag.edge, (drag.edge === 'in' ? drag.start0 : drag.end0) + d, drag.len);
         frame(); drawSoon(); return;
       }
@@ -610,7 +735,7 @@
     }
     if (e.target === canvas) {
       const hit = hitAt(p);
-      canvas.style.cursor = hit && hit.edge && hit.edge !== 'body' ? 'ew-resize' : (hit && (hit.lane === 'main' || hit.lane === 'ov') ? 'grab' : (hit ? 'pointer' : 'text'));
+      canvas.style.cursor = hit && hit.edge && hit.edge !== 'body' ? 'ew-resize' : (hit && (hit.lane === 'main' || hit.lane === 'ov' || hit.lane === 'tx') ? 'grab' : (hit ? 'pointer' : 'text'));
       if (JSON.stringify(hit) !== JSON.stringify(hover)) { hover = hit; drawSoon(); }
     }
   });
@@ -644,6 +769,11 @@
     after();
   }
   function deleteSel() {
+    if (sel && txt.some((o) => o.id === sel)) {
+      const tid = sel;
+      change('delete text', () => { txt = txt.filter((o) => o.id !== tid); });
+      sel = null; after(); return;
+    }
     if (sel && ovl.some((o) => o.id === sel)) {
       const oid = sel;
       change('delete overlay', () => { ovl = ovl.filter((o) => o.id !== oid); });
@@ -771,6 +901,8 @@
     clipPane.textContent = '';
     const ov = ovl.find((x) => x.id === sel);
     if (ov) { renderOverlayInspector(ov); return; }
+    const ti = txt.find((x) => x.id === sel);
+    if (ti) { renderTextInspector(ti); return; }
     const c = clips.find((x) => x.id === sel);
     if (!c) { clipPane.appendChild(el('div', 'st-note', tx('በጊዜ መስመሩ ላይ ክሊፕ ይምረጡ — ከዚያ መጠኑን፣ ቦታውንና ድምፁን እዚህ ያስተካክሉ።', 'Select a clip on the timeline — then set its size, position and volume here.'))); return; }
     const lc = L().find((x) => x.id === c.id);
@@ -853,6 +985,65 @@
     clipPane.appendChild(row);
   }
 
+  function renderTextInspector(it) {
+    const setT = (props, undo) => {
+      if (undo) pushReviewUndo('text');
+      txt = txt.map((x) => (x.id === it.id ? Object.assign({}, x, props) : x));
+      Object.assign(it, props);
+      frame(); drawSoon();
+    };
+    clipPane.appendChild(el('div', 'ed-sec', tx('ጽሑፍ', 'Text')));
+    const ta = el('textarea', 'ed-ta');
+    ta.value = it.text || '';
+    ta.rows = 2;
+    let started = false;
+    ta.addEventListener('focus', () => { started = false; });
+    ta.addEventListener('input', () => { setT({ text: ta.value }, !started); started = true; });
+    ta.addEventListener('change', () => ST.saveSoon());
+    clipPane.appendChild(ta);
+    if (it.preset === 'lower') {
+      const sb = el('input', 'ed-in');
+      sb.value = it.sub || '';
+      sb.placeholder = tx('ሁለተኛ መስመር (ማዕረግ)', 'Second line (title)');
+      let s2 = false;
+      sb.addEventListener('input', () => { setT({ sub: sb.value }, !s2); s2 = true; });
+      sb.addEventListener('change', () => { s2 = false; ST.saveSoon(); });
+      clipPane.appendChild(sb);
+    }
+    const seg = (label, opts, cur2, key) => {
+      clipPane.appendChild(el('div', 'ed-sec', label));
+      const row = el('div', 'st-seg');
+      opts.forEach(([v, t]) => row.appendChild(btn(v === cur2 ? 'on' : '', t, '', () => { change('text', () => { txt = txt.map((x) => (x.id === it.id ? Object.assign({}, x, { [key]: v }) : x)); }); })));
+      clipPane.appendChild(row);
+    };
+    seg(tx('አይነት', 'Kind'), [['title', tx('ርዕስ', 'Title')], ['lower', tx('ስም', 'Name')], ['box', tx('ሳጥን', 'Box')], ['plain', tx('ቀላል', 'Plain')]], it.preset || 'plain', 'preset');
+    seg(tx('ፊደል', 'Font'), [['sans', 'Sans'], ['menbere', 'Menbere'], ['serif', 'Serif'], ['abyssinica', 'Abyssinica']], it.font || 'sans', 'font');
+    const row = el('div', 'ed-row');
+    row.appendChild(el('span', 'ed-lab', tx('መጠን', 'Size')));
+    const r = el('input'); r.type = 'range'; r.min = 0.02; r.max = 0.16; r.step = 0.002;
+    r.value = Number(it.size) || E.TPRESETS[E.TPRESETS[it.preset] ? it.preset : 'plain'].size;
+    const val = el('span', 'ed-val', Math.round(r.value * 1000) / 10 + '%');
+    let s3 = false;
+    r.addEventListener('input', () => { setT({ size: Number(r.value) }, !s3); s3 = true; val.textContent = Math.round(r.value * 1000) / 10 + '%'; });
+    r.addEventListener('change', () => { s3 = false; ST.saveSoon(); });
+    row.appendChild(r); row.appendChild(val);
+    clipPane.appendChild(row);
+    clipPane.appendChild(el('div', 'ed-sec', tx('ቀለም', 'Colour')));
+    const sw2 = el('div', 'ed-swatches');
+    ['#FFFFFF', '#FFD60A', '#2ECC71', '#FF6B6B', '#7FD1FF', '#111111'].forEach((c) => {
+      const b = btn('ed-sw' + ((it.color || '#FFFFFF').toUpperCase() === c ? ' on' : ''), '', c, () => change('text', () => { txt = txt.map((x) => (x.id === it.id ? Object.assign({}, x, { color: c }) : x)); }));
+      b.style.background = c;
+      sw2.appendChild(b);
+    });
+    clipPane.appendChild(sw2);
+    seg(tx('እንቅስቃሴ', 'Animation'), [['auto', tx('ራስ-ሰር', 'Auto')], ['none', tx('የለም', 'None')], ['fade', 'Fade'], ['slide', 'Slide'], ['pop', 'Pop']], it.anim || 'auto', 'anim');
+    const br = el('div', 'st-row');
+    br.appendChild(btn('st-btn', '⤓ ' + tx('ወደ ማጫወቻው', 'To playhead'), '', () => change('move text', () => { txt = E.ovMove(txt, it.id, time()); })));
+    br.appendChild(btn('st-btn', '🗑 ' + tx('ሰርዝ', 'Delete'), '', deleteSel));
+    clipPane.appendChild(br);
+    clipPane.appendChild(el('div', 'st-note', tx('በምስሉ ላይ ጎትተው ቦታውን ይቀይሩ።', 'Drag it on the picture to place it.')));
+  }
+
   // ── export: the whole edit, then the captions drawn in ─────────────────
   function render(out, onProgress, fast) {
     return new Promise((resolve, reject) => {
@@ -860,7 +1051,17 @@
       clips.concat(ovl).forEach((c) => { if (media[c.m] && used.indexOf(c.m) < 0) used.push(c.m); });
       const info = {};
       used.forEach((id, i) => { info[id] = Object.assign({ idx: i }, media[id]); });
-      const g = E.editGraph(clips, info, fmt, 30, ovl);
+      // the text track: a libass script + the fonts in a temp folder ffmpeg runs in
+      const shown = txt.filter((t) => t.start < total() && String(t.text || '').trim());
+      let cwd = null;
+      if (shown.length) {
+        cwd = path.join(os.tmpdir(), 'amh_text_' + Date.now());
+        fs.mkdirSync(path.join(cwd, 'fonts'), { recursive: true });
+        const { w: W, h: H } = E.canvasSize(fmt);
+        fs.writeFileSync(path.join(cwd, 't.ass'), E.textAss(shown, W, H, total()), { encoding: 'utf8' });
+        try { fs.readdirSync(fontsDir()).filter((f) => /\.(ttf|otf)$/i.test(f)).forEach((f) => fs.copyFileSync(path.join(fontsDir(), f), path.join(cwd, 'fonts', f))); } catch (e) {}
+      }
+      const g = E.editGraph(clips, info, fmt, 30, ovl, cwd ? { ass: 't.ass' } : {});
       const args = ['-v', 'error', '-y'];
       used.forEach((id) => { if (media[id].image) args.push('-loop', '1', '-framerate', '30'); args.push('-i', media[id].path); });
       if (g.graph.length > 6000) {
@@ -870,7 +1071,7 @@
       } else args.push('-filter_complex', g.graph);
       args.push('-map', '[v]', '-map', '[a]', '-t', String(g.duration), '-c:v', 'libx264', '-preset', fast ? 'veryfast' : 'medium', '-crf', fast ? '16' : '18',
         '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', '-progress', 'pipe:1', '-nostats', out);
-      const p = spawn(FFMPEG, args);
+      const p = spawn(FFMPEG, args, cwd ? { cwd } : undefined);
       let err = '';
       p.stdout.on('data', (d) => {
         const m = String(d).match(/out_time_(?:us|ms)=(\d+)/g);
@@ -912,7 +1113,11 @@
     labels.innerHTML = '';
     labels.appendChild(el('div', 'ed-lh', ''));
     labels.appendChild(el('div', 'ed-lcap', '💬 ' + tx('ካፕሽን', 'Captions')));
+    labels.appendChild(el('div', 'ed-ltx', 'T ' + tx('ጽሑፍ', 'Text')));
     labels.appendChild(el('div', 'ed-lov', '🎞 ' + tx('ተደራቢ', 'Overlay')));
+    bText.textContent = '＋ T ' + tx('ጽሑፍ', 'Text');
+    bText.title = tx('ርዕስ፣ የስም ጽሑፍ፣ በሳጥን ላይ…', 'Title, lower third, text on a box…');
+    renderTextMenu();
     labels.appendChild(el('div', 'ed-lmain', '🎬 ' + tx('ዋና', 'Main')));
     renderInspector();
     if (review.classList.contains('ed-mediamode')) renderMedia();
@@ -943,26 +1148,27 @@
   function saveState() {
     if (!built) return null;
     syncSrc();
-    return { v: 1, fmt, clips, ovl, media, S: SRC };
+    return { v: 1, fmt, clips, ovl, txt, media, S: SRC };
   }
   function loadState(ed, cues) {
     opening = null;
     if (ed && Array.isArray(ed.clips) && ed.clips.length && ed.media) {
-      media = ed.media; clips = ed.clips; ovl = ed.ovl || []; fmt = ed.fmt || '16:9'; SRC = ed.S || {};
+      media = ed.media; clips = ed.clips; ovl = ed.ovl || []; txt = ed.txt || []; fmt = ed.fmt || '16:9'; SRC = ed.S || {};
       Object.keys(media).forEach(loadPeaks);
       built = true; fitted = false; cur = 0; ET = 0; sel = null;
       reviewCues = E.deriveCaptions(clips, SRC);
       renderReview();
       seek(0); after(); renderMedia(); syncUndo();
     } else {
-      built = false; media = {}; clips = []; ovl = []; SRC = {};
+      built = false; media = {}; clips = []; ovl = []; txt = []; SRC = {};
       void cues;
       open();
     }
   }
   function reset() {
     pause();
-    built = false; media = {}; clips = []; ovl = []; SRC = {}; sel = null; fitted = false; REDO.length = 0; opening = null;
+    built = false; media = {}; clips = []; ovl = []; txt = []; SRC = {}; sel = null; fitted = false; REDO.length = 0; opening = null;
+    Object.keys(TXEL).forEach((id) => { TXEL[id].remove(); delete TXEL[id]; });
     Object.keys(OVEL).forEach((id) => { OVEL[id].remove(); delete OVEL[id]; });
     const v = V(); if (v) delete v.dataset.m;
     setLeft(false);
@@ -971,7 +1177,8 @@
   const shown = () => { const c = window.__amhAppChosen && window.__amhAppChosen(); if (c && !Object.keys(media).length) addMedia(c.path, { id: 'm1' }).then(() => { const v = V(); if (v) v.dataset.m = 'm1'; frame(); }); };
 
   relabel();
+  loadFonts();
   ST.attachEditor({ draw, drawSoon, seek, duration: total, peaks: editPeaks, open, shown, saveState, loadState, exportVideo, format: () => fmt });
-  window.__amhEditor = { state: () => ({ clips, ovl, media, SRC, fmt, sel, built }), addOverlay, seek, play, pause, time, splitHere, deleteSel, cutRanges, redo,
+  window.__amhEditor = { state: () => ({ clips, ovl, txt, media, SRC, fmt, sel, built }), addOverlay, addText, seek, play, pause, time, splitHere, deleteSel, cutRanges, redo,
     select: (id) => { sel = id; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, render, exportVideo, frame, setFormat: (f) => change('format', () => { fmt = f; }) };
 })();

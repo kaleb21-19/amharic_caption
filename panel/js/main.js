@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.21.0';
+const APP_VERSION = '1.22.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,19 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.22.0': {
+    banner: {
+      am: 'T Studio፦ ርዕስ፣ የስም ጽሑፍ (lower third) እና በሳጥን ላይ ጽሑፍ በአማርኛ ፊደሎች — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: 'T Studio: titles, lower thirds and text on a box in Amharic fonts — your license stays the same.',
+    },
+    items: [
+      { am: 'T ጽሑፍ መስመር፦ ርዕስ፣ የስምና ማዕረግ ጽሑፍ፣ በሳጥን ላይ፣ ቀላል', en: 'T Text track: title, name and title (lower third), on a box, plain' },
+      { am: 'አራት የአማርኛ ፊደሎች፣ መጠን፣ ቀለም', en: 'Four Amharic fonts, size, colour' },
+      { am: 'እንቅስቃሴ፦ Fade · Slide · Pop', en: 'Animation: Fade · Slide · Pop' },
+      { am: 'በምስሉ ላይ ጎትተው ቦታውን ያስተካክሉ፤ በጊዜ መስመሩ ላይ ያንቀሳቅሱና ያሳጥሩ', en: 'Drag it on the picture; move and trim it on the timeline' },
+      { am: 'የሚያዩት ፊደል ልክ የሚላከው ነው', en: 'The font you see is exactly the font you export' },
+    ],
+  },
   '1.21.0': {
     banner: {
       am: '🎞 Studio፦ B-roll፣ ፎቶና ሎጎ ከዋናው ቪዲዮ በላይ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
