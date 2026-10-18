@@ -136,8 +136,8 @@ cp "$ROOT/amh_model.py" "$RT/amh_model.py"
 # Caption styles (1.11): the style drawer + the Amharic fonts it uses (OFL).
 cp "$ROOT/amh_styles.py" "$RT/amh_styles.py"
 mkdir -p "$RT/fonts"
-cp "$ROOT"/tools/fonts/*.ttf "$ROOT"/tools/fonts/OFL*.txt "$ROOT/tools/fonts/metrics.json" "$RT/fonts/"
-echo "  [ok] amh_styles.py + fonts (Noto Sans/Serif Ethiopic, Menbere, Abyssinica SIL; OFL)"
+cp "$ROOT"/tools/fonts/*.ttf "$ROOT"/tools/fonts/OFL*.txt "$ROOT"/tools/fonts/FONTLOG*.txt "$ROOT/tools/fonts/metrics.json" "$RT/fonts/"
+echo "  [ok] amh_styles.py + 12 Amharic fonts (Noto, Menbere, Abyssinica, Agbalumo, Hibur Mono, Senamirmir; all OFL)"
 
 # ffmpeg
 FF="${STAGE}/${TARGET}/${FFSUFFIX}"

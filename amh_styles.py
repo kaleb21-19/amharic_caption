@@ -65,7 +65,89 @@ FONTS = {
     "menbere": "Menbere",             # rounded, friendly
     "serif": "Noto Serif Ethiopic",   # classic, for documentaries / news
     "abyssinica": "Abyssinica SIL",   # traditional book letters
+    # 1.28.0 (owner's pick for TikTok / Reels): Senamirmir fonts are shipped
+    # UNMODIFIED (Reserved Font Names), like Abyssinica
+    "yebse": "Ethiopic Yebse",        # heavy, blocky
+    "washra": "Ethiopic WashRa Bold", # bold, clean
+    "agbalumo": "Agbalumo",           # playful, rounded
+    "tint": "Ethiopic Tint",          # brush
+    "fantuwua": "Ethiopic Fantuwua",  # handwritten
+    "jiret": "Ethiopia Jiret",        # book
+    "hibur": "Hibur Mono",            # typewriter (TypeHabesha)
+    "gothic": "Ethiopic Yigezu Bisrat Gothic",  # ornate
 }
+
+# "Install Amharic fonts on this PC" (1.28.0): the shipped files and the
+# names Windows lists them under, so Premiere's own titles, CapCut and
+# DaVinci can use them too
+FONT_INSTALL = [
+    ("NotoSansEthiopic-Regular.ttf", "Noto Sans Ethiopic Regular"), ("NotoSansEthiopic-Bold.ttf", "Noto Sans Ethiopic Bold"),
+    ("NotoSerifEthiopic-Regular.ttf", "Noto Serif Ethiopic Regular"), ("NotoSerifEthiopic-Bold.ttf", "Noto Serif Ethiopic Bold"),
+    ("Menbere-Regular.ttf", "Menbere Regular"), ("Menbere-Bold.ttf", "Menbere Bold"),
+    ("AbyssinicaSIL-Regular.ttf", "Abyssinica SIL Regular"),
+    ("yebse.ttf", "Ethiopic Yebse"), ("washrab.ttf", "Ethiopic WashRa Bold"), ("Agbalumo-Regular.ttf", "Agbalumo Regular"),
+    ("tint.ttf", "Ethiopic Tint"), ("fantuwua.ttf", "Ethiopic Fantuwua"), ("jiret.ttf", "Ethiopia Jiret"),
+    ("HiburMono-Regular.ttf", "Hibur Mono Regular"), ("yigezubisratgothic.ttf", "Ethiopic Yigezu Bisrat Gothic"),
+]
+
+
+def install_fonts(src):
+    """Copy the shipped fonts into THIS user's font folder (no administrator):
+    Windows %LOCALAPPDATA%\\Microsoft\\Windows\\Fonts + the per-user font list in
+    the registry (and loaded right away for running apps), Mac ~/Library/Fonts,
+    Linux ~/.local/share/fonts. A font already there with the same size is
+    left alone. Tests: AMH_FONT_INSTALL_DIR / AMH_FONT_REG_KEY redirect both.
+    -> {"installed": [...], "already": [...], "failed": [...], "dir": ...}"""
+    import shutil
+    test_dir = os.environ.get("AMH_FONT_INSTALL_DIR")
+    if test_dir:
+        dest = test_dir
+    elif sys.platform == "win32":
+        dest = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "Microsoft", "Windows", "Fonts")
+    elif sys.platform == "darwin":
+        dest = os.path.expanduser("~/Library/Fonts")
+    else:
+        dest = os.path.expanduser("~/.local/share/fonts")
+    os.makedirs(dest, exist_ok=True)
+    res = {"installed": [], "already": [], "failed": [], "dir": dest}
+    reg = None
+    if sys.platform == "win32":
+        try:
+            import winreg
+            key = os.environ.get("AMH_FONT_REG_KEY") or r"Software\Microsoft\Windows NT\CurrentVersion\Fonts"
+            reg = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, key, 0, winreg.KEY_SET_VALUE)
+        except Exception:
+            reg = None
+    for fname, name in FONT_INSTALL:
+        s = os.path.join(src, fname)
+        if not os.path.isfile(s):
+            continue
+        d = os.path.join(dest, fname)
+        try:
+            if os.path.isfile(d) and os.path.getsize(d) == os.path.getsize(s):
+                res["already"].append(name)
+            else:
+                shutil.copyfile(s, d)
+                res["installed"].append(name)
+            if reg is not None:
+                import winreg
+                winreg.SetValueEx(reg, name + " (TrueType)", 0, winreg.REG_SZ, d)
+                if not test_dir:
+                    # running apps see it now (Premiere may still need a restart)
+                    import ctypes
+                    ctypes.windll.gdi32.AddFontResourceW(d)
+        except Exception as e:
+            res["failed"].append("%s: %s" % (name, e))
+    if reg is not None:
+        try:
+            import winreg
+            winreg.CloseKey(reg)
+            if not test_dir:
+                import ctypes
+                ctypes.windll.user32.SendMessageTimeoutW(0xFFFF, 0x001D, 0, 0, 0x0002, 1000, None)   # WM_FONTCHANGE
+        except Exception:
+            pass
+    return res
 
 
 def _ts(t):
@@ -282,7 +364,7 @@ def build(words, style, width, height, font=FONT, opts=None):
     o = options(opts)
     if font == FONT:
         font = FONTS[o["font"]]
-    K = SIZES[o["size"]]
+    K = SIZES[o["size"]] * float((_face(font) or {}).get("scale", 1.0))   # every font looks the same size (1.28.0)
     NW = o["words"]
     words = _mark_emphasis([(_clean(w[0]), float(w[1]), float(w[2])) for w in words if _clean(w[0])], o["emph"])
     h = float(height)
@@ -1076,6 +1158,13 @@ if __name__ == "__main__":
             job = json.load(open(sys.argv[2], encoding="utf-8"))
             res = render(job, lambda x: print("[style] %.3f" % x, flush=True))
             print(json.dumps(dict(res, ok=True)), flush=True)
+            sys.exit(0)
+        except Exception as e:
+            print(json.dumps({"ok": False, "error": str(e)}), flush=True)
+            sys.exit(1)
+    if len(sys.argv) == 3 and sys.argv[1] == "install-fonts":
+        try:
+            print(json.dumps(dict(install_fonts(sys.argv[2]), ok=True)), flush=True)
             sys.exit(0)
         except Exception as e:
             print(json.dumps({"ok": False, "error": str(e)}), flush=True)

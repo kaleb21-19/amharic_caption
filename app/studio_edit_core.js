@@ -304,7 +304,9 @@
   //   canvas height), color, x, y (offset, share of the canvas), anim: auto |
   //   none | fade | slide | pop, start, in: 0, out (= how long it shows) }.
   // Drawn by libass (the caption styles' engine) with the shipped fonts.
-  const TFONTS = { sans: 'Noto Sans Ethiopic', menbere: 'Menbere', serif: 'Noto Serif Ethiopic', abyssinica: 'Abyssinica SIL' };
+  const TFONTS = { sans: 'Noto Sans Ethiopic', menbere: 'Menbere', serif: 'Noto Serif Ethiopic', abyssinica: 'Abyssinica SIL',
+    yebse: 'Ethiopic Yebse', washra: 'Ethiopic WashRa Bold', agbalumo: 'Agbalumo', tint: 'Ethiopic Tint', fantuwua: 'Ethiopic Fantuwua',
+    jiret: 'Ethiopia Jiret', hibur: 'Hibur Mono', gothic: 'Ethiopic Yigezu Bisrat Gothic' };
   const TPRESETS = {
     title: { size: 0.085, anim: 'pop' },
     lower: { size: 0.05, anim: 'slide' },
@@ -327,6 +329,23 @@
     if (preset === 'lower') return { an: 1, x: Math.round(W * 0.06 + (Number(t.x) || 0) * W), y: Math.round(H * (H > W ? 0.72 : 0.82) + (Number(t.y) || 0) * H) };
     return { an: 5, x: Math.round(W / 2 + (Number(t.x) || 0) * W), y: Math.round(H / 2 + (Number(t.y) || 0) * H) };
   }
+  // 1.28.0: each font's measurements (runtime/fonts/metrics.json, set by the
+  // editor): scale = the size factor that makes every font look the same size;
+  // css = browser px per libass size (libass sizes a font by its line box,
+  // a browser by its em), so the preview shows exactly what the export draws
+  let FONTINFO = {};
+  function setFontInfo(metrics) {
+    FONTINFO = {};
+    Object.keys(TFONTS).forEach((id) => {
+      const m = metrics && (metrics[TFONTS[id] + '|1'] || metrics[TFONTS[id] + '|0']);
+      if (m) FONTINFO[id] = { scale: Number(m.scale) || 1, css: m.upm && m.em ? m.upm / m.em : 1 };
+    });
+  }
+  const fontInfo = (id) => FONTINFO[TFONTS[id] ? id : 'sans'] || { scale: 1, css: 1 };
+  function textSize(t, H) {
+    const preset = TPRESETS[t.preset] ? t.preset : 'plain';
+    return Math.round(H * (Number(t.size) || TPRESETS[preset].size) * fontInfo(t.font).scale);
+  }
   function textAss(items, W, H, totalLen) {
     const head = ['[Script Info]', 'ScriptType: v4.00+', 'PlayResX: ' + W, 'PlayResY: ' + H, 'WrapStyle: 0', 'ScaledBorderAndShadow: yes', '',
       '[V4+ Styles]',
@@ -341,7 +360,7 @@
       if (en <= st || !String(t.text || '').trim()) return;
       const preset = TPRESETS[t.preset] ? t.preset : 'plain';
       const P = TPRESETS[preset];
-      const fs = Math.round(H * (Number(t.size) || P.size));
+      const fs = textSize(t, H);
       const fn = TFONTS[t.font] || TFONTS.sans;
       const col = assColor(t.color || '#FFFFFF');
       const a = textAnchor(t, W, H);
@@ -540,7 +559,7 @@
 
   const api = { MIN, layout, total, locate, sourceToEdit, splitAt, removeClip, trimClip, moveClip, dropIndex, cutRange,
     words, deriveCaptions, syncBack, FORMATS, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
-    TFONTS, TPRESETS, assColor, textAnchor, textAss, LOUD, MUS_DEFAULT, musicGain,
+    TFONTS, TPRESETS, assColor, textAnchor, textAss, setFontInfo, fontInfo, textSize, LOUD, MUS_DEFAULT, musicGain,
     PRESETS, presetFor, GPU_ENCODERS, encoderArgs, eta,
     speedOf: sp, clipLen, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

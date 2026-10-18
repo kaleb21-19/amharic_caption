@@ -403,3 +403,4 @@ html.amh-editor .ed-cwrap { height: 222px; }
 .st-err { color: #ff8a80; }
 .st-export.busy { background: #1f7a4c; }
 @media (max-width: 720px) { .st-presets { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.ed-fonts { flex-wrap: wrap; } .ed-fonts button { flex: 1 0 22%; }
