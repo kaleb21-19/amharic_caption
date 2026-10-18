@@ -688,6 +688,12 @@
     line-height: 1.45; margin-top: 6px; min-height: 12px;
     white-space: pre-wrap; word-break: break-word;
   }
+/* Amharic typing badge (1.26.0) */
+.amh-type-badge { position: fixed; z-index: 9999; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 5px;
+  background: #2ecc71; color: #06110c; font: 700 11px/18px 'Abyssinica SIL', 'Noto Sans Ethiopic', sans-serif; text-align: center;
+  cursor: pointer; opacity: .9; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+.amh-type-badge.off { background: #3a4540; color: #cfd8d3; }
+.amh-type-badge:hover { opacity: 1; }
 </style>
 </head>
 <body>
@@ -976,7 +982,7 @@
     <div class="recent-list" id="recentList"></div>
   </div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.25.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span></span>
+    <span>v<span id="panelVersion">1.26.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span></span>
     <span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="updateCheck" title="Check for updates" data-i18n="update.check" data-i18n-title="update.checkTitle">↻ Check for updates</a>
@@ -992,7 +998,7 @@
     <div class="tc-box">
       <div class="tc-title" id="fbTitle" data-i18n="fb.title">💡 Tell us what you think</div>
       <div class="tc-sub" data-i18n="fb.sub">An idea, a problem or a question — it goes straight to the people who build Amharic Captions.</div>
-      <textarea id="feedbackText" maxlength="1500" placeholder="Write here…" data-i18n-placeholder="fb.placeholder"></textarea>
+      <textarea id="feedbackText" data-amh-type="1" maxlength="1500" placeholder="Write here…" data-i18n-placeholder="fb.placeholder"></textarea>
       <input id="feedbackTg" maxlength="40" placeholder="Your Telegram @username (optional, so we can reply)" data-i18n-placeholder="fb.tg">
       <button type="button" id="feedbackSend" class="btn btn-primary" data-i18n="fb.send">Send</button>
       <div class="tc-sub" id="feedbackStatus" style="display:none;font-weight:600;"></div>

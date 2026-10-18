@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.25.0';
+const APP_VERSION = '1.26.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,18 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.26.0': {
+    banner: {
+      am: '⌨ ያለ አማርኛ ኪቦርድ አማርኛ ይጻፉ፦ selam → ሰላም — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '⌨ Type Amharic without an Amharic keyboard: selam → ሰላም — your license stays the same.',
+    },
+    items: [
+      { am: 'በካፕሽን፣ በማረሚያ እና በStudio ጽሑፍ ውስጥ በላቲን ፊደል ሲጽፉ አማርኛ ይወጣል', en: 'In captions, fixes and Studio titles, Latin letters write Amharic as you type' },
+      { am: 'biet → ቤት · gwada → ጓዳ · TEna → ጤና · :: → ።', en: 'biet → ቤት · gwada → ጓዳ · TEna → ጤና · :: → ።' },
+      { am: 'ሳጥኑ ላይ ያለውን አ ይጫኑ ወይም Ctrl+Space (Mac ⌘⇧Space) — ለእንግሊዝኛ', en: 'Click the አ on the box or press Ctrl+Space (Mac ⌘⇧Space) — for English' },
+      { am: 'የአማርኛ ኪቦርድ ያላቸውም እንደቀድሞው ይጽፋሉ', en: 'An Amharic keyboard keeps working as before' },
+    ],
+  },
   '1.25.0': {
     banner: {
       am: '⬆ Studio፦ ለYouTube፣ TikTok፣ Instagram፣ ቴሌግራም በአንድ ጊዜ ይላኩ — በግራፊክስ ካርድ በጣም ፈጣን — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -960,6 +972,8 @@ const PANEL_SHORTCUT_KEYS = (() => {
     // ★, ✂, next/previous caption) leave Shift+ to Premiere
     if (k.length === 1 && 'acvxyz'.indexOf(k) >= 0) list.push({ keyCode: codes[k], [mod]: true, shiftKey: true });
   });
+  // Amharic typing on / off (1.26.0): Ctrl+Space, on a Mac ⌘⇧Space (⌃Space and ⌘Space belong to macOS)
+  list.push(mac ? { keyCode: 49, metaKey: true, shiftKey: true } : { keyCode: 32, ctrlKey: true });
   return list;
 })();
 try {
@@ -967,6 +981,84 @@ try {
     window.__adobe_cep__.registerKeyEventsInterest(JSON.stringify(PANEL_SHORTCUT_KEYS));
   }
 } catch (e) {}
+
+// ── Amharic typing with Latin letters (1.26.0) ──────────────────────────────
+// In the fields marked data-amh-type (caption text, fixes, Studio titles…)
+// Latin keys write Amharic as you type (selam → ሰላም; core.js amhType). A
+// small አ badge on the field shows it is on: click it — or Ctrl+Space (Mac
+// ⌘⇧Space) — to type English. Real Amharic keyboards are not touched (their
+// keys are not Latin letters). Typing goes through insertText, so Ctrl+Z
+// still undoes it.
+const AMH_TYPE_MAC = (typeof process !== 'undefined' && process.platform === 'darwin');
+const AMH_TYPE_KEY = AMH_TYPE_MAC ? '⌘⇧Space' : 'Ctrl+Space';
+let AMH_TYPE_ON = true;
+try { AMH_TYPE_ON = localStorage.getItem('amh.type') !== '0'; } catch (e) {}
+const amhTypeRun = { el: null, end: -1, n: 0 };
+let amhTypeBadge = null;
+let amhTypeBadgeFor = null;
+const AMH_TYPE_TIPS = 'selam → ሰላም · biet → ቤት · tEwodros → ቴዎድሮስ · shi → ሺ · nya → ኛ · gwada → ጓዳ\n' +
+  'T → ጥ · C → ጭ · P → ጵ · S → ጽ · H → ሕ · ^s → ሥ · ^h → ኅ · ^S → ፅ · `a → ዓ\n' +
+  ':: → ።   ,, → ፣   ;; → ፤   :- → ፦';
+function amhTypeField(el) { return !!el && !!el.matches && el.matches('textarea[data-amh-type], input[data-amh-type]'); }
+function amhTypeSet(on) {
+  AMH_TYPE_ON = !!on;
+  try { localStorage.setItem('amh.type', AMH_TYPE_ON ? '1' : '0'); } catch (e) {}
+  amhTypeRun.el = null;
+  amhTypeBadgeShow(document.activeElement);
+}
+function amhTypeBadgeShow(el) {
+  amhTypeBadgeFor = amhTypeField(el) ? el : null;
+  if (!amhTypeField(el)) { if (amhTypeBadge) amhTypeBadge.style.display = 'none'; return; }
+  if (!amhTypeBadge) {
+    amhTypeBadge = document.createElement('button');
+    amhTypeBadge.type = 'button';
+    amhTypeBadge.className = 'amh-type-badge';
+    amhTypeBadge.tabIndex = -1;
+    // mousedown, not click: the caret stays in the field
+    amhTypeBadge.addEventListener('mousedown', (e) => { e.preventDefault(); amhTypeSet(!AMH_TYPE_ON); });
+    document.body.appendChild(amhTypeBadge);
+  }
+  amhTypeBadge.textContent = AMH_TYPE_ON ? 'አ' : 'A';
+  amhTypeBadge.classList.toggle('off', !AMH_TYPE_ON);
+  amhTypeBadge.title = (AMH_TYPE_ON
+    ? L('Amharic typing: Latin letters write Amharic (selam → ሰላም).') + ' ' + L('For English:') + ' ' + AMH_TYPE_KEY
+    : L('English typing.') + ' ' + L('For Amharic:') + ' ' + AMH_TYPE_KEY) + '\n\n' + AMH_TYPE_TIPS;
+  const r = el.getBoundingClientRect();
+  if (!r.width) { amhTypeBadge.style.display = 'none'; return; }
+  amhTypeBadge.style.display = '';
+  amhTypeBadge.style.left = Math.round(r.right - 21) + 'px';
+  amhTypeBadge.style.top = Math.round(r.top + 3) + 'px';
+}
+document.addEventListener('focusin', (e) => amhTypeBadgeShow(e.target));
+// focus events can be missed (a window without focus): a click or key in the field shows it too
+document.addEventListener('mouseup', (e) => { if (amhTypeField(e.target) && amhTypeBadgeFor !== e.target) amhTypeBadgeShow(e.target); });
+document.addEventListener('focusout', () => setTimeout(() => amhTypeBadgeShow(document.activeElement), 0));
+window.addEventListener('scroll', () => { if (amhTypeBadge && amhTypeBadge.style.display !== 'none') amhTypeBadgeShow(document.activeElement); }, true);
+window.addEventListener('resize', () => amhTypeBadgeShow(document.activeElement));
+document.addEventListener('keydown', (e) => {
+  const el = e.target;
+  if (!amhTypeField(el)) return;
+  if (amhTypeBadgeFor !== el) amhTypeBadgeShow(el);
+  const toggle = AMH_TYPE_MAC ? (e.metaKey && e.shiftKey && e.code === 'Space') : (e.ctrlKey && !e.shiftKey && e.code === 'Space');
+  if (toggle) { e.preventDefault(); amhTypeSet(!AMH_TYPE_ON); return; }
+  if (!AMH_TYPE_ON || e.ctrlKey || e.metaKey || e.altKey || e.isComposing || !e.key || e.key.length !== 1) return;
+  const a = el.selectionStart, b = el.selectionEnd;
+  if (a == null) return;
+  const chained = (amhTypeRun.el === el && amhTypeRun.end === a && a === b) ? amhTypeRun.n : 0;
+  const r = amhType(el.value.slice(0, a), e.key, chained);
+  if (!r) { amhTypeRun.el = null; return; }
+  e.preventDefault();
+  const del = Math.min(r.del, a);
+  el.setSelectionRange(a - del, b);
+  let ok = false;
+  try { ok = document.execCommand('insertText', false, r.ins); } catch (x) { ok = false; }
+  if (!ok || el.value.slice(el.selectionStart - r.ins.length, el.selectionStart) !== r.ins) {
+    el.setRangeText(r.ins, a - del, b, 'end');
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  amhTypeRun.el = el; amhTypeRun.end = el.selectionStart;
+  amhTypeRun.n = Math.min(3, Math.max(0, chained - del) + r.ins.length);
+}, true);
 
 // ── Amharic font detection: which installed font renders አማርኛ well? ───────
 // The caption track in Premiere uses the operating system's default for the
@@ -4116,6 +4208,7 @@ function renderReview() {
     const ta = document.createElement('textarea');
     ta.value = cue.text || ''; ta.placeholder = L('caption text');
     ta.rows = 1;
+    ta.dataset.amhType = '1';
     // The captions are Amharic. Without this the whole review list is read as
     // English, and a screen reader pronounces Ge'ez with the wrong voice.
     ta.setAttribute('lang', 'am');
@@ -6409,9 +6502,9 @@ function clientNewWordForm() {
   const box = document.createElement('div');
   box.className = 'cli-form';
   const w = document.createElement('input');
-  w.type = 'text'; w.className = 'cli-input'; w.placeholder = L('Wrong word'); w.maxLength = 120;
+  w.type = 'text'; w.className = 'cli-input'; w.placeholder = L('Wrong word'); w.maxLength = 120; w.dataset.amhType = '1';
   const r = document.createElement('input');
-  r.type = 'text'; r.className = 'cli-input'; r.placeholder = L('Right word'); r.maxLength = 120;
+  r.type = 'text'; r.className = 'cli-input'; r.placeholder = L('Right word'); r.maxLength = 120; r.dataset.amhType = '1';
   box.appendChild(w);
   box.appendChild(r);
   const save = cliButton(L('Save'), 'cli-save', '', () => {

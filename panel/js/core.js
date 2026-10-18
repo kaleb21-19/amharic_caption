@@ -764,6 +764,80 @@ function regroupCues(cues, opts) {
   return out;
 }
 
+// ── Amharic typing with Latin letters (1.26.0) ─────────────────────────────
+// Like a phonetic keyboard: a consonant key writes its 6th form (s → ስ), the
+// vowel after it turns it into that order (s e → ሰ, s a → ሳ), i e → 5th (ቤ).
+// amhType(before, key, chained) -> null (let the key through) or
+// { del, ins }: remove `del` characters before the caret, insert `ins`.
+// before: the text before the caret; chained: how many of its last
+// characters this typing just made (only those may still change).
+const AMH_ROWS = {
+  h: 0x1200, l: 0x1208, H: 0x1210, m: 0x1218, r: 0x1228, s: 0x1230, x: 0x1238, q: 0x1240,
+  b: 0x1260, v: 0x1268, t: 0x1270, c: 0x1278, n: 0x1290, N: 0x1298, k: 0x12A8, w: 0x12C8,
+  z: 0x12D8, Z: 0x12E0, y: 0x12E8, d: 0x12F0, j: 0x1300, g: 0x1308, T: 0x1320, C: 0x1328,
+  P: 0x1330, S: 0x1338, f: 0x1348, p: 0x1350,
+};
+// the rows a key can never start but a combination can: ^s ሠ, ^h ኀ, ^S ፀ, ` ዐ, glottal አ
+const AMH_ALT = { s: 0x1220, h: 0x1280, S: 0x1340 };
+const AMH_GLOTTAL = 0x12A0, AMH_AYN = 0x12D0;
+// the "wa" form of a row (ሏ ቋ ኳ ጓ …); rows without one are missing
+const AMH_WA = {};
+[0x1208, 0x1210, 0x1218, 0x1220, 0x1228, 0x1230, 0x1238, 0x1260, 0x1268, 0x1270, 0x1278, 0x1290, 0x1298,
+  0x12D8, 0x12E0, 0x12F0, 0x1300, 0x1320, 0x1328, 0x1330, 0x1338, 0x1348, 0x1350].forEach((b) => { AMH_WA[b] = b + 7; });
+AMH_WA[0x1240] = 0x124B; AMH_WA[0x1280] = 0x128B; AMH_WA[0x12A8] = 0x12B3; AMH_WA[0x1308] = 0x1313; AMH_WA[0x1200] = 0x128B;
+const AMH_VOWEL = { e: 0, u: 1, i: 2, a: 3, E: 4, I: 5, o: 6, A: 3, U: 1, O: 6 };
+// every row the typing knows, so a character can be read back as (row, order)
+const AMH_ALL_ROWS = Object.keys(AMH_ROWS).map((k) => AMH_ROWS[k]).concat([0x1220, 0x1280, 0x1340, AMH_GLOTTAL, AMH_AYN]);
+function amhRowOf(ch) {
+  const c = ch ? ch.charCodeAt(0) : 0;
+  for (const b of AMH_ALL_ROWS) if (c >= b && c <= b + 6) return { base: b, order: c - b };
+  return null;
+}
+const amhChar = (base, order) => String.fromCharCode(base + order);
+function amhType(before, key, chained) {
+  before = String(before || '');
+  chained = chained || 0;
+  const prev = before.slice(-1), prev2 = before.slice(-2, -1);
+  const pr = chained >= 1 ? amhRowOf(prev) : null;
+  // punctuation by doubling: :: ።  ,, ፣  ;; ፤  :- ፦  (one alone stays itself)
+  if (key === ':' || key === ',' || key === ';' || key === '-') {
+    if (chained >= 1 && prev === ':' && key === ':') return { del: 1, ins: '።' };
+    if (chained >= 1 && prev === ':' && key === '-') return { del: 1, ins: '፦' };
+    if (chained >= 1 && prev === ',' && key === ',') return { del: 1, ins: '፣' };
+    if (chained >= 1 && prev === ';' && key === ';') return { del: 1, ins: '፤' };
+    return key === '-' ? null : { del: 0, ins: key };
+  }
+  if (!/^[A-Za-z]$/.test(key)) return null;
+  // ^s ሥ, ^h ኅ, ^S ፅ (the rarer letters of the same sound)
+  if (prev === '^' && AMH_ALT[key]) return { del: 1, ins: amhChar(AMH_ALT[key], 5) };
+  if (key in AMH_VOWEL) {
+    const o = AMH_VOWEL[key];
+    // ` + vowel: the ዐ row (ዓመት)
+    if (prev === '`') return { del: 1, ins: amhChar(AMH_AYN, o === 5 ? 5 : o) };
+    if (pr) {
+      // l w a -> ሏ (the consonant's own "wa" form)
+      if (key === 'a' || key === 'A') {
+        const p2 = chained >= 2 && prev === 'ው' ? amhRowOf(prev2) : null;
+        if (p2 && p2.order === 5 && AMH_WA[p2.base]) return { del: 2, ins: String.fromCharCode(AMH_WA[p2.base]) };
+      }
+      if (pr.order === 5) return { del: 1, ins: amhChar(pr.base, o) };               // ስ + a -> ሳ
+      if (pr.order === 2 && key === 'e') return { del: 1, ins: amhChar(pr.base, 4) }; // ቢ + e -> ቤ
+    }
+    // a vowel on its own: a አ, e እ, i ኢ, u ኡ, o ኦ, E ኤ (ኣ is Tigrinya)
+    return { del: 0, ins: amhChar(AMH_GLOTTAL, key === 'e' ? 5 : (key === 'a' || key === 'A') ? 0 : o) };
+  }
+  // sh ሽ, ch ች, zh ዥ, ny ኝ (the common spellings of x, c, Z, N)
+  if (pr && pr.order === 5) {
+    if (key === 'h' && pr.base === AMH_ROWS.s) return { del: 1, ins: amhChar(AMH_ROWS.x, 5) };
+    if (key === 'h' && pr.base === AMH_ROWS.c) return { del: 1, ins: amhChar(AMH_ROWS.c, 5) };
+    if (key === 'h' && pr.base === AMH_ROWS.z) return { del: 1, ins: amhChar(AMH_ROWS.Z, 5) };
+    if (key === 'y' && pr.base === AMH_ROWS.n) return { del: 1, ins: amhChar(AMH_ROWS.N, 5) };
+  }
+  const base = AMH_ROWS[key] || AMH_ROWS[key.toLowerCase()];
+  if (!base) return null;
+  return { del: 0, ins: amhChar(base, 5) };
+}
+
 // Node (tests) — no-op in the CEP browser where `module` is undefined.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -776,5 +850,6 @@ if (typeof module !== 'undefined' && module.exports) {
     remapCuesAfterCut, remapMediaAfterCut, CLEANUP_FILLERS, CLEANUP_FILLER_WORDS,
     findZoomMoments, cutRanges, findTextCuts, exactWordTimes, regroupCues,
     LICENSE_TOKEN_PUBKEY_PEM, licenseTokenParse, verifyLicenseToken,
+    amhType, amhRowOf,
   };
 }

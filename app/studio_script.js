@@ -212,6 +212,7 @@
     current = p;
     bar.textContent = '';
     const inp = el('input', 'st-fix');
+    inp.dataset.amhType = '1';
     inp.type = 'text';
     inp.value = p.map((x) => plainWord(x.w)).join(' ');
     inp.setAttribute('dir', 'auto');

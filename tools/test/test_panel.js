@@ -531,6 +531,39 @@ t('regroup: words per caption change after transcription; the words, marks and e
   assert.ok(core.regroupCues([{ text: 'ሀ', start: 1, end: 1.02 }], { words: 1 })[0].end >= 1.3);
 });
 
+// ──────────────────────────────────────────────── Amharic typing (1.26.0)
+// types a string key by key the way the panel does (only what it just typed may change)
+function typeAmh(str, start) {
+  let text = start || '', chained = 0;
+  for (const k of str) {
+    const r = core.amhType(text, k, chained);
+    if (!r) { text += k; chained = 0; continue; }
+    text = text.slice(0, text.length - r.del) + r.ins;
+    chained = Math.min(3, Math.max(0, chained - r.del) + r.ins.length);
+  }
+  return text;
+}
+t('amharic typing: everyday words, vowels on their own, i+e, sh/ch/ny/zh', () => {
+  const W = { selam: 'ሰላም', abebe: 'አበበ', amesegnalehu: 'አመሰግናለሁ', kalkidan: 'ካልኪዳን', tEwodros: 'ቴዎድሮስ', biet: 'ቤት',
+    iyesus: 'ኢየሱስ', eske: 'እስከ', ityoPya: 'ኢትዮጵያ', shi: 'ሺ', chE: 'ቼ', nyaw: 'ኛው', zhurnal: 'ዡርናል', ToCa: 'ጦጫ', Heyl: 'ሐይል' };
+  Object.keys(W).forEach((w) => assert.strictEqual(typeAmh(w), W[w], w));
+});
+t('amharic typing: wa forms, ^ letters, ` ayn, doubled punctuation, numbers stay', () => {
+  assert.strictEqual(typeAmh('lwa gwada qwanqwa kwas'), 'ሏ ጓዳ ቋንቋ ኳስ');
+  assert.strictEqual(typeAmh('^sela ^hemsa ^SeHey'), 'ሠላ ኀምሳ ፀሐይ');
+  assert.strictEqual(typeAmh('`amet'), 'ዓመት');
+  assert.strictEqual(typeAmh('hulum:: 5,000 birr,, ena;; :-'), 'ሁሉም። 5,000 ቢርር፣ እና፤ ፦');
+  assert.strictEqual(typeAmh('12:30'), '12:30', 'a time stays a time');
+});
+t('amharic typing: only what it just typed changes; other keys pass through', () => {
+  assert.deepStrictEqual(core.amhType('ስ', 'a', 0), { del: 0, ins: 'አ' }, 'an old ስ (caret moved there) is not changed');
+  assert.deepStrictEqual(core.amhType('ስ', 'a', 1), { del: 1, ins: 'ሳ' });
+  assert.strictEqual(core.amhType('x', '5', 0), null);
+  assert.strictEqual(core.amhType('x', ' ', 1), null);
+  assert.strictEqual(core.amhType('x', '?', 1), null);
+  assert.strictEqual(core.amhType('', '-', 0), null, 'a dash alone is a dash');
+});
+
 (async () => {
   await Promise.all(pending);
   console.log('\n' + (fail === 0 ? 'ALL PASS' : 'FAILURES: ' + fail) +

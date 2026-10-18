@@ -237,7 +237,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.25.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.26.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -2872,7 +2872,9 @@ await t('14b. editing shortcuts (Ctrl/Cmd + C V X A Z Y, + Shift) stay in the pa
         assert.ok(keys.some((k) => k.keyCode === code && k[mod] === true && !k.shiftKey), hostApp + ': key ' + code);
         assert.ok(!keys.some((k) => k.keyCode === code && k.shiftKey), hostApp + ': Shift+' + code + ' stays with the host');
       }
-      assert.strictEqual(keys.length, want.length * 2 + extra.length, 'nothing else is taken from the host');
+      // 1.26.0: Amharic typing on / off — Ctrl+Space, on a Mac ⌘⇧Space
+      assert.ok(keys.some((k) => (mac ? (k.keyCode === 49 && k.metaKey && k.shiftKey) : (k.keyCode === 32 && k.ctrlKey && !k.shiftKey))), hostApp + ': the typing switch');
+      assert.strictEqual(keys.length, want.length * 2 + extra.length + 1, 'nothing else is taken from the host');
     } finally { p.close(); }
   }
 });
