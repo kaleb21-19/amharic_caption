@@ -426,6 +426,7 @@ const WHATS_NEW = {
       { am: 'በPremiere እያንዳንዱ ካፕሽን የራሱ ክሊፕ ነው፦ ለብቻው ያንቀሳቅሱት፣ ያሳጥሩት ወይም ይሰርዙት', en: 'In Premiere every caption is its own clip: move, trim or delete it on its own' },
       { am: 'ካፕሽኑን በጊዜ መስመሩ ላይ ይምረጡ → በፓነሉ "✎ የተመረጠውን ካፕሽን ያስተካክሉ" → ያርሙ → ያስቀምጡ', en: 'Select a caption on the timeline → "✎ Edit the selected caption" in the panel → fix it → Place' },
       { am: 'የተቀየሩት ካፕሽኖች ብቻ እንደገና ይሰራሉ — በሰከንዶች', en: 'Only the captions you changed are drawn again — in seconds' },
+      { am: 'ከ🕘 የቅርብ ጊዜ ሲከፍቱም እንዲሁ፦ የቀየሩት ብቻ ይታደሳል', en: 'The same from 🕘 Recent: only what you changed is updated' },
     ],
   },
   '1.26.0': {
