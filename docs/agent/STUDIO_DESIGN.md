@@ -89,5 +89,5 @@ timeline bottom. Rules:
 - **Everything undoable, redo too.**
 - Order: 1.20 timeline · 1.21 overlay track (B-roll, photos, logo) · 1.22 text
   & lower thirds · 1.23 sound (music, ducking, fades, noise, loudness) — done ·
-  1.24 transitions, speed, colour · 1.25 export presets, GPU, queue, templates.
+  1.24 transitions, speed, colour — done · 1.25 export presets, GPU, queue, templates.
 

@@ -5,7 +5,8 @@
  *
  * The main track is "magnetic" (like CapCut): its clips play one after the
  * other with no gaps; a clip = a piece of a media file { id, m, in, out,
- * scale, x, y, volume }. Edit time = position in the finished video.
+ * scale, x, y, volume, speed, tr (transition INTO it), col (colour) }.
+ * Edit time = position in the finished video; a clip lasts (out-in)/speed.
  *
  * Captions belong to the SOURCE: S = { mediaId: [cues in that file's time] }.
  * What the editor sees and edits is derived for the edit (deriveCaptions);
@@ -16,13 +17,16 @@
 (function (root) {
   const r3 = (x) => Math.round(Number(x) * 1000) / 1000;
   const MIN = 0.1;                                   // shortest clip, seconds
+  // a clip's speed (1.24.0): 0.25x - 4x; its edit length is (out - in) / speed
+  const sp = (c) => { const v = Number(c && c.speed); return v > 0 ? Math.max(0.25, Math.min(4, v)) : 1; };
+  const clipLen = (c) => Math.max(0, c.out - c.in) / sp(c);
 
   // ── the main track ───────────────────────────────────────────────────────
   function layout(clips) {
     let t = 0;
-    return (clips || []).map((c) => { const d = Math.max(0, c.out - c.in); const o = Object.assign({}, c, { s: r3(t), e: r3(t + d) }); t += d; return o; });
+    return (clips || []).map((c) => { const d = clipLen(c); const o = Object.assign({}, c, { s: r3(t), e: r3(t + d) }); t += d; return o; });
   }
-  const total = (clips) => r3((clips || []).reduce((n, c) => n + Math.max(0, c.out - c.in), 0));
+  const total = (clips) => r3((clips || []).reduce((n, c) => n + clipLen(c), 0));
   // the clip at edit time t (the last one at the very end) and the file's second there
   function locate(clips, t) {
     const L = layout(clips);
@@ -30,12 +34,12 @@
     let i = L.findIndex((c) => t >= c.s && t < c.e);
     if (i < 0) i = t < 0 ? 0 : L.length - 1;
     const c = L[i];
-    const src = Math.max(c.in, Math.min(c.out, c.in + (t - c.s)));
+    const src = Math.max(c.in, Math.min(c.out, c.in + (t - c.s) * sp(c)));
     return { i, clip: c, src };
   }
   // every edit time that shows second `src` of media m
   function sourceToEdit(clips, m, src) {
-    return layout(clips).filter((c) => c.m === m && src >= c.in && src < c.out).map((c) => r3(c.s + (src - c.in)));
+    return layout(clips).filter((c) => c.m === m && src >= c.in && src < c.out).map((c) => r3(c.s + (src - c.in) / sp(c)));
   }
   // split the clip under t in two; nothing at a clip edge
   function splitAt(clips, t, newId) {
@@ -43,7 +47,7 @@
     const i = L.findIndex((c) => t > c.s + MIN / 2 && t < c.e - MIN / 2);
     if (i < 0) return clips;
     const c = clips[i];
-    const cut = r3(c.in + (t - L[i].s));
+    const cut = r3(c.in + (t - L[i].s) * sp(c));
     const a = Object.assign({}, c, { out: cut });
     const b = Object.assign({}, c, { id: newId, in: cut });
     return clips.slice(0, i).concat([a, b], clips.slice(i + 1));
@@ -94,12 +98,14 @@
     return parts.map((w, k) => { const d = span * weight[k] / sum; const o = { w, k, s: t, e: t + d, x: false }; t += d; return o; });
   }
   // a caption made of some of its words, times from those words
+  // shift: a number added to the times, or a function (time -> time)
   function fromWords(c, ws, shift) {
     if (!ws.length) return null;
+    const f = typeof shift === 'function' ? shift : (x) => x + shift;
     const q = Object.assign({}, c);
     q.text = ws.map((x) => x.w).join(' ');
-    q.start = r3(ws[0].s + shift); q.end = r3(ws[ws.length - 1].e + shift);
-    if (ws.every((x) => x.x)) q.wt = ws.map((x) => [r3(x.s + shift), r3(x.e + shift)]); else delete q.wt;
+    q.start = r3(f(ws[0].s)); q.end = r3(f(ws[ws.length - 1].e));
+    if (ws.every((x) => x.x)) q.wt = ws.map((x) => [r3(f(x.s)), r3(f(x.e))]); else delete q.wt;
     return q;
   }
   const mid = (x) => (x.s + x.e) / 2;
@@ -109,13 +115,14 @@
   function deriveCaptions(clips, S) {
     const out = [];
     layout(clips).forEach((c) => {
-      const shift = c.s - c.in;
+      const k = sp(c);
+      const shift = (x) => c.s + (x - c.in) / k;           // file time -> edit time
       (S[c.m] || []).forEach((q, ci) => {
         if (q.end <= c.in || q.start >= c.out) return;
         let d;
         if (q.start >= c.in - 1e-6 && q.end <= c.out + 1e-6) {
-          d = Object.assign(clean(q), { start: r3(q.start + shift), end: r3(q.end + shift) });
-          if (Array.isArray(q.wt)) d.wt = q.wt.map((w) => [r3(w[0] + shift), r3(w[1] + shift)]);
+          d = Object.assign(clean(q), { start: r3(shift(q.start)), end: r3(shift(q.end)) });
+          if (Array.isArray(q.wt)) d.wt = q.wt.map((w) => [r3(shift(w[0])), r3(shift(w[1]))]);
         } else {
           d = fromWords(clean(q), words(q).filter((w) => mid(w) >= c.in && mid(w) < c.out), shift);
           if (!d) return;
@@ -154,9 +161,10 @@
         if (d.end <= c.s || d.start >= c.e) return;
         const inClip = dw.filter((w) => mid(w) >= c.s && mid(w) < c.e);
         const ws = inClip.length ? inClip : (d.start >= c.s && d.start < c.e ? dw : []);
-        const q = fromWords(clean(d), ws, c.in - c.s);
+        const back = (t) => c.in + (t - c.s) * sp(c);         // edit time -> file time
+        const q = fromWords(clean(d), ws, back);
         if (!q) return;
-        if (!inClip.length) { q.start = r3(Math.max(c.in, d.start + c.in - c.s)); q.end = r3(Math.min(c.out, d.end + c.in - c.s)); }
+        if (!inClip.length) { q.start = r3(Math.max(c.in, back(d.start))); q.end = r3(Math.min(c.out, back(d.end))); }
         const k = c.m + '|' + q.start + '|' + q.text;
         if (seen[k]) return;
         seen[k] = 1;
@@ -165,6 +173,60 @@
     });
     Object.keys(NS).forEach((m) => NS[m].sort((a, b) => a.start - b.start || a.end - b.end));
     return NS;
+  }
+
+
+  // ── transitions, speed, colour (1.24.0) ──────────────────────────────────
+  // a transition belongs to the clip it goes INTO: tr { type, d }. It is
+  // centred on the cut and uses the media just past the cut (the "handles"),
+  // so the video keeps its length and the captions do not move; with no media
+  // there, the edge frame is held (like Premiere).
+  const TRANSITIONS = ['fade', 'fadeblack', 'fadewhite', 'slideleft', 'wipeleft', 'circleopen', 'zoomin'];
+  function trDur(clips, i) {
+    const c = clips[i], a = clips[i - 1];
+    if (!c || !a || !c.tr || TRANSITIONS.indexOf(c.tr.type) < 0) return 0;
+    const d = Math.min(Number(c.tr.d) || 0.5, 2, clipLen(a), clipLen(c));
+    return d >= 0.04 ? r3(d) : 0;
+  }
+  function atempo(k) {
+    const out = [];
+    while (k > 2.0001) { out.push('atempo=2'); k /= 2; }
+    while (k < 0.4999) { out.push('atempo=0.5'); k /= 0.5; }
+    if (Math.abs(k - 1) > 1e-6) out.push('atempo=' + r3(k));
+    return out;
+  }
+  // colour: { look, bright -1..1, contrast 0.5..1.5, sat 0..2, temp -1..1 }
+  // -> one 3x3 matrix + one offset (RGB 0-1). The export uses it
+  // (colorchannelmixer + lutrgb) and the preview too (an SVG feColorMatrix),
+  // so what you see is what you export.
+  const LOOKS = {
+    none: { bright: 0, contrast: 1, sat: 1, temp: 0 },
+    warm: { bright: 0.02, contrast: 1.05, sat: 1.1, temp: 0.6 },
+    cool: { bright: 0, contrast: 1.05, sat: 0.95, temp: -0.6 },
+    bw: { bright: 0, contrast: 1.15, sat: 0, temp: 0 },
+    vivid: { bright: 0.02, contrast: 1.12, sat: 1.45, temp: 0.1 },
+    cine: { bright: -0.03, contrast: 1.15, sat: 0.8, temp: 0.25 },
+    faded: { bright: 0.06, contrast: 0.8, sat: 0.75, temp: 0.1 },
+  };
+  const colV = (col, k) => (col && col[k] != null ? Number(col[k]) : LOOKS.none[k]);
+  function colorMatrix(col) {
+    const s = colV(col, 'sat'), c = colV(col, 'contrast'), b = colV(col, 'bright'), t = colV(col, 'temp');
+    const lr = 0.2126, lg = 0.7152, lb = 0.0722;
+    const S = [lr * (1 - s) + s, lg * (1 - s), lb * (1 - s),
+      lr * (1 - s), lg * (1 - s) + s, lb * (1 - s),
+      lr * (1 - s), lg * (1 - s), lb * (1 - s) + s];
+    const T = [1 + 0.12 * t, 1, 1 - 0.12 * t];
+    const m = S.map((v, i) => r3(v * T[Math.floor(i / 3)] * c));
+    return { m, o: r3(0.5 * (1 - c) + 0.25 * b) };
+  }
+  const colorOn = (col) => !!col && ['bright', 'contrast', 'sat', 'temp'].some((k) => Math.abs(colV(col, k) - LOOKS.none[k]) > 1e-6);
+  function colorFilter(col) {
+    if (!colorOn(col)) return '';
+    const { m, o } = colorMatrix(col);
+    const n = ['rr', 'rg', 'rb', 'gr', 'gg', 'gb', 'br', 'bg', 'bb'];
+    let f = ',colorchannelmixer=' + n.map((k, i) => k + '=' + m[i]).join(':');
+    if (Math.abs(o) > 1e-6) { const v = Math.round(o * 255); f += ",lutrgb=r='clip(val" + (v >= 0 ? '+' : '') + v + ",0,255)':g='clip(val" + (v >= 0 ? '+' : '') + v + ",0,255)':b='clip(val" + (v >= 0 ? '+' : '') + v + ",0,255)'"; }
+    return f;
   }
 
   // ── the export: the whole edit as one ffmpeg graph ───────────────────────
@@ -352,21 +414,34 @@
     const { w: W, h: H } = canvasSize(fmt);
     const L = layout(clips);
     const parts = [], ins = [];
+    const D = L.map((c, i) => trDur(clips, i));            // D[i]: the transition into clip i
+    const seg = [];
     L.forEach((c, i) => {
       const m = media[c.m] || {};
-      const d = r3(c.out - c.in);
+      const k = sp(c);
+      const len = clipLen(c);
+      // the media just past the cut, for a transition (edit seconds), and how much of it the file has
+      const pre = D[i] / 2, post = (D[i + 1] || 0) / 2;
+      const a0 = Math.max(0, c.in - pre * k), b0 = Math.min(m.dur == null ? Infinity : m.dur, c.out + post * k);
+      const holdA = r3(pre - (c.in - a0) / k), holdB = r3(post - (b0 - c.out) / k);
+      const tin = r3(a0), tout = r3(b0);
+      const d = r3(len + pre + post);
+      seg.push(d);
       const f = Math.min(0.01, d / 4).toFixed(3);
       if (m.video) {
         const p = placement(m, c, W, H);
-        parts.push('[' + m.idx + ':v]trim=start=' + c.in + ':end=' + c.out + ',setpts=PTS-STARTPTS,fps=' + fps + ',scale=' + p.sw + ':' + p.sh + ',setsar=1[s' + i + ']');
+        const hold = (holdA > 0.001 || holdB > 0.001) ? ',tpad=' + [holdA > 0.001 ? 'start_mode=clone:start_duration=' + holdA : '', holdB > 0.001 ? 'stop_mode=clone:stop_duration=' + holdB : ''].filter(Boolean).join(':') : '';
+        parts.push('[' + m.idx + ':v]trim=start=' + tin + ':end=' + tout + ',setpts=' + (k === 1 ? 'PTS-STARTPTS' : '(PTS-STARTPTS)/' + r3(k)) + ',fps=' + fps + hold + ',scale=' + p.sw + ':' + p.sh + ',setsar=1' + colorFilter(c.col) + '[s' + i + ']');
         parts.push('color=c=black:s=' + W + 'x' + H + ':r=' + fps + ':d=' + d + '[b' + i + ']');
         parts.push('[b' + i + '][s' + i + ']overlay=' + p.x + ':' + p.y + ':shortest=1,format=yuv420p[v' + i + ']');
       } else {
         parts.push('color=c=black:s=' + W + 'x' + H + ':r=' + fps + ':d=' + d + ',format=yuv420p[v' + i + ']');
       }
       if (m.audio) {
-        parts.push('[' + m.idx + ':a]atrim=start=' + c.in + ':end=' + c.out + ',asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,volume=' +
-          (c.volume == null ? 1 : Number(c.volume)) + ',afade=t=in:d=' + f + ',afade=t=out:st=' + Math.max(0, d - f).toFixed(3) + ':d=' + f + '[a' + i + ']');
+        const tempo = atempo(k);
+        const pads = (holdA > 0.001 ? ',adelay=' + Math.round(holdA * 1000) + ':all=1' : '') + (holdB > 0.001 ? ',apad=pad_dur=' + holdB : '');
+        parts.push('[' + m.idx + ':a]atrim=start=' + tin + ':end=' + tout + ',asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo' + (tempo.length ? ',' + tempo.join(',') : '') + pads + ',volume=' +
+          (c.volume == null ? 1 : Number(c.volume)) + ',afade=t=in:d=' + f + ',afade=t=out:st=' + Math.max(0, d - f).toFixed(3) + ':d=' + f + (pads || tempo.length ? ',atrim=duration=' + d : '') + '[a' + i + ']');
       } else {
         parts.push('anullsrc=r=48000:cl=stereo,atrim=duration=' + d + '[a' + i + ']');
       }
@@ -376,7 +451,28 @@
     const vOut = opts.ass ? 'vx' : 'v';
     const soundOn = (opts.mus || []).some((o) => media[o.m]) || (opts.snd && (opts.snd.clean || LOUD[opts.snd.loud]));
     const aOut = soundOn ? 'av' : 'a';
-    parts.push(ins.join('') + 'concat=n=' + L.length + ':v=1:a=1' + (list.length ? '[vm][am]' : '[' + vOut + '][' + aOut + ']'));
+    const vEnd = list.length ? 'vm' : vOut, aEnd = list.length ? 'am' : aOut;
+    if (!D.some((x) => x > 0)) parts.push(ins.join('') + 'concat=n=' + L.length + ':v=1:a=1[' + vEnd + '][' + aEnd + ']');
+    else {
+      // one cut after the other: a transition (xfade + acrossfade) or a plain join
+      let cv = 'v0', ca = 'a0', len = seg[0];
+      for (let i = 1; i < L.length; i++) {
+        const last = i === L.length - 1;
+        const nv = last ? vEnd : 'jv' + i, na = last ? aEnd : 'ja' + i;
+        if (D[i] > 0) {
+          const type = clips[i].tr.type;
+          parts.push('[' + cv + '][v' + i + ']xfade=transition=' + type + ':duration=' + D[i] + ':offset=' + r3(len - D[i]) + '[' + nv + ']');
+          parts.push('[' + ca + '][a' + i + ']acrossfade=d=' + D[i] + ':c1=tri:c2=tri[' + na + ']');
+          len = r3(len + seg[i] - D[i]);
+        } else {
+          // concat gives a 1/1000000 time base; xfade needs both inputs alike -> back to 1/fps
+          parts.push('[' + cv + '][' + ca + '][v' + i + '][a' + i + ']concat=n=2:v=1:a=1[jc' + i + '][' + na + ']');
+          parts.push('[jc' + i + ']settb=1/' + fps + '[' + nv + ']');
+          len = r3(len + seg[i]);
+        }
+        cv = nv; ca = na;
+      }
+    }
     if (list.length) {
       let base = 'vm';
       const mix = ['[am]'];
@@ -409,7 +505,8 @@
 
   const api = { MIN, layout, total, locate, sourceToEdit, splitAt, removeClip, trimClip, moveClip, dropIndex, cutRange,
     words, deriveCaptions, syncBack, FORMATS, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
-    TFONTS, TPRESETS, assColor, textAnchor, textAss, LOUD, MUS_DEFAULT, musicGain };
+    TFONTS, TPRESETS, assColor, textAnchor, textAss, LOUD, MUS_DEFAULT, musicGain,
+    speedOf: sp, clipLen, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhEdit = api;
 })(typeof window !== 'undefined' ? window : this);

@@ -377,3 +377,13 @@ html.amh-editor .ed-cwrap { height: 222px; }
 .ed-check input { margin-top: 3px; }
 .ed-sound .st-seg button { flex: 1; }
 .ed-mrow { display: block; width: 100%; text-align: left; margin: 4px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 1.24.0 speed, colour, transitions */
+.ed-canvas .ed-mainlayer { position: absolute; inset: 0; z-index: 0; overflow: hidden; }
+.ed-canvas .ed-vb { position: absolute; max-width: none; max-height: none; object-fit: fill; pointer-events: none; }
+.ed-speeds button, .ed-trans button { flex: 1 1 auto; min-width: 0; padding-left: 6px; padding-right: 6px; }
+.ed-trans { flex-wrap: wrap; }
+.ed-looks { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 4px 0 8px; }
+.ed-look { display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 4px; border-radius: 6px; border: 1px solid #2a3631; background: #151c19; color: inherit; font-size: 11px; cursor: pointer; }
+.ed-look.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.ed-lsw { display: block; height: 22px; border-radius: 4px; }

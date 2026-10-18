@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.23.0';
+const APP_VERSION = '1.24.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,19 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.24.0': {
+    banner: {
+      am: '⧓ Studio፦ ሽግግሮች፣ ፍጥነት (0.25×–4×) እና ቀለም — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '⧓ Studio: transitions, speed (0.25×–4×) and colour — your license stays the same.',
+    },
+    items: [
+      { am: '⧓ ሽግግር፦ መቀላቀል፣ በጥቁር፣ በነጭ፣ መንሸራተት፣ መጥረግ፣ ክብ፣ ማጉላት', en: '⧓ Transitions: dissolve, dip to black / white, slide, wipe, circle, zoom' },
+      { am: 'ሽግግሩ የቪዲዮውን ርዝመትና ካፕሽኖቹን አይቀይርም', en: 'A transition never changes the video length or moves the captions' },
+      { am: '⏩ ፍጥነት፦ ቀርፋፋ ወይም ፈጣን — ድምፁ ቅላጼውን ይይዛል፣ ካፕሽኖቹ ከቃላቱ ጋር ይሄዳሉ', en: '⏩ Speed: slow motion or fast — the voice keeps its pitch, captions stay on their words' },
+      { am: '🎨 ቀለም፦ ሞቅ ያለ፣ ቀዝቃዛ፣ ጥቁርና ነጭ፣ ደማቅ፣ ሲኒማ፣ የደበዘዘ + ብርሃን፣ ንፅፅር፣ ሙሌት፣ ሙቀት', en: '🎨 Colour: Warm, Cool, B&W, Vivid, Cinematic, Faded + brightness, contrast, saturation, temperature' },
+      { am: 'በቅድመ-እይታ የሚያዩት ልክ የሚላከው ነው', en: 'What you see in the preview is what you export' },
+    ],
+  },
   '1.23.0': {
     banner: {
       am: '♪ Studio፦ ሙዚቃ፣ ሰው ሲናገር ራሱ የሚቀንስ ሙዚቃ፣ የድምፅ ማጽጃ እና የYouTube/TikTok የድምፅ መጠን — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
