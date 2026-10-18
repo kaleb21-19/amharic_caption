@@ -115,6 +115,12 @@ def _phrases(words, size):
     return out
 
 
+# every phrase's (start, end) of the last build(), when render() asks for it:
+# one Premiere clip per phrase (1.27.0), so each caption can be moved,
+# trimmed or deleted on its own and redrawn alone after an edit
+_SPAN_LOG = None
+
+
 def _spans(groups):
     """(start, end) per group: held until the next group when the pause is
     short, and at least MIN_SHOW long (never overlapping the next one)."""
@@ -127,6 +133,8 @@ def _spans(groups):
                 e = nxt
             e = min(e, nxt)
         spans.append((s, max(e, s + 0.05)))
+    if _SPAN_LOG is not None:
+        _SPAN_LOG.extend(spans)
     return spans
 
 
@@ -942,7 +950,13 @@ def render(job, progress=None):
         fps = 15
     if not words:
         raise ValueError("no captions to style")
-    script = build(words, style, w, h, opts=job.get("opts"))
+    global _SPAN_LOG
+    _SPAN_LOG = []
+    try:
+        script = build(words, style, w, h, opts=job.get("opts"))
+        spans = sorted((round(a, 3), round(b, 3)) for a, b in _SPAN_LOG)
+    finally:
+        _SPAN_LOG = None
     captions_only = script
     if job.get("tag"):
         script += _tag_line(w, h, 0, dur) + "\n"
@@ -1005,7 +1019,7 @@ def render(job, progress=None):
             if not used_video:
                 raise RuntimeError("ffmpeg could not draw the styled captions: " + err.strip()[-300:])
         else:
-            return {"t0": round(t0, 3), "duration": round(dur, 3), "out": out}
+            return {"t0": round(t0, 3), "duration": round(dur, 3), "out": out, "spans": [list(x) for x in spans]}
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     # the footage could not be read (audio-only file, odd codec): plain background

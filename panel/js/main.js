@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.26.0';
+const APP_VERSION = '1.27.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,17 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.27.0': {
+    banner: {
+      am: '✎ የስታይል ካፕሽኖች አሁን ይታረማሉ፦ እያንዳንዱ ካፕሽን የራሱ ክሊፕ ነው — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '✎ Styled captions can now be edited: every caption is its own clip — your license stays the same.',
+    },
+    items: [
+      { am: 'በPremiere እያንዳንዱ ካፕሽን የራሱ ክሊፕ ነው፦ ለብቻው ያንቀሳቅሱት፣ ያሳጥሩት ወይም ይሰርዙት', en: 'In Premiere every caption is its own clip: move, trim or delete it on its own' },
+      { am: 'ካፕሽኑን በጊዜ መስመሩ ላይ ይምረጡ → በፓነሉ "✎ የተመረጠውን ካፕሽን ያስተካክሉ" → ያርሙ → ያስቀምጡ', en: 'Select a caption on the timeline → "✎ Edit the selected caption" in the panel → fix it → Place' },
+      { am: 'የተቀየሩት ካፕሽኖች ብቻ እንደገና ይሰራሉ — በሰከንዶች', en: 'Only the captions you changed are drawn again — in seconds' },
+    ],
+  },
   '1.26.0': {
     banner: {
       am: '⌨ ያለ አማርኛ ኪቦርድ አማርኛ ይጻፉ፦ selam → ሰላም — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -3805,6 +3816,7 @@ async function openReview(outSrt, label, startSeconds, opts) {
   // Free minutes are charged when the engine starts (engineAuth); a result
   // from the cache was charged when it was made. Nothing more to charge.
   reviewTrialCharged = true;
+  if (!opts || !opts.projectId) STYLED_PREV = null;
   REVIEW = {
     outSrt, label: label || 'captions', startSeconds: startSeconds || 0,
     projectKey: projectKey(opts.projectId || label || 'captions'),
@@ -5477,23 +5489,151 @@ function renderStyled(job, onProgress) {
 }
 // Premiere / After Effects: render the transparent layer at the sequence's
 // size and rate, then put it above the footage.
+// ── Styled captions you can edit (1.27.0) ───────────────────────────────────
+// Premiere: every caption on screen is its own clip (cut from one rendered
+// file), so it can be moved, trimmed or deleted on its own. Placing again
+// after an edit (Recent, or "✎ Edit the selected caption") redraws only the
+// captions that changed. Any trouble -> one layer for all, as before.
+let STYLED_PREV = null;          // the placement a reopened review came from
+let STYLED_LAST = null;          // the placement just made (saved in Recent)
+const hostCall = (fn, obj, ms) => evalScript(fn + '(' + escJson(escJson(obj)) + ')', ms || 60000);
+async function placeSpans(file, spans, base, prep, show, done, total) {
+  const CH = 40;
+  for (let i = 0; i < spans.length; i += CH) {
+    const res = await hostCall('amh_overlaySpans', { itemName: prep.itemName, track: prep.track, base, spans: spans.slice(i, i + CH), check: i === 0 });
+    if (!res || !res.ok) {
+      const e = new Error((res && res.error) || HOST_NAME + ' did not place the captions');
+      e.range = !!(res && res.range);
+      throw e;
+    }
+    done += res.placed || 0;
+    if (show) show(0.5 + 0.5 * Math.min(1, done / Math.max(1, total)), L('Placing captions') + ' ' + done + '/' + total);
+  }
+  return done;
+}
 async function placeStyled(cues, label, startSeconds) {
   const fr = await evalScript('amharic_getFrame()');
   if (!fr || !fr.ok) throw new Error((fr && fr.error) || 'could not read the sequence frame size');
   const btn = $('reviewPlace');
   if (btn && btn.dataset.styleLabel === undefined) btn.dataset.styleLabel = btn.textContent;
-  const show = (x) => { if (btn) btn.textContent = '⏳ ' + L('Styling captions…') + ' ' + Math.round(Math.max(0, Math.min(1, x)) * 100) + '%'; };
+  const show = (x, what) => { if (btn) btn.textContent = '⏳ ' + (what || L('Styling captions…')) + ' ' + Math.round(Math.max(0, Math.min(1, x)) * 100) + '%'; };
   show(0);
   const prefix = 'amhstyle_' + safeFileName(label || 'captions') + '__';
-  const out = path.join(ensureCaptionsDir(), prefix + STYLE + '_' + Date.now() + '.mov');
-  const r = await renderStyled({ cues: styleCues(cues), style: STYLE, opts: styleOpts(STYLE), width: fr.width, height: fr.height,
-    fps: fr.fps, out, mode: 'overlay', tag: !LICENSED }, show);
-  const args = escJson({ path: r.out, startSeconds: (startSeconds || 0) + (r.t0 || 0), duration: r.duration || 0,
-    replacePrefix: prefix });
+  const sc = styleCues(cues);
+  const opts = styleOpts(STYLE);
+  const base0 = Number(startSeconds) || 0;
+  const job = (list, out) => ({ cues: list, style: STYLE, opts, width: fr.width, height: fr.height, fps: fr.fps, out, mode: 'overlay', tag: !LICENSED });
+  const newOut = () => path.join(ensureCaptionsDir(), prefix + STYLE + '_' + Date.now() + '.mov');
+  STYLED_LAST = null;
+  const prev = STYLED_PREV;
+  // an edit of captions placed as clips: only the changed ones are drawn again
+  if (!IS_AE && prev && prev.mode === 'cut' && prev.prefix === prefix && prev.style === STYLE && JSON.stringify(prev.opts) === JSON.stringify(opts) &&
+      Math.abs((Number(prev.start) || 0) - base0) < 1e-6 && prev.frame && prev.frame.width === fr.width && prev.frame.height === fr.height) {
+    const plan = styledUpdatePlan(prev.cues, sc);
+    if (!plan.whole) {
+      try {
+        let file = null, done = 0, track = prev.track;
+        const total = plan.windows.length;
+        for (let k = 0; k < plan.windows.length; k++) {
+          const w = plan.windows[k];
+          const from = base0 + w.start - 0.05, to = base0 + w.end + 0.6;
+          if (!w.cues.length) { await hostCall('amh_removeStyledRange', { replacePrefix: prefix, rangeStart: from, rangeEnd: to }); continue; }
+          const r = await renderStyled(job(w.cues, newOut()), (x) => show((k + x * 0.5) / Math.max(1, total), L('Updating captions…')));
+          const prep = await hostCall('amh_overlayPrepare', { path: r.out, rangeStart: Math.min(from, base0 + r.t0), rangeEnd: Math.max(to, base0 + r.t0 + r.duration),
+            replacePrefix: prefix, preferTrack: track });
+          if (!prep || !prep.ok) throw new Error((prep && prep.error) || 'prepare');
+          track = prep.track;
+          await placeSpans(r.out, r.spans || [], base0 + (r.t0 || 0), prep, null, 0, 0);
+          file = r.out; done++;
+        }
+        STYLED_LAST = { mode: 'cut', prefix, style: STYLE, opts, start: base0, frame: { width: fr.width, height: fr.height }, cues: sc, track };
+        log('✓ Updated only the changed captions (' + plan.windows.length + (plan.windows.length === 1 ? ' place' : ' places') + ').');
+        return { file: file || '', track, addedTrack: false, replaced: done, updated: plan.windows.length };
+      } catch (e) {
+        log('Could not update only the changed captions (' + (e && e.message ? e.message : e) + ') — placing them all again.');
+      }
+    }
+  }
+  const out = newOut();
+  const r = await renderStyled(job(sc, out), (x) => show(IS_AE ? x : x * 0.5));
+  const base = base0 + (r.t0 || 0);
+  if (!IS_AE && Array.isArray(r.spans) && r.spans.length) {
+    try {
+      const prep = await hostCall('amh_overlayPrepare', { path: r.out, rangeStart: base, rangeEnd: base + (r.duration || 0), replacePrefix: prefix });
+      if (!prep || !prep.ok) throw new Error((prep && prep.error) || 'prepare');
+      await placeSpans(r.out, r.spans, base, prep, show, 0, r.spans.length);
+      STYLED_LAST = { mode: 'cut', prefix, style: STYLE, opts, start: base0, frame: { width: fr.width, height: fr.height }, cues: sc, track: prep.track };
+      return { file: r.out, track: prep.track, addedTrack: prep.addedTrack, replaced: prep.replaced || 0, clips: r.spans.length };
+    } catch (e) {
+      if (!e.range) throw e;
+      log('This ' + HOST_NAME + ' did not cut the captions into clips (' + e.message + ') — placing them as one layer.');
+    }
+  }
+  const args = escJson({ path: r.out, startSeconds: base, duration: r.duration || 0, replacePrefix: prefix });
   const pl = await evalScript('amh_placeOverlay(' + escJson(args) + ')', 60000);
   if (!pl || !pl.ok || pl.placed !== true) throw new Error((pl && pl.error) || HOST_NAME + ' did not confirm the styled captions');
+  STYLED_LAST = { mode: 'layer', prefix, style: STYLE, opts, start: base0, frame: { width: fr.width, height: fr.height }, cues: sc, track: pl.track };
   return { file: r.out, track: pl.track, addedTrack: pl.addedTrack, replaced: pl.replaced || 0 };
 }
+
+// "✎ Edit the selected caption": a styled caption clip selected on the
+// Premiere timeline opens that caption in the review (via Recent).
+let SELCAP_AT = 0;
+let SELCAP_BUSY = false;
+function findStyledRecent(sel) {
+  const mid = (Number(sel.start) + Number(sel.end)) / 2;
+  return readHistory().find((h) => {
+    const pl = h.placed;
+    if (!pl || pl.mode !== 'cut' || String(sel.name).indexOf(pl.prefix) !== 0) return false;
+    const cs = h.cues;
+    const a = (Number(h.startSeconds) || 0) + Number(cs[0].start), z = (Number(h.startSeconds) || 0) + Number(cs[cs.length - 1].end);
+    return mid >= a - 1 && mid <= z + 2;
+  }) || null;
+}
+async function checkSelectedCaption() {
+  const bar = $('selCapBar');
+  if (!bar || IS_AE || SELCAP_BUSY) return;
+  if (reviewOpen) { bar.style.display = 'none'; return; }
+  SELCAP_BUSY = true;
+  try {
+    const r = await evalScript('amh_selectedStyled()', 5000);
+    const rec = r && r.ok && !r.none ? findStyledRecent(r) : null;
+    if (!rec) { bar.style.display = 'none'; return; }
+    const t = (Number(r.start) + Number(r.end)) / 2 - (Number(rec.startSeconds) || 0);
+    const dist = (c) => (t < Number(c.start) ? Number(c.start) - t : (t > Number(c.end) ? t - Number(c.end) : 0));
+    const cue = rec.cues.reduce((best, c) => (dist(c) < dist(best) ? c : best), rec.cues[0]);
+    bar.textContent = '';
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn btn-primary sel-cap-btn';
+    b.textContent = '✎ ' + L('Edit the selected caption');
+    b.addEventListener('click', () => editSelectedCaption(rec, t));
+    const txt = document.createElement('span');
+    txt.className = 'sel-cap-text';
+    txt.textContent = '“' + String(cue.text || '').replace(/[*~]/g, '').slice(0, 40) + '”';
+    bar.appendChild(b);
+    bar.appendChild(txt);
+    bar.style.display = '';
+  } catch (e) {
+    bar.style.display = 'none';
+  } finally { SELCAP_BUSY = false; }
+}
+async function editSelectedCaption(rec, t) {
+  const bar = $('selCapBar');
+  if (bar) bar.style.display = 'none';
+  if (!(await reopenHistory(rec))) return;
+  let best = 0;
+  (reviewCues || []).forEach((c, i) => { if (Math.abs((c.start + c.end) / 2 - t) < Math.abs((reviewCues[best].start + reviewCues[best].end) / 2 - t)) best = i; });
+  if (typeof focusReviewCue === 'function' && reviewCues && reviewCues.length) focusReviewCue(best, 0);
+}
+// asked when the editor comes back to the panel (no polling while it is away)
+function selCapSoon() {
+  if (IS_AE || Date.now() - SELCAP_AT < 1500) return;
+  SELCAP_AT = Date.now();
+  checkSelectedCaption();
+}
+document.addEventListener('mousemove', selCapSoon, { passive: true });
+window.addEventListener('focus', selCapSoon);
 
 // ── Customize + live preview (1.12) ──────────────────────────────────────────
 // Per style: highlight colour, text colour, size, position (incl. TikTok-safe),
@@ -5781,8 +5921,11 @@ async function placeReview() {
       log('Placing your captions in the "' + STYLE_NAMES[STYLE] + '" style (' + reviewCues.length + ')…');
       try {
         const st = await placeStyled(reviewCues, REVIEW.label || 'captions', REVIEW.startSeconds);
-        log('✓ Styled captions on track V' + st.track + (st.addedTrack ? ' (a new track)' : '') +
-          (st.replaced ? ' — replaced the earlier styled captions' : '') + ': ' + st.file);
+        if (!st.updated) {
+          log('✓ Styled captions on track V' + st.track + (st.addedTrack ? ' (a new track)' : '') +
+            (st.clips ? ' — ' + st.clips + ' clips, one per caption: select one in the timeline to edit it' : '') +
+            (st.replaced ? ' — replaced the earlier styled captions' : '') + ': ' + st.file);
+        }
         if (!LICENSED) log('Free version: a small "Amharic Captions Pro" tag is in the corner — a license removes it.');
         setSuccess('✓ Styled captions on timeline');
         track('placed');
@@ -5837,6 +5980,7 @@ function saveHistory(srtPath) {
       style: STYLE_OK ? STYLE : 'plain', opts: (STYLE_OK && STYLE !== 'plain') ? styleOpts(STYLE) : null,
       media: PREVIEW_MEDIA.slice(0, 50),
       cues: (lastCues || []).map((c) => ({ start: c.start, end: c.end, text: c.text })),
+      placed: (STYLED_LAST && STYLE_OK && STYLE === STYLED_LAST.style) ? STYLED_LAST : null,
     };
     fs.writeFileSync(srtPath + HISTORY_EXT, JSON.stringify(rec), { encoding: 'utf8', mode: 0o600 });
     const all = readHistory();
@@ -5866,6 +6010,7 @@ async function reopenHistory(rec) {
   hideRecent();
   lastCues = rec.cues.map((c) => ({ start: Number(c.start) || 0, end: Number(c.end) || 0, text: String(c.text || '') }));
   setPreviewMedia(rec.media || []);
+  STYLED_PREV = rec.placed || null;
   if (rec.style && STYLE_LIST.indexOf(rec.style) >= 0) {
     STYLE = rec.style;
     const s = { style: rec.style };

@@ -189,6 +189,7 @@ const KNOWN = [
   'trialGate', 'trialGateClose', 'trialGateTitle', 'trialGateBody', 'trialGateBtn', 'trialGateWait', 'trialGateKey',
   'reportBox', 'reportBtn', 'reportStatus',
   'feedbackLink', 'feedbackCard', 'feedbackText', 'feedbackTg', 'feedbackSend', 'feedbackCancel', 'feedbackStatus',
+  'selCapBar',
   // logs
   'logDisc', 'logWrap', 'logBox',
   // footer

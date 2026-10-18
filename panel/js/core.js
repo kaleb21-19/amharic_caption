@@ -838,6 +838,83 @@ function amhType(before, key, chained) {
   return { del: 0, ins: amhChar(base, 5) };
 }
 
+// ── Styled captions placed as clips (1.27.0): what to redraw after an edit ──
+// oldC / newC: style cues [text, start, end] (caption seconds) placed before
+// and now. -> { whole, windows: [{ start, end, cues }] }. A window always
+// covers whole "blocks" (captions with pauses of at most `gap` between them)
+// of BOTH lists: the styles group words afresh after such a pause, so
+// drawing only a window gives exactly what a full drawing gives there.
+// whole: so much changed that drawing everything again is simpler.
+function styledUpdatePlan(oldC, newC, gap) {
+  gap = gap == null ? 0.6 : gap;
+  oldC = oldC || []; newC = newC || [];
+  const key = (c) => String(c[0]) + '|' + Number(c[1]).toFixed(3) + '|' + Number(c[2]).toFixed(3);
+  const A = oldC.map(key), B = newC.map(key);
+  const n = A.length, m = B.length;
+  const keepA = new Array(n).fill(false), keepB = new Array(m).fill(false);
+  let p = 0;
+  while (p < n && p < m && A[p] === B[p]) { keepA[p] = keepB[p] = true; p++; }
+  let q = 0;
+  while (q < n - p && q < m - p && A[n - 1 - q] === B[m - 1 - q]) { keepA[n - 1 - q] = keepB[m - 1 - q] = true; q++; }
+  const la = n - p - q, lb = m - p - q;
+  if (la * lb > 4e6) return { whole: true, windows: [] };
+  if (la && lb) {
+    // the longest run of unchanged captions in the middle (classic LCS)
+    const W = lb + 1;
+    const dp = new Uint16Array((la + 1) * W);
+    for (let i = la - 1; i >= 0; i--) {
+      for (let j = lb - 1; j >= 0; j--) {
+        dp[i * W + j] = A[p + i] === B[p + j] ? dp[(i + 1) * W + j + 1] + 1 : Math.max(dp[(i + 1) * W + j], dp[i * W + j + 1]);
+      }
+    }
+    let i = 0, j = 0;
+    while (i < la && j < lb) {
+      if (A[p + i] === B[p + j]) { keepA[p + i] = keepB[p + j] = true; i++; j++; }
+      else if (dp[(i + 1) * W + j] >= dp[i * W + j + 1]) i++;
+      else j++;
+    }
+  }
+  let wins = [];
+  oldC.forEach((c, i) => { if (!keepA[i]) wins.push({ start: Number(c[1]), end: Number(c[2]) }); });
+  newC.forEach((c, i) => { if (!keepB[i]) wins.push({ start: Number(c[1]), end: Number(c[2]) }); });
+  if (!wins.length) return { whole: false, windows: [] };
+  const blocks = (list) => {
+    const out = [];
+    list.forEach((c) => {
+      const s0 = Number(c[1]), e0 = Number(c[2]);
+      const last = out[out.length - 1];
+      if (last && s0 - last.end <= gap) last.end = Math.max(last.end, e0);
+      else out.push({ start: s0, end: e0 });
+    });
+    return out;
+  };
+  const all = blocks(oldC).concat(blocks(newC));
+  for (let changed = true; changed;) {
+    changed = false;
+    wins.forEach((w) => all.forEach((b) => {
+      if (b.start <= w.end && b.end >= w.start && (b.start < w.start || b.end > w.end)) {
+        w.start = Math.min(w.start, b.start); w.end = Math.max(w.end, b.end); changed = true;
+      }
+    }));
+    wins.sort((x, y) => x.start - y.start);
+    const merged = [];
+    wins.forEach((w) => {
+      const last = merged[merged.length - 1];
+      if (last && w.start <= last.end) { if (w.end > last.end) { last.end = w.end; } changed = changed || false; }
+      else merged.push({ start: w.start, end: w.end });
+    });
+    if (merged.length !== wins.length) changed = true;
+    wins = merged;
+  }
+  const lo = Math.min.apply(null, all.map((b) => b.start)), hi = Math.max.apply(null, all.map((b) => b.end));
+  const covered = wins.reduce((t, w) => t + (w.end - w.start), 0);
+  const whole = hi > lo && covered > 0.6 * (hi - lo);
+  return {
+    whole,
+    windows: wins.map((w) => ({ start: w.start, end: w.end, cues: newC.filter((c) => Number(c[1]) >= w.start - 1e-6 && Number(c[2]) <= w.end + 1e-6) })),
+  };
+}
+
 // Node (tests) — no-op in the CEP browser where `module` is undefined.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -850,6 +927,6 @@ if (typeof module !== 'undefined' && module.exports) {
     remapCuesAfterCut, remapMediaAfterCut, CLEANUP_FILLERS, CLEANUP_FILLER_WORDS,
     findZoomMoments, cutRanges, findTextCuts, exactWordTimes, regroupCues,
     LICENSE_TOKEN_PUBKEY_PEM, licenseTokenParse, verifyLicenseToken,
-    amhType, amhRowOf,
+    amhType, amhRowOf, styledUpdatePlan,
   };
 }

@@ -237,7 +237,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.26.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.27.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1350,6 +1350,89 @@ await t('4i. Recent (1.16.15): placed captions can be reopened, edited and place
     // bad files in the folder are ignored
     fs.writeFileSync(path.join(dir, 'broken.srt.amh.json'), '{nope');
     assert.strictEqual(p.evalVm('readHistory().length'), 1);
+  } finally { p.close(); try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {} }
+});
+
+await t('4i2. styled captions you can edit (1.27.0): one clip per caption, an edit redraws only its part, one layer if Premiere cannot', async () => {
+  const evalLog = [];
+  const host = { range: true, selected: null };
+  const answers = (jsx) => {
+    if (/amharic_getFrame\(/.test(jsx)) return JSON.stringify({ ok: true, width: 1080, height: 1920, fps: 25 });
+    if (/amh_overlayPrepare\(/.test(jsx)) return JSON.stringify({ ok: true, itemName: 'x.mov', track: 2, addedTrack: false, replaced: 0 });
+    if (/amh_overlaySpans\(/.test(jsx)) {
+      const a = JSON.parse(JSON.parse(/amh_overlaySpans\((.*)\)/.exec(jsx)[1]));
+      return host.range ? JSON.stringify({ ok: true, placed: a.spans.length }) : JSON.stringify({ ok: false, range: true, placed: 0, error: 'whole file' });
+    }
+    if (/amh_placeOverlay\(/.test(jsx)) return JSON.stringify({ ok: true, placed: true, track: 3, addedTrack: false });
+    if (/amh_selectedStyled\(/.test(jsx)) return JSON.stringify(host.selected ? Object.assign({ ok: true }, host.selected) : { ok: true, none: true });
+    return '{"ok":true}';
+  };
+  const storage = makeLocalStorage();
+  const p = loadPanel({ storage, evalLog, csiRaw: answers });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_cut_'));
+  const calls = (re) => evalLog.filter((j) => re.test(j));
+  const argsOf = (j, fn) => JSON.parse(JSON.parse(new RegExp(fn + '\\((.*)\\)').exec(j)[1]));
+  try {
+    await flush(10);
+    // 45 captions in 9 parts (a long pause between parts)
+    const cues = [];
+    for (let k = 0; k < 45; k++) { const st = Math.floor(k / 5) * 10 + (k % 5) * 1.1; cues.push({ start: st, end: st + 1, text: 'ቃል' + k }); }
+    p.evalVm('ensureCaptionsDir = () => ' + JSON.stringify(dir) + '; LICENSED = true; STYLE_OK = true; STYLE = "bold"; renderPreview = async () => {};' +
+      'reviewTrialCharged = true; globalThis.__jobs = [];' +
+      'renderStyled = async (job) => { __jobs.push(job); const t0 = Math.max(0, job.cues[0][1] - 0.25);' +
+      ' return { ok: true, out: "C:/caps/x" + __jobs.length + ".mov", t0, duration: job.cues[job.cues.length - 1][2] - t0 + 0.6,' +
+      ' spans: job.cues.map((c) => [c[1] - t0, c[2] - t0]) }; };' +
+      'lastCues = ' + JSON.stringify(cues) + ';');
+    const first = path.join(os.tmpdir(), 'amh_cut_review_' + Date.now() + '.srt');
+    fs.writeFileSync(first, '1\n00:00:12,000 --> 00:00:13,000\nቃል\n');
+    await p.evalVm('openReview(' + JSON.stringify(first) + ', "interview.mp4", 12, {})');
+    await p.evalVm('placeReview()');
+    // placed: one clip per caption, 40 at a time, the first one checked
+    const sp = calls(/amh_overlaySpans\(/).map((j) => argsOf(j, 'amh_overlaySpans'));
+    assert.deepStrictEqual(sp.map((a) => [a.spans.length, a.check]), [[40, true], [5, false]]);
+    assert.strictEqual(sp[0].base, 12 - 0 + 0, 'the clip start (+ the file start, 0 here)');
+    assert.strictEqual(calls(/amh_placeOverlay\(/).length, 0, 'no single layer');
+    has(p.els('logBox').textContent, '45 clips, one per caption');
+    let hist = JSON.parse(p.evalVm('JSON.stringify(readHistory())'));
+    assert.deepStrictEqual([hist[0].placed.mode, hist[0].placed.track, hist[0].placed.cues.length], ['cut', 2, 45], 'Recent knows how it was placed');
+
+    // edit one word another day: only its part (5 captions) is drawn and placed again, on the same track
+    evalLog.length = 0;
+    await p.evalVm('reopenHistory(readHistory()[0])');
+    p.evalVm('reviewCues[17].text = "ተቀይሯል";');
+    await p.evalVm('placeReview()');
+    const job = JSON.parse(p.evalVm('JSON.stringify(__jobs[__jobs.length - 1])'));
+    assert.deepStrictEqual(job.cues.map((c) => c[0]), ['ቃል15', 'ቃል16', 'ተቀይሯል', 'ቃል18', 'ቃል19'], 'only that part');
+    const prep = argsOf(calls(/amh_overlayPrepare\(/)[0], 'amh_overlayPrepare');
+    assert.strictEqual(prep.preferTrack, 2, 'back on its own track');
+    assert.ok(prep.rangeStart >= 12 + 30 - 0.3 && prep.rangeEnd <= 12 + 40, 'only that part is replaced: ' + JSON.stringify(prep));
+    assert.strictEqual(calls(/amh_overlaySpans\(/).length, 1);
+    has(p.els('logBox').textContent, 'Updated only the changed captions');
+    hist = JSON.parse(p.evalVm('JSON.stringify(readHistory())'));
+    assert.strictEqual(hist[0].placed.cues[17][0], 'ተቀይሯል', 'the next edit starts from this one');
+
+    // a caption selected in Premiere: the bar opens it
+    host.selected = { name: 'amhstyle_' + p.evalVm('safeFileName("interview.mp4")') + '__bold_2.mov', start: 12 + 30 + 2.2, end: 12 + 30 + 3.2 };
+    await p.evalVm('checkSelectedCaption()');
+    assert.strictEqual(p.els('selCapBar').style.display, '', 'the bar shows');
+    has(p.els('selCapBar').children[1].textContent, 'ተቀይሯል');
+    has(p.els('selCapBar').children[0].textContent, 'Edit the selected caption');
+    host.selected = null;
+    await p.evalVm('checkSelectedCaption()');
+    assert.strictEqual(p.els('selCapBar').style.display, 'none', 'nothing of ours selected: no bar');
+
+    // a Premiere that ignores in / out points: one layer, as before
+    evalLog.length = 0;
+    host.range = false;
+    p.evalVm('lastCues = ' + JSON.stringify(cues.slice(0, 3)) + ';');
+    const second = path.join(os.tmpdir(), 'amh_cut_review2_' + Date.now() + '.srt');
+    fs.writeFileSync(second, '1\n00:00:00,000 --> 00:00:01,000\nቃል\n');
+    await p.evalVm('openReview(' + JSON.stringify(second) + ', "other.mp4", 0, {})');
+    await p.evalVm('placeReview()');
+    assert.strictEqual(calls(/amh_placeOverlay\(/).length, 1, 'fell back to one layer');
+    assert.strictEqual(p.evalVm('reviewOpen'), false, 'placed');
+    hist = JSON.parse(p.evalVm('JSON.stringify(readHistory())'));
+    assert.strictEqual(hist[0].placed.mode, 'layer');
   } finally { p.close(); try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {} }
 });
 
