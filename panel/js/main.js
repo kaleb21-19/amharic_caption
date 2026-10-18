@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.19.0';
+const APP_VERSION = '1.20.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,20 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.20.0': {
+    banner: {
+      am: '🎬 Amharic Captions Studio አሁን እውነተኛ ኤዲተር ነው፦ ክሊፖች፣ ቁረጥ፣ አንቀሳቅስ፣ 9:16 — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '🎬 Amharic Captions Studio is now a real editor: clips, split, move, 9:16 — your license stays the same.',
+    },
+    items: [
+      { am: '🎬 የጊዜ መስመር፦ ብዙ ክሊፖች፤ ✂ ቁረጥ (S)፣ 🗑 ሰርዝ፣ ጠርዙን ጎትተው ያሳጥሩ፣ ክሊፑን ጎትተው ያንቀሳቅሱ', en: '🎬 Timeline: many clips; ✂ Split (S), 🗑 Delete, drag an edge to trim, drag a clip to move it' },
+      { am: '📁 ሚዲያ፦ ተጨማሪ ቪዲዮዎችን ያስገቡ ወይም ይጎትቱ', en: '📁 Media: import or drop more videos' },
+      { am: 'መጠን፦ 16:9 · 9:16 (TikTok) · 1:1 · 4:5 — ምስሉን ጎትተው ቦታውን ይቀይሩ', en: 'Format: 16:9 · 9:16 (TikTok) · 1:1 · 4:5 — drag the picture to place it' },
+      { am: '⚙ ክሊፕ፦ መጠን፣ ቦታና ድምፅ ለእያንዳንዱ ክሊፕ', en: '⚙ Clip: size, position and volume for each clip' },
+      { am: 'ካፕሽኖቹ ኤዲቱን ይከተላሉ — ያረሙት ቃል መቼም አይጠፋም፤ ↶ ↷ ለሁሉም', en: 'Captions follow the edit — a fixed word is never lost; ↶ ↷ for everything' },
+      { am: '⬆ ይላኩ፦ ሙሉው ኤዲት በአንድ ቪዲዮ፣ ካፕሽኑ በስታይልዎ ተጽፎበት', en: '⬆ Export: the whole edit as one video, captions in your style' },
+    ],
+  },
   '1.19.0': {
     banner: {
       am: '✂ Studio፦ ዝምታ፣ የተደገመ አባባልና እ… ድምፆችን ቆርጠው የጸዳ ቪዲዮ ይላኩ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',

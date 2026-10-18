@@ -157,14 +157,11 @@
       (extra || []).forEach((b) => row.appendChild(b));
       out.appendChild(row);
     };
-    const C = window.__amhCuts && window.__amhCuts.active() ? window.__amhCuts : null;
-    if (C) box.appendChild(el('div', 'st-cutnote', '✂ ' + C.summary() + ' — ' + tx('ሁሉም በጸዳው ቪዲዮ መሰረት ይላካል', 'everything is exported for the cleaned video')));
     // 1. subtitles
-    const a = card('📝', tx('ንዑስ ጽሑፍ (.srt)', 'Subtitles (.srt)'),
-      C ? tx('ከጸዳው ቪዲዮ ጋር የሚሄድ', 'Matches the cleaned video') : tx('ለ CapCut፣ DaVinci፣ YouTube', 'For CapCut, DaVinci, YouTube'));
-    const saveSrt = (forOriginal) => {
+    const a = card('📝', tx('ንዑስ ጽሑፍ (.srt)', 'Subtitles (.srt)'), tx('ከዚህ ኤዲት ጋር የሚሄድ — ለ CapCut፣ DaVinci፣ YouTube', 'Matches this edit — for CapCut, DaVinci, YouTube'));
+    const saveSrt = () => {
       let r = null;
-      try { r = X.srt(C && !forOriginal ? { cues: C.cues(), suffix: ' (' + tx('የጸዳ', 'clean') + ')' } : undefined); } catch (e) { a.out.textContent = e.message; return; }
+      try { r = X.srt(); } catch (e) { a.out.textContent = e.message; return; }
       const here = X.editors ? X.editors() : {};
       const eds = (X.EDITORS || []).filter((ed) => here[ed.id]).map((ed) => btn('st-btn', ed.icon + ' ' + tx('በ ' + ed.name + ' ክፈት', 'Open in ' + ed.name), '', () => {
         try { APP.call('copyText', [r.file]); } catch (e) {}
@@ -175,55 +172,26 @@
       done(a.out, r.file, eds);
       saveProject(true);
     };
-    a.h.appendChild(btn('st-btn primary', tx('አስቀምጥ', 'Save'), '', () => saveSrt(false)));
-    if (C) {
-      const orig = btn('st-link', tx('ለዋናው (ያልተቆረጠ) ቪዲዮ', 'For the original (uncut) video'), '', () => saveSrt(true));
-      a.c.appendChild(orig);
-    }
-    // 2. the video with the captions drawn in
-    const v = card('🎬', tx('ካፕሽን ያለው ቪዲዮ (MP4)', 'Video with captions (MP4)'),
-      (typeof STYLE !== 'undefined' && STYLE !== 'plain') ? tx('በ ' + (STYLE_NAMES[STYLE] || STYLE) + ' ስታይል፣ ለመለጠፍ ዝግጁ', 'In the ' + (STYLE_NAMES[STYLE] || STYLE) + ' style, ready to post')
-        : tx('መጀመሪያ ስታይል ይምረጡ', 'Choose a style first'));
-    if (typeof STYLE === 'undefined' || STYLE === 'plain' || !STYLE_OK) {
-      v.h.appendChild(btn('st-btn', '🎨 ' + tx('ስታይል ይምረጡ', 'Choose a style'), '', () => { closeSheet(); showTab('style'); }));
-    } else {
-      const go = btn('st-btn primary', tx('ቪዲዮ ይስሩ', 'Make video'), '', async () => {
-        go.disabled = true;
-        v.out.innerHTML = '<div class="st-busy-bar"><i></i></div><div class="st-sub"></div>';
-        const bar = v.out.querySelector('i'), lbl = v.out.querySelector('.st-sub');
-        const show = (x) => { bar.style.width = Math.round(x * 100) + '%'; lbl.textContent = tx('እየሰራ ነው… ', 'Making… ') + Math.round(x * 100) + '%'; };
-        let tmp = null;
-        try {
-          let r;
-          if (C) {
-            // cut first (fast, near-lossless), then draw the captions on it
-            tmp = path.join(os.tmpdir(), 'amh_clean_' + Date.now() + '.mp4');
-            await C.render(tmp, (x) => show(x * 0.45), true);
-            r = await X.video((x) => show(0.45 + x * 0.55), null, { cues: C.cues(), video: tmp, suffix: ' (' + tx('የጸዳ', 'clean') + ')' });
-          } else r = await X.video(show);
-          done(v.out, r.file, []);
-        } catch (e) { v.out.textContent = tx('ቪዲዮው አልተሰራም፦ ', 'The video could not be made: ') + (e && e.message ? e.message : e); }
-        if (tmp) { try { fs.unlinkSync(tmp); } catch (e) {} }
-        go.disabled = false;
-      });
-      v.h.appendChild(go);
-    }
-    // 2b. the cleaned video without captions (to keep editing elsewhere)
-    if (C) {
-      const k = card('✂', tx('የጸዳ ቪዲዮ (MP4)', 'Cleaned video (MP4)'), tx('ያለ ካፕሽን — በ CapCut ወይም DaVinci መስራትዎን ለመቀጠል', 'Without captions — to keep editing in CapCut or DaVinci'));
-      const go2 = btn('st-btn primary', tx('ይስሩ', 'Make'), '', async () => {
-        go2.disabled = true;
-        k.out.innerHTML = '<div class="st-busy-bar"><i></i></div><div class="st-sub"></div>';
-        const bar2 = k.out.querySelector('i'), lbl2 = k.out.querySelector('.st-sub');
-        try {
-          const out = C.cleanPath();
-          await C.render(out, (x) => { bar2.style.width = Math.round(x * 100) + '%'; lbl2.textContent = tx('እየቆረጠ ነው… ', 'Cutting… ') + Math.round(x * 100) + '%'; });
-          done(k.out, out, []);
-        } catch (e) { k.out.textContent = tx('አልተሰራም፦ ', 'Could not be made: ') + (e && e.message ? e.message : e); }
-        go2.disabled = false;
-      });
-      k.h.appendChild(go2);
-    }
+    a.h.appendChild(btn('st-btn primary', tx('አስቀምጥ', 'Save'), '', () => saveSrt()));
+    // 2. the video: the whole edit (clips, format, reframes), with the
+    // captions drawn in when a caption style is chosen
+    const styled = typeof STYLE !== 'undefined' && STYLE !== 'plain' && STYLE_OK;
+    const fmtName = editor ? editor.format() : '16:9';
+    const v = card('🎬', tx('ቪዲዮ (MP4)', 'Video (MP4)'),
+      (styled ? tx('ካፕሽኑ በ ' + (STYLE_NAMES[STYLE] || STYLE) + ' ስታይል ተጽፎበት', 'With the captions in the ' + (STYLE_NAMES[STYLE] || STYLE) + ' style')
+        : tx('ያለ ካፕሽን — ካፕሽን ለመጻፍ ስታይል ይምረጡ', 'Without captions — choose a style to draw them in')) + ' · ' + fmtName);
+    const go = btn('st-btn primary', tx('ቪዲዮ ይስሩ', 'Make video'), '', async () => {
+      if (!editor) return;
+      go.disabled = true;
+      v.out.innerHTML = '<div class="st-busy-bar"><i></i></div><div class="st-sub"></div>';
+      const bar = v.out.querySelector('i'), lbl = v.out.querySelector('.st-sub');
+      const show = (x) => { bar.style.width = Math.round(x * 100) + '%'; lbl.textContent = tx('እየሰራ ነው… ', 'Making… ') + Math.round(x * 100) + '%'; };
+      try { done(v.out, (await editor.exportVideo(show, styled)).file, []); }
+      catch (e) { v.out.textContent = tx('ቪዲዮው አልተሰራም፦ ', 'The video could not be made: ') + (e && e.message ? e.message : e); }
+      go.disabled = false;
+    });
+    v.h.appendChild(go);
+    if (!styled) v.c.appendChild(btn('st-link', '🎨 ' + tx('ስታይል ይምረጡ', 'Choose a style'), '', () => { closeSheet(); showTab('style'); }));
     // 3. more subtitle files (SRT + VTT + TXT, a folder you choose)
     const m = card('📄', tx('ሌሎች ፋይሎች (SRT · VTT · TXT)', 'More files (SRT · VTT · TXT)'), tx('እርስዎ በሚመርጡት ፎልደር', 'To a folder you choose'));
     m.h.appendChild(btn('st-btn', tx('ይምረጡ…', 'Choose…'), '', () => { if (typeof exportReviewFiles === 'function') exportReviewFiles(); }));
@@ -274,198 +242,21 @@
   window.goFirstDoubtStudio = () => { if (typeof goFirstDoubt === 'function') goFirstDoubt(); };
   if (typeof i18nOnChange === 'function') i18nOnChange(() => setTimeout(() => { relabel(); renderRecent(); drawSoon(); }, 0));
 
-  // ── the timeline (bottom) ──────────────────────────────────────────────
-  const tl = el('div', 'studio-tl');
-  tl.id = 'studioTimeline';
-  tl.innerHTML =
-    '<div class="tl-bar"><span class="tl-time" id="tlTime">0:00</span><span class="tl-hint" id="tlHint"></span>' +
-    '<button type="button" class="tl-btn" id="tlOut">−</button><button type="button" class="tl-btn" id="tlIn">+</button>' +
-    '<button type="button" class="tl-btn" id="tlFit">⤢</button></div>' +
-    '<div class="tl-canvas-wrap" id="tlWrap"><canvas id="tlCanvas"></canvas></div>';
-  review.appendChild(tl);
-  const canvas = tl.querySelector('canvas');
-  const wrap = tl.querySelector('#tlWrap');
-  const ctx = canvas.getContext ? canvas.getContext('2d') : null;
-  const video = () => $('appVideo');
-  let view = { start: 0, pps: 50 };
-  let fitted = false;
-  let peaks = null;
-  const PEAKS_PER_SEC = 50;
-  let peaksFor = '';
-  let drag = null;
-  let hover = null;
-  const RULER = 18, LANE = 34;
-  const dur = () => {
-    const v = video();
-    const d = v && isFinite(v.duration) && v.duration > 0 ? v.duration : 0;
-    const last = (typeof reviewCues !== 'undefined' && reviewCues.length) ? reviewCues[reviewCues.length - 1].end : 0;
-    return Math.max(d, last + 1, 1);
-  };
-  const width = () => Math.max(50, wrap.clientWidth || 600);
-  const now = () => { const v = video(); return v ? v.currentTime || 0 : 0; };
-  function loadPeaks(file) {
-    if (!file || peaksFor === file || typeof FFMPEG === 'undefined' || !FFMPEG) return;
-    peaksFor = file;
-    peaks = null;
-    const raw = path.join(os.tmpdir(), 'amh_peaks_' + Date.now() + '.raw');
-    const hint = $('tlHint');
-    if (hint) hint.textContent = tx('የድምፅ ሞገዱ እየተዘጋጀ ነው…', 'Drawing the sound wave…');
-    execFile(FFMPEG, ['-v', 'error', '-y', '-i', file, '-vn', '-ac', '1', '-ar', '2000', '-f', 's16le', raw],
-      { timeout: 30 * 60 * 1000 }, (err) => {
-        if (hint) hint.textContent = '';
-        if (err || peaksFor !== file) return;
-        try { peaks = APP.call('peaks', [raw, 2000, PEAKS_PER_SEC]); } catch (e) { peaks = null; }
-        drawSoon();
-      });
-  }
+  // ── the player, the timeline and its keys: studio_edit.js (1.20.0) ──
+  // (the real edit — several clips, split / trim / move, formats). Until it
+  // is attached these do nothing.
   const overlays = [];
-  let pending = 0;
-  function drawSoon() { if (!pending) pending = requestAnimationFrame(() => { pending = 0; draw(); }); }
-  function draw() {
-    if (!ctx || !review.classList.contains('show')) return;
-    const w = width(), h = wrap.clientHeight || 110, dpr = window.devicePixelRatio || 1;
-    if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
-      canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
-      canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
-    }
-    const d = dur();
-    if (!fitted) { view = S.fitView(d, w); fitted = true; }
-    view = S.clampView(view, d, w);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = '#101614'; ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = '#151d1a'; ctx.fillRect(0, 0, w, RULER);
-    ctx.font = '10px "Segoe UI", sans-serif'; ctx.textBaseline = 'middle';
-    S.ticks(view, w).forEach((k) => {
-      ctx.fillStyle = '#2c3a34'; ctx.fillRect(Math.round(k.x), RULER - 5, 1, 5);
-      ctx.fillStyle = '#86998f'; ctx.fillText(k.label, k.x + 3, RULER / 2);
-    });
-    const waveTop = RULER + 2, waveH = h - RULER - LANE - 6, mid = waveTop + waveH / 2;
-    ctx.fillStyle = '#2c463c';
-    if (peaks && peaks.length) {
-      for (let x = 0; x < w; x++) {
-        const a = Math.floor(S.xToTime(x, view) * PEAKS_PER_SEC), b = Math.max(a + 1, Math.floor(S.xToTime(x + 1, view) * PEAKS_PER_SEC));
-        let m = 0;
-        for (let k = a; k < b && k < peaks.length; k++) if (peaks[k] > m) m = peaks[k];
-        const hh = Math.max(1, m / 100 * (waveH / 2));
-        ctx.fillRect(x, mid - hh, 1, hh * 2);
-      }
-    } else { ctx.fillRect(0, mid, w, 1); }
-    const laneTop = h - LANE - 2;
-    const cues = (typeof reviewCues !== 'undefined' && reviewCues) || [];
-    const t = now();
-    ctx.font = '600 12px ' + (getComputedStyle(document.documentElement).getPropertyValue('--review-font').trim() || '"Abyssinica SIL"') + ', serif';
-    cues.forEach((c, i) => {
-      const x0 = S.timeToX(c.start, view), x1 = S.timeToX(c.end, view);
-      if (x1 < 0 || x0 > w) return;
-      const on = t >= c.start && t < c.end;
-      const sel = drag && drag.i === i;
-      const cut = /~[^~]+~/.test(c.text || '') && String(c.text).replace(/~[^~]*~/g, '').trim() === '';
-      ctx.fillStyle = sel ? '#2ecc71' : (cut ? '#4a2622' : (on ? '#1f7a4c' : '#22413a'));
-      ctx.fillRect(x0 + 0.5, laneTop, Math.max(2, x1 - x0 - 1), LANE);
-      ctx.fillStyle = (hover && hover.i === i && hover.edge !== 'body') ? '#ffffff' : (cut ? '#ff6b6b' : '#3ddc84');
-      ctx.fillRect(x0, laneTop, 2, LANE); ctx.fillRect(x1 - 2, laneTop, 2, LANE);
-      if (/\*[^*]+\*/.test(c.text || '')) { ctx.fillStyle = '#ffd60a'; ctx.fillRect(x0 + 2, laneTop + LANE - 3, Math.max(1, x1 - x0 - 4), 3); }
-      if (x1 - x0 > 18) {
-        ctx.save(); ctx.beginPath(); ctx.rect(x0 + 4, laneTop, x1 - x0 - 8, LANE); ctx.clip();
-        ctx.fillStyle = sel ? '#06110c' : '#e8f5ee';
-        ctx.fillText(String(c.text || '').replace(/[*~]/g, ''), x0 + 5, laneTop + LANE / 2);
-        ctx.restore();
-      }
-    });
-    overlays.forEach((f) => { try { f(ctx, view, w, h, { ruler: RULER, laneTop, lane: LANE }); } catch (e) {} });
-    const px = S.timeToX(t, view);
-    ctx.fillStyle = '#ff5c5c'; ctx.fillRect(Math.round(px) - 1, 0, 2, h);
-    const tm = $('tlTime'); if (tm) tm.textContent = S.fmtClock(t, true) + ' / ' + S.fmtClock(dur());
-  }
-  function xy(e) { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
-  function laneHit(p) {
-    const h = wrap.clientHeight || 110;
-    if (p.y < h - LANE - 4) return null;
-    return S.hitCaption(typeof reviewCues !== 'undefined' ? reviewCues : [], view, p.x, 6);
-  }
-  function seek(t) {
-    const v = video();
-    t = Math.max(0, Math.min(dur(), t));
-    if (v && v.getAttribute('src')) { try { v.currentTime = t; } catch (e) {} }
-    drawSoon();
-  }
-  canvas.addEventListener('mousedown', (e) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    const p = xy(e);
-    const hit = laneHit(p);
-    if (hit && hit.edge !== 'body' && reviewOpen) { pushReviewUndo('timing'); drag = { kind: 'edge', i: hit.i, edge: hit.edge }; }
-    else if (hit) { drag = { kind: 'select', i: hit.i }; seek(reviewCues[hit.i].start + 0.01); if (typeof focusReviewCue === 'function') focusReviewCue(hit.i, 0); }
-    else { drag = { kind: 'seek' }; seek(S.xToTime(p.x, view)); }
-    drawSoon();
-  });
-  document.addEventListener('mousemove', (e) => {
-    if (!review.classList.contains('show')) return;
-    const p = xy(e);
-    if (drag && drag.kind === 'edge') {
-      setTimingEdge(drag.i, drag.edge, S.xToTime(p.x, view));
-      seek(drag.edge === 'start' ? reviewCues[drag.i].start + 0.01 : reviewCues[drag.i].end - 0.05);
-      return;
-    }
-    if (drag && drag.kind === 'seek') { seek(S.xToTime(p.x, view)); return; }
-    if (e.target === canvas) {
-      const hit = laneHit(p);
-      canvas.style.cursor = hit && hit.edge !== 'body' ? 'ew-resize' : (hit ? 'pointer' : 'text');
-      if (JSON.stringify(hit) !== JSON.stringify(hover)) { hover = hit; drawSoon(); }
-    }
-  });
-  document.addEventListener('mouseup', () => {
-    if (!drag) return;
-    const was = drag;
-    drag = null;
-    if (was.kind === 'edge') { renderReview(); if (typeof schedulePreview === 'function') schedulePreview(); saveSoon(); }
-    drawSoon();
-  });
-  canvas.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    const p = xy(e);
-    if (e.ctrlKey || e.metaKey) view = S.zoomAt(view, e.deltaY < 0 ? 1.25 : 0.8, p.x, dur(), width());
-    else view = S.clampView({ start: view.start + (e.deltaX || e.deltaY) / view.pps, pps: view.pps }, dur(), width());
-    drawSoon();
-  }, { passive: false });
-  const zoomBtn = (id, f) => { const b = tl.querySelector('#' + id); if (b) b.addEventListener('click', () => { view = f ? S.zoomAt(view, f, S.timeToX(now(), view), dur(), width()) : S.fitView(dur(), width()); drawSoon(); }); };
-  zoomBtn('tlIn', 1.6); zoomBtn('tlOut', 0.625); zoomBtn('tlFit', 0);
-  let raf = 0;
-  const tick = () => {
-    const v = video();
-    if (v && !v.paused) { view = S.follow(view, v.currentTime, dur(), width()); draw(); raf = requestAnimationFrame(tick); } else { raf = 0; draw(); }
-  };
-  function hookVideo() {
-    const v = video();
-    if (!v || v.__studio) return;
-    v.__studio = true;
-    v.addEventListener('play', () => { if (!raf) raf = requestAnimationFrame(tick); });
-    ['seeked', 'pause', 'loadedmetadata', 'timeupdate'].forEach((ev) => v.addEventListener(ev, drawSoon));
-  }
-  hookVideo();
-  window.addEventListener('resize', drawSoon);
-
-  // ── keys ───────────────────────────────────────────────────────────────
-  const typing = (x) => !!x && (/^(TEXTAREA|INPUT|SELECT)$/.test(x.tagName) || x.isContentEditable);
+  let editor = null;
+  const drawSoon = () => { if (editor) editor.drawSoon(); };
+  const draw = () => { if (editor) editor.draw(); };
+  const seek = (t) => { if (editor) editor.seek(t); };
+  const dur = () => (editor ? editor.duration() : 1);
+  const peaks = () => (editor ? editor.peaks() : null);
+  // the Studio's own keys (the editor adds play / split / delete / undo)
   document.addEventListener('keydown', (e) => {
     if (!review.classList.contains('show')) return;
     if ((e.ctrlKey || e.metaKey) && !e.altKey && String(e.key).toLowerCase() === 'e') { e.preventDefault(); openExport(); return; }
-    if (e.key === 'Escape' && sheet.style.display !== 'none') { e.preventDefault(); closeSheet(); return; }
-    if (typing(document.activeElement) || e.ctrlKey || e.metaKey || e.altKey) return;
-    const v = video();
-    if (!v || !v.getAttribute('src')) return;
-    const k = e.key;
-    let used = true;
-    if (k === ' ' || k === 'k' || k === 'K') { if (v.paused) v.play().catch(() => {}); else v.pause(); }
-    else if (k === 'j' || k === 'J') seek(v.currentTime - (e.shiftKey ? 5 : 1));
-    else if (k === 'l' || k === 'L') seek(v.currentTime + (e.shiftKey ? 5 : 1));
-    else if (k === 'ArrowLeft') seek(v.currentTime - (e.shiftKey ? 1 : 1 / 25));
-    else if (k === 'ArrowRight') seek(v.currentTime + (e.shiftKey ? 1 : 1 / 25));
-    else if (k === 'Home') seek(0);
-    else if (k === 'End') seek(dur());
-    else used = false;
-    if (used) e.preventDefault();
+    if (e.key === 'Escape' && sheet.style.display !== 'none') { e.preventDefault(); closeSheet(); }
   });
 
   // ── projects ───────────────────────────────────────────────────────────
@@ -475,7 +266,8 @@
   function currentProject() {
     const c = chosenVideo();
     if (!c || typeof reviewCues === 'undefined' || !reviewCues.length) return null;
-    return S.makeProject({ video: c.path, name: c.name, duration: dur(), style: typeof STYLE !== 'undefined' ? STYLE : 'plain',
+    const ed = editor ? editor.saveState() : null;
+    return S.makeProject({ video: c.path, name: c.name, duration: dur(), edit: ed, style: typeof STYLE !== 'undefined' ? STYLE : 'plain',
       styleOpts: typeof styleOpts === 'function' && typeof STYLE !== 'undefined' ? styleOpts(STYLE) : null, cues: reviewCues,
       cleanup: window.__amhCuts ? window.__amhCuts.save() : null });
   }
@@ -483,7 +275,7 @@
     if (!review.classList.contains('show') || !reviewOpen || (typeof REVIEW_LIVE !== 'undefined' && REVIEW_LIVE)) return false;
     const p = currentProject();
     if (!p) return false;
-    const sig = JSON.stringify([p.cues, p.style, p.styleOpts, p.cleanup]);
+    const sig = JSON.stringify([p.cues, p.style, p.styleOpts, p.cleanup, p.edit]);
     if (sig === lastSaved && !force) return false;
     try {
       if (!fs.existsSync(projDir())) fs.mkdirSync(projDir(), { recursive: true });
@@ -524,9 +316,10 @@
     fs.writeFileSync(tmp, srtTextFromCues(p.cues.map((c) => ({ start: c.start, end: c.end, text: String(c.text).replace(/[*~]/g, '') }))), { encoding: 'utf8' });
     await openReview(tmp, p.name || 'captions', 0, { projectId: p.name });
     reviewCues = p.cues.map((c, i) => Object.assign({ _id: 'p' + i }, c));
+    if (editor) editor.loadState(p.edit, p.cues);
     if (window.__amhCuts) window.__amhCuts.load(p.cleanup);
     const cp = currentProject();
-    lastSaved = JSON.stringify([cp && cp.cues, p.style, p.styleOpts, cp && cp.cleanup]);
+    lastSaved = JSON.stringify([cp && cp.cues, p.style, p.styleOpts, cp && cp.cleanup, cp && cp.edit]);
     savedEl.textContent = '✓ ' + tx('ተቀምጧል', 'Saved');
     renderReview();
     if (typeof renderStyleStrip === 'function') renderStyleStrip();
@@ -601,19 +394,14 @@
     if (window.__amhAppRenderDrop) window.__amhAppRenderDrop();
   }
   function afterOpen() {
-    hookVideo();
-    fitted = false;
-    const c = chosenVideo();
-    if (c) loadPeaks(c.path);
+    if (editor) editor.open();
     relabel();
     showTab(tabNow);
     setTimeout(drawSoon, 50);
   }
   new MutationObserver(() => {
     if (review.classList.contains('show')) {
-      hookVideo();
-      const c = chosenVideo();
-      if (c) loadPeaks(c.path);
+      if (editor) editor.shown();
       if (reviewOpen) afterOpen();
     } else { renderRecent(); }
   }).observe(review, { attributes: true, attributeFilter: ['class'] });
@@ -635,6 +423,6 @@
     }, 250);
   }
   window.__amhStudio = { draw, drawSoon, saveProject, saveSoon, listProjects, openProject, renderRecent, openExport, closeSheet, showTab, regroup, goHome,
-    addTab: (id, label, pane) => { addTab(id, label, pane); relabel(); showTab(tabNow); }, overlays, seek, dur,
-    view: () => view, peaks: () => peaks, setPeaks: (p) => { peaks = p; drawSoon(); } };
+    addTab: (id, label, pane) => { addTab(id, label, pane); relabel(); showTab(tabNow); }, overlays, seek, dur, peaks,
+    attachEditor: (e) => { editor = e; }, relabel, savedEl, projDir, chosenVideo, tx };
 })();

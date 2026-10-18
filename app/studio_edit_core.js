@@ -1,0 +1,214 @@
+/*
+ * studio_edit_core.js — Amharic Captions Studio editor (1.20.0): the edit
+ * itself, pure (no DOM, no bridge). Loaded before studio_edit.js
+ * (window.AmhEdit) and requireable from Node (tools/test/test_edit.js).
+ *
+ * The main track is "magnetic" (like CapCut): its clips play one after the
+ * other with no gaps; a clip = a piece of a media file { id, m, in, out,
+ * scale, x, y, volume }. Edit time = position in the finished video.
+ *
+ * Captions belong to the SOURCE: S = { mediaId: [cues in that file's time] }.
+ * What the editor sees and edits is derived for the edit (deriveCaptions);
+ * every change made there goes back to the source (syncBack) — so a trim,
+ * an undo or moving a clip never loses a fixed word.
+ */
+'use strict';
+(function (root) {
+  const r3 = (x) => Math.round(Number(x) * 1000) / 1000;
+  const MIN = 0.1;                                   // shortest clip, seconds
+
+  // ── the main track ───────────────────────────────────────────────────────
+  function layout(clips) {
+    let t = 0;
+    return (clips || []).map((c) => { const d = Math.max(0, c.out - c.in); const o = Object.assign({}, c, { s: r3(t), e: r3(t + d) }); t += d; return o; });
+  }
+  const total = (clips) => r3((clips || []).reduce((n, c) => n + Math.max(0, c.out - c.in), 0));
+  // the clip at edit time t (the last one at the very end) and the file's second there
+  function locate(clips, t) {
+    const L = layout(clips);
+    if (!L.length) return null;
+    let i = L.findIndex((c) => t >= c.s && t < c.e);
+    if (i < 0) i = t < 0 ? 0 : L.length - 1;
+    const c = L[i];
+    const src = Math.max(c.in, Math.min(c.out, c.in + (t - c.s)));
+    return { i, clip: c, src };
+  }
+  // every edit time that shows second `src` of media m
+  function sourceToEdit(clips, m, src) {
+    return layout(clips).filter((c) => c.m === m && src >= c.in && src < c.out).map((c) => r3(c.s + (src - c.in)));
+  }
+  // split the clip under t in two; nothing at a clip edge
+  function splitAt(clips, t, newId) {
+    const L = layout(clips);
+    const i = L.findIndex((c) => t > c.s + MIN / 2 && t < c.e - MIN / 2);
+    if (i < 0) return clips;
+    const c = clips[i];
+    const cut = r3(c.in + (t - L[i].s));
+    const a = Object.assign({}, c, { out: cut });
+    const b = Object.assign({}, c, { id: newId, in: cut });
+    return clips.slice(0, i).concat([a, b], clips.slice(i + 1));
+  }
+  const removeClip = (clips, id) => clips.filter((c) => c.id !== id);
+  // drag a clip's start / end edge to the file's second `src` (inside the file)
+  function trimClip(clips, id, edge, src, mediaDur) {
+    return clips.map((c) => {
+      if (c.id !== id) return c;
+      if (edge === 'in') return Object.assign({}, c, { in: r3(Math.max(0, Math.min(c.out - MIN, src))) });
+      return Object.assign({}, c, { out: r3(Math.min(mediaDur == null ? Infinity : mediaDur, Math.max(c.in + MIN, src))) });
+    });
+  }
+  function moveClip(clips, id, toIndex) {
+    const from = clips.findIndex((c) => c.id === id);
+    if (from < 0) return clips;
+    const out = clips.slice();
+    const [c] = out.splice(from, 1);
+    out.splice(Math.max(0, Math.min(out.length, toIndex)), 0, c);
+    return out;
+  }
+  // where to drop a dragged clip: the gap nearest to edit time t
+  function dropIndex(clips, id, t) {
+    const L = layout(clips.filter((c) => c.id !== id));
+    for (let i = 0; i < L.length; i++) if (t < (L[i].s + L[i].e) / 2) return i;
+    return L.length;
+  }
+  // cut a range of the edit out of the main track (✂ Clean up "cut them")
+  function cutRange(clips, a, b, idGen) {
+    let out = splitAt(clips, a, idGen());
+    out = splitAt(out, b, idGen());
+    const L = layout(out);
+    return out.filter((c, i) => !(L[i].s >= a - 1e-3 && L[i].e <= b + 1e-3));
+  }
+
+  // ── captions follow the edit ─────────────────────────────────────────────
+  // the words of one caption with times (exact when the engine gave them,
+  // else shared by letters) — same rule as the panel's core cleanupWords
+  function words(c) {
+    const parts = String(c.text || '').replace(/\n/g, ' ').split(/\s+/).filter(Boolean);
+    if (!parts.length) return [];
+    const wt = Array.isArray(c.wt) && c.wt.length === parts.length ? c.wt : null;
+    if (wt) return parts.map((w, k) => ({ w, k, s: wt[k][0], e: wt[k][1], x: true }));
+    const weight = parts.map((w) => Array.from(w.replace(/[~*]/g, '')).length + 1);
+    const sum = weight.reduce((a, b) => a + b, 0);
+    const span = Math.max(0, c.end - c.start);
+    let t = c.start;
+    return parts.map((w, k) => { const d = span * weight[k] / sum; const o = { w, k, s: t, e: t + d, x: false }; t += d; return o; });
+  }
+  // a caption made of some of its words, times from those words
+  function fromWords(c, ws, shift) {
+    if (!ws.length) return null;
+    const q = Object.assign({}, c);
+    q.text = ws.map((x) => x.w).join(' ');
+    q.start = r3(ws[0].s + shift); q.end = r3(ws[ws.length - 1].e + shift);
+    if (ws.every((x) => x.x)) q.wt = ws.map((x) => [r3(x.s + shift), r3(x.e + shift)]); else delete q.wt;
+    return q;
+  }
+  const mid = (x) => (x.s + x.e) / 2;
+  const META = ['_m', '_ci', '_id', '_part'];
+  const clean = (c) => { const o = Object.assign({}, c); META.forEach((k) => delete o[k]); return o; };
+  // S (source captions) -> the captions of the edit, in edit time
+  function deriveCaptions(clips, S) {
+    const out = [];
+    layout(clips).forEach((c) => {
+      const shift = c.s - c.in;
+      (S[c.m] || []).forEach((q, ci) => {
+        if (q.end <= c.in || q.start >= c.out) return;
+        let d;
+        if (q.start >= c.in - 1e-6 && q.end <= c.out + 1e-6) {
+          d = Object.assign(clean(q), { start: r3(q.start + shift), end: r3(q.end + shift) });
+          if (Array.isArray(q.wt)) d.wt = q.wt.map((w) => [r3(w[0] + shift), r3(w[1] + shift)]);
+        } else {
+          d = fromWords(clean(q), words(q).filter((w) => mid(w) >= c.in && mid(w) < c.out), shift);
+          if (!d) return;
+          d.start = r3(Math.max(d.start, c.s)); d.end = r3(Math.min(d.end, c.e));
+          d._part = 1;
+        }
+        d._m = c.m; d._ci = ci; d._id = c.id + ':' + ci;
+        out.push(d);
+      });
+    });
+    return out;
+  }
+  // the edit's captions (changed by the editor) -> S again. What the edit
+  // does not show of a file stays as it was; what it shows is replaced by
+  // what the editor has now (mapped back to the file's time).
+  function syncBack(clips, S, D) {
+    const L = layout(clips);
+    const spans = {};
+    L.forEach((c) => { (spans[c.m] = spans[c.m] || []).push([c.in, c.out]); });
+    const shown = (m, t) => (spans[m] || []).some(([a, b]) => t >= a && t < b);
+    const NS = {};
+    Object.keys(S || {}).forEach((m) => {
+      NS[m] = [];
+      (S[m] || []).forEach((q) => {
+        const ws = words(q);
+        if (!spans[m] || !ws.some((w) => shown(m, mid(w)))) { NS[m].push(clean(q)); return; }
+        const keep = ws.filter((w) => !shown(m, mid(w)));          // the part the edit does not show
+        const rest = fromWords(clean(q), keep, 0);
+        if (rest) NS[m].push(rest);
+      });
+    });
+    const seen = {};
+    (D || []).forEach((d) => {
+      const dw = words(d);
+      L.forEach((c) => {
+        if (d.end <= c.s || d.start >= c.e) return;
+        const inClip = dw.filter((w) => mid(w) >= c.s && mid(w) < c.e);
+        const ws = inClip.length ? inClip : (d.start >= c.s && d.start < c.e ? dw : []);
+        const q = fromWords(clean(d), ws, c.in - c.s);
+        if (!q) return;
+        if (!inClip.length) { q.start = r3(Math.max(c.in, d.start + c.in - c.s)); q.end = r3(Math.min(c.out, d.end + c.in - c.s)); }
+        const k = c.m + '|' + q.start + '|' + q.text;
+        if (seen[k]) return;
+        seen[k] = 1;
+        (NS[c.m] = NS[c.m] || []).push(q);
+      });
+    });
+    Object.keys(NS).forEach((m) => NS[m].sort((a, b) => a.start - b.start || a.end - b.end));
+    return NS;
+  }
+
+  // ── the export: the whole edit as one ffmpeg graph ───────────────────────
+  const FORMATS = { '16:9': [1920, 1080], '9:16': [1080, 1920], '1:1': [1080, 1080], '4:5': [1080, 1350] };
+  const canvasSize = (fmt) => { const s = FORMATS[fmt] || FORMATS['16:9']; return { w: s[0], h: s[1] }; };
+  // fill the canvas (cover), then the clip's own size and position
+  function placement(media, clip, W, H) {
+    const mw = media.w || W, mh = media.h || H;
+    const k = Math.max(W / mw, H / mh) * (Number(clip.scale) || 1);
+    const sw = Math.max(2, Math.round(mw * k / 2) * 2), sh = Math.max(2, Math.round(mh * k / 2) * 2);
+    return { sw, sh, x: Math.round((W - sw) / 2 + (Number(clip.x) || 0) * W), y: Math.round((H - sh) / 2 + (Number(clip.y) || 0) * H) };
+  }
+  // media: { id: { idx (ffmpeg input number), w, h, video, audio } }
+  function editGraph(clips, media, fmt, fps) {
+    fps = fps || 30;
+    const { w: W, h: H } = canvasSize(fmt);
+    const L = layout(clips);
+    const parts = [], ins = [];
+    L.forEach((c, i) => {
+      const m = media[c.m] || {};
+      const d = r3(c.out - c.in);
+      const f = Math.min(0.01, d / 4).toFixed(3);
+      if (m.video) {
+        const p = placement(m, c, W, H);
+        parts.push('[' + m.idx + ':v]trim=start=' + c.in + ':end=' + c.out + ',setpts=PTS-STARTPTS,fps=' + fps + ',scale=' + p.sw + ':' + p.sh + ',setsar=1[s' + i + ']');
+        parts.push('color=c=black:s=' + W + 'x' + H + ':r=' + fps + ':d=' + d + '[b' + i + ']');
+        parts.push('[b' + i + '][s' + i + ']overlay=' + p.x + ':' + p.y + ':shortest=1,format=yuv420p[v' + i + ']');
+      } else {
+        parts.push('color=c=black:s=' + W + 'x' + H + ':r=' + fps + ':d=' + d + ',format=yuv420p[v' + i + ']');
+      }
+      if (m.audio) {
+        parts.push('[' + m.idx + ':a]atrim=start=' + c.in + ':end=' + c.out + ',asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,volume=' +
+          (c.volume == null ? 1 : Number(c.volume)) + ',afade=t=in:d=' + f + ',afade=t=out:st=' + Math.max(0, d - f).toFixed(3) + ':d=' + f + '[a' + i + ']');
+      } else {
+        parts.push('anullsrc=r=48000:cl=stereo,atrim=duration=' + d + '[a' + i + ']');
+      }
+      ins.push('[v' + i + '][a' + i + ']');
+    });
+    parts.push(ins.join('') + 'concat=n=' + L.length + ':v=1:a=1[v][a]');
+    return { graph: parts.join(';'), w: W, h: H, duration: total(clips) };
+  }
+
+  const api = { MIN, layout, total, locate, sourceToEdit, splitAt, removeClip, trimClip, moveClip, dropIndex, cutRange,
+    words, deriveCaptions, syncBack, FORMATS, canvasSize, placement, editGraph };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.AmhEdit = api;
+})(typeof window !== 'undefined' ? window : this);

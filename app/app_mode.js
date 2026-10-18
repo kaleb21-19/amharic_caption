@@ -410,13 +410,15 @@
     }
   }
   let raf = 0;
-  const tick = () => { showAt(video.currentTime, true); raf = video.paused ? 0 : requestAnimationFrame(tick); };
+  // the Studio editor plays an edit of several clips: its time, not the file's
+  const nowT = () => (window.__amhEditTime ? window.__amhEditTime() : video.currentTime);
+  const tick = () => { showAt(nowT(), true); raf = video.paused ? 0 : requestAnimationFrame(tick); };
   video.addEventListener('play', () => { if (!raf) raf = requestAnimationFrame(tick); });
   // timeupdate keeps going where animation frames are throttled (window in
   // the background); frames make it smooth for one-word karaoke captions.
-  video.addEventListener('timeupdate', () => showAt(video.currentTime, !video.paused));
-  video.addEventListener('seeked', () => showAt(video.currentTime, false));
-  video.addEventListener('pause', () => showAt(video.currentTime, false));
+  video.addEventListener('timeupdate', () => showAt(nowT(), !video.paused));
+  video.addEventListener('seeked', () => showAt(nowT(), false));
+  video.addEventListener('pause', () => showAt(nowT(), false));
 
   // Click (or tab) into a caption: the video jumps to it.
   const list = $('reviewList');
@@ -425,14 +427,15 @@
     if (!row || !video.getAttribute('src')) return;
     const i = Array.prototype.indexOf.call(rows(), row);
     if (i < 0 || !reviewCues[i]) return;
-    if (Math.abs(video.currentTime - reviewCues[i].start) > 0.05) video.currentTime = reviewCues[i].start + 0.01;
+    if (window.__amhSeek) window.__amhSeek(reviewCues[i].start + 0.01);
+    else if (Math.abs(video.currentTime - reviewCues[i].start) > 0.05) video.currentTime = reviewCues[i].start + 0.01;
     showAt(reviewCues[i].start + 0.01, false);
   }
   if (list) {
     list.addEventListener('focusin', (e) => jumpTo(e.target));
     list.addEventListener('mousedown', (e) => jumpTo(e.target));
     // Typing changes the caption on the video right away.
-    list.addEventListener('input', () => setTimeout(() => showAt(video.currentTime, false), 0));
+    list.addEventListener('input', () => setTimeout(() => showAt(nowT(), false), 0));
   }
 
   const reviewEl = $('review');

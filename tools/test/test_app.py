@@ -128,6 +128,8 @@ def t_index():
     assert 0 < i_boot < i_shim < i_csi < i_main < i_mode, "boot, shim before CSInterface; app_mode after main.js"
     i_core, i_studio, i_script = html.find("/__app/studio_core.js"), html.find("/__app/studio.js"), html.find("/__app/studio_script.js")
     assert i_script < html.find("/__app/studio_cuts.js"), "Clean up after the Script view"
+    assert i_core < html.find("/__app/studio_edit_core.js") < i_studio, "the editor's pure part with the other pure part"
+    assert i_script < html.find("/__app/studio_edit.js") < html.find("/__app/studio_cuts.js"), "the editor after the Script view, before Clean up"
     assert i_mode < i_core < i_studio < i_script, "the Studio after app_mode.js: its pure part, the shell, the Script view"
     assert "/__app/app.css" in html
     assert "script-src 'self'" in html, "the panel's CSP stays strict (no inline script needed)"
@@ -136,7 +138,7 @@ def t_index():
     assert st == 200 and boot["token"] == TOKEN and boot["ext"] == os.path.realpath(EXT)
     assert boot["api"] == API and boot["files"] == [os.path.join(REPO, "README.md")]
     assert boot["info"]["platform"] == sys.platform and boot["info"]["tmp"]
-    for f in ("node_shim.js", "app_mode.js", "app.css", "studio_core.js", "studio.js", "studio_script.js", "studio_cuts.js"):
+    for f in ("node_shim.js", "app_mode.js", "app.css", "studio_core.js", "studio.js", "studio_script.js", "studio_cuts.js", "studio_edit_core.js", "studio_edit.js"):
         assert req("GET", "/__app/" + f, token=False)[0] == 200, f
 
 

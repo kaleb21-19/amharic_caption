@@ -162,17 +162,28 @@
     });
     pane.appendChild(list);
     if (active()) pane.appendChild(el('div', 'st-cutsum', summary()));
-    const ex = el('button', 'st-btn primary st-wide', '⬆ ' + tx('የጸዳውን ይላኩ', 'Export the cleaned video'));
+    const ex = el('button', 'st-btn primary st-wide', '✂ ' + tx('ከጊዜ መስመሩ ቁረጣቸው', 'Cut them from the timeline'));
     ex.type = 'button';
-    ex.disabled = !active();
-    ex.addEventListener('click', () => ST.openExport());
+    ex.disabled = !active() || !window.__amhEditor;
+    ex.addEventListener('click', () => {
+      const list2 = cuts();
+      // the cut words leave the captions too
+      const drop = [];
+      items.forEach((it) => { if (it.on && it.words) it.words.forEach((w) => drop.push(w)); });
+      window.__amhEditor.cutRanges(list2);
+      overrides = {};
+      analyze();
+      ST.saveSoon();
+    });
     pane.appendChild(ex);
+    pane.appendChild(el('div', 'st-note', tx('አንድ ጊዜ ↶ ሲጫኑ ሁሉም ይመለሳል።', 'One ↶ brings it all back.')));
   }
 
   // ── preview: the player skips the ticked parts ─────────────────────────
   let raf = 0;
   function skip() {
     const v = video();
+    if (window.__amhEditor) return;           // the editor cuts the timeline itself
     if (!v || v.paused || !preview || !active()) return;
     const t = v.currentTime;
     const c = cuts().find((x) => t >= x.start && t < x.end - 0.02);
@@ -189,7 +200,8 @@
 
   // ── the timeline: red stripes where it will be cut ─────────────────────
   ST.overlays.push((ctx, view, w, h, g) => {
-    if (!active()) return;
+    // only while the ✂ Clean up tab is open (elsewhere they would look like cuts)
+    if (!active() || pane.offsetParent === null) return;
     cuts().forEach((c) => {
       const x0 = S.timeToX(c.start, view), x1 = S.timeToX(c.end, view);
       if (x1 < 0 || x0 > w) return;
