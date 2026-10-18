@@ -386,7 +386,9 @@ MEDIA = {}
 MEDIA_TYPES = {".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/mp4",   # mov: H.264 plays as mp4
                ".webm": "video/webm", ".mkv": "video/webm", ".mp3": "audio/mpeg", ".wav": "audio/wav",
                ".m4a": "audio/mp4", ".aac": "audio/aac", ".ogg": "audio/ogg", ".opus": "audio/ogg",
-               ".flac": "audio/flac"}
+               ".flac": "audio/flac",
+               # photos and logos on the Studio's overlay track (1.21.0)
+               ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 
 
 def media_url(path):
