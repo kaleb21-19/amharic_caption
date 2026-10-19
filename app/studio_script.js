@@ -38,6 +38,9 @@
     bCaps.classList.toggle('on', m === 'captions');
     hideBar();
     if (m === 'script') render();
+    // a hidden list can't measure its boxes: size them once it shows (after
+    // Media has let go of the column too), so long captions aren't cut
+    else if (typeof fitReviewBoxes === 'function') setTimeout(fitReviewBoxes, 0);
   }
   bScript.addEventListener('click', () => setMode('script'));
   bCaps.addEventListener('click', () => setMode('captions'));

@@ -311,7 +311,10 @@
     busy.querySelector('.st-busy-ttl').textContent = tx('ቃላቱን እያዳመጠ ነው…', 'Listening to the words…');
     TABS.forEach((t) => { t.b.textContent = t.label(); });
     const lic = $('licenseStatus');
-    chip.textContent = (typeof LICENSED !== 'undefined' && LICENSED) ? '✓ ' + tx('ፈቃድ አለው', 'Licensed') : '🔑 ' + ((lic && lic.textContent.trim()) || tx('ፈቃድ', 'License'));
+    // short words on the chip; the full license line is its tooltip
+    const licOn = typeof LICENSED !== 'undefined' && LICENSED;
+    chip.textContent = licOn ? '✓ ' + tx('ፈቃድ አለው', 'Licensed') : '🔑 ' + tx('ፈቃድ', 'License');
+    chip.title = (lic && lic.textContent.trim()) || '';
     syncHead();
     renderCapPane();
   }

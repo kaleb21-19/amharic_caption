@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.30.0';
+const APP_VERSION = '1.31.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,18 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.31.0': {
+    banner: {
+      am: '✨ ይበልጥ ንጹህ Studio — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '✨ A cleaner Studio — your license stays the same.',
+    },
+    items: [
+      { am: 'Studio፦ በዝርዝሩ ውስጥ ረጅም ካፕሽኖች ሙሉ በሙሉ ይታያሉ', en: 'Studio: long captions show in full in the List' },
+      { am: 'Studio፦ ቀጭን፣ ጸጥ ያሉ የማሸብለያ አሞሌዎች', en: 'Studio: thin, quiet scroll bars' },
+      { am: 'Studio፦ ከላይ አጭር "🔑 ፈቃድ" — ሙሉ መረጃው ሲጠቁሙበት ይታያል', en: 'Studio: a short "🔑 License" at the top — point at it for the details' },
+      { am: 'Studio፦ የስታይል ማስታወሻው በራሱ መስመር፣ የ"ዝርዝር" ቁልፍ ሙሉ ስሙ ይታያል', en: 'Studio: the style note has its own line, and "List" shows its whole name' },
+    ],
+  },
   '1.30.0': {
     banner: {
       am: '✨ ይበልጥ ንጹህ ፓነል — ትንሽ ቁልፎች፣ ብዙ ቦታ ለካፕሽኖችዎ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
