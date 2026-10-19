@@ -84,7 +84,7 @@ html.amh-studio .st-dropcard .app-drop-title { font-size: 17px; }
 html.amh-studio .st-dropcard .app-drop.has-file { padding: 40px 24px; }
 html.amh-studio .panel-body { max-width: 1040px; margin: 0 auto; }
 .studio-recent { background: none; border: 0; padding: 0; }
-.st-home-h { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-secondary); margin: 6px 0 8px; }
+.st-home-h { font-size: 12px; letter-spacing: .03em; text-transform: uppercase; color: var(--text-secondary); margin: 6px 0 8px; }
 .studio-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
 /* 1.45: picture cards */
 .st-thumb { position: relative; aspect-ratio: 16 / 9; background: #0b100e radial-gradient(circle at 50% 45%, #1b2a23 0, #0b100e 70%); overflow: hidden; }
@@ -127,13 +127,23 @@ html.amh-studio #review .memory-panel { position: fixed; left: 14px; top: 100px 
 .st-export.ghost { background: transparent; color: var(--text-primary); border: 1px solid var(--border); font-weight: 700; }
 .st-export.ghost:hover { border-color: var(--accent); filter: none; }
 .st-send { margin-left: 6px; }
+/* 1.46: a desktop studio reads at desktop sizes (the Premiere panel keeps its
+   small ones): Amharic letters need 12 px and more to read easily */
+html.amh-studio { --font-s: 12px; --font-m: 13.5px; --font-l: 15px; --control-h: 30px; }
+/* 1.46: one icon set (app/studio_icons.js) */
+.amh-ic { width: 1.15em; height: 1.15em; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+  vertical-align: -0.2em; margin-right: .42em; }
+.amh-ic-only > .amh-ic { margin-right: 0; }
+.amh-ic-play, .amh-ic-prev, .amh-ic-next, .amh-ic-fast, .amh-ic-bolt { fill: currentColor; }
+.app-drop-icon .amh-ic { width: 40px; height: 40px; margin: 0; color: var(--accent); stroke-width: 1.6; }
+.st-card-ico .amh-ic { width: 26px; height: 26px; margin: 0; color: var(--accent); stroke-width: 1.7; }
 .st-ednote { margin: 0 0 10px; padding: 10px 12px; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px;
   background: var(--accent-soft); font-size: var(--font-s); line-height: 1.5; display: grid; gap: 4px; }
 .st-ednote b { font-size: var(--font-m); }
 .st-card-focus { border-color: var(--accent) !important; box-shadow: 0 0 0 1px var(--accent) inset; }
 
 .st-thead { display: flex; align-items: center; gap: 6px; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--border); background: #111816; }
-.st-ttl { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-secondary); }
+.st-ttl { font-size: 12px; letter-spacing: .03em; text-transform: uppercase; color: var(--text-secondary); }
 .st-tcount { font-size: var(--font-s); color: var(--text-secondary); }
 .st-pill { height: 24px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--border); background: none; font-size: var(--font-s); cursor: pointer; }
 .st-pill.warn { color: var(--warn); border-color: var(--warn); }
@@ -314,7 +324,7 @@ html.amh-editor #review .ed-tl { padding: 0; }
 .ed-tool:disabled { opacity: .4; cursor: default; }
 .ed-hint { color: var(--warn); font-size: var(--font-s); margin-left: 6px; }
 .ed-lanes { display: grid; grid-template-columns: 92px minmax(0, 1fr); }
-.ed-labels { border-right: 1px solid var(--border); font-size: 11px; color: var(--text-secondary); }
+.ed-labels { border-right: 1px solid var(--border); font-size: 12px; color: var(--text-secondary); }
 .ed-lh { height: 24px; }
 .ed-lcap { height: 36px; display: flex; align-items: center; padding-left: 10px; }
 .ed-lmain { height: 54px; display: flex; align-items: center; padding-left: 10px; }
@@ -336,7 +346,7 @@ html.amh-studio #review.ed-mediamode .st-script, html.amh-studio #review.ed-medi
 
 /* ⚙ Clip */
 .ed-cname { font-weight: 700; margin-bottom: 12px; overflow-wrap: anywhere; }
-.ed-sec { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-secondary); margin: 14px 0 8px; }
+.ed-sec { font-size: 12px; letter-spacing: .03em; text-transform: uppercase; color: var(--text-secondary); margin: 14px 0 8px; }
 .ed-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .ed-lab { width: 56px; font-size: var(--font-s); color: var(--text-secondary); }
 .ed-row input[type=range] { flex: 1; accent-color: var(--accent); }
@@ -370,7 +380,7 @@ html.amh-editor .ed-cwrap { height: 186px; }
 .ed-tmi { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; padding: 8px 10px; border: 0; border-radius: 7px;
   background: none; color: var(--text-primary); cursor: pointer; text-align: left; }
 .ed-tmi:hover { background: #24302b; }
-.ed-tmi span { font-size: 11px; color: var(--text-secondary); }
+.ed-tmi span { font-size: 12px; color: var(--text-secondary); }
 .ed-canvas .ed-tx { position: absolute; z-index: 2; cursor: move; white-space: pre-wrap; line-height: 1.25; max-width: 92%; }
 .ed-canvas .ed-tx.sel { outline: 1px dashed var(--accent); outline-offset: 4px; }
 .ed-tx-plain, .ed-tx-title, .ed-tx-box { transform: translate(-50%, -50%); text-align: center; font-weight: 700; }
@@ -410,7 +420,7 @@ html.amh-editor .ed-cwrap { height: 222px; }
 /* 1.25.0 exports: presets, graphics card, queue */
 .st-presets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin: 10px 0 4px; }
 .st-pchip { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; background: none; color: var(--text-primary); font-size: var(--font-s); cursor: pointer; text-align: left; }
-.st-pchip span { color: var(--text-secondary); font-size: 11px; }
+.st-pchip span { color: var(--text-secondary); font-size: 12px; }
 .st-pchip.on { border-color: var(--accent); background: rgba(46, 204, 113, .12); box-shadow: 0 0 0 1px var(--accent); }
 .st-pnote:empty { display: none; }
 .st-pnote { margin: 4px 0; }
@@ -425,7 +435,7 @@ html.amh-editor .ed-cwrap { height: 222px; }
 .ed-fonts { flex-wrap: wrap; } .ed-fonts button { flex: 1 0 22%; }
 
 /* 1.29.0 captions for every file of the project */
-.ed-mcap { font-size: 11px; margin-top: 4px; color: var(--text-secondary); }
+.ed-mcap { font-size: 12px; margin-top: 4px; color: var(--text-secondary); }
 .ed-mcap.busy { color: #9fd8b8; }
 .ed-mcap.err { color: #ff8a80; }
 .ed-mcapbtn { margin-top: 6px; width: 100%; }
@@ -466,7 +476,7 @@ html.amh-studio .st-cappane .sc-stage { display: none; }
 html.amh-studio .st-cappane .sc-opts { gap: 14px; }
 html.amh-studio .st-cappane .sc-label { flex-basis: 64px; }
 html.amh-studio .st-capgroup { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
-html.amh-studio .st-capsec { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 10px; }
+html.amh-studio .st-capsec { font-size: 12px; letter-spacing: .03em; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 10px; }
 /* the caption in the player: a handle to drag it up or down */
 .ed-canvas .ed-caphandle { position: absolute; left: 4%; right: 4%; z-index: 4; display: none; cursor: ns-resize;
   border: 1px dashed rgba(255,255,255,.55); border-radius: 6px; box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
