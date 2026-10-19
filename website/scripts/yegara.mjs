@@ -78,7 +78,7 @@ if (existsSync(ZIP)) rmSync(ZIP);
 // a backslash in its name (every page but the home page, and all CSS / JS,
 // were missing on the server)
 // (the one in System32: Git's tar on the PATH takes "C:" for a remote host)
-const WINTAR = join(process.env.SystemRoot || "C:\Windows", "System32", "tar.exe");
+const WINTAR = join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe");
 if (process.platform === "win32") {
   execFileSync(WINTAR, ["-a", "-c", "-f", ZIP, ...readdirSync(OUT)], { cwd: OUT, stdio: "inherit" });
 } else {
