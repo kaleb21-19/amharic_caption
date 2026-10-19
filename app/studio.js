@@ -41,7 +41,8 @@
   // 1.45: the editor's goal is the main button — "Send to CapCut / DaVinci"
   const sendB = btn('st-export st-send', '', '', () => openExport({ focus: editorNow(), run: true }));
   sendB.style.display = 'none';
-  [homeB, logo, brandEl, projEl, undoB, savedEl, el('span', 'st-flex'), chip, langB, exportB, sendB].forEach((x) => top.appendChild(x));
+  const keysB = btn('st-chip st-keysb', '?', '', () => openKeys());
+  [homeB, logo, brandEl, projEl, undoB, savedEl, el('span', 'st-flex'), keysB, chip, langB, exportB, sendB].forEach((x) => top.appendChild(x));
   review.insertBefore(top, review.firstChild);
 
   // ── text column head ──────────────────────────────────────────────────
@@ -460,7 +461,50 @@
     if (!review.classList.contains('show')) return;
     if ((e.ctrlKey || e.metaKey) && !e.altKey && String(e.key).toLowerCase() === 'e') { e.preventDefault(); openExport(); return; }
     if (e.key === 'Escape' && sheet.style.display !== 'none') { e.preventDefault(); closeSheet(); }
+    const a = document.activeElement;
+    if (e.key === '?' && !e.ctrlKey && !e.metaKey && !(a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable))) { e.preventDefault(); openKeys(); }
   });
+
+  // ── "?" every key on one sheet (1.47; STUDIO_DESIGN 5) ─────────────────
+  function openKeys() {
+    if (typeof reviewOpen === 'undefined' || !reviewOpen) return;
+    const mac = process.platform === 'darwin';
+    const C = mac ? '⌘' : 'Ctrl';
+    sheet.textContent = '';
+    const box = el('div', 'st-sheet-box st-keys');
+    const head = el('div', 'st-sheet-head');
+    head.appendChild(el('b', '', tx('የቁልፍ ሰሌዳ አቋራጮች', 'Keyboard shortcuts')));
+    head.appendChild(el('span', 'st-flex'));
+    head.appendChild(btn('st-ico', '✕', tx('ዝጋ', 'Close'), closeSheet));
+    box.appendChild(head);
+    const groups = [
+      [tx('ማጫወት', 'Playing'), [
+        [['Space'], tx('አጫውት / አቁም', 'Play / pause')], [['J', 'L'], tx('1 ሰከንድ ወደኋላ / ወደፊት (Shift፦ 5)', '1 second back / forward (Shift: 5)')],
+        [['←', '→'], tx('አንድ ፍሬም (Shift፦ 1 ሰከንድ)', 'One frame (Shift: 1 second)')], [['Home', 'End'], tx('መጀመሪያ / መጨረሻ', 'Start / end')]]],
+      [tx('ማረም', 'Editing'), [
+        [['S'], tx('በማጫወቻው ቦታ ቁረጥ (Split)', 'Split at the playhead')], [['Delete'], tx('የተመረጠውን አጥፋ', 'Delete what is selected')],
+        [[C, 'Z'], tx('መልስ', 'Undo')], [[C, 'Y'], tx('እንደገና', 'Redo')]]],
+      [tx('ጽሑፍ (Script)', 'Script'), [
+        [[C, 'B'], tx('★ ቃሉን አጉላ', '★ Pop the word')], [[C, 'D'], tx('✂ ቃሉን ከቪዲዮው ቁረጥ', '✂ Cut the word from the video')],
+        [['Enter'], tx('የተመረጠውን አርም', 'Fix the selected words')],
+        [mac ? ['⌘', 'Shift', 'Space'] : ['Ctrl', 'Space'], tx('በላቲን ፊደል አማርኛ መጻፍ (selam → ሰላም)', 'Type Amharic with Latin letters (selam → ሰላም)')]]],
+      [tx('ሌላ', 'Other'), [
+        [[C, 'E'], tx('ይላኩ (Export)', 'Export')], [['?'], tx('ይህ ገጽ', 'This sheet')], [['Esc'], tx('ዝጋ', 'Close')]]],
+    ];
+    groups.forEach(([name, rows]) => {
+      box.appendChild(el('div', 'st-keys-h', name));
+      rows.forEach(([keys, what]) => {
+        const r = el('div', 'st-keys-row');
+        const k = el('span', 'st-keys-k');
+        keys.forEach((x, i) => { if (i) k.appendChild(document.createTextNode(keys.length === 2 && /^[JL←→]$|^Home$/.test(keys[0]) ? ' / ' : ' + ')); k.appendChild(el('kbd', '', x)); });
+        r.appendChild(k);
+        r.appendChild(el('span', '', what));
+        box.appendChild(r);
+      });
+    });
+    sheet.appendChild(box);
+    sheet.style.display = '';
+  }
 
   // ── projects ───────────────────────────────────────────────────────────
   const projDir = () => path.join(typeof USER_CAPTIONS_DIR !== 'undefined' ? USER_CAPTIONS_DIR : path.join(os.homedir(), 'Documents', 'AmharicCaptions'), 'Studio');
@@ -573,6 +617,7 @@
         'For DaVinci: ⬆ Export → DaVinci — the captions go on your timeline, styled, as editable Text+.')));
       document.documentElement.classList.toggle('amh-ed-capcut', now === 'capcut');
       if (typeof syncSend === 'function') syncSend();
+      if (!listProjects().length) renderRecent();
       return;
     }
     pickBox.appendChild(el('div', 'st-home-h', tx('በየትኛው ኤዲተር ይሰራሉ?', 'Which editor do you use?')));
@@ -589,9 +634,26 @@
   if (typeof i18nOnChange === 'function') i18nOnChange(() => setTimeout(renderPick, 0));
   function renderRecent(note) {
     const items = listProjects();
-    recent.style.display = items.length ? '' : 'none';
     recent.textContent = '';
-    if (!items.length) return;
+    recent.style.display = '';
+    if (!items.length) {               // a new user (1.47): how it works, no wizard
+      const ed = editorNow();
+      const to = ed === 'davinci' ? 'DaVinci' : ed === 'premiere' ? 'Premiere' : 'CapCut';
+      recent.appendChild(el('div', 'st-home-h', tx('እንዴት ይሰራል', 'How it works')));
+      const how = el('div', 'st-how');
+      [['⬇', tx('ቪዲዮ ያስገቡ', 'Drop a video'), tx('ቃላቱ ያለ ኢንተርኔት ይጻፋሉ — ፋይልዎ ከኮምፒውተርዎ አይወጣም።', 'The words are written offline — your file never leaves your PC.')],
+        ['✎', tx('ያርሙ እና ስታይል ይምረጡ', 'Fix and style'), tx('ቃል ይንኩና ያርሙ፤ ስታይሉ ወዲያውኑ በቪዲዮው ላይ ይታያል።', 'Click a word to fix it; the style shows on the video at once.')],
+        ['⬆', tx('ወደ ' + to + ' ይላኩ', 'Send to ' + to), tx('ካፕሽኖቹ እንደሚታረሙ ጽሑፎች ይገባሉ — ወይም MP4 ቪዲዮ።', 'The captions arrive as editable texts — or as an MP4 video.')]]
+        .forEach(([ic, t, d], i) => {
+          const c = el('div', 'st-how-step');
+          c.appendChild(el('div', 'st-how-ic', ic));
+          c.appendChild(el('b', '', (i + 1) + '. ' + t));
+          c.appendChild(el('span', '', d));
+          how.appendChild(c);
+        });
+      recent.appendChild(how);
+      return;
+    }
     recent.appendChild(el('div', 'st-home-h', tx('የቅርብ ጊዜ ፕሮጀክቶች', 'Recent projects')));
     if (note) recent.appendChild(el('div', 'hint studio-note', note));
     const grid = el('div', 'studio-grid');
@@ -666,14 +728,37 @@
       busy.querySelector('i').style.width = pct;
       busy.querySelector('.st-busy-lbl').textContent = (lbl && lbl.textContent) || '';
       const isBusy = $('runBtn') && $('runBtn').disabled;
-      if (reviewOpen) { clearInterval(t); running = false; review.classList.remove('st-working'); afterOpen(); return; }
+      if (reviewOpen) { clearInterval(t); running = false; review.classList.remove('st-working'); afterOpen(); readyBar(); return; }
       if (!isBusy) {          // stopped without captions: back home, where the reason is shown
         clearInterval(t); running = false;
         review.classList.remove('st-working', 'show');
       }
     }, 300);
   }
+  // the captions are made (1.47): what next, and the editor's button right
+  // there — a new user goes from video to captions in CapCut / DaVinci
+  const ready = el('div', 'st-ready');
+  ready.style.display = 'none';
+  review.appendChild(ready);
+  let readyT = 0;
+  function readyBar() {
+    const n = (typeof reviewCues !== 'undefined' && reviewCues) ? reviewCues.length : 0;
+    if (!n) return;
+    const ed = editorNow();
+    ready.textContent = '';
+    ready.appendChild(el('b', '', '✓ ' + n + ' ' + tx('ካፕሽኖች ዝግጁ ናቸው', 'captions are ready')));
+    ready.appendChild(el('span', '', tx('ቃላቱን ያረጋግጡ → ስታይል ይምረጡ → ', 'Check the words → choose a style → ') +
+      (ed === 'capcut' ? tx('ወደ CapCut ይላኩ', 'send to CapCut') : ed === 'davinci' ? tx('ወደ DaVinci ይላኩ', 'send to DaVinci') : tx('ይላኩ', 'export'))));
+    if (sendB.style.display !== 'none') ready.appendChild(btn('st-btn primary', (ed === 'capcut' ? '✂️ ' : '🎞️ ') + sendB.textContent.trim(), '', () => { hide(); sendB.click(); }));
+    else ready.appendChild(btn('st-btn primary', '⬆ ' + tx('ይላኩ', 'Export'), '', () => { hide(); openExport(); }));
+    ready.appendChild(btn('st-ico', '✕', tx('ዝጋ', 'Close'), () => hide()));
+    ready.style.display = '';
+    clearTimeout(readyT);
+    readyT = setTimeout(hide, 20000);
+    function hide() { ready.style.display = 'none'; clearTimeout(readyT); }
+  }
   function goHome() {
+    ready.style.display = 'none';
     closeSheet();
     if (running) return;
     if (reviewOpen) { saveProject(true); closeReview(); }
@@ -716,5 +801,5 @@
   }
   window.__amhStudio = { draw, drawSoon, saveProject, saveSoon, listProjects, openProject, renderRecent, openExport, closeSheet, showTab, regroup, goHome,
     addTab: (id, label, pane) => { addTab(id, label, pane); relabel(); showTab(tabNow); }, overlays, seek, dur, peaks,
-    attachEditor: (e) => { editor = e; if (e.onQueue) e.onQueue(onQueue); }, relabel, savedEl, projDir, chosenVideo, tx, thumbFor };
+    attachEditor: (e) => { editor = e; if (e.onQueue) e.onQueue(onQueue); }, relabel, savedEl, projDir, chosenVideo, tx, thumbFor, openKeys, readyBar };
 })();
