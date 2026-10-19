@@ -147,6 +147,10 @@
   // PC (owner-tested: a missing path animates too). id = CapCut's resource id.
   const CC_ANIMS = {
     cyan: { id: '7664535055594802453', name: 'Cyan Slide', type: 'in', us: 229800, file: '2924b19ec9232df440d5e31d627934ca', cat: 'ruchang', catName: 'In' },
+    // the owner's picks in CapCut 9.6 (1.51)
+    showright: { id: '7149113362096329217', name: 'Showing Right', type: 'in', us: 500000, file: '6f8e0a5cd98c44b79f9ec09b0b913059', cat: 'ruchang', catName: 'text' },
+    fadein: { id: '7646371244257955092', name: 'Fade In', type: 'in', us: 500000, file: 'e6884981e7717e8d2951063ad1eadbdb', cat: 'ruchang', catName: 'In' },
+    retrofocus: { id: '7595221692809497872', name: 'Retro Focus', type: 'in', us: 500000, file: 'e0b49323150bf7e8cc6a72c4cf84f709', cat: 'ruchang', catName: 'text' },
   };
   // one animation entry for a caption `segUs` long (never longer than 60 % of it)
   function ccAnimEntry(key, cacheRoot, segUs) {

@@ -46,7 +46,7 @@
     const row = el('div', 'st-row st-ccanim-pick');
     row.appendChild(el('span', 'st-sub', '✨ ' + tx('የCapCut እንቅስቃሴ፦', 'CapCut animation:')));
     const sel = el('select', 'st-sel');
-    [['cyan', 'Cyan Slide']].concat([['none', tx('የለም', 'None')]]).forEach(([v, n]) => {
+    Object.keys(C.CC_ANIMS).map((k) => [k, C.CC_ANIMS[k].name]).concat([['none', tx('የለም', 'None')]]).forEach(([v, n]) => {
       const o = el('option', '', n); o.value = v; if (v === ccAnimNow()) o.selected = true; sel.appendChild(o);
     });
     sel.addEventListener('change', () => { try { saveSettings({ ccAnim: sel.value }); } catch (e) {} });

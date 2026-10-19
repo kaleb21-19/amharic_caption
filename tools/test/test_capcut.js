@@ -220,6 +220,12 @@ test('a CapCut animation on every caption (CapCut fetches the effect by its id)'
   const none = C.buildTrack(project(), 'C:/Users/me/Videos/talk.mp4', [{ start: 12, end: 14, text: 'ሰላም' }], C.lookFor('karaoke', {}, '', true));
   assert.deepStrictEqual(none.animations[0].animations, [], 'no choice: no animation');
   assert.strictEqual(C.ccAnimEntry('nope', 'x', 1e6), null);
+  // the owner's picks: every one a complete entry
+  assert.deepStrictEqual(Object.keys(C.CC_ANIMS), ['cyan', 'showright', 'fadein', 'retrofocus']);
+  Object.keys(C.CC_ANIMS).forEach((k) => {
+    const e = C.ccAnimEntry(k, 'C:/c', 3e6);
+    assert.ok(/^\d{15,}$/.test(e.resource_id) && e.id === e.resource_id && e.type === 'in' && e.name && e.path.indexOf('/effect/' + e.id + '/') > 0, k);
+  });
 });
 
 // 1.50: two balanced lines in CapCut too
