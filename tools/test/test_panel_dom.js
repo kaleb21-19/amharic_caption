@@ -237,7 +237,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.31.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.32.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1122,7 +1122,7 @@ await t('4f. caption styles (1.11): strip, choice remembered, styled layer place
     const args = JSON.parse(JSON.parse(/amh_placeOverlay\((.*)\)/.exec(ov)[1]));
     assert.deepStrictEqual(args, { path: 'C:/caps/x_karaoke.mov', startSeconds: 12.75, duration: 2.35, replacePrefix: 'amhstyle_clip__' },
       'placed at the clip start + the layer start; placing again replaces the earlier layer of these captions');
-    assert.deepStrictEqual(job.opts, { color: '', text: '', size: 'm', pos: 'bottom', words: 0, box: false, font: 'sans', anim: 'auto', emph: 'auto' }, 'default look');
+    assert.deepStrictEqual(job.opts, { color: '', text: '', size: 'm', pos: 'bottom', y: null, words: 0, box: false, font: 'sans', anim: 'auto', emph: 'auto' }, 'default look');
     assert.strictEqual(calls(/amh_importCaptions\(/).length, 0, 'no plain caption track as well');
     assert.strictEqual(p.evalVm('reviewOpen'), false, 'done');
     has(p.els('logBox').textContent, 'Styled captions on track V3');
@@ -1196,45 +1196,67 @@ await t('4g. customize (1.12): colour, size, position, words, box remembered per
     await p.evalVm('renderPreview()');
     j = last();
     assert.deepStrictEqual([j.video, j.videoOffset], ['C:/v/talk.mp4', 2.5], 'the footage that covers these captions');
-    // pick: red highlight, slide-up entrance, the Classic (serif) font, XL, TikTok safe, 2 words, box
+    // 1.32 order (TikTok / Reels): Font, Size, Position, Colour, Text, Pop words, Box, Animation, Words
     const rows = p.els('styleOpts').children;
     const pick = (row, value) => Array.from(rows[row].children[1].children).find((b) => b.dataset.value === value).fire('click');
-    assert.deepStrictEqual(Array.from(rows[2].children[1].children).map((b) => b.dataset.value),
-      ['auto', 'none', 'fade', 'slide', 'drop', 'pop', 'zoom', 'blur']);
-    assert.ok(rows[2].children[1].className === 'sc-seg pills', 'animations wrap as pills');
-    assert.deepStrictEqual(Array.from(rows[3].children[1].children).map((b) => b.dataset.value), ['auto', 'off'], 'emphasis: numbers & ★ / ★ only');
-    assert.deepStrictEqual(Array.from(rows[4].children[1].children).map((b) => b.dataset.value),
+    assert.deepStrictEqual(Array.from(rows[0].children[1].children).map((b) => b.dataset.value),
       ['sans', 'menbere', 'serif', 'abyssinica', 'yebse', 'washra', 'agbalumo', 'tint', 'fantuwua', 'jiret', 'hibur', 'gothic'], '12 Amharic fonts (1.28.0)');
-    assert.ok(rows[4].children[1].className === 'sc-seg pills', 'the fonts wrap as pills');
+    assert.ok(rows[0].children[1].className === 'sc-seg pills', 'the fonts wrap as pills');
+    assert.deepStrictEqual(Array.from(rows[7].children[1].children).map((b) => b.dataset.value),
+      ['auto', 'none', 'fade', 'slide', 'drop', 'pop', 'zoom', 'blur']);
+    assert.ok(rows[7].children[1].className === 'sc-seg pills', 'animations wrap as pills');
+    assert.deepStrictEqual(Array.from(rows[5].children[1].children).map((b) => b.dataset.value), ['auto', 'off'], 'emphasis: numbers & ★ / ★ only');
     // ⬇ Install these fonts on this PC (1.28.0)
     p.evalVm('globalThis.__inst = 0; installFonts = async () => { __inst++; return { ok: true, installed: ["a", "b"], already: ["c"], failed: [], dir: "C:/Users/x/Fonts" }; };');
-    const inst = Array.from(rows[4].children).find((c) => c.className === 'sc-install');
+    const inst = Array.from(rows[0].children).find((c) => c.className === 'sc-install');
     assert.ok(inst && /Install these fonts/.test(inst.textContent), 'the button sits under the fonts');
     await inst.fire('click');
     await new Promise((r) => setTimeout(r, 20));
     assert.strictEqual(p.evalVm('__inst'), 1);
     has(inst.textContent, 'Fonts installed (3)');
     has(p.els('logBox').textContent, 'restart Premiere, CapCut or DaVinci');
-    pick(0, '#FF3B30');
-    pick(2, 'slide');
-    pick(3, 'off');
-    pick(4, 'serif');
-    pick(5, 'xl');
-    pick(6, 'safe');
-    pick(7, '2');
-    rows[8].children[1].fire('click');                       // Box switch on
+    // Size is a slider (1.32): live while it moves, saved when let go
+    const sizeIn = rows[1].children[1].children[0];
+    assert.strictEqual([sizeIn.type, sizeIn.min, sizeIn.max, sizeIn.value].join(' '), 'range 60 180 100', 'size slider 60-180 %, at 100');
+    p.evalVm('globalThis.__live = []; window.__amhCapLive = (x) => __live.push(x);');
+    sizeIn.value = '145';
+    sizeIn.fire('input');
+    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(__live)')), [{ size: 1.45 }], 'the Studio sees it while it moves');
+    assert.strictEqual(rows[1].children[1].children[1].textContent, '145%');
+    sizeIn.fire('change');
+    pick(3, '#FF3B30');
+    pick(7, 'slide');
+    pick(5, 'off');
+    pick(0, 'serif');
+    pick(2, 'safe');
+    pick(8, '2');
+    rows[6].children[1].fire('click');                       // Box switch on
     await settle();
     const saved = JSON.parse(storage.getItem('amh.settings')).styleOpts.bold;
-    assert.deepStrictEqual(saved, { color: '#FF3B30', text: '', size: 'xl', pos: 'safe', words: 2, box: true, font: 'serif', anim: 'slide', emph: 'off' }, 'remembered for this style');
+    assert.deepStrictEqual(saved, { color: '#FF3B30', text: '', size: 1.45, pos: 'safe', y: null, words: 2, box: true, font: 'serif', anim: 'slide', emph: 'off' }, 'remembered for this style');
     j = last();
     assert.deepStrictEqual(j.opts, saved, 'the preview follows every change');
-    assert.ok(Array.from(p.els('styleOpts').children[5].children[1].children).find((b) => b.dataset.value === 'xl').classList.contains('active'));
+    assert.ok(Array.from(p.els('styleOpts').children[2].children[1].children).find((b) => b.dataset.value === 'safe').classList.contains('active'));
+    // ↕ an exact height (1.32): no Position button is lit; a Position button clears it again
+    const yIn = p.els('styleOpts').children[2].children[2].children[1];
+    assert.strictEqual(yIn.type, 'range');
+    yIn.value = '55';
+    yIn.fire('change');
+    assert.strictEqual(JSON.parse(storage.getItem('amh.settings')).styleOpts.bold.y, 0.55, 'the height is kept');
+    assert.ok(!Array.from(p.els('styleOpts').children[2].children[1].children).some((b) => b.classList.contains('active')), 'no Position lit');
+    Array.from(p.els('styleOpts').children[2].children[1].children).find((b) => b.dataset.value === 'top').fire('click');
+    assert.strictEqual(JSON.parse(storage.getItem('amh.settings')).styleOpts.bold.y, null, 'a Position button forgets the height');
+    p.evalVm('setStyleOpt("pos", "safe")');
+    // odd values fall back
+    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(styleOpts(null, { size: 9, y: 2 }))')).size, 'm');
+    assert.strictEqual(JSON.parse(p.evalVm('JSON.stringify(styleOpts(null, { size: 9, y: 2 }))')).y, null);
+    assert.strictEqual(JSON.parse(p.evalVm('JSON.stringify(styleOpts(null, { size: "xl" }))')).size, 'xl', 'older S/M/L/XL still work');
     // any colour from the picker (brand colours)
-    const picker = Array.from(rows[0].children[1].children).find((x) => x.type === 'color');
+    const picker = Array.from(p.els('styleOpts').children[3].children[1].children).find((x) => x.type === 'color');
     picker.value = '#123abc';
     picker.fire('change');
     assert.strictEqual(JSON.parse(storage.getItem('amh.settings')).styleOpts.bold.color, '#123ABC', 'any colour is kept');
-    const own = Array.from(p.els('styleOpts').children[0].children[1].children).find((x) => x.dataset && x.dataset.value === '#123ABC');
+    const own = Array.from(p.els('styleOpts').children[3].children[1].children).find((x) => x.dataset && x.dataset.value === '#123ABC');
     assert.ok(own && own.classList.contains('active'), 'the picked colour shows as chosen');
     p.evalVm('setStyleOpt("color", "#FF3B30")');
     // another style keeps its own look

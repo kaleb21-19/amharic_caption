@@ -305,6 +305,7 @@ const AM_TEXT = {
   'Classic': 'ክላሲክ',
   'Traditional': 'ባህላዊ',
   'Heavy': 'ወፍራም',
+  'Or drag the caption up or down in the video.': 'ወይም ካፕሽኑን በቪዲዮው ውስጥ ወደ ላይ ወይም ወደ ታች ይጎትቱት።',
   'Bold': 'ደማቅ',
   'Playful': 'ተጫዋች',
   'Brush': 'ብሩሽ',

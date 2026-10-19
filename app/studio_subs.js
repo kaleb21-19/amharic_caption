@@ -29,17 +29,23 @@
   let size = { w: 1920, h: 1080 };
   let on = false;
   let retries = 0;             // the script could not be made: tries again
+  let capY = 0.85;             // where the caption's bottom edge is (from the script, 1.32)
+  let handle = null;           // the drag handle over the caption
+  let guide = null;            // TikTok's bottom line (9:16), shown while dragging
+  let liveT = '';              // a slider / drag shown before the captions are drawn again
 
   const styled = () => typeof STYLE !== 'undefined' && STYLE !== 'plain' && typeof STYLE_OK !== 'undefined' && STYLE_OK;
   const fontsDir = () => (typeof RUNTIME !== 'undefined' && RUNTIME ? path.join(RUNTIME, 'fonts') : '');
-  // the font files of a style option id (amh_styles FONTS), and Noto Sans as the fallback
+  // the font files of a style option id (amh_styles FONTS), and the fallback:
+  // Menbere has Ethiopic AND Latin letters (Noto Sans Ethiopic has no Latin -
+  // English words and the free version's tag were empty boxes, 1.32)
   const FILES = { sans: ['NotoSansEthiopic-Regular.ttf', 'NotoSansEthiopic-Bold.ttf'], menbere: ['Menbere-Regular.ttf', 'Menbere-Bold.ttf'],
     serif: ['NotoSerifEthiopic-Regular.ttf', 'NotoSerifEthiopic-Bold.ttf'], abyssinica: ['AbyssinicaSIL-Regular.ttf'],
     yebse: ['yebse.ttf'], washra: ['washrab.ttf'], agbalumo: ['Agbalumo-Regular.ttf'], tint: ['tint.ttf'], fantuwua: ['fantuwua.ttf'],
     jiret: ['jiret.ttf'], hibur: ['HiburMono-Regular.ttf'], gothic: ['yigezubisratgothic.ttf'] };
   function fontUrls(id) {
     const out = [];
-    (FILES[id] || []).concat(FILES.sans).forEach((f) => {
+    (FILES[id] || []).concat(FILES.sans, FILES.menbere).forEach((f) => {
       if (fontsIn[f]) return;
       const p = path.join(fontsDir(), f);
       try { if (fs.existsSync(p)) { out.push(APP.call('media', [p])); fontsIn[f] = 1; } } catch (e) {}
@@ -81,7 +87,9 @@
     try {
       await renderStyled({ cues: styleCues(cues), style: STYLE, opts: styleOpts(STYLE), mode: 'script', width: w, height: h, fps: 30,
         duration: Math.max(0.1, E.total(st.clips)), out, tag: typeof LICENSED !== 'undefined' ? !LICENSED : true });
-      return { text: fs.readFileSync(out, 'utf8'), w, h };
+      const text = fs.readFileSync(out, 'utf8');
+      const m = /^; amh-bottom: ([\d.]+)/m.exec(text);
+      return { text, w, h, y: m ? Number(m[1]) : null };
     } finally { try { fs.unlinkSync(out); } catch (e) {} }
   }
   async function refresh() {
@@ -116,7 +124,7 @@
       }
       const fonts = fontUrls(styleOpts(STYLE).font);
       if (!jas) {
-        jas = new JASSUB({ canvas, subContent: s.text, fonts, defaultFont: 'noto sans ethiopic', queryFonts: false,
+        jas = new JASSUB({ canvas, subContent: s.text, fonts, defaultFont: 'menbere', queryFonts: false,
           workerUrl: VENDOR + 'worker/worker.js', wasmUrl: VENDOR + 'wasm/jassub-worker.wasm', modernWasmUrl: VENDOR + 'wasm/jassub-worker-modern.wasm' });
         await jas.ready;
       } else {
@@ -124,8 +132,13 @@
         await jas.renderer.setTrack(s.text);
       }
       key = k;
+      if (s.y) capY = s.y;
       show(true);
       draw(window.__amhEditTime ? window.__amhEditTime() : 0, true);
+      // the new drawing is in: the slider / drag stand-in can go
+      liveT = '';
+      canvas.style.transform = '';
+      placeHandle();
     } catch (e) {
       failed = true;
       show(false);
@@ -141,7 +154,73 @@
     try { jas.manualRender({ mediaTime: Math.max(0, Number(t) || 0), width: size.w, height: size.h, expectedDisplayTime: performance.now() }, !!repaint); } catch (e) {}
   }
   window.__amhSubsTick = (t) => draw(t, false);
-  window.__amhSubs = { refresh, state: () => ({ on, failed, key: !!key, ready: !!jas }) };
+
+  // ── move and size the caption in the video (1.32) ─────────────────────
+  // While a slider moves or the caption is dragged, the drawn captions are
+  // just moved / scaled on screen at once; when let go the setting is saved
+  // and libass draws them again exactly (the export uses the same values).
+  const BAND = 0.12;                                   // the handle's height (of the frame)
+  const DESC = 0.025;                                  // letters reach a little under the bottom line
+  function placeHandle() {
+    if (!stage) return;
+    if (!handle || handle.parentNode !== stage) {
+      handle = document.createElement('div');
+      handle.className = 'ed-caphandle';
+      handle.innerHTML = '<span>⇕</span>';
+      handle.addEventListener('mousedown', startDrag);
+      stage.appendChild(handle);
+      guide = document.createElement('div');
+      guide.className = 'ed-capguide';
+      guide.innerHTML = '<em>TikTok</em>';
+      stage.appendChild(guide);
+    }
+    const tip = typeof tx === 'function' ? tx('ካፕሽኑን ወደ ላይ ወይም ወደ ታች ይጎትቱት', 'Drag the caption up or down')
+      : 'Drag the caption up or down';
+    handle.title = tip;
+    handle.style.top = ((capY - BAND + DESC) * 100) + '%';
+    handle.style.height = (BAND * 100) + '%';
+    const st = window.__amhEditor && window.__amhEditor.state();
+    const tall = st && st.fmt === '9:16';
+    guide.classList.toggle('on', !!tall);
+    guide.style.top = '80%';                            // under it TikTok / Reels put their buttons and text
+  }
+  function live(x) {
+    if (!canvas || !on || !stage) return;
+    const k0 = sizeNum(styleOpts(STYLE).size);
+    if (x.size) {
+      canvas.style.transformOrigin = '50% ' + (capY * 100) + '%';
+      canvas.style.transform = 'scale(' + (x.size / k0) + ')';
+    } else if (typeof x.y === 'number') {
+      canvas.style.transform = 'translateY(' + ((x.y - capY) * stage.clientHeight) + 'px)';
+      if (handle) handle.style.top = ((x.y - BAND + DESC) * 100) + '%';
+    }
+    liveT = JSON.stringify(x);
+  }
+  window.__amhCapLive = live;
+  function startDrag(e) {
+    e.preventDefault(); e.stopPropagation();
+    if (!stage || !canvas) return;
+    const H = stage.clientHeight || 1;
+    const y0 = e.clientY;
+    let y = capY;
+    stage.classList.add('ed-capdrag');
+    handle.classList.add('drag');
+    const move = (ev) => {
+      y = Math.min(0.97, Math.max(0.1, capY + (ev.clientY - y0) / H));
+      live({ y });
+    };
+    const up = () => {
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+      stage.classList.remove('ed-capdrag');
+      handle.classList.remove('drag');
+      if (Math.abs(y - capY) < 0.002) { canvas.style.transform = ''; placeHandle(); return; }
+      if (typeof setStyleOpt === 'function') setStyleOpt('y', Math.round(y * 1000) / 1000);
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  }
+  window.__amhSubs = { refresh, state: () => ({ on, failed, key: !!key, ready: !!jas, capY, live: liveT }) };
   // captions, style or format changed: made again (a cheap check twice a second)
   setInterval(() => { if (document.visibilityState !== 'hidden') refresh(); }, 500);
 })();

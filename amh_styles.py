@@ -246,20 +246,40 @@ def _ass_color(hexrgb, default):
     return "&H00%s%s%s" % (v[4:6], v[2:4], v[0:2])
 
 
+SIZE_RANGE = (0.6, 1.8)
+Y_RANGE = (0.10, 0.97)
+
+
+def _num(v, lo, hi):
+    """A number inside lo..hi, else None (bools and text are not numbers)."""
+    if isinstance(v, bool):
+        return None
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return None
+    return min(hi, max(lo, v)) if v == v else None
+
+
 def options(opts):
-    """Clean customize options: colour (the highlight), text, size s/m/l/xl,
-    pos bottom/middle/top/safe, words 1-5 (0 = the style's own), box,
-    font (an id of FONTS), anim (an entrance of ANIMS)."""
+    """Clean customize options: colour (the highlight), text, size s/m/l/xl
+    or a number 0.6-1.8 (the Size slider, 1.32), pos bottom/middle/top/safe,
+    y = where the caption's bottom edge sits (0-1 of the frame height from
+    the top; dragged in the Studio player, 1.32 - wins over pos), words 1-5
+    (0 = the style's own), box, font (an id of FONTS), anim (of ANIMS)."""
     o = opts or {}
     words = o.get("words")
     try:
         words = int(words)
     except (TypeError, ValueError):
         words = 0
+    k = SIZES.get(o.get("size")) if isinstance(o.get("size"), str) else _num(o.get("size"), *SIZE_RANGE)
     return {
         "color": _ass_color(o.get("color"), None),
         "text": _ass_color(o.get("text"), None),
         "size": o.get("size") if o.get("size") in SIZES else "m",
+        "k": k if k else 1.0,
+        "y": _num(o.get("y"), *Y_RANGE),
         "pos": o.get("pos") if o.get("pos") in POSITIONS else "bottom",
         "words": words if 1 <= words <= 5 else 0,
         "box": bool(o.get("box")),
@@ -270,10 +290,13 @@ def options(opts):
 
 
 def _apply_layout(script, style, width, height, o):
-    """Position and box on the finished script (style lines + \\pos tags)."""
+    """Position and box on the finished script (style lines + \\pos tags).
+    A dragged height (o["y"]) puts the caption's bottom edge exactly there:
+    bottom-aligned style lines, \\pos lines anchored at their bottom."""
     h = float(height)
     portrait = height > width
     pos = o["pos"]
+    y = o.get("y")
     out = []
     for line in script.split("\n"):
         if line.startswith("Style: "):
@@ -281,7 +304,9 @@ def _apply_layout(script, style, width, height, o):
             # f: 0 Name,1 Font,2 Size,3 Prim,4 Sec,5 Outline,6 Back,7 Bold,8 It,9 Und,10 Strike,
             #    11 ScX,12 ScY,13 Spacing,14 Angle,15 BorderStyle,16 Outline,17 Shadow,18 Align,
             #    19 ML,20 MR,21 MV,22 Enc
-            if pos == "middle":
+            if y is not None:
+                f[18], f[21] = "2", str(round(h * (1 - y)))
+            elif pos == "middle":
                 f[18], f[21] = "5", "0"
             elif pos == "top":
                 f[18], f[21] = "8", str(round(h * 0.08))
@@ -291,11 +316,41 @@ def _apply_layout(script, style, width, height, o):
                 size = float(f[2])
                 f[15], f[5], f[16], f[17] = "3", "&H40000000", "%.1f" % (size * 0.28), "0"
             line = "Style: " + ",".join(f)
-        elif line.startswith("Dialogue") and "\\pos(" in line and pos != "bottom" and style not in SELF_PLACED:
-            y = {"middle": 0.50, "top": 0.18, "safe": 0.62 if portrait else 0.70}[pos]
-            line = re.sub(r"\\pos\((\d+),\d+\)", lambda m: "\\pos(%s,%d)" % (m.group(1), round(h * y)), line, count=1)
+        elif line.startswith("Dialogue") and "\\pos(" in line and (pos != "bottom" or y is not None) \
+                and style not in SELF_PLACED:
+            py = y if y is not None else {"middle": 0.50, "top": 0.18, "safe": 0.62 if portrait else 0.70}[pos]
+            line = re.sub(r"\\pos\((\d+),\d+\)", lambda m: "\\pos(%s,%d)" % (m.group(1), round(h * py)), line, count=1)
         out.append(line)
     return "\n".join(out)
+
+
+def caption_bottom(script, style, width, height, o):
+    """Where the caption's bottom edge sits (0-1 from the top) - for the
+    Studio's drag handle. Exact for a dragged height and for bottom-aligned
+    lines, close for the others (the handle only needs a starting point)."""
+    if o.get("y") is not None:
+        return o["y"]
+    h = float(height)
+    portrait = height > width
+    pos = o["pos"]
+    if style in SELF_PLACED:
+        return {"bottom": 1 - (0.24 if portrait else 0.10), "safe": 1 - (0.30 if portrait else 0.16),
+                "middle": 0.54, "top": 0.15}[pos]
+    for line in script.split("\n"):
+        if line.startswith("Style: "):
+            f = line[7:].split(",")
+            fs, mv = float(f[2]), float(f[21])
+            if "\\pos(" in script and pos != "bottom":
+                py = {"middle": 0.50, "top": 0.18, "safe": 0.62 if portrait else 0.70}[pos]
+                return min(0.99, py + fs * 0.6 / h)
+            if pos == "middle":
+                return 0.5 + fs * 0.6 / h
+            if pos == "top":
+                return mv / h + fs * 1.25 / h
+            if style == "word":
+                return min(0.99, (0.62 if portrait else 0.75) + fs * 0.6 / h)
+            return 1 - mv / h
+    return 0.85
 
 
 # ── Emphasis words (1.16.16) ────────────────────────────────────────────────
@@ -364,7 +419,7 @@ def build(words, style, width, height, font=FONT, opts=None):
     o = options(opts)
     if font == FONT:
         font = FONTS[o["font"]]
-    K = SIZES[o["size"]] * float((_face(font) or {}).get("scale", 1.0))   # every font looks the same size (1.28.0)
+    K = o["k"] * float((_face(font) or {}).get("scale", 1.0))   # every font looks the same size (1.28.0)
     NW = o["words"]
     words = _mark_emphasis([(_clean(w[0]), float(w[1]), float(w[2])) for w in words if _clean(w[0])], o["emph"])
     h = float(height)
@@ -586,7 +641,8 @@ def build(words, style, width, height, font=FONT, opts=None):
             script = script.replace(c, o["color"])
     if o["text"]:
         script = script.replace(WHITE, o["text"])
-    return _apply_layout(script, style, width, height, o)
+    script = _apply_layout(script, style, width, height, o)
+    return script.replace("[Events]\n", "; amh-bottom: %.4f\n[Events]\n" % caption_bottom(script, style, width, height, o), 1)
 
 
 _FAD = re.compile(r"\\fad\((\d+),(\d+)\)")
@@ -763,7 +819,9 @@ def _place(words, font, size, width, height, o, bottom_frac, gap=0.28):
     block_h = row_h * len(rows)
     h = float(height)
     portrait = height > width
-    if o["pos"] == "middle":
+    if o.get("y") is not None:
+        top = h * o["y"] - block_h
+    elif o["pos"] == "middle":
         top = h / 2 - block_h / 2
     elif o["pos"] == "top":
         top = h * 0.08

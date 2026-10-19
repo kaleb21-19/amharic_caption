@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.31.0';
+const APP_VERSION = '1.32.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,18 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.32.0': {
+    banner: {
+      am: '🎨 ካፕሽንዎን በቪዲዮው ውስጥ ያስተካክሉ — ይጎትቱት፣ መጠኑን ይቀይሩ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '🎨 Style your captions right in the video — drag them, size them — your license stays the same.',
+    },
+    items: [
+      { am: 'Studio፦ "⚙ አስተካክል" ከስታይሎቹ ፈንታ ይከፈታል — እያንዳንዱ ለውጥ በቪዲዮው ውስጥ ወዲያው ይታያል', en: 'Studio: "⚙ Customize" opens in place of the styles — every change shows in the video at once' },
+      { am: 'Studio፦ ካፕሽኑን በቪዲዮው ውስጥ ወደ ላይ ወይም ወደ ታች ይጎትቱት (9:16 ላይ የTikTok መስመር ይታያል)', en: 'Studio: drag the caption up or down in the video (9:16 shows the TikTok line)' },
+      { am: 'መጠን አሁን ተንሸራታች ነው (60–180%)፣ ቦታም በትክክል (↕) — Premiere ላይም', en: 'Size is now a slider (60–180%) and the height is exact (↕) — in Premiere too' },
+      { am: 'Studio፦ የእንግሊዝኛ ቃላት በቅድመ እይታው ውስጥ በትክክል ይታያሉ', en: 'Studio: English words now show properly in the preview' },
+    ],
+  },
   '1.31.0': {
     banner: {
       am: '✨ ይበልጥ ንጹህ Studio — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -5782,14 +5794,34 @@ function previewMediaFor(cues) {
   return PREVIEW_MEDIA.find((m) => t >= m.from - 0.5 && t < m.to) || null;
 }
 const HEX_COLOR = /^#[0-9A-Fa-f]{6}$/;
+// Size (1.32): a slider, 60-180 % (S/M/L/XL of older settings still work).
+const SIZE_STEP = { s: 0.8, m: 1, l: 1.2, xl: 1.45 };
+function cleanSize(v) {
+  if (STYLE_SIZES.indexOf(v) >= 0) return v;
+  const n = typeof v === 'number' ? v : NaN;
+  return n >= 0.6 && n <= 1.8 ? Math.round(n * 20) / 20 : 'm';
+}
+function sizeNum(v) { return typeof v === 'number' ? v : (SIZE_STEP[v] || 1); }
+// Height (1.32): where the caption's bottom edge sits, 0-1 of the frame from
+// the top (dragged in the Studio player, or the ↕ slider). null = Position.
+function cleanY(v) {
+  const n = typeof v === 'number' ? v : NaN;
+  return n >= 0.1 && n <= 0.97 ? Math.round(n * 1000) / 1000 : null;
+}
+// About where a Position puts the bottom edge (the ↕ slider's start)
+function posBottom(pos) {
+  const tall = FORMAT === 'v' || (STYLE_FRAME && STYLE_FRAME.height > STYLE_FRAME.width);
+  return { bottom: tall ? 0.76 : 0.9, middle: 0.54, top: 0.16, safe: tall ? 0.7 : 0.84 }[pos] || 0.85;
+}
 function styleOpts(style, raw) {
   const all = raw ? null : (loadSettings().styleOpts || {});
   const o = raw || all[style || STYLE] || {};
   return {
     color: HEX_COLOR.test(o.color || '') ? o.color.toUpperCase() : '',
     text: HEX_COLOR.test(o.text || '') ? o.text.toUpperCase() : '',
-    size: STYLE_SIZES.indexOf(o.size) >= 0 ? o.size : 'm',
+    size: cleanSize(o.size),
     pos: STYLE_POS.indexOf(o.pos) >= 0 ? o.pos : 'bottom',
+    y: cleanY(o.y),
     words: STYLE_WORDS.indexOf(Number(o.words)) >= 0 ? Number(o.words) : 0,
     box: !!o.box,
     font: STYLE_FONTS.some((f) => f[0] === o.font) ? o.font : 'sans',
@@ -5802,6 +5834,7 @@ function setStyleOpt(key, value) {
   const all = s.styleOpts || {};
   const o = styleOpts(STYLE);
   o[key] = value;
+  if (key === 'pos') o.y = null;          // a Position button: its own height again
   all[STYLE] = o;
   saveSettings({ styleOpts: all });
   renderStyleCustom();
@@ -5886,6 +5919,33 @@ function segRow(parent, label, items, current, key, pills) {
   row.appendChild(box);
   return row;
 }
+// A slider (1.32): `live` while it moves (the Studio shows it in the video at
+// once), `done` when let go (saved, and the captions are drawn again).
+function rangeRow(parent, label, min, max, step, value, fmt, live, done, cls) {
+  const row = /(^|\s)sc-row(\s|$)/.test(parent.className || '') ? parent : scRow(parent, label);
+  const box = document.createElement('span');
+  box.className = 'sc-range' + (cls ? ' ' + cls : '');
+  if (row === parent) {
+    const l = document.createElement('span');
+    l.className = 'sc-rlab';
+    l.textContent = label;
+    box.appendChild(l);
+  }
+  const input = document.createElement('input');
+  input.type = 'range';
+  input.min = String(min); input.max = String(max); input.step = String(step);
+  input.value = String(value);
+  input.setAttribute('aria-label', L(label));
+  const out = document.createElement('span');
+  out.className = 'sc-rval';
+  out.textContent = fmt(value);
+  input.addEventListener('input', () => { const v = Number(input.value); out.textContent = fmt(v); if (live) live(v); });
+  input.addEventListener('change', () => done(Number(input.value)));
+  box.appendChild(input);
+  box.appendChild(out);
+  row.appendChild(box);
+  return row;
+}
 function switchRow(parent, label, on, key) {
   const row = scRow(parent, label);
   const b = document.createElement('button');
@@ -5922,15 +5982,6 @@ function renderStyleCustom() {
   if (!open) return;
   const o = styleOpts(STYLE);
   opts.textContent = '';
-  colorRow(opts, 'Colour', STYLE_COLORS, o.color, 'color');
-  colorRow(opts, 'Text', TEXT_COLORS, o.text, 'text');
-  segRow(opts, 'Animation', STYLE_ANIMS.map(([id, name]) => [id, L(name)]), o.anim, 'anim', true);
-  segRow(opts, 'Pop words', [['auto', L('Numbers too')], ['off', L('My ★ only')]], o.emph, 'emph');
-  const popHint = document.createElement('div');
-  popHint.className = 'sc-hint';
-  popHint.textContent = L('★ = click a word in a caption, then press the ★ next to it. Numbers and money can pop by themselves.');
-  const popRow = opts.lastChild;            // the hint sits inside the Pop words row
-  if (popRow) { popRow.className = (popRow.className || '') + ' wrap'; popRow.appendChild(popHint); }
   const fontRow = segRow(opts, 'Font', STYLE_FONTS.map(([id, name]) => [id, L(name)]), o.font, 'font', true);
   if (fontRow) {
     fontRow.className = (fontRow.className || '') + ' wrap';
@@ -5943,10 +5994,35 @@ function renderStyleCustom() {
     inst.addEventListener('click', () => installFontsClick(inst));
     fontRow.appendChild(inst);
   }
-  segRow(opts, 'Size', [['s', 'S'], ['m', 'M'], ['l', 'L'], ['xl', 'XL']], o.size, 'size');
-  segRow(opts, 'Position', [['bottom', L('Bottom')], ['middle', L('Middle')], ['top', L('Top')], ['safe', 'TikTok']], o.pos, 'pos');
-  segRow(opts, 'Words', [[0, L('Auto')], [1, '1'], [2, '2'], [3, '3'], [4, '4'], [5, '5']], o.words, 'words');
+  rangeRow(opts, 'Size', 60, 180, 5, Math.round(sizeNum(o.size) * 100), (v) => v + '%',
+    (v) => { if (window.__amhCapLive) window.__amhCapLive({ size: v / 100 }); },
+    (v) => setStyleOpt('size', v / 100));
+  const posRow = segRow(opts, 'Position', [['bottom', L('Bottom')], ['middle', L('Middle')], ['top', L('Top')], ['safe', 'TikTok']],
+    o.y === null ? o.pos : '', 'pos');
+  if (posRow) {
+    posRow.className = (posRow.className || '') + ' wrap';
+    const y0 = o.y === null ? posBottom(o.pos) : o.y;
+    rangeRow(posRow, '↕', 10, 97, 1, Math.round(y0 * 100), (v) => (o.y === null && v === Math.round(y0 * 100) ? '' : v + '%'),
+      (v) => { if (window.__amhCapLive) window.__amhCapLive({ y: v / 100, from: y0 }); },
+      (v) => setStyleOpt('y', v / 100), 'sc-sub');
+    if (document.documentElement.classList.contains('amh-studio')) {
+      const dh = document.createElement('div');
+      dh.className = 'sc-hint';
+      dh.textContent = L('Or drag the caption up or down in the video.');
+      posRow.appendChild(dh);
+    }
+  }
+  colorRow(opts, 'Colour', STYLE_COLORS, o.color, 'color');
+  colorRow(opts, 'Text', TEXT_COLORS, o.text, 'text');
+  segRow(opts, 'Pop words', [['auto', L('Numbers too')], ['off', L('My ★ only')]], o.emph, 'emph');
+  const popHint = document.createElement('div');
+  popHint.className = 'sc-hint';
+  popHint.textContent = L('★ = click a word in a caption, then press the ★ next to it. Numbers and money can pop by themselves.');
+  const popRow = opts.lastChild;            // the hint sits inside the Pop words row
+  if (popRow) { popRow.className = (popRow.className || '') + ' wrap'; popRow.appendChild(popHint); }
   switchRow(opts, 'Box', o.box, 'box');
+  segRow(opts, 'Animation', STYLE_ANIMS.map(([id, name]) => [id, L(name)]), o.anim, 'anim', true);
+  segRow(opts, 'Words', [[0, L('Auto')], [1, '1'], [2, '2'], [3, '3'], [4, '4'], [5, '5']], o.words, 'words');
   const foot = document.createElement('div');
   foot.className = 'sc-foot';
   const reset = document.createElement('button');
