@@ -167,6 +167,39 @@ test('1.37: the animation the editor gave ONE caption in CapCut goes on all, fit
   assert.strictEqual(C.ourTracks(again).length, 1);
 });
 
+test('1.39: a caption fixed inside CapCut stays on Update (with its look); word fixes are found; a project sent before 1.39 too', () => {
+  const p = project();
+  const cues = [{ start: 12, end: 14, text: 'ተዎድሮስ ጓዳ' }, { start: 15, end: 17, text: 'ቡና ታሪክ' }, { start: 20, end: 22, text: 'ሰላም' }];
+  const sentDraft = C.addTrack(p, C.buildTrack(p, 'C:/Users/me/Videos/talk.mp4', cues, look, { rand }));
+  const sent = C.sentMap(sentDraft);
+  assert.strictEqual(Object.keys(sent).length, 3);
+  // in CapCut: the editor fixes the 1st caption (and makes it blue), rewrites the 3rd
+  const d = JSON.parse(JSON.stringify(sentDraft));
+  const segs = C.ourTracks(d)[0].segments;
+  const m1 = d.materials.texts.find((x) => x.id === segs[0].material_id);
+  m1.content = JSON.stringify({ styles: [{ range: [0, 11], fill: { content: { solid: { color: [0, 0, 1] } } } }], text: 'ቴዎድሮስ ጓዳ' });
+  m1.text_color = '#0000FF';
+  d.materials.texts.find((x) => x.id === segs[2].material_id).content = JSON.stringify({ styles: [], text: 'እንኳን ደህና መጡ ወዳጆች' });
+  const edits = C.userEdits(d, sent);
+  assert.deepStrictEqual(edits.map((e) => [e.was, e.text]), [['ተዎድሮስ ጓዳ', 'ቴዎድሮስ ጓዳ'], ['ሰላም', 'እንኳን ደህና መጡ ወዳጆች']]);
+  assert.deepStrictEqual(C.wordPairs(edits[0].was, edits[0].text), [['ተዎድሮስ', 'ቴዎድሮስ']], 'a word fix is learned');
+  assert.deepStrictEqual(C.wordPairs(edits[1].was, edits[1].text), [], 'a rewritten line is not a word fix');
+  // Update (the same captions again): both fixes come back, with their look
+  const again = C.buildTrack(d, 'C:/Users/me/Videos/talk.mp4', cues, look, { rand });
+  const k = C.keepEdits(again, edits);
+  assert.deepStrictEqual([k.kept, k.lost.length], [2, 0]);
+  assert.strictEqual(C.textOf(again.texts[0]), 'ቴዎድሮስ ጓዳ');
+  assert.strictEqual(again.texts[0].text_color, '#0000FF', 'its CapCut look too');
+  assert.strictEqual(C.textOf(again.texts[1]), 'ቡና ታሪክ', 'an untouched caption is ours');
+  assert.strictEqual(C.textOf(again.texts[2]), 'እንኳን ደህና መጡ ወዳጆች');
+  // the editor cut that part away in CapCut: the fix has no place -> reported, not forced in
+  const cut = C.buildTrack(d, 'C:/Users/me/Videos/talk.mp4', cues.slice(0, 2), look, { rand });
+  assert.strictEqual(C.keepEdits(cut, edits).lost.length, 1);
+  // sent before 1.39 (no record): what we would have sent is rebuilt and matched by time
+  const exp = C.expectedSent(d, C.buildTrack(d, 'C:/Users/me/Videos/talk.mp4', cues, look, { rand }));
+  assert.deepStrictEqual(C.userEdits(d, exp).map((e) => e.text), ['ቴዎድሮስ ጓዳ', 'እንኳን ደህና መጡ ወዳጆች']);
+});
+
 test('no personal data in the template (from a real CapCut project)', () => {
   const t = JSON.stringify(C.TEMPLATE);
   assert.ok(!/Users|Desktop|\.ttf|\.mp4/i.test(t), 'no paths');

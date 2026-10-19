@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.38.0';
+const APP_VERSION = '1.39.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,18 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.39.0': {
+    banner: {
+      am: '✍ በCapCut ውስጥ ያረሙት ካፕሽን አይጠፋም — "አዘምን" ይጠብቀዋል — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '✍ Captions you fix inside CapCut are never lost — "Update" keeps them — your license stays the same.',
+    },
+    items: [
+      { am: 'በCapCut ውስጥ ካፕሽን ቢያርሙ፣ "↻ አዘምን" ማስተካከያዎን (ቀለሙንም) ይጠብቃል', en: 'Fix a caption inside CapCut: "↻ Update" keeps your fix (its colour too)' },
+      { am: 'ቃል በቃል ያረሙት (ለምሳሌ ተዎድሮስ → ቴዎድሮስ) ወደ 🧠 ማስታወሻ ይገባል — በሁሉም ቪዲዮዎች ይስተካከላል', en: 'A word you replace (e.g. ተዎድሮስ → ቴዎድሮስ) goes into 🧠 memory — fixed in every video' },
+      { am: 'ቦታው የተቆረጠ ማስተካከያ ካለ ይነገርዎታል', en: 'You are told if a fix was in a part you cut away' },
+      { am: 'ከዚህ በፊት የላኳቸው ፕሮጀክቶችም ይጠበቃሉ', en: 'Projects you sent before are protected too' },
+    ],
+  },
   '1.38.0': {
     banner: {
       am: '🎬 Studio በሚጠቀሙት ኤዲተር (CapCut፣ DaVinci፣ Premiere) መንገድ ይመራዎታል — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
