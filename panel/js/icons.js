@@ -1,7 +1,8 @@
 /*
- * studio_icons.js — Amharic Captions Studio: one icon set (1.46.0).
+ * icons.js — one icon set for the Premiere / After Effects panel AND the
+ * Studio (1.46.0 in the Studio; 1.49.0 shared with the panel).
  *
- * The Studio's buttons and labels start with a symbol (⌂ ↶ ✂ 🎨 …). Emoji
+ * Buttons and labels start with a symbol (⌂ ↶ ✂ 🎨 …). Emoji
  * look different on every PC and childish next to a professional editor, so
  * this file turns each known leading symbol into a drawn line icon (our own
  * simple drawings, 24×24, the colour of the text). One table = every icon the
@@ -10,7 +11,6 @@
  */
 (function () {
   'use strict';
-  if (!document.documentElement.classList.contains('amh-studio')) return;
   // 24×24, stroke = currentColor, round ends
   const P = {
     home: 'M3 11l9-7 9 7M5 10v10h5v-6h4v6h5V10',
@@ -62,6 +62,19 @@
     palette: 'M12 3a9 9 0 100 18c1.5 0 2-1 2-2s-.5-1.5-.5-2.5S14.5 15 16 15h2a3 3 0 003-3c0-5-4-9-9-9zM7.5 11v.01M10.5 7.5v.01M15 7.5v.01',
     link: 'M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1',
     text: 'M5 5h14M12 5v14M9 19h6',
+    gift: 'M3 9h18v4H3zM5 13v8h14v-8M12 9v12M12 9c-2 0-5-1-5-3.5S10 4 12 9c2-5 5-5 5-2.5S14 9 12 9z',
+    clock: 'M12 21a9 9 0 100-18 9 9 0 000 18zM12 7v5l3 2',
+    idea: 'M9 18h6M10 21h4M12 3a6 6 0 00-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0012 3z',
+    send: 'M3 11l18-8-8 18-2-8z',
+    copy: 'M8 4h8v3H8zM6 6H5v15h14V6h-1',
+    laptop: 'M5 5h14v10H5zM2 19h20',
+    keys: 'M3 7h18v10H3zM7 11h.01M11 11h.01M15 11h.01M8 14h8',
+    wave: 'M2 12c2-4 4-4 6 0s4 4 6 0 4-4 6 0',
+    wifi: 'M2 9a15 15 0 0120 0M5 12.5a10 10 0 0114 0M8.5 16a5 5 0 017 0M12 19.5v.01',
+    plug: 'M9 2v5M15 2v5M7 7h10v4a5 5 0 01-10 0zM12 16v6',
+    clip: 'M20 11l-8.5 8.5a5 5 0 01-7-7L13 4a3.5 3.5 0 015 5l-8.5 8.5a2 2 0 01-3-3L14 7',
+    search: 'M11 18a7 7 0 100-14 7 7 0 000 14zM21 21l-5-5',
+    hourglass: 'M7 3h10M7 21h10M8 3c0 5 8 5 8 9s-8 4-8 9M16 3c0 5-8 5-8 9s8 4 8 9',
   };
   // the symbols the Studio's labels start with -> icon
   const MAP = {
@@ -71,6 +84,8 @@
     '⚡': 'bolt', '💬': 'captions', '⋮': 'more', '✍': 'pen', '✏': 'pen', '✎': 'pen', '👤': 'user', '←': 'back', '📱': 'phone', '🖥': 'monitor',
     '📝': 'subs', '📄': 'file', '🔑': 'key', '⛶': 'full', '⤢': 'full', '⤵': 'duck', '⏩': 'fast', '↔': 'swap', '🔊': 'sound', '★': 'star',
     '↕': 'updown', '⇕': 'updown', '☰': 'list', '¶': 'para', '🎨': 'palette', '🔗': 'link',
+    '🎁': 'gift', '🕘': 'clock', '💡': 'idea', '📨': 'send', '📋': 'copy', '💻': 'laptop', '⌨': 'keys', '〰': 'wave',
+    '📶': 'wifi', '🔌': 'plug', '📎': 'clip', '🔍': 'search', '⬇': 'download', '★': 'star',
   };
   const NS = 'http://www.w3.org/2000/svg';
   function icon(name) {
@@ -84,7 +99,7 @@
     return s;
   }
   // where icons belong: buttons, tabs, card / section heads, timeline labels
-  const WHERE = 'button, label, .st-tab, .st-card-ico, .st-home-h, .ed-labels > div, .ed-mthumb, .ed-cname, .st-ednote > b, .st-capsec, .st-sheet-head > b, .style-title, .app-drop-icon, .st-cchint, .st-how-ic';
+  const WHERE = 'button, label, summary, .card-head, .card-title, .st-tab, .st-card-ico, .st-home-h, .ed-labels > div, .ed-mthumb, .ed-cname, .st-ednote > b, .st-capsec, .st-sheet-head > b, .style-title, .app-drop-icon, .st-cchint, .st-how-ic';
   const NOT = '[contenteditable="true"], textarea, input, .review-text, .st-script-body';
   const LEAD = /^\s*([^\s\wሀ-፿])️?\s?/u;
   function fix(node) {

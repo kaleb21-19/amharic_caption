@@ -131,10 +131,6 @@ html.amh-studio #review .memory-panel { position: fixed; left: 14px; top: 100px 
    small ones): Amharic letters need 12 px and more to read easily */
 html.amh-studio { --font-s: 12px; --font-m: 13.5px; --font-l: 15px; --control-h: 30px; }
 /* 1.46: one icon set (app/studio_icons.js) */
-.amh-ic { width: 1.15em; height: 1.15em; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
-  vertical-align: -0.2em; margin-right: .42em; }
-.amh-ic-only > .amh-ic { margin-right: 0; }
-.amh-ic-play, .amh-ic-prev, .amh-ic-next, .amh-ic-fast, .amh-ic-bolt { fill: currentColor; }
 .app-drop-icon .amh-ic { width: 40px; height: 40px; margin: 0; color: var(--accent); stroke-width: 1.6; }
 .st-card-ico .amh-ic { width: 26px; height: 26px; margin: 0; color: var(--accent); stroke-width: 1.7; }
 /* 1.47: keys sheet, "captions ready" bar, the home for a new user */

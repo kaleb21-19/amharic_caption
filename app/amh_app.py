@@ -51,7 +51,7 @@ for d in (os.path.join(HERE, "deps"), os.path.join(HERE, "..", "runtime", "app_d
 IS_WIN = sys.platform == "win32"
 API_URL = os.environ.get("AMH_API_URL", "https://amharic-captions-bot.amhcaps.workers.dev")
 TOKEN = secrets.token_hex(16)
-APP_FILES = {"node_shim.js", "app_mode.js", "app.css", "studio_core.js", "studio.js", "studio_script.js", "studio_cuts.js", "studio_edit_core.js", "studio_edit.js", "studio_subs.js", "capcut_core.js", "studio_capcut.js", "davinci_core.js", "studio_davinci.js", "amh_davinci.lua", "capcut_new.json", "studio_icons.js"}   # + boot.js (generated)
+APP_FILES = {"node_shim.js", "app_mode.js", "app.css", "studio_core.js", "studio.js", "studio_script.js", "studio_cuts.js", "studio_edit_core.js", "studio_edit.js", "studio_subs.js", "capcut_core.js", "studio_capcut.js", "davinci_core.js", "studio_davinci.js", "amh_davinci.lua", "capcut_new.json"}   # + boot.js (generated)
 # app/vendor: third-party files the Studio loads as modules (JASSUB, 1.29.0)
 VENDOR_TYPES = {".js": "text/javascript; charset=utf-8", ".wasm": "application/wasm"}
 WINDOW = None          # the pywebview window, set once created
@@ -623,8 +623,7 @@ class Handler(BaseHTTPRequestHandler):
                                 '\n  <script src="/__app/studio_script.js"></script>\n  <script src="/__app/studio_edit.js"></script>\n  <script src="/__app/studio_cuts.js"></script>'
                                 '\n  <script src="/__app/studio_subs.js"></script>'
                                 '\n  <script src="/__app/capcut_core.js"></script>\n  <script src="/__app/studio_capcut.js"></script>'
-                                '\n  <script src="/__app/davinci_core.js"></script>\n  <script src="/__app/studio_davinci.js"></script>'
-                                '\n  <script src="/__app/studio_icons.js"></script>', 1)
+                                '\n  <script src="/__app/davinci_core.js"></script>\n  <script src="/__app/studio_davinci.js"></script>', 1)
             data = html.encode("utf-8")
             ctype = "text/html; charset=utf-8"
         elif ctype.startswith("text/") or ctype.endswith("javascript"):

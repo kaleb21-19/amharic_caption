@@ -33,9 +33,9 @@
     --ok-mark:  rgba(61,214,140,.22);
     --err:      #e5484d;
     --err-soft: rgba(229,72,77,.12);
-    --font-s: 10px;
-    --font-m: 11.5px;
-    --font-l: 13px;
+    --font-s: 11px;
+    --font-m: 12.5px;
+    --font-l: 14px;
     --control-h: 26px;
     --radius: 7px;
     --radius-sm: 5px;
@@ -479,13 +479,14 @@
   .row-more { position: relative; }
   .row-acts button.act {
     width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--radius-sm);
-    background: transparent; color: var(--text-secondary); cursor: pointer; opacity: .55;
+    background: transparent; color: var(--text-secondary); cursor: pointer; opacity: 0;
     display: flex; align-items: center; justify-content: center; transition: opacity .1s, background .1s, color .1s;
   }
   .review-row:hover .row-acts button.act, .review-row:focus-within .row-acts button.act,
   .row-more.open button.act { opacity: 1; }
   .row-acts button.act:hover:not(:disabled) { background: var(--bg-field); color: var(--text-primary); }
-  .row-acts button.act:disabled { opacity: .18 !important; cursor: not-allowed; }
+  .row-acts button.act:disabled { opacity: 0 !important; cursor: not-allowed; }
+  .review-row:hover .row-acts button.act:disabled, .review-row:focus-within .row-acts button.act:disabled { opacity: .18 !important; }
   .row-acts button.act-del:hover:not(:disabled) { background: var(--err-soft); color: var(--err); }
   .row-acts button.act .ic { width: 14px; height: 14px; display: block; background: currentColor;
     -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; -webkit-mask-size: 14px 14px;
@@ -745,6 +746,12 @@
   font-size: 11px; cursor: pointer; }
 .sc-install:hover:not(:disabled) { border-style: solid; color: #c8f2da; }
 .sc-install:disabled { opacity: .8; cursor: default; }
+  /* 1.49: one icon set with the Studio (js/icons.js) */
+  .amh-ic { width: 1.15em; height: 1.15em; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    vertical-align: -0.2em; margin-right: .42em; }
+  .amh-ic-only > .amh-ic { margin-right: 0; }
+  .amh-ic-play, .amh-ic-prev, .amh-ic-next, .amh-ic-fast, .amh-ic-bolt { fill: currentColor; }
+  .pop-word .amh-ic, .cut-word .amh-ic { width: 12px; height: 12px; vertical-align: -1px; }
 </style>
 </head>
 <body>
@@ -1034,7 +1041,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.48.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.49.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
@@ -1125,5 +1132,6 @@
   <script src="./js/qrcode.js"></script>
   <script src="./js/i18n.js"></script>
   <script src="./js/main.js"></script>
+  <script src="./js/icons.js"></script>
 </body>
 </html>

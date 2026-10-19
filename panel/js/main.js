@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.48.0';
+const APP_VERSION = '1.49.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -5292,9 +5292,9 @@ function syncReviewSteps() {
   const doubts = reviewDoubtCount();
   const steps = [
     ['stepText', true, L('Text') + (doubts ? ' · ' + doubts + ' ?' : ' ✓'), doubts ? 'warn' : 'done'],
-    ['revCleanup', tools, '✂ ' + L('Clean up') + (CLEAN && CLEAN.done ? ' ✓' : ''), CLEAN && CLEAN.done ? 'done' : ''],
-    ['revZoom', tools, '🔍 ' + L('Zoom') + (ZOOM && ZOOM.done ? ' ✓' : ''), ZOOM && ZOOM.done ? 'done' : ''],
-    ['stepStyle', styles, '🎨 ' + (STYLE === 'plain' ? L('Style') : L(STYLE_NAMES[STYLE] || STYLE) + ' ✓'), STYLE === 'plain' ? '' : 'done'],
+    ['revCleanup', tools, L('Clean up') + (CLEAN && CLEAN.done ? ' ✓' : ''), CLEAN && CLEAN.done ? 'done' : ''],
+    ['revZoom', tools, L('Zoom') + (ZOOM && ZOOM.done ? ' ✓' : ''), ZOOM && ZOOM.done ? 'done' : ''],
+    ['stepStyle', styles, (STYLE === 'plain' ? L('Style') : L(STYLE_NAMES[STYLE] || STYLE) + ' ✓'), STYLE === 'plain' ? '' : 'done'],
     ['stepPlace', true, L('Place'), 'last'],
   ];
   let n = 0;
@@ -5525,7 +5525,7 @@ function writeReviewSrt(outDir) {
 const STYLE_LIST = ['plain', 'glide', 'spotlight', 'bounce', 'karaoke', 'fill', 'highlight', 'bold', 'podcast', 'reveal', 'typewriter',
   'pop', 'word', 'impact', 'neon', 'retro', 'habesha', 'cinema', 'clean'];
 // the newest looks get a small NEW mark on their button
-const STYLE_NEW = ['glide', 'spotlight', 'bounce'];
+const STYLE_NEW = [];   // 1.49: none "new" now
 const STYLE_NAMES = {
   plain: 'Plain', glide: 'Glide', spotlight: 'Spotlight', bounce: 'Bounce', karaoke: 'Karaoke', fill: 'Fill', highlight: 'Highlight', bold: 'Bold', podcast: 'Podcast',
   reveal: 'Reveal', typewriter: 'Typewriter', pop: 'Pop', word: 'Word', impact: 'Impact', neon: 'Neon',
