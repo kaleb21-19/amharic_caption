@@ -489,3 +489,9 @@ html.amh-studio:has(#review.show), html.amh-studio body:has(#review.show) { over
 /* ── 1.37 CapCut animation for all captions ── */
 .st-ccanim { align-items: center; gap: 8px; margin: 2px 0 4px; }
 .st-cchint { margin: 2px 0 4px; }
+
+/* ── 1.38 which editor ── */
+.st-pick { display: grid; gap: 8px; }
+.st-pick:has(.st-pick-now) { padding-top: 10px; padding-bottom: 10px; }
+.st-pick-row { flex-wrap: wrap; gap: 8px; }
+.st-pick-now .st-link { display: inline; margin: 0; color: var(--accent); text-decoration: none; font-size: inherit; }

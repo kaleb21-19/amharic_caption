@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.37.0';
+const APP_VERSION = '1.38.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,18 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.38.0': {
+    banner: {
+      am: '🎬 Studio በሚጠቀሙት ኤዲተር (CapCut፣ DaVinci፣ Premiere) መንገድ ይመራዎታል — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '🎬 The Studio follows your editor (CapCut, DaVinci, Premiere) — your license stays the same.',
+    },
+    items: [
+      { am: 'Studio መነሻ፦ "በየትኛው ኤዲተር ይሰራሉ?" — አንድ ጊዜ ይምረጡ', en: 'Studio home: "Which editor do you use?" — pick once' },
+      { am: 'CapCut፦ የCapCut ፕሮጀክቶችዎ ከላይ፣ በ⬆ ይላኩ ውስጥም CapCut መጀመሪያ', en: 'CapCut: your CapCut projects on top, and CapCut first in ⬆ Export' },
+      { am: 'Premiere እና DaVinci፦ የሚቀጥለውን ደረጃ የሚያሳይ አጭር መመሪያ', en: 'Premiere and DaVinci: a short hint for the next step' },
+      { am: 'በማንኛውም ጊዜ "ቀይር" ይጫኑ', en: 'Press "change" any time' },
+    ],
+  },
   '1.37.0': {
     banner: {
       am: '✨ በCapCut ውስጥ ለአንድ ካፕሽን የሰጡትን እንቅስቃሴ ለሁሉም ይስጡ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',

@@ -241,7 +241,13 @@
     if (!styled) v.c.appendChild(btn('st-link', '🎨 ' + tx('ስታይል ይምረጡ', 'Choose a style'), '', () => { closeSheet(); showTab('style'); setCapEdit(false); }));
     if (editor && editor.queueExports) videoChoices(v, styled, fmtName);
     // 3. CapCut: the captions as editable texts in the editor's CapCut project (1.35)
-    if (window.__amhCapCutCard) window.__amhCapCutCard(card);
+    if (window.__amhCapCutCard) {
+      const before = box.lastChild;
+      window.__amhCapCutCard(card);
+      // a CapCut user (1.38): CapCut first, right under the title
+      const cc = box.lastChild;
+      if (cc !== before && editorNow() === 'capcut') box.insertBefore(cc, head.nextSibling);
+    }
     // 4. more subtitle files (SRT + VTT + TXT, a folder you choose)
     const m = card('📄', tx('ሌሎች ፋይሎች (SRT · VTT · TXT)', 'More files (SRT · VTT · TXT)'), tx('እርስዎ በሚመርጡት ፎልደር', 'To a folder you choose'));
     m.h.appendChild(btn('st-btn', tx('ይምረጡ…', 'Choose…'), '', () => { if (typeof exportReviewFiles === 'function') exportReviewFiles(); }));
@@ -503,6 +509,40 @@
   const drop = $('appDrop');
   const dropCard = drop && drop.closest ? drop.closest('.card') : null;
   if (dropCard) { dropCard.classList.add('st-dropcard'); dropCard.after(recent); }
+  // "Which editor do you use?" (1.38): asked once on the home screen; the
+  // Studio then shows that editor's way first (CapCut: its projects card on
+  // top, CapCut first in Export). One anonymous count per answer (/api/event).
+  const EDITORS = [['capcut', 'CapCut'], ['davinci', 'DaVinci'], ['premiere', 'Premiere'], ['other', tx('ሌላ', 'Other')]];
+  const editorNow = () => { try { return (typeof loadSettings === 'function' && loadSettings().editor) || ''; } catch (e) { return ''; } };
+  const pickBox = el('div', 'card st-pick');
+  if (dropCard) dropCard.after(pickBox);
+  function renderPick() {
+    const now = editorNow();
+    pickBox.textContent = '';
+    if (now) {
+      const n = (EDITORS.find((e) => e[0] === now) || ['', now])[1];
+      const line = el('div', 'st-sub st-pick-now', tx('ኤዲተርዎ፦ ', 'Your editor: ') + n + ' · ');
+      line.appendChild(btn('st-link', tx('ቀይር', 'change'), '', () => { saveSettings({ editor: '' }); renderPick(); }));
+      pickBox.appendChild(line);
+      if (now === 'premiere') pickBox.appendChild(el('div', 'st-sub', tx('በPremiere ውስጥ፦ Window → Extensions → Amharic Captions Pro — ካፕሽኖቹ በቀጥታ ታይምላይኑ ላይ ይገባሉ።',
+        'In Premiere: Window → Extensions → Amharic Captions Pro — the captions go straight onto the timeline.')));
+      if (now === 'davinci') pickBox.appendChild(el('div', 'st-sub', tx('ለDaVinci፦ ⬆ ይላኩ → ንዑስ ጽሑፍ (.srt) ወይም ቪዲዮ ከካፕሽን ጋር። በDaVinci ውስጥ የሚታረሙ ካፕሽኖች በቅርቡ ይመጣሉ።',
+        'For DaVinci: ⬆ Export → Subtitles (.srt) or the video with captions. Editable captions inside DaVinci are coming soon.')));
+      document.documentElement.classList.toggle('amh-ed-capcut', now === 'capcut');
+      return;
+    }
+    pickBox.appendChild(el('div', 'st-home-h', tx('በየትኛው ኤዲተር ይሰራሉ?', 'Which editor do you use?')));
+    const row = el('div', 'st-row st-pick-row');
+    EDITORS.forEach(([id, name]) => row.appendChild(btn('st-btn', name, '', () => {
+      saveSettings({ editor: id });
+      if (typeof track === 'function') track('editor_' + id);
+      renderPick();
+      if (window.__amhCapCut && window.__amhCapCut.homeCard) window.__amhCapCut.homeCard();
+    })));
+    pickBox.appendChild(row);
+  }
+  renderPick();
+  if (typeof i18nOnChange === 'function') i18nOnChange(() => setTimeout(renderPick, 0));
   function renderRecent(note) {
     const items = listProjects();
     recent.style.display = items.length ? '' : 'none';

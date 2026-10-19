@@ -244,8 +244,12 @@
     if (!card) {
       card = el('div', 'card studio-recent st-cchome');
       card.id = 'studioCapcut';
-      anchor.after(card);
     }
+    // a CapCut user (1.38): their CapCut projects come first, above Recent
+    let ed = '';
+    try { ed = (typeof loadSettings === 'function' && loadSettings().editor) || ''; } catch (e) {}
+    if (ed === 'capcut') { if (card.nextSibling !== anchor) anchor.before(card); }
+    else if (card.previousSibling !== anchor) anchor.after(card);
     const list = allProjects(6);
     card.textContent = '';
     card.style.display = list && list.length ? '' : 'none';

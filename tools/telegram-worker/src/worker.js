@@ -5035,6 +5035,8 @@ const EVENT_NAMES = new Set([
   'err_av_blocked', 'err_too_short', 'err_no_speech', 'err_no_clips', 'err_no_clip', 'err_no_media',
   'err_media_unreadable', 'err_no_audio', 'err_disk_full', 'err_engine', 'err_runtime', 'err_license', 'err_other',
   'err_memory', 'err_engine_hang', 'report_sent', 'feedback_sent',
+  // the editor a Studio user says they use (1.38)
+  'editor_capcut', 'editor_davinci', 'editor_premiere', 'editor_other',
 ]);
 const ERROR_LABELS = {
   err_no_clip: 'no clip selected', err_no_clips: 'no clips in range', err_no_media: 'item has no media file',
@@ -5077,10 +5079,13 @@ async function adminUsage(chatId, messageId, days = 7) {
     ? ' (' + Object.entries(et.hosts).map(([h, n]) => ({ PPRO: 'Premiere', AEFT: 'After Effects', APP: 'CapCut/DaVinci app' }[h] || h) + ' ' + n).join(' · ') + ')'
     : '';
   const otherOpen = other.by.open || 0;
+  const eds = [['editor_capcut', 'CapCut'], ['editor_davinci', 'DaVinci'], ['editor_premiere', 'Premiere'], ['editor_other', 'other']]
+    .filter(([k]) => c(k)).map(([k, n]) => n + ' ' + c(k));
   const text =
     `🧭 <b>In the program — last ${days} days</b> · Ethiopia\n` +
     '<i>Each computer counts once per day per step.</i>\n\n' +
     `💻 Opened: <b>${c('open')}</b>${hostLine}\n` +
+    (eds.length ? `🎬 Their editor: ${eds.join(' · ')}\n` : '') +
     (c('model_needed')
       ? `📦 Needed the model download: ${c('model_needed')}\n` +
         `   ├ started: ${c('model_dl_start')}\n` +
