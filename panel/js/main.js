@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.29.0';
+const APP_VERSION = '1.30.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,18 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.30.0': {
+    banner: {
+      am: '✨ ይበልጥ ንጹህ ፓነል — ትንሽ ቁልፎች፣ ብዙ ቦታ ለካፕሽኖችዎ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '✨ A cleaner panel — fewer buttons, more room for your captions — your license stays the same.',
+    },
+    items: [
+      { am: 'ከታች፦ ተወው እና ✓ በታይምላይን ላይ አስቀምጥ ብቻ', en: 'At the bottom: just Discard and ✓ Place on timeline' },
+      { am: '"+ ካፕሽን ጨምር" ከካፕሽኖቹ ዝርዝር በታች፣ "⬇ ፋይሎች" (SRT፣ VTT፣ TXT) ከደረጃዎቹ ጋር', en: '"+ Add caption" under the caption list, "⬇ Files" (SRT, VTT, TXT) next to the steps' },
+      { am: 'ዝመና ይፈትሹ፣ ስለ ምርቱ እና ውሎች በግርጌው "⋯" ውስጥ', en: 'Check for updates, About and Terms are in the "⋯" at the bottom' },
+      { am: 'ፈቃድ ያላቸው፦ ትልቁ ሳጥን ቀርቶ በግርጌው ትንሽ "✓ ፈቃድ አለዎት"', en: 'Licensed: a small "✓ Licensed" at the bottom instead of the big box' },
+    ],
+  },
   '1.29.0': {
     banner: {
       am: '🎬 Studio፦ የመረጡት የካፕሽን ስታይል በማጫወቻው ውስጥ ይታያል — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -869,12 +881,35 @@ function openDownloadPage() {
   catch (err) { window.open(url, '_blank'); }
 }
 
+// Footer "⋯" (1.30): Check for updates · About · Terms, shown only while
+// used. About / Terms close it; Check for updates keeps it open so its answer
+// is seen. A click anywhere else closes it.
+function initFootMenu() {
+  const box = document.getElementById('footMore');
+  const btn = document.getElementById('footMoreBtn');
+  if (!box || !btn) return;
+  const setOpen = (on) => {
+    box.classList.toggle('open', on);
+    btn.setAttribute('aria-expanded', on ? 'true' : 'false');
+  };
+  btn.addEventListener('click', (e) => { e.preventDefault(); setOpen(!box.classList.contains('open')); });
+  ['credits', 'legalLink'].forEach((id) => {
+    const a = document.getElementById(id);
+    if (a) a.addEventListener('click', () => setOpen(false));
+  });
+  document.addEventListener('click', (e) => {
+    if (box.classList.contains('open') && !(box.contains && box.contains(e.target))) setOpen(false);
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setOpen(false); });
+}
+
 function initUpdateBanner() {
   const go = document.getElementById('updateGo');
   const later = document.getElementById('updateLater');
   const check = document.getElementById('updateCheck');
   if (go) go.addEventListener('click', (e) => { e.preventDefault(); openDownloadPage(); });
   if (check) check.addEventListener('click', (e) => { e.preventDefault(); onUpdateCheck(); });
+  initFootMenu();
   const recent = document.getElementById('recentLink');
   if (recent) {
     if (IS_APP_MODE()) recent.style.display = 'none';    // Premiere / After Effects only
@@ -1901,8 +1936,9 @@ function updateLicenseUI() {
     }
     const mmHide = document.getElementById('machineMismatch');
     if (mmHide) mmHide.style.display = 'none';
+    // 1.30: no big thank-you box any more; the footer says "✓ Licensed".
     const licNote = document.getElementById('licensedNote');
-    if (licNote) licNote.style.display = 'block';
+    if (licNote) licNote.style.display = 'none';
   } else {
     LICENSED = false;
     // Ensure the license entry fields are always visible while unlicensed,
@@ -1952,6 +1988,8 @@ function updateLicenseUI() {
   }
   const footPrice = document.getElementById('footPrice');
   if (footPrice) footPrice.style.display = LICENSED ? 'none' : '';
+  const footLic = document.getElementById('footLicensed');
+  if (footLic) footLic.style.display = LICENSED ? '' : 'none';
   renderTrialGate();
   renderFreeMinBox();
   LICENSED_REFRESH = false;
