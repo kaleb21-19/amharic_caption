@@ -17,10 +17,29 @@ local FU = fusion or fu or app
 local D = nil
 local function tx(am, en) return (D and D.lang == "en") and en or am end
 
--- a small window with the result (the Console when windows are not possible)
-local function say(lines)
+-- the result as a MARKER (DaVinci free shows no script windows, and the
+-- Console is closed when the script runs from the menu): on our captions
+-- block when it worked, else a red one at the playhead; hover = the note.
+-- + a small window where DaVinci allows one (Studio), + the Console.
+local function say(lines, item)
   local msg = table.concat(lines, "\n")
   print("== Amharic Captions ==\n" .. msg)
+  pcall(function()
+    if item then
+      item:AddMarker(0, "Green", "Amharic Captions", msg, 1)
+      return
+    end
+    local pr = R:GetProjectManager():GetCurrentProject()
+    local t = pr and pr:GetCurrentTimeline()
+    if not t then return end
+    local f = math.floor((tonumber(t:GetSetting("timelineFrameRate")) or 24) + 0.5)
+    local h, m, s, fr = (t:GetCurrentTimecode() or ""):match("(%d+)%D(%d+)%D(%d+)%D(%d+)")
+    local at = h and ((tonumber(h) * 3600 + tonumber(m) * 60 + tonumber(s)) * f + tonumber(fr) - t:GetStartFrame()) or 0
+    if at < 0 then at = 0 end
+    for i = 0, 10 do                       -- a frame with no marker yet
+      if t:AddMarker(at + i, "Red", "Amharic Captions", msg, 1) then break end
+    end
+  end)
   pcall(function()
     local ui = FU.UIManager
     local disp = bmd.UIDispatcher(ui)
@@ -267,4 +286,4 @@ if vw and vh and vh > vw and W > H then
 end
 lines[#lines + 1] = same and tx("✓ ቪዲዮዎ አልተነካም።", "✓ Your video was not touched.")
                          or tx("⚠ በTimelineዎ ውስጥ የተቀየረ ነገር አለ — Ctrl+Z ይጫኑ።", "⚠ Something in your timeline changed — press Ctrl+Z.")
-say(lines)
+say(lines, same and placed and placed[1] or nil)

@@ -90,6 +90,7 @@ test('the script keeps its safety steps', () => {
   assert.ok(LUA.includes('SetTrackEnable("video", t, false)') && !/DeleteTrack/.test(LUA), 'an older captions track is turned off, never deleted');
   assert.ok(!/ImportMedia|\.srt/.test(LUA), 'no subtitle-file import (a partial one crashed DaVinci 21)');
   assert.ok(LUA.includes('snapshot()') && LUA.includes('Ctrl+Z'), 'checks nothing of yours moved');
+  assert.ok(LUA.includes('item:AddMarker(0, "Green"') && LUA.includes('t:AddMarker(at + i, "Red"'), 'the result as a marker (DaVinci free shows no script windows)');
 });
 
 console.log('\n' + passed + ' passed');
