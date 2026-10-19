@@ -166,6 +166,42 @@
     const track = Object.assign(clone(TEMPLATE.track), { id: uuid(rand), name: NAME, is_default_name: false, segments: segs });
     return { track, texts, animations, placed: segs.length, skipped, found: pl.length };
   }
+  // A project with several videos (1.36): every video's captions, one track.
+  // items: [{ video, cues }] (cues in that file's own seconds). Captions of
+  // different videos never overlap on the timeline: the later one wins.
+  function buildTrackAll(draft, items, look, opts) {
+    const parts = (items || []).map((it) => buildTrack(draft, it.video, it.cues, look, opts));
+    if (!parts.length) return buildTrack(draft, '', [], look, opts);
+    const all = [];
+    parts.forEach((b) => b.track.segments.forEach((sg, i) => all.push({ sg, text: b.texts[i], an: b.animations[i] })));
+    all.sort((x, y) => x.sg.target_timerange.start - y.sg.target_timerange.start);
+    const kept = [];
+    all.forEach((x) => {
+      const prev = kept[kept.length - 1];
+      if (prev) {
+        const pEnd = prev.sg.target_timerange.start + prev.sg.target_timerange.duration;
+        if (x.sg.target_timerange.start < pEnd) prev.sg.target_timerange.duration = Math.max(0, x.sg.target_timerange.start - prev.sg.target_timerange.start);
+        if (prev.sg.target_timerange.duration < 50000) kept.pop();
+      }
+      kept.push(x);
+    });
+    let order = 14000 + 100 * (((draft && draft.tracks) || []).filter((t) => t.type === 'text' && t.name !== NAME).length);
+    kept.forEach((x) => { x.sg.render_index = ++order; });
+    const track = parts[0].track;
+    track.segments = kept.map((x) => x.sg);
+    return { track, texts: kept.map((x) => x.text), animations: kept.map((x) => x.an), placed: kept.length,
+      skipped: parts.reduce((n, b) => n + b.skipped, 0), found: parts.reduce((n, b) => n + b.found, 0) };
+  }
+  // the video files a project uses, each once, in timeline order
+  function videosOf(draft) {
+    const byId = {};
+    ((draft && draft.materials && draft.materials.videos) || []).forEach((v) => { if (v.path && v.type !== 'photo') byId[v.id] = v.path; });
+    const seen = {}, out = [];
+    ((draft && draft.tracks) || []).filter((t) => t.type === 'video').forEach((t) => (t.segments || [])
+      .slice().sort((a, b) => ((a.target_timerange || {}).start || 0) - ((b.target_timerange || {}).start || 0))
+      .forEach((sg) => { const p = byId[sg.material_id]; if (p && !seen[normPath(p)]) { seen[normPath(p)] = 1; out.push(p); } }));
+    return out;
+  }
   // our earlier track(s) in a project
   function ourTracks(draft) {
     return ((draft && draft.tracks) || []).filter((t) => t.type === 'text' && t.name === NAME);
@@ -199,7 +235,7 @@
       ours: ourTracks(draft).length };
   }
 
-  const api = { TEMPLATE, NAME, uuid, rgb, placements, placeCue, styledText, contentOf, lookFor, buildTrack, addTrack, removeOurs, ourTracks, summary, normPath };
+  const api = { TEMPLATE, NAME, uuid, rgb, placements, placeCue, styledText, contentOf, lookFor, buildTrack, buildTrackAll, videosOf, addTrack, removeOurs, ourTracks, summary, normPath };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhCapCut = api;
 })(typeof window !== 'undefined' ? window : this);

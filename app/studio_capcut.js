@@ -11,6 +11,11 @@
  *  - nothing else in the project is touched.
  * The fonts are installed on this PC first (Windows' own font folder) so
  * CapCut finds the Amharic font the captions use.
+ *
+ * 1.36: the Studio home lists your CapCut projects — "Add captions" makes the
+ * captions for EVERY video in the project (kept, so "Update" after re-cutting
+ * in CapCut takes seconds; a Studio project's fixed captions are used when
+ * there is one) and puts them back in, one track. Mac's CapCut too.
  */
 (function () {
   'use strict';
@@ -22,20 +27,22 @@
   const btn = (cls, text, title, fn) => { const b = el('button', cls, text); b.type = 'button'; if (title) b.title = title; b.addEventListener('click', fn); return b; };
   const BACKUP = '.amharic-captions.bak';     // draft_content.json + this: the project before our last change
 
+  // where CapCut keeps its projects: Windows AppData\Local, Mac ~/Movies (1.36)
   function draftsDir() {
     const env = (window.process && window.process.env) || {};
+    if (process.platform === 'darwin') return path.join(os.homedir(), 'Movies', 'CapCut', 'User Data', 'Projects', 'com.lveditor.draft');
     const local = env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
     return path.join(local, 'CapCut', 'User Data', 'Projects', 'com.lveditor.draft');
   }
-  // CapCut running? (Windows: tasklist; elsewhere not checked)
+  // CapCut running? (Windows: tasklist; Mac: pgrep)
   function capcutRunning() {
     return new Promise((resolve) => {
-      if (process.platform !== 'win32') { resolve(false); return; }
       let out = '';
       try {
-        const p = spawn('tasklist', ['/FI', 'IMAGENAME eq CapCut.exe', '/NH']);
+        const mac = process.platform === 'darwin';
+        const p = mac ? spawn('pgrep', ['-x', 'CapCut']) : spawn('tasklist', ['/FI', 'IMAGENAME eq CapCut.exe', '/NH']);
         p.stdout.on('data', (d) => { out += d; });
-        p.on('close', () => resolve(/capcut\.exe/i.test(out)));
+        p.on('close', () => resolve(mac ? /\d/.test(out) : /capcut\.exe/i.test(out)));
         p.on('error', () => resolve(false));
       } catch (e) { resolve(false); }
     });
@@ -62,6 +69,58 @@
       list.push({ name: n, dir, at: st.mtimeMs, ours: s.ours, backup: fs.existsSync(path.join(dir, 'draft_content.json' + BACKUP)) });
     });
     return { root, list: list.sort((a, b) => b.at - a.at) };
+  }
+
+  // every CapCut project, newest first (the Studio home, 1.36)
+  function allProjects(limit) {
+    const root = draftsDir();
+    let names = [];
+    try { names = fs.readdirSync(root); } catch (e) { return null; }
+    const list = [];
+    names.forEach((n) => {
+      if (n.charAt(0) === '.') return;
+      const dir = path.join(root, n);
+      try { list.push({ name: n, dir, at: fs.statSync(path.join(dir, 'draft_content.json')).mtimeMs }); } catch (e) {}
+    });
+    list.sort((a, b) => b.at - a.at);
+    return list.slice(0, limit || 8).map((p) => {
+      const d = readDraft(p.dir);
+      const vids = d ? C.videosOf(d) : [];
+      return Object.assign(p, { videos: vids, here: vids.filter((v) => fs.existsSync(v)), ours: d ? C.ourTracks(d).length : 0,
+        backup: fs.existsSync(path.join(p.dir, 'draft_content.json' + BACKUP)) });
+    }).filter((p) => p.videos.length);
+  }
+
+  // ── the words of a video, kept (1.36): "Update" after re-cutting in CapCut
+  // takes seconds, no new transcription. The Studio project's own captions
+  // (with the editor's fixes) win when there is one for that video.
+  const cacheDir = () => path.join(window.__amhStudio.projDir(), 'capcut-words');
+  const cacheFile = (v) => path.join(cacheDir(), window.AmhStudio.projectId(v) + '.json');
+  function stamp(v) { try { const s = fs.statSync(v); return s.size + ':' + Math.round(s.mtimeMs); } catch (e) { return ''; } }
+  function studioCues(v) {
+    const p = (window.__amhStudio.listProjects() || []).find((x) => C.normPath(x.video) === C.normPath(v));
+    if (!p || !p.cues || !p.cues.length) return null;
+    const ed = p.edit;
+    if (ed && ed.S && ed.media) {
+      const id = Object.keys(ed.media).find((k) => C.normPath(ed.media[k].path) === C.normPath(v));
+      if (id && ed.S[id] && ed.S[id].length) return ed.S[id];
+    }
+    return ed ? null : p.cues;            // no edit: the captions are in the file's time
+  }
+  function cachedCues(v) {
+    const own = studioCues(v);
+    if (own) return own;
+    try {
+      const c = JSON.parse(fs.readFileSync(cacheFile(v)));
+      if (c && c.stamp === stamp(v) && Array.isArray(c.cues)) return c.cues;
+    } catch (e) {}
+    return null;
+  }
+  function keepCues(v, cues) {
+    try {
+      if (!fs.existsSync(cacheDir())) fs.mkdirSync(cacheDir(), { recursive: true });
+      fs.writeFileSync(cacheFile(v), JSON.stringify({ video: v, stamp: stamp(v), cues }), { encoding: 'utf8' });
+    } catch (e) {}
   }
 
   // the captions in the video FILE's time (the edit may have cut or moved them)
@@ -125,6 +184,104 @@
       'Each caption is a normal CapCut text you can edit. Add a CapCut animation to all of them at once there if you like.')));
     out.appendChild(btn('st-btn', '↶ ' + tx('የCapCut ለውጡን መልስ', 'Undo the CapCut change'), '', () => undo(p, out)));
   }
+  // Caption a whole CapCut project (1.36): every video in it (made once,
+  // kept), all into one track; the same safety as the Export card.
+  let busy = false;
+  async function captionProject(p, out, onDone) {
+    if (busy) return;
+    out.textContent = '';
+    const say = (t, cls) => { const d = el('div', cls || 'st-sub', t); out.appendChild(d); return d; };
+    if (await capcutRunning()) { say(tx('እባክዎ መጀመሪያ CapCutን ይዝጉ፣ ከዚያ እንደገና ይሞክሩ።', 'Please close CapCut first, then try again.'), 'st-warn'); return; }
+    const d = readDraft(p.dir);
+    if (!d) { say(tx('ፕሮጀክቱ ሊነበብ አልቻለም።', 'The project could not be read.'), 'st-warn'); return; }
+    const vids = C.videosOf(d);
+    const missing = vids.filter((v) => !fs.existsSync(v));
+    busy = true;
+    const items = [];
+    try {
+      for (let i = 0; i < vids.length; i++) {
+        const v = vids[i];
+        if (!fs.existsSync(v)) continue;
+        let cues = cachedCues(v);
+        if (!cues) {
+          const line = say('⏳ ' + tx('ካፕሽን እየተሰራ ነው', 'Making captions') + ' (' + (i + 1) + '/' + vids.length + ') · ' + path.basename(v));
+          try { cues = await transcribeExtra(v); } catch (e) { line.textContent = '⚠ ' + path.basename(v) + ': ' + (e && e.message ? e.message : e); line.className = 'st-warn'; continue; }
+          keepCues(v, cues);
+          line.textContent = '✓ ' + path.basename(v);
+        }
+        items.push({ video: v, cues });
+      }
+    } finally { busy = false; }
+    if (!items.length) { say(tx('ምንም ካፕሽን አልተሰራም።', 'No captions were made.'), 'st-warn'); return; }
+    if (await capcutRunning()) { say(tx('CapCut ተከፍቷል — ይዝጉትና እንደገና ይጫኑ (ካፕሽኖቹ ተቀምጠዋል፣ እንደገና አይሰሩም)።', 'CapCut is open — close it and press again (the captions are kept, nothing is made again).'), 'st-warn'); return; }
+    const style = typeof STYLE !== 'undefined' ? STYLE : 'plain';
+    const o = typeof styleOpts === 'function' ? styleOpts(style) : {};
+    const cv = d.canvas_config || {};
+    const portrait = (cv.height || 1920) > (cv.width || 1080);
+    const look = C.lookFor(style, o, await fontPath(o.font || 'sans'), portrait);
+    const built = C.buildTrackAll(d, items, look);
+    if (!built.placed) { say(tx('በፕሮጀክቱ ውስጥ ካፕሽን የሚገባበት ቦታ አልተገኘም።', 'No place for captions was found in the project.'), 'st-warn'); return; }
+    const file = path.join(p.dir, 'draft_content.json');
+    try {
+      fs.copyFileSync(file, file + BACKUP);
+      fs.writeFileSync(file, JSON.stringify(C.addTrack(d, built)), { encoding: 'utf8' });
+    } catch (e) { say(tx('አልተሳካም፦ ', 'Failed: ') + (e && e.message ? e.message : e), 'st-warn'); return; }
+    out.textContent = '';
+    say('✓ ' + built.placed + ' ' + tx('ካፕሽኖች ወደ «' + p.name + '» ገብተዋል — CapCutን ይክፈቱ።', 'captions are in «' + p.name + '» — open CapCut.'), 'st-ok');
+    if (missing.length) say(tx(missing.length + ' ቪዲዮ(ዎች) በዚህ ኮምፒውተር ላይ አልተገኙም፦ ', missing.length + ' video(s) not found on this PC: ') + missing.map((v) => path.basename(v)).join(', '));
+    say(tx('በCapCut ውስጥ ቪዲዮውን ቢቆርጡ፣ እዚህ "አዘምን" ይጫኑ — በሰከንዶች ይስተካከላል።', 'Cut the video again in CapCut? Press "Update" here — it is redone in seconds.'));
+    out.appendChild(btn('st-btn', '↶ ' + tx('የCapCut ለውጡን መልስ', 'Undo the CapCut change'), '', () => undo(p, out)));
+    if (onDone) onDone('✓ ' + built.placed + ' ' + tx('ካፕሽኖች ወደ «' + p.name + '» ገብተዋል — CapCutን ይክፈቱ።', 'captions are in «' + p.name + '» — open CapCut.'));
+  }
+
+  // the Studio home: your CapCut projects
+  function homeCard(note) {
+    const anchor = document.getElementById('studioRecent');
+    if (!anchor || !anchor.parentNode) return;
+    let card = document.getElementById('studioCapcut');
+    if (!card) {
+      card = el('div', 'card studio-recent st-cchome');
+      card.id = 'studioCapcut';
+      anchor.after(card);
+    }
+    const list = allProjects(6);
+    card.textContent = '';
+    card.style.display = list && list.length ? '' : 'none';
+    if (!list || !list.length) return;
+    const head = el('div', 'st-home-h', '✏️ ' + tx('የCapCut ፕሮጀክቶችዎ — ካፕሽን ይጨምሩ', 'Your CapCut projects — add captions'));
+    card.appendChild(head);
+    if (typeof note === 'string' && note) card.appendChild(el('div', 'st-ok', note));
+    const style = typeof STYLE !== 'undefined' ? STYLE : 'plain';
+    const sname = typeof STYLE_NAMES !== 'undefined' ? (typeof L === 'function' ? L(STYLE_NAMES[style] || style) : style) : style;
+    card.appendChild(el('div', 'st-sub', tx('ስታይል፦ ', 'Style: ') + sname + ' · ' + tx('CapCutን ይዝጉ፣ ከዚያ ይጫኑ።', 'Close CapCut, then press.')));
+    list.forEach((p) => {
+      const row = el('div', 'st-row st-ccrow');
+      const name = el('span', 'st-ccname', p.name);
+      name.title = p.dir;
+      row.appendChild(name);
+      const info = p.videos.length + ' ' + tx('ቪዲዮ', p.videos.length === 1 ? 'video' : 'videos') + ' · ' + new Date(p.at).toLocaleDateString() +
+        (p.ours ? ' · ✓ ' + tx('ካፕሽን አለው', 'has captions') : '') + (p.here.length < p.videos.length ? ' · ⚠ ' + tx('ቪዲዮ ጠፍቷል', 'video missing') : '');
+      row.appendChild(el('span', 'st-sub', info));
+      row.appendChild(el('span', 'st-flex'));
+      const res = el('div', 'st-ccres');
+      const go = btn('st-btn primary', p.ours ? '↻ ' + tx('አዘምን', 'Update') : tx('ካፕሽን ጨምር', 'Add captions'), '', async () => {
+        go.disabled = true;
+        try { await captionProject(p, res, (msg) => setTimeout(() => homeCard(msg), 300)); } finally { go.disabled = false; }
+      });
+      if (!p.here.length) go.disabled = true;
+      row.appendChild(go);
+      if (p.backup) row.appendChild(btn('st-btn', '↶', tx('የመጨረሻውን ለውጥ መልስ', 'Undo the last change'), () => undo(p, res)));
+      card.appendChild(row);
+      card.appendChild(res);
+    });
+  }
+  // the home shows: refresh the list (CapCut may have saved new projects)
+  const review = document.getElementById('review');
+  if (review) new MutationObserver(() => { if (!review.classList.contains('show')) setTimeout(homeCard, 50); })
+    .observe(review, { attributes: true, attributeFilter: ['class'] });
+  window.addEventListener('focus', () => { if (!busy && (!review || !review.classList.contains('show'))) homeCard(); });
+  setTimeout(homeCard, 400);
+
   async function undo(p, out) {
     if (await capcutRunning()) { out.appendChild(el('div', 'st-warn', tx('መጀመሪያ CapCutን ይዝጉ።', 'Close CapCut first.'))); return; }
     const file = path.join(p.dir, 'draft_content.json');
@@ -169,5 +326,5 @@
     };
     k.h.appendChild(btn('st-btn', tx('ፕሮጀክቶች', 'Projects'), '', show));
   };
-  window.__amhCapCut = { draftsDir, projectsFor, fileCues, send, undo, capcutRunning };
+  window.__amhCapCut = { draftsDir, projectsFor, allProjects, fileCues, send, undo, capcutRunning, captionProject, homeCard, cachedCues };
 })();

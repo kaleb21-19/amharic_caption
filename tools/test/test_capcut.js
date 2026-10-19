@@ -119,6 +119,26 @@ test('sending again replaces our track (never doubled); removing leaves the proj
   assert.deepStrictEqual(C.summary(twice).ours, 1);
 });
 
+test('1.36: a project with several videos — each video once, pictures skipped; all captions in one track, never overlapping', () => {
+  const p = project();
+  p.materials.videos.push({ id: 'PH', path: 'C:/pics/a.jpg', type: 'photo' });
+  p.tracks[0].segments.push({ material_id: 'PH', source_timerange: { start: 0, duration: 3e6 }, target_timerange: { start: 45e6, duration: 3e6 } });
+  assert.deepStrictEqual(C.videosOf(p), ['C:/Users/me/Videos/talk.mp4', 'C:/other.mp4'], 'timeline order, each once, no photo');
+  const built = C.buildTrackAll(p, [
+    { video: 'C:/Users/me/Videos/talk.mp4', cues: [{ start: 12, end: 14, text: 'ሀ' }, { start: 38, end: 39.5, text: 'ለ' }] },
+    { video: 'C:/other.mp4', cues: [{ start: 0.5, end: 2, text: 'ሐ' }] },
+  ], look, { rand });
+  const segs = built.track.segments;
+  assert.deepStrictEqual(segs.map((s) => s.target_timerange.start), [7e6, 33e6, 40.5e6]);
+  for (let i = 1; i < segs.length; i++) {
+    assert.ok(segs[i - 1].target_timerange.start + segs[i - 1].target_timerange.duration <= segs[i].target_timerange.start, 'no overlap');
+  }
+  assert.strictEqual(built.texts.length, segs.length);
+  assert.ok(segs.every((s, i) => s.material_id === built.texts[i].id && s.extra_material_refs[0] === built.animations[i].id));
+  const out = C.addTrack(p, built);
+  assert.strictEqual(C.ourTracks(out).length, 1, 'one track for all videos');
+});
+
 test('no personal data in the template (from a real CapCut project)', () => {
   const t = JSON.stringify(C.TEMPLATE);
   assert.ok(!/Users|Desktop|\.ttf|\.mp4/i.test(t), 'no paths');

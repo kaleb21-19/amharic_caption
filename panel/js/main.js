@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.35.0';
+const APP_VERSION = '1.36.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,18 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.36.0': {
+    banner: {
+      am: '✏️ የCapCut ፕሮጀክትዎን በአንድ ጠቅታ ካፕሽን ያድርጉ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '✏️ Caption your CapCut project in one click — your license stays the same.',
+    },
+    items: [
+      { am: 'Studio መነሻ፦ የCapCut ፕሮጀክቶችዎ ይታያሉ — "ካፕሽን ጨምር" ይጫኑ', en: 'Studio home: your CapCut projects are listed — press "Add captions"' },
+      { am: 'በፕሮጀክቱ ውስጥ ያሉ ሁሉም ቪዲዮዎች ካፕሽን ያገኛሉ', en: 'Every video in the project gets captions' },
+      { am: 'በCapCut ውስጥ እንደገና ቢቆርጡ፣ "↻ አዘምን" በሰከንዶች ያስተካክላል — እንደገና መጻፍ የለም', en: 'Re-cut in CapCut? "↻ Update" fixes it in seconds — nothing is transcribed again' },
+      { am: 'በMac ላይ ያለው CapCutም ይሰራል', en: 'CapCut on Mac works too' },
+    ],
+  },
   '1.35.0': {
     banner: {
       am: '✏️ ካፕሽኖችዎን በስታይሉ ወደ CapCut ይላኩ — እያንዳንዱ ካፕሽን እንደሚታረም ጽሑፍ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
