@@ -393,6 +393,17 @@ def t_editors():
             os.makedirs(os.path.dirname(lnk))
             open(lnk, "wb").close()
             assert amh_app.find_editor("davinci") == lnk, "a Start-menu shortcut counts"
+            # 1.50: started like the person does (shortcut), else the .exe from
+            # its own folder — never os.startfile on a bare .exe
+            calls = []
+            real_sf, real_po = os.startfile, amh_app.subprocess.Popen
+            os.startfile = lambda p: calls.append(("startfile", p))
+            amh_app.subprocess.Popen = lambda a, **k: calls.append(("popen", a[0], k.get("cwd")))
+            try:
+                assert amh_app.open_editor("davinci") is True and calls[-1] == ("startfile", lnk), calls
+                assert amh_app.open_editor("capcut") is True and calls[-1] == ("popen", exe, os.path.dirname(exe)), calls
+            finally:
+                os.startfile, amh_app.subprocess.Popen = real_sf, real_po
         elif sys.platform == "darwin":
             app = os.path.join(fake, "Applications", "DaVinci Resolve", "DaVinci Resolve.app")
             os.makedirs(app)

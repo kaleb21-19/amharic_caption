@@ -239,7 +239,20 @@ def open_editor(name):
     if not p:
         return False
     if IS_WIN:
-        os.startfile(p)          # .exe or .lnk; an open editor just comes to the front
+        # 1.50: DaVinci did not start from the Studio (owner, 1.47). Start it
+        # the way the person does: its Start-menu shortcut (that sets the
+        # editor's own "Start in" folder); else the .exe FROM its own folder,
+        # detached, without this app's environment quirks
+        lnk = _start_menu_lnk(EDITORS[name]["win_lnk"])
+        if lnk:
+            os.startfile(lnk)
+            return True
+        if p.lower().endswith(".exe"):
+            env = {k: v for k, v in os.environ.items() if not k.upper().startswith(("PYTHON", "PYWEBVIEW"))}
+            subprocess.Popen([p], cwd=os.path.dirname(p), env=env, close_fds=True,
+                             creationflags=0x00000008 | 0x00000200)   # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        else:
+            os.startfile(p)
     else:
         subprocess.Popen(["open", p])
     return True
