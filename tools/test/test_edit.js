@@ -42,6 +42,21 @@ test('split, trim, delete, move — and cut a range out', () => {
   const r = E.cutRange([{ id: 'a', m: 'v', in: 0, out: 10 }], 3, 5, id);
   assert.deepStrictEqual(r.map((x) => [x.in, x.out]), [[0, 3], [5, 10]]);
   assert.strictEqual(E.total(r), 8);
+  // 1.34: move a range (a sentence dragged in the Script view)
+  const one = [{ id: 'a', m: 'v', in: 0, out: 10 }];
+  let mv = E.moveRange(one, 6, 8, 2, id);
+  assert.deepStrictEqual(mv.map((x) => [x.in, x.out]), [[0, 2], [6, 8], [2, 6], [8, 10]], 'later sentence moved earlier');
+  assert.strictEqual(E.total(mv), 10, 'nothing lost');
+  mv = E.moveRange(one, 1, 3, 10, id);
+  assert.deepStrictEqual(mv.map((x) => [x.in, x.out]), [[0, 1], [3, 10], [1, 3]], 'to the very end');
+  mv = E.moveRange(one, 1, 3, 0, id);
+  assert.deepStrictEqual(mv.map((x) => [x.in, x.out]), [[1, 3], [0, 1], [3, 10]], 'to the very start');
+  assert.strictEqual(E.moveRange(one, 2, 6, 4, id), one, 'into itself: nothing');
+  const two = [{ id: 'a', m: 'v', in: 0, out: 4 }, { id: 'b', m: 'w', in: 10, out: 14, speed: 2 }];
+  mv = E.moveRange(two, 3, 5, 0, id);           // across two clips, one at 2x
+  assert.deepStrictEqual(mv.map((x) => [x.m, x.in, x.out]), [['v', 3, 4], ['w', 10, 12], ['v', 0, 3], ['w', 12, 14]]);
+  assert.strictEqual(E.total(mv), E.total(two));
+  assert.ok(new Set(mv.map((x) => x.id)).size === mv.length, 'every piece has its own id');
 });
 
 const S0 = { v: [

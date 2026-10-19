@@ -82,6 +82,23 @@
     const L = layout(out);
     return out.filter((c, i) => !(L[i].s >= a - 1e-3 && L[i].e <= b + 1e-3));
   }
+  // move a range of the edit [a, b] so it starts at edit time t (1.34: drag a
+  // sentence in the Script view). t inside the range: nothing changes.
+  function moveRange(clips, a, b, t, idGen) {
+    if (!(b - a > MIN / 2) || (t > a + 1e-3 && t < b - 1e-3)) return clips;
+    let out = splitAt(clips, a, idGen());
+    out = splitAt(out, b, idGen());
+    out = splitAt(out, t, idGen());
+    const L = layout(out);
+    const inside = (i) => L[i].s >= a - 1e-3 && L[i].e <= b + 1e-3;
+    const moving = out.filter((c, i) => inside(i));
+    if (!moving.length) return clips;
+    const rest = [], startOf = [];
+    out.forEach((c, i) => { if (!inside(i)) { rest.push(c); startOf.push(L[i].s); } });
+    let at = startOf.findIndex((s) => s >= t - 1e-3);
+    if (at < 0) at = rest.length;
+    return rest.slice(0, at).concat(moving, rest.slice(at));
+  }
 
   // ── captions follow the edit ─────────────────────────────────────────────
   // the words of one caption with times (exact when the engine gave them,
@@ -557,7 +574,7 @@
     return { graph: parts.join(';'), w: W, h: H, duration: total(clips) };
   }
 
-  const api = { MIN, layout, total, locate, sourceToEdit, splitAt, removeClip, trimClip, moveClip, dropIndex, cutRange,
+  const api = { MIN, layout, total, locate, sourceToEdit, splitAt, removeClip, trimClip, moveClip, dropIndex, cutRange, moveRange,
     words, deriveCaptions, syncBack, FORMATS, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
     TFONTS, TPRESETS, assColor, textAnchor, textAss, setFontInfo, fontInfo, textSize, LOUD, MUS_DEFAULT, musicGain,
     PRESETS, presetFor, GPU_ENCODERS, encoderArgs, eta,

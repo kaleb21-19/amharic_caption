@@ -977,6 +977,11 @@
     seek(Math.min(time(), total()));
   }
   // ✂ Clean up "cut them": ranges of the edit out of the main track, one step
+  // 1.34: a sentence dragged in the Script view
+  function moveRange(a, b, t) {
+    change('move', () => { clips = E.moveRange(clips, a, b, t, newId); });
+    seek(Math.min(time(), total()));
+  }
   function cutRanges(ranges) {
     const list = (ranges || []).slice().sort((a, b) => b.start - a.start);   // last first: earlier times stay valid
     if (!list.length) return;
@@ -1717,6 +1722,6 @@
   ST.attachEditor({ draw, drawSoon, seek, duration: total, peaks: editPeaks, open, shown, saveState, loadState, exportVideo, format: () => fmt,
     queueExports, stopExport, clearDone, detectGpu, gpuName: (e) => GPU_NAMES[e] || '', queue: () => QUEUE, onQueue: (f) => qWatch.push(f),
     setFormat: (f) => { if (f !== fmt) change('format', () => { fmt = f; }); } });
-  window.__amhEditor = { renderJob, snapshot, state: () => ({ clips, ovl, txt, mus, snd, media, SRC, fmt, sel, built }), addOverlay, addText, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, redo,
+  window.__amhEditor = { renderJob, snapshot, state: () => ({ clips, ovl, txt, mus, snd, media, SRC, fmt, sel, built }), addOverlay, addText, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, moveRange, total, redo,
     select: (id) => { sel = id; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, render, exportVideo, frame, setFormat: (f) => change('format', () => { fmt = f; }) };
 })();
