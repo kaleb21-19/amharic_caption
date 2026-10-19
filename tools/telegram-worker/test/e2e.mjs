@@ -3715,6 +3715,9 @@ console.log('\n:: 🧭 in the program: anonymous step counts (/api/event, /funne
   await ev('run_click', '196.188.0.4'); await ev('run_click', '196.188.0.5');
   await ev('err_no_clip', '196.188.0.4'); await ev('run_ok', '196.188.0.5');
   await ev('open', '20.1.1.1', 'US', { h: 'APP', os: 'mac' });          // a GitHub test Mac
+  // 1.38: Studio users say which editor they use
+  await ev('editor_capcut', '196.188.0.1', 'ET', { h: 'APP' }); await ev('editor_capcut', '196.188.0.2', 'ET', { h: 'APP' });
+  await ev('editor_davinci', '196.188.0.3', 'ET', { h: 'APP' });
   // nothing identifying is stored, only daily totals
   const cols = rows(env, "SELECT name FROM pragma_table_info('events_daily')").map((r) => r.name).sort();
   assert.deepEqual(cols, ['cc', 'day', 'e', 'host', 'n', 'os', 'v'], 'no machine id / ip column');
@@ -3738,6 +3741,7 @@ console.log('\n:: 🧭 in the program: anonymous step counts (/api/event, /funne
   assert.ok(r.includes('Needed the model download: 3') && r.includes('failed: 1'), r);
   assert.ok(r.includes('Pressed “Make captions”: <b>2</b>') && r.includes('no clip selected: 1'), r);
   assert.ok(r.includes('Captions made: <b>1</b>') && r.includes('opened 1'), 'test machines abroad shown apart: ' + r);
+  assert.ok(r.includes('Their editor: CapCut 2 · DaVinci 1'), 'which editors they use: ' + r);
   const r30 = await ask('/funnel 30');
   assert.ok(r30.includes('last 30 days'), r30);
   const nAdmin = OUTBOUND.length;
