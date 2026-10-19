@@ -151,6 +151,15 @@ local size = em / W                                    -- Text+ Size: of the fra
 local perLine = math.max(6, math.floor(0.86 * picW / (0.62 * em)))
 local function chars(s) local n = 0; for _ in s:gmatch("[^\128-\191][\128-\191]*") do n = n + 1 end; return n end
 local function wrap(s)
+  -- two balanced lines (1.50): the space nearest the middle, when it fits
+  if L.lines == 2 and s:find(" ") and chars(s) <= 2 * perLine then
+    local n, best, bi, k = chars(s), nil, nil, 0
+    for pos, ch in s:gmatch("()([^\128-\191][\128-\191]*)") do
+      if ch == " " and (not best or math.abs(n - 1 - 2 * k) < best) then best, bi = math.abs(n - 1 - 2 * k), pos end
+      k = k + 1
+    end
+    if bi then return s:sub(1, bi - 1) .. "\n" .. s:sub(bi + 1), 2 end
+  end
   if chars(s) <= perLine then return s, 1 end
   local lines, cur = {}, ""
   for w in s:gmatch("%S+") do

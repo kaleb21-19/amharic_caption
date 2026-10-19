@@ -305,6 +305,7 @@ const AM_TEXT = {
   'Size': 'መጠን',
   'Position': 'ቦታ',
   'Words': 'ቃላት',
+  'Lines': 'መስመሮች',
   'Box': 'ሳጥን',
   'Font': 'ፊደል',
   'Modern': 'ዘመናዊ',

@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.49.0';
+const APP_VERSION = '1.50.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -5985,6 +5985,7 @@ function styleOpts(style, raw) {
     font: STYLE_FONTS.some((f) => f[0] === o.font) ? o.font : 'sans',
     anim: STYLE_ANIMS.some((a) => a[0] === o.anim) ? o.anim : 'auto',
     emph: o.emph === 'off' ? 'off' : 'auto',
+    lines: Number(o.lines) === 2 ? 2 : 1,          // 1.50: two balanced lines per caption
   };
 }
 function setStyleOpt(key, value) {
@@ -6180,6 +6181,7 @@ function renderStyleCustom() {
   if (popRow) { popRow.className = (popRow.className || '') + ' wrap'; popRow.appendChild(popHint); }
   switchRow(opts, 'Box', o.box, 'box');
   segRow(opts, 'Animation', STYLE_ANIMS.map(([id, name]) => [id, L(name)]), o.anim, 'anim', true);
+  segRow(opts, 'Lines', [[1, '1'], [2, '2']], o.lines, 'lines');
   segRow(opts, 'Words', [[0, L('Auto')], [1, '1'], [2, '2'], [3, '3'], [4, '4'], [5, '5']], o.words, 'words');
   const foot = document.createElement('div');
   foot.className = 'sc-foot';

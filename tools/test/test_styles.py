@@ -114,7 +114,7 @@ for an in ("slidecolor", "shake", "glow", "blurzoom"):
 
 o = A.options({"color": "red", "size": "huge", "pos": "left", "words": 9, "box": 1, "y": "x"})
 check(o == {"color": None, "text": None, "size": "m", "k": 1.0, "y": None, "pos": "bottom", "words": 0, "box": True,
-            "font": "sans", "anim": "auto", "emph": "auto"}, "bad options fall back safely")
+            "font": "sans", "anim": "auto", "emph": "auto", "lines": 1}, "bad options fall back safely")
 # 1.32: the Size slider's number and a dragged height
 check(A.options({"size": 1.3})["k"] == 1.3 and A.options({"size": 9})["k"] == 1.8 and A.options({"size": True})["k"] == 1.0
       and A.options({"size": "xl"})["k"] == 1.45, "size: a number 0.6-1.8, or S/M/L/XL")
@@ -429,6 +429,23 @@ try:
     check(_t.count("\\an9") >= 1 and "0:00:12.00" in _t, "script mode keeps the free tag, as long as the video")
 finally:
     shutil.rmtree(_sd, ignore_errors=True)
+
+# two lines (1.50): twice the words, broken where both halves are as long
+_w = [(w, i * 0.4, i * 0.4 + 0.35) for i, w in enumerate("ሰላም ለሁላችሁ እንኳን ደህና መጣችሁ ዛሬ ስለ ቡና".split())]
+check(A.options({"lines": 2})["lines"] == 2 and A.options({"lines": "2"})["lines"] == 2 and A.options({})["lines"] == 1
+      and A.options({"lines": 7})["lines"] == 1, "lines: 1 or 2, anything else is 1")
+def _vis(s):
+    return [re.sub(r"\{[^}]*\}", "", l.split(",,0,0,0,,", 1)[1]) for l in s.split("\n") if l.startswith("Dialogue")]
+_one, _two = _vis(A.build(_w, "karaoke", 1080, 1920)), _vis(A.build(_w, "karaoke", 1080, 1920, opts={"lines": 2}))
+check(not any("\\N" in v for v in _one) and all("\\N" in v for v in _two), "karaoke: one line by default, two when asked")
+check(len(set(_two)) <= 2 and _two[0] == "ሰላም ለሁላችሁ እንኳን\\Nደህና መጣችሁ ዛሬ",
+      "two lines: twice the words, a balanced break, the same break on every word's redraw")
+for _st in sorted(A.STYLES):
+    for _an in ("auto", "typewriter", "wave"):
+        _v = _vis(A.build(_w, _st, 1080, 1920, opts={"lines": 2, "anim": _an}))
+        check(not any(re.search(r"\\(?![Nnh])", x) for x in _v), "%s + %s on two lines: the break is never split" % (_st, _an))
+_b = A.build(_w, "bounce", 1080, 1920, opts={"lines": 2, "words": 3})
+check(len(set(re.findall(r"\\pos\(\d+,(\d+)\)", _b))) >= 2, "glide / spotlight / bounce place the words on two rows")
 
 print("\nALL PASS" if not fails else "\nFAILURES: %d" % fails)
 sys.exit(1 if fails else 0)

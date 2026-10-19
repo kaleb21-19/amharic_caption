@@ -128,8 +128,18 @@
       fontPath: fontPath || '', fontSize: Math.round((portrait ? 9 : 7) * k * 10) / 10,
       color: o.text || '#FFFFFF', highlight: o.color || STYLE_HL[style] || '#FFE500',
       stroke: o.box ? '' : '#000000', strokeWidth: 0.08, box: !!o.box, bold: true,
-      popNumbers: o.emph !== 'off', y: Math.round((1 - 2 * centre) * 1000) / 1000,
+      popNumbers: o.emph !== 'off', y: Math.round((1 - 2 * centre) * 1000) / 1000, lines: Number(o.lines) === 2 ? 2 : 1,
     };
+  }
+  // two balanced lines (1.50): the space nearest the middle becomes a line
+  // break — one character for one, so every ★ range stays where it is
+  function twoLines(text) {
+    const t = String(text || '');
+    let best = -1;
+    for (let i = 0; i < t.length; i++) {
+      if (t[i] === ' ' && (best < 0 || Math.abs(t.length - 1 - 2 * i) < Math.abs(t.length - 1 - 2 * best))) best = i;
+    }
+    return best < 0 ? t : t.slice(0, best) + '\n' + t.slice(best + 1);
   }
 
   // Build the new track (+ its texts and animations) for these captions.
@@ -143,6 +153,7 @@
     (cues || []).forEach((c) => {
       const t = styledText(c.text, look);
       if (!t.text) return;
+      if (look.lines === 2) t.text = twoLines(t.text);
       const place = placeCue(pl, Number(c.start), Number(c.end));
       if (!place || place.end - place.start < 0.05) { skipped++; return; }
       const mat = clone(TEMPLATE.text), seg = clone(TEMPLATE.segment), an = clone(TEMPLATE.animation);
@@ -443,7 +454,7 @@
     for (let i = 2; ; i++) { const n = clean + ' (' + i + ')'; if (low.indexOf(n.toLowerCase()) < 0) return n; }
   }
 
-  const api = { newDraft, freeName, TEMPLATE, NAME, uuid, rgb, placements, placeCue, styledText, contentOf, lookFor, buildTrack, buildTrackAll, videosOf, addTrack, chosenAnims, spreadAnims, fitAnims, sentMap, userEdits, keepEdits, wordPairs, textOf, expectedSent, removeOurs, ourTracks, summary, normPath };
+  const api = { twoLines, newDraft, freeName, TEMPLATE, NAME, uuid, rgb, placements, placeCue, styledText, contentOf, lookFor, buildTrack, buildTrackAll, videosOf, addTrack, chosenAnims, spreadAnims, fitAnims, sentMap, userEdits, keepEdits, wordPairs, textOf, expectedSent, removeOurs, ourTracks, summary, normPath };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhCapCut = api;
 })(typeof window !== 'undefined' ? window : this);

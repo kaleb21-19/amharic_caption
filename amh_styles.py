@@ -184,8 +184,11 @@ def words_from_cues(cues):
     return out
 
 
-def _phrases(words, size):
-    """Groups of up to `size` words; a long pause starts a new group."""
+def _phrases(words, size, o=None):
+    """Groups of up to `size` words; a long pause starts a new group. Two
+    lines (o["lines"] == 2, 1.50) hold about twice the words."""
+    if o and o.get("lines") == 2 and size >= 2:
+        size = min(10, size * 2)
     out, cur = [], []
     for w in words:
         if cur and (len(cur) >= size or w[1] - cur[-1][2] > GAP_HOLD):
@@ -270,7 +273,8 @@ def options(opts):
     or a number 0.6-1.8 (the Size slider, 1.32), pos bottom/middle/top/safe,
     y = where the caption's bottom edge sits (0-1 of the frame height from
     the top; dragged in the Studio player, 1.32 - wins over pos), words 1-5
-    (0 = the style's own), box, font (an id of FONTS), anim (of ANIMS)."""
+    (0 = the style's own), box, font (an id of FONTS), anim (of ANIMS),
+    lines 1 / 2 (1.50: two balanced lines per caption)."""
     o = opts or {}
     words = o.get("words")
     try:
@@ -290,6 +294,7 @@ def options(opts):
         "font": o.get("font") if o.get("font") in FONTS else "sans",
         "anim": o.get("anim") if o.get("anim") in ANIMS else "auto",
         "emph": "off" if o.get("emph") == "off" else "auto",
+        "lines": 2 if str(o.get("lines")) == "2" else 1,
     }
 
 
@@ -435,7 +440,7 @@ def build(words, style, width, height, font=FONT, opts=None):
         st = "Style: S,%s,%d,%s,%s,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,%.1f,%.1f,2,%d,%d,%d,1" % (
             font, size, YELLOW if style == "fill" else WHITE, WHITE, size * 0.09, size * 0.04,
             round(width * 0.06), round(width * 0.06), mv)
-        groups = _phrases(words, NW or 3)
+        groups = _phrases(words, NW or 3, o)
         for g, (s, e) in zip(groups, _spans(groups)):
             intro = "{\\fad(120,90)}"
             if style == "fill":
@@ -470,7 +475,7 @@ def build(words, style, width, height, font=FONT, opts=None):
         bord = size * 0.09
         st = "Style: S,%s,%d,%s,%s,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,%.1f,%.1f,2,%d,%d,%d,1" % (
             font, size, WHITE, WHITE, bord, size * 0.04, round(width * 0.06), round(width * 0.06), mv)
-        groups = _phrases(words, NW or 3)
+        groups = _phrases(words, NW or 3, o)
         for g, (s0, e) in zip(groups, _spans(groups)):
             for i, w in enumerate(g):
                 ws = s0 if i == 0 else w[1]
@@ -488,7 +493,7 @@ def build(words, style, width, height, font=FONT, opts=None):
         mv = round(h * (0.24 if portrait else 0.10))
         st = "Style: S,%s,%d,%s,%s,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,%.1f,%.1f,2,%d,%d,%d,1" % (
             font, size, WHITE, WHITE, size * 0.09, size * 0.04, round(width * 0.06), round(width * 0.06), mv)
-        groups = _phrases(words, NW or 3)
+        groups = _phrases(words, NW or 3, o)
         for g, (s0, e) in zip(groups, _spans(groups)):
             parts = []
             for w in g:
@@ -499,7 +504,7 @@ def build(words, style, width, height, font=FONT, opts=None):
         size = round(K * h * (0.085 if portrait else 0.095))
         st = "Style: S,%s,%d,%s,%s,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,%.1f,%.1f,5,%d,%d,0,1" % (
             font, size, WHITE, WHITE, size * 0.10, size * 0.05, round(width * 0.05), round(width * 0.05))
-        groups = _phrases(words, NW or 1)
+        groups = _phrases(words, NW or 1, o)
         for k, (g, (s0, e)) in enumerate(zip(groups, _spans(groups))):
             col = YELLOW if k % 3 == 2 else WHITE
             anim = ("{\\1c%s&\\pos(%d,%d)\\fscx86\\fscy86\\t(0,160,0.6,\\fscx106\\fscy106)"
@@ -515,7 +520,7 @@ def build(words, style, width, height, font=FONT, opts=None):
             "Style: S,%s,%d,&H00FFFFFF,&H00FFFFFF,&H00FFF8D0,&H00000000,-1,0,0,0,100,100,0,0,1,%.1f,0,2,%d,%d,%d,1" % ((font, size, size * 0.015) + m),
         ])
         flick = "\\alpha&HFF&\\t(0,40,\\alpha&H20&)\\t(40,80,\\alpha&HA0&)\\t(80,150,\\alpha&H00&)"
-        groups = _phrases(words, NW or 3)
+        groups = _phrases(words, NW or 3, o)
         for g, (s0, e) in zip(groups, _spans(groups)):
             txt = " ".join(w[0] for w in g)
             lines.append("Dialogue: 0,%s,%s,H,,0,0,0,,\x02{%s\\blur16\\fad(0,140)}%s" % (_ts(s0), _ts(e), flick.replace("H20", "H70").replace("H00&)", "H60&)"), txt))
@@ -526,7 +531,7 @@ def build(words, style, width, height, font=FONT, opts=None):
         mv = round(h * (0.26 if portrait else 0.11))
         st = "Style: S,%s,%d,%s,%s,&H00141414,&H80000000,-1,0,0,0,100,100,0,0,1,%.1f,%.1f,2,%d,%d,%d,1" % (
             font, size, WHITE, WHITE, size * 0.11, size * 0.05, round(width * 0.05), round(width * 0.05), mv)
-        groups = _phrases(words, NW or 2)
+        groups = _phrases(words, NW or 2, o)
         cols = (GREEN, YELLOW, RED)
         n = 0
         for g, (s0, e) in zip(groups, _spans(groups)):
@@ -541,7 +546,7 @@ def build(words, style, width, height, font=FONT, opts=None):
         mv = round(h * (0.25 if portrait else 0.11))
         st = "Style: S,%s,%d,%s,%s,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,%.1f,%.1f,2,%d,%d,%d,1" % (
             font, size, WHITE, WHITE, size * 0.15, size * 0.09, round(width * 0.05), round(width * 0.05), mv)
-        groups = _phrases(words, NW or 3)
+        groups = _phrases(words, NW or 3, o)
         for g, (s0, e) in zip(groups, _spans(groups)):
             for i, w in enumerate(g):
                 ws = s0 if i == 0 else w[1]
@@ -556,7 +561,7 @@ def build(words, style, width, height, font=FONT, opts=None):
         mv = round(h * (0.14 if portrait else 0.08))
         st = "Style: S,%s,%d,%s,%s,&H00000000,&H90000000,-1,0,0,0,100,100,0,0,1,%.1f,%.1f,2,%d,%d,%d,1" % (
             font, size, "&H00E6E6E6", WHITE, size * 0.08, size * 0.05, round(width * 0.08), round(width * 0.08), mv)
-        groups = _phrases(words, NW or 7)
+        groups = _phrases(words, NW or 7, o)
         for g, (s0, e) in zip(groups, _spans(groups)):
             half = (len(g) + 1) // 2
             for i, w in enumerate(g):
@@ -572,7 +577,7 @@ def build(words, style, width, height, font=FONT, opts=None):
         mv = round(h * (0.24 if portrait else 0.10))
         st = "Style: S,%s,%d,%s,%s,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,%.1f,%.1f,2,%d,%d,%d,1" % (
             font, size, WHITE, WHITE, size * 0.08, size * 0.04, round(width * 0.06), round(width * 0.06), mv)
-        groups = _phrases(words, NW or 4)
+        groups = _phrases(words, NW or 4, o)
         for g, (s0, e) in zip(groups, _spans(groups)):
             parts = []
             for w in g:
@@ -591,7 +596,7 @@ def build(words, style, width, height, font=FONT, opts=None):
         mv = round(h * (0.27 if portrait else 0.12))
         st = "Style: S,%s,%d,%s,%s,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,%.1f,%.1f,2,%d,%d,%d,1" % (
             font, size, WHITE, WHITE, size * 0.12, size * 0.07, round(width * 0.05), round(width * 0.05), mv)
-        groups = _phrases(words, NW or 2)
+        groups = _phrases(words, NW or 2, o)
         for k, (g, (s0, e)) in enumerate(zip(groups, _spans(groups))):
             tilt = -6 if k % 2 == 0 else 6
             col = YELLOW if k % 2 else WHITE
@@ -603,7 +608,7 @@ def build(words, style, width, height, font=FONT, opts=None):
         mv = round(h * (0.25 if portrait else 0.11))
         st = "Style: S,%s,%d,&H00F2F7FF,&H00F2F7FF,&H00202020,&H00335CD6,-1,0,0,0,100,100,1,0,1,%.1f,%.1f,2,%d,%d,%d,1" % (
             font, size, size * 0.06, size * 0.13, round(width * 0.05), round(width * 0.05), mv)
-        groups = _phrases(words, NW or 2)
+        groups = _phrases(words, NW or 2, o)
         for g, (s0, e) in zip(groups, _spans(groups)):
             anim = "{\\fad(110,90)\\yshad0\\xshad0\\t(0,200,0.6,\\xshad%.1f\\yshad%.1f)}" % (size * 0.10, size * 0.10)
             lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (_ts(s0), _ts(e), IN + anim, " ".join(w[0] for w in g)))
@@ -612,7 +617,7 @@ def build(words, style, width, height, font=FONT, opts=None):
         mv = round(h * (0.12 if portrait else 0.07))
         st = "Style: S,%s,%d,&H00F0F0F0,&H00F0F0F0,&H00000000,&H96000000,0,0,0,0,100,100,2.5,0,1,%.1f,%.1f,2,%d,%d,%d,1" % (
             font, size, size * 0.04, size * 0.08, round(width * 0.10), round(width * 0.10), mv)
-        groups = _phrases(words, NW or 6)
+        groups = _phrases(words, NW or 6, o)
         for g, (s0, e) in zip(groups, _spans(groups)):
             lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,\x02{\\fad(260,220)\\blur0.8}%s" % (_ts(s0), _ts(e), " ".join(w[0] for w in g)))
     elif style == "pop":
@@ -620,7 +625,7 @@ def build(words, style, width, height, font=FONT, opts=None):
         mv = round(h * (0.28 if portrait else 0.12))
         st = "Style: S,%s,%d,%s,%s,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,%.1f,%.1f,2,%d,%d,%d,1" % (
             font, size, WHITE, WHITE, size * 0.10, size * 0.05, round(width * 0.05), round(width * 0.05), mv)
-        groups = _phrases(words, NW or 2)
+        groups = _phrases(words, NW or 2, o)
         for k, (g, (s, e)) in enumerate(zip(groups, _spans(groups))):
             col = WHITE if k % 2 == 0 else YELLOW
             anim = ("{\\1c%s&\\fad(90,70)\\fscx78\\fscy78\\t(0,200,0.6,\\fscx104\\fscy104)"
@@ -633,9 +638,11 @@ def build(words, style, width, height, font=FONT, opts=None):
         mv = round(h * (0.16 if portrait else 0.07))
         st = "Style: S,%s,%d,%s,%s,&H50000000,&H50000000,0,0,0,0,100,100,0,0,3,%.1f,0,2,%d,%d,%d,1" % (
             font, size, WHITE, WHITE, size * 0.30, round(width * 0.07), round(width * 0.07), mv)
-        groups = _phrases(words, NW or 5)
+        groups = _phrases(words, NW or 5, o)
         for g, (s, e) in zip(groups, _spans(groups)):
             lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,\x02{\\fad(140,120)}%s" % (_ts(s), _ts(e), " ".join(w[0] for w in g)))
+    if o["lines"] == 2 and style not in SELF_PLACED:
+        lines = [_two_lines(x) for x in lines]
     lines = _entrances(lines, o["anim"], st, width, height)
     lines = _emphasis_tags(lines, st)
     if o["anim"] in LETTER_ANIMS:
@@ -652,6 +659,38 @@ def build(words, style, width, height, font=FONT, opts=None):
 
 
 _FAD = re.compile(r"\\fad\((\d+),(\d+)\)")
+
+
+def _two_lines(line):
+    """A dialogue's phrase on two balanced lines (1.50): the space nearest the
+    middle of the VISIBLE letters becomes \\N. Tags are skipped, so every
+    redraw of the same phrase (word-by-word styles) breaks at the same word;
+    a phrase already on two lines, or of one word, stays."""
+    head, sep, text = line.partition(",,0,0,0,,")
+    if not sep or "\\N" in text:
+        return line
+    spaces, n, i = [], 0, 0
+    while i < len(text):
+        ch = text[i]
+        if ch == "{":
+            j = text.find("}", i)
+            i = len(text) if j < 0 else j + 1
+            continue
+        if ch in "\x03\x05":                     # a redraw / letter mark: its number is not text
+            j = text.find("\x04" if ch == "\x03" else "\x06", i)
+            i = len(text) if j < 0 else j + 1
+            continue
+        if ch in "\x02\x04\x06":
+            i += 1
+            continue
+        if ch == " ":
+            spaces.append((n, i))
+        n += 1
+        i += 1
+    if not spaces:
+        return line
+    k = min(spaces, key=lambda p: abs(n - 1 - 2 * p[0]))[1]
+    return head + sep + text[:k] + "\\N" + text[k + 1:]
 
 IN = "\x02"                    # marks the line where a phrase appears
 _CONT = re.compile("\x03(\\d+)\x04")
@@ -790,6 +829,10 @@ def _letters(lines, anim):
                 res.append(text[i:j + 1])
                 i = j + 1
                 continue
+            if ch == "\\" and text[i + 1:i + 2] in ("N", "n", "h"):   # a line break stays one piece
+                res.append(text[i:i + 2])
+                i += 2
+                continue
             if not ch.isspace():
                 t = k * step - off
                 k += 1
@@ -893,6 +936,15 @@ def _place(words, font, size, width, height, o, bottom_frac, gap=0.28):
             cw = need
     if cur:
         rows.append(cur)
+    # two lines (1.50): one row is cut where both halves are about as wide
+    if o.get("lines") == 2 and len(rows) == 1 and len(words) >= 2:
+        full = sum(ws) + sp * (len(ws) - 1)
+        best, acc = 1, 0.0
+        for j in range(1, len(ws)):
+            acc += ws[j - 1] + (sp if j > 1 else 0)
+            if abs(full - sp - 2 * acc) < abs(full - sp - 2 * (sum(ws[:best]) + sp * (best - 1))):
+                best = j
+        rows = [list(range(best)), list(range(best, len(ws)))]
     row_h = size * 1.18
     block_h = row_h * len(rows)
     h = float(height)
@@ -971,7 +1023,7 @@ def _modern(words, style, width, height, font, K, NW, o):
         "Style: P,%s,%d,%s,%s,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1" % (font, size, VIOLET, VIOLET),
     ])
     lines = []
-    groups = _phrases(words, NW or {"glide": 3, "spotlight": 4, "bounce": 3}[style])
+    groups = _phrases(words, NW or {"glide": 3, "spotlight": 4, "bounce": 3}[style], o)
     slide_in = o.get("anim") in ("slide", "drop")
     for g, (s0, e) in zip(groups, _spans(groups)):
         # word gaps: the pill needs room around its word; a growing word too

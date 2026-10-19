@@ -63,6 +63,14 @@ test('the captions file: every video, file seconds, bad cues left out', () => {
   assert.strictEqual(open, close);
 });
 
+test('two lines (1.50): the look carries it, the script breaks in two', () => {
+  const l = V.lookFor('plain', { lines: 2 });
+  assert.strictEqual(l.lines, 2);
+  assert.ok(V.dataLua([{ path: 'a.mp4', cues: [{ start: 0, end: 1, text: 'a b' }] }], l, 'am').text.includes(', lines = 2'));
+  assert.ok(!V.dataLua([{ path: 'a.mp4', cues: [{ start: 0, end: 1, text: 'a b' }] }], V.lookFor('plain', {}), 'am').text.includes('lines ='));
+  assert.ok(LUA.includes('L.lines == 2'), 'the script knows two lines');
+});
+
 test('the installed script knows where the captions file is', () => {
   const s = V.withData(LUA, 'C:\\Users\\me\\Documents\\AmharicCaptions\\Studio\\davinci\\captions.lua');
   assert.ok(s.includes('local DATA = "C:/Users/me/Documents/AmharicCaptions/Studio/davinci/captions.lua"'));
