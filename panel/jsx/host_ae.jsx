@@ -61,6 +61,16 @@ function amhAeIsPrecomp(layer) {
     try { return !!(layer.source && layer.source instanceof CompItem); } catch (e) { return false; }
 }
 
+// A layer with sound, described in OUTER comp time [oS, oE] (`shift`: outer
+// time = inner time + shift). One place for this mapping, so picking a single
+// clip and listing a whole comp always agree.
+function amhAeClipFrom(L, shift, oS, oE) {
+    var r = { sourcePath: amhAeFootagePath(L), sourceIn: (oS - shift) - L.startTime, duration: oE - oS,
+              timelineStart: oS, timelineEnd: oE, name: String(L.source.name) };
+    r.sourceOut = r.sourceIn + r.duration;
+    return r;
+}
+
 // The layer with sound inside a precomp, for outer comp time [a, b].
 // `shift`: outer time = inner time + shift. Longest overlap wins; precomps
 // inside precomps are opened too (up to 3 levels). Returns the clip fields
@@ -75,9 +85,7 @@ function amhAeInnerPick(pc, shift, a, b, depth) {
             if (!(oE - oS > 0.05)) { continue; }
             var r = null;
             if (amhAeListenable(L)) {
-                r = { sourcePath: amhAeFootagePath(L), sourceIn: (oS - shift) - L.startTime, duration: oE - oS,
-                      timelineStart: oS, timelineEnd: oE, name: String(L.source.name) };
-                r.sourceOut = r.sourceIn + r.duration;
+                r = amhAeClipFrom(L, shift, oS, oE);
             } else if (depth < 3 && amhAeIsPrecomp(L)) {
                 r = amhAeInnerPick(L.source, shift + L.startTime, oS, oE, depth + 1);
             }
@@ -85,6 +93,29 @@ function amhAeInnerPick(pc, shift, a, b, depth) {
         }
     } catch (e) {}
     return best;
+}
+
+// EVERY layer with sound inside a precomp, for outer comp time [a, b] - the
+// same time mapping as amhAeInnerPick, but all the parts, not just the
+// longest: a precomp used twice (a nested sequence cut in two) gives both
+// parts. Precomps inside precomps are opened too (up to 3 levels). The clips
+// go into `out`; `seen` skips what the caller already has.
+function amhAeCollectInner(pc, shift, a, b, depth, out, seen) {
+    try {
+        for (var j = 1; j <= pc.numLayers; j++) {
+            var L = pc.layer(j);
+            if (amhAeOwnLayer(L) || amhAeRetimed(L)) { continue; }
+            var oS = Math.max(a, L.inPoint + shift), oE = Math.min(b, L.outPoint + shift);
+            if (!(oE - oS > 0.05)) { continue; }
+            if (amhAeListenable(L)) {
+                var r = amhAeClipFrom(L, shift, oS, oE);
+                var key = r.sourcePath + "|" + oS.toFixed(3) + "|" + r.sourceIn.toFixed(3) + "|" + r.duration.toFixed(3);
+                if (!seen[key]) { seen[key] = true; out.push(r); }
+            } else if (depth < 3 && amhAeIsPrecomp(L)) {
+                amhAeCollectInner(L.source, shift + L.startTime, oS, oE, depth + 1, out, seen);
+            }
+        }
+    } catch (e) {}
 }
 
 function amhAeRetimed(layer) {
@@ -239,13 +270,7 @@ function amharic_getSequenceInfo(all) {
         var clips = [], unsupported = [], seen = {};
         for (var i = 1; i <= comp.numLayers; i++) {
             var L = comp.layer(i);
-            var src = amhAeFootagePath(L);
-            if (!src || !amhAeHasAudio(L)) { continue; }
-            var retimed = amhAeRetimed(L);
-            if (retimed) {
-                unsupported.push({ name: L.source.name, reason: retimed });
-                continue;
-            }
+            if (amhAeOwnLayer(L)) { continue; }        // our own styled caption layer
             var tlStart = Math.max(0, L.inPoint);
             var tlEnd = Math.min(comp.duration, L.outPoint);
             var segStart = tlStart, segEnd = tlEnd;
@@ -254,6 +279,24 @@ function amharic_getSequenceInfo(all) {
                 segEnd = Math.min(tlEnd, outP);
             }
             if (!(segEnd > segStart)) { continue; }
+            if (amhAeIsPrecomp(L)) {
+                // A nested comp (AE's nested sequence): open it and take every
+                // layer with sound inside, mapped to this comp's time. Without
+                // this, a comp built from precomps answered "no clips"
+                // (1.16.17, same as Premiere's Whole edit following nested
+                // sequences).
+                var pcRetimed = amhAeRetimed(L);
+                if (pcRetimed) { unsupported.push({ name: L.source.name, reason: pcRetimed }); continue; }
+                amhAeCollectInner(L.source, L.startTime, segStart, segEnd, 0, clips, seen);
+                continue;
+            }
+            var src = amhAeFootagePath(L);
+            if (!src || !amhAeHasAudio(L)) { continue; }
+            var retimed = amhAeRetimed(L);
+            if (retimed) {
+                unsupported.push({ name: L.source.name, reason: retimed });
+                continue;
+            }
             var srcIn = segStart - L.startTime;
             var dur = segEnd - segStart;
             var key = src + "|" + segStart.toFixed(3) + "|" + srcIn.toFixed(3) + "|" + dur.toFixed(3);

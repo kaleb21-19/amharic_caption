@@ -202,6 +202,9 @@ Premiere, After Effects, CapCut or DaVinci.
 **After Effects (2022 or newer)** — select a layer, transcribe, captions land as one
 text layer with Source Text keyframes. *Still never confirmed in a real AE by a
 customer — top manual priority.*
+- A comp built from **precomps** (nested sequences), with the precomp used once and
+  cut in two: **Whole comp** and **Work Area** must list the clips inside them
+  (§1.16.17; a precomp layer used to be skipped, so this said "no clips").
 
 **Desktop app for CapCut / DaVinci (1.9.0+)**
 - Double-click "Make Amharic Captions" on the desktop → the app window opens (no

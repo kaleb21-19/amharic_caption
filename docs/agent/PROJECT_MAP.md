@@ -44,6 +44,8 @@ the same PR that moves or renames the code. Keep this file under ~120 lines.
 - `panel/jsx/host.jsx` :: `function amh_autoZoom` — Scale keyframes on the footage (Motion effect), on a copy; skips the editor's own animation
 - `panel/jsx/host.jsx` :: `function amharic_getFrame` — sequence width/height/fps
 - `panel/jsx/host_ae.jsx` :: `function amh_placeOverlay` — styled layer in After Effects (pure ASCII file!)
+- `panel/jsx/host_ae.jsx` :: `function amhAeClipFrom` — the one precomp/comp time mapping (sourceIn/outer times); used by the single-clip pick and the whole-comp list
+- `panel/jsx/host_ae.jsx` :: `function amhAeCollectInner` — every layer with sound inside a precomp (Whole comp / Work Area, 3 levels, own layers skipped)
 
 ## Desktop app (CapCut / DaVinci) — app/
 - `app/app_mode.js` :: `saveSrt` — Save SRT (+ burned styled MP4 when a style is chosen)

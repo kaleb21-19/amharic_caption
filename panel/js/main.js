@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.32.0';
+const APP_VERSION = '1.33.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,18 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.33.0': {
+    banner: {
+      am: '🛠 ጥገናዎች፦ ፕሮጀክቶች የራሳቸውን የካፕሽን ገጽታ ያስታውሳሉ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '🛠 Fixes: projects remember their own caption look — your license stays the same.',
+    },
+    items: [
+      { am: 'Studio፦ ፕሮጀክት ሲከፍቱ የራሱ መጠን፣ ቦታና ቀለም ይመለሳል (ሌላ ፕሮጀክት ቢቀይረውም)', en: 'Studio: opening a project brings back its own size, position and colours (even if another project changed the style)' },
+      { am: 'Studio፦ "ቃላት በአንድ ካፕሽን" ከፕሮጀክቱ ጋር ይቀመጣል', en: 'Studio: "Words per caption" is saved with the project' },
+      { am: 'After Effects፦ "ሙሉ ኮምፕ" እና "Work Area" በፕሪኮምፖች ውስጥ ያለውን ድምፅም ይወስዳሉ', en: 'After Effects: "Whole comp" and "Work Area" also take the sound inside precomps' },
+      { am: 'ጠባብ ፓነል ላይ "1 · ካራኦኬ" ሙሉ ይታያል', en: '"1 · Karaoke" shows in full on a narrow panel' },
+    ],
+  },
   '1.32.0': {
     banner: {
       am: '🎨 ካፕሽንዎን በቪዲዮው ውስጥ ያስተካክሉ — ይጎትቱት፣ መጠኑን ይቀይሩ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
