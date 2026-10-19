@@ -594,6 +594,19 @@ t('styled update: a time moved into the next block joins both; most of it change
   assert.strictEqual(r.whole, true, '0-12 of 0-12 changed');
 });
 
+// ✔ Check words (1.52): suggestions from memory, the video, the dictionary
+t('suggestWords: memory, this video, then the Amharic dictionary (most used first)', () => {
+  const d = core.dictFromText('ሰላም\t500\nሰላሙ\t40\nሰላሳ\t60\nቡና\t90\nሰላማዊነት\t9\n\nbad line\n');
+  assert.deepStrictEqual(d.byLen[3].map((x) => x[0]), ['ሰላም', 'ሰላሳ', 'ሰላሙ'], 'grouped by letters, most used first');
+  assert.deepStrictEqual(d.byLen[2].map((x) => x[0]), ['ቡና']);
+  assert.deepStrictEqual(core.suggestWords('ሰላሞ', [], {}, 3, d), ['ሰላም', 'ሰላሳ', 'ሰላሙ'], 'one letter off, most used first');
+  assert.deepStrictEqual(core.suggestWords('ሰላሞ', [{ text: 'ሰላሙ ዛሬ' }], { 'ሰላሞ': 'ሰላምታ' }, 3, d), ['ሰላምታ', 'ሰላሙ', 'ሰላም'],
+    'memory first, then this video, then the dictionary');
+  assert.deepStrictEqual(core.suggestWords('ዘላለማዊነትነት', [], {}, 3, d), [], 'nothing alike: no guess');
+  assert.deepStrictEqual(core.suggestWords('ሰላሞ', [], {}, 3, null), [], 'no dictionary yet: still works');
+  assert.strictEqual(core.editDistance('ሰላም', 'ሰላሞ'), 1);
+});
+
 (async () => {
   await Promise.all(pending);
   console.log('\n' + (fail === 0 ? 'ALL PASS' : 'FAILURES: ' + fail) +

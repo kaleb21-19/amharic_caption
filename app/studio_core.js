@@ -199,47 +199,11 @@
   }
   const keptLength = (keeps) => keeps.reduce((n, k) => n + (k[1] - k[0]), 0);
 
-  // ✔ Check words (1.48): what a doubtful word probably is. Edit distance in
-  // letters (one Ethiopic letter = one syllable, so a wrong vowel is 1).
-  function editDistance(a, b) {
-    a = Array.from(String(a)); b = Array.from(String(b));
-    let prev = b.map((_, j) => j + 1);
-    prev.unshift(0);
-    for (let i = 1; i <= a.length; i++) {
-      const cur = [i];
-      for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-      prev = cur;
-    }
-    return prev[b.length];
-  }
-  // word -> up to `max` suggestions: the 🧠 / 👤 memory first (fixes:
-  // { wrong: right }), then the words of THIS video that look like it and
-  // are not doubtful themselves (names and terms repeat), most used first.
-  function checkSuggest(word, cues, fixes, max) {
-    const clean = (w) => String(w || '').replace(/[*~]/g, '').replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
-    const w = clean(word);
-    if (!w) return [];
-    const out = [];
-    const add = (x) => { if (x && x !== w && out.indexOf(x) < 0) out.push(x); };
-    if (fixes && fixes[w]) add(fixes[w]);
-    const len = Array.from(w).length;
-    const lim = Math.max(1, Math.floor(len / 3));
-    const freq = {};
-    (cues || []).forEach((c) => {
-      const doubt = {};
-      (c.doubt || []).forEach((d) => { doubt[clean(d)] = 1; });
-      String(c.text || '').replace(/~[^~]*~/g, ' ').split(/\s+/).forEach((raw) => {
-        const x = clean(raw);
-        if (!x || doubt[x] || x === w) return;
-        freq[x] = (freq[x] || 0) + 1;
-      });
-    });
-    Object.keys(freq).map((x) => ({ x, d: Math.abs(Array.from(x).length - len) <= lim ? editDistance(x, w) : 99, n: freq[x] }))
-      .filter((o) => o.d <= lim)
-      .sort((a, b) => a.d - b.d || b.n - a.n || (a.x < b.x ? -1 : 1))
-      .forEach((o) => add(o.x));
-    return out.slice(0, max || 3);
-  }
+  // ✔ Check words (1.48): what a doubtful word probably is — the panel's
+  // core (panel/js/core.js, 1.52: shared, + the Amharic dictionary)
+  const CORE = (typeof module !== 'undefined' && module.exports) ? require('../panel/js/core.js') : root;
+  const editDistance = (a, b) => CORE.editDistance(a, b);
+  const checkSuggest = (word, cues, fixes, max, dict) => CORE.suggestWords(word, cues, fixes, max, dict);
 
   const api = { MAX_PPS, minPps, clampView, fitView, timeToX, xToTime, zoomAt, follow, hitCaption, ticks, fmtClock,
     projectId, projectFileName, makeProject, parseProject, recentProjects, scriptParagraphs, wordRanges, wordAt, selectionByCaption,

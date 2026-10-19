@@ -752,6 +752,22 @@
   .amh-ic-only > .amh-ic { margin-right: 0; }
   .amh-ic-play, .amh-ic-prev, .amh-ic-next, .amh-ic-fast, .amh-ic-bolt { fill: currentColor; }
   .pop-word .amh-ic, .cut-word .amh-ic { width: 12px; height: 12px; vertical-align: -1px; }
+  /* 1.52: ✔ Check words in the panel */
+  .chk-card { position: sticky; top: 0; z-index: 4; margin: 0 0 8px; padding: 10px; border: 1px solid var(--warn); border-radius: var(--radius);
+    background: var(--bg-card); display: grid; gap: 8px; box-shadow: 0 8px 22px rgba(0,0,0,.35); }
+  .chk-head { display: flex; align-items: center; gap: 10px; font-size: var(--font-s); color: var(--text-secondary); }
+  .chk-left { color: var(--warn); }
+  .chk-ok, .chk-note { color: var(--accent); }
+  .chk-x { margin-left: auto; border: 0; background: none; color: var(--text-secondary); cursor: pointer; font-size: 14px; }
+  .chk-ctx { font-size: var(--font-m); line-height: 1.5; }
+  .chk-ctx mark { background: var(--warn-mark); color: var(--text-primary); border-radius: 4px; padding: 0 3px; }
+  .chk-row-in { display: flex; gap: 6px; }
+  .chk-row-in .btn { flex: 0 0 auto; width: auto; padding: 0 10px; }
+  .chk-in { flex: 1; min-width: 0; height: var(--control-h); padding: 0 8px; border: 1px solid var(--accent); border-radius: var(--radius-sm);
+    background: var(--bg-field); color: var(--text-primary); font: inherit; }
+  .chk-sug { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chk-sug button { border: 1px dashed var(--accent); background: var(--accent-soft); color: var(--text-primary); border-radius: 6px; padding: 2px 9px; font: inherit; cursor: pointer; }
+  .review-row.chk-row { background: var(--warn-soft); }
 </style>
 </head>
 <body>
@@ -1041,7 +1057,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.51.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.52.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
