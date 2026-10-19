@@ -407,6 +407,8 @@ jobs:
           tar -xzf model-artifact/model-ct2-int8.tar.gz -C tools/stage
 
       - name: Prepare runtime (python + ffmpeg)
+        # a stuck download once held the release queue for 3.5 hours (2026-10-19)
+        timeout-minutes: 30
         run: bash tools/prepare_python.sh
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -472,6 +474,8 @@ jobs:
           tar -xzf model-artifact/model-ct2-int8.tar.gz -C tools/stage
 
       - name: Prepare runtime (python + ffmpeg)
+        # a stuck download once held the release queue for 3.5 hours (2026-10-19)
+        timeout-minutes: 30
         run: bash tools/prepare_python.sh
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -537,6 +541,7 @@ jobs:
 
       - name: Prepare runtime (python + ffmpeg)
         shell: bash
+        timeout-minutes: 30
         run: bash tools/prepare_python.sh
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020

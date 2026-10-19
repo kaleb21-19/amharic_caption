@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.34.0';
+const APP_VERSION = '1.35.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,18 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.35.0': {
+    banner: {
+      am: '✏️ ካፕሽኖችዎን በስታይሉ ወደ CapCut ይላኩ — እያንዳንዱ ካፕሽን እንደሚታረም ጽሑፍ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '✏️ Send your styled captions to CapCut — every caption an editable text — your license stays the same.',
+    },
+    items: [
+      { am: 'Studio ⬆ ይላኩ → CapCut፦ ካፕሽኖቹ በፊደሉ፣ በቀለሙ፣ በመጠኑና በቦታው ወደ CapCut ፕሮጀክትዎ ይገባሉ', en: 'Studio ⬆ Export → CapCut: the captions go into your CapCut project with their font, colours, size and position' },
+      { am: 'ቪዲዮውን በCapCut ውስጥ ቢቆርጡ ወይም ቢያንቀሳቅሱም ካፕሽኖቹ በትክክለኛው ጊዜ ይቀመጣሉ', en: 'Even if you trimmed or moved the video in CapCut, the captions land at the right time' },
+      { am: 'ከመቀየሩ በፊት ፕሮጀክቱ ይቀመጣል — ↶ እንደነበረው ይመልሰዋል፤ እንደገና ሲልኩ አይደገምም', en: 'The project is backed up first — ↶ puts it back; sending again never doubles the captions' },
+      { am: '★ ቃላትና ቁጥሮች በጎላ ቀለማቸው ይሄዳሉ', en: '★ words and numbers keep their highlight colour' },
+    ],
+  },
   '1.34.0': {
     banner: {
       am: '✂ ቪዲዮዎን ጽሑፉን በማረም ያርትዑ — ቃላትን ይሰርዙ፣ ክፍሎችን ያንቀሳቅሱ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',

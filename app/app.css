@@ -478,3 +478,10 @@ html.amh-studio:has(#review.show), html.amh-studio body:has(#review.show) { over
   background: #1b2521; border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,.45); font-size: var(--font-s); color: var(--text-primary); }
 .st-toast button { border: 0; background: none; color: var(--accent); font: inherit; font-weight: 700; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
 .st-toast button:hover { background: rgba(46,204,113,.12); }
+
+/* ── 1.35 CapCut: editable captions in the editor's CapCut project ── */
+.st-ccrow { align-items: center; gap: 8px; margin-top: 8px; }
+.st-ccname { font-weight: 600; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-ccres:empty { display: none; }
+.st-ccres { margin: 4px 0 6px; display: grid; gap: 6px; }
+.st-warn { color: var(--warn); font-size: var(--font-s); }

@@ -240,7 +240,9 @@
         : tx('ያለ ካፕሽን — ካፕሽን ለመጻፍ ስታይል ይምረጡ', 'Without captions — choose a style to draw them in')) + ' · ' + fmtName);
     if (!styled) v.c.appendChild(btn('st-link', '🎨 ' + tx('ስታይል ይምረጡ', 'Choose a style'), '', () => { closeSheet(); showTab('style'); setCapEdit(false); }));
     if (editor && editor.queueExports) videoChoices(v, styled, fmtName);
-    // 3. more subtitle files (SRT + VTT + TXT, a folder you choose)
+    // 3. CapCut: the captions as editable texts in the editor's CapCut project (1.35)
+    if (window.__amhCapCutCard) window.__amhCapCutCard(card);
+    // 4. more subtitle files (SRT + VTT + TXT, a folder you choose)
     const m = card('📄', tx('ሌሎች ፋይሎች (SRT · VTT · TXT)', 'More files (SRT · VTT · TXT)'), tx('እርስዎ በሚመርጡት ፎልደር', 'To a folder you choose'));
     m.h.appendChild(btn('st-btn', tx('ይምረጡ…', 'Choose…'), '', () => { if (typeof exportReviewFiles === 'function') exportReviewFiles(); }));
     sheet.appendChild(box);

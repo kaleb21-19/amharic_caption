@@ -202,7 +202,7 @@ Get-ChildItem $BNAME -Filter "_preview*" -Recurse -ErrorAction SilentlyContinue 
 # desktop app for CapCut / DaVinci users (the panel in its own window, app\)
 $APPDST = Join-Path $BNAME "app"
 New-Item -ItemType Directory -Force $APPDST | Out-Null
-foreach ($f in @("amh_app.py", "node_shim.js", "app_mode.js", "app.css", "studio_core.js", "studio.js", "studio_script.js", "studio_cuts.js", "studio_edit_core.js", "studio_edit.js", "studio_subs.js")) {
+foreach ($f in @("amh_app.py", "node_shim.js", "app_mode.js", "app.css", "studio_core.js", "studio.js", "studio_script.js", "studio_cuts.js", "studio_edit_core.js", "studio_edit.js", "studio_subs.js", "capcut_core.js", "studio_capcut.js")) {
     Copy-Item (Join-Path $ROOT "app\$f") (Join-Path $APPDST $f)
 }
 # the live caption-style preview (JASSUB = libass in WebAssembly; licenses in app\vendor\NOTICE.txt)
