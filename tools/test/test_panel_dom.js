@@ -238,7 +238,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.41.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.42.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -3065,11 +3065,23 @@ await t('15. lite package: model missing -> download card; Generate starts the d
       has(p.els('modelLabel').textContent, 'trying again in');
       has(p.els('modelLabel').textContent, 'Nothing downloaded is lost');
       assert.strictEqual(p.evalVm('__timers.filter((t) => t[1] === 10000).length'), 1, 'first retry after 10 s');
-      // Each failed try waits longer; after the last it asks for a tap.
-      p.evalVm('MODEL_RETRY.n = MODEL_RETRY_S.length;');
+      // Each failed try waits longer; 1.42: after the list it never gives up —
+      // every 5 minutes while the program is open.
+      p.evalVm('MODEL_RETRY.n = MODEL_RETRY_S.length + 3; __timers.length = 0;');
       p.evalVm('scheduleModelRetry()');
-      assert.strictEqual(p.els('modelCard').getAttribute('data-state'), 'failed');
+      assert.strictEqual(p.els('modelCard').getAttribute('data-state'), 'retrying', 'still trying after many failures');
+      assert.strictEqual(p.evalVm('__timers.filter((t) => t[1] === 300000).length'), 1, 'every 5 minutes');
+      // 1.42: once started, it goes on by itself the next time the program
+      // opens (never a FIRST download on its own: mobile data costs money)
+      assert.strictEqual(p.storage.getItem('amh.model.started'), '1', 'remembered that it was started');
+      p.evalVm('clearModelRetry(); MODEL_UI.state = "idle"; __timers.length = 0; initModelDownload();');
+      assert.ok(p.evalVm('__timers.some((t) => t[1] === 2500)'), 'continues by itself on the next open');
+      p.storage.setItem('amh.model.paused', '1');
+      p.evalVm('MODEL_UI.state = "idle"; __timers.length = 0; initModelDownload();');
+      assert.strictEqual(p.els('modelCard').getAttribute('data-state'), 'paused', 'a pause is respected');
+      assert.ok(!p.evalVm('__timers.some((t) => t[1] === 2500)'), 'and nothing starts by itself');
       has(p.els('modelBtn').textContent, 'Resume download');
+      p.storage.removeItem('amh.model.paused');
 
       // Time left while downloading.
       p.evalVm('MODEL_SPEED = { t: Date.now() - 10000, bytes: 0, bps: 0 };');

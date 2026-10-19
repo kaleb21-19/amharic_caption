@@ -312,6 +312,8 @@ const AM_TEXT = {
   'Classic': 'ክላሲክ',
   'Traditional': 'ባህላዊ',
   'Heavy': 'ወፍራም',
+  'Wi-Fi is best. Pause any time — it continues exactly where it stopped, nothing is lost.': 'Wi-Fi ቢጠቀሙ ይመረጣል። በማንኛውም ጊዜ ማቆም ይችላሉ — ካቆመበት ይቀጥላል፣ ምንም አይጠፋም።',
+  'Continuing the Amharic model download…': 'የአማርኛ ሞዴሉ ማውረድ ይቀጥላል…',
   '⌨ Typing': '⌨ መተየብ',
   '〰 Wave': '〰 ሞገድ',
   '↑ Slide + colour': '↑ ተንሸራቶ + ቀለም',
