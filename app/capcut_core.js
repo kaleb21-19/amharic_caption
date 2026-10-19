@@ -255,6 +255,96 @@
     return { draft: d, n, names };
   }
 
+  // ── fixes made inside CapCut are never lost (1.39) ─────────────────────────
+  // What we sent is remembered (segment id -> text, kept by the Studio). On
+  // Update, a caption of ours whose text is not what we sent was changed in
+  // CapCut: that change goes onto the new caption at the same time (its whole
+  // look too), and word-for-word fixes are learned.
+  function textOf(mat) {
+    try { return String(JSON.parse(mat.content).text || ''); } catch (e) { return ''; }
+  }
+  function sentMap(draft) {
+    const out = {};
+    const texts = (draft && draft.materials && draft.materials.texts) || [];
+    ourTracks(draft).forEach((t) => (t.segments || []).forEach((sg) => {
+      const m = texts.find((x) => x.id === sg.material_id);
+      if (m) out[sg.id] = textOf(m);
+    }));
+    return out;
+  }
+  // [{ start, end (µs on the timeline), text, was, mat }] — the captions of
+  // ours changed in CapCut since we sent them
+  function userEdits(draft, sent) {
+    const out = [];
+    if (!sent) return out;
+    const texts = (draft && draft.materials && draft.materials.texts) || [];
+    ourTracks(draft).forEach((t) => (t.segments || []).forEach((sg) => {
+      if (!Object.prototype.hasOwnProperty.call(sent, sg.id)) return;
+      const m = texts.find((x) => x.id === sg.material_id);
+      if (!m) return;
+      const now = textOf(m);
+      if (now === sent[sg.id]) return;
+      const r = sg.target_timerange || {};
+      out.push({ start: r.start || 0, end: (r.start || 0) + (r.duration || 0), text: now, was: sent[sg.id], mat: clone(m) });
+    }));
+    return out;
+  }
+  // a project sent before 1.39 has no record of what we sent: rebuild it
+  // (the same words, the same look) and match each caption of ours by time
+  function expectedSent(draft, built) {
+    const out = {};
+    const segs = built.track.segments;
+    ourTracks(draft).forEach((t) => (t.segments || []).forEach((sg) => {
+      const r = sg.target_timerange || {};
+      const a = r.start || 0, b = a + (r.duration || 0);
+      let best = -1, bestOv = 0;
+      segs.forEach((x, i) => {
+        const ov = Math.min(b, x.target_timerange.start + x.target_timerange.duration) - Math.max(a, x.target_timerange.start);
+        if (ov > bestOv) { best = i; bestOv = ov; }
+      });
+      if (best >= 0 && bestOv >= 0.5 * (b - a)) out[sg.id] = textOf(built.texts[best]);
+    }));
+    return out;
+  }
+  // put the editor's CapCut fixes onto the new captions (the one that overlaps
+  // most, at least half of the shorter of the two). Returns how many were
+  // kept and the fixes whose place is gone.
+  function keepEdits(built, edits) {
+    const used = new Set();
+    let kept = 0;
+    built.track.segments.forEach((sg, i) => {
+      const a = sg.target_timerange.start, b = a + sg.target_timerange.duration;
+      let best = -1, bestOv = 0;
+      (edits || []).forEach((e, k) => {
+        if (used.has(k)) return;
+        const ov = Math.min(b, e.end) - Math.max(a, e.start);
+        const need = 0.5 * Math.min(b - a, e.end - e.start);
+        if (ov > 0 && ov >= need && ov > bestOv) { best = k; bestOv = ov; }
+      });
+      if (best < 0) return;
+      used.add(best);
+      const m = built.texts[i], e = edits[best].mat;
+      ['content', 'base_content', 'font_path', 'font_size', 'text_color', 'border_color', 'border_width',
+        'background_style', 'background_color', 'background_alpha', 'alignment', 'line_max_width'].forEach((k) => { if (k in e) m[k] = e[k]; });
+      m.words = { start_time: [], end_time: [], text: [] };     // the words changed: CapCut times them itself
+      kept++;
+    });
+    return { kept, lost: (edits || []).filter((e, k) => !used.has(k)) };
+  }
+  // word-for-word fixes between what we sent and what the editor made it
+  // (same number of words; changed words only; never empty / numbers only)
+  function wordPairs(was, now) {
+    const a = String(was || '').split(/\s+/).filter(Boolean), b = String(now || '').split(/\s+/).filter(Boolean);
+    if (!a.length || a.length !== b.length) return [];
+    const strip = (w) => w.replace(/[*~።፣፤፥፦፧፨?!.,;:"'“”‘’«»()…-]/g, '');
+    const out = [];
+    a.forEach((w, i) => {
+      const x = strip(w), y = strip(b[i]);
+      if (x && y && x !== y && !/^[0-9]+$/.test(x + y)) out.push([x, y]);
+    });
+    return out.length <= 3 ? out : [];         // a rewritten line is not a word fix
+  }
+
   // our earlier track(s) in a project
   function ourTracks(draft) {
     return ((draft && draft.tracks) || []).filter((t) => t.type === 'text' && t.name === NAME);
@@ -289,7 +379,7 @@
       ours: ourTracks(draft).length };
   }
 
-  const api = { TEMPLATE, NAME, uuid, rgb, placements, placeCue, styledText, contentOf, lookFor, buildTrack, buildTrackAll, videosOf, addTrack, chosenAnims, spreadAnims, fitAnims, removeOurs, ourTracks, summary, normPath };
+  const api = { TEMPLATE, NAME, uuid, rgb, placements, placeCue, styledText, contentOf, lookFor, buildTrack, buildTrackAll, videosOf, addTrack, chosenAnims, spreadAnims, fitAnims, sentMap, userEdits, keepEdits, wordPairs, textOf, expectedSent, removeOurs, ourTracks, summary, normPath };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhCapCut = api;
 })(typeof window !== 'undefined' ? window : this);
