@@ -6,7 +6,7 @@
 // Upload yegara-site.zip > Extract (hidden files: .htaccess).
 // Only directives LiteSpeed and Apache both support (no <If> blocks).
 import { execFileSync } from "node:child_process";
-import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -73,10 +73,22 @@ writeFileSync(join(OUT, "_next", "static", ".htaccess"), `# made by scripts/yega
 
 if (existsSync(ZIP)) rmSync(ZIP);
 // one zip with everything (also the hidden .htaccess files), ready to Extract
+// Windows: its own tar (bsdtar) - the .NET zip of Windows PowerShell wrote
+// "install\index.html" paths, which a Linux server unpacks as ONE file with
+// a backslash in its name (every page but the home page, and all CSS / JS,
+// were missing on the server)
+// (the one in System32: Git's tar on the PATH takes "C:" for a remote host)
+const WINTAR = join(process.env.SystemRoot || "C:\Windows", "System32", "tar.exe");
 if (process.platform === "win32") {
-  execFileSync("powershell", ["-NoProfile", "-Command",
-    `Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::CreateFromDirectory('${OUT}', '${ZIP}')`], { stdio: "inherit" });
+  execFileSync(WINTAR, ["-a", "-c", "-f", ZIP, ...readdirSync(OUT)], { cwd: OUT, stdio: "inherit" });
 } else {
   execFileSync("zip", ["-qr", ZIP, "."], { cwd: OUT, stdio: "inherit" });
+}
+// never ship a zip with Windows paths again
+const names = execFileSync(process.platform === "win32" ? WINTAR : "unzip", process.platform === "win32" ? ["-tf", ZIP] : ["-Z1", ZIP]).toString();
+const list = names.split(/\r?\n/);
+if (names.includes("\\") || !list.includes("install/index.html") || !list.includes(".htaccess")) {
+  console.error("The zip does not look right (backslashes, or install/index.html or .htaccess missing):\n" + names.slice(0, 600));
+  process.exit(1);
 }
 console.log("\nReady for Yegara (" + URL_ARG + "): " + ZIP + "\n(DirectAdmin > File Manager > domains/<domain>/public_html > Upload > Extract)");
