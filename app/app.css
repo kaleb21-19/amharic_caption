@@ -137,6 +137,25 @@ html.amh-studio { --font-s: 12px; --font-m: 13.5px; --font-l: 15px; --control-h:
 .amh-ic-play, .amh-ic-prev, .amh-ic-next, .amh-ic-fast, .amh-ic-bolt { fill: currentColor; }
 .app-drop-icon .amh-ic { width: 40px; height: 40px; margin: 0; color: var(--accent); stroke-width: 1.6; }
 .st-card-ico .amh-ic { width: 26px; height: 26px; margin: 0; color: var(--accent); stroke-width: 1.7; }
+/* 1.47: keys sheet, "captions ready" bar, the home for a new user */
+.st-keysb { width: 30px; padding: 0; justify-content: center; font-weight: 800; }
+.st-keys { width: min(520px, 100%); }
+.st-keys-h { margin: 14px 0 6px; font-size: var(--font-s); color: var(--text-secondary); }
+.st-keys-row { display: grid; grid-template-columns: 170px 1fr; gap: 10px; align-items: center; padding: 5px 0; border-top: 1px solid rgba(255,255,255,.04); font-size: var(--font-m); }
+.st-keys-k { color: var(--text-secondary); white-space: nowrap; }
+.st-keys kbd { display: inline-block; min-width: 22px; padding: 2px 7px; border: 1px solid #34413b; border-bottom-width: 2px; border-radius: 6px; background: #1a2420;
+  color: var(--text-primary); font: 600 12px/1.4 system-ui, sans-serif; text-align: center; }
+.st-ready { position: fixed; z-index: 55; left: 50%; top: 58px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 16px;
+  border: 1px solid var(--accent); border-radius: 12px; background: #10251b; box-shadow: 0 12px 32px rgba(0,0,0,.5); font-size: var(--font-m); max-width: calc(100vw - 32px); }
+.st-ready b { color: var(--accent); white-space: nowrap; }
+.st-ready > span { color: var(--text-secondary); }
+.st-how { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.st-how-step { display: flex; flex-direction: column; gap: 6px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); }
+.st-how-step b { font-size: var(--font-l); }
+.st-how-step span { color: var(--text-secondary); font-size: var(--font-s); line-height: 1.5; }
+.st-how-ic { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: var(--accent-soft); color: var(--accent); }
+.st-how-ic .amh-ic { width: 22px; height: 22px; margin: 0; }
+@media (max-width: 760px) { .st-how { grid-template-columns: 1fr; } }
 .st-ednote { margin: 0 0 10px; padding: 10px 12px; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px;
   background: var(--accent-soft); font-size: var(--font-s); line-height: 1.5; display: grid; gap: 4px; }
 .st-ednote b { font-size: var(--font-m); }

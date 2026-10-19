@@ -84,7 +84,7 @@
     return s;
   }
   // where icons belong: buttons, tabs, card / section heads, timeline labels
-  const WHERE = 'button, label, .st-tab, .st-card-ico, .st-home-h, .ed-labels > div, .ed-mthumb, .ed-cname, .st-ednote > b, .st-capsec, .st-sheet-head > b, .style-title, .app-drop-icon, .st-cchint';
+  const WHERE = 'button, label, .st-tab, .st-card-ico, .st-home-h, .ed-labels > div, .ed-mthumb, .ed-cname, .st-ednote > b, .st-capsec, .st-sheet-head > b, .style-title, .app-drop-icon, .st-cchint, .st-how-ic';
   const NOT = '[contenteditable="true"], textarea, input, .review-text, .st-script-body';
   const LEAD = /^\s*([^\s\wሀ-፿])️?\s?/u;
   function fix(node) {
