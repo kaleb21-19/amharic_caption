@@ -108,4 +108,21 @@ test('Clean up on export: one ffmpeg graph, frame-exact joins, a soft sound edge
   assert.ok(/afade=t=in:d=0.010/.test(S.cutFilter([[0, 0.02]], false)) === false, 'a fade never longer than a quarter of a tiny piece');
 });
 
+// 1.48: ✔ Check words — what a doubtful word probably is
+test('check words: suggestions from memory, then look-alike words of this video', () => {
+  assert.strictEqual(S.editDistance('ሰላም', 'ሰላሞ'), 1, 'a wrong vowel = one letter');
+  assert.strictEqual(S.editDistance('ቡና', 'ቡና'), 0);
+  assert.strictEqual(S.editDistance('', 'ab'), 2);
+  const cues = [
+    { text: 'ሰላም ለሁላችሁ *ሰላም* ሰላሞ', doubt: ['ሰላሞ'] },
+    { text: 'ሰላም ቡና ~ሰላማ~', doubt: [] },
+    { text: 'ሳላም ዛሬ', doubt: ['ሳላም'] },
+  ];
+  assert.deepStrictEqual(S.checkSuggest('ሰላሞ', cues, {}, 3), ['ሰላም'], 'look-alike, used most; doubtful and cut words are not suggested');
+  assert.deepStrictEqual(S.checkSuggest('*ሰላሞ*,', cues, { 'ሰላሞ': 'ሰላምታ' }, 3), ['ሰላምታ', 'ሰላም'], 'memory first; marks and punctuation ignored');
+  assert.deepStrictEqual(S.checkSuggest('ዘላለማዊነት', cues, {}, 3), [], 'nothing alike: no guess');
+  assert.deepStrictEqual(S.checkSuggest('', cues, {}, 3), []);
+  assert.strictEqual(S.checkSuggest('ሰላሞ', cues, { 'ሰላሞ': 'a', }, 1).length, 1, 'at most max');
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');
