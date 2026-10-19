@@ -234,7 +234,11 @@ POSITIONS = ("bottom", "middle", "top", "safe")
 NO_BOX = ("highlight", "neon", "retro", "clean", "glide", "spotlight", "bounce")
 SELF_PLACED = ("glide", "spotlight", "bounce")
 # Entrance animations (Customize): "auto" = the style's own.
-ANIMS = ("auto", "none", "fade", "slide", "drop", "pop", "zoom", "blur")
+ANIMS = ("auto", "none", "fade", "slide", "drop", "pop", "zoom", "blur",
+         # 1.40 animation pack (our own, in the spirit of TikTok editors' favourites)
+         "typewriter", "wave", "slidecolor", "shake", "glow", "blurzoom")
+# letter by letter: drawn by _letters() after the ★ words are coloured
+LETTER_ANIMS = ("typewriter", "wave")
 
 
 def _ass_color(hexrgb, default):
@@ -634,6 +638,8 @@ def build(words, style, width, height, font=FONT, opts=None):
             lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,\x02{\\fad(140,120)}%s" % (_ts(s), _ts(e), " ".join(w[0] for w in g)))
     lines = _entrances(lines, o["anim"], st, width, height)
     lines = _emphasis_tags(lines, st)
+    if o["anim"] in LETTER_ANIMS:
+        lines = _letters(lines, o["anim"])
     script = _header(width, height, st) + "\n".join(_smooth_fades(lines)) + "\n"
     # colours: the highlight (yellow / green / cyan in the styles) and the text
     if o["color"] and style != "habesha":
@@ -657,10 +663,27 @@ def _cont(secs):
     return "\x03%d\x04" % max(0, int(round(secs * 1000)))
 
 
-def _anim_spec(anim, size, width, height):
+def _anim_spec(anim, size, width, height, look=None):
     """(fade-in ms, start tags, [(t1, t2, accel, end tags)]) of an entrance.
     Slides ease out: the text turns a tiny angle around a point far to the
-    left, so it moves straight up/down (libass \\move cannot ease)."""
+    left, so it moves straight up/down (libass \\move cannot ease).
+    look: the style line's own colour / outline (what an entrance returns to)."""
+    look = look or {}
+    if anim in LETTER_ANIMS:
+        return 60, "", []                              # the letters do it (_letters)
+    if anim == "slidecolor":
+        ang = math.degrees(math.atan(size * 0.8 / (20.0 * width)))
+        org = "\\org(%d,%d)" % (-20 * width, height // 2)
+        return 150, "%s\\frz%.4f\\1c%s&" % (org, -ang, look.get("hl", YELLOW)), \
+            [(0, 280, 0.45, "\\frz0"), (120, 420, 1.0, "\\1c%s&" % look.get("prim", WHITE))]
+    if anim == "shake":
+        return 70, "\\frz-4", [(0, 60, 1.0, "\\frz4"), (60, 120, 1.0, "\\frz-3"), (120, 180, 1.0, "\\frz2"),
+                                (180, 240, 1.0, "\\frz-1"), (240, 300, 1.0, "\\frz0")]
+    if anim == "glow":
+        return 90, "\\3c&H00FFFFFF&\\bord%.1f\\blur%s" % (size * 0.22, "%s"), \
+            [(0, 420, 0.7, "\\3c%s&\\bord%.1f\\blur%s" % (look.get("outline", "&H00000000"), look.get("bord", size * 0.08), "%s"))]
+    if anim == "blurzoom":
+        return 160, "\\fscx145\\fscy145\\blur%s", [(0, 360, 0.45, "\\fscx100\\fscy100\\blur%s")]
     if anim == "fade":
         return 220, "", []
     if anim in ("slide", "drop"):
@@ -685,8 +708,11 @@ def _entrances(lines, anim, st, width, height):
     the style's). Redraws of a phrase (word-by-word styles) continue the same
     animation from where it is, so nothing jumps when the next word lights."""
     out = []
-    size = float(st.split("\n")[0][7:].split(",")[2])
-    fade_in, start, steps = _anim_spec(anim, size, width, height)
+    f0 = st.split("\n")[0][7:].split(",")
+    size = float(f0[2])
+    look = {"prim": f0[3], "outline": f0[5], "bord": float(f0[16]) if len(f0) > 16 else size * 0.08,
+            "hl": YELLOW if f0[3] != YELLOW else WHITE}
+    fade_in, start, steps = _anim_spec(anim, size, width, height, look)
     total = max([fade_in] + [t2 for _, t2, _, _ in steps])
     for line in lines:
         head, text = line.split(",,0,0,0,,", 1)
@@ -724,12 +750,64 @@ def _entrances(lines, anim, st, width, height):
             tags += start
             for t1, t2, acc, end in steps:
                 tags += "\\t(%d,%d,%s,%s)" % (t1 - off, t2 - off, acc, end)
-        if anim == "blur":
-            tags = tags.replace("\\blur%s", "\\blur%g" % (base + 10), 1).replace("\\blur%s", "\\blur%g" % base, 1) \
+        if anim in ("blur", "blurzoom", "glow"):
+            tags = tags.replace("\\blur%s", "\\blur%g" % (base + (6 if anim == "glow" else 10)), 1).replace("\\blur%s", "\\blur%g" % base, 1) \
                 if off < total else tags + ("\\blur%g" % base if base else "")
         elif base:
             tags += "\\blur%g" % base
-        out.append(head + ",,0,0,0,," + ("{" + block + tags + "}" if block + tags else "") + rest)
+        # letter by letter: a mark for _letters() (how long ago the phrase appeared)
+        mark = (LETTER_MARK + str(off) + LETTER_END) if anim in LETTER_ANIMS else ""
+        out.append(head + ",,0,0,0,," + ("{" + block + tags + "}" if block + tags else "") + mark + rest)
+    return out
+
+
+LETTER_MARK, LETTER_END = "\x05", "\x06"
+_LETTER_RE = re.compile(LETTER_MARK + "(\\d+)" + LETTER_END)
+
+
+def _letters(lines, anim):
+    """Typewriter / wave (1.40): every letter of a phrase gets its own start
+    (in reading order; a short phrase types faster, so it is complete well
+    before the next one). A redraw of the same phrase (word-by-word styles)
+    continues: letters already shown stay shown. Runs after the ★ words are
+    coloured, so it never splits their marks; override blocks are kept."""
+    out = []
+    for line in lines:
+        m = _LETTER_RE.search(line)
+        if not m:
+            out.append(line)
+            continue
+        off = int(m.group(1))
+        head, text = line[:m.start()], line[m.end():]
+        n = sum(1 for ch in re.sub(r"\{[^}]*\}", "", text) if not ch.isspace())
+        step = max(18, min(55, 650 // max(1, n)))
+        res, i, k = [], 0, 0
+        while i < len(text):
+            ch = text[i]
+            if ch == "{":
+                j = text.find("}", i)
+                j = len(text) - 1 if j < 0 else j
+                res.append(text[i:j + 1])
+                i = j + 1
+                continue
+            if not ch.isspace():
+                t = k * step - off
+                k += 1
+                if t > 0:
+                    if anim == "typewriter":
+                        res.append("{\\alpha&HFF&\\t(%d,%d,\\alpha&H00&)}" % (t, t + 1))
+                    else:   # wave: each letter rises out of the line, one after another
+                        res.append("{\\alpha&HFF&\\fscy35\\t(%d,%d,0.6,\\alpha&H00&\\fscy125)\\t(%d,%d,1.3,\\fscy100)}" % (
+                            t, t + 110, t + 110, t + 230))
+                        res.append(ch)
+                        res.append("{\\fscy100\\alpha&H00&}")
+                        i += 1
+                        continue
+                elif anim == "wave":
+                    pass
+            res.append(ch)
+            i += 1
+        out.append(head + "".join(res))
     return out
 
 
