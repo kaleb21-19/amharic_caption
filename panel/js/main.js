@@ -419,8 +419,8 @@ setTimeout(() => track('open'), 1200);
 const WHATS_NEW = {
   '1.41.0': {
     banner: {
-      am: '📱 ፈቃድ በስልክዎ ይግዙ — QR ያንሱ፣ በባንክ መተግበሪያዎ ይክፈሉ፣ ኮምፒውተሩ በራሱ ይነቃል።',
-      en: '📱 Buy a license with your phone — scan the QR, pay in your bank app, this computer unlocks itself.',
+      am: '📱 ፈቃድ በስልክዎ ይግዙ — QR ያንሱ፣ በባንክ መተግበሪያዎ ይክፈሉ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '📱 Buy a license with your phone — scan the QR, pay in your bank app — your license stays the same.',
     },
     items: [
       { am: '"ፈቃድ ይግዙ" አሁን QR ያሳያል — በስልክዎ ካሜራ ያንሱት', en: '"Buy a license" now shows a QR code — scan it with your phone camera' },
