@@ -21,6 +21,8 @@
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (cls, text, title, fn) => { const b = el('button', cls, text); b.type = 'button'; if (title) b.title = title; if (fn) b.addEventListener('click', (e) => { if (e && e.preventDefault) e.preventDefault(); fn(e); }); return b; };
   document.documentElement.classList.add('amh-studio');
+  // no first-run wizard in the Studio: the home opens at once (1.45)
+  if (typeof hideOnboarding === 'function') { window.showOnboarding = function () {}; try { hideOnboarding(); } catch (e) {} }
   const review = $('review');
   if (!review) return;
   const NAME = 'Amharic Captions Studio';
@@ -36,7 +38,10 @@
   const chip = btn('st-chip', '', '', () => openLicense());
   const langB = btn('st-chip', 'EN', '', () => i18nSetLang(AMH_LANG === 'am' ? 'en' : 'am'));
   const exportB = btn('st-export', '', '', () => openExport());
-  [homeB, logo, brandEl, projEl, undoB, savedEl, el('span', 'st-flex'), chip, langB, exportB].forEach((x) => top.appendChild(x));
+  // 1.45: the editor's goal is the main button — "Send to CapCut / DaVinci"
+  const sendB = btn('st-export st-send', '', '', () => openExport({ focus: editorNow(), run: true }));
+  sendB.style.display = 'none';
+  [homeB, logo, brandEl, projEl, undoB, savedEl, el('span', 'st-flex'), chip, langB, exportB, sendB].forEach((x) => top.appendChild(x));
   review.insertBefore(top, review.firstChild);
 
   // ── text column head ──────────────────────────────────────────────────
@@ -86,6 +91,10 @@
   const capName = el('span', 'st-capname', '');
   capHead.appendChild(capBack); capHead.appendChild(capName);
   stylePane.appendChild(capHead);
+  // 1.45: what reaches CapCut / DaVinci — no surprises (STUDIO_DESIGN 8)
+  const edNote = el('div', 'st-ednote');
+  edNote.style.display = 'none';
+  stylePane.appendChild(edNote);
   const strip = $('styleStrip');
   if (strip) stylePane.appendChild(strip);
   const capPane = el('div', 'st-capgroup');
@@ -185,7 +194,10 @@
   sheet.style.display = 'none';
   review.appendChild(sheet);
   function closeSheet() { sheet.style.display = 'none'; sheet.textContent = ''; }
-  function openExport() {
+  // opts (1.45): { focus: 'capcut' | 'davinci', run } — that editor's card
+  // first, marked, and its main action started (the top bar's Send button)
+  function openExport(opts) {
+    opts = opts && opts.focus ? opts : {};
     if (typeof reviewOpen === 'undefined' || !reviewOpen) return;
     const X = window.__amhAppExport;
     sheet.textContent = '';
@@ -241,25 +253,28 @@
     if (!styled) v.c.appendChild(btn('st-link', '🎨 ' + tx('ስታይል ይምረጡ', 'Choose a style'), '', () => { closeSheet(); showTab('style'); setCapEdit(false); }));
     if (editor && editor.queueExports) videoChoices(v, styled, fmtName);
     // 3. CapCut: the captions as editable texts in the editor's CapCut project (1.35)
+    const eds = {};
     if (window.__amhCapCutCard) {
-      const before = box.lastChild;
-      window.__amhCapCutCard(card);
+      eds.capcut = window.__amhCapCutCard(card);
       // a CapCut user (1.38): CapCut first, right under the title
-      const cc = box.lastChild;
-      if (cc !== before && editorNow() === 'capcut') box.insertBefore(cc, head.nextSibling);
+      if (eds.capcut && editorNow() === 'capcut') box.insertBefore(eds.capcut.c, head.nextSibling);
     }
     // 3b. DaVinci: the captions as editable Text+ on the editor's timeline (1.43)
     if (window.__amhDaVinciCard) {
-      const before = box.lastChild;
-      window.__amhDaVinciCard(card);
-      const dv = box.lastChild;
-      if (dv !== before && editorNow() === 'davinci') box.insertBefore(dv, head.nextSibling);
+      eds.davinci = window.__amhDaVinciCard(card);
+      if (eds.davinci && editorNow() === 'davinci') box.insertBefore(eds.davinci.c, head.nextSibling);
     }
     // 4. more subtitle files (SRT + VTT + TXT, a folder you choose)
     const m = card('📄', tx('ሌሎች ፋይሎች (SRT · VTT · TXT)', 'More files (SRT · VTT · TXT)'), tx('እርስዎ በሚመርጡት ፎልደር', 'To a folder you choose'));
     m.h.appendChild(btn('st-btn', tx('ይምረጡ…', 'Choose…'), '', () => { if (typeof exportReviewFiles === 'function') exportReviewFiles(); }));
     sheet.appendChild(box);
     sheet.style.display = '';
+    const f = eds[opts.focus];
+    if (f) {
+      if (f.c !== head.nextSibling) box.insertBefore(f.c, head.nextSibling);
+      f.c.classList.add('st-card-focus');
+      if (opts.run && f.run) f.run();
+    }
   }
   sheet.addEventListener('click', (e) => { if (e.target === sheet) closeSheet(); });
 
@@ -376,6 +391,7 @@
     langB.textContent = AMH_LANG === 'am' ? 'EN' : 'አማ';
     exportB.textContent = '⬆ ' + tx('ይላኩ', 'Export');
     exportB.title = tx('ይላኩ (Ctrl+E)', 'Export (Ctrl+E)');
+    syncSend();
     tTitle.textContent = tx('ጽሑፍ', 'Text');
     memB.title = tx('ማስታወሻ (የተማራቸው ቃላት)', 'Memory (learned words)');
     cliB.title = tx('ደንበኛ', 'Client');
@@ -391,6 +407,26 @@
     syncHead();
     renderCapPane();
     syncCapEdit();
+  }
+  function syncSend() {
+    const ed = editorNow();
+    const on = (ed === 'capcut' && !!window.__amhCapCutCard) || (ed === 'davinci' && !!window.__amhDaVinciCard);
+    sendB.style.display = on ? '' : 'none';
+    exportB.classList.toggle('ghost', on);
+    edNote.style.display = on ? '' : 'none';
+    if (!on) return;
+    edNote.textContent = '';
+    const name = ed === 'capcut' ? 'CapCut' : 'DaVinci';
+    edNote.appendChild(el('b', '', (ed === 'capcut' ? '✂️ ' : '🎞️ ') + tx('በ' + name + ' ውስጥ የሚደርሰው', 'What reaches ' + name)));
+    edNote.appendChild(el('div', '', '✓ ' + tx('ፎንት · መጠን · ቀለም · ጠርዝ ወይም ሳጥን · ቦታ — እያንዳንዱ ካፕሽን የሚታረም ጽሑፍ ነው።',
+      'Font · size · colour · outline or box · place — every caption is a text you can edit.')));
+    edNote.appendChild(el('div', 'st-sub', ed === 'capcut'
+      ? tx('እንቅስቃሴው (Bounce፣ Karaoke…) በMP4 ብቻ ነው። በCapCut ውስጥ ለአንድ ካፕሽን Animation ይስጡ — Studio ለሁሉም ይገለብጠዋል።',
+        'The movement (Bounce, Karaoke…) is in the MP4 only. In CapCut give one caption an animation — the Studio copies it to all.')
+      : tx('እንቅስቃሴው (Bounce፣ Karaoke…) በMP4 ብቻ ነው።', 'The movement (Bounce, Karaoke…) is in the MP4 only.')));
+    sendB.textContent = ed === 'capcut' ? '✂️ ' + tx('ወደ CapCut ላክ', 'Send to CapCut') : '🎞️ ' + tx('ወደ DaVinci ላክ', 'Send to DaVinci');
+    sendB.title = ed === 'capcut' ? tx('ካፕሽኖቹ በስታይሉ፣ እንደሚታረሙ ጽሑፎች በCapCut ፕሮጀክት ውስጥ', 'The captions, styled, as editable texts in a CapCut project')
+      : tx('ካፕሽኖቹ በስታይሉ፣ እንደሚታረሙ Text+ በDaVinci Timelineዎ ላይ', 'The captions, styled, as editable Text+ on your DaVinci timeline');
   }
   function syncHead() {
     const cues = (typeof reviewCues !== 'undefined' && reviewCues) || [];
@@ -536,6 +572,7 @@
       if (now === 'davinci') pickBox.appendChild(el('div', 'st-sub', tx('ለDaVinci፦ ⬆ ይላኩ → DaVinci — ካፕሽኖቹ በስታይሉ፣ እንደሚታረሙ Text+ በTimelineዎ ላይ ይገባሉ።',
         'For DaVinci: ⬆ Export → DaVinci — the captions go on your timeline, styled, as editable Text+.')));
       document.documentElement.classList.toggle('amh-ed-capcut', now === 'capcut');
+      if (typeof syncSend === 'function') syncSend();
       return;
     }
     pickBox.appendChild(el('div', 'st-home-h', tx('በየትኛው ኤዲተር ይሰራሉ?', 'Which editor do you use?')));
@@ -560,15 +597,49 @@
     const grid = el('div', 'studio-grid');
     items.forEach((p) => {
       const b = btn('studio-proj', '', '', () => openProject(p));
-      b.appendChild(el('b', '', p.name || S.projectFileName(p.video)));
+      const pic = el('div', 'st-thumb');
+      const img = el('img');
+      img.alt = '';
+      pic.appendChild(img);
+      if (p.duration) pic.appendChild(el('span', 'st-thumb-len', S.fmtClock(p.duration)));
+      b.appendChild(pic);
+      const info = el('div', 'st-pmeta');
+      info.appendChild(el('b', '', p.name || S.projectFileName(p.video)));
       const d = new Date(p.at || 0);
-      const meta = el('span', '', (p.duration ? S.fmtClock(p.duration) + ' · ' : '') + p.cues.length + ' ' + tx('ካፕሽኖች', 'captions') + ' · ' +
+      const meta = el('span', '', p.cues.length + ' ' + tx('ካፕሽኖች', 'captions') + ' · ' +
         d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-      b.appendChild(meta);
+      info.appendChild(meta);
+      b.appendChild(info);
       if (!fs.existsSync(p.video)) { b.classList.add('missing'); meta.textContent += ' · ' + tx('ቪዲዮው የለም', 'video missing'); }
+      else thumbFor(p.video, img);
       grid.appendChild(b);
     });
     recent.appendChild(grid);
+  }
+
+  // a frame of each video for the home's cards (1.45): made once with ffmpeg,
+  // one at a time in the background, kept in Studio/thumbs
+  const thumbQ = [];
+  let thumbBusy = false;
+  function thumbFor(video, img) {
+    const f = path.join(projDir(), 'thumbs', S.projectId(video) + '.jpg');
+    const show = () => { try { img.src = APP.call('media', [f]); img.parentNode.classList.add('has'); } catch (e) {} };
+    if (fs.existsSync(f)) { show(); return; }
+    thumbQ.push({ video, f, show });
+    nextThumb();
+  }
+  function nextThumb() {
+    if (thumbBusy || !thumbQ.length || typeof FFMPEG === 'undefined') return;
+    const t = thumbQ.shift();
+    if (fs.existsSync(t.f)) { t.show(); nextThumb(); return; }
+    thumbBusy = true;
+    try { if (!fs.existsSync(path.dirname(t.f))) fs.mkdirSync(path.dirname(t.f), { recursive: true }); } catch (e) {}
+    const grab = (at, then) => execFile(FFMPEG, ['-v', 'error', '-y', '-ss', at, '-i', t.video, '-frames:v', '1', '-vf', 'scale=480:-2', '-q:v', '5', t.f],
+      { timeout: 20000 }, () => (fs.existsSync(t.f) ? then(true) : then(false)));
+    grab('1', (ok) => {
+      const done = () => { thumbBusy = false; if (fs.existsSync(t.f)) t.show(); nextThumb(); };
+      if (ok) done(); else grab('0', done);       // a video shorter than 1 s
+    });
   }
 
   // ── drop a video → the work starts (or its project opens) ─────────────
@@ -629,6 +700,9 @@
   relabel();
   renderRecent();
   showTab('style');
+  // the CapCut / DaVinci scripts load after this one: their Send button then
+  window.addEventListener('DOMContentLoaded', () => syncSend());
+  window.addEventListener('load', () => syncSend());
   if (window.__amhAppRenderDrop) window.__amhAppRenderDrop();
   // a video dropped on the desktop shortcut: start as soon as Generate can run
   const given = ((window.__AMH_APP__ || {}).files || [])[0];
@@ -642,5 +716,5 @@
   }
   window.__amhStudio = { draw, drawSoon, saveProject, saveSoon, listProjects, openProject, renderRecent, openExport, closeSheet, showTab, regroup, goHome,
     addTab: (id, label, pane) => { addTab(id, label, pane); relabel(); showTab(tabNow); }, overlays, seek, dur, peaks,
-    attachEditor: (e) => { editor = e; if (e.onQueue) e.onQueue(onQueue); }, relabel, savedEl, projDir, chosenVideo, tx };
+    attachEditor: (e) => { editor = e; if (e.onQueue) e.onQueue(onQueue); }, relabel, savedEl, projDir, chosenVideo, tx, thumbFor };
 })();
