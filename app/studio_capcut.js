@@ -86,7 +86,9 @@
     return list.slice(0, limit || 8).map((p) => {
       const d = readDraft(p.dir);
       const vids = d ? C.videosOf(d) : [];
+      const ch = d ? C.chosenAnims(d) : {};
       return Object.assign(p, { videos: vids, here: vids.filter((v) => fs.existsSync(v)), ours: d ? C.ourTracks(d).length : 0,
+        anim: Object.keys(ch).map((k) => ch[k].name).filter(Boolean).join(' + '),
         backup: fs.existsSync(path.join(p.dir, 'draft_content.json' + BACKUP)) });
     }).filter((p) => p.videos.length);
   }
@@ -272,6 +274,17 @@
       row.appendChild(go);
       if (p.backup) row.appendChild(btn('st-btn', '↶', tx('የመጨረሻውን ለውጥ መልስ', 'Undo the last change'), () => undo(p, res)));
       card.appendChild(row);
+      // 1.37: an animation given to one caption in CapCut -> all captions
+      if (p.ours && p.anim) {
+        const ar = el('div', 'st-row st-ccanim');
+        ar.appendChild(el('span', 'st-sub', '✨ ' + tx('በCapCut የሰጡት እንቅስቃሴ፦ ', 'Animation you gave in CapCut: ') + p.anim));
+        ar.appendChild(el('span', 'st-flex'));
+        ar.appendChild(btn('st-btn', tx('ለሁሉም ካፕሽኖች', 'Use for all captions'), '', () => spread(p, res)));
+        card.appendChild(ar);
+      } else if (p.ours) {
+        card.appendChild(el('div', 'st-sub st-cchint', '✨ ' + tx('በCapCut ውስጥ ለአንድ ካፕሽን እንቅስቃሴ (Animation) ይስጡ — እዚህ ለሁሉም ይገለበጣል።',
+          'Give one caption an animation in CapCut — it can be copied to all of them here.')));
+      }
       card.appendChild(res);
     });
   }
@@ -282,6 +295,22 @@
   window.addEventListener('focus', () => { if (!busy && (!review || !review.classList.contains('show'))) homeCard(); });
   setTimeout(homeCard, 400);
 
+  // copy the chosen CapCut animation to every caption of ours (1.37)
+  async function spread(p, out) {
+    out.textContent = '';
+    if (await capcutRunning()) { out.appendChild(el('div', 'st-warn', tx('እባክዎ መጀመሪያ CapCutን ይዝጉ።', 'Please close CapCut first.'))); return; }
+    const file = path.join(p.dir, 'draft_content.json');
+    const d = readDraft(p.dir);
+    if (!d) return;
+    const r = C.spreadAnims(d);
+    if (!r.n) { out.appendChild(el('div', 'st-warn', tx('የተሰጠ እንቅስቃሴ አልተገኘም።', 'No animation was found.'))); return; }
+    try {
+      fs.copyFileSync(file, file + BACKUP);
+      fs.writeFileSync(file, JSON.stringify(r.draft), { encoding: 'utf8' });
+    } catch (e) { out.appendChild(el('div', 'st-warn', tx('አልተሳካም፦ ', 'Failed: ') + (e && e.message ? e.message : e))); return; }
+    out.appendChild(el('div', 'st-ok', '✓ «' + r.names.join(' + ') + '» ' + tx('ለ ' + r.n + ' ካፕሽኖች ተሰጥቷል — CapCutን ይክፈቱ።', 'is on all ' + r.n + ' captions — open CapCut.')));
+    out.appendChild(btn('st-btn', '↶ ' + tx('መልስ', 'Undo'), '', () => undo(p, out)));
+  }
   async function undo(p, out) {
     if (await capcutRunning()) { out.appendChild(el('div', 'st-warn', tx('መጀመሪያ CapCutን ይዝጉ።', 'Close CapCut first.'))); return; }
     const file = path.join(p.dir, 'draft_content.json');
@@ -326,5 +355,5 @@
     };
     k.h.appendChild(btn('st-btn', tx('ፕሮጀክቶች', 'Projects'), '', show));
   };
-  window.__amhCapCut = { draftsDir, projectsFor, allProjects, fileCues, send, undo, capcutRunning, captionProject, homeCard, cachedCues };
+  window.__amhCapCut = { draftsDir, projectsFor, allProjects, fileCues, send, undo, spread, capcutRunning, captionProject, homeCard, cachedCues };
 })();

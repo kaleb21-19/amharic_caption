@@ -485,3 +485,7 @@ html.amh-studio:has(#review.show), html.amh-studio body:has(#review.show) { over
 .st-ccres:empty { display: none; }
 .st-ccres { margin: 4px 0 6px; display: grid; gap: 6px; }
 .st-warn { color: var(--warn); font-size: var(--font-s); }
+
+/* ── 1.37 CapCut animation for all captions ── */
+.st-ccanim { align-items: center; gap: 8px; margin: 2px 0 4px; }
+.st-cchint { margin: 2px 0 4px; }
