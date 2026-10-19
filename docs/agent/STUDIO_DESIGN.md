@@ -91,3 +91,19 @@ timeline bottom. Rules:
   & lower thirds · 1.23 sound (music, ducking, fades, noise, loudness) — done ·
   1.24 transitions, speed, colour — done · 1.25 export presets, GPU, queue — done · 1.26 Amharic typing (selam → ሰላም) — done · 1.27 editable styled captions in Premiere (clips per phrase) · 1.28 12 Amharic fonts + install on this PC · parked: real Premiere text (MOGRT: no reliable text API yet).
 
+
+## 8. Studio Pro for CapCut / DaVinci users (1.45.0, owner: "a real studio, very professional")
+Most Studio users edit in CapCut or DaVinci: the Studio's job is to put
+perfect, editable Amharic captions INTO their editor, beautifully.
+- **No first-run wizard** in the Studio (principle 1): the home opens at once.
+- **Home = picture cards.** Recent projects show a frame of their video
+  (made once, kept in Studio/thumbs). "Your CapCut projects" show CapCut's own
+  cover picture; one hint at the top, not one per project.
+- **The editor's goal is the main button.** The editor picked "Which editor?"
+  → the top-right primary button is "✂️ Send to CapCut" / "🎞️ Send to
+  DaVinci" (one click: a new CapCut project, or the DaVinci script ready);
+  ⬆ Export stays next to it for the other outputs.
+- **No surprises.** For CapCut / DaVinci users the Style tab says what reaches
+  their editor (font, size, colour, outline/box, position) and what stays in
+  the MP4 only (the movement: Bounce, Karaoke…; in CapCut pick an animation
+  for one caption → all, 1.37).

@@ -78,15 +78,26 @@ html.amh-studio .card:has(#runBtn) { background: none; border: 0; padding: 0; ma
 html.amh-studio .card:has(#runBtn) > .card-head, html.amh-studio #runBtn { display: none; }
 html.amh-studio .st-dropcard > .card-head { display: none; }
 html.amh-studio .st-dropcard { padding: 0; border: 0; background: none; }
-html.amh-studio .st-dropcard .app-drop { padding: 64px 24px; border-radius: 14px; }
+html.amh-studio .st-dropcard .app-drop { padding: 40px 24px; border-radius: 14px; }
 html.amh-studio .st-dropcard .app-drop-icon { font-size: 34px; }
 html.amh-studio .st-dropcard .app-drop-title { font-size: 17px; }
 html.amh-studio .st-dropcard .app-drop.has-file { padding: 40px 24px; }
-html.amh-studio .panel-body { max-width: 860px; margin: 0 auto; }
+html.amh-studio .panel-body { max-width: 1040px; margin: 0 auto; }
 .studio-recent { background: none; border: 0; padding: 0; }
 .st-home-h { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-secondary); margin: 6px 0 8px; }
-.studio-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
-.studio-proj { text-align: left; display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; cursor: pointer;
+.studio-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+/* 1.45: picture cards */
+.st-thumb { position: relative; aspect-ratio: 16 / 9; background: #0b100e radial-gradient(circle at 50% 45%, #1b2a23 0, #0b100e 70%); overflow: hidden; }
+.st-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity .2s; }
+.st-thumb.has img { opacity: 1; }
+.st-thumb-tag { position: absolute; left: 6px; top: 6px; padding: 1px 7px; border-radius: 5px; background: rgba(6, 17, 12, .82); color: var(--accent); font-size: 11px; font-weight: 700; }
+.st-cccard { cursor: default; }
+.st-cccard:hover { background: var(--bg-card); }
+.st-ccbtns { gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.st-ccres:not(:empty) { margin-top: 10px; }
+.st-thumb-len { position: absolute; right: 6px; bottom: 6px; padding: 1px 6px; border-radius: 5px; background: rgba(0, 0, 0, .72); color: #fff; font-size: 11px; font-variant-numeric: tabular-nums; }
+.st-pmeta { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px 12px; min-width: 0; }
+.studio-proj { text-align: left; display: flex; flex-direction: column; gap: 0; padding: 0; overflow: hidden; cursor: pointer;
   border: 1px solid var(--border); border-radius: 10px; background: var(--bg-card); color: var(--text-primary); transition: border-color .15s, background .15s; }
 .studio-proj:hover, .studio-proj:focus-visible { border-color: var(--accent); background: var(--accent-soft); outline: none; }
 .studio-proj b { font-size: var(--font-m); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -112,6 +123,14 @@ html.amh-studio #review .memory-panel { position: fixed; left: 14px; top: 100px 
 .st-chip:hover { color: var(--text-primary); border-color: var(--accent); }
 .st-export { height: 32px; padding: 0 16px; border: 0; border-radius: 9px; background: var(--accent); color: #06110c; font-weight: 800; cursor: pointer; white-space: nowrap; }
 .st-export:hover { filter: brightness(1.08); }
+/* 1.45: CapCut / DaVinci users — Send is the main button, Export the second */
+.st-export.ghost { background: transparent; color: var(--text-primary); border: 1px solid var(--border); font-weight: 700; }
+.st-export.ghost:hover { border-color: var(--accent); filter: none; }
+.st-send { margin-left: 6px; }
+.st-ednote { margin: 0 0 10px; padding: 10px 12px; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px;
+  background: var(--accent-soft); font-size: var(--font-s); line-height: 1.5; display: grid; gap: 4px; }
+.st-ednote b { font-size: var(--font-m); }
+.st-card-focus { border-color: var(--accent) !important; box-shadow: 0 0 0 1px var(--accent) inset; }
 
 .st-thead { display: flex; align-items: center; gap: 6px; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--border); background: #111816; }
 .st-ttl { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-secondary); }

@@ -103,6 +103,8 @@
       tx('በስታይሉ ያሉ ካፕሽኖች እንደ Text+ በDaVinci Timelineዎ ላይ — እያንዳንዱ ይታረማል። ነፃው DaVinciም ይሰራል።',
         'The captions, styled, as Text+ on your DaVinci timeline — each one editable. The free DaVinci works too.'));
     k.h.appendChild(btn('st-btn primary', tx('ወደ DaVinci ላክ', 'Send to DaVinci'), '', () => send(c.path, k.out)));
+    k.run = () => send(c.path, k.out);
+    return k;
   };
   window.__amhDaVinci = { send, items, dataFile, scriptsDir };
 })();

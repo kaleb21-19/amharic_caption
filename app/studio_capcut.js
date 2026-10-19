@@ -337,38 +337,46 @@
     if (typeof note === 'string' && note) card.appendChild(el('div', 'st-ok', note));
     const style = typeof STYLE !== 'undefined' ? STYLE : 'plain';
     const sname = typeof STYLE_NAMES !== 'undefined' ? (typeof L === 'function' ? L(STYLE_NAMES[style] || style) : style) : style;
-    card.appendChild(el('div', 'st-sub', tx('ስታይል፦ ', 'Style: ') + sname + ' · ' + tx('CapCutን ይዝጉ፣ ከዚያ ይጫኑ።', 'Close CapCut, then press.')));
+    card.appendChild(el('div', 'st-sub', tx('ስታይል፦ ', 'Style: ') + sname));
+    // one tip for all (1.45), not one per project
+    if (list.some((p) => p.ours && !p.anim)) card.appendChild(el('div', 'st-sub st-cchint', '✨ ' + tx('ምክር፦ በCapCut ውስጥ ለአንድ ካፕሽን እንቅስቃሴ (Animation) ይስጡ — እዚህ ለሁሉም ይገለበጣል።',
+      'Tip: give one caption an animation in CapCut — it can be copied to all of them here.')));
+    const res = el('div', 'st-ccres');
+    const grid = el('div', 'studio-grid st-ccgrid');
     list.forEach((p) => {
-      const row = el('div', 'st-row st-ccrow');
-      const name = el('span', 'st-ccname', p.name);
+      const c = el('div', 'studio-proj st-cccard');
+      // CapCut's own cover picture; our new projects: a frame of the video
+      const pic = el('div', 'st-thumb');
+      const img = el('img');
+      img.alt = '';
+      pic.appendChild(img);
+      const cover = path.join(p.dir, 'draft_cover.jpg');
+      if (fs.existsSync(cover)) { try { img.src = APP.call('media', [cover]); pic.classList.add('has'); } catch (e) {} }
+      else if (p.here[0] && window.__amhStudio && window.__amhStudio.thumbFor) window.__amhStudio.thumbFor(p.here[0], img);
+      if (p.ours) pic.appendChild(el('span', 'st-thumb-tag', '✓ ' + tx('ካፕሽን አለው', 'captioned')));
+      c.appendChild(pic);
+      const info = el('div', 'st-pmeta');
+      const name = el('b', '', p.name);
       name.title = p.dir;
-      row.appendChild(name);
-      const info = p.videos.length + ' ' + tx('ቪዲዮ', p.videos.length === 1 ? 'video' : 'videos') + ' · ' + new Date(p.at).toLocaleDateString() +
-        (p.ours ? ' · ✓ ' + tx('ካፕሽን አለው', 'has captions') : '') + (p.here.length < p.videos.length ? ' · ⚠ ' + tx('ቪዲዮ ጠፍቷል', 'video missing') : '');
-      row.appendChild(el('span', 'st-sub', info));
-      row.appendChild(el('span', 'st-flex'));
-      const res = el('div', 'st-ccres');
-      const go = btn('st-btn primary', p.ours ? '↻ ' + tx('አዘምን', 'Update') : tx('ካፕሽን ጨምር', 'Add captions'), '', async () => {
+      info.appendChild(name);
+      info.appendChild(el('span', '', p.videos.length + ' ' + tx('ቪዲዮ', p.videos.length === 1 ? 'video' : 'videos') + ' · ' + new Date(p.at).toLocaleDateString() +
+        (p.here.length < p.videos.length ? ' · ⚠ ' + tx('ቪዲዮ ጠፍቷል', 'video missing') : '')));
+      const row = el('div', 'st-row st-ccbtns');
+      const go = btn('st-btn primary', p.ours ? '↻ ' + tx('አዘምን', 'Update') : '＋ ' + tx('ካፕሽን ጨምር', 'Add captions'), '', async () => {
         go.disabled = true;
         try { await captionProject(p, res, (msg) => setTimeout(() => homeCard(msg), 300)); } finally { go.disabled = false; }
       });
       if (!p.here.length) go.disabled = true;
       row.appendChild(go);
-      if (p.backup) row.appendChild(btn('st-btn', '↶', tx('የመጨረሻውን ለውጥ መልስ', 'Undo the last change'), () => undo(p, res)));
-      card.appendChild(row);
       // 1.37: an animation given to one caption in CapCut -> all captions
-      if (p.ours && p.anim) {
-        const ar = el('div', 'st-row st-ccanim');
-        ar.appendChild(el('span', 'st-sub', '✨ ' + tx('በCapCut የሰጡት እንቅስቃሴ፦ ', 'Animation you gave in CapCut: ') + p.anim));
-        ar.appendChild(el('span', 'st-flex'));
-        ar.appendChild(btn('st-btn', tx('ለሁሉም ካፕሽኖች', 'Use for all captions'), '', () => spread(p, res)));
-        card.appendChild(ar);
-      } else if (p.ours) {
-        card.appendChild(el('div', 'st-sub st-cchint', '✨ ' + tx('በCapCut ውስጥ ለአንድ ካፕሽን እንቅስቃሴ (Animation) ይስጡ — እዚህ ለሁሉም ይገለበጣል።',
-          'Give one caption an animation in CapCut — it can be copied to all of them here.')));
-      }
-      card.appendChild(res);
+      if (p.ours && p.anim) row.appendChild(btn('st-btn', '✨ ' + tx('ለሁሉም', 'To all'), tx('በCapCut የሰጡት እንቅስቃሴ ለሁሉም ካፕሽኖች፦ ', 'The animation you gave in CapCut, to all captions: ') + p.anim, () => spread(p, res)));
+      if (p.backup) row.appendChild(btn('st-btn', '↶', tx('የመጨረሻውን ለውጥ መልስ', 'Undo the last change'), () => undo(p, res)));
+      info.appendChild(row);
+      c.appendChild(info);
+      grid.appendChild(c);
     });
+    card.appendChild(grid);
+    card.appendChild(res);
   }
   // the home shows: refresh the list (CapCut may have saved new projects)
   const review = document.getElementById('review');
@@ -500,6 +508,15 @@
     };
     k.h.appendChild(btn('st-btn', tx('ፕሮጀክቶች', 'Projects'), tx('ይህን ቪዲዮ የያዙ የCapCut ፕሮጀክቶችዎ', 'Your CapCut projects that use this video'), show));
     k.h.appendChild(btn('st-btn primary', '✨ ' + tx('አዲስ ፕሮጀክት', 'New project'), tx('አዲስ የCapCut ፕሮጀክት ከቪዲዮው እና ከካፕሽኖቹ ጋር', 'A new CapCut project with the video and the captions'), () => newProject(c.path, k.out)));
+    // "Send to CapCut" (1.45): your projects with this video, else a new one
+    k.run = () => {
+      const r = projectsFor(c.path);
+      if (r.list && r.list.length) {
+        show();
+        k.out.insertBefore(el('div', 'st-sub', tx('ይህ ቪዲዮ ያለበት ፕሮጀክት ይምረጡ — ወይም «✨ አዲስ ፕሮጀክት»።', 'Choose a project that uses this video — or «✨ New project».')), k.out.firstChild);
+      } else newProject(c.path, k.out);
+    };
+    return k;
   };
   window.__amhCapCut = { newProject, untilClosed, draftsDir, projectsFor, allProjects, fileCues, send, undo, spread, capcutRunning, captionProject, homeCard, cachedCues };
 })();
