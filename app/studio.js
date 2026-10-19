@@ -248,6 +248,13 @@
       const cc = box.lastChild;
       if (cc !== before && editorNow() === 'capcut') box.insertBefore(cc, head.nextSibling);
     }
+    // 3b. DaVinci: the captions as editable Text+ on the editor's timeline (1.43)
+    if (window.__amhDaVinciCard) {
+      const before = box.lastChild;
+      window.__amhDaVinciCard(card);
+      const dv = box.lastChild;
+      if (dv !== before && editorNow() === 'davinci') box.insertBefore(dv, head.nextSibling);
+    }
     // 4. more subtitle files (SRT + VTT + TXT, a folder you choose)
     const m = card('📄', tx('ሌሎች ፋይሎች (SRT · VTT · TXT)', 'More files (SRT · VTT · TXT)'), tx('እርስዎ በሚመርጡት ፎልደር', 'To a folder you choose'));
     m.h.appendChild(btn('st-btn', tx('ይምረጡ…', 'Choose…'), '', () => { if (typeof exportReviewFiles === 'function') exportReviewFiles(); }));
@@ -526,8 +533,8 @@
       pickBox.appendChild(line);
       if (now === 'premiere') pickBox.appendChild(el('div', 'st-sub', tx('በPremiere ውስጥ፦ Window → Extensions → Amharic Captions Pro — ካፕሽኖቹ በቀጥታ ታይምላይኑ ላይ ይገባሉ።',
         'In Premiere: Window → Extensions → Amharic Captions Pro — the captions go straight onto the timeline.')));
-      if (now === 'davinci') pickBox.appendChild(el('div', 'st-sub', tx('ለDaVinci፦ ⬆ ይላኩ → ንዑስ ጽሑፍ (.srt) ወይም ቪዲዮ ከካፕሽን ጋር። በDaVinci ውስጥ የሚታረሙ ካፕሽኖች በቅርቡ ይመጣሉ።',
-        'For DaVinci: ⬆ Export → Subtitles (.srt) or the video with captions. Editable captions inside DaVinci are coming soon.')));
+      if (now === 'davinci') pickBox.appendChild(el('div', 'st-sub', tx('ለDaVinci፦ ⬆ ይላኩ → DaVinci — ካፕሽኖቹ በስታይሉ፣ እንደሚታረሙ Text+ በTimelineዎ ላይ ይገባሉ።',
+        'For DaVinci: ⬆ Export → DaVinci — the captions go on your timeline, styled, as editable Text+.')));
       document.documentElement.classList.toggle('amh-ed-capcut', now === 'capcut');
       return;
     }
