@@ -77,17 +77,73 @@
     TABS.forEach((t) => { t.b.classList.toggle('on', t.id === id); t.pane.style.display = t.id === id ? '' : 'none'; });
     if (id === 'style' && typeof renderStyleStrip === 'function') renderStyleStrip();
   }
-  const stylePane = el('div', '');
+  // 🎨 Captions (1.32): the styles as cards; Customize swaps them for the
+  // settings (← Styles goes back). Every change shows in the video itself
+  // (studio_subs.js) - no separate preview picture here.
+  const stylePane = el('div', 'st-cappane');
+  const capHead = el('div', 'st-caphead');
+  const capBack = btn('st-capback', '', '', () => setCapEdit(false));
+  const capName = el('span', 'st-capname', '');
+  capHead.appendChild(capBack); capHead.appendChild(capName);
+  stylePane.appendChild(capHead);
   const strip = $('styleStrip');
   if (strip) stylePane.appendChild(strip);
-  const capPane = el('div', '');
-  addTab('style', () => '🎨 ' + tx('ስታይል', 'Style'), stylePane);
-  addTab('captions', () => 'Aa ' + tx('ካፕሽን', 'Captions'), capPane);
+  const capPane = el('div', 'st-capgroup');
+  stylePane.appendChild(capPane);
+  addTab('style', () => '🎨 ' + tx('ካፕሽን', 'Captions'), stylePane);
   review.appendChild(side);
+  // the panel's own preview picture is not needed: the player is the preview
+  window.schedulePreview = function () {};
+  const isStyled = () => typeof STYLE_OK !== 'undefined' && STYLE_OK && typeof STYLE !== 'undefined' && STYLE !== 'plain';
+  function capEditing() { return typeof STYLE_CUSTOM_OPEN !== 'undefined' && !!STYLE_CUSTOM_OPEN; }
+  function setCapEdit(on) {
+    if (typeof STYLE_CUSTOM_OPEN === 'undefined') return;
+    STYLE_CUSTOM_OPEN = !!on;
+    if (typeof renderStyleCustom === 'function') renderStyleCustom();
+  }
+  // after the panel draws Customize: cards or settings, and a caption in view
+  const panelCustom = window.renderStyleCustom;
+  if (typeof panelCustom === 'function') {
+    window.renderStyleCustom = function () {
+      panelCustom.apply(this, arguments);
+      syncCapEdit();
+    };
+  }
+  let wasEditing = false;
+  function syncCapEdit() {
+    const ed = capEditing();
+    const tog = $('styleCustomToggle');
+    // Plain has settings too here: words per caption and line length
+    if (tog && typeof STYLE_OK !== 'undefined' && STYLE_OK) {
+      tog.style.display = '';
+      tog.textContent = '⚙ ' + tx('አስተካክል', 'Customize');
+    }
+    stylePane.classList.toggle('st-capedit', ed);
+    document.documentElement.classList.toggle('amh-capedit', ed && isStyled());
+    capBack.textContent = '← ' + tx('ስታይሎች', 'Styles');
+    capName.textContent = typeof STYLE_NAMES !== 'undefined' && typeof STYLE !== 'undefined'
+      ? (typeof L === 'function' ? L(STYLE_NAMES[STYLE] || STYLE) : STYLE) : '';
+    if (ed && !wasEditing) showACaption();
+    wasEditing = ed;
+  }
+  // nothing on screen at the playhead: go to the nearest caption, so every
+  // change can be seen at once
+  function showACaption() {
+    const ed = window.__amhEditor;
+    const cues = (typeof reviewCues !== 'undefined' && reviewCues) || [];
+    if (!ed || !ed.time || !ed.seek || !cues.length) return;
+    const t = ed.time();
+    if (cues.some((c) => t >= c.start && t < c.end)) return;
+    let best = cues[0];
+    cues.forEach((c) => { if (Math.abs(c.start - t) < Math.abs(best.start - t)) best = c; });
+    try { ed.seek(Math.min(best.end - 0.01, best.start + Math.min(0.6, (best.end - best.start) / 2))); } catch (e) {}
+  }
 
-  // Captions tab: words per caption + line length, instantly (regroupCues)
+  // Captions settings, at the end: words per caption + line length of the
+  // list and the subtitle files, instantly (regroupCues)
   function renderCapPane() {
     capPane.textContent = '';
+    capPane.appendChild(el('div', 'st-capsec', tx('ዝርዝሩ እና የሰብታይትል ፋይሎች', 'The list and subtitle files')));
     const seg = (label, opts, cur, set) => {
       const box = el('div', 'st-field');
       box.appendChild(el('div', 'st-lab', label));
@@ -180,7 +236,7 @@
     const v = card('🎬', tx('ቪዲዮ (MP4)', 'Video (MP4)'),
       (styled ? tx('ካፕሽኑ በ ' + (STYLE_NAMES[STYLE] || STYLE) + ' ስታይል ተጽፎበት', 'With the captions in the ' + (STYLE_NAMES[STYLE] || STYLE) + ' style')
         : tx('ያለ ካፕሽን — ካፕሽን ለመጻፍ ስታይል ይምረጡ', 'Without captions — choose a style to draw them in')) + ' · ' + fmtName);
-    if (!styled) v.c.appendChild(btn('st-link', '🎨 ' + tx('ስታይል ይምረጡ', 'Choose a style'), '', () => { closeSheet(); showTab('style'); }));
+    if (!styled) v.c.appendChild(btn('st-link', '🎨 ' + tx('ስታይል ይምረጡ', 'Choose a style'), '', () => { closeSheet(); showTab('style'); setCapEdit(false); }));
     if (editor && editor.queueExports) videoChoices(v, styled, fmtName);
     // 3. more subtitle files (SRT + VTT + TXT, a folder you choose)
     const m = card('📄', tx('ሌሎች ፋይሎች (SRT · VTT · TXT)', 'More files (SRT · VTT · TXT)'), tx('እርስዎ በሚመርጡት ፎልደር', 'To a folder you choose'));
@@ -317,6 +373,7 @@
     chip.title = (lic && lic.textContent.trim()) || '';
     syncHead();
     renderCapPane();
+    syncCapEdit();
   }
   function syncHead() {
     const cues = (typeof reviewCues !== 'undefined' && reviewCues) || [];

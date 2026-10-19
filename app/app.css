@@ -429,3 +429,38 @@ html.amh-studio ::-webkit-scrollbar { width: 8px; height: 8px; }
 html.amh-studio ::-webkit-scrollbar-track { background: transparent; }
 html.amh-studio ::-webkit-scrollbar-thumb { background: #2d3a33; border-radius: 4px; }
 html.amh-studio ::-webkit-scrollbar-thumb:hover { background: #3d4d44; }
+
+/* ── 1.32 caption editing: the settings take the cards' place; the video is
+   the preview (no picture); drag the caption in the player ── */
+html.amh-studio .st-caphead { display: none; align-items: center; gap: 10px; margin: -2px 0 12px; }
+html.amh-studio .st-capback { height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: none;
+  color: var(--text-primary); font-size: var(--font-s); cursor: pointer; font-family: inherit; }
+html.amh-studio .st-capback:hover { border-color: var(--accent); }
+html.amh-studio .st-capname { font-weight: 700; font-size: var(--font-m); }
+html.amh-studio .st-cappane.st-capedit .st-caphead { display: flex; }
+html.amh-studio .st-cappane.st-capedit .style-head,
+html.amh-studio .st-cappane.st-capedit .style-chips { display: none !important; }
+html.amh-studio .st-cappane:not(.st-capedit) .st-capgroup { display: none; }
+html.amh-studio .st-cappane .style-strip[style*="none"] ~ .st-capgroup { display: block; }
+html.amh-studio .st-cappane .style-custom { max-height: none; min-height: 0; overflow: visible; margin: 0; padding: 0; border: 0; background: none; }
+html.amh-studio .st-cappane .sc-stage { display: none; }
+html.amh-studio .st-cappane .sc-opts { gap: 14px; }
+html.amh-studio .st-cappane .sc-label { flex-basis: 64px; }
+html.amh-studio .st-capgroup { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+html.amh-studio .st-capsec { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 10px; }
+/* the caption in the player: a handle to drag it up or down */
+.ed-canvas .ed-caphandle { position: absolute; left: 4%; right: 4%; z-index: 4; display: none; cursor: ns-resize;
+  border: 1px dashed rgba(255,255,255,.55); border-radius: 6px; box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
+html.amh-capedit .ed-canvas.ed-styled .ed-caphandle { display: block; }
+.ed-canvas .ed-caphandle span { position: absolute; right: -1px; top: 50%; transform: translate(50%, -50%); width: 22px; height: 22px;
+  border-radius: 50%; background: var(--accent); color: #06110c; font-size: 12px; line-height: 22px; text-align: center; font-weight: 800; }
+.ed-canvas .ed-caphandle:hover, .ed-canvas .ed-caphandle.drag { border-color: var(--accent); background: rgba(46,204,113,.08); }
+.ed-canvas .ed-capguide { position: absolute; left: 0; right: 0; z-index: 4; display: none; border-top: 1px dashed rgba(255,214,10,.8);
+  pointer-events: none; }
+.ed-canvas .ed-capguide em { position: absolute; left: 6px; top: 2px; font: 600 10px 'Segoe UI', sans-serif; font-style: normal; color: #ffd60a;
+  text-shadow: 0 1px 2px #000; }
+.ed-canvas.ed-capdrag .ed-capguide.on { display: block; }
+.ed-canvas .ed-subs.ed-live { transition: none; }
+/* the editor fills the window: nothing (a jump to a setting, a focused box)
+   may scroll the whole page and push the top bar away; home still scrolls */
+html.amh-studio:has(#review.show), html.amh-studio body:has(#review.show) { overflow: hidden; }

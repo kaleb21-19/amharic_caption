@@ -101,9 +101,26 @@ check(ev(A.build(W, "pop", 1080, 1920, opts={"words": 1})) == 5 and ev(A.build(W
       "words per line")
 check(st(A.build(W, "karaoke", 1080, 1920, opts={"box": True}))[15] == "3" and
       st(A.build(W, "neon", 1080, 1920, opts={"box": True}))[15] == "1", "box on (not for styles that are their own box/glow)")
-o = A.options({"color": "red", "size": "huge", "pos": "left", "words": 9, "box": 1})
-check(o == {"color": None, "text": None, "size": "m", "pos": "bottom", "words": 0, "box": True, "font": "sans", "anim": "auto", "emph": "auto"},
-      "bad options fall back safely")
+o = A.options({"color": "red", "size": "huge", "pos": "left", "words": 9, "box": 1, "y": "x"})
+check(o == {"color": None, "text": None, "size": "m", "k": 1.0, "y": None, "pos": "bottom", "words": 0, "box": True,
+            "font": "sans", "anim": "auto", "emph": "auto"}, "bad options fall back safely")
+# 1.32: the Size slider's number and a dragged height
+check(A.options({"size": 1.3})["k"] == 1.3 and A.options({"size": 9})["k"] == 1.8 and A.options({"size": True})["k"] == 1.0
+      and A.options({"size": "xl"})["k"] == 1.45, "size: a number 0.6-1.8, or S/M/L/XL")
+check(A.options({"y": 0.5})["y"] == 0.5 and A.options({"y": 5})["y"] == 0.97 and A.options({"y": None})["y"] is None, "height kept inside the frame")
+bh = lambda t: float([l for l in t.splitlines() if l.startswith("; amh-bottom:")][0].split(":")[1])
+for sname in A.STYLES:
+    t = A.build(W, sname, 1080, 1920, opts={"y": 0.42})
+    ok = abs(bh(t) - 0.42) < 1e-6
+    for l in t.splitlines():
+        if l.startswith("Style: "):
+            f = l[7:].split(",")
+            ok = ok and f[18] == "2" and f[21] == str(round(1920 * 0.58))
+    check(ok, "%s: a dragged height puts the bottom edge there" % sname)
+check(0.7 < bh(A.build(W, "karaoke", 1080, 1920)) < 0.8, "the script says where the caption sits (bottom)")
+big = A.build(W, "karaoke", 1080, 1920, opts={"size": 1.5})
+small = A.build(W, "karaoke", 1080, 1920, opts={"size": 0.8})
+check(float(st(big)[2]) > float(st(small)[2]) * 1.8, "the size slider scales the text")
 check(A.options({"font": "comic"})["font"] == "sans", "unknown font -> the default")
 for fid, fam in A.FONTS.items():
     t = A.build(W, "bold", 1080, 1920, opts={"font": fid})
