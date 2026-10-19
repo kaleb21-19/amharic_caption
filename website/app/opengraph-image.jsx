@@ -1,3 +1,5 @@
+// made once at build time (also needed for the static export: npm run build:yegara)
+export const dynamic = "force-static";
 import { ImageResponse } from "next/og";
 import { PRICE } from "@/lib/site";
 
