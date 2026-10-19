@@ -464,3 +464,17 @@ html.amh-capedit .ed-canvas.ed-styled .ed-caphandle { display: block; }
 /* the editor fills the window: nothing (a jump to a setting, a focused box)
    may scroll the whole page and push the top bar away; home still scrolls */
 html.amh-studio:has(#review.show), html.amh-studio body:has(#review.show) { overflow: hidden; }
+
+/* ── 1.34 edit the video by editing the text ── */
+.st-script .sp { position: relative; }
+.st-script .sp-grip { position: absolute; left: -16px; top: 2px; width: 14px; font: 700 12px/1.6 'Segoe UI', sans-serif; letter-spacing: -2px;
+  color: var(--text-secondary); cursor: grab; opacity: 0; user-select: none; transition: opacity .12s; }
+.st-script .sp:hover .sp-grip, .st-script .sp-moving .sp-grip { opacity: 1; }
+.st-script .sp-grip:hover { color: var(--accent); }
+.st-script.sp-dragging { cursor: grabbing; user-select: none; }
+.st-script .sp-moving { opacity: .45; }
+.st-script .sp-drop { height: 3px; margin: -8px 0 6px; border-radius: 2px; background: var(--accent); box-shadow: 0 0 0 3px rgba(46,204,113,.18); }
+.st-toast { position: fixed; z-index: 60; display: flex; align-items: center; gap: 4px; padding: 7px 8px 7px 12px; border-radius: 8px;
+  background: #1b2521; border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,.45); font-size: var(--font-s); color: var(--text-primary); }
+.st-toast button { border: 0; background: none; color: var(--accent); font: inherit; font-weight: 700; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+.st-toast button:hover { background: rgba(46,204,113,.12); }

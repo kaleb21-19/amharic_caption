@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.33.0';
+const APP_VERSION = '1.34.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,18 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.34.0': {
+    banner: {
+      am: '✂ ቪዲዮዎን ጽሑፉን በማረም ያርትዑ — ቃላትን ይሰርዙ፣ ክፍሎችን ያንቀሳቅሱ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '✂ Edit your video by editing the text — delete words, move parts — your license stays the same.',
+    },
+    items: [
+      { am: 'Studio ¶ ጽሑፍ፦ ቃላትን መርጠው Delete ይጫኑ — ያ የቪዲዮው ክፍል ከካፕሽኑ ጋር ይቆረጣል', en: 'Studio ¶ Script: select words and press Delete — that part of the video goes, captions too' },
+      { am: 'አንድን ክፍል በ⋮⋮ ይዘው ወደ ሌላ ቦታ ይጎትቱት — ቪዲዮውም አብሮ ይንቀሳቀሳል', en: 'Drag a paragraph by its ⋮⋮ to another place — the video moves with it' },
+      { am: 'ሁሉም ለውጥ በአንድ ↶ (Ctrl+Z) ይመለሳል', en: 'One ↶ (Ctrl+Z) brings any change back' },
+      { am: 'ቁርጡ በቃላቱ መካከል ይሆናል፤ ግማሽ ቃል ወይም ትንፋሽ አይቀርም', en: 'Cuts fall between words: no half words or breaths are left' },
+    ],
+  },
   '1.33.0': {
     banner: {
       am: '🛠 ጥገናዎች፦ ፕሮጀክቶች የራሳቸውን የካፕሽን ገጽታ ያስታውሳሉ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',

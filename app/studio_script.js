@@ -10,6 +10,11 @@
  * boxes (for exact timing) stay one click away ("☰ Captions").
  * Everything goes through the review's own functions (toggleEmphasis,
  * pushReviewUndo, renderReview), so undo, autosave and export just work.
+ *
+ * Edit the video by editing the text (1.34): select words and press Delete
+ * (or ✂ Cut) - that part of the video goes, the captions with it. Drag a
+ * paragraph by its ⋮⋮ to another place - the video moves with it. One ↶
+ * (Ctrl+Z) brings either back.
  */
 (function () {
   'use strict';
@@ -53,6 +58,8 @@
   if (list) list.after(box);
   let words = [];
   let spans = [];
+  let paras = [];
+  const editor = () => window.__amhEditor || null;
   const plainWord = (w) => String(w).replace(/[*~]/g, '');
   function marks(text, ranges) { return ranges.map((r) => [r.start, r.end]); }
   function render() {
@@ -75,8 +82,16 @@
       return { r: S.wordRanges(t), star, cut: marks(t, cutRanges(t)), doubt: marks(t, doubtRanges(t, c.doubt)), fixed: marks(t, doubtRanges(t, c._fixed)) };
     });
     const inside = (wr, list2) => !!wr && list2.some((x) => wr[0] < x[1] && x[0] < wr[1]);
-    S.scriptParagraphs(words).forEach((para) => {
+    paras = S.scriptParagraphs(words);
+    paras.forEach((para, k) => {
       const p = el('div', 'sp');
+      p.dataset.k = k;
+      if (editor() && paras.length > 1) {
+        const g = el('span', 'sp-grip', '⋮⋮');
+        g.title = tx('ይጎትቱ፦ ይህ ክፍል ከቪዲዮው ጋር ይንቀሳቀሳል', 'Drag: this part moves, video and all');
+        g.addEventListener('mousedown', (e) => startDrag(e, k));
+        p.appendChild(g);
+      }
       const tm = el('span', 'sp-t', S.fmtClock(para[0].s));
       tm.dataset.t = para[0].s;
       p.appendChild(tm);
@@ -167,7 +182,8 @@
     current = p;
     bar.textContent = '';
     bar.appendChild(action('★', tx('ጎልቶ', 'Pop'), 'Ctrl+B', star));
-    if (window.__amhStudioCuts) bar.appendChild(action('✂', tx('ቁረጥ', 'Cut'), 'Ctrl+D', cut));
+    if (editor()) bar.appendChild(action('✂', tx('ከቪዲዮው ቁረጥ', 'Cut from video'), 'Delete', cut));
+    else if (window.__amhStudioCuts) bar.appendChild(action('✂', tx('ቁረጥ', 'Cut'), 'Ctrl+D', cut));
     bar.appendChild(action('✎', tx('አርም', 'Fix'), 'Enter', () => openFix(current)));
     bar.appendChild(action('▶', tx('አጫውት', 'Play'), '', play));
     bar.style.display = '';
@@ -185,11 +201,43 @@
     hideBar();
     if (typeof schedulePreview === 'function') schedulePreview();
   }
-  // ✂: strike the words (~like this~) — ✂ Clean up then cuts them from the
-  // exported video; again on struck words: keep them. One undo step.
+  // ✂: in the Studio's editor the words leave the video at once (1.34). The
+  // cut runs from the first word to just before the next one, so no half
+  // word or breath is left; a long pause after the last word stays.
+  function rangeOf(p) {
+    const a = p[0], z = p[p.length - 1];
+    const prev = words[a.i - 1], next = words[z.i + 1];
+    const start = prev ? Math.max(prev.e, a.s - 0.06) : Math.max(0, a.s - 0.06);
+    const end = next ? (next.s - z.e > 0.7 ? z.e + 0.15 : Math.max(z.e, next.s - 0.02))
+      : Math.min(z.e + 0.2, editor() ? editor().total() : z.e + 0.2);
+    return { start: Math.max(0, start), end: Math.max(start + 0.05, end) };
+  }
+  // separate runs of selected words (a selection is one run; kept general)
+  function runs(p) {
+    const out = [];
+    p.slice().sort((x, y) => x.i - y.i).forEach((x) => {
+      const last = out[out.length - 1];
+      if (last && x.i === last[last.length - 1].i + 1) last.push(x); else out.push([x]);
+    });
+    return out;
+  }
+  function deleteWords(p) {
+    const ed = editor();
+    if (!ed || !p.length) return false;
+    const rs = runs(p).map(rangeOf);
+    const gone = rs.reduce((n, r) => n + r.end - r.start, 0);
+    hideBar();
+    if (window.getSelection) { try { window.getSelection().removeAllRanges(); } catch (e) {} }
+    ed.cutRanges(rs);
+    toast('✂ ' + gone.toFixed(1) + ' ' + tx('ሰከንድ ተቆርጧል', 's cut') + ' · ', '↶ ' + tx('መልስ', 'Undo'));
+    return true;
+  }
+  // ✂ outside the editor: strike the words (~like this~) — ✂ Clean up then
+  // cuts them from the exported video; again on struck words: keep them.
   function cut() {
     const p = current;
     if (!p.length) return;
+    if (deleteWords(p)) return;
     const groups = S.selectionByCaption(reviewCues, p);
     const n = REVIEW_UNDO.length;
     groups.forEach((g) => toggleTextCut(g.cue, g.from, g.to));
@@ -258,6 +306,89 @@
   }
   document.addEventListener('mousedown', (e) => { if (bar.style.display !== 'none' && !bar.contains(e.target) && !box.contains(e.target)) hideBar(); });
   document.addEventListener('keydown', (e) => {
+    if (mode !== 'script' || !editor() || !review.classList.contains('show')) return;
+    if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+    const a = document.activeElement;
+    if (a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable)) return;
+    const p = picked().length ? picked() : current;
+    if (!p.length) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    deleteWords(p);
+  }, true);
+
+  // ── a small note after a cut / move, with ↶ right there ────────────────
+  const note = el('div', 'st-toast');
+  note.style.display = 'none';
+  review.appendChild(note);
+  let noteT = 0;
+  function toast(text, undoLabel) {
+    note.textContent = text;
+    const u = el('button', '', undoLabel); u.type = 'button';
+    u.addEventListener('click', () => { if (typeof undoReview === 'function') undoReview(); note.style.display = 'none'; });
+    note.appendChild(u);
+    const r = box.getBoundingClientRect();
+    note.style.left = (r.left + 12) + 'px';
+    note.style.top = (r.bottom - 48) + 'px';
+    note.style.display = '';
+    clearTimeout(noteT);
+    noteT = setTimeout(() => { note.style.display = 'none'; }, 5000);
+  }
+
+  // ── drag a paragraph to another place (the video moves with it) ────────
+  // A paragraph's part of the video runs from the middle of the pause before
+  // it to the middle of the pause after it, so no word is clipped.
+  function bounds() {
+    const ed = editor();
+    const end = ed ? ed.total() : 0;
+    const B = [0];
+    for (let k = 1; k < paras.length; k++) {
+      const prev = paras[k - 1], cur = paras[k];
+      B.push((prev[prev.length - 1].e + cur[0].s) / 2);
+    }
+    B.push(Math.max(end, paras.length ? paras[paras.length - 1].slice(-1)[0].e : 0));
+    return B;
+  }
+  const dropLine = el('div', 'sp-drop');
+  function startDrag(e, k) {
+    if (e.button !== 0 || !editor()) return;
+    e.preventDefault(); e.stopPropagation();
+    hideBar();
+    const ps = Array.from(box.querySelectorAll('.sp'));
+    const src = ps[k];
+    if (!src) return;
+    src.classList.add('sp-moving');
+    box.classList.add('sp-dragging');
+    let gap = -1;
+    const move = (ev) => {
+      // the gap nearest the pointer: before paragraph j (j = length: the end)
+      const y = ev.clientY;
+      gap = ps.length;
+      for (let j = 0; j < ps.length; j++) {
+        const r = ps[j].getBoundingClientRect();
+        if (y < r.top + r.height / 2) { gap = j; break; }
+      }
+      const same = gap === k || gap === k + 1;
+      if (same) { dropLine.remove(); return; }
+      if (gap < ps.length) box.insertBefore(dropLine, ps[gap]); else box.appendChild(dropLine);
+      // keep scrolling while near the edges
+      const br = box.getBoundingClientRect();
+      if (y < br.top + 30) box.scrollTop -= 12; else if (y > br.bottom - 30) box.scrollTop += 12;
+    };
+    const up = () => {
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+      src.classList.remove('sp-moving');
+      box.classList.remove('sp-dragging');
+      dropLine.remove();
+      if (gap < 0 || gap === k || gap === k + 1) return;
+      const B = bounds();
+      editor().moveRange(B[k], B[k + 1], B[gap]);
+      toast('↕ ' + tx('ክፍሉ ተንቀሳቅሷል', 'Moved') + ' · ', '↶ ' + tx('መልስ', 'Undo'));
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  }
+  document.addEventListener('keydown', (e) => {
     if (mode !== 'script' || !review.classList.contains('show')) return;
     if ((e.ctrlKey || e.metaKey) && /^[bd]$/.test(String(e.key).toLowerCase())) {
       const p = picked();
@@ -319,5 +450,6 @@
   relabel();
   setMode(mode);
   window.__amhScript = { render, setMode, mode: () => mode, words: () => words, showBar, openFix, fix: (p, t) => fix(p, t),
+    paras: () => paras, bounds, deleteWords, rangeOf,
     star: (p) => { current = p; star(); }, cut: (p) => { current = p; cut(); } };
 })();
