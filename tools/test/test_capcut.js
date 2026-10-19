@@ -139,6 +139,34 @@ test('1.36: a project with several videos — each video once, pictures skipped;
   assert.strictEqual(C.ourTracks(out).length, 1, 'one track for all videos');
 });
 
+test('1.37: the animation the editor gave ONE caption in CapCut goes on all, fitted to each; Update keeps it; text edits stay', () => {
+  const p = project();
+  const built = C.buildTrack(p, 'C:/Users/me/Videos/talk.mp4', [{ start: 12, end: 14, text: 'ሀ' }, { start: 15, end: 15.5, text: 'ለ' }, { start: 20, end: 23, text: 'ሐ' }], look, { rand });
+  let d = C.addTrack(p, built);
+  assert.deepStrictEqual(C.chosenAnims(d), {}, 'nothing chosen yet');
+  // the editor animates the 2nd caption in CapCut and edits the 3rd's text
+  const segs = C.ourTracks(d)[0].segments;
+  const am = d.materials.material_animations.find((x) => x.id === segs[1].extra_material_refs[0]);
+  am.animations = [{ id: '7664535055594802453', type: 'in', start: 0, duration: 500000, path: 'C:/cache/effect/7664535055594802453/x', resource_id: '7664535055594802453', name: 'Cyan Slide', category_name: 'In' }];
+  const t3 = d.materials.texts.find((x) => x.id === segs[2].material_id);
+  t3.content = JSON.stringify({ styles: [], text: 'የተስተካከለ' });
+  const ch = C.chosenAnims(d);
+  assert.strictEqual(ch.in.name, 'Cyan Slide');
+  const r = C.spreadAnims(d);
+  assert.deepStrictEqual([r.n, r.names], [3, ['Cyan Slide']]);
+  const animOn = (dd, i) => dd.materials.material_animations.find((x) => x.id === C.ourTracks(dd)[0].segments[i].extra_material_refs[0]).animations;
+  assert.deepStrictEqual(animOn(r.draft, 0).map((x) => [x.name, x.start, x.duration]), [['Cyan Slide', 0, 500000]]);
+  assert.deepStrictEqual(animOn(r.draft, 1).map((x) => x.duration), [300000], 'a 0.5 s caption: the animation fits inside');
+  assert.strictEqual(JSON.parse(r.draft.materials.texts.find((x) => x.id === C.ourTracks(r.draft)[0].segments[2].material_id).content).text, 'የተስተካከለ', 'text edits made in CapCut stay');
+  // in + out together: both fit, out at the end
+  const both = C.fitAnims({ in: { name: 'A', type: 'in', duration: 500000 }, out: { name: 'B', type: 'out', duration: 500000 } }, 1000000);
+  assert.deepStrictEqual(both.map((x) => [x.type, x.start, x.duration]), [['in', 0, 400000], ['out', 600000, 400000]]);
+  // Update (send again) keeps the chosen animation on the new captions
+  const again = C.addTrack(r.draft, C.buildTrack(r.draft, 'C:/Users/me/Videos/talk.mp4', [{ start: 12, end: 14, text: 'ሀ' }], look, { rand }));
+  assert.strictEqual(animOn(again, 0)[0].name, 'Cyan Slide');
+  assert.strictEqual(C.ourTracks(again).length, 1);
+});
+
 test('no personal data in the template (from a real CapCut project)', () => {
   const t = JSON.stringify(C.TEMPLATE);
   assert.ok(!/Users|Desktop|\.ttf|\.mp4/i.test(t), 'no paths');

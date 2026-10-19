@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.36.0';
+const APP_VERSION = '1.37.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,18 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.37.0': {
+    banner: {
+      am: '✨ በCapCut ውስጥ ለአንድ ካፕሽን የሰጡትን እንቅስቃሴ ለሁሉም ይስጡ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '✨ Give all your captions the animation you chose for one in CapCut — your license stays the same.',
+    },
+    items: [
+      { am: 'በCapCut ውስጥ ለአንድ ካፕሽን እንቅስቃሴ (Animation) ይስጡ — በStudio መነሻ "ለሁሉም ካፕሽኖች" ይጫኑ', en: 'Give one caption an animation in CapCut — press "Use for all captions" on the Studio home' },
+      { am: 'እያንዳንዱ ካፕሽን በርዝመቱ ልክ ይንቀሳቀሳል፤ በCapCut ያረሙት ጽሑፍ ይቆያል', en: 'Each caption gets it at its own length; text you fixed in CapCut stays' },
+      { am: '"↻ አዘምን" የመረጡትን እንቅስቃሴ ይጠብቃል', en: '"↻ Update" keeps the animation you chose' },
+      { am: 'ማንኛውንም የCapCut እንቅስቃሴ መጠቀም ይችላሉ (In፣ Out፣ Loop)', en: 'Any CapCut animation works (In, Out, Loop)' },
+    ],
+  },
   '1.36.0': {
     banner: {
       am: '✏️ የCapCut ፕሮጀክትዎን በአንድ ጠቅታ ካፕሽን ያድርጉ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',

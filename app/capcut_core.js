@@ -202,6 +202,59 @@
       .forEach((sg) => { const p = byId[sg.material_id]; if (p && !seen[normPath(p)]) { seen[normPath(p)] = 1; out.push(p); } }));
     return out;
   }
+  // ── CapCut's own animations on our captions (1.37) ────────────────────────
+  // CapCut keeps an animation as {id = its library id, type in/out/loop,
+  // start, duration (µs), path = its downloaded copy, name, …} inside the
+  // caption's "sticker_animation" material. The editor gives ONE caption an
+  // animation in CapCut; we copy it to all (or keep it when updating).
+  function animOf(draft, seg) {
+    const refs = (seg && seg.extra_material_refs) || [];
+    const all = (draft && draft.materials && draft.materials.material_animations) || [];
+    for (const r of refs) { const a = all.find((x) => x.id === r); if (a) return a; }
+    return null;
+  }
+  // the animation of the earliest animated caption of ours, per type
+  function chosenAnims(draft) {
+    const out = {};
+    ourTracks(draft).forEach((t) => (t.segments || []).slice()
+      .sort((a, b) => ((a.target_timerange || {}).start || 0) - ((b.target_timerange || {}).start || 0))
+      .forEach((sg) => {
+        const a = animOf(draft, sg);
+        ((a && a.animations) || []).forEach((x) => { if (x && x.type && !out[x.type]) out[x.type] = clone(x); });
+      }));
+    return out;
+  }
+  // one caption's animation list from the chosen ones, fitted to its length:
+  // in at the start, out at the end, a loop over the whole caption
+  function fitAnims(chosen, dur) {
+    const list = [];
+    const inA = chosen['in'], outA = chosen['out'], loop = chosen['loop'];
+    const room = Math.max(0, dur);
+    if (inA) list.push(Object.assign(clone(inA), { start: 0, duration: Math.round(Math.min(inA.duration || 500000, room * (outA ? 0.4 : 0.6))) }));
+    if (outA) {
+      const d = Math.round(Math.min(outA.duration || 500000, room * (inA ? 0.4 : 0.6)));
+      list.push(Object.assign(clone(outA), { start: Math.max(0, room - d), duration: d }));
+    }
+    if (loop && !inA && !outA) list.push(Object.assign(clone(loop), { start: 0, duration: room }));
+    return list.filter((x) => x.duration > 0);
+  }
+  // the project with the chosen animation(s) on every caption of ours
+  // (a copy). Text edits made in CapCut stay. Returns { draft, n, names }.
+  function spreadAnims(draft, chosen) {
+    const d = clone(draft);
+    const ch = chosen || chosenAnims(d);
+    const names = Object.keys(ch).map((k) => ch[k].name).filter(Boolean);
+    if (!names.length) return { draft: d, n: 0, names };
+    let n = 0;
+    ourTracks(d).forEach((t) => (t.segments || []).forEach((sg) => {
+      const a = animOf(d, sg);
+      if (!a) return;
+      a.animations = fitAnims(ch, (sg.target_timerange || {}).duration || 0);
+      n++;
+    }));
+    return { draft: d, n, names };
+  }
+
   // our earlier track(s) in a project
   function ourTracks(draft) {
     return ((draft && draft.tracks) || []).filter((t) => t.type === 'text' && t.name === NAME);
@@ -221,12 +274,13 @@
   // the project with our new track (an earlier one of ours is replaced, so
   // sending again never doubles the captions). A copy; the input stays.
   function addTrack(draft, built) {
+    const keep = chosenAnims(draft);            // the editor's CapCut animation stays (1.37)
     const d = removeOurs(draft);
     d.materials = d.materials || {};
     d.materials.texts = (d.materials.texts || []).concat(built.texts);
     d.materials.material_animations = (d.materials.material_animations || []).concat(built.animations);
     d.tracks = (d.tracks || []).concat([built.track]);
-    return d;
+    return Object.keys(keep).length ? spreadAnims(d, keep).draft : d;
   }
   // a project's facts for the list
   function summary(draft) {
@@ -235,7 +289,7 @@
       ours: ourTracks(draft).length };
   }
 
-  const api = { TEMPLATE, NAME, uuid, rgb, placements, placeCue, styledText, contentOf, lookFor, buildTrack, buildTrackAll, videosOf, addTrack, removeOurs, ourTracks, summary, normPath };
+  const api = { TEMPLATE, NAME, uuid, rgb, placements, placeCue, styledText, contentOf, lookFor, buildTrack, buildTrackAll, videosOf, addTrack, chosenAnims, spreadAnims, fitAnims, removeOurs, ourTracks, summary, normPath };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhCapCut = api;
 })(typeof window !== 'undefined' ? window : this);
