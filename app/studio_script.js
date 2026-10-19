@@ -113,6 +113,7 @@
     });
     nowIdx = -1;
     follow(false);
+    bar.classList.remove('st-chk');
   }
   let renderT = 0;
   function renderSoon() { clearTimeout(renderT); renderT = setTimeout(render, 30); }
@@ -304,7 +305,11 @@
     renderReview();
     if (typeof schedulePreview === 'function') schedulePreview();
   }
-  document.addEventListener('mousedown', (e) => { if (bar.style.display !== 'none' && !bar.contains(e.target) && !box.contains(e.target)) hideBar(); });
+  document.addEventListener('mousedown', (e) => {
+    if (bar.style.display === 'none' || bar.contains(e.target) || box.contains(e.target)) return;
+    if (typeof checking !== 'undefined' && checking) { if (e.target.closest && e.target.closest('.st-player, .ed-tl, #appVideo')) return; stopCheck(); return; }
+    hideBar();
+  });
   document.addEventListener('keydown', (e) => {
     if (mode !== 'script' || !editor() || !review.classList.contains('show')) return;
     if (e.key !== 'Delete' && e.key !== 'Backspace') return;
@@ -426,16 +431,166 @@
     ['seeked', 'pause'].forEach((ev) => v.addEventListener(ev, () => follow(false)));
   }
 
-  // ⚠ N to check: in the script, the first doubtful word opens to be fixed
+  // ── ✔ Check words (1.48): one fast pass over the doubtful (orange) words.
+  // Each word plays by itself; Enter = it is right (or the typed fix goes in
+  // and is learned for every video); Tab = next, Shift+Tab = back, ↑ = hear
+  // it again, Esc = stop. Suggestions: 🧠 memory, then look-alike words of
+  // this video. Every step is one ↶.
+  let checking = false, chkAt = 0, chkDone = 0, chkNote = '';
+  function doubtList() { const a = []; spans.forEach((s, i) => { if (s && s.classList.contains('doubt')) a.push(i); }); return a; }
+  function startCheck() {
+    if (mode !== 'script') setMode('script');
+    checking = true; chkDone = 0; chkNote = '';
+    setTimeout(() => goCheck(0, false), 80);
+  }
+  function stopCheck() { checking = false; bar.classList.remove('st-chk'); hideBar(); }
+  // the next (or previous) doubtful word from time t; wraps around
+  function goCheck(t, back) {
+    if (!checking) return;
+    const all = doubtList();
+    if (!all.length) { doneCheck(); return; }
+    let i = back ? all.slice().reverse().find((k) => words[k].s < t - 0.001) : all.find((k) => words[k].s >= t - 0.001);
+    if (i == null) i = back ? all[all.length - 1] : all[0];
+    chkAt = words[i].s;
+    showCheck(i, all.length);
+  }
+  let chkStop = null;
+  function hear(x) {
+    const v = video();
+    if (!v) return;
+    const ed = editor();
+    if (chkStop) v.removeEventListener('timeupdate', chkStop);
+    const end = x.e + 0.25;
+    seek(Math.max(0, x.s - 0.3));
+    chkStop = () => { if (nowT() >= end) { if (ed) ed.pause(); else v.pause(); v.removeEventListener('timeupdate', chkStop); chkStop = null; } };
+    v.addEventListener('timeupdate', chkStop);
+    if (ed) setTimeout(() => ed.play(), 60); else v.play().catch(() => {});
+  }
+  function memoryFixes() {
+    let f = {};
+    try { if (typeof loadFixStore === 'function' && typeof activeFixes === 'function') f = activeFixes(loadFixStore()); } catch (e) {}
+    try { if (typeof REVIEW_AUTOFIX !== 'undefined' && REVIEW_AUTOFIX.rules) f = Object.assign({}, f, REVIEW_AUTOFIX.rules); } catch (e) {}
+    return f;
+  }
+  function showCheck(i, left) {
+    const x = words[i], s = spans[i];
+    if (!x || !s) return;
+    s.scrollIntoView({ block: 'center' });
+    current = [x];
+    bar.textContent = '';
+    bar.classList.add('st-chk');
+    const head = el('div', 'st-chk-h');
+    head.appendChild(el('b', '', '⚠ ' + left + ' ' + tx('ቀርተዋል', 'left')));
+    if (chkDone) head.appendChild(el('span', '', '✓ ' + chkDone + ' ' + tx('ተፈትሸዋል', 'checked')));
+    if (chkNote) head.appendChild(el('span', 'st-chk-note', chkNote));
+    head.appendChild(el('span', 'st-flex'));
+    const close = el('button', 'st-chk-x', '✕'); close.type = 'button'; close.title = tx('አቁም (Esc)', 'Stop (Esc)');
+    close.addEventListener('mousedown', (e) => { e.preventDefault(); stopCheck(); });
+    head.appendChild(close);
+    bar.appendChild(head);
+    const row = el('div', 'st-chk-row');
+    const was = plainWord(x.w);
+    const inp = el('input', 'st-fix');
+    inp.dataset.amhType = '1';
+    inp.type = 'text';
+    inp.value = was;
+    inp.setAttribute('dir', 'auto');
+    const okB = el('button', 'on', ''); okB.type = 'button';
+    const sync = () => {
+      const same = inp.value.replace(/\s+/g, ' ').trim() === was;
+      okB.textContent = same ? '✓ ' + tx('ትክክል ነው', 'Correct') : '✓ ' + tx('አስተካክል', 'Fix');
+      okB.title = 'Enter';
+    };
+    inp.addEventListener('input', sync);
+    sync();
+    const playB = el('button', '', '▶'); playB.type = 'button'; playB.title = tx('እንደገና ስማ (↑)', 'Hear it again (↑)');
+    const nextB = el('button', '', '→'); nextB.type = 'button'; nextB.title = tx('ዝለል (Tab)', 'Skip (Tab)');
+    [inp, okB, playB, nextB].forEach((b) => row.appendChild(b));
+    bar.appendChild(row);
+    const sug = S.checkSuggest(x.w, reviewCues, memoryFixes(), 3);
+    if (sug.length) {
+      const sr = el('div', 'st-chk-sug');
+      sug.forEach((w2, k) => {
+        const b = el('button', '', w2); b.type = 'button'; b.title = 'Alt+' + (k + 1);
+        b.addEventListener('mousedown', (e) => { e.preventDefault(); inp.value = w2; sync(); apply(); });
+        sr.appendChild(b);
+      });
+      bar.appendChild(sr);
+    }
+    bar.style.display = '';
+    place(rectOf([x]));
+    inp.focus(); inp.select();
+    hear(x);
+    function apply() {
+      const v = inp.value.replace(/\s+/g, ' ').trim();
+      if (v === was) markRight(x);
+      else {
+        fix([x], v);
+        // one word for one word: learned for every new video (🧠, editable there)
+        if (v && !/\s/.test(v) && typeof loadFixStore === 'function' && typeof rememberFix === 'function') {
+          try {
+            const st = loadFixStore();
+            rememberFix(st, was, v, true);
+            saveFixStore(st);
+            if (typeof syncMemoryButton === 'function') syncMemoryButton();
+            chkNote = '🧠 ' + was + ' → ' + v;
+          } catch (e) {}
+        }
+      }
+      chkDone++;
+      setTimeout(() => goCheck(x.e, false), 140);
+    }
+    okB.addEventListener('mousedown', (e) => { e.preventDefault(); apply(); });
+    playB.addEventListener('mousedown', (e) => { e.preventDefault(); hear(x); });
+    nextB.addEventListener('mousedown', (e) => { e.preventDefault(); goCheck(x.e, false); });
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); apply(); }
+      else if (e.key === 'Tab') { e.preventDefault(); goCheck(e.shiftKey ? x.s : x.e, e.shiftKey); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); hear(x); }
+      else if (e.key === 'Escape') { e.preventDefault(); stopCheck(); }
+      else if (e.altKey && /^[1-3]$/.test(e.key) && sug[Number(e.key) - 1]) { e.preventDefault(); inp.value = sug[Number(e.key) - 1]; sync(); apply(); }
+    });
+  }
+  // "this word is right": it is no longer doubtful (one ↶)
+  function markRight(x) {
+    const c = reviewCues[x.cue];
+    if (!c) return;
+    const w = plainWord(x.w);
+    const clean = (d) => plainWord(d).replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+    const keep = (c.doubt || []).filter((d) => clean(d) !== clean(w));
+    if (keep.length === (c.doubt || []).length) return;
+    pushReviewUndo('check');
+    c.doubt = keep;
+    renderReview();
+  }
+  function doneCheck() {
+    checking = false;
+    bar.textContent = '';
+    bar.classList.add('st-chk');
+    const head = el('div', 'st-chk-h st-chk-done');
+    head.appendChild(el('b', '', '✓ ' + tx('ሁሉም ቃላት ተፈትሸዋል', 'Every word is checked') + (chkDone ? ' (' + chkDone + ')' : '')));
+    head.appendChild(el('span', 'st-flex'));
+    const close = el('button', 'st-chk-x', '✕'); close.type = 'button';
+    close.addEventListener('mousedown', (e) => { e.preventDefault(); bar.classList.remove('st-chk'); hideBar(); });
+    head.appendChild(close);
+    bar.appendChild(head);
+    if (chkNote) bar.appendChild(el('div', 'st-chk-note', chkNote));
+    bar.style.display = '';
+    place(box.getBoundingClientRect());
+    setTimeout(() => { if (!checking && bar.classList.contains('st-chk')) { bar.classList.remove('st-chk'); hideBar(); } }, 4000);
+  }
+  // ⚠ N (and F7): the check pass, in the script
   const studioDoubt = window.goFirstDoubtStudio;
   window.goFirstDoubtStudio = () => {
-    if (mode !== 'script') { if (studioDoubt) studioDoubt(); return; }
-    const s = box.querySelector('.w.doubt');
-    if (!s) return;
-    s.scrollIntoView({ block: 'center' });
-    const x = words[Number(s.dataset.i)];
-    if (x) { seek(x.s); openFix([x]); }
+    if (mode !== 'script' && !box) { if (studioDoubt) studioDoubt(); return; }
+    startCheck();
   };
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'F7' || !review.classList.contains('show')) return;
+    e.preventDefault();
+    if (checking) stopCheck(); else startCheck();
+  });
+  window.__amhCheck = { start: startCheck, stop: stopCheck, active: () => checking };
 
   function relabel() {
     bScript.textContent = '¶ ' + tx('ጽሑፍ', 'Script');

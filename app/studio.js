@@ -438,7 +438,7 @@
     const d = typeof reviewDoubtCount === 'function' ? reviewDoubtCount() : 0;
     doubtB.style.display = d ? '' : 'none';
     doubtB.textContent = '⚠ ' + d;
-    doubtB.title = d + ' ' + tx('የሚፈተሹ ቃላት — ወደ መጀመሪያው ይሂዱ', 'words to check — go to the first one');
+    doubtB.title = d + ' ' + tx('የሚፈተሹ ቃላት — አንድ በአንድ ይፈትሹ (F7)', 'words to check — check them one by one (F7)');
     const c = window.__amhAppChosen && window.__amhAppChosen();
     projEl.textContent = c ? '/ ' + c.name : '';
     memB.style.display = ($('revMemory') && $('revMemory').style.display !== 'none') ? '' : 'none';
@@ -487,6 +487,7 @@
       [tx('ጽሑፍ (Script)', 'Script'), [
         [[C, 'B'], tx('★ ቃሉን አጉላ', '★ Pop the word')], [[C, 'D'], tx('✂ ቃሉን ከቪዲዮው ቁረጥ', '✂ Cut the word from the video')],
         [['Enter'], tx('የተመረጠውን አርም', 'Fix the selected words')],
+        [['F7'], tx('ቃላትን ፈትሽ — አጠራጣሪዎቹን አንድ በአንድ', 'Check words — the doubtful ones, one by one')],
         [mac ? ['⌘', 'Shift', 'Space'] : ['Ctrl', 'Space'], tx('በላቲን ፊደል አማርኛ መጻፍ (selam → ሰላም)', 'Type Amharic with Latin letters (selam → ሰላም)')]]],
       [tx('ሌላ', 'Other'), [
         [[C, 'E'], tx('ይላኩ (Export)', 'Export')], [['?'], tx('ይህ ገጽ', 'This sheet')], [['Esc'], tx('ዝጋ', 'Close')]]],
