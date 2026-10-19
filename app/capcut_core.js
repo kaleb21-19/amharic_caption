@@ -379,7 +379,71 @@
       ours: ourTracks(draft).length };
   }
 
-  const api = { TEMPLATE, NAME, uuid, rgb, placements, placeCue, styledText, contentOf, lookFor, buildTrack, buildTrackAll, videosOf, addTrack, chosenAnims, spreadAnims, fitAnims, sentMap, userEdits, keepEdits, wordPairs, textOf, expectedSent, removeOurs, ourTracks, summary, normPath };
+  // A NEW CapCut project (1.44): the video on the main track, ready for our
+  // captions, so CapCut is opened once (no "make a project, close, add,
+  // open"). sk = app/capcut_new.json: a clean CapCut 9.6 project skeleton
+  // (no device ids, no paths). v = { path, dur (s), w, h, audio };
+  // where = { root (the drafts folder), name, now (µs) }.
+  // Returns { draft, files(draft) -> { relative path: text }, id, fold }.
+  function newDraft(sk, v, where, rand) {
+    const us = Math.max(1, Math.round(Number(v.dur) * US));
+    const w = Number(v.w) || 1080, h = Number(v.h) || 1920;
+    const canvas = w > h ? [1920, 1080] : (w === h ? [1080, 1080] : [1080, 1920]);
+    const now = Math.round(where.now || Date.now() * 1000);
+    const tid = uuid(rand), did = uuid(rand), pid = uuid(rand), localId = uuid(rand).toLowerCase();
+    const root = String(where.root).replace(/\\/g, '/');
+    const fold = root + '/' + where.name;
+    const d = clone(sk.content);
+    d.id = tid; d.duration = us;
+    d.canvas_config = { ratio: 'original', width: canvas[0], height: canvas[1], background: null };
+    const vpath = String(v.path).replace(/\\/g, '/');
+    const mat = Object.assign(clone(sk.videoMaterial), { id: uuid(rand), path: vpath, material_name: vpath.split('/').pop(),
+      duration: us, width: w, height: h, has_audio: !!v.audio, local_material_id: localId });
+    const refs = [];
+    Object.keys(sk.videoExtras).forEach((k) => {
+      const x = Object.assign(clone(sk.videoExtras[k]), { id: uuid(rand) });
+      d.materials[k] = [x];
+      refs.push(x.id);
+    });
+    d.materials.videos = [mat];
+    const seg = Object.assign(clone(sk.videoSegment), { id: uuid(rand), material_id: mat.id, extra_material_refs: refs,
+      source_timerange: { start: 0, duration: us }, target_timerange: { start: 0, duration: us } });
+    d.tracks = [Object.assign(clone(sk.videoTrack), { id: uuid(rand), segments: [seg] })];
+    const sec = Math.floor(now / 1e6);
+    const meta = Object.assign(clone(sk.meta), { draft_id: did, draft_name: where.name, draft_fold_path: fold, draft_root_path: root,
+      tm_draft_create: now, tm_draft_modified: now, tm_duration: us,
+      draft_materials: [0, 1, 2, 3, 6, 7, 8].map((t) => ({ type: t, value: t ? [] : [Object.assign(clone(sk.importItem), {
+        id: localId, file_Path: vpath, extra_info: mat.material_name, duration: us, width: w, height: h,
+        create_time: sec, import_time: sec, import_time_ms: now })] })) });
+    const t0 = { create_time: now, id: tid, is_marked_delete: false, name: 'Timeline 01', update_time: now };
+    const files = (draft) => {
+      const content = JSON.stringify(draft);
+      const out = {
+        'draft_content.json': content,
+        'draft_meta_info.json': JSON.stringify(meta),
+        'draft_settings': '[General]\r\ndraft_create_time=' + sec + '\r\ndraft_last_edit_time=' + sec +
+          '\r\nreal_edit_seconds=0\r\nreal_edit_keys=0\r\ncloud_last_modify_platform=windows\r\n',
+        'draft_virtual_store.json': JSON.stringify({ draft_materials: [], draft_virtual_store: [
+          { type: 0, value: [{ creation_time: 0, display_name: '', filter_type: 0, id: '', import_time: 0, import_time_us: 0, material_color_tag: '', sort_sub_type: 0, sort_type: 0, subdraft_filter_type: 0 }] },
+          { type: 1, value: [{ child_id: localId, parent_id: '' }] }, { type: 2, value: [] }] }),
+        'timeline_layout.json': JSON.stringify({ dockItems: [{ dockIndex: 0, ratio: 1, timelineIds: [tid], timelineNames: ['Timeline 01'] }], layoutOrientation: 1 }),
+        'Timelines/project.json': JSON.stringify({ config: { color_space: -1, hdr_vivid: false, mixed_track_mode_on: false, render_index_track_mode_on: false, use_float_render: false },
+          create_time: now, id: pid, main_timeline_id: tid, timelines: [t0], update_time: now, version: 0 }),
+      };
+      out['Timelines/' + tid + '/draft_content.json'] = content;
+      return out;
+    };
+    return { draft: d, files, id: did, fold };
+  }
+  // a project name not used yet in the drafts folder: "<name>", "<name> (2)", ...
+  function freeName(base, taken) {
+    const clean = String(base || '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) || 'Amharic Captions';
+    const low = (taken || []).map((x) => String(x).toLowerCase());
+    if (low.indexOf(clean.toLowerCase()) < 0) return clean;
+    for (let i = 2; ; i++) { const n = clean + ' (' + i + ')'; if (low.indexOf(n.toLowerCase()) < 0) return n; }
+  }
+
+  const api = { newDraft, freeName, TEMPLATE, NAME, uuid, rgb, placements, placeCue, styledText, contentOf, lookFor, buildTrack, buildTrackAll, videosOf, addTrack, chosenAnims, spreadAnims, fitAnims, sentMap, userEdits, keepEdits, wordPairs, textOf, expectedSent, removeOurs, ourTracks, summary, normPath };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhCapCut = api;
 })(typeof window !== 'undefined' ? window : this);
