@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.40.0';
+const APP_VERSION = '1.41.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,18 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.41.0': {
+    banner: {
+      am: '📱 ፈቃድ በስልክዎ ይግዙ — QR ያንሱ፣ በባንክ መተግበሪያዎ ይክፈሉ፣ ኮምፒውተሩ በራሱ ይነቃል።',
+      en: '📱 Buy a license with your phone — scan the QR, pay in your bank app, this computer unlocks itself.',
+    },
+    items: [
+      { am: '"ፈቃድ ይግዙ" አሁን QR ያሳያል — በስልክዎ ካሜራ ያንሱት', en: '"Buy a license" now shows a QR code — scan it with your phone camera' },
+      { am: 'ቦቱ፣ የባንክ መተግበሪያውና ስክሪንሾቱ ሁሉም በስልክዎ ላይ — በጥቂት ንክኪ', en: 'The bot, your bank app and the screenshot are all on your phone — a few taps' },
+      { am: 'ክፍያው ሲረጋገጥ ይህ ኮምፒውተር በራሱ ይነቃል — ምንም መለጠፍ የለም', en: 'Once the payment is confirmed this computer unlocks itself — nothing to paste' },
+      { am: 'ከፈለጉ "ቴሌግራምን በዚህ ኮምፒውተር ክፈት" አሁንም አለ', en: '"Open Telegram on this computer" is still there if you prefer' },
+    ],
+  },
   '1.40.0': {
     banner: {
       am: '✨ 6 አዳዲስ የካፕሽን እንቅስቃሴዎች — መተየብ፣ ሞገድ፣ ብርሃን እና ሌሎች — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -1513,12 +1525,44 @@ async function checkPendingBuy() {
   if (r.status === 'pending') {
     showBuyPending('⏳ Payment received — waiting for confirmation. This panel activates itself.', 'var(--text-secondary)');
   } else if (r.status === 'rejected') {
+    hideBuyQr();
     showBuyPending('⚠️ The payment could not be confirmed — see the bot’s message in Telegram.', 'var(--err)');
   } else if (r.status === 'revoked') {
     showBuyPending('License revoked — contact @sumpak6 on Telegram', 'var(--err)');
   } else {
     showBuyPending('After paying, send the screenshot to the bot in Telegram — this panel then activates itself.', 'var(--text-secondary)');
   }
+}
+// The bot link of a purchase: it carries this computer and the purchase's
+// secret, so the computer activates itself once the payment is confirmed —
+// whichever device opens it.
+function buyUrl(p) { return 'https://t.me/AmharicCaptionsBot?start=m_' + MACHINE_ID + '_' + p.nonce; }
+function openUrl(url) {
+  try { if (window.__adobe_cep__) { window.cep.util.openURLInDefaultBrowser(url); return; } } catch (err) {}
+  try { window.open(url, '_blank'); } catch (err) {}
+}
+// The QR code (qrcode.js, MIT): error correction M, auto size, black on white
+// with the 4-module quiet zone phones need. No QR library -> straight to
+// Telegram on this computer, as before.
+function buyQrSvg(url) {
+  if (typeof qrcode !== 'function') return '';
+  const q = qrcode(0, 'M');
+  q.addData(url);
+  q.make();
+  return q.createSvgTag({ cellSize: 4, margin: 16, scalable: true, alt: 'QR' });
+}
+function showBuyQr(url) {
+  const card = document.getElementById('buyQrCard');
+  const box = document.getElementById('buyQr');
+  const svg = buyQrSvg(url);
+  if (!card || !box || !svg) { openUrl(url); return; }
+  box.innerHTML = svg;
+  box.dataset.url = url;
+  card.classList.add('show');
+}
+function hideBuyQr() {
+  const card = document.getElementById('buyQrCard');
+  if (card) card.classList.remove('show');
 }
 function startBuyPoll() {
   if (!BUY_POLL) BUY_POLL = setInterval(checkPendingBuy, BUY_POLL_MS);
@@ -1541,12 +1585,16 @@ function initBuy() {
       if (!p) p = { nonce: newBuyNonce(), mid: MACHINE_ID };
       p.at = Date.now();
       setPendingBuy(p);
-      const url = 'https://t.me/AmharicCaptionsBot?start=m_' + MACHINE_ID + '_' + p.nonce;
-      try { window.__adobe_cep__ && window.cep.util.openURLInDefaultBrowser(url); }
-      catch (err) { window.open(url, '_blank'); }
+      // 1.41: buy on the PHONE — the bank app, the screenshot and Telegram
+      // are all there; this computer still unlocks itself (the same link).
+      showBuyQr(buyUrl(p));
       startBuyPoll();
     });
   }
+  const pc = document.getElementById('buyQrPc');
+  if (pc) pc.addEventListener('click', () => { const p = getPendingBuy(); if (p) openUrl(buyUrl(p)); hideBuyQr(); });
+  const close = document.getElementById('buyQrClose');
+  if (close) close.addEventListener('click', hideBuyQr);
   // A purchase started earlier (the panel was closed meanwhile): keep checking.
   if (getPendingBuy()) startBuyPoll();
   if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {

@@ -11,7 +11,8 @@
  * terser — no mangling and no compression, so every global name the other
  * files and index.html rely on stays exactly the same; only comments and
  * layout go. Strings (Amharic text, the ExtendScript snippets) are untouched.
- * CSInterface.js (Adobe's) and the ExtendScript .jsx files are left alone.
+ * CSInterface.js (Adobe's), qrcode.js (MIT — ships unmodified with its
+ * copyright notice, 1.41) and the ExtendScript .jsx files are left alone.
  */
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -28,7 +29,7 @@ for (const dir of ['js', 'app']) {
   const d = join(ext, dir);
   if (!statSync(d, { throwIfNoEntry: false })?.isDirectory()) continue;
   for (const f of readdirSync(d)) {
-    if (f.endsWith('.js') && f !== 'CSInterface.js') files.push(join(d, f));
+    if (f.endsWith('.js') && f !== 'CSInterface.js' && f !== 'qrcode.js') files.push(join(d, f));
   }
 }
 let before = 0, after = 0;

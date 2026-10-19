@@ -179,6 +179,7 @@ function loadPanel(opts) {
 
   const ctx = vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(path.join(PANEL_JS,'core.js'),'utf8'),  ctx);
+  vm.runInContext(fs.readFileSync(path.join(PANEL_JS,'qrcode.js'),'utf8'),  ctx);
   vm.runInContext(fs.readFileSync(path.join(PANEL_JS,'i18n.js'),'utf8'),  ctx);
   vm.runInContext(fs.readFileSync(path.join(PANEL_JS,'main.js'),'utf8'),  ctx);
 
@@ -237,7 +238,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.40.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.41.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -441,6 +442,15 @@ await t('3.7 simple buying: Buy link carries a secret, the panel activates itsel
     await flush(5);
     p.els('buyBtn').fire('click', { preventDefault() {} });
     await flush(20);
+    // 1.41: a QR code to buy on the phone (the same link); nothing opens by itself
+    assert.ok(p.els('buyQrCard').classList.contains('show'), 'the QR card shows');
+    assert.strictEqual(p.evalVm('__opened'), null, 'nothing opened on the PC yet');
+    assert.ok(/^<svg[\s\S]*<\/svg>$/.test(String(p.els('buyQr').innerHTML).trim()), 'an SVG QR code');
+    const qrUrl = p.els('buyQr').dataset.url;
+    // "Open Telegram on this computer instead" = the old way, the same link
+    p.els('buyQrPc').fire('click');
+    assert.strictEqual(p.evalVm('__opened'), qrUrl, 'PC button opens the same link');
+    assert.ok(!p.els('buyQrCard').classList.contains('show'), 'and the card closes');
     const opened = p.evalVm('__opened');
     assert.match(opened, new RegExp('^https://t\\.me/AmharicCaptionsBot\\?start=m_' + p.mid + '_[A-Za-z0-9]{16}$'), 'deep link: ' + opened);
     assert.ok(opened.length - 'https://t.me/AmharicCaptionsBot?start='.length <= 64, 'fits Telegram’s 64-char /start limit');
@@ -452,7 +462,9 @@ await t('3.7 simple buying: Buy link carries a secret, the panel activates itsel
     assert.deepStrictEqual(calls.filter((c) => c.u.includes('/api/license')).at(-1).body, { mid: p.mid, nonce }, 'asks with its own secret');
     p.els('buyBtn').fire('click', { preventDefault() {} });
     await flush(5);
-    assert.strictEqual(p.evalVm('__opened'), opened, 'a second tap reuses the same secret (no orphaned order)');
+    assert.strictEqual(p.els('buyQr').dataset.url, opened, 'a second tap reuses the same secret (no orphaned order)');
+    p.els('buyQrClose').fire('click');
+    assert.ok(!p.els('buyQrCard').classList.contains('show'), 'Close closes it');
     licState = 'approved';
     await p.evalVm('checkPendingBuy()');
     await flush(40);
@@ -2002,7 +2014,9 @@ await t('5d. after a free caption: next-step card (group while one is left, Buy 
       assert.ok(card.classList.contains('show') && card.classList.contains('tc-last'), 'last-caption card, even after discard');
       assert.ok(/btn-primary/.test(p.els('tcBuy').className));
       p.els('tcBuy').fire('click');
-      assert.match(String(p.evalVm('__opened')), /^https:\/\/t\.me\/AmharicCaptionsBot\?start=m_/, 'Buy opens the bot with this Machine ID');
+      // 1.41: Buy shows the QR (buy on the phone) for the bot link with this Machine ID
+      assert.ok(p.els('buyQrCard').classList.contains('show'), 'the QR card shows');
+      assert.match(String(p.els('buyQr').dataset.url), /^https:\/\/t\.me\/AmharicCaptionsBot\?start=m_/, 'Buy opens the bot with this Machine ID');
       assert.ok(!card.classList.contains('show'));
     } finally { p.close(); }
 
