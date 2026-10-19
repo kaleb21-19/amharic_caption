@@ -237,7 +237,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.29.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.30.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -336,7 +336,7 @@ await t('3. license: initial trial, bad keys, activation', async () => {
       assert.strictEqual(p2.els('licenseStatus').textContent, 'Licensed');
       assert.strictEqual(p2.els('runBtn').disabled, false);
       assert.strictEqual(p2.els('machineIdSection').style.display, 'none');
-      assert.strictEqual(p2.els('licensedNote').style.display, 'block');
+      assert.strictEqual(p2.els('footLicensed').style.display, '', 'footer says Licensed');
       // main.js must append the success message even when the log box is
       // empty (fresh panel), so it is the on-screen confirmation.
       assert.strictEqual(JSON.parse(p2.storage.getItem('amh.license') || 'null').valid, true);
@@ -390,7 +390,7 @@ await t('3.5 license: unsigned legacy state is always refused', async () => {
     await pg.evalVm('assessLicense()');
     pg.evalVm('updateLicenseUI()');
     assert.strictEqual(pg.els('runBtn').disabled, false, 'signed token enables Generate');
-    assert.strictEqual(pg.els('licensedNote').style.display, 'block');
+    assert.strictEqual(pg.els('footLicensed').style.display, '', 'footer says Licensed');
     assert.strictEqual(pg.els('licenseStatus').textContent, 'Licensed');
   } finally { pg.close(); }
 });
@@ -457,7 +457,7 @@ await t('3.7 simple buying: Buy link carries a secret, the panel activates itsel
     await p.evalVm('checkPendingBuy()');
     await flush(40);
     assert.strictEqual(p.els('licenseStatus').textContent, 'Licensed', 'activated with nothing pasted');
-    assert.strictEqual(p.els('licensedNote').style.display, 'block');
+    assert.strictEqual(p.els('footLicensed').style.display, '', 'footer says Licensed');
     assert.strictEqual(p.storage.getItem('amh.pendingBuy'), null, 'pending purchase cleared');
   } finally { p.close(); }
 
@@ -2766,6 +2766,18 @@ await t('17. polish: Amharic errors/progress, compact idle UI, simple license st
     // licensed: thank-you note, no price in the footer, no redundant status line
     p.evalVm("LICENSED = true; LICENSE_NOTE = 'Licensed'; updateLicenseUI()");
     assert.strictEqual(p.els('footPrice').style.display, 'none', 'no price shown to payers');
+    assert.strictEqual(p.els('footLicensed').style.display, '', '1.30: a small "✓ Licensed" in the footer instead');
+    assert.strictEqual(p.els('licensedNote').style.display, 'none', '1.30: no thank-you box above the work');
+    // footer "⋯": opens on tap, About closes it again
+    const ev = { preventDefault() {} };
+    p.els('footMoreBtn').fire('click', ev);
+    assert.ok(p.els('footMore').classList.contains('open'), '⋯ opens the menu');
+    assert.strictEqual(p.els('footMoreBtn').getAttribute('aria-expanded'), 'true');
+    p.els('footMoreBtn').fire('click', ev);
+    assert.ok(!p.els('footMore').classList.contains('open'), '⋯ again closes it');
+    p.els('footMoreBtn').fire('click', ev);
+    p.els('credits').fire('click', ev);
+    assert.ok(!p.els('footMore').classList.contains('open'), 'About closes the menu');
     assert.strictEqual(p.els('licenseStatus').style.display, 'none');
     p.evalVm("LICENSE_NOTE = 'Licensed until ' + lastLicenseDay('20271231'); updateLicenseUI()");
     assert.strictEqual(p.els('licenseStatus').textContent, 'ፈቃድ አለው — እስከ 2027-12-30', 'a plan shows its last day (Amharic)');

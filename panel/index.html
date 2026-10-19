@@ -238,6 +238,18 @@
     flex-wrap: wrap; row-gap: 2px;
   }
   .panel-footer a { color: inherit; text-decoration: none; }
+  .foot-licensed { color: var(--ok); }
+  .foot-links { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+  /* "⋯": the links people rarely need, open only while used */
+  .foot-more { position: relative; display: inline-flex; }
+  .foot-more-btn { padding: 0 4px; font-size: 12px; line-height: 1; letter-spacing: .05em; }
+  .foot-menu { display: none; position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 130; min-width: 150px;
+    flex-direction: column; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--bg-elev); box-shadow: 0 8px 24px rgba(0,0,0,.45); }
+  .foot-more.open .foot-menu { display: flex; }
+  .foot-more.open .foot-more-btn { color: var(--text-primary); }
+  .foot-menu a { padding: 5px 8px; border-radius: 4px; font-size: 10.5px; white-space: nowrap; }
+  .foot-menu a:hover { background: var(--bg-card); text-decoration: none; }
   .recent-box { position: fixed; left: 10px; right: 10px; bottom: 34px; z-index: 120; max-height: 55vh; overflow-y: auto;
     padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-elev); box-shadow: 0 8px 28px rgba(0,0,0,.5); }
   .recent-head { display: flex; justify-content: space-between; align-items: center; font-weight: 700; margin-bottom: 4px; }
@@ -605,7 +617,11 @@
   .style-head { display: flex; align-items: baseline; gap: 8px; font-size: var(--font-s); color: var(--text-secondary); margin-bottom: 5px; }
   .style-head .style-title { font-weight: 700; color: var(--text-primary); white-space: nowrap; }
   .style-note { flex: 1; min-width: 0; line-height: 1.35; }
-  .style-chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+  .style-chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; scrollbar-color: #2d3a33 transparent; }
+  .style-chips::-webkit-scrollbar { height: 4px; }
+  .style-chips::-webkit-scrollbar-track { background: transparent; }
+  .style-chips::-webkit-scrollbar-thumb { background: #2d3a33; border-radius: 4px; }
+  .style-chips:hover::-webkit-scrollbar-thumb { background: #3d4d44; }
   .style-chip .style-new { position: absolute; top: 5px; left: 6px; padding: 1px 5px; border-radius: 6px; font-style: normal;
     font-size: 8px; font-weight: 800; letter-spacing: .04em; background: var(--accent); color: #06110c; }
   .style-chip { position: relative; flex: 0 0 auto; width: 88px; padding: 3px; border: 1px solid var(--border); border-radius: var(--radius-sm);
@@ -681,8 +697,12 @@
     background: var(--bg-card); color: var(--text-primary); font-size: 10px; cursor: pointer; font-family: inherit; white-space: nowrap; }
   .sc-toggle.open { border-color: var(--accent); color: var(--accent); }
   .review-foot { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: stretch; }
-  .review-foot .btn { flex: 1 1 45%; min-width: 0; white-space: normal; }
-  .review-foot #reviewAdd { flex: 0 0 auto; }
+  .review-foot .btn { flex: 1 1 30%; min-width: 0; white-space: normal; }
+  .review-foot #reviewPlace { flex: 2 1 60%; }
+  .review-steps .rfiles { margin-left: auto; }
+  .review-add { flex: 0 0 auto; display: block; width: 100%; margin-top: 4px; padding: 5px 0; border: 1px dashed var(--border);
+    border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font-size: 10.5px; font-family: inherit; cursor: pointer; }
+  .review-add:hover { color: var(--text-primary); border-color: var(--accent); }
   .review-status {
     flex: 0 0 auto; font-size: 10px; color: var(--text-secondary);
     line-height: 1.45; margin-top: 6px; min-height: 12px;
@@ -993,14 +1013,19 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.29.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span></span>
-    <span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
+    <span>v<span id="panelVersion">1.30.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
-      <a href="#" id="updateCheck" title="Check for updates" data-i18n="update.check" data-i18n-title="update.checkTitle">↻ Check for updates</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
       <a href="#" id="supportLink" title="Get help in Telegram" data-i18n="foot.help" data-i18n-title="foot.helpTitle">💬 Help</a>
-      <a href="#" id="credits" title="Version and credits" data-i18n="foot.credits" data-i18n-title="foot.creditsTitle">About</a>
-      <a href="#" id="legalLink" title="License, privacy &amp; refund terms" data-i18n="foot.terms" data-i18n-title="foot.termsTitle">Terms</a>
+      <span class="foot-more" id="footMore">
+        <a href="#" id="footMoreBtn" class="foot-more-btn" title="More" data-i18n-title="foot.more" aria-haspopup="true" aria-expanded="false">⋯</a>
+        <span class="foot-menu" id="footMenu" role="menu">
+          <a href="#" id="updateCheck" role="menuitem" title="Check for updates" data-i18n="update.check" data-i18n-title="update.checkTitle">↻ Check for updates</a>
+          <a href="#" id="credits" role="menuitem" title="Version and credits" data-i18n="foot.credits" data-i18n-title="foot.creditsTitle">About</a>
+          <a href="#" id="legalLink" role="menuitem" title="License, privacy &amp; refund terms" data-i18n="foot.terms" data-i18n-title="foot.termsTitle">Terms</a>
+        </span>
+      </span>
     </span>
   </div>
 
@@ -1021,7 +1046,6 @@
   <div id="review">
     <div class="review-head">
       <span class="title" data-i18n="rev.title">Review captions</span>
-      <span class="sub" id="reviewSub" data-i18n="rev.sub">edit text &amp; times, then place on the timeline</span>
       <span class="review-count" id="reviewCount"></span>
       <span class="review-actions">
         <button type="button" id="revUndo" class="btn btn-neutral" style="display:none;"></button>
@@ -1035,12 +1059,14 @@
       <button type="button" class="rstep" id="revZoom" title="Zoom in on the video at ★ words, numbers and money" data-i18n-title="zoom.title"></button>
       <button type="button" class="rstep" id="stepStyle" title="Choose how the captions look" data-i18n-title="step.styleTitle"></button>
       <button type="button" class="rstep" id="stepPlace" title="Put the captions on the timeline" data-i18n-title="step.placeTitle"></button>
+      <button type="button" class="rstep rfiles" id="reviewExport" title="Save SRT, VTT and TXT to a folder you choose" data-i18n="rev.export" data-i18n-title="rev.exportTitle">⬇ Files</button>
     </div>
     <div class="memory-panel" id="memoryPanel" style="display:none;"></div>
     <div class="memory-panel client-panel" id="clientPanel" style="display:none;"></div>
     <div class="memory-panel cleanup-panel" id="cleanupPanel" style="display:none;"></div>
     <div class="memory-panel cleanup-panel" id="zoomPanel" style="display:none;"></div>
     <div id="reviewList"></div>
+    <button type="button" id="reviewAdd" class="review-add" data-i18n="rev.add">+ Add caption</button>
     <!-- 1.11: caption styles (shown only when this computer's ffmpeg can draw them) -->
     <div class="style-strip" id="styleStrip" style="display:none;">
       <div class="style-head"><span class="style-title" data-i18n="style.title">🎨 Caption style</span><span class="style-note" id="styleNote"></span><button type="button" class="sc-toggle" id="styleCustomToggle" style="display:none;">⚙ Customize</button></div>
@@ -1051,8 +1077,6 @@
       </div>
     </div>
     <div class="review-foot">
-      <button id="reviewAdd" class="btn btn-neutral" data-i18n="rev.add">+ Add caption</button>
-      <button id="reviewExport" class="btn btn-neutral" title="Save SRT, VTT and TXT to a folder you choose" data-i18n="rev.export" data-i18n-title="rev.exportTitle">Save subtitle files</button>
       <button id="reviewDiscard" class="btn btn-neutral" data-i18n="rev.discard">Discard</button>
       <button id="reviewPlace" class="btn btn-primary" data-i18n="rev.place">✓ Place on timeline</button>
     </div>

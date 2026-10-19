@@ -168,7 +168,7 @@ const KNOWN = [
   'capSeg', 'capWords', 'capGroup', 'groupSize', 'fmtSeg', 'fmtH', 'fmtV',
   'runBtn', 'cancelBtn', 'progBar', 'progLabel', 'progWrap', 'progTrack',
   // panel polish: collapsible option field, footer price, review labels
-  'groupSizeField', 'fmtField', 'footPrice', 'reviewSub', 'healthTitle',
+  'groupSizeField', 'fmtField', 'footPrice', 'footLicensed', 'footMore', 'footMoreBtn', 'reviewSub', 'healthTitle',
   // lite: one-time model download card
   'modelCard', 'modelBtn', 'modelBar', 'modelLabel',
   // update-available banner + what's-new card + footer check link
