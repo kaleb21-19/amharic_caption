@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.39.0';
+const APP_VERSION = '1.40.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,18 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.40.0': {
+    banner: {
+      am: '✨ 6 አዳዲስ የካፕሽን እንቅስቃሴዎች — መተየብ፣ ሞገድ፣ ብርሃን እና ሌሎች — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '✨ 6 new caption animations — typing, wave, glow and more — your license stays the same.',
+    },
+    items: [
+      { am: '⌨ መተየብ እና 〰 ሞገድ፦ ፊደሎቹ አንድ በአንድ ይታያሉ', en: '⌨ Typing and 〰 Wave: the letters appear one by one' },
+      { am: '✨ ብርሃን፣ ደብዝዞ ማጉላት፣ መንቀጥቀጥ፣ ተንሸራቶ + ቀለም', en: '✨ Glow, Blur zoom, Shake, Slide + colour' },
+      { am: 'በPremiere፣ After Effects እና Studio ውስጥ ይሰራሉ — ከሁሉም ስታይሎችና ፊደሎች ጋር', en: 'In Premiere, After Effects and the Studio — with every style and font' },
+      { am: 'ⓘ አስተካክል → እንቅስቃሴ', en: 'ⓘ Customize → Animation' },
+    ],
+  },
   '1.39.0': {
     banner: {
       am: '✍ በCapCut ውስጥ ያረሙት ካፕሽን አይጠፋም — "አዘምን" ይጠብቀዋል — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -5857,7 +5869,9 @@ const STYLE_WORDS = [0, 1, 2, 3, 4, 5];
 // The Amharic fonts in runtime/fonts (amh_styles.FONTS ids), all OFL.
 // Entrance animations (amh_styles.ANIMS); Auto = the style's own.
 const STYLE_ANIMS = [['auto', 'Auto'], ['none', 'None'], ['fade', 'Fade'], ['slide', '↑ Slide'], ['drop', '↓ Slide'],
-  ['pop', 'Pop'], ['zoom', 'Zoom'], ['blur', 'Blur']];
+  ['pop', 'Pop'], ['zoom', 'Zoom'], ['blur', 'Blur'],
+  // 1.40 animation pack
+  ['typewriter', '⌨ Typing'], ['wave', '〰 Wave'], ['slidecolor', '↑ Slide + colour'], ['shake', 'Shake'], ['glow', '✨ Glow'], ['blurzoom', 'Blur zoom']];
 const STYLE_FONTS = [['sans', 'Modern'], ['menbere', 'Rounded'], ['serif', 'Classic'], ['abyssinica', 'Traditional'],
   // 1.28.0
   ['yebse', 'Heavy'], ['washra', 'Bold'], ['agbalumo', 'Playful'], ['tint', 'Brush'], ['fantuwua', 'Handwritten'],

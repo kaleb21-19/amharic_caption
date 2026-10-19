@@ -101,6 +101,17 @@ check(ev(A.build(W, "pop", 1080, 1920, opts={"words": 1})) == 5 and ev(A.build(W
       "words per line")
 check(st(A.build(W, "karaoke", 1080, 1920, opts={"box": True}))[15] == "3" and
       st(A.build(W, "neon", 1080, 1920, opts={"box": True}))[15] == "1", "box on (not for styles that are their own box/glow)")
+
+# 1.40 animation pack: letters typed / waved one by one, never inside the ★ marks
+tw = A.build(W, "bold", 1080, 1920, opts={"anim": "typewriter"})
+first = [l for l in tw.splitlines() if l.startswith("Dialogue")][0]
+check(first.count("\\alpha&HFF&") >= 3 and "\\t(" in first, "typewriter: letters appear one by one")
+wv = A.build(W, "karaoke", 1080, 1920, opts={"anim": "wave"})
+check(all(l.count("{") == l.count("}") for l in wv.splitlines() if l.startswith("Dialogue")) and "\\fscy35" in wv, "wave: every letter rises")
+for an in ("slidecolor", "shake", "glow", "blurzoom"):
+    tt = A.build(W, "neon", 1080, 1920, opts={"anim": an})
+    check("%s" not in tt and chr(5) not in tt, an + ": a clean script")
+
 o = A.options({"color": "red", "size": "huge", "pos": "left", "words": 9, "box": 1, "y": "x"})
 check(o == {"color": None, "text": None, "size": "m", "k": 1.0, "y": None, "pos": "bottom", "words": 0, "box": True,
             "font": "sans", "anim": "auto", "emph": "auto"}, "bad options fall back safely")
