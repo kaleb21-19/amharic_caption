@@ -238,7 +238,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.48.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.49.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1311,10 +1311,10 @@ await t('4h. My styles (1.13): save a look under a name, one click to use it aga
     assert.strictEqual(chips()[0].dataset.style, 'plain', 'Plain first');
     assert.strictEqual(chips()[1].dataset.my, saved[0].id, 'then My styles');
     assert.strictEqual(chips().length, 20, 'Plain + 1 saved + 18 styles: ' + chips().map((b) => b.dataset.my ? 'MY' : b.dataset.style).join(','));
-    // the modern styles (1.16) come first after the saved looks, marked NEW
+    // the modern styles (1.16) come first after the saved looks; no NEW marks since 1.49
     assert.deepStrictEqual(chips().slice(2, 5).map((b) => b.dataset.style), ['glide', 'spotlight', 'bounce']);
     const isNew = (b) => b.children.some((c) => c.className === 'style-new');
-    assert.ok(chips().slice(2, 5).every(isNew) && !chips().slice(5).some(isNew), 'only the new styles carry the NEW mark');
+    assert.ok(!chips().some(isNew), 'no style carries a NEW mark any more (1.49)');
     assert.ok(mine()[0].classList.contains('active'), 'the saved look is the one in use');
     assert.ok(!chips().find((b) => b.dataset.style === 'bold' && !b.dataset.my).classList.contains('active'));
     // change the look: the saved one is no longer "in use"; one click brings it back
@@ -1797,7 +1797,7 @@ await t('4o. panel polish (1.16.25): what will be captioned, the review step bar
     assert.ok(/^① /.test(txt('stepText')), txt('stepText'));
     const doubts = p.evalVm('reviewDoubtCount()');
     if (doubts) assert.ok(/\?/.test(txt('stepText')) && /warn/.test(p.els('stepText').className), 'doubtful words left: orange, with the count');
-    assert.ok(/^② ✂/.test(txt('revCleanup')) && /^③ 🔍/.test(txt('revZoom')), txt('revCleanup') + ' / ' + txt('revZoom'));
+    assert.ok(/^② \S/.test(txt('revCleanup')) && /^③ \S/.test(txt('revZoom')) && !/[✂🔍]/u.test(txt('revCleanup') + txt('revZoom')), txt('revCleanup') + ' / ' + txt('revZoom'));
     p.evalVm('CLEAN = { done: { sequence: "x" }, items: [] }; ZOOM = { done: { zoomed: 1 }, items: [] }; syncReviewSteps();');
     assert.ok(/✓/.test(txt('revCleanup')) && /done/.test(p.els('revCleanup').className), 'a finished step gets ✓');
     assert.ok(/✓/.test(txt('revZoom')));
