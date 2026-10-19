@@ -58,6 +58,11 @@ test('projects: one file per video, only what is needed, broken files ignored, n
   const back = S.parseProject(JSON.stringify(p));
   assert.strictEqual(back.style, 'glide');
   assert.strictEqual(back.cues[0].text, 'ሰላም *ቃል*');
+  // 1.33: the grouping is kept with the project (older projects: null)
+  assert.strictEqual(back.group, null);
+  const g = S.makeProject({ video: 'C:/v/a.mp4', style: 'bounce', styleOpts: { size: 1.3, y: 0.5 }, group: { n: 3, fmt: 'v' }, cues: [] });
+  assert.deepStrictEqual([g.group, g.styleOpts], [{ n: 3, fmt: 'v' }, { size: 1.3, y: 0.5 }]);
+  assert.strictEqual(S.makeProject({ video: 'x', group: { n: 0, fmt: 'v' }, cues: [] }).group, null, 'nonsense is not kept');
   assert.strictEqual(S.parseProject('{bad'), null);
   assert.strictEqual(S.parseProject(JSON.stringify({ kind: 'other', cues: [], video: 'x' })), null);
   const list = S.recentProjects([{ at: 1 }, null, { at: 3 }, { at: 2 }], 2);

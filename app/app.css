@@ -420,7 +420,7 @@ html.amh-editor .ed-cwrap { height: 222px; }
 html.amh-studio #review #reviewAdd { display: none !important; }
 /* text column head: the view switch keeps its words; the count gives way */
 html.amh-studio .st-viewsw { flex: 0 0 auto; }
-html.amh-studio .st-tcount { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+html.amh-studio .st-tcount { display: none; }
 /* style tab: the note gets its own line under the title, not a narrow column */
 html.amh-studio .st-pane .style-note { order: 3; flex: 1 1 100%; font-size: 10.5px; }
 /* quiet, thin scrollbars everywhere */

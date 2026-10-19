@@ -652,6 +652,8 @@
   .style-custom::-webkit-scrollbar, #reviewList::-webkit-scrollbar, #review::-webkit-scrollbar { width: 6px; }
   .style-custom::-webkit-scrollbar-track, #reviewList::-webkit-scrollbar-track, #review::-webkit-scrollbar-track { background: transparent; }
   .style-custom::-webkit-scrollbar-thumb, #reviewList::-webkit-scrollbar-thumb, #review::-webkit-scrollbar-thumb { background: #2d3a33; border-radius: 4px; }
+  /* "1 · Karaoke" needs more room than 2-5 (it was cut on a narrow panel) */
+  #wpcSeg #wpc1 { flex: 2.2 1 auto; }
   .sc-row { display: flex; align-items: center; gap: 8px; min-height: 22px; }
   .sc-range { flex: 1 1 auto; display: flex; align-items: center; gap: 8px; min-width: 0; }
   .sc-range.sc-sub { flex-basis: 100%; padding-left: 64px; }
@@ -1019,7 +1021,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.32.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.33.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>

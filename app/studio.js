@@ -155,16 +155,18 @@
       box.appendChild(row);
       capPane.appendChild(box);
     };
-    const n = CAP === 'words' ? 1 : GROUP_SIZE;
+    const n = groupUnknown ? -1 : CAP === 'words' ? 1 : GROUP_SIZE;
     seg(tx('ቃላት በአንድ ካፕሽን', 'Words per caption'), [[1, '1 · ' + tx('ካራኦኬ', 'Karaoke')], [2, '2'], [3, '3'], [4, '4'], [5, '5']],
       n > 5 ? -1 : n, (v) => regroup(v, FORMAT));
     seg(tx('የመስመር ርዝመት', 'Line length'), [['v', '📱 ' + tx('አጭር', 'Short')], ['h', '🖥 ' + tx('መደበኛ', 'Normal')]],
-      FORMAT, (v) => regroup(CAP === 'words' ? 1 : GROUP_SIZE, v));
+      groupUnknown ? '' : FORMAT, (v) => regroup(CAP === 'words' ? 1 : GROUP_SIZE, v));
     capPane.appendChild(el('div', 'st-note', tx('ወዲያውኑ ይቀየራል — እንደገና መጻፍ አያስፈልግም። ያደረጓቸው ለውጦች ይቆያሉ።',
       'Changes at once — nothing is transcribed again. Your edits stay.')));
   }
+  let groupUnknown = false;          // an older project: its grouping was not saved
   function regroup(n, fmt) {
     if (typeof reviewCues === 'undefined' || !reviewCues.length || (typeof REVIEW_LIVE !== 'undefined' && REVIEW_LIVE)) return;
+    groupUnknown = false;
     pushReviewUndo('regroup');
     CAP = n === 1 ? 'words' : 'grouped';
     if (n > 1) GROUP_SIZE = n;
@@ -378,6 +380,9 @@
   function syncHead() {
     const cues = (typeof reviewCues !== 'undefined' && reviewCues) || [];
     tCount.textContent = cues.length ? cues.length + ' ' + tx('ካፕሽኖች', 'captions') : '';
+    // the head is narrow: the count is the List button's tooltip (it was cut to "2.")
+    const listB = document.querySelector('.st-viewsw button:last-child');
+    if (listB) listB.title = tCount.textContent;
     const d = typeof reviewDoubtCount === 'function' ? reviewDoubtCount() : 0;
     doubtB.style.display = d ? '' : 'none';
     doubtB.textContent = '⚠ ' + d;
@@ -416,6 +421,7 @@
     const ed = editor ? editor.saveState() : null;
     return S.makeProject({ video: c.path, name: c.name, duration: dur(), edit: ed, style: typeof STYLE !== 'undefined' ? STYLE : 'plain',
       styleOpts: typeof styleOpts === 'function' && typeof STYLE !== 'undefined' ? styleOpts(STYLE) : null, cues: reviewCues,
+      group: groupUnknown || typeof CAP === 'undefined' ? null : { n: CAP === 'words' ? 1 : GROUP_SIZE, fmt: FORMAT },
       cleanup: window.__amhCuts ? window.__amhCuts.save() : null });
   }
   function saveProject(force) {
@@ -459,6 +465,21 @@
     }
     if (window.__amhAppChoose) window.__amhAppChoose(p.video, true);
     if (p.style && typeof STYLE_LIST !== 'undefined' && STYLE_LIST.indexOf(p.style) >= 0) { STYLE = p.style; saveSettings({ style: p.style }); }
+    // this project's own look (size, height, colours…): another project may
+    // have changed the same style since (1.33)
+    if (p.style && p.styleOpts && typeof loadSettings === 'function') {
+      const all = loadSettings().styleOpts || {};
+      all[p.style] = p.styleOpts;
+      saveSettings({ styleOpts: all });
+    }
+    // and how its captions were grouped (older projects: not known)
+    groupUnknown = !p.group;
+    if (p.group) {
+      CAP = p.group.n === 1 ? 'words' : 'grouped';
+      if (p.group.n > 1) GROUP_SIZE = p.group.n;
+      FORMAT = p.group.fmt;
+      MAX_CHARS = FORMAT_CHARS[FORMAT];
+    }
     const tmp = path.join(os.tmpdir(), 'amh_review_studio_' + Date.now() + '.srt');
     fs.writeFileSync(tmp, srtTextFromCues(p.cues.map((c) => ({ start: c.start, end: c.end, text: String(c.text).replace(/[*~]/g, '') }))), { encoding: 'utf8' });
     await openReview(tmp, p.name || 'captions', 0, { projectId: p.name });
@@ -536,6 +557,7 @@
     closeSheet();
     if (running) return;
     if (reviewOpen) { saveProject(true); closeReview(); }
+    groupUnknown = false;              // (after saving: an older project stays "not known")
     review.classList.remove('show', 'st-working');
     renderRecent();
     if (window.__amhAppRenderDrop) window.__amhAppRenderDrop();

@@ -90,6 +90,8 @@
       kind: 'amharic-captions-studio', v: 1, at: p.at || Date.now(),
       video: String(p.video || ''), name: String(p.name || ''), duration: Number(p.duration) || 0,
       style: String(p.style || 'plain'), styleOpts: p.styleOpts || null,
+      // words per caption + line length the captions were grouped with (1.33)
+      group: p.group && p.group.n >= 1 && p.group.n <= 99 ? { n: Math.round(p.group.n), fmt: p.group.fmt === 'v' ? 'v' : 'h' } : null,
       cleanup: p.cleanup || null,
       edit: p.edit || null,
       cues: (p.cues || []).map((c) => {
