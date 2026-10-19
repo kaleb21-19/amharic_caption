@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.41.0';
+const APP_VERSION = '1.42.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,18 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.42.0': {
+    banner: {
+      am: '⬇ የአማርኛ ሞዴሉ ማውረድ አሁን ሁልጊዜ ይጨርሳል — ኢንተርኔት ቢቋረጥም — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '⬇ The Amharic model download now always finishes — even when the internet drops — your license stays the same.',
+    },
+    items: [
+      { am: 'ኢንተርኔት ቢቋረጥ ተስፋ አይቆርጥም — ፕሮግራሙ እስኪዘጋ ድረስ በየ5 ደቂቃው እንደገና ይሞክራል', en: 'It never gives up when the internet drops — it tries again every 5 minutes while the program is open' },
+      { am: 'ፕሮግራሙን ዘግተው ሲከፍቱ ወይም ኮምፒውተሩ ከተነሳ በኋላ በራሱ ይቀጥላል', en: 'It continues by itself when you open the program again, even after a restart' },
+      { am: 'ቢያቆሙት ያቆሙበት ይቆያል — "ቀጥል" ሲጫኑ ይቀጥላል', en: 'If you pause it, it stays paused until you press Resume' },
+      { am: 'የመጀመሪያው ማውረድ ያለ እርስዎ ፈቃድ አይጀምርም — የሞባይል ዳታዎን አይጨርስም', en: 'The first download never starts without you — it will not use your mobile data on its own' },
+    ],
+  },
   '1.41.0': {
     banner: {
       am: '📱 ፈቃድ በስልክዎ ይግዙ — QR ያንሱ፣ በባንክ መተግበሪያዎ ይክፈሉ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -7837,6 +7849,8 @@ async function transcribeExtra(filePath) {
 // the card shows the time left.
 let modelChild = null;
 let MODEL_RESUME = null;       // the job to start when the model is ready
+const MODEL_STARTED_KEY = 'amh.model.started';
+const MODEL_PAUSED_KEY = 'amh.model.paused';
 let MODEL_RETRY = { n: 0, timer: null, tick: null, at: 0 };
 const MODEL_RETRY_S = [10, 20, 30, 60, 60, 120, 120, 300, 300, 300];
 let MODEL_SPEED = { t: 0, bytes: 0, bps: 0 };
@@ -7866,10 +7880,12 @@ function retryModelNow() {
 }
 // The connection dropped: try again by itself, later and later. Every byte
 // already downloaded is kept (amh_model.py resumes with HTTP Range).
+// 1.42: never gives up while the program is open — after the list, every
+// 5 minutes (Ethiopian connections often come back after a long while).
 function scheduleModelRetry() {
   clearModelRetry();
-  if (MODEL_RETRY.n >= MODEL_RETRY_S.length) { modelUi('failed'); return; }
-  const wait = MODEL_RETRY_S[MODEL_RETRY.n++];
+  const wait = MODEL_RETRY_S[Math.min(MODEL_RETRY.n, MODEL_RETRY_S.length - 1)];
+  MODEL_RETRY.n++;
   MODEL_RETRY.at = Date.now() + wait * 1000;
   modelUi('retrying');
   MODEL_RETRY.tick = setInterval(() => { if (MODEL_UI.state === 'retrying') setModelUi('retrying', MODEL_UI.done); }, 1000);
@@ -7897,7 +7913,7 @@ function setModelUi(state, done) {
   if (state === 'idle') {
     btn.textContent = L('⬇ Download the Amharic model (' + mb(MODEL_TOTAL_BYTES) + ' MB)');
     btn.disabled = false;
-    if (label) label.textContent = '';
+    if (label) label.textContent = L('Wi-Fi is best. Pause any time — it continues exactly where it stopped, nothing is lost.');
   } else if (state === 'running') {
     btn.textContent = L('Pause');
     btn.disabled = false;
@@ -7959,6 +7975,9 @@ function startModelDownload() {
   MODEL_SPEED = { t: 0, bytes: 0, bps: 0 };
   modelUi('waiting');
   if (!MODEL_RETRY.n) track('model_dl_start');
+  // 1.42: remember it was started (and not paused), so it goes on by itself
+  // when the program opens again — after closing it or a restart.
+  try { localStorage.setItem(MODEL_STARTED_KEY, '1'); localStorage.removeItem(MODEL_PAUSED_KEY); } catch (e) {}
   log('Downloading the Amharic model…');
   let out = '';
   let child;
@@ -8013,6 +8032,7 @@ function initModelDownload() {
   btn.addEventListener('click', () => {
     if (modelChild) {
       modelChild.__paused = true;
+      try { localStorage.setItem(MODEL_PAUSED_KEY, '1'); } catch (e) {}
       clearModelRetry();
       try { modelChild.kill(); } catch (e) {}
       return;
@@ -8026,6 +8046,12 @@ function initModelDownload() {
   }
   modelUi('idle', 0);
   if (typeof i18nOnChange === 'function') i18nOnChange(() => setModelUi(MODEL_UI.state, MODEL_UI.done));
+  // 1.42: started before and not paused -> continue by itself (never a first
+  // download on its own: 612 MB can cost real money on mobile data)
+  let started = false, paused = false;
+  try { started = localStorage.getItem(MODEL_STARTED_KEY) === '1'; paused = localStorage.getItem(MODEL_PAUSED_KEY) === '1'; } catch (e) {}
+  if (started && paused) modelUi('paused', 0);
+  else if (started) setTimeout(() => { if (MODEL_MISSING && !modelChild && MODEL_UI.state === 'idle') { log('Continuing the Amharic model download…'); startModelDownload(); } }, 2500);
 }
 
 function setup() {
