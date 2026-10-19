@@ -177,7 +177,7 @@ const KNOWN = [
   // license
   'machineIdSection', 'machineIdDisplay', 'machineIdCopy', 'machineMismatch',
   'licensedNote', 'licenseInput', 'licenseActivate', 'licenseStatus', 'trialBanner',
-  'buyBtn', 'buyPending', 'bankDetails', 'bankBox',
+  'buyBtn', 'buyPending', 'bankDetails', 'bankBox', 'buyQrCard', 'buyQr', 'buyQrStatus', 'buyQrPc', 'buyQrClose',
   'revUndo', 'revMemory', 'memoryPanel',
   'revClient', 'clientPanel', 'revCleanup', 'cleanupPanel', 'revZoom', 'zoomPanel',
   'srcLine', 'wpcSeg', 'wpc1', 'wpc2', 'wpc3', 'wpc4', 'wpc5', 'wpcField', 'capField',
