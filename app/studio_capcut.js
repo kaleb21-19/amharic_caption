@@ -47,6 +47,34 @@
       } catch (e) { resolve(false); }
     });
   }
+  // CapCut open? Say "close it" once and go on BY ITSELF the moment it is
+  // closed (1.44: no "close CapCut, press again"). false = the editor cancelled.
+  async function untilClosed(out) {
+    if (!(await capcutRunning())) return true;
+    const box = el('div', 'st-warn');
+    box.appendChild(el('span', '', '⏳ ' + tx('CapCutን ይዝጉ — ሲዘጋ ወዲያውኑ በራሱ ይቀጥላል።', 'Close CapCut — it goes on by itself the moment CapCut is closed.') + ' '));
+    let stop = false;
+    box.appendChild(btn('st-link', tx('ተው', 'cancel'), '', () => { stop = true; }));
+    out.appendChild(box);
+    while (!stop) {
+      await new Promise((r) => setTimeout(r, 1500));
+      if (stop) break;
+      if (!(await capcutRunning())) {
+        await new Promise((r) => setTimeout(r, 1200));     // CapCut's last save is done
+        box.remove();
+        return true;
+      }
+    }
+    box.remove();
+    return false;
+  }
+  // open CapCut (the app finds it) — the end of every change
+  function openBtn(out) {
+    let here = {};
+    try { here = (window.__amhAppExport && window.__amhAppExport.editors && window.__amhAppExport.editors()) || {}; } catch (e) {}
+    if (here.capcut === false) return;
+    out.appendChild(btn('st-btn primary', '✂️ ' + tx('CapCutን ክፈት', 'Open CapCut'), '', () => { try { APP.call('openEditor', ['capcut']); } catch (e) {} }));
+  }
   function readDraft(dir) {
     try { return JSON.parse(fs.readFileSync(path.join(dir, 'draft_content.json'))); } catch (e) { return null; }
   }
@@ -208,10 +236,7 @@
 
   async function send(p, video, out) {
     out.textContent = '';
-    if (await capcutRunning()) {
-      out.appendChild(el('div', 'st-warn', tx('እባክዎ መጀመሪያ CapCutን ይዝጉ፣ ከዚያ እንደገና ይሞክሩ።', 'Please close CapCut first, then try again.')));
-      return;
-    }
+    if (!(await untilClosed(out))) return;
     const file = path.join(p.dir, 'draft_content.json');
     const d = readDraft(p.dir);
     if (!d) { out.appendChild(el('div', 'st-warn', tx('ፕሮጀክቱ ሊነበብ አልቻለም።', 'The project could not be read.'))); return; }
@@ -236,6 +261,7 @@
     fixesNote(r, out);
     out.appendChild(el('div', 'st-sub', tx('እያንዳንዱ ካፕሽን በCapCut ውስጥ እንደሚታረም ጽሑፍ ነው። እንቅስቃሴ (animation) በCapCut ውስጥ ለሁሉም በአንድ ጊዜ መጨመር ይቻላል።',
       'Each caption is a normal CapCut text you can edit. Add a CapCut animation to all of them at once there if you like.')));
+    openBtn(out);
     out.appendChild(btn('st-btn', '↶ ' + tx('የCapCut ለውጡን መልስ', 'Undo the CapCut change'), '', () => undo(p, out)));
   }
   // Caption a whole CapCut project (1.36): every video in it (made once,
@@ -245,7 +271,6 @@
     if (busy) return;
     out.textContent = '';
     const say = (t, cls) => { const d = el('div', cls || 'st-sub', t); out.appendChild(d); return d; };
-    if (await capcutRunning()) { say(tx('እባክዎ መጀመሪያ CapCutን ይዝጉ፣ ከዚያ እንደገና ይሞክሩ።', 'Please close CapCut first, then try again.'), 'st-warn'); return; }
     const d = readDraft(p.dir);
     if (!d) { say(tx('ፕሮጀክቱ ሊነበብ አልቻለም።', 'The project could not be read.'), 'st-warn'); return; }
     const vids = C.videosOf(d);
@@ -267,7 +292,7 @@
       }
     } finally { busy = false; }
     if (!items.length) { say(tx('ምንም ካፕሽን አልተሰራም።', 'No captions were made.'), 'st-warn'); return; }
-    if (await capcutRunning()) { say(tx('CapCut ተከፍቷል — ይዝጉትና እንደገና ይጫኑ (ካፕሽኖቹ ተቀምጠዋል፣ እንደገና አይሰሩም)።', 'CapCut is open — close it and press again (the captions are kept, nothing is made again).'), 'st-warn'); return; }
+    if (!(await untilClosed(out))) return;      // the captions are made while CapCut is still open
     const style = typeof STYLE !== 'undefined' ? STYLE : 'plain';
     const o = typeof styleOpts === 'function' ? styleOpts(style) : {};
     const cv = d.canvas_config || {};
@@ -282,6 +307,7 @@
     if (missing.length) say(tx(missing.length + ' ቪዲዮ(ዎች) በዚህ ኮምፒውተር ላይ አልተገኙም፦ ', missing.length + ' video(s) not found on this PC: ') + missing.map((v) => path.basename(v)).join(', '));
     fixesNote(r, out);
     say(tx('በCapCut ውስጥ ቪዲዮውን ቢቆርጡ፣ እዚህ "አዘምን" ይጫኑ — በሰከንዶች ይስተካከላል።', 'Cut the video again in CapCut? Press "Update" here — it is redone in seconds.'));
+    openBtn(out);
     out.appendChild(btn('st-btn', '↶ ' + tx('የCapCut ለውጡን መልስ', 'Undo the CapCut change'), '', () => undo(p, out)));
     if (onDone) onDone('✓ ' + built.placed + ' ' + tx('ካፕሽኖች ወደ «' + p.name + '» ገብተዋል — CapCutን ይክፈቱ።', 'captions are in «' + p.name + '» — open CapCut.') +
       (r.kept ? ' ✍ ' + r.kept + ' ' + tx('ያረሙት ቀርቷል', 'of your fixes kept') : '') +
@@ -354,7 +380,7 @@
   // copy the chosen CapCut animation to every caption of ours (1.37)
   async function spread(p, out) {
     out.textContent = '';
-    if (await capcutRunning()) { out.appendChild(el('div', 'st-warn', tx('እባክዎ መጀመሪያ CapCutን ይዝጉ።', 'Please close CapCut first.'))); return; }
+    if (!(await untilClosed(out))) return;
     const file = path.join(p.dir, 'draft_content.json');
     const d = readDraft(p.dir);
     if (!d) return;
@@ -366,10 +392,11 @@
       fs.writeFileSync(file, JSON.stringify(r.draft), { encoding: 'utf8' });
     } catch (e) { out.appendChild(el('div', 'st-warn', tx('አልተሳካም፦ ', 'Failed: ') + (e && e.message ? e.message : e))); return; }
     out.appendChild(el('div', 'st-ok', '✓ «' + r.names.join(' + ') + '» ' + tx('ለ ' + r.n + ' ካፕሽኖች ተሰጥቷል — CapCutን ይክፈቱ።', 'is on all ' + r.n + ' captions — open CapCut.')));
+    openBtn(out);
     out.appendChild(btn('st-btn', '↶ ' + tx('መልስ', 'Undo'), '', () => undo(p, out)));
   }
   async function undo(p, out) {
-    if (await capcutRunning()) { out.appendChild(el('div', 'st-warn', tx('መጀመሪያ CapCutን ይዝጉ።', 'Close CapCut first.'))); return; }
+    if (!(await untilClosed(out))) return;
     const file = path.join(p.dir, 'draft_content.json');
     try {
       fs.copyFileSync(file + BACKUP, file);
@@ -379,13 +406,74 @@
     } catch (e) { out.appendChild(el('div', 'st-warn', tx('መመለስ አልተቻለም፦ ', 'Could not undo: ') + (e && e.message ? e.message : e))); }
   }
 
+  // the video's length and size (ffmpeg, like the editor's media); a phone
+  // video turned by its rotation tag is tall
+  function probeVideo(p) {
+    return new Promise((resolve) => {
+      execFile(FFMPEG, ['-hide_banner', '-i', p], { timeout: 30000 }, (err, so, se) => {
+        const t = String(se || (err && err.message) || '');
+        const d = t.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+        const vm = t.match(/Stream[^\n]*Video:[^\n]*?\s(\d{2,5})x(\d{2,5})/);
+        let w = vm ? Number(vm[1]) : 0, h = vm ? Number(vm[2]) : 0;
+        if (/rotation of -?(90|270)\.00/.test(t) || /rotate\s*:\s*(90|270)\b/.test(t)) { const x = w; w = h; h = x; }
+        resolve({ dur: d ? Number(d[1]) * 3600 + Number(d[2]) * 60 + Number(d[3]) : 0, w, h, audio: /Stream[^\n]*Audio:/.test(t) });
+      });
+    });
+  }
+  let making = false;
+  async function newProject(video, out) {
+    if (making) return;
+    making = true;
+    try { await makeNew(video, out); } finally { making = false; }
+  }
+  async function makeNew(video, out) {
+    out.textContent = '';
+    const say = (t, cls) => { const d = el('div', cls || 'st-sub', t); out.appendChild(d); return d; };
+    const root = draftsDir();
+    if (!fs.existsSync(root)) { say(tx('CapCut በዚህ ኮምፒውተር ላይ አልተገኘም። ከጫኑት በኋላ አንድ ጊዜ ይክፈቱት።', 'CapCut was not found on this PC. After installing it, open it once.'), 'st-warn'); return; }
+    const cues = withMemory(fileCues(video));
+    if (!cues.length) { say(tx('የሚገባ ካፕሽን የለም።', 'There are no captions to put in.'), 'st-warn'); return; }
+    const wait = say('⏳ ' + tx('የCapCut ፕሮጀክት እየተሰራ ነው…', 'Making the CapCut project…'));
+    try {
+      const info = await probeVideo(video);
+      if (!info.dur) throw new Error(tx('ቪዲዮው ሊነበብ አልቻለም', 'the video could not be read'));
+      const sk = await (await fetch('/__app/capcut_new.json')).json();
+      const name = C.freeName(path.basename(video).replace(/\.[^.]+$/, '') + ' · Amharic', fs.readdirSync(root));
+      const nd = C.newDraft(sk, Object.assign({ path: video }, info), { root, name });
+      const style = typeof STYLE !== 'undefined' ? STYLE : 'plain';
+      const o = typeof styleOpts === 'function' ? styleOpts(style) : {};
+      const cv = nd.draft.canvas_config;
+      const look = C.lookFor(style, o, await fontPath(o.font || 'sans'), cv.height > cv.width, window.__amhSubs && window.__amhSubs.state().capY);
+      const built = C.buildTrack(nd.draft, video, cues, look);
+      const draft = C.addTrack(nd.draft, built);
+      const dir = path.join(root, name);
+      if (fs.existsSync(dir)) throw new Error(dir);
+      const files = nd.files(draft);
+      Object.keys(files).forEach((rel) => {
+        const f = path.join(dir, rel);
+        if (!fs.existsSync(path.dirname(f))) fs.mkdirSync(path.dirname(f), { recursive: true });
+        fs.writeFileSync(f, files[rel], { encoding: 'utf8' });
+      });
+      saveSent(dir, draft);
+      wait.remove();
+      say('✓ ' + tx('«' + name + '» በCapCut ውስጥ ዝግጁ ነው — ቪዲዮው እና ' + built.placed + ' ካፕሽኖች።', '«' + name + '» is ready in CapCut — the video and ' + built.placed + ' captions.'), 'st-ok');
+      say(tx('CapCutን ይክፈቱ (ክፍት ከሆነ ወደ መነሻ ገጹ ይመለሱ) እና «' + name + '»ን ይክፈቱ። እያንዳንዱ ካፕሽን የሚታረም ጽሑፍ ነው።',
+        'Open CapCut (already open? go back to its home screen) and open «' + name + '». Every caption is a normal text you can edit.'));
+      openBtn(out);
+      if (window.__amhCapCut) setTimeout(() => homeCard(), 300);
+    } catch (e) {
+      wait.remove();
+      say(tx('አልተሳካም፦ ', 'Failed: ') + (e && e.message ? e.message : e), 'st-warn');
+    }
+  }
+
   // the card in ⬆ Export (studio.js openExport calls this)
   window.__amhCapCutCard = function (card) {
     const c = window.__amhAppChosen && window.__amhAppChosen();
     if (!c) return;
     const k = card('✏️', 'CapCut — ' + tx('የሚታረሙ ካፕሽኖች', 'editable captions'),
-      tx('በስታይሉ ያሉ ካፕሽኖችን ወደ CapCut ፕሮጀክትዎ ይጨምራል። መጀመሪያ ቪዲዮውን በCapCut ውስጥ ያስገቡና CapCutን ይዝጉ።',
-        'Adds the captions, styled, to your CapCut project. First import this video in CapCut, then close CapCut.'));
+      tx('አዲስ የCapCut ፕሮጀክት — ቪዲዮው እና በስታይሉ ያሉ ካፕሽኖች ውስጥ ሆነው። ወይም ቪዲዮው ወዳለበት ፕሮጀክትዎ ይጨምሩ።',
+        'A new CapCut project — the video and the styled captions already in it. Or add them to your own project that uses this video.'));
     const show = () => {
       k.out.textContent = '';
       const r = projectsFor(c.path);
@@ -410,7 +498,8 @@
         k.out.appendChild(res);
       });
     };
-    k.h.appendChild(btn('st-btn', tx('ፕሮጀክቶች', 'Projects'), '', show));
+    k.h.appendChild(btn('st-btn', tx('ፕሮጀክቶች', 'Projects'), tx('ይህን ቪዲዮ የያዙ የCapCut ፕሮጀክቶችዎ', 'Your CapCut projects that use this video'), show));
+    k.h.appendChild(btn('st-btn primary', '✨ ' + tx('አዲስ ፕሮጀክት', 'New project'), tx('አዲስ የCapCut ፕሮጀክት ከቪዲዮው እና ከካፕሽኖቹ ጋር', 'A new CapCut project with the video and the captions'), () => newProject(c.path, k.out)));
   };
-  window.__amhCapCut = { draftsDir, projectsFor, allProjects, fileCues, send, undo, spread, capcutRunning, captionProject, homeCard, cachedCues };
+  window.__amhCapCut = { newProject, untilClosed, draftsDir, projectsFor, allProjects, fileCues, send, undo, spread, capcutRunning, captionProject, homeCard, cachedCues };
 })();

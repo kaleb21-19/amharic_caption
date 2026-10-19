@@ -51,7 +51,7 @@ for d in (os.path.join(HERE, "deps"), os.path.join(HERE, "..", "runtime", "app_d
 IS_WIN = sys.platform == "win32"
 API_URL = os.environ.get("AMH_API_URL", "https://amharic-captions-bot.amhcaps.workers.dev")
 TOKEN = secrets.token_hex(16)
-APP_FILES = {"node_shim.js", "app_mode.js", "app.css", "studio_core.js", "studio.js", "studio_script.js", "studio_cuts.js", "studio_edit_core.js", "studio_edit.js", "studio_subs.js", "capcut_core.js", "studio_capcut.js", "davinci_core.js", "studio_davinci.js", "amh_davinci.lua"}   # + boot.js (generated)
+APP_FILES = {"node_shim.js", "app_mode.js", "app.css", "studio_core.js", "studio.js", "studio_script.js", "studio_cuts.js", "studio_edit_core.js", "studio_edit.js", "studio_subs.js", "capcut_core.js", "studio_capcut.js", "davinci_core.js", "studio_davinci.js", "amh_davinci.lua", "capcut_new.json"}   # + boot.js (generated)
 # app/vendor: third-party files the Studio loads as modules (JASSUB, 1.29.0)
 VENDOR_TYPES = {".js": "text/javascript; charset=utf-8", ".wasm": "application/wasm"}
 WINDOW = None          # the pywebview window, set once created

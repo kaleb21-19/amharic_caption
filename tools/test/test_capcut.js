@@ -207,4 +207,49 @@ test('no personal data in the template (from a real CapCut project)', () => {
   assert.strictEqual(C.TEMPLATE.text.type, 'subtitle');
 });
 
+// 1.44: a NEW CapCut project with the video + the captions (CapCut opened once)
+test('a new CapCut project: the video, the captions, every file CapCut reads', () => {
+  const sk = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, '..', '..', 'app', 'capcut_new.json'), 'utf8'));
+  const flat = JSON.stringify(sk);
+  assert.ok(!/ROG|Users\/|device_id":"[0-9a-f]/.test(flat), 'the skeleton has no one\'s paths or device ids');
+  let n = 0; const rand = () => ((n = (n * 9301 + 49297) % 233280) / 233280);
+  const nd = C.newDraft(sk, { path: 'C:\\Users\\me\\Videos\\talk.mp4', dur: 28.1, w: 576, h: 1024, audio: true },
+    { root: 'C:\\Users\\me\\AppData\\Local\\CapCut\\User Data\\Projects\\com.lveditor.draft', name: 'talk · Amharic', now: 1792433936712808 }, rand);
+  const d = nd.draft;
+  assert.deepStrictEqual([d.canvas_config.width, d.canvas_config.height], [1080, 1920], 'a tall video = a tall project');
+  assert.strictEqual(d.duration, 28100000);
+  const v = d.materials.videos[0], seg = d.tracks[0].segments[0];
+  assert.strictEqual(v.path, 'C:/Users/me/Videos/talk.mp4');
+  assert.strictEqual(seg.material_id, v.id);
+  assert.deepStrictEqual(seg.target_timerange, { start: 0, duration: 28100000 });
+  assert.strictEqual(seg.extra_material_refs.length, 6);
+  seg.extra_material_refs.forEach((id) => assert.ok(Object.keys(d.materials).some((k) => (d.materials[k] || []).some((m) => m.id === id)), 'ref ' + id));
+  // our captions go in like in any project
+  const look = C.lookFor('karaoke', {}, '', true);
+  const built = C.buildTrack(d, 'C:/Users/me/Videos/talk.mp4', [{ start: 1, end: 2, text: 'ሰላም' }, { start: 30, end: 31, text: 'after the end' }], look);
+  assert.strictEqual(built.placed, 1);
+  const files = nd.files(C.addTrack(d, built));
+  const meta = JSON.parse(files['draft_meta_info.json']);
+  assert.strictEqual(meta.draft_name, 'talk · Amharic');
+  assert.strictEqual(meta.draft_fold_path, 'C:/Users/me/AppData/Local/CapCut/User Data/Projects/com.lveditor.draft/talk · Amharic');
+  assert.strictEqual(meta.draft_materials[0].value[0].file_Path, 'C:/Users/me/Videos/talk.mp4');
+  assert.strictEqual(meta.draft_materials[0].value[0].id, v.local_material_id);
+  const proj = JSON.parse(files['Timelines/project.json']);
+  assert.strictEqual(proj.main_timeline_id, d.id);
+  assert.strictEqual(files['Timelines/' + d.id + '/draft_content.json'], files['draft_content.json'], 'the timeline copy = the project');
+  assert.strictEqual(JSON.parse(files['timeline_layout.json']).dockItems[0].timelineIds[0], d.id);
+  assert.strictEqual(JSON.parse(files['draft_virtual_store.json']).draft_virtual_store[1].value[0].child_id, v.local_material_id);
+  assert.ok(/draft_create_time=1792433936/.test(files.draft_settings));
+  assert.strictEqual(C.ourTracks(JSON.parse(files['draft_content.json'])).length, 1, 'Update finds our track later');
+  const wide = C.newDraft(sk, { path: 'a.mp4', dur: 1, w: 1920, h: 1080 }, { root: 'R', name: 'x' }, rand).draft.canvas_config;
+  assert.deepStrictEqual([wide.width, wide.height], [1920, 1080]);
+});
+
+test('a new project name never takes an existing one', () => {
+  assert.strictEqual(C.freeName('talk · Amharic', ['0824', 'Talk · Amharic']), 'talk · Amharic (2)');
+  assert.strictEqual(C.freeName('a/b:c?', []), 'a b c');
+  assert.strictEqual(C.freeName('', []), 'Amharic Captions');
+  assert.strictEqual(C.freeName('x', ['x', 'x (2)']), 'x (3)');
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');
