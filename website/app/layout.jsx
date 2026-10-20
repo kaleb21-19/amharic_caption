@@ -59,7 +59,7 @@ export const metadata = {
   openGraph: {
     title: "Amharic Captions Pro — Amharic subtitles for Premiere, After Effects, CapCut & DaVinci",
     description:
-      "Editable Amharic captions on your Premiere or After Effects timeline, or a ready .srt for CapCut and DaVinci. Runs on your computer — no uploads, no internet needed. One-time ETB 2,500.",
+      "Styled, editable Amharic captions on your Premiere and After Effects timeline, inside your CapCut project, or as Text+ in DaVinci Resolve. Runs on your computer — no internet, nothing uploaded.",
     type: "website",
     locale: "am_ET",
     alternateLocale: ["en_US"],
