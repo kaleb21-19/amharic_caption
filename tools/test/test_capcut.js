@@ -207,6 +207,14 @@ test('no personal data in the template (from a real CapCut project)', () => {
   assert.strictEqual(C.TEMPLATE.text.type, 'subtitle');
 });
 
+// 1.50: two balanced lines in CapCut too
+test('two lines: the caption text breaks at the middle space, ★ ranges unchanged', () => {
+  assert.strictEqual(C.twoLines('ሰላም ለሁላችሁ እንኳን ደህና መጣችሁ'), 'ሰላም ለሁላችሁ\nእንኳን ደህና መጣችሁ');
+  assert.strictEqual(C.twoLines('ቡና'), 'ቡና');
+  const one = C.lookFor('karaoke', {}, '', true), two = C.lookFor('karaoke', { lines: 2 }, '', true);
+  assert.strictEqual(one.lines, 1); assert.strictEqual(two.lines, 2);
+});
+
 // 1.44: a NEW CapCut project with the video + the captions (CapCut opened once)
 test('a new CapCut project: the video, the captions, every file CapCut reads', () => {
   const sk = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, '..', '..', 'app', 'capcut_new.json'), 'utf8'));

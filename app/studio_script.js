@@ -140,11 +140,18 @@
     const sel = window.getSelection ? window.getSelection() : null;
     if (sel && !sel.isCollapsed) return;
     const x = words[Number(t.dataset.i)];
-    if (x) seek(x.s);
+    if (!x) return;
+    seek(x.s);
+    // one click on a word shows its bar too (1.50: the owner looked for it
+    // after a click; only a drag over words showed it)
+    if (!(typeof checking !== 'undefined' && checking)) { wordClicked = true; showBar([x]); }
   });
+  let wordClicked = false;
   box.addEventListener('mouseup', () => setTimeout(() => {
     const p = picked();
-    if (p.length) showBar(p); else hideBar();
+    if (p.length) showBar(p);
+    else if (!wordClicked) hideBar();
+    wordClicked = false;
   }, 0));
   box.addEventListener('dblclick', (e) => {
     const t = e.target;

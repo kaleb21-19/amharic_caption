@@ -238,7 +238,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.49.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.50.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1134,7 +1134,7 @@ await t('4f. caption styles (1.11): strip, choice remembered, styled layer place
     const args = JSON.parse(JSON.parse(/amh_placeOverlay\((.*)\)/.exec(ov)[1]));
     assert.deepStrictEqual(args, { path: 'C:/caps/x_karaoke.mov', startSeconds: 12.75, duration: 2.35, replacePrefix: 'amhstyle_clip__' },
       'placed at the clip start + the layer start; placing again replaces the earlier layer of these captions');
-    assert.deepStrictEqual(job.opts, { color: '', text: '', size: 'm', pos: 'bottom', y: null, words: 0, box: false, font: 'sans', anim: 'auto', emph: 'auto' }, 'default look');
+    assert.deepStrictEqual(job.opts, { color: '', text: '', size: 'm', pos: 'bottom', y: null, words: 0, box: false, font: 'sans', anim: 'auto', emph: 'auto', lines: 1 }, 'default look');
     assert.strictEqual(calls(/amh_importCaptions\(/).length, 0, 'no plain caption track as well');
     assert.strictEqual(p.evalVm('reviewOpen'), false, 'done');
     has(p.els('logBox').textContent, 'Styled captions on track V3');
@@ -1241,11 +1241,12 @@ await t('4g. customize (1.12): colour, size, position, words, box remembered per
     pick(5, 'off');
     pick(0, 'serif');
     pick(2, 'safe');
-    pick(8, '2');
+    pick(8, '2');                                           // Lines: 2 (1.50)
+    pick(9, '2');                                           // Words: 2
     rows[6].children[1].fire('click');                       // Box switch on
     await settle();
     const saved = JSON.parse(storage.getItem('amh.settings')).styleOpts.bold;
-    assert.deepStrictEqual(saved, { color: '#FF3B30', text: '', size: 1.45, pos: 'safe', y: null, words: 2, box: true, font: 'serif', anim: 'slide', emph: 'off' }, 'remembered for this style');
+    assert.deepStrictEqual(saved, { color: '#FF3B30', text: '', size: 1.45, pos: 'safe', y: null, words: 2, box: true, font: 'serif', anim: 'slide', emph: 'off', lines: 2 }, 'remembered for this style');
     j = last();
     assert.deepStrictEqual(j.opts, saved, 'the preview follows every change');
     assert.ok(Array.from(p.els('styleOpts').children[2].children[1].children).find((b) => b.dataset.value === 'safe').classList.contains('active'));
