@@ -1,4 +1,4 @@
--- Amharic Captions for DaVinci Resolve (Workspace > Scripts > Amharic Captions), 1.43.0.
+-- Amharic Captions for DaVinci Resolve (Workspace > Scripts > Amharic Captions), 1.57.0.
 -- Installed by Amharic Captions Studio, which writes the captions to DATA.
 --
 -- Puts the captions, styled, as Text+ titles over the CURRENT timeline:
@@ -63,15 +63,10 @@ if not ok or type(D) ~= "table" then
   return
 end
 local proj = R:GetProjectManager():GetCurrentProject()
-local tl = proj and proj:GetCurrentTimeline()
-if not tl then say({ tx("መጀመሪያ ካፕሽን የሚገባበትን Timeline ይክፈቱ።", "First open the timeline the captions are for.") }); return end
+if not proj then say({ tx("መጀመሪያ በDaVinci ውስጥ አንድ Project ይክፈቱ (ወይም New Project)።", "First open a project in DaVinci (or New Project).") }); return end
 local mp = proj:GetMediaPool()
-local fps = tonumber(tl:GetSetting("timelineFrameRate")) or 24
-local W = tonumber(tl:GetSetting("timelineResolutionWidth")) or 1920
-local H = tonumber(tl:GetSetting("timelineResolutionHeight")) or 1080
-local s0 = tl:GetStartFrame()
 
--- ── where each of our videos is on the timeline: [tlStart, tlEnd) <- file seconds from src
+-- ── where each of our videos is on a timeline: [tlStart, tlEnd) <- file seconds from src
 local wanted = {}
 for _, v in ipairs(D.videos or {}) do wanted[#wanted + 1] = v end
 local function videoFor(mpi)
@@ -81,32 +76,103 @@ local function videoFor(mpi)
   for _, v in ipairs(wanted) do if base(v.path) == base(fp) then return v end end
   return nil
 end
-local pieces, vw, vh = {}, nil, nil
-for t = 1, tl:GetTrackCount("video") do
-  for _, it in ipairs(tl:GetItemListInTrack("video", t) or {}) do
-    local mpi = it.GetMediaPoolItem and it:GetMediaPoolItem()
-    local v = videoFor(mpi)
-    if v then
-      local src
-      if it.GetSourceStartTime then src = it:GetSourceStartTime() end
-      if type(src) ~= "number" then
-        local cf = tonumber(mpi:GetClipProperty("FPS")) or fps
-        src = (it.GetSourceStartFrame and it:GetSourceStartFrame() or it:GetLeftOffset()) / cf
+local function findPieces(t0)
+  local pcs, w0, h0 = {}, nil, nil
+  local rate = tonumber(t0:GetSetting("timelineFrameRate")) or 24
+  for t = 1, t0:GetTrackCount("video") do
+    for _, it in ipairs(t0:GetItemListInTrack("video", t) or {}) do
+      local mpi = it.GetMediaPoolItem and it:GetMediaPoolItem()
+      local v = videoFor(mpi)
+      if v then
+        local src
+        if it.GetSourceStartTime then src = it:GetSourceStartTime() end
+        if type(src) ~= "number" then
+          local cf = tonumber(mpi:GetClipProperty("FPS")) or rate
+          src = (it.GetSourceStartFrame and it:GetSourceStartFrame() or it:GetLeftOffset()) / cf
+        end
+        pcs[#pcs + 1] = { v = v, a = it:GetStart(), b = it:GetEnd(), src = src, track = t }
+        local res = mpi:GetClipProperty("Resolution") or ""
+        local rw, rh = res:match("(%d+)%s*x%s*(%d+)")
+        if rw and not w0 then w0, h0 = tonumber(rw), tonumber(rh) end
       end
-      pieces[#pieces + 1] = { v = v, a = it:GetStart(), b = it:GetEnd(), src = src, track = t }
-      local res = mpi:GetClipProperty("Resolution") or ""
-      local rw, rh = res:match("(%d+)%s*x%s*(%d+)")
-      if rw and not vw then vw, vh = tonumber(rw), tonumber(rh) end
+    end
+  end
+  return pcs, w0, h0
+end
+
+-- 1.57: the open timeline when it has the video; else another timeline of
+-- this project that has it; else a NEW timeline with the video (its own
+-- size and frame rate) — nothing of yours is changed for that
+local tl = proj:GetCurrentTimeline()
+local pieces, vw, vh = {}, nil, nil
+if tl then pieces, vw, vh = findPieces(tl) end
+if #pieces == 0 then
+  for i = 1, proj:GetTimelineCount() do
+    local t2 = proj:GetTimelineByIndex(i)
+    if t2 and not (tl and t2:GetName() == tl:GetName()) and not t2:GetName():find("^Amharic Captions") then
+      local p2, w2, h2 = findPieces(t2)
+      if #p2 > 0 then tl, pieces, vw, vh = t2, p2, w2, h2; proj:SetCurrentTimeline(t2); break end
     end
   end
 end
+local created = nil
 if #pieces == 0 then
+  -- the videos: already in the Media Pool, else imported
+  local items, have = {}, {}
+  pcall(function()
+    for _, c in ipairs(mp:GetRootFolder():GetClipList() or {}) do
+      local v = videoFor(c)
+      if v and not have[v] then have[v] = c end
+    end
+  end)
+  for _, v in ipairs(wanted) do
+    local c = have[v]
+    if not c then
+      local got = mp:ImportMedia({ v.path }) or {}
+      if #got == 0 then got = mp:ImportMedia({ (v.path:gsub("/", "\\")) }) or {} end
+      c = got[1]
+    end
+    if c then items[#items + 1] = c end
+  end
+  if #items == 0 then
+    local names = {}
+    for _, v in ipairs(wanted) do names[#names + 1] = v.path end
+    say({ tx("ቪዲዮውን ማስገባት አልተቻለም፦ ", "Could not bring in the video: ") .. table.concat(names, ", "),
+          tx("ፋይሉ አሁንም እዚያ መኖሩን ያረጋግጡ፣ ወይም ቪዲዮውን ወደ Timeline ጎትተው እንደገና ይሞክሩ።", "Check the file is still there, or drag the video onto a timeline and try again.") })
+    return
+  end
+  local nm = (base(wanted[1].path):gsub("%.[^.]*$", "")) .. " - captions"
+  local nt = mp:CreateEmptyTimeline(nm) or mp:CreateEmptyTimeline(nm .. " " .. tostring(math.random(100, 999)))
+  if not nt then say({ tx("አዲስ Timeline መስራት አልተቻለም።", "Could not make a new timeline.") }); return end
+  proj:SetCurrentTimeline(nt)
+  -- the video's own size and frame rate (a vertical video = a vertical timeline)
+  pcall(function()
+    local res = items[1]:GetClipProperty("Resolution") or ""
+    local rw, rh = res:match("(%d+)%s*x%s*(%d+)")
+    local fr = items[1]:GetClipProperty("FPS")
+    nt:SetSetting("useCustomSettings", "1")
+    if rw then
+      nt:SetSetting("timelineResolutionWidth", rw); nt:SetSetting("timelineResolutionHeight", rh)
+      nt:SetSetting("timelineOutputResolutionWidth", rw); nt:SetSetting("timelineOutputResolutionHeight", rh)
+    end
+    if fr and fr ~= "" then nt:SetSetting("timelineFrameRate", tostring(fr)) end
+  end)
+  mp:AppendToTimeline(items)
+  tl = nt
+  created = nt:GetName()
+  pieces, vw, vh = findPieces(tl)
+end
+if not tl or #pieces == 0 then
   local names = {}
   for _, v in ipairs(wanted) do names[#names + 1] = base(v.path) end
-  say({ tx("በዚህ Timeline («" .. tl:GetName() .. "») ውስጥ ቪዲዮው አልተገኘም፦ ", "The video is not in this timeline («" .. tl:GetName() .. "»): ") .. table.concat(names, ", "),
-        tx("ቪዲዮው ያለበትን Timeline ከፍተው እንደገና ይሞክሩ።", "Open the timeline that uses it and try again.") })
+  say({ tx("ቪዲዮው በዚህ Project ውስጥ አልተገኘም፦ ", "The video is not in this project: ") .. table.concat(names, ", "),
+        tx("ቪዲዮውን ወደ Timeline ጎትተው እንደገና ይሞክሩ።", "Drag the video onto a timeline and try again.") })
   return
 end
+local fps = tonumber(tl:GetSetting("timelineFrameRate")) or 24
+local W = tonumber(tl:GetSetting("timelineResolutionWidth")) or 1920
+local H = tonumber(tl:GetSetting("timelineResolutionHeight")) or 1080
+local s0 = tl:GetStartFrame()
 
 -- ── every caption in timeline frames (a cue split by a cut = two captions)
 local caps = {}
@@ -292,6 +358,9 @@ end
 if vw and vh and vh > vw and W > H then
   lines[#lines + 1] = tx("ምክር፦ ቪዲዮው ቁመታዊ ነው ግን Timeline ስፋታዊ (" .. W .. "×" .. H .. ") ነው — ለTikTok/Reels Timeline 1080×1920 ያድርጉ።",
                          "Tip: the video is vertical but the timeline is wide (" .. W .. "×" .. H .. ") — for TikTok/Reels use a 1080×1920 timeline.")
+end
+if created then
+  lines[#lines + 1] = tx("✓ አዲስ Timeline «" .. created .. "» ከቪዲዮዎ ጋር ተሰርቷል (በMedia Pool ውስጥ)።", "✓ A new timeline «" .. created .. "» was made with your video (in the Media Pool).")
 end
 lines[#lines + 1] = same and tx("✓ ቪዲዮዎ አልተነካም።", "✓ Your video was not touched.")
                          or tx("⚠ በTimelineዎ ውስጥ የተቀየረ ነገር አለ — Ctrl+Z ይጫኑ።", "⚠ Something in your timeline changed — press Ctrl+Z.")

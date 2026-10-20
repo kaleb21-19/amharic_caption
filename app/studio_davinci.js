@@ -79,7 +79,8 @@
     wait.remove();
     say('✓ ' + data.cues + ' ' + tx('ካፕሽኖች ለDaVinci ተዘጋጅተዋል።', 'captions are ready for DaVinci.'), 'st-ok');
     const ol = el('ol', 'st-steps');
-    [tx('በDaVinci ውስጥ ይህን ቪዲዮ የያዘውን Timeline ይክፈቱ።', 'In DaVinci, open the timeline that uses this video.'),
+    [tx('DaVinciን ከፍተው ማንኛውንም Project ይክፈቱ (ወይም New Project) — ቪዲዮው Timeline ላይ ከሌለ ስክሪፕቱ ራሱ ያስገባዋል።',
+        'Open DaVinci and open any project (or New Project) — if the video is not on a timeline yet, the script brings it in by itself.'),
       tx('Workspace → Scripts → Amharic Captions ይጫኑ — ካፕሽኖቹ ከቪዲዮው በላይ በአዲስ track ይገባሉ (ቪዲዮዎ አይነካም)።',
         'Click Workspace → Scripts → Amharic Captions — the captions go on a new track above the video (your video is not touched).'),
       tx('ለማረም፦ ብሎኩን Right-click → «Decompose in Place» — እያንዳንዱ ካፕሽን Text+ ይሆናል (Inspector → Text)።',
