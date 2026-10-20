@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.53.0';
+const APP_VERSION = '1.54.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -4302,6 +4302,7 @@ function removeTempCaptionArtifact(filePath) {
 
 function closeReview(keepArtifact) {
   hideTiming();
+  stopHearing();
   CLEAN = null;
   closeCleanupPanel();
   ZOOM = null;
@@ -4618,7 +4619,13 @@ function renderReview() {
     row.appendChild(acts);
     // the timing editor of the caption being edited (it survives a re-render)
     if (TIMING_I === i) showTiming(i, row, tIn, tOut);
-    ta.addEventListener('focus', () => { showTiming(i, row, tIn, tOut); });
+    // 1.54 (owner): the sound-wave timing strip no longer opens on every click
+    // into the text — exact times stay in the time boxes; a click on a word
+    // plays the video from that word instead (Premiere panel)
+    if (!IS_APP_MODE()) ta.addEventListener('click', () => {
+      if (ta.selectionStart !== ta.selectionEnd) return;      // selecting words: no sound
+      hearFrom(i, ta.selectionStart);
+    });
     // Click a caption row to jump the Premiere playhead to that caption's start.
     row.addEventListener('click', (e) => {
       const el = e.target;
@@ -4762,6 +4769,76 @@ function toggleEmphasis(i, from, to) {
 // playhead there. No footage known (an audio-only run is fine: the voice
 // file IS the footage) -> nothing extra appears.
 let TIMING_I = -1;
+// ── ▶ click a word: hear the video from that word (1.54, Premiere panel) ──
+// The panel plays the clip's own file from the word (a caption knows its file
+// and offset, PREVIEW_MEDIA) and moves Premiere's playhead there too; the
+// caption being heard is marked. ■ on top, Esc, or closing the list stops it.
+const HEAR = { a: null, m: null, row: -1 };
+function fileUrl(p) {
+  const s = String(p || '').replace(/\\/g, '/');
+  const segs = s.split('/');
+  return 'file://' + (s.charAt(0) === '/' ? '' : '/') + segs.map((x, j) => (j === 0 && /^[A-Za-z]:$/.test(x) ? x : encodeURIComponent(x))).join('/');
+}
+function hearFrom(i, caret) {
+  const c = reviewCues[i];
+  if (!c) return;
+  const text = String(c.text || '');
+  const before = text.slice(0, Math.max(0, caret || 0));
+  const k = before.trim() ? before.trim().split(/\s+/).length - (/\s$/.test(before) ? 0 : 1) : 0;
+  const ws = cleanupWords([c]);
+  const w = ws[Math.max(0, Math.min(ws.length - 1, k))];
+  const t = w ? w.s : Number(c.start) || 0;
+  try { seekPlayhead(t); } catch (e) {}
+  const m = previewMediaFor([[text, t, t]]);
+  if (!m) return;
+  try {
+    if (!HEAR.a) {
+      HEAR.a = new Audio();
+      HEAR.a.addEventListener('timeupdate', hearFollow);
+      HEAR.a.addEventListener('ended', stopHearing);
+    }
+    if (HEAR.m !== m.path) { HEAR.a.src = fileUrl(m.path); HEAR.m = m.path; }
+    HEAR.a.currentTime = Math.max(0, t + m.offset);
+    const p = HEAR.a.play();
+    if (p && p.catch) p.catch(() => {});
+    HEAR.off = m.offset;
+    hearButton(true);
+  } catch (e) {}
+}
+function hearFollow() {
+  if (!HEAR.a) return;
+  const t = HEAR.a.currentTime - (HEAR.off || 0);
+  const list = $('reviewList');
+  const i = reviewCues.findIndex((c) => t >= c.start && t < c.end);
+  if (i === HEAR.row || !list) return;
+  const rows = list.children || [];
+  if (HEAR.row >= 0 && rows[HEAR.row] && rows[HEAR.row].classList) rows[HEAR.row].classList.remove('hearing');
+  if (i >= 0 && rows[i] && rows[i].classList) rows[i].classList.add('hearing');
+  HEAR.row = i;
+}
+function stopHearing() {
+  if (HEAR.a) { try { HEAR.a.pause(); } catch (e) {} }
+  const list = $('reviewList');
+  if (list && HEAR.row >= 0 && list.children && list.children[HEAR.row] && list.children[HEAR.row].classList) list.children[HEAR.row].classList.remove('hearing');
+  HEAR.row = -1;
+  hearButton(false);
+}
+function hearButton(on) {
+  const bar = $('reviewSteps');
+  if (!bar) return;
+  let b = $('hearStop');
+  if (on && !b) {
+    b = document.createElement('button');
+    b.type = 'button'; b.id = 'hearStop'; b.className = 'rstep hearstop';
+    b.textContent = '■ ' + L('Stop');
+    b.title = L('Stop') + ' (Esc)';
+    b.addEventListener('click', stopHearing);
+    bar.insertBefore(b, bar.firstChild);
+  }
+  if (b) b.style.display = on ? '' : 'none';
+}
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && HEAR.a && !HEAR.a.paused) stopHearing(); });
+
 let TIMING_EL = null;
 const WAVE_CACHE = {};
 const TIMING_MIN = 0.2;
@@ -4990,15 +5067,24 @@ function cleanupFindAll() {
   items.sort((x, y) => x.start - y.start);
   CLEAN.items = items.filter((x) => x.end - x.start > 0.05);
 }
-function cleanupSelected() { return ((CLEAN && CLEAN.items) || []).filter((x) => x.on); }
+// 1.54 (owner): two buttons on top — '🔇 Clean silence' (pauses, repeated
+// takes, እ… sounds) and '✂ Edit with text' (the words marked ✂ in the text).
+// One list underneath; each button shows and cuts only its own kind.
+let CLEAN_MODE = 'silence';
+const cleanupKindOf = (it) => (it.kind === 'text' ? 'text' : 'silence');
+function cleanupShown() { return ((CLEAN && CLEAN.items) || []).filter((x) => cleanupKindOf(x) === CLEAN_MODE); }
+function cleanupSelected() { return cleanupShown().filter((x) => x.on); }
 function renderCleanupPanel() {
   syncReviewSteps();
   const p = $('cleanupPanel');
   if (!p || p.style.display === 'none') return;
   p.textContent = '';
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-  p.appendChild(el('div', 'mem-head', '✂ ' + L('Clean up')));
-  p.appendChild(el('div', 'mem-sub', L('Cuts long pauses, repeated takes and እ… sounds — on a copy of your sequence.')));
+  const textMode = CLEAN_MODE === 'text';
+  p.appendChild(el('div', 'mem-head', textMode ? '✂ ' + L('Edit with text') : '🔇 ' + L('Clean silence')));
+  p.appendChild(el('div', 'mem-sub', textMode
+    ? L('Cuts the words you marked ✂ in the captions (select words, then ✂ or Ctrl+D) — on a copy of your sequence.')
+    : L('Cuts long pauses, repeated takes and እ… sounds — on a copy of your sequence.')));
   if (!CLEAN || CLEAN.busy) { p.appendChild(el('div', 'mem-sub', L('Listening for pauses…'))); return; }
   if (CLEAN.done) {
     p.appendChild(el('div', 'clean-done', L('Done') + ': ' + L('removed') + ' ' + fmtDur(CLEAN.done.removedSeconds) +
@@ -5010,20 +5096,25 @@ function renderCleanupPanel() {
     if (CLEAN.done.error) p.appendChild(el('div', 'clean-err', CLEAN.done.error));
     return;
   }
-  const seg = el('div', 'clean-opt');
-  seg.appendChild(el('span', '', L('Pauses longer than')));
-  CLEAN_PAUSES.forEach((v) => {
-    const b = el('button', 'sc-opt' + (v === cleanupPause() ? ' active' : ''), v + ' s');
-    b.type = 'button';
-    b.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); saveSettings({ cleanupPause: v }); cleanupFindAll(); renderCleanupPanel(); });
-    seg.appendChild(b);
-  });
-  p.appendChild(seg);
-  if (!CLEAN.envs.length) p.appendChild(el('div', 'mem-sub', L('Pauses: your footage could not be read here — repeats and sounds only.')));
+  if (!textMode) {
+    const seg = el('div', 'clean-opt');
+    seg.appendChild(el('span', '', L('Pauses longer than')));
+    CLEAN_PAUSES.forEach((v) => {
+      const b = el('button', 'sc-opt' + (v === cleanupPause() ? ' active' : ''), v + ' s');
+      b.type = 'button';
+      b.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); saveSettings({ cleanupPause: v }); cleanupFindAll(); renderCleanupPanel(); });
+      seg.appendChild(b);
+    });
+    p.appendChild(seg);
+    if (!CLEAN.envs.length) p.appendChild(el('div', 'mem-sub', L('Pauses: your footage could not be read here — repeats and sounds only.')));
+  }
   const names = { text: '✂ ' + L('Your cut'), pause: L('Pause'), repeat: L('Repeated take'), filler: L('Sound'), word: L('Filler word?') };
   const list = el('div', 'clean-list');
-  if (!CLEAN.items.length) list.appendChild(el('div', 'mem-sub', L('Nothing to clean — it is already tight.')));
-  CLEAN.items.forEach((it) => {
+  const shown = cleanupShown();
+  if (!shown.length) list.appendChild(el('div', 'mem-sub', textMode
+    ? L('No words are marked yet: select words in a caption, then press ✂ (or Ctrl+D).')
+    : L('Nothing to clean — it is already tight.')));
+  shown.forEach((it) => {
     const row = el('label', 'clean-row' + (it.on ? '' : ' off'));
     const cb = document.createElement('input');
     cb.type = 'checkbox';
@@ -5130,16 +5221,19 @@ async function applyCleanup() {
   renderCleanupPanel();
   return CLEAN.done;
 }
-function toggleCleanupPanel() {
+function toggleCleanupPanel(mode) {
   const p = $('cleanupPanel');
   if (!p) return;
-  const open = p.style.display === 'none';
+  mode = mode === 'text' ? 'text' : (mode === 'silence' ? 'silence' : CLEAN_MODE);
+  // the other button while open: switch the list, keep it open
+  const open = p.style.display === 'none' || mode !== CLEAN_MODE;
+  CLEAN_MODE = mode;
   closeMemoryPanel();
   closeClientPanel();
   closeZoomPanel();
   p.style.display = open ? '' : 'none';
   if (open) {
-    const b = $('revCleanup');
+    const b = $(mode === 'text' ? 'revCleanup' : 'revSilence') || $('revCleanup');
     if (b && typeof b.offsetTop === 'number' && b.offsetHeight) p.style.top = (b.offsetTop + b.offsetHeight + 4) + 'px';
     if (!CLEAN || CLEAN.done) analyzeCleanup(); else renderCleanupPanel();
   }
@@ -5290,20 +5384,27 @@ function syncReviewSteps() {
   const strip = $('styleStrip');
   const styles = !!(strip && strip.style.display !== 'none');
   const doubts = reviewDoubtCount();
+  // 1.54 (owner: "too many steps, confusing"): only the main tools on top —
+  // Text and Clean up (with the parts marked ✂ in the text); Zoom a small
+  // icon; Style and Place are already at the bottom (the style row and the
+  // big Place button), so no numbered steps and no repeats up here
+  let marked = 0;
+  try { marked = findTextCuts(reviewCues).length; } catch (e) {}
+  void styles; void STEP_NUMS;
   const steps = [
-    ['stepText', true, L('Text') + (doubts ? ' · ' + doubts + ' ?' : ' ✓'), doubts ? 'warn' : 'done'],
-    ['revCleanup', tools, L('Clean up') + (CLEAN && CLEAN.done ? ' ✓' : ''), CLEAN && CLEAN.done ? 'done' : ''],
-    ['revZoom', tools, L('Zoom') + (ZOOM && ZOOM.done ? ' ✓' : ''), ZOOM && ZOOM.done ? 'done' : ''],
-    ['stepStyle', styles, (STYLE === 'plain' ? L('Style') : L(STYLE_NAMES[STYLE] || STYLE) + ' ✓'), STYLE === 'plain' ? '' : 'done'],
-    ['stepPlace', true, L('Place'), 'last'],
+    ['stepText', true, L('Text') + (doubts ? ' · ⚠ ' + doubts : ' ✓'), doubts ? 'warn' : 'done'],
+    ['revSilence', tools, '🔇 ' + L('Clean silence'), ''],
+    ['revCleanup', tools, '✂ ' + L('Edit with text') + (marked ? ' · ' + marked : '') + (CLEAN && CLEAN.done ? ' ✓' : ''), marked ? 'warn' : (CLEAN && CLEAN.done ? 'done' : '')],
+    ['revZoom', tools, '🔍', ZOOM && ZOOM.done ? 'done rzoom' : 'rzoom'],
+    ['stepStyle', false, '', ''],
+    ['stepPlace', false, '', ''],
   ];
-  let n = 0;
   steps.forEach(([id, show, text, cls]) => {
     const b = $(id);
     if (!b) return;
     b.style.display = show ? '' : 'none';
     if (!show) return;
-    b.textContent = STEP_NUMS[n++] + ' ' + text;
+    b.textContent = text;
     b.className = 'rstep' + (cls ? ' ' + cls : '');
   });
 }
@@ -6720,8 +6821,13 @@ function initReview() {
   if (cliBtn) cliBtn.addEventListener('click', toggleClientPanel);
   const cleanBtn = $('revCleanup');
   if (cleanBtn) {
-    if (cleanupAvailable()) cleanBtn.addEventListener('click', toggleCleanupPanel);
+    if (cleanupAvailable()) cleanBtn.addEventListener('click', () => toggleCleanupPanel('text'));
     else cleanBtn.style.display = 'none';                   // Premiere only
+  }
+  const silenceBtn = $('revSilence');
+  if (silenceBtn) {
+    if (cleanupAvailable()) silenceBtn.addEventListener('click', () => toggleCleanupPanel('silence'));
+    else silenceBtn.style.display = 'none';                 // Premiere only
   }
   initReviewSteps();
   initSourceLine();

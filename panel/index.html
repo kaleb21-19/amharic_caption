@@ -768,6 +768,9 @@
   .chk-sug { display: flex; gap: 6px; flex-wrap: wrap; }
   .chk-sug button { border: 1px dashed var(--accent); background: var(--accent-soft); color: var(--text-primary); border-radius: 6px; padding: 2px 9px; font: inherit; cursor: pointer; }
   .review-row.chk-row { background: var(--warn-soft); }
+  /* 1.54: the caption being heard; ■ Stop on top */
+  .review-row.hearing { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+  .rstep.hearstop { border-color: var(--accent); color: var(--accent); }
 </style>
 </head>
 <body>
@@ -1057,7 +1060,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.53.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.54.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
@@ -1116,7 +1119,8 @@
     </div>
     <div class="review-steps" id="reviewSteps" role="navigation" aria-label="Steps">
       <button type="button" class="rstep" id="stepText" title="Go to the first doubtful word" data-i18n-title="step.textTitle"></button>
-      <button type="button" class="rstep" id="revCleanup" title="Cut long pauses, repeated takes and hesitation sounds" data-i18n-title="clean.title"></button>
+      <button type="button" class="rstep" id="revSilence" title="Cut long pauses, repeated takes and hesitation sounds" data-i18n-title="clean.title"></button>
+      <button type="button" class="rstep" id="revCleanup" title="Cut the words you marked ✂ in the captions"></button>
       <button type="button" class="rstep" id="revZoom" title="Zoom in on the video at ★ words, numbers and money" data-i18n-title="zoom.title"></button>
       <button type="button" class="rstep" id="stepStyle" title="Choose how the captions look" data-i18n-title="step.styleTitle"></button>
       <button type="button" class="rstep" id="stepPlace" title="Put the captions on the timeline" data-i18n-title="step.placeTitle"></button>
