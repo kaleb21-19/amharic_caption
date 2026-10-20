@@ -66,6 +66,11 @@
     if (mode !== 'script') return;
     const cues = (typeof reviewCues !== 'undefined' && reviewCues) || [];
     words = cleanupWords(cues);
+    // 1.56: a redraw (the list refreshing behind) used to drop the open bar
+    // — and a ✎ Fix being typed; the same words get it back below
+    const fixing = bar.querySelector('.st-fix');
+    const keep = (bar.style.display !== 'none' && current.length && !bar.classList.contains('st-chk'))
+      ? { ids: current.map((x) => x.i), ws: current.map((x) => x.w).join(' '), val: fixing ? fixing.value : null } : null;
     words.forEach((x, i) => { x.i = i; });
     box.textContent = '';
     box.appendChild(bar);            // the selection bar lives in the script
@@ -114,6 +119,13 @@
     nowIdx = -1;
     follow(false);
     bar.classList.remove('st-chk');
+    if (keep) {
+      const p = keep.ids.map((i) => words[i]);
+      if (p.every(Boolean) && p.map((x) => x.w).join(' ') === keep.ws) {
+        if (keep.val == null) showBar(p);
+        else { openFix(p); const inp = bar.querySelector('.st-fix'); if (inp) inp.value = keep.val; }
+      } else current = [];
+    }
   }
   let renderT = 0;
   function renderSoon() { clearTimeout(renderT); renderT = setTimeout(render, 30); }
@@ -147,7 +159,14 @@
     if (!(typeof checking !== 'undefined' && checking)) { wordClicked = true; showBar([x]); }
   });
   let wordClicked = false;
-  box.addEventListener('mouseup', () => setTimeout(() => {
+  // a press inside the bar (✎ Fix, its typing box) is not a click on the
+  // text: it must not close the bar (1.56 — ✎ Fix closed itself at once)
+  // (the press is noted when it starts: ✎ re-draws the bar under the mouse)
+  let barPress = false;
+  box.addEventListener('mouseup', (e) => setTimeout(() => {
+    const own = barPress || !!(e && e.target && bar.contains(e.target));
+    barPress = false;
+    if (own) return;
     const p = picked();
     if (p.length) showBar(p);
     else if (!wordClicked) hideBar();
@@ -164,6 +183,7 @@
   const bar = el('div', 'st-tb');
   bar.style.display = 'none';
   box.appendChild(bar);
+  bar.addEventListener('mousedown', () => { barPress = true; }, true);
   let current = [];
   function place(rect) {
     const b = box.getBoundingClientRect();
@@ -313,7 +333,10 @@
     if (typeof schedulePreview === 'function') schedulePreview();
   }
   document.addEventListener('mousedown', (e) => {
-    if (bar.style.display === 'none' || bar.contains(e.target) || box.contains(e.target)) return;
+    // where the press WAS: ✎ swaps the bar's buttons for its typing box
+    // before this runs, so the pressed button is no longer in the bar (1.56)
+    const path = (e.composedPath && e.composedPath()) || [];
+    if (bar.style.display === 'none' || path.indexOf(bar) >= 0 || bar.contains(e.target) || box.contains(e.target)) return;
     if (typeof checking !== 'undefined' && checking) { if (e.target.closest && e.target.closest('.st-player, .ed-tl, #appVideo')) return; stopCheck(); return; }
     hideBar();
   });
