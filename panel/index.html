@@ -771,6 +771,60 @@
   /* 1.54: the caption being heard; ■ Stop on top */
   .review-row.hearing { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
   .rstep.hearstop { border-color: var(--accent); color: var(--accent); }
+
+  /* ── 1.55 Pro panel: the caption screen (Premiere / After Effects only;
+     the Studio has its own layout). Reads like a document: no box around
+     every caption, one small start time, tools only where the mouse is,
+     one accent, spacing instead of borders. Nothing removed. ── */
+  html:not(.amh-studio) #review { padding: 0; }
+  html:not(.amh-studio) .review-head { margin: 0; padding: 10px 12px 8px; gap: 6px; border-bottom: 1px solid var(--border); }
+  html:not(.amh-studio) .review-head .title { font-size: var(--font-m); font-weight: 600; letter-spacing: .01em; }
+  html:not(.amh-studio) .review-count { margin-left: 0; font-size: 11px; }
+  html:not(.amh-studio) .review-actions { gap: 2px; }
+  html:not(.amh-studio) .review-actions .btn { border: 0; background: transparent; color: var(--text-secondary); padding: 4px 7px; border-radius: 6px; }
+  html:not(.amh-studio) .review-actions .btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+  html:not(.amh-studio) .review-steps { margin: 0; padding: 8px 12px 6px; gap: 6px; }
+  html:not(.amh-studio) .review-steps .rstep { border-radius: 999px; padding: 3px 11px; font-size: 11.5px; background: transparent; line-height: 1.6; }
+  html:not(.amh-studio) .review-steps .rstep.warn { background: var(--warn-soft); border-color: transparent; }
+  html:not(.amh-studio) .review-steps .rstep.done { border-color: var(--border); }
+  html:not(.amh-studio) .review-steps .rzoom { padding: 3px 8px; }
+  html:not(.amh-studio) .review-steps .rfiles { border-color: transparent; }
+  html:not(.amh-studio) #reviewList { border: 0; border-radius: 0; background: transparent; padding: 2px 6px 6px; gap: 0; }
+  html:not(.amh-studio) .review-row { padding: 6px 6px; gap: 8px; border-radius: 6px; }
+  html:not(.amh-studio) .review-row .time-box { flex: 0 0 42px; padding-top: 4px; }
+  /* the row's tools take one line of height; their 2nd line shows over the
+     next row only while this row is pointed at (rows stay as tall as their text) */
+  html:not(.amh-studio) .row-acts { height: 24px; position: relative; z-index: 1; }
+  html:not(.amh-studio) .review-row:hover .row-acts, html:not(.amh-studio) .review-row:focus-within .row-acts { z-index: 6; }
+  html:not(.amh-studio) .review-row:hover, html:not(.amh-studio) .review-row:focus-within { position: relative; z-index: 2; }
+  html:not(.amh-studio) .review-row input.t { font-family: inherit; font-variant-numeric: tabular-nums; font-size: 11px; text-align: left; padding: 1px 2px; color: #74827b; }
+  html:not(.amh-studio) .review-row .time-box input.t + input.t { display: none; }
+  html:not(.amh-studio) .review-row:focus-within .time-box input.t + input.t { display: block; }
+  html:not(.amh-studio) .review-row .text-box { background: transparent; }
+  html:not(.amh-studio) .review-row .text-box textarea, html:not(.amh-studio) .review-row .text-box .hl-back { font-size: 13.5px; line-height: 1.55; padding: 3px 44px 3px 6px; }
+  html:not(.amh-studio) .review-row .text-box textarea { border-color: transparent; }
+  html:not(.amh-studio) .review-row:hover .text-box textarea { border-color: var(--border); }
+  html:not(.amh-studio) .review-row .text-box textarea:focus { border-color: var(--accent); background: var(--bg-field); }
+  html:not(.amh-studio) .review-add { border: 0; text-align: left; padding: 6px 18px; margin: 0; color: var(--text-secondary); background: transparent; font-size: 12px; }
+  html:not(.amh-studio) .review-add:hover { color: var(--accent); }
+  html:not(.amh-studio) .style-strip { margin: 0; padding: 8px 12px 6px; border-top: 1px solid var(--border); }
+  html:not(.amh-studio) .style-head { cursor: pointer; align-items: center; margin: 0; }
+  html:not(.amh-studio) .style-strip:not(.open) .style-chips,
+  html:not(.amh-studio) .style-strip:not(.open) .style-custom,
+  html:not(.amh-studio) .style-strip:not(.open) #styleNote,
+  html:not(.amh-studio) .style-strip:not(.open) #styleCustomToggle { display: none !important; }
+  html:not(.amh-studio) .style-strip.open .style-head { margin-bottom: 8px; flex-wrap: wrap; row-gap: 6px; }
+  html:not(.amh-studio) .style-strip.open #styleNote { order: 9; flex: 1 1 100%; font-size: 11px; line-height: 1.45; }
+  html:not(.amh-studio) .style-strip.open #styleCustomToggle { margin-left: 0; }
+  .style-now { margin-left: auto; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary); border-radius: 999px;
+    padding: 3px 11px; font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
+  .style-now:hover { border-color: var(--accent); }
+  html:not(.amh-studio) .style-strip.open .style-now { border-color: var(--accent); color: var(--accent); }
+  html:not(.amh-studio) .review-foot { margin: 0; padding: 8px 12px 10px; gap: 8px; flex-wrap: nowrap; }
+  html:not(.amh-studio) .review-foot .btn { width: auto; }
+  html:not(.amh-studio) .review-foot #reviewDiscard { flex: 0 0 auto; background: transparent; border-color: transparent; color: var(--text-secondary); padding-left: 10px; padding-right: 10px; }
+  html:not(.amh-studio) .review-foot #reviewDiscard:hover { color: var(--text-primary); background: var(--bg-hover); }
+  html:not(.amh-studio) .review-foot #reviewPlace { flex: 1 1 auto; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -1060,7 +1114,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.54.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.55.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>

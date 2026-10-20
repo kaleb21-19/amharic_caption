@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.54.0';
+const APP_VERSION = '1.55.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -5857,6 +5857,31 @@ function styleChip(id, label, img, onClick) {
   b.addEventListener('click', onClick);
   return b;
 }
+// 1.55 (Pro panel): the style row is a calm chooser at the bottom — "Style ·
+// Bounce ⌄"; a click opens all the styles, My styles and Customize (nothing
+// removed, only folded until wanted). The Studio keeps its own Style tab.
+function syncStyleNow(mine) {
+  const strip = $('styleStrip');
+  const head = strip && strip.querySelector ? strip.querySelector('.style-head') : null;
+  if (!head || document.documentElement.classList.contains('amh-studio')) return;
+  let now = $('styleNow');
+  if (!now) {
+    now = document.createElement('button');
+    now.type = 'button';
+    now.id = 'styleNow';
+    now.className = 'style-now';
+    const t = head.querySelector('.style-title');
+    if (t && t.nextSibling) head.insertBefore(now, t.nextSibling); else head.appendChild(now);
+    head.addEventListener('click', (e) => {
+      const tg = e.target;
+      if (tg && tg.closest && tg.closest('#styleCustomToggle')) return;
+      strip.classList.toggle('open');
+      now.setAttribute('aria-expanded', strip.classList.contains('open') ? 'true' : 'false');
+    });
+  }
+  now.textContent = (mine ? '★ ' + mine.name : L(STYLE_NAMES[STYLE] || STYLE)) + ' ⌄';
+  now.title = L('Choose how the captions look');
+}
 function renderStyleStrip() {
   syncReviewSteps();
   const strip = $('styleStrip');
@@ -5866,6 +5891,7 @@ function renderStyleStrip() {
   if (!STYLE_OK) return;
   const mine = activeMyStyle();
   const list = myStyles();
+  syncStyleNow(mine);
   // Rebuilt only when the saved looks change: rebuilding on every click
   // would also jump the strip back to the start after scrolling to a style.
   const sig = JSON.stringify(list.map((m) => [m.id, m.name, m.style, m.opts && m.opts.color]));
