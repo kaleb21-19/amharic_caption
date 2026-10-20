@@ -261,7 +261,7 @@ export default function HomePage() {
 
               <p className="hero-sub">
                 <Tx
-                  am="እያንዳንዱን መስመር በእጅ ከመጻፍ ይልቅ፣ በስታይል ያሉ፣ የሚታረሙ የአማርኛ ካፕሽኖችን በራሱ ይጻፉ — በPremiere እና After Effects ታይምላይን ላይ፣ በCapCut ፕሮጀክትዎ ውስጥ፣ ወይም በDaVinci (ነፃውም) እንደ Text+። ያለ ኢንተርኔት።"
+                  am="እያንዳንዱን መስመር በእጅ መጻፍ ይቅር፦ ፕሮግራሙ በስታይል ያሉ፣ የሚታረሙ የአማርኛ ካፕሽኖችን ይጽፍልዎታል — በPremiere እና After Effects ታይምላይን ላይ፣ በCapCut ፕሮጀክትዎ ውስጥ፣ ወይም በDaVinci (ነፃውም) እንደ Text+። ያለ ኢንተርኔት።"
                   en="Stop typing every line by hand: get styled, editable Amharic captions — on your Premiere and After Effects timeline, inside your CapCut project, or as Text+ in DaVinci Resolve (the free one too). Fully offline."
                 />
               </p>
