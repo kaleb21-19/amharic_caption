@@ -12,6 +12,7 @@ import { BOT_URL } from "@/lib/site";
 // with the one decision a visitor has to make.
 const links = [
   { href: "/#how", am: "እንዴት ይሰራል", en: "How it works" },
+  { href: "/#features", am: "ባህሪያት", en: "Features" },
   { href: "/#pricing", am: "ዋጋ", en: "Pricing" },
   { href: "/install/", am: "መጫኛ", en: "Install" },
   { href: "/#faq", am: "ጥያቄዎች", en: "FAQ" },

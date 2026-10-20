@@ -24,10 +24,11 @@ export default function PanelMock() {
         </div>
 
         <div className="mock-step">
-          <span className="mock-step-label"><i>2</i> <Tx am="የካፕሽን አይነት" en="Caption style" /></span>
-          <div className="mock-segs" style={{ gridTemplateColumns: "1fr 1fr" }}>
-            <span className="mock-seg on"><Tx am="በቡድን" en="Grouped" /></span>
-            <span className="mock-seg"><Tx am="ካራኦኬ" en="Karaoke" /></span>
+          <span className="mock-step-label"><i>2</i> <Tx am="የካፕሽን ስታይል" en="Caption style" /></span>
+          <div className="mock-segs">
+            <span className="mock-seg on">Bounce</span>
+            <span className="mock-seg">Karaoke</span>
+            <span className="mock-seg">Habesha</span>
           </div>
         </div>
 

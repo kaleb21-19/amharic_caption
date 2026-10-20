@@ -12,24 +12,24 @@ const steps = [
     n: "1",
     title: { am: "አንድ ጊዜ ይጫኑ", en: "Install once" },
     text: {
-      am: "ጫኚውን ሁለቴ ይጫኑ። አንድ ደቂቃ ገደማ ይወስዳል፤ የቴክኒክ እውቀት አያስፈልግም። Premiere እና After Effects ውስጥ ፓነል፣ ዴስክቶፕ ላይ ደግሞ ለCapCut እና DaVinci መተግበሪያ ያገኛሉ።",
-      en: "Double-click the installer — about a minute, no technical skills needed. You get a panel inside Premiere and After Effects, and an app on your desktop for CapCut and DaVinci.",
+      am: "ጫኚውን ሁለቴ ይጫኑ። አንድ ደቂቃ ገደማ ይወስዳል፤ የቴክኒክ እውቀት አያስፈልግም። Premiere እና After Effects ውስጥ ፓነል፣ ዴስክቶፕ ላይ ደግሞ ለCapCut እና DaVinci «Amharic Captions Studio» ያገኛሉ።",
+      en: "Double-click the installer — about a minute, no technical skills needed. You get a panel inside Premiere and After Effects, and Amharic Captions Studio on your desktop for CapCut and DaVinci.",
     },
   },
   {
     n: "2",
     title: { am: "ቪዲዮ ወይም ክሊፕ ይምረጡ", en: "Pick your video" },
     text: {
-      am: "Premiere ላይ ክሊፕ፣ Work Area ወይም ሙሉ ኤዲቱን ይምረጡ፤ ለCapCut ወይም DaVinci ቪዲዮውን ወደ መተግበሪያው ይጎትቱ። በቡድን ወይም ካራኦኬ ካፕሽን ይምረጡ።",
-      en: "In Premiere select a clip, the work area or the whole sequence; for CapCut or DaVinci drag the video into the app. Choose grouped or karaoke captions.",
+      am: "Premiere ላይ ክሊፕ፣ Work Area ወይም ሙሉ ኤዲቱን ይምረጡ፤ ለCapCut ወይም DaVinci ቪዲዮውን ወደ Studio ይጎትቱ። ካፕሽኖቹ ያለ ኢንተርኔት በደቂቃዎች ይጻፋሉ።",
+      en: "In Premiere select a clip, the work area or the whole sequence; for CapCut or DaVinci drag the video into the Studio. The captions are written in minutes, offline.",
     },
   },
   {
     n: "3",
-    title: { am: "ፍጠር፣ ገምግም፣ አስቀምጥ", en: "Generate, review, place" },
+    title: { am: "ያርሙ፣ ስታይል ይምረጡ፣ ይላኩ", en: "Fix, style, send" },
     text: {
-      am: "ቪዲዮውን እያዩ ካፕሽኖቹን ይገምግሙና ያስተካክሉ። ከዚያ በPremiere ታይምላይኑ ላይ ያስቀምጡ — ወይም .srt አስቀምጠው ወደ CapCut ወይም DaVinci ያስገቡ።",
-      en: "Review and fix the captions while you watch. Then place them on your Premiere timeline — or save the .srt and import it into CapCut or DaVinci.",
+      am: "አጠራጣሪ ቃላትን አንድ በአንድ ያረጋግጡ፣ ከ19 ስታይሎች አንዱን ይምረጡ፣ ከዚያ ወደ Premiere ታይምላይን፣ ወደ CapCut ወይም ወደ DaVinci ይላኩ — ወይም ካፕሽኑ የተጻፈበት MP4 ቪዲዮ ያውጡ።",
+      en: "Check the doubtful words one by one, pick one of 19 styles, then send the captions to your Premiere timeline, CapCut or DaVinci — or export an MP4 with the captions burned in.",
     },
   },
 ];
@@ -39,29 +39,97 @@ const editors = [
   {
     icon: "Pr", name: "Premiere Pro",
     text: {
-      am: "ፓነሉ ውስጥ ይስሩ፣ ካፕሽኑ በቀጥታ ታይምላይኑ ላይ እንደሚስተካከል የካፕሽን ትራክ ይገባል።",
-      en: "Work in the panel; the captions land on your timeline as an editable caption track.",
+      am: "ፓነሉ ውስጥ ይስሩ። ካፕሽኖቹ በመረጡት ስታይል በታይምላይኑ ላይ ይገባሉ — እያንዳንዱ ካፕሽን የራሱ ክሊፕ ነው፤ አንዱን ቢያርሙ ያ ብቻ ይቀየራል። ቀላል የካፕሽን ትራክም ይቻላል።",
+      en: "Work in the panel. Captions land on your timeline in the style you chose — each caption its own clip, so fixing one redraws only that one. A plain caption track works too.",
     },
   },
   {
     icon: "Ae", name: "After Effects",
     text: {
-      am: "ያው ፓነል — ካፕሽኑ በኮምፖዚሽንዎ ውስጥ እንደ አንድ ቴክስት ሌየር ይገባል፣ ለስታይል እና አኒሜሽን ዝግጁ።",
-      en: "The same panel — captions arrive as one text layer in your comp, ready to style and animate.",
+      am: "ያው ፓነል — ካፕሽኖቹ በመረጡት ስታይል በኮምፖዚሽንዎ ውስጥ ይገባሉ፣ ለተጨማሪ አኒሜሽን ዝግጁ።",
+      en: "The same panel — captions arrive in your composition in the style you chose, ready for more animation.",
     },
   },
   {
     icon: "✂", name: "CapCut",
     text: {
-      am: "«Make Amharic Captions» መተግበሪያ፦ ቪዲዮውን ይጎትቱ፣ እያዩት ያስተካክሉ፣ .srt አስቀምጠው በCapCut ውስጥ Import ያድርጉ።",
-      en: "The Make Amharic Captions app: drag the video in, fix the captions while it plays, save the .srt and import it in CapCut.",
+      am: "Studio በአንድ ጠቅታ አዲስ የCapCut ፕሮጀክት ይሰራል — ቪዲዮው፣ በስታይሉ ያሉ ካፕሽኖችና አኒሜሽናቸው ውስጥ ሆነው። እያንዳንዱ ካፕሽን የሚታረም የCapCut ጽሑፍ ነው። ያለዎትን ፕሮጀክትም ካፕሽን ማድረግና ማዘመን ይችላሉ።",
+      en: "One click in the Studio makes a new CapCut project — the video, the styled captions and their animation already inside. Every caption is a normal, editable CapCut text. Your own projects can be captioned and updated too.",
     },
   },
   {
     icon: "◐", name: "DaVinci Resolve",
     text: {
-      am: "ያው መተግበሪያ — .srt ፋይሉን File → Import → Subtitle ብለው ወደ ታይምላይኑ ያስገቡ።",
-      en: "The same app — bring the .srt onto your timeline with File → Import → Subtitle.",
+      am: "ካፕሽኖቹ በስታይሉ፣ እንደሚታረሙ Text+ በTimelineዎ ላይ ይገባሉ (Workspace → Scripts → Amharic Captions)። ቪዲዮዎ አይነካም። ነፃው DaVinci Resolveም ይሰራል።",
+      en: "Captions arrive styled, as editable Text+ on your timeline (Workspace → Scripts → Amharic Captions). Your video isn't touched. Works in the free DaVinci Resolve too.",
+    },
+  },
+];
+
+// More than captions: what an editor actually gets (each one in the product today).
+const features = [
+  {
+    icon: "Aa",
+    title: { am: "19 ስታይሎች · 12 የአማርኛ ፎንቶች", en: "19 styles · 12 Amharic fonts" },
+    text: {
+      am: "ካራኦኬ፣ Bounce፣ Neon፣ Habesha… Typewriter እና Wave አኒሜሽን፣ በአንድ ወይም በሁለት መስመር። የራስዎን ስታይል አስቀምጠው በአንድ ጠቅታ ይጠቀሙ።",
+      en: "Karaoke, Bounce, Neon, Habesha… Typewriter and Wave animation, on one line or two. Save your own look and reuse it in one click.",
+    },
+  },
+  {
+    icon: "✓",
+    title: { am: "ቃላትን አንድ በአንድ ያረጋግጡ", en: "Check words one by one" },
+    text: {
+      am: "አጠራጣሪ ቃላት ይደምቃሉ፤ እያንዳንዱን ይሰሙታል። Enter = ትክክል፣ ይጻፉ = ያርሙ። ከ69,000 ቃላት የአማርኛ መዝገበ ቃላት ምክር ይሰጣል።",
+      en: "Doubtful words are highlighted and play one by one. Enter = right, type = fix. Suggestions come from a 69,000-word Amharic dictionary.",
+    },
+  },
+  {
+    icon: "🧠",
+    title: { am: "ቃላትዎን ይማራል", en: "Learns your words" },
+    text: {
+      am: "አንድ ጊዜ ያረሙት ቃል በሚቀጥለው ቪዲዮ በራሱ ይስተካከላል። ለእያንዳንዱ ደንበኛ የራሱ ስሞችና ቃላት።",
+      en: "A word you fix once is fixed by itself in the next video. Each client keeps their own names and terms.",
+    },
+  },
+  {
+    icon: "✂",
+    title: { am: "ቪዲዮውን በጽሑፍ ያርሙ", en: "Edit the video with text" },
+    text: {
+      am: "ቃላትን ይምረጡና ✂ ይጫኑ — ያ የቪዲዮው ክፍል ይቆረጣል፣ ካፕሽኖቹም አብረው ይንቀሳቀሳሉ።",
+      en: "Select words and press ✂ — that part of the video is cut, and the captions move with it.",
+    },
+  },
+  {
+    icon: "⏸",
+    title: { am: "ጸጥታን ያጽዱ", en: "Clean the silences" },
+    text: {
+      am: "ረጅም ዝምታ፣ ተደጋጋሚ ሙከራዎችና «እ…» ድምፆች በአንድ ጠቅታ ይወጣሉ — በሴኩዌንስዎ ቅጂ ላይ።",
+      en: "Long pauses, repeated takes and “እ…” sounds go in one click — on a copy of your sequence.",
+    },
+  },
+  {
+    icon: "▶",
+    title: { am: "ለTikTok ዝግጁ ቪዲዮ", en: "Ready for TikTok" },
+    text: {
+      am: "Amharic Captions Studio፦ ቆርጠው፣ ሙዚቃ ጨምረው፣ ለTikTok፣ Reels ወይም YouTube MP4 ያውጡ — ካፕሽኑ ተጽፎበት፣ በግራፊክስ ካርድ በፍጥነት።",
+      en: "Amharic Captions Studio: cut, add music, and export an MP4 for TikTok, Reels or YouTube — captions burned in, fast on your graphics card.",
+    },
+  },
+  {
+    icon: "አ",
+    title: { am: "በላቲን ፊደል አማርኛ ይጻፉ", en: "Type Amharic with Latin letters" },
+    text: {
+      am: "selam ብለው ይጻፉ → ሰላም። ካፕሽን ሲያርሙ የአማርኛ ኪቦርድ አያስፈልግም።",
+      en: "Type selam → ሰላም. No Amharic keyboard needed to fix a caption.",
+    },
+  },
+  {
+    icon: "🔒",
+    title: { am: "ሁሉም በኮምፒውተርዎ", en: "Everything on your computer" },
+    text: {
+      am: "ቪዲዮዎ ወደ የትም አይላክም። ያለ ኢንተርኔት ይሰራል፤ የዳታ ወጪ የለም።",
+      en: "Your video is never uploaded. It works offline — no data costs.",
     },
   },
 ];
@@ -75,10 +143,10 @@ const buySteps = [
     },
   },
   {
-    t: { am: "በፓነሉ ወይም በመተግበሪያው «ፈቃድ ይግዙ» ይጫኑ", en: "Press “Buy a license” in the panel or the app" },
+    t: { am: "በፓነሉ ወይም በStudio «ፈቃድ ይግዙ» ይጫኑ", en: "Press “Buy a license” in the panel or the Studio" },
     c: {
-      am: "የቴሌግራም ቦቱ ከኮምፒውተርዎ ጋር ተገናኝቶ ይከፈታል — ምንም መቅዳት አያስፈልግም።",
-      en: "The Telegram bot opens already linked to your computer — nothing to copy.",
+      am: "የሚታየውን QR በስልክዎ ይቃኙ — የቴሌግራም ቦቱ ከኮምፒውተርዎ ጋር ተገናኝቶ ይከፈታል። ምንም መቅዳት አያስፈልግም።",
+      en: "Scan the QR with your phone — the Telegram bot opens already linked to your computer. Nothing to copy.",
     },
   },
   {
@@ -122,8 +190,8 @@ const faqs = [
   {
     q: { am: "በCapCut ወይም DaVinci Resolve ይሰራል?", en: "Does it work with CapCut or DaVinci Resolve?" },
     a: {
-      am: "አዎ። ዴስክቶፕ ላይ ያለውን «Make Amharic Captions» መተግበሪያ ይክፈቱ፣ ቪዲዮዎን ወደ ውስጥ ይጎትቱ፣ ቪዲዮውን እያዩ ካፕሽኑን ያስተካክሉ፣ ከዚያ «SRT አስቀምጥ» ይጫኑ። የ.srt ፋይሉ ከቪዲዮው አጠገብ ይቀመጣል፦ CapCut (ኮምፒውተር) ውስጥ Text → Captions → Import፣ DaVinci ውስጥ File → Import → Subtitle። Windows እና Mac (Intel ወይም M1/M2/M3) ላይ ይሰራል። የCapCut የስልክ መተግበሪያ .srt አይቀበልም — CapCut ኮምፒውተር ላይ ይጠቀሙ።",
-      en: "Yes. Open the Make Amharic Captions app on your desktop, drag your video in, fix the captions while the video plays, then press “Save SRT”. The .srt lands next to your video: in CapCut desktop use Text → Captions → Import, in DaVinci File → Import → Subtitle. Works on Windows and Mac (Intel or Apple silicon). The CapCut phone app cannot import .srt files — use CapCut on a computer.",
+      am: "አዎ — በስታይሉ፣ እንደሚታረሙ ካፕሽኖች። ዴስክቶፕ ላይ «Make Amharic Captions» ይክፈቱ (Amharic Captions Studio)፣ ቪዲዮዎን ይጎትቱ። CapCut፦ «ወደ CapCut ላክ» — ቪዲዮውና ካፕሽኖቹ ከአኒሜሽናቸው ጋር በአዲስ የCapCut ፕሮጀክት ውስጥ ይገባሉ፤ እያንዳንዱ ካፕሽን የሚታረም ጽሑፍ ነው። DaVinci፦ «ወደ DaVinci ላክ»፣ ከዚያ በDaVinci Workspace → Scripts → Amharic Captions — ካፕሽኖቹ እንደ Text+ ይገባሉ፤ ነፃው DaVinciም ይሰራል። .srt ፋይልም ማስቀመጥ ይቻላል። የCapCut የስልክ መተግበሪያ አይደገፍም — CapCut ኮምፒውተር ላይ ይጠቀሙ።",
+      en: "Yes — styled, as editable captions. Open “Make Amharic Captions” on your desktop (Amharic Captions Studio) and drag your video in. CapCut: “Send to CapCut” — the video and the captions, with their animation, arrive in a new CapCut project; every caption is an editable text. DaVinci: “Send to DaVinci”, then in DaVinci Workspace → Scripts → Amharic Captions — the captions arrive as Text+; the free DaVinci works too. You can still save an .srt as well. The CapCut phone app isn't supported — use CapCut on a computer.",
     },
   },
   {
@@ -193,8 +261,8 @@ export default function HomePage() {
 
               <p className="hero-sub">
                 <Tx
-                  am="እያንዳንዱን መስመር በእጅ ከመጻፍ ይልቅ፣ ሊስተካከሉ የሚችሉ የአማርኛ ካፕሽኖችን ይፍጠሩ — በቀጥታ በPremiere ወይም After Effects ታይምላይንዎ ላይ፣ ወይም ለCapCut እና DaVinci ዝግጁ .srt።"
-                  en="Generate editable Amharic captions instead of typing every line by hand — straight onto your Premiere or After Effects timeline, or as a ready .srt for CapCut and DaVinci."
+                  am="እያንዳንዱን መስመር በእጅ ከመጻፍ ይልቅ፣ በስታይል ያሉ፣ የሚታረሙ የአማርኛ ካፕሽኖችን በራሱ ይጻፉ — በPremiere እና After Effects ታይምላይን ላይ፣ በCapCut ፕሮጀክትዎ ውስጥ፣ ወይም በDaVinci (ነፃውም) እንደ Text+። ያለ ኢንተርኔት።"
+                  en="Stop typing every line by hand: get styled, editable Amharic captions — on your Premiere and After Effects timeline, inside your CapCut project, or as Text+ in DaVinci Resolve (the free one too). Fully offline."
                 />
               </p>
 
@@ -239,8 +307,8 @@ export default function HomePage() {
               <span><Tx am="ቪዲዮዎ ወደ ኢንተርኔት አይላክም" en="Nothing is uploaded, ever" /></span>
             </li>
             <li>
-              <strong><Tx am="ወርሃዊ ክፍያ የለም" en="No monthly fee" /></strong>
-              <span><Tx am="አንድ ክፍያ ብቻ" en="One payment, that’s it" /></span>
+              <strong><Tx am="ለዘለቄታው አንድ ጊዜ" en="Pay once, forever" /></strong>
+              <span><Tx am="ወይም በወር 500 ብር ይጀምሩ" en="or start at ETB 500 a month" /></span>
             </li>
           </ul>
         </div>
@@ -291,6 +359,35 @@ export default function HomePage() {
                   <span className="editor-icon" aria-hidden="true">{e.icon}</span>
                   <h3>{e.name}</h3>
                   <p><Tx am={e.text.am} en={e.text.en} /></p>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ------------------------------------------------------- features */}
+      <section className="section" id="features" style={{ background: "var(--bg-soft)" }}>
+        <div className="container">
+          <Reveal>
+            <div className="section-head center">
+              <p className="eyebrow"><Tx am="ከካፕሽን በላይ" en="More than captions" /></p>
+              <h2><Tx am="ኤዲተሮች የሚፈልጉት ሁሉ።" en="Everything an editor needs." /></h2>
+              <p className="section-sub">
+                <Tx
+                  am="በፓነሉም በStudioም — አንድ ፈቃድ፣ ሁሉም ባህሪያት።"
+                  en="In the panel and in the Studio — one license, every feature."
+                />
+              </p>
+            </div>
+          </Reveal>
+          <div className="editors">
+            {features.map((f, i) => (
+              <Reveal key={f.title.en} delay={(i % 4) * 80}>
+                <div className="editor-card">
+                  <span className="editor-icon" aria-hidden="true">{f.icon}</span>
+                  <h3><Tx am={f.title.am} en={f.title.en} /></h3>
+                  <p><Tx am={f.text.am} en={f.text.en} /></p>
                 </div>
               </Reveal>
             ))}
@@ -373,7 +470,8 @@ export default function HomePage() {
               <ul className="price-features">
                 <li><Tx am="ያልተገደበ ካፕሽን — የፈለጉትን ያህል" en="Unlimited captions — caption as much as you like" /></li>
                 <li><Tx am="Premiere Pro እና After Effects 2022+ — በቀጥታ ታይምላይኑ ላይ" en="Premiere Pro & After Effects 2022+ — straight onto the timeline" /></li>
-                <li><Tx am="CapCut እና DaVinci Resolve — መተግበሪያ፣ ቪዲዮውን እያዩ ማስተካከያ፣ .srt" en="CapCut & DaVinci Resolve — an app with video preview, saves the .srt" /></li>
+                <li><Tx am="CapCut እና DaVinci Resolve — Amharic Captions Studio፦ የሚታረሙ ካፕሽኖች በፕሮጀክትዎ ውስጥ፣ MP4 ለTikTok፣ .srt" en="CapCut & DaVinci Resolve — Amharic Captions Studio: editable captions inside your project, MP4 for TikTok, .srt" /></li>
+                <li><Tx am="19 ስታይሎች፣ 12 የአማርኛ ፎንቶች፣ አኒሜሽን — ሁሉም ባህሪያት ተካትተዋል" en="19 styles, 12 Amharic fonts, animation — every feature included" /></li>
                 <li><Tx am="Windows 10/11 እና macOS (Intel ወይም M1/M2/M3)" en="Windows 10/11 & macOS (Intel or Apple silicon)" /></li>
                 <li><Tx am="በአማርኛ ወይም በእንግሊዝኛ" en="In Amharic or English" /></li>
                 <li><Tx am="በቴሌግራም ድጋፍ — ከሰሩት ሰዎች በቀጥታ" en="Support on Telegram from the people who built it" /></li>
