@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.53.0';
+const APP_VERSION = '1.54.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -5290,20 +5290,26 @@ function syncReviewSteps() {
   const strip = $('styleStrip');
   const styles = !!(strip && strip.style.display !== 'none');
   const doubts = reviewDoubtCount();
+  // 1.54 (owner: "too many steps, confusing"): only the main tools on top —
+  // Text and Clean up (with the parts marked ✂ in the text); Zoom a small
+  // icon; Style and Place are already at the bottom (the style row and the
+  // big Place button), so no numbered steps and no repeats up here
+  let marked = 0;
+  try { marked = findTextCuts(reviewCues).length; } catch (e) {}
+  void styles; void STEP_NUMS;
   const steps = [
-    ['stepText', true, L('Text') + (doubts ? ' · ' + doubts + ' ?' : ' ✓'), doubts ? 'warn' : 'done'],
-    ['revCleanup', tools, L('Clean up') + (CLEAN && CLEAN.done ? ' ✓' : ''), CLEAN && CLEAN.done ? 'done' : ''],
-    ['revZoom', tools, L('Zoom') + (ZOOM && ZOOM.done ? ' ✓' : ''), ZOOM && ZOOM.done ? 'done' : ''],
-    ['stepStyle', styles, (STYLE === 'plain' ? L('Style') : L(STYLE_NAMES[STYLE] || STYLE) + ' ✓'), STYLE === 'plain' ? '' : 'done'],
-    ['stepPlace', true, L('Place'), 'last'],
+    ['stepText', true, L('Text') + (doubts ? ' · ⚠ ' + doubts : ' ✓'), doubts ? 'warn' : 'done'],
+    ['revCleanup', tools, '✂ ' + L('Clean up') + (marked ? ' · ' + marked : '') + (CLEAN && CLEAN.done ? ' ✓' : ''), marked ? 'warn' : (CLEAN && CLEAN.done ? 'done' : '')],
+    ['revZoom', tools, '🔍', ZOOM && ZOOM.done ? 'done rzoom' : 'rzoom'],
+    ['stepStyle', false, '', ''],
+    ['stepPlace', false, '', ''],
   ];
-  let n = 0;
   steps.forEach(([id, show, text, cls]) => {
     const b = $(id);
     if (!b) return;
     b.style.display = show ? '' : 'none';
     if (!show) return;
-    b.textContent = STEP_NUMS[n++] + ' ' + text;
+    b.textContent = text;
     b.className = 'rstep' + (cls ? ' ' + cls : '');
   });
 }

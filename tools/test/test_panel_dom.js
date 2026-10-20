@@ -238,7 +238,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.53.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.54.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1795,13 +1795,17 @@ await t('4o. panel polish (1.16.25): what will be captioned, the review step bar
     await p.evalVm('openReview(' + JSON.stringify(tmp) + ', "talk.mp4", 0, {})');
     p.evalVm('syncReviewSteps()');
     const txt = (id) => p.els(id).textContent;
-    assert.ok(/^① /.test(txt('stepText')), txt('stepText'));
+    // 1.54: no numbered steps — Text and Clean up on top, Zoom an icon;
+    // Style and Place only at the bottom (the style row, the Place button)
+    assert.ok(!/[①②③④⑤]/u.test(txt('stepText') + txt('revCleanup')), txt('stepText'));
     const doubts = p.evalVm('reviewDoubtCount()');
-    if (doubts) assert.ok(/\?/.test(txt('stepText')) && /warn/.test(p.els('stepText').className), 'doubtful words left: orange, with the count');
-    assert.ok(/^② \S/.test(txt('revCleanup')) && /^③ \S/.test(txt('revZoom')) && !/[✂🔍]/u.test(txt('revCleanup') + txt('revZoom')), txt('revCleanup') + ' / ' + txt('revZoom'));
+    if (doubts) assert.ok(/⚠ \d/.test(txt('stepText')) && /warn/.test(p.els('stepText').className), 'doubtful words left: orange, with the count');
+    assert.ok(/^✂ \S/.test(txt('revCleanup')) && txt('revZoom') === '🔍', txt('revCleanup') + ' / ' + txt('revZoom'));
+    assert.strictEqual(p.els('stepStyle').style.display, 'none', 'Style is at the bottom only');
+    assert.strictEqual(p.els('stepPlace').style.display, 'none', 'Place is at the bottom only');
     p.evalVm('CLEAN = { done: { sequence: "x" }, items: [] }; ZOOM = { done: { zoomed: 1 }, items: [] }; syncReviewSteps();');
     assert.ok(/✓/.test(txt('revCleanup')) && /done/.test(p.els('revCleanup').className), 'a finished step gets ✓');
-    assert.ok(/✓/.test(txt('revZoom')));
+    assert.ok(/done/.test(p.els('revZoom').className), 'a finished zoom is marked');
     p.evalVm('CLEAN = null; ZOOM = null;');
     // ── shortcuts in a caption: Ctrl+B = ★, Ctrl+D = ✂, Ctrl+↓ = next caption
     const ta = (i) => { const row = p.els('reviewList').children[i]; const f = (n) => { if (n.tagName === 'TEXTAREA') return n; for (const c of (n.children || [])) { const x = f(c); if (x) return x; } return null; }; return f(row); };
