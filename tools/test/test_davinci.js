@@ -96,7 +96,10 @@ test('the script keeps its safety steps', () => {
   assert.ok(/SetTrackLock\(kind, t, true\)/.test(LUA) && /SetTrackLock\(l\[1\], l\[2\], l\[3\]\)/.test(LUA), 'your tracks locked, then back as they were');
   assert.ok(LUA.includes('AddTrack("video")') && LUA.includes('trackIndex = top'), 'one new track on top');
   assert.ok(LUA.includes('SetTrackEnable("video", t, false)') && !/DeleteTrack/.test(LUA), 'an older captions track is turned off, never deleted');
-  assert.ok(!/ImportMedia|\.srt/.test(LUA), 'no subtitle-file import (a partial one crashed DaVinci 21)');
+  // only the video itself may be imported (1.57: no timeline with it yet)
+  const imports = LUA.match(/ImportMedia\([^\n]*/g) || [];
+  assert.ok(!/\.srt/.test(LUA) && imports.every((x) => /v\.path/.test(x)), 'no subtitle-file import (a partial one crashed DaVinci 21)');
+  assert.ok(LUA.includes('CreateEmptyTimeline(nm)') && LUA.includes('GetTimelineByIndex(i)'), 'no timeline with the video: another one of the project, else a new one');
   assert.ok(LUA.includes('snapshot()') && LUA.includes('Ctrl+Z'), 'checks nothing of yours moved');
   assert.ok(LUA.includes('item:AddMarker(0, "Green"') && LUA.includes('t:AddMarker(at + i, "Red"'), 'the result as a marker (DaVinci free shows no script windows)');
 });
