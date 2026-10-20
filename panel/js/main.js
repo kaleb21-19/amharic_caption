@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.57.0';
+const APP_VERSION = '1.58.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -6408,6 +6408,7 @@ function switchRow(parent, label, on, key) {
   b.classList.toggle('on', on);
   b.addEventListener('click', () => setStyleOpt(key, !on));
   row.appendChild(b);
+  row.className += ' sc-inline';
 }
 function renderStyleCustom() {
   const wrap = $('styleCustom');
@@ -6453,7 +6454,7 @@ function renderStyleCustom() {
   if (posRow) {
     posRow.className = (posRow.className || '') + ' wrap';
     const y0 = o.y === null ? posBottom(o.pos) : o.y;
-    rangeRow(posRow, '↕', 10, 97, 1, Math.round(y0 * 100), (v) => (o.y === null && v === Math.round(y0 * 100) ? '' : v + '%'),
+    rangeRow(posRow, '↕ ' + L('Exact height'), 10, 97, 1, Math.round(y0 * 100), (v) => (o.y === null && v === Math.round(y0 * 100) ? '' : v + '%'),
       (v) => { if (window.__amhCapLive) window.__amhCapLive({ y: v / 100, from: y0 }); },
       (v) => setStyleOpt('y', v / 100), 'sc-sub');
     if (document.documentElement.classList.contains('amh-studio')) {
@@ -6463,8 +6464,8 @@ function renderStyleCustom() {
       posRow.appendChild(dh);
     }
   }
-  colorRow(opts, 'Colour', STYLE_COLORS, o.color, 'color');
-  colorRow(opts, 'Text', TEXT_COLORS, o.text, 'text');
+  colorRow(opts, 'Highlight colour', STYLE_COLORS, o.color, 'color');
+  colorRow(opts, 'Text colour', TEXT_COLORS, o.text, 'text');
   segRow(opts, 'Pop words', [['auto', L('Numbers too')], ['off', L('My ★ only')]], o.emph, 'emph');
   const popHint = document.createElement('div');
   popHint.className = 'sc-hint';
@@ -6474,7 +6475,8 @@ function renderStyleCustom() {
   switchRow(opts, 'Box', o.box, 'box');
   segRow(opts, 'Animation', STYLE_ANIMS.map(([id, name]) => [id, L(name)]), o.anim, 'anim', true);
   segRow(opts, 'Lines', [[1, '1'], [2, '2']], o.lines, 'lines');
-  segRow(opts, 'Words', [[0, L('Auto')], [1, '1'], [2, '2'], [3, '3'], [4, '4'], [5, '5']], o.words, 'words');
+  segRow(opts, 'Words per caption', [[0, L('Auto')], [1, '1'], [2, '2'], [3, '3'], [4, '4'], [5, '5']], o.words, 'words');
+  if (!document.documentElement.classList.contains('amh-studio')) fontSamples(opts.firstChild);
   const foot = document.createElement('div');
   foot.className = 'sc-foot';
   const reset = document.createElement('button');
@@ -6500,7 +6502,93 @@ function renderStyleCustom() {
   foot.appendChild(name);
   foot.appendChild(save);
   opts.appendChild(foot);
+  styleTabs(opts);
 }
+// ── 1.58: Customize in four tabs (owner: one long list was hard to use) ──────
+// The rows stay in one list (same order as before); each belongs to a tab and
+// only the open tab's rows show. Font · Colour · Place & lines · Motion — the
+// order the caption apps use (captions.ai, CapCut, Descript). The Studio keeps
+// its own one-column layout.
+const STYLE_TABS = [['font', 'Font'], ['color', 'Colour'], ['place', 'Place & lines'], ['motion', 'Motion']];
+const STYLE_ROW_TAB = ['font', 'font', 'place', 'color', 'color', 'color', 'color', 'motion', 'place', 'place'];
+let STYLE_TAB = 'font';
+const TAB_ICONS = {
+  font: '<path d="M4 20 10 4h1l6 16M6.5 14h8"/><path d="M17 20v-6a2.5 2.5 0 0 1 5 0v6M17 17h5"/>',
+  color: '<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/>',
+  place: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 15h10M9 18h6"/>',
+  motion: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/>',
+};
+function styleTabs(opts) {
+  const bar = $('styleTabs');
+  const tabbed = !!bar && !document.documentElement.classList.contains('amh-studio');
+  if (bar) bar.style.display = tabbed ? '' : 'none';
+  if (opts.classList) opts.classList.toggle('tabbed', tabbed);
+  if (!tabbed) return;
+  bar.textContent = '';
+  STYLE_TABS.forEach(([id, label]) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'sc-tab' + (id === STYLE_TAB ? ' active' : '');
+    b.dataset.tab = id;
+    b.setAttribute('role', 'tab');
+    b.setAttribute('aria-selected', id === STYLE_TAB ? 'true' : 'false');
+    b.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + TAB_ICONS[id] + '</svg>';
+    const t = document.createElement('span');
+    t.textContent = L(label);
+    b.appendChild(t);
+    b.addEventListener('click', () => { STYLE_TAB = id; styleTabs(opts); });
+    bar.appendChild(b);
+  });
+  Array.from(opts.children).forEach((row, i) => {
+    const tab = STYLE_ROW_TAB[i];
+    if (tab) row.style.display = tab === STYLE_TAB ? '' : 'none';
+  });
+}
+// Each font button says ሰላም in its own letters (W3C elreq: Ethiopic letter
+// heights differ a lot between fonts, so a name alone does not show it).
+// The shipped font files, read from the runtime (also in the Studio); on any
+// trouble the button keeps the panel's font.
+const FONT_FILES = { sans: 'NotoSansEthiopic-Bold.ttf', menbere: 'Menbere-Bold.ttf', serif: 'NotoSerifEthiopic-Bold.ttf',
+  abyssinica: 'AbyssinicaSIL-Regular.ttf', yebse: 'yebse.ttf', washra: 'washrab.ttf', agbalumo: 'Agbalumo-Regular.ttf',
+  tint: 'tint.ttf', fantuwua: 'fantuwua.ttf', jiret: 'jiret.ttf', hibur: 'HiburMono-Regular.ttf', gothic: 'yigezubisratgothic.ttf' };
+const FONT_LOADED = {};
+function fontFace(id) {
+  if (FONT_LOADED[id] !== undefined) return FONT_LOADED[id];
+  FONT_LOADED[id] = '';
+  try {
+    if (typeof FontFace !== 'function' || !document.fonts || !FONT_FILES[id]) return '';
+    const fam = 'amhpv-' + id;
+    const bin = atob(fileBase64(runtimePath('fonts', FONT_FILES[id])));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const f = new FontFace(fam, bytes.buffer);
+    f.load().then((x) => { document.fonts.add(x); }).catch(() => {});
+    FONT_LOADED[id] = fam;
+  } catch (e) {}
+  return FONT_LOADED[id];
+}
+function fontSamples(row) {
+  const box = row && row.children && row.children[1];
+  if (!box || !box.children) return;
+  if (box.classList) box.classList.add('sc-fonts');
+  Array.from(box.children).forEach((b) => {
+    if (!b.dataset || !FONT_FILES[b.dataset.value]) return;
+    const name = b.textContent;
+    b.textContent = '';
+    const sample = document.createElement('span');
+    sample.className = 'sc-fsample';
+    sample.textContent = 'ሰላም';
+    const fam = fontFace(b.dataset.value);
+    if (fam) sample.style.fontFamily = '"' + fam + '", "Noto Sans Ethiopic", sans-serif';
+    const n = document.createElement('span');
+    n.className = 'sc-fname';
+    n.textContent = name;
+    b.appendChild(sample);
+    b.appendChild(n);
+    b.title = name;
+  });
+}
+
 // The preview picture as base64: the desktop app reads binary files through
 // its own bridge (its readFileSync is text-only).
 function fileBase64(p) {

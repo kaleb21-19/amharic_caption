@@ -238,7 +238,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.57.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.58.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1213,7 +1213,19 @@ await t('4g. customize (1.12): colour, size, position, words, box remembered per
     const pick = (row, value) => Array.from(rows[row].children[1].children).find((b) => b.dataset.value === value).fire('click');
     assert.deepStrictEqual(Array.from(rows[0].children[1].children).map((b) => b.dataset.value),
       ['sans', 'menbere', 'serif', 'abyssinica', 'yebse', 'washra', 'agbalumo', 'tint', 'fantuwua', 'jiret', 'hibur', 'gothic'], '12 Amharic fonts (1.28.0)');
-    assert.ok(rows[0].children[1].className === 'sc-seg pills', 'the fonts wrap as pills');
+    assert.ok(/^sc-seg pills/.test(rows[0].children[1].className), 'the fonts wrap as pills');
+    // 1.58: four tabs; only the open tab's rows show; Font first
+    const tabs = Array.from(p.els('styleTabs').children);
+    assert.deepStrictEqual(tabs.map((b) => b.dataset.tab), ['font', 'color', 'place', 'motion']);
+    const shown = () => Array.from(rows).map((r, i) => (r.style.display === 'none' ? '' : String(i))).filter(Boolean).join(',');
+    assert.strictEqual(shown(), '0,1,10', 'Font tab: font, size (and the save row)');
+    tabs[1].fire('click');
+    assert.strictEqual(shown(), '3,4,5,6,10', 'Colour tab: highlight, text colour, pop words, box');
+    Array.from(p.els('styleTabs').children)[2].fire('click');
+    assert.strictEqual(shown(), '2,8,9,10', 'Place & lines: position, lines, words per caption');
+    Array.from(p.els('styleTabs').children)[3].fire('click');
+    assert.strictEqual(shown(), '7,10', 'Motion: animations');
+    Array.from(p.els('styleTabs').children)[0].fire('click');
     assert.deepStrictEqual(Array.from(rows[7].children[1].children).map((b) => b.dataset.value),
       ['auto', 'none', 'fade', 'slide', 'drop', 'pop', 'zoom', 'blur', 'typewriter', 'wave', 'slidecolor', 'shake', 'glow', 'blurzoom']);
     assert.ok(rows[7].children[1].className === 'sc-seg pills', 'animations wrap as pills');

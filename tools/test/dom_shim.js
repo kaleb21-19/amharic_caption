@@ -185,7 +185,7 @@ const KNOWN = [
   // next-step card after a free caption
   'trialCard', 'tcGroup', 'tcBuy', 'tcLater', 'tcLeftText', 'tcCutText',
   'freeMinBox', 'freeMinTitle', 'freeMinBtn', 'freeMinWait',
-  'styleStrip', 'styleChips', 'styleNote', 'styleCustom', 'styleCustomToggle', 'styleOpts', 'stylePreview', 'stylePreviewNote',
+  'styleStrip', 'styleChips', 'styleNote', 'styleCustom', 'styleCustomToggle', 'styleOpts', 'styleTabs', 'stylePreview', 'stylePreviewNote',
   'trialGate', 'trialGateClose', 'trialGateTitle', 'trialGateBody', 'trialGateBtn', 'trialGateWait', 'trialGateKey',
   'reportBox', 'reportBtn', 'reportStatus',
   'feedbackLink', 'feedbackCard', 'feedbackText', 'feedbackTg', 'feedbackSend', 'feedbackCancel', 'feedbackStatus',
