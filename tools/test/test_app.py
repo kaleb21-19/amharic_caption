@@ -396,14 +396,19 @@ def t_editors():
             # 1.50: started like the person does (shortcut), else the .exe from
             # its own folder — never os.startfile on a bare .exe
             calls = []
-            real_sf, real_po = os.startfile, amh_app.subprocess.Popen
+            real_sf, real_po, real_fw = os.startfile, amh_app.subprocess.Popen, amh_app._front_window
             os.startfile = lambda p: calls.append(("startfile", p))
             amh_app.subprocess.Popen = lambda a, **k: calls.append(("popen", a[0], k.get("cwd")))
+            amh_app._front_window = lambda e: False
             try:
                 assert amh_app.open_editor("davinci") is True and calls[-1] == ("startfile", lnk), calls
                 assert amh_app.open_editor("capcut") is True and calls[-1] == ("popen", exe, os.path.dirname(exe)), calls
+                # 1.53: already open -> its window to the front, nothing started again
+                n = len(calls)
+                amh_app._front_window = lambda e: e == "capcut.exe"
+                assert amh_app.open_editor("capcut") is True and len(calls) == n, calls
             finally:
-                os.startfile, amh_app.subprocess.Popen = real_sf, real_po
+                os.startfile, amh_app.subprocess.Popen, amh_app._front_window = real_sf, real_po, real_fw
         elif sys.platform == "darwin":
             app = os.path.join(fake, "Applications", "DaVinci Resolve", "DaVinci Resolve.app")
             os.makedirs(app)
