@@ -448,6 +448,7 @@
   function startCheck() {
     if (mode !== 'script') setMode('script');
     checking = true; chkDone = 0; chkNote = '';
+    if (typeof amhDict === 'function') amhDict();       // the dictionary: made once, in the background
     setTimeout(() => goCheck(0, false), 80);
   }
   function stopCheck() { checking = false; bar.classList.remove('st-chk'); hideBar(); }
@@ -514,7 +515,7 @@
     const nextB = el('button', '', '→'); nextB.type = 'button'; nextB.title = tx('ዝለል (Tab)', 'Skip (Tab)');
     [inp, okB, playB, nextB].forEach((b) => row.appendChild(b));
     bar.appendChild(row);
-    const sug = S.checkSuggest(x.w, reviewCues, memoryFixes(), 3);
+    const sug = S.checkSuggest(x.w, reviewCues, memoryFixes(), 3, typeof amhDict === 'function' ? amhDict() : null);
     if (sug.length) {
       const sr = el('div', 'st-chk-sug');
       sug.forEach((w2, k) => {

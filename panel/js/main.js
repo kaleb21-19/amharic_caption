@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.51.0';
+const APP_VERSION = '1.52.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -5322,9 +5322,162 @@ function goFirstDoubt() {
   focusReviewCue(0, 0);
   return -1;
 }
+// ── ✔ Check words in the panel (1.52; the Studio has had it since 1.48) ──────
+// One pass over the doubtful (orange) words: the Premiere playhead goes to the
+// word; Enter = it is right (no longer doubtful) or the typed fix goes in and,
+// one word for one word, is learned in 🧠; Tab = next, Shift+Tab = back,
+// ↑ = to the word again, Esc = stop; Alt+1..3 = a suggestion (🧠 memory, this
+// video's words, the Amharic dictionary). Every step is one undo.
+const PCHK = { on: false, done: 0, note: '', at: [0, 0] };
+function panelDoubts() {
+  const out = [];
+  reviewCues.forEach((c, i) => doubtRanges(c.text || '', c.doubt).forEach((r) => out.push({ i, start: r.start, end: r.end, word: String(c.text).slice(r.start, r.end) })));
+  return out;
+}
+function panelCheckFixes() {
+  let f = {};
+  try { f = activeFixes(loadFixStore()); } catch (e) {}
+  try { if (REVIEW_AUTOFIX && REVIEW_AUTOFIX.rules) f = Object.assign({}, f, REVIEW_AUTOFIX.rules); } catch (e) {}
+  return f;
+}
+function startPanelCheck() {
+  PCHK.on = true; PCHK.done = 0; PCHK.note = ''; PCHK.at = [0, 0];
+  amhDict();
+  showPanelCheck(false);
+}
+function stopPanelCheck() {
+  PCHK.on = false;
+  const c = $('chkCard');
+  if (c) c.remove();
+  const list = $('reviewList');
+  if (list) Array.prototype.forEach.call(list.children || [], (r) => r.classList && r.classList.remove('chk-row'));
+}
+// the next doubtful word at/after PCHK.at (or before it, back); wraps around
+function showPanelCheck(back) {
+  if (!PCHK.on) return;
+  const all = panelDoubts();
+  const key = (d) => d.i * 1e6 + d.start;
+  const at = PCHK.at[0] * 1e6 + PCHK.at[1];
+  let d = back ? all.slice().reverse().find((x) => key(x) < at) : all.find((x) => key(x) >= at);
+  if (!d) d = back ? all[all.length - 1] : all[0];
+  let card = $('chkCard');
+  const list = $('reviewList');
+  if (!card) {
+    card = document.createElement('div');
+    card.id = 'chkCard';
+    card.className = 'chk-card';
+    if (list && list.parentNode) list.parentNode.insertBefore(card, list);
+  }
+  card.textContent = '';
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const head = el('div', 'chk-head');
+  if (!d) {
+    head.appendChild(el('b', 'chk-ok', '✓ ' + L('Every word is checked') + (PCHK.done ? ' (' + PCHK.done + ')' : '')));
+    if (PCHK.note) head.appendChild(el('span', 'chk-note', PCHK.note));
+    const x = el('button', 'chk-x', '✕'); x.type = 'button';
+    x.addEventListener('click', stopPanelCheck);
+    head.appendChild(x);
+    card.appendChild(head);
+    PCHK.on = false;
+    setTimeout(() => { if (!PCHK.on) stopPanelCheck(); }, 4000);
+    return;
+  }
+  PCHK.at = [d.i, d.start];
+  head.appendChild(el('b', 'chk-left', '⚠ ' + all.length + ' ' + L('left')));
+  if (PCHK.done) head.appendChild(el('span', '', '✓ ' + PCHK.done + ' ' + L('checked')));
+  if (PCHK.note) head.appendChild(el('span', 'chk-note', PCHK.note));
+  const x = el('button', 'chk-x', '✕'); x.type = 'button'; x.title = L('Stop') + ' (Esc)';
+  x.addEventListener('click', stopPanelCheck);
+  head.appendChild(x);
+  card.appendChild(head);
+  // the caption, the word marked
+  const cue = reviewCues[d.i];
+  const t = String(cue.text || '');
+  const ctx = el('div', 'chk-ctx');
+  ctx.appendChild(document.createTextNode(noEmph(t.slice(0, d.start))));
+  ctx.appendChild(el('mark', '', noEmph(d.word)));
+  ctx.appendChild(document.createTextNode(noEmph(t.slice(d.end))));
+  card.appendChild(ctx);
+  const row = el('div', 'chk-row-in');
+  const was = noEmph(d.word).trim();
+  const inp = el('input', 'chk-in');
+  inp.type = 'text'; inp.value = was; inp.setAttribute('dir', 'auto');
+  inp.setAttribute('data-amh-type', '1');
+  const ok = el('button', 'btn btn-primary chk-okb', ''); ok.type = 'button';
+  const sync = () => { ok.textContent = '✓ ' + (inp.value.replace(/\s+/g, ' ').trim() === was ? L('Correct') : L('Fix')); };
+  inp.addEventListener('input', sync); sync();
+  const wordTime = cue.start + (cue.end - cue.start) * (d.start / Math.max(1, t.length));
+  const hear = () => { try { seekPlayhead(Math.max(0, wordTime - 0.3)); } catch (e) {} };
+  const play = el('button', 'btn', '▶'); play.type = 'button'; play.title = L('To the word') + ' (↑)';
+  const next = el('button', 'btn', '→'); next.type = 'button'; next.title = L('Skip') + ' (Tab)';
+  [inp, ok, play, next].forEach((b) => row.appendChild(b));
+  card.appendChild(row);
+  const sug = suggestWords(d.word, reviewCues, panelCheckFixes(), 3, AMH_DICT);
+  if (sug.length) {
+    const sr = el('div', 'chk-sug');
+    sug.forEach((w2, k) => {
+      const b = el('button', '', w2); b.type = 'button'; b.title = 'Alt+' + (k + 1);
+      b.addEventListener('click', () => { inp.value = w2; sync(); apply(); });
+      sr.appendChild(b);
+    });
+    card.appendChild(sr);
+  }
+  if (list) {
+    Array.prototype.forEach.call(list.children || [], (r, k) => r.classList && r.classList.toggle('chk-row', k === d.i));
+    const r = list.children && list.children[d.i];
+    try { if (r && r.scrollIntoView) r.scrollIntoView({ block: 'nearest' }); } catch (e) {}
+  }
+  hear();
+  try { inp.focus(); inp.select(); } catch (e) {}
+  function apply() {
+    const v = inp.value.replace(/\s+/g, ' ').trim();
+    const c = reviewCues[d.i];
+    const clean = (w) => noEmph(String(w || '')).replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+    if (v === was) {
+      pushReviewUndo('check');
+      c.doubt = (c.doubt || []).filter((w) => clean(w) !== clean(was));
+      PCHK.at = [d.i, d.end];
+    } else {
+      pushReviewUndo('edit');
+      const s = String(c.text || '');
+      const lead = (d.word.match(/^[*~]+/) || [''])[0], trail = (d.word.match(/[*~]+$/) || [''])[0];
+      c.text = (s.slice(0, d.start) + (v ? lead + v + trail : '') + s.slice(d.end)).replace(/\s{2,}/g, ' ').trim();
+      c.doubt = (c.doubt || []).filter((w) => clean(w) !== clean(was));
+      if (v && !/\s/.test(v)) {
+        try {
+          const st = loadFixStore();
+          rememberFix(st, was, v, true);
+          saveFixStore(st);
+          syncMemoryButton();
+          PCHK.note = '🧠 ' + was + ' → ' + v;
+        } catch (e) {}
+      }
+      PCHK.at = [d.i, d.start + (v ? (lead + v + trail).length : 0)];
+    }
+    PCHK.done++;
+    renderReview();
+    showPanelCheck(false);
+  }
+  ok.addEventListener('click', apply);
+  play.addEventListener('click', hear);
+  next.addEventListener('click', () => { PCHK.at = [d.i, d.end]; showPanelCheck(false); });
+  inp.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); apply(); }
+    else if (e.key === 'Tab') { e.preventDefault(); if (e.shiftKey) { PCHK.at = [d.i, d.start]; showPanelCheck(true); } else { PCHK.at = [d.i, d.end]; showPanelCheck(false); } }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); hear(); }
+    else if (e.key === 'Escape') { e.preventDefault(); stopPanelCheck(); }
+    else if (e.altKey && /^[1-3]$/.test(e.key) && sug[Number(e.key) - 1]) { e.preventDefault(); inp.value = sug[Number(e.key) - 1]; sync(); apply(); }
+  });
+}
 function initReviewSteps() {
   const on = (id, fn) => { const b = $(id); if (b) b.addEventListener('click', (e) => { if (e && e.preventDefault) e.preventDefault(); fn(); }); };
-  on('stepText', goFirstDoubt);
+  // ① Text: the doubtful words, one by one (1.52); none left -> the first caption
+  on('stepText', () => { if (reviewDoubtCount() && !IS_APP_MODE()) startPanelCheck(); else goFirstDoubt(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'F7' || IS_APP_MODE() || !$('review') || !$('review').classList.contains('show')) return;
+    e.preventDefault();
+    if (PCHK.on) stopPanelCheck(); else if (reviewDoubtCount()) startPanelCheck();
+  });
   on('stepStyle', () => {
     const s = $('styleStrip');
     try { if (s && s.scrollIntoView) s.scrollIntoView({ block: 'nearest' }); } catch (e) {}
@@ -5898,6 +6051,44 @@ function installFonts() {
       if (r && r.ok) resolve(r); else reject(new Error((r && r.error) || 'the fonts could not be installed'));
     });
   });
+}
+// ── the Amharic dictionary for ✔ Check words (1.52) ─────────────────────────
+// The language model's words used at least twice (~69,000), made ONCE into a
+// small text file (Python reads the model in about half a second) and kept in
+// the captions folder; until it exists the suggestions come without it.
+let AMH_DICT = null;
+let AMH_DICT_BUSY = false;
+function amhDictFile() { return path.join(USER_CAPTIONS_DIR, '.cache', 'amh_words_v1.txt'); }
+function amhDict() {
+  if (AMH_DICT) return AMH_DICT;
+  const f = amhDictFile();
+  try {
+    if (fs.existsSync(f)) { AMH_DICT = dictFromText(fs.readFileSync(f, 'utf8')); return AMH_DICT; }
+  } catch (e) {}
+  if (!AMH_DICT_BUSY) makeAmhDict();
+  return null;
+}
+function makeAmhDict() {
+  let lm = '';
+  try { lm = runtimePath('amh_lm.json.gz'); } catch (e) {}
+  if (!lm || !fs.existsSync(lm) || typeof PYTHON === 'undefined' || !fs.existsSync(PYTHON)) return;
+  const f = amhDictFile();
+  const tmp = f + '.part';
+  const code = 'import gzip,json,re,sys\n' +
+    "d=json.load(gzip.open(sys.argv[1],'rt',encoding='utf-8'))['counts']\n" +
+    "e=re.compile('^[\\u1200-\\u137F]+$')\n" +
+    'w=sorted(((k,v) for k,v in d.items() if v>=2 and e.match(k)),key=lambda x:-x[1])\n' +
+    "open(sys.argv[2],'w',encoding='utf-8').write('\\n'.join(k+'\\t'+str(v) for k,v in w))\n";
+  AMH_DICT_BUSY = true;
+  try {
+    if (!fs.existsSync(path.dirname(f))) fs.mkdirSync(path.dirname(f), { recursive: true });
+    const child = spawn(PYTHON, ['-E', '-s', '-c', code, lm, tmp], { env: AMH_ENV, windowsHide: true });
+    child.on('error', () => { AMH_DICT_BUSY = false; });
+    child.on('close', () => {
+      AMH_DICT_BUSY = false;
+      try { if (fs.existsSync(tmp)) fs.renameSync(tmp, f); } catch (e) {}
+    });
+  } catch (e) { AMH_DICT_BUSY = false; }
 }
 async function installFontsClick(btn) {
   if (!btn || btn.disabled) return;

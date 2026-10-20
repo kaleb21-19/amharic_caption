@@ -915,6 +915,77 @@ function styledUpdatePlan(oldC, newC, gap) {
   };
 }
 
+// ── ✔ Check words: what a doubtful word probably is (1.48 Studio; 1.52
+// shared with the panel, + the Amharic dictionary) ─────────────────────────
+// Edit distance in letters (one Ethiopic letter = one syllable: a wrong vowel is 1).
+function editDistance(a, b) {
+  a = Array.from(String(a)); b = Array.from(String(b));
+  let prev = b.map((_, j) => j + 1);
+  prev.unshift(0);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length];
+}
+// The dictionary: "word<TAB>count" lines (made once from the Amharic language
+// model) -> words grouped by length in letters, most used first.
+function dictFromText(text) {
+  const byLen = {};
+  String(text || '').split('\n').forEach((line) => {
+    const t = line.indexOf('\t');
+    const w = (t < 0 ? line : line.slice(0, t)).trim();
+    if (!w) return;
+    const n = t < 0 ? 1 : (Number(line.slice(t + 1)) || 1);
+    const len = Array.from(w).length;
+    (byLen[len] = byLen[len] || []).push([w, n]);
+  });
+  Object.keys(byLen).forEach((k) => byLen[k].sort((x, y) => y[1] - x[1]));
+  return { byLen };
+}
+// word -> up to `max` suggestions: the 🧠 / 👤 memory first (fixes:
+// { wrong: right }), then words of THIS video that look like it and are not
+// doubtful themselves (names and terms repeat), then the dictionary's
+// look-alikes (most used first).
+function suggestWords(word, cues, fixes, max, dict) {
+  const clean = (w) => String(w || '').replace(/[*~]/g, '').replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+  const w = clean(word);
+  max = max || 3;
+  if (!w) return [];
+  const out = [];
+  const add = (x) => { if (x && x !== w && out.indexOf(x) < 0) out.push(x); };
+  if (fixes && fixes[w]) add(fixes[w]);
+  const len = Array.from(w).length;
+  const lim = Math.max(1, Math.floor(len / 3));
+  const freq = {};
+  (cues || []).forEach((c) => {
+    const doubt = {};
+    (c.doubt || []).forEach((d) => { doubt[clean(d)] = 1; });
+    String(c.text || '').replace(/~[^~]*~/g, ' ').split(/\s+/).forEach((raw) => {
+      const x = clean(raw);
+      if (!x || doubt[x] || x === w) return;
+      freq[x] = (freq[x] || 0) + 1;
+    });
+  });
+  Object.keys(freq).map((x) => ({ x, d: Math.abs(Array.from(x).length - len) <= lim ? editDistance(x, w) : 99, n: freq[x] }))
+    .filter((o) => o.d <= lim)
+    .sort((a, b) => a.d - b.d || b.n - a.n || (a.x < b.x ? -1 : 1))
+    .forEach((o) => add(o.x));
+  if (dict && dict.byLen && out.length < max) {
+    const found = [];
+    for (let L = Math.max(1, len - lim); L <= len + lim; L++) {
+      (dict.byLen[L] || []).forEach(([x, n]) => {
+        if (x === w) return;
+        const d = editDistance(x, w);
+        if (d <= lim) found.push({ x, d, n });
+      });
+    }
+    found.sort((a, b) => a.d - b.d || b.n - a.n).forEach((o) => add(o.x));
+  }
+  return out.slice(0, max);
+}
+
 // Node (tests) — no-op in the CEP browser where `module` is undefined.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -928,5 +999,6 @@ if (typeof module !== 'undefined' && module.exports) {
     findZoomMoments, cutRanges, findTextCuts, exactWordTimes, regroupCues,
     LICENSE_TOKEN_PUBKEY_PEM, licenseTokenParse, verifyLicenseToken,
     amhType, amhRowOf, styledUpdatePlan,
+    editDistance, dictFromText, suggestWords,
   };
 }
