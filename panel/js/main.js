@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.54.0';
+const APP_VERSION = '1.55.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -6846,11 +6846,16 @@ function initReview() {
   document.addEventListener('click', (e) => {
     if (!reviewOpen) return;
     const el = e && e.target;
-    if (!(el && el.closest && el.closest('#memoryPanel, #revMemory'))) closeMemoryPanel();
-    if (!(el && el.closest && el.closest('#clientPanel, #revClient'))) closeClientPanel();
-    if (!(el && el.closest && el.closest('#cleanupPanel, #revCleanup'))) closeCleanupPanel();
-    if (!(el && el.closest && el.closest('#zoomPanel, #revZoom'))) closeZoomPanel();
-    if (el && el.closest && el.closest('.row-more')) return;
+    // 1.55: where the click WAS — the clicked icon may already be gone (a
+    // button re-draws its label while it opens its list), so the event's own
+    // path is asked first; then the element itself
+    const path = (e && e.composedPath && e.composedPath()) || [];
+    const inside = (sel) => path.some((n) => n && n.matches && n.matches(sel)) || !!(el && el.closest && el.closest(sel));
+    if (!inside('#memoryPanel, #revMemory')) closeMemoryPanel();
+    if (!inside('#clientPanel, #revClient')) closeClientPanel();
+    if (!inside('#cleanupPanel, #revCleanup, #revSilence')) closeCleanupPanel();
+    if (!inside('#zoomPanel, #revZoom')) closeZoomPanel();
+    if (inside('.row-more')) return;
     closeRowMenus();
   });
   window.addEventListener('resize', () => { if (reviewOpen) fitReviewBoxes(); });
