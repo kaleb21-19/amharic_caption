@@ -232,6 +232,51 @@ def editors():
     return {n: bool(find_editor(n)) for n in EDITORS}
 
 
+EDITOR_EXE = {"capcut": "capcut.exe", "davinci": "resolve.exe"}
+
+
+def _front_window(exe):
+    """Windows: the editor is already open -> its main window to the front
+    (restored when minimized). True when a window was found. 1.53: owner,
+    'Open CapCut' seemed to do nothing while CapCut was open behind."""
+    import ctypes
+    from ctypes import wintypes
+    u32, k32 = ctypes.windll.user32, ctypes.windll.kernel32
+    k32.OpenProcess.restype = wintypes.HANDLE
+    found = []
+
+    def image_of(pid):
+        h = k32.OpenProcess(0x1000, False, pid)          # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return ""
+        try:
+            buf = ctypes.create_unicode_buffer(1024)
+            size = wintypes.DWORD(1024)
+            ok = k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size))
+            return os.path.basename(buf.value).lower() if ok else ""
+        finally:
+            k32.CloseHandle(h)
+
+    def each(hwnd, _):
+        if not u32.IsWindowVisible(hwnd) or u32.GetWindowTextLengthW(hwnd) == 0 or u32.GetWindow(hwnd, 4):   # GW_OWNER
+            return True
+        pid = wintypes.DWORD()
+        u32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if image_of(pid.value) == exe:
+            found.append(hwnd)
+            return False
+        return True
+    proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)(each)
+    u32.EnumWindows(proc, 0)
+    if not found:
+        return False
+    hwnd = found[0]
+    if u32.IsIconic(hwnd):
+        u32.ShowWindow(hwnd, 9)                           # SW_RESTORE
+    u32.SetForegroundWindow(hwnd)
+    return True
+
+
 def open_editor(name):
     if name not in EDITORS:
         raise ValueError("unknown editor")
@@ -239,6 +284,11 @@ def open_editor(name):
     if not p:
         return False
     if IS_WIN:
+        try:
+            if _front_window(EDITOR_EXE[name]):          # already open: show it
+                return True
+        except Exception:
+            pass
         # 1.50: DaVinci did not start from the Studio (owner, 1.47). Start it
         # the way the person does: its Start-menu shortcut (that sets the
         # editor's own "Start in" folder); else the .exe FROM its own folder,
