@@ -4302,6 +4302,7 @@ function removeTempCaptionArtifact(filePath) {
 
 function closeReview(keepArtifact) {
   hideTiming();
+  stopHearing();
   CLEAN = null;
   closeCleanupPanel();
   ZOOM = null;
@@ -4618,7 +4619,13 @@ function renderReview() {
     row.appendChild(acts);
     // the timing editor of the caption being edited (it survives a re-render)
     if (TIMING_I === i) showTiming(i, row, tIn, tOut);
-    ta.addEventListener('focus', () => { showTiming(i, row, tIn, tOut); });
+    // 1.54 (owner): the sound-wave timing strip no longer opens on every click
+    // into the text — exact times stay in the time boxes; a click on a word
+    // plays the video from that word instead (Premiere panel)
+    if (!IS_APP_MODE()) ta.addEventListener('click', () => {
+      if (ta.selectionStart !== ta.selectionEnd) return;      // selecting words: no sound
+      hearFrom(i, ta.selectionStart);
+    });
     // Click a caption row to jump the Premiere playhead to that caption's start.
     row.addEventListener('click', (e) => {
       const el = e.target;
@@ -4762,6 +4769,76 @@ function toggleEmphasis(i, from, to) {
 // playhead there. No footage known (an audio-only run is fine: the voice
 // file IS the footage) -> nothing extra appears.
 let TIMING_I = -1;
+// ── ▶ click a word: hear the video from that word (1.54, Premiere panel) ──
+// The panel plays the clip's own file from the word (a caption knows its file
+// and offset, PREVIEW_MEDIA) and moves Premiere's playhead there too; the
+// caption being heard is marked. ■ on top, Esc, or closing the list stops it.
+const HEAR = { a: null, m: null, row: -1 };
+function fileUrl(p) {
+  const s = String(p || '').replace(/\\/g, '/');
+  const segs = s.split('/');
+  return 'file://' + (s.charAt(0) === '/' ? '' : '/') + segs.map((x, j) => (j === 0 && /^[A-Za-z]:$/.test(x) ? x : encodeURIComponent(x))).join('/');
+}
+function hearFrom(i, caret) {
+  const c = reviewCues[i];
+  if (!c) return;
+  const text = String(c.text || '');
+  const before = text.slice(0, Math.max(0, caret || 0));
+  const k = before.trim() ? before.trim().split(/\s+/).length - (/\s$/.test(before) ? 0 : 1) : 0;
+  const ws = cleanupWords([c]);
+  const w = ws[Math.max(0, Math.min(ws.length - 1, k))];
+  const t = w ? w.s : Number(c.start) || 0;
+  try { seekPlayhead(t); } catch (e) {}
+  const m = previewMediaFor([[text, t, t]]);
+  if (!m) return;
+  try {
+    if (!HEAR.a) {
+      HEAR.a = new Audio();
+      HEAR.a.addEventListener('timeupdate', hearFollow);
+      HEAR.a.addEventListener('ended', stopHearing);
+    }
+    if (HEAR.m !== m.path) { HEAR.a.src = fileUrl(m.path); HEAR.m = m.path; }
+    HEAR.a.currentTime = Math.max(0, t + m.offset);
+    const p = HEAR.a.play();
+    if (p && p.catch) p.catch(() => {});
+    HEAR.off = m.offset;
+    hearButton(true);
+  } catch (e) {}
+}
+function hearFollow() {
+  if (!HEAR.a) return;
+  const t = HEAR.a.currentTime - (HEAR.off || 0);
+  const list = $('reviewList');
+  const i = reviewCues.findIndex((c) => t >= c.start && t < c.end);
+  if (i === HEAR.row || !list) return;
+  const rows = list.children || [];
+  if (HEAR.row >= 0 && rows[HEAR.row] && rows[HEAR.row].classList) rows[HEAR.row].classList.remove('hearing');
+  if (i >= 0 && rows[i] && rows[i].classList) rows[i].classList.add('hearing');
+  HEAR.row = i;
+}
+function stopHearing() {
+  if (HEAR.a) { try { HEAR.a.pause(); } catch (e) {} }
+  const list = $('reviewList');
+  if (list && HEAR.row >= 0 && list.children && list.children[HEAR.row] && list.children[HEAR.row].classList) list.children[HEAR.row].classList.remove('hearing');
+  HEAR.row = -1;
+  hearButton(false);
+}
+function hearButton(on) {
+  const bar = $('reviewSteps');
+  if (!bar) return;
+  let b = $('hearStop');
+  if (on && !b) {
+    b = document.createElement('button');
+    b.type = 'button'; b.id = 'hearStop'; b.className = 'rstep hearstop';
+    b.textContent = '■ ' + L('Stop');
+    b.title = L('Stop') + ' (Esc)';
+    b.addEventListener('click', stopHearing);
+    bar.insertBefore(b, bar.firstChild);
+  }
+  if (b) b.style.display = on ? '' : 'none';
+}
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && HEAR.a && !HEAR.a.paused) stopHearing(); });
+
 let TIMING_EL = null;
 const WAVE_CACHE = {};
 const TIMING_MIN = 0.2;
@@ -5299,7 +5376,7 @@ function syncReviewSteps() {
   void styles; void STEP_NUMS;
   const steps = [
     ['stepText', true, L('Text') + (doubts ? ' · ⚠ ' + doubts : ' ✓'), doubts ? 'warn' : 'done'],
-    ['revCleanup', tools, '✂ ' + L('Clean up') + (marked ? ' · ' + marked : '') + (CLEAN && CLEAN.done ? ' ✓' : ''), marked ? 'warn' : (CLEAN && CLEAN.done ? 'done' : '')],
+    ['revCleanup', tools, '✂ ' + L('Edit with text') + (marked ? ' · ' + marked : '') + (CLEAN && CLEAN.done ? ' ✓' : ''), marked ? 'warn' : (CLEAN && CLEAN.done ? 'done' : '')],
     ['revZoom', tools, '🔍', ZOOM && ZOOM.done ? 'done rzoom' : 'rzoom'],
     ['stepStyle', false, '', ''],
     ['stepPlace', false, '', ''],

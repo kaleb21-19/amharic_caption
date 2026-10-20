@@ -306,6 +306,7 @@ const AM_TEXT = {
   'Position': 'ቦታ',
   'Words': 'ቃላት',
   'Lines': 'መስመሮች',
+  'Edit with text': 'በጽሑፍ አርም',
   // ✔ Check words in the panel (1.52)
   'Every word is checked': 'ሁሉም ቃላት ተፈትሸዋል',
   'left': 'ቀርተዋል',
