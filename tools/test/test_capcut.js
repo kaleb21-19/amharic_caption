@@ -207,6 +207,27 @@ test('no personal data in the template (from a real CapCut project)', () => {
   assert.strictEqual(C.TEMPLATE.text.type, 'subtitle');
 });
 
+// 1.51: CapCut's own animation on every caption, put in by the Studio
+test('a CapCut animation on every caption (CapCut fetches the effect by its id)', () => {
+  const look = Object.assign(C.lookFor('karaoke', {}, '', true), { ccAnim: 'cyan', ccCache: 'C:\\U\\AppData\\Local\\CapCut\\User Data\\Cache' });
+  const b = C.buildTrack(project(), 'C:/Users/me/Videos/talk.mp4', [{ start: 12, end: 14, text: 'ሰላም ለሁላችሁ' }, { start: 15, end: 15.2, text: 'ቡና' }], look);
+  assert.strictEqual(b.placed, 2);
+  const a = b.animations.map((x) => x.animations[0]);
+  assert.ok(a.every((x) => x && x.resource_id === '7664535055594802453' && x.name === 'Cyan Slide' && x.type === 'in'));
+  assert.strictEqual(a[0].path, 'C:/U/AppData/Local/CapCut/User Data/Cache/effect/7664535055594802453/2924b19ec9232df440d5e31d627934ca');
+  assert.strictEqual(a[0].duration, 229800, 'its own length on a long caption');
+  assert.strictEqual(a[1].duration, 120000, 'never more than 60 % of a short caption');
+  const none = C.buildTrack(project(), 'C:/Users/me/Videos/talk.mp4', [{ start: 12, end: 14, text: 'ሰላም' }], C.lookFor('karaoke', {}, '', true));
+  assert.deepStrictEqual(none.animations[0].animations, [], 'no choice: no animation');
+  assert.strictEqual(C.ccAnimEntry('nope', 'x', 1e6), null);
+  // the owner's picks: every one a complete entry
+  assert.deepStrictEqual(Object.keys(C.CC_ANIMS), ['cyan', 'showright', 'fadein', 'retrofocus']);
+  Object.keys(C.CC_ANIMS).forEach((k) => {
+    const e = C.ccAnimEntry(k, 'C:/c', 3e6);
+    assert.ok(/^\d{15,}$/.test(e.resource_id) && e.id === e.resource_id && e.type === 'in' && e.name && e.path.indexOf('/effect/' + e.id + '/') > 0, k);
+  });
+});
+
 // 1.50: two balanced lines in CapCut too
 test('two lines: the caption text breaks at the middle space, ★ ranges unchanged', () => {
   assert.strictEqual(C.twoLines('ሰላም ለሁላችሁ እንኳን ደህና መጣችሁ'), 'ሰላም ለሁላችሁ\nእንኳን ደህና መጣችሁ');

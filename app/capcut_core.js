@@ -142,6 +142,26 @@
     return best < 0 ? t : t.slice(0, best) + '\n' + t.slice(best + 1);
   }
 
+  // CapCut's own text animations (1.51), put on every caption by the Studio:
+  // CapCut fetches the effect by its resource id when the file is not on the
+  // PC (owner-tested: a missing path animates too). id = CapCut's resource id.
+  const CC_ANIMS = {
+    cyan: { id: '7664535055594802453', name: 'Cyan Slide', type: 'in', us: 229800, file: '2924b19ec9232df440d5e31d627934ca', cat: 'ruchang', catName: 'In' },
+    // the owner's picks in CapCut 9.6 (1.51)
+    showright: { id: '7149113362096329217', name: 'Showing Right', type: 'in', us: 500000, file: '6f8e0a5cd98c44b79f9ec09b0b913059', cat: 'ruchang', catName: 'text' },
+    fadein: { id: '7646371244257955092', name: 'Fade In', type: 'in', us: 500000, file: 'e6884981e7717e8d2951063ad1eadbdb', cat: 'ruchang', catName: 'In' },
+    retrofocus: { id: '7595221692809497872', name: 'Retro Focus', type: 'in', us: 500000, file: 'e0b49323150bf7e8cc6a72c4cf84f709', cat: 'ruchang', catName: 'text' },
+  };
+  // one animation entry for a caption `segUs` long (never longer than 60 % of it)
+  function ccAnimEntry(key, cacheRoot, segUs) {
+    const a = CC_ANIMS[key];
+    if (!a) return null;
+    return { id: a.id, type: a.type, start: 0, duration: Math.max(1, Math.min(a.us, Math.round(segUs * 0.6))),
+      path: String(cacheRoot || '').replace(/\\/g, '/') + '/effect/' + a.id + '/' + a.file, platform: 'all',
+      resource_id: a.id, third_resource_id: '0', source_platform: 1, name: a.name, category_id: a.cat,
+      category_name: a.catName, panel: '', material_type: 'sticker', anim_adjust_params: null, request_id: '' };
+  }
+
   // Build the new track (+ its texts and animations) for these captions.
   // cues: [{ start, end, text, wt }] in the video FILE's seconds.
   function buildTrack(draft, videoPath, cues, look, opts) {
@@ -170,6 +190,8 @@
       seg.material_id = mat.id;
       seg.extra_material_refs = [an.id];
       seg.target_timerange = { start: Math.round(place.start * US), duration: Math.round((place.end - place.start) * US) };
+      const ca = look.ccAnim ? ccAnimEntry(look.ccAnim, look.ccCache, seg.target_timerange.duration) : null;
+      if (ca) an.animations = [ca];
       seg.clip.transform = { x: 0, y: look.y };
       seg.render_index = ++order;
       texts.push(mat); animations.push(an); segs.push(seg);
@@ -454,7 +476,7 @@
     for (let i = 2; ; i++) { const n = clean + ' (' + i + ')'; if (low.indexOf(n.toLowerCase()) < 0) return n; }
   }
 
-  const api = { twoLines, newDraft, freeName, TEMPLATE, NAME, uuid, rgb, placements, placeCue, styledText, contentOf, lookFor, buildTrack, buildTrackAll, videosOf, addTrack, chosenAnims, spreadAnims, fitAnims, sentMap, userEdits, keepEdits, wordPairs, textOf, expectedSent, removeOurs, ourTracks, summary, normPath };
+  const api = { CC_ANIMS, ccAnimEntry, twoLines, newDraft, freeName, TEMPLATE, NAME, uuid, rgb, placements, placeCue, styledText, contentOf, lookFor, buildTrack, buildTrackAll, videosOf, addTrack, chosenAnims, spreadAnims, fitAnims, sentMap, userEdits, keepEdits, wordPairs, textOf, expectedSent, removeOurs, ourTracks, summary, normPath };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhCapCut = api;
 })(typeof window !== 'undefined' ? window : this);

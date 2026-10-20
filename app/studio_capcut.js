@@ -34,6 +34,25 @@
     const local = env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
     return path.join(local, 'CapCut', 'User Data', 'Projects', 'com.lveditor.draft');
   }
+  // CapCut's own animation on every caption (1.51): the choice is kept in
+  // the settings ('none' = no animation); CapCut's effect cache next to its projects
+  const ccAnimNow = () => { try { const v = loadSettings().ccAnim; return v === 'none' || C.CC_ANIMS[v] ? v : 'cyan'; } catch (e) { return 'cyan'; } };
+  function withAnim(look) {
+    const k = ccAnimNow();
+    if (k !== 'none') { look.ccAnim = k; look.ccCache = path.join(path.dirname(path.dirname(draftsDir())), 'Cache'); }
+    return look;
+  }
+  function animPicker() {
+    const row = el('div', 'st-row st-ccanim-pick');
+    row.appendChild(el('span', 'st-sub', '✨ ' + tx('የCapCut እንቅስቃሴ፦', 'CapCut animation:')));
+    const sel = el('select', 'st-sel');
+    Object.keys(C.CC_ANIMS).map((k) => [k, C.CC_ANIMS[k].name]).concat([['none', tx('የለም', 'None')]]).forEach(([v, n]) => {
+      const o = el('option', '', n); o.value = v; if (v === ccAnimNow()) o.selected = true; sel.appendChild(o);
+    });
+    sel.addEventListener('change', () => { try { saveSettings({ ccAnim: sel.value }); } catch (e) {} });
+    row.appendChild(sel);
+    return row;
+  }
   // CapCut running? (Windows: tasklist; Mac: pgrep)
   function capcutRunning() {
     return new Promise((resolve) => {
@@ -244,7 +263,7 @@
     const o = typeof styleOpts === 'function' ? styleOpts(style) : {};
     const cv = d.canvas_config || {};
     const portrait = (cv.height || 1920) > (cv.width || 1080);
-    const look = C.lookFor(style, o, await fontPath(o.font || 'sans'), portrait, window.__amhSubs && window.__amhSubs.state().capY);
+    const look = withAnim(C.lookFor(style, o, await fontPath(o.font || 'sans'), portrait, window.__amhSubs && window.__amhSubs.state().capY));
     void file;
     let r;
     try { r = writeProject(p, d, [{ video, cues: fileCues(video) }], look); } catch (e) {
@@ -297,7 +316,7 @@
     const o = typeof styleOpts === 'function' ? styleOpts(style) : {};
     const cv = d.canvas_config || {};
     const portrait = (cv.height || 1920) > (cv.width || 1080);
-    const look = C.lookFor(style, o, await fontPath(o.font || 'sans'), portrait);
+    const look = withAnim(C.lookFor(style, o, await fontPath(o.font || 'sans'), portrait));
     let r;
     try { r = writeProject(p, d, items, look); } catch (e) { say(tx('አልተሳካም፦ ', 'Failed: ') + (e && e.message ? e.message : e), 'st-warn'); return; }
     const built = r.built;
@@ -451,7 +470,7 @@
       const style = typeof STYLE !== 'undefined' ? STYLE : 'plain';
       const o = typeof styleOpts === 'function' ? styleOpts(style) : {};
       const cv = nd.draft.canvas_config;
-      const look = C.lookFor(style, o, await fontPath(o.font || 'sans'), cv.height > cv.width, window.__amhSubs && window.__amhSubs.state().capY);
+      const look = withAnim(C.lookFor(style, o, await fontPath(o.font || 'sans'), cv.height > cv.width, window.__amhSubs && window.__amhSubs.state().capY));
       const built = C.buildTrack(nd.draft, video, cues, look);
       const draft = C.addTrack(nd.draft, built);
       const dir = path.join(root, name);
@@ -508,6 +527,7 @@
     };
     k.h.appendChild(btn('st-btn', tx('ፕሮጀክቶች', 'Projects'), tx('ይህን ቪዲዮ የያዙ የCapCut ፕሮጀክቶችዎ', 'Your CapCut projects that use this video'), show));
     k.h.appendChild(btn('st-btn primary', '✨ ' + tx('አዲስ ፕሮጀክት', 'New project'), tx('አዲስ የCapCut ፕሮጀክት ከቪዲዮው እና ከካፕሽኖቹ ጋር', 'A new CapCut project with the video and the captions'), () => newProject(c.path, k.out)));
+    k.c.insertBefore(animPicker(), k.out);
     // "Send to CapCut" (1.45): your projects with this video, else a new one
     k.run = () => {
       const r = projectsFor(c.path);
