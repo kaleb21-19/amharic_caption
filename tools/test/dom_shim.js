@@ -179,7 +179,7 @@ const KNOWN = [
   'licensedNote', 'licenseInput', 'licenseActivate', 'licenseStatus', 'trialBanner',
   'buyBtn', 'buyPending', 'bankDetails', 'bankBox', 'buyQrCard', 'buyQr', 'buyQrStatus', 'buyQrPc', 'buyQrClose',
   'revUndo', 'revMemory', 'memoryPanel',
-  'revClient', 'clientPanel', 'revCleanup', 'cleanupPanel', 'revZoom', 'zoomPanel',
+  'revClient', 'clientPanel', 'revCleanup', 'revSilence', 'cleanupPanel', 'revZoom', 'zoomPanel',
   'srcLine', 'wpcSeg', 'wpc1', 'wpc2', 'wpc3', 'wpc4', 'wpc5', 'wpcField', 'capField',
   'reviewSteps', 'stepText', 'stepStyle', 'stepPlace',
   // next-step card after a free caption
@@ -288,7 +288,8 @@ function makeDocument(tagFor) {
     getElementById: (id) => registry[id] || null,
     createElement(tag) { return mk(tag, ''); },
     querySelectorAll(sel) { return doc.documentElement._match(sel); },
-    addEventListener() {},
+    _listeners: {},
+    addEventListener(type, fn) { (doc._listeners[type] = doc._listeners[type] || []).push(fn); },
     removeEventListener() {},
     execCommand() { return true; },
   };

@@ -238,7 +238,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.54.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.55.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1754,6 +1754,18 @@ await t('4n. ✂ text cuts (1.16.24): strike words next to the caption; they go 
     assert.ok(JSON.parse(p.evalVm('JSON.stringify(cleanupShown().every((x) => x.kind !== "text"))')), 'Clean silence never shows the ✂ words');
     p.evalVm('CLEAN_MODE = "text"');
     assert.ok(JSON.parse(p.evalVm('JSON.stringify(cleanupShown().every((x) => x.kind === "text"))')), 'Edit with text shows only the ✂ words');
+    // 1.55: a click on the button's icon (gone by the time the click reaches
+    // the page: the label is re-drawn) or on Clean silence keeps the list open
+    const node = (id) => ({ matches: (sel) => sel.split(',').some((x) => x.trim() === '#' + id) });
+    const pageClick = (path) => (p.document._listeners.click || []).forEach((fn) => fn({ target: { closest: () => null }, composedPath: () => path }));
+    for (const [mode, id] of [['silence', 'revSilence'], ['text', 'revCleanup']]) {
+      p.els('cleanupPanel').style.display = 'none';
+      p.evalVm('toggleCleanupPanel(' + JSON.stringify(mode) + ')');
+      pageClick([{}, node(id)]);
+      assert.notStrictEqual(p.els('cleanupPanel').style.display, 'none', id + ': the list stays open after its own click');
+    }
+    pageClick([{}]);
+    assert.strictEqual(p.els('cleanupPanel').style.display, 'none', 'a click elsewhere closes it');
     const items = JSON.parse(p.evalVm('JSON.stringify(CLEAN.items.filter((x) => x.kind === "text").map((x) => [x.text, x.on, x.start, x.end]))'));
     assert.deepStrictEqual(items.map((x) => [x[0], x[1]]), [['ቡና', true], ['ይህንን ቁረጡ', true]]);
     assert.deepStrictEqual([items[1][2], items[1][3]], [3, 5], 'a whole caption: its exact times');
