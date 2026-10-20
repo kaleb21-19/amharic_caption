@@ -307,6 +307,12 @@ const AM_TEXT = {
   'Words': 'ቃላት',
   'Lines': 'መስመሮች',
   'Edit with text': 'በጽሑፍ አርም',
+  'Clean silence': 'ጸጥታ አጽዳ',
+  'Cuts the words you marked ✂ in the captions (select words, then ✂ or Ctrl+D) — on a copy of your sequence.':
+    'በካፕሽኖቹ ውስጥ ✂ ያደረጉባቸውን ቃላት ይቆርጣል (ቃላት ይምረጡ፣ ከዚያ ✂ ወይም Ctrl+D) — በሴኩዌንስዎ ቅጂ ላይ።',
+  'No words are marked yet: select words in a caption, then press ✂ (or Ctrl+D).':
+    'እስካሁን ምንም ቃል አልተመረጠም፦ በካፕሽን ውስጥ ቃላት ይምረጡ፣ ከዚያ ✂ (ወይም Ctrl+D) ይጫኑ።',
+  'Cut the words you marked ✂ in the captions': 'በካፕሽኖቹ ውስጥ ✂ ያደረጉባቸውን ቃላት ይቁረጡ',
   // ✔ Check words in the panel (1.52)
   'Every word is checked': 'ሁሉም ቃላት ተፈትሸዋል',
   'left': 'ቀርተዋል',

@@ -1746,9 +1746,14 @@ await t('4n. ✂ text cuts (1.16.24): strike words next to the caption; they go 
     assert.strictEqual(p.evalVm('reviewCues[0].text'), 'ዛሬ ስለ ~ቡና~ እናወራለን');
     // styled captions never show the marks
     assert.ok(!/~/.test(p.evalVm('JSON.stringify(styleCues(reviewCues))')));
-    // ✂ Clean up lists them first, ticked
+    // ✂ Edit with text (1.54: its own button) lists them, ticked; Clean
+    // silence lists only pauses / repeats / sounds
     p.els('cleanupPanel').style.display = '';
     await p.evalVm('analyzeCleanup(null)');
+    p.evalVm('CLEAN_MODE = "silence"');
+    assert.ok(JSON.parse(p.evalVm('JSON.stringify(cleanupShown().every((x) => x.kind !== "text"))')), 'Clean silence never shows the ✂ words');
+    p.evalVm('CLEAN_MODE = "text"');
+    assert.ok(JSON.parse(p.evalVm('JSON.stringify(cleanupShown().every((x) => x.kind === "text"))')), 'Edit with text shows only the ✂ words');
     const items = JSON.parse(p.evalVm('JSON.stringify(CLEAN.items.filter((x) => x.kind === "text").map((x) => [x.text, x.on, x.start, x.end]))'));
     assert.deepStrictEqual(items.map((x) => [x[0], x[1]]), [['ቡና', true], ['ይህንን ቁረጡ', true]]);
     assert.deepStrictEqual([items[1][2], items[1][3]], [3, 5], 'a whole caption: its exact times');

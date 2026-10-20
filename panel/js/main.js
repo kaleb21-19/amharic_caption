@@ -5067,15 +5067,24 @@ function cleanupFindAll() {
   items.sort((x, y) => x.start - y.start);
   CLEAN.items = items.filter((x) => x.end - x.start > 0.05);
 }
-function cleanupSelected() { return ((CLEAN && CLEAN.items) || []).filter((x) => x.on); }
+// 1.54 (owner): two buttons on top — '🔇 Clean silence' (pauses, repeated
+// takes, እ… sounds) and '✂ Edit with text' (the words marked ✂ in the text).
+// One list underneath; each button shows and cuts only its own kind.
+let CLEAN_MODE = 'silence';
+const cleanupKindOf = (it) => (it.kind === 'text' ? 'text' : 'silence');
+function cleanupShown() { return ((CLEAN && CLEAN.items) || []).filter((x) => cleanupKindOf(x) === CLEAN_MODE); }
+function cleanupSelected() { return cleanupShown().filter((x) => x.on); }
 function renderCleanupPanel() {
   syncReviewSteps();
   const p = $('cleanupPanel');
   if (!p || p.style.display === 'none') return;
   p.textContent = '';
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-  p.appendChild(el('div', 'mem-head', '✂ ' + L('Clean up')));
-  p.appendChild(el('div', 'mem-sub', L('Cuts long pauses, repeated takes and እ… sounds — on a copy of your sequence.')));
+  const textMode = CLEAN_MODE === 'text';
+  p.appendChild(el('div', 'mem-head', textMode ? '✂ ' + L('Edit with text') : '🔇 ' + L('Clean silence')));
+  p.appendChild(el('div', 'mem-sub', textMode
+    ? L('Cuts the words you marked ✂ in the captions (select words, then ✂ or Ctrl+D) — on a copy of your sequence.')
+    : L('Cuts long pauses, repeated takes and እ… sounds — on a copy of your sequence.')));
   if (!CLEAN || CLEAN.busy) { p.appendChild(el('div', 'mem-sub', L('Listening for pauses…'))); return; }
   if (CLEAN.done) {
     p.appendChild(el('div', 'clean-done', L('Done') + ': ' + L('removed') + ' ' + fmtDur(CLEAN.done.removedSeconds) +
@@ -5087,20 +5096,25 @@ function renderCleanupPanel() {
     if (CLEAN.done.error) p.appendChild(el('div', 'clean-err', CLEAN.done.error));
     return;
   }
-  const seg = el('div', 'clean-opt');
-  seg.appendChild(el('span', '', L('Pauses longer than')));
-  CLEAN_PAUSES.forEach((v) => {
-    const b = el('button', 'sc-opt' + (v === cleanupPause() ? ' active' : ''), v + ' s');
-    b.type = 'button';
-    b.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); saveSettings({ cleanupPause: v }); cleanupFindAll(); renderCleanupPanel(); });
-    seg.appendChild(b);
-  });
-  p.appendChild(seg);
-  if (!CLEAN.envs.length) p.appendChild(el('div', 'mem-sub', L('Pauses: your footage could not be read here — repeats and sounds only.')));
+  if (!textMode) {
+    const seg = el('div', 'clean-opt');
+    seg.appendChild(el('span', '', L('Pauses longer than')));
+    CLEAN_PAUSES.forEach((v) => {
+      const b = el('button', 'sc-opt' + (v === cleanupPause() ? ' active' : ''), v + ' s');
+      b.type = 'button';
+      b.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); saveSettings({ cleanupPause: v }); cleanupFindAll(); renderCleanupPanel(); });
+      seg.appendChild(b);
+    });
+    p.appendChild(seg);
+    if (!CLEAN.envs.length) p.appendChild(el('div', 'mem-sub', L('Pauses: your footage could not be read here — repeats and sounds only.')));
+  }
   const names = { text: '✂ ' + L('Your cut'), pause: L('Pause'), repeat: L('Repeated take'), filler: L('Sound'), word: L('Filler word?') };
   const list = el('div', 'clean-list');
-  if (!CLEAN.items.length) list.appendChild(el('div', 'mem-sub', L('Nothing to clean — it is already tight.')));
-  CLEAN.items.forEach((it) => {
+  const shown = cleanupShown();
+  if (!shown.length) list.appendChild(el('div', 'mem-sub', textMode
+    ? L('No words are marked yet: select words in a caption, then press ✂ (or Ctrl+D).')
+    : L('Nothing to clean — it is already tight.')));
+  shown.forEach((it) => {
     const row = el('label', 'clean-row' + (it.on ? '' : ' off'));
     const cb = document.createElement('input');
     cb.type = 'checkbox';
@@ -5207,16 +5221,19 @@ async function applyCleanup() {
   renderCleanupPanel();
   return CLEAN.done;
 }
-function toggleCleanupPanel() {
+function toggleCleanupPanel(mode) {
   const p = $('cleanupPanel');
   if (!p) return;
-  const open = p.style.display === 'none';
+  mode = mode === 'text' ? 'text' : (mode === 'silence' ? 'silence' : CLEAN_MODE);
+  // the other button while open: switch the list, keep it open
+  const open = p.style.display === 'none' || mode !== CLEAN_MODE;
+  CLEAN_MODE = mode;
   closeMemoryPanel();
   closeClientPanel();
   closeZoomPanel();
   p.style.display = open ? '' : 'none';
   if (open) {
-    const b = $('revCleanup');
+    const b = $(mode === 'text' ? 'revCleanup' : 'revSilence') || $('revCleanup');
     if (b && typeof b.offsetTop === 'number' && b.offsetHeight) p.style.top = (b.offsetTop + b.offsetHeight + 4) + 'px';
     if (!CLEAN || CLEAN.done) analyzeCleanup(); else renderCleanupPanel();
   }
@@ -5376,6 +5393,7 @@ function syncReviewSteps() {
   void styles; void STEP_NUMS;
   const steps = [
     ['stepText', true, L('Text') + (doubts ? ' · ⚠ ' + doubts : ' ✓'), doubts ? 'warn' : 'done'],
+    ['revSilence', tools, '🔇 ' + L('Clean silence'), ''],
     ['revCleanup', tools, '✂ ' + L('Edit with text') + (marked ? ' · ' + marked : '') + (CLEAN && CLEAN.done ? ' ✓' : ''), marked ? 'warn' : (CLEAN && CLEAN.done ? 'done' : '')],
     ['revZoom', tools, '🔍', ZOOM && ZOOM.done ? 'done rzoom' : 'rzoom'],
     ['stepStyle', false, '', ''],
@@ -6803,8 +6821,13 @@ function initReview() {
   if (cliBtn) cliBtn.addEventListener('click', toggleClientPanel);
   const cleanBtn = $('revCleanup');
   if (cleanBtn) {
-    if (cleanupAvailable()) cleanBtn.addEventListener('click', toggleCleanupPanel);
+    if (cleanupAvailable()) cleanBtn.addEventListener('click', () => toggleCleanupPanel('text'));
     else cleanBtn.style.display = 'none';                   // Premiere only
+  }
+  const silenceBtn = $('revSilence');
+  if (silenceBtn) {
+    if (cleanupAvailable()) silenceBtn.addEventListener('click', () => toggleCleanupPanel('silence'));
+    else silenceBtn.style.display = 'none';                 // Premiere only
   }
   initReviewSteps();
   initSourceLine();
