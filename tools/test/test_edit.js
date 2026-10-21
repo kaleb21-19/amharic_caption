@@ -362,4 +362,46 @@ test('B-roll looks: layouts, slides in / out, motion; old overlays unchanged', (
   assert.ok(/split=2\[ob0\]\[of0\]/.test(g2) && /boxblur/.test(g2) && /fade=t=in:st=1:d=0\.4:alpha=1/.test(g2) && /perspective=/.test(g2), g2);
 });
 
+// 🇪🇹 Templates (1.62): every template draws; the libass maths = the preview's
+test('templates: all draw, animate like libass, follow their settings', () => {
+  const ids = Object.keys(E.TEMPLATES);
+  assert.ok(ids.length >= 15 && Object.keys(E.HOLIDAYS).length >= 7);
+  ids.forEach((id) => {
+    ['16:9', '9:16'].forEach((fmt) => {
+      const { w: W, h: H } = E.canvasSize(fmt);
+      const T = E.tplLayers({ tpl: id, start: 0, in: 0, out: 4 }, W, H);
+      assert.ok(T.layers.length >= 1, id);
+      T.layers.forEach((l) => assert.ok(isFinite(l.x) && isFinite(l.y) && l.off > l.on, id + ' ' + JSON.stringify(l).slice(0, 80)));
+      const ass = E.textAss([{ id: 't', tpl: id, start: 1, in: 0, out: 4 }], W, H, 10);
+      const lines = ass.split('\n').filter((x) => x.startsWith('Dialogue'));
+      assert.strictEqual(lines.length, T.layers.length, id + ': one libass line per layer');
+      assert.ok(lines.every((x) => !/NaN|undefined/.test(x)), id);
+    });
+  });
+  // \t progress = ((τ - t0) / (t1 - t0)) ^ accel, like libass; the first value holds before
+  const l = { an: [{ p: 'sc', t0: 1, t1: 2, from: 0, to: 100, accel: 0.5 }, { p: 'mv', t0: 0, t1: 1, from: [0, 50], to: [0, 0] }] };
+  assert.strictEqual(E.tplState(l, 0.5).sc, 0);
+  assert.ok(Math.abs(E.tplState(l, 1.25).sc - 50) < 1e-9, 'accel 0.5 at a quarter = half way');
+  assert.deepStrictEqual(E.tplState(l, 0.5).mv, [0, 25], 'a move is linear');
+  assert.strictEqual(E.tplState(l, 3).sc, 100);
+  // settings: text, colours, size, position, speed, the end
+  const a = E.tplLayers({ tpl: 'hook', start: 0, in: 0, out: 3, text: 'ሰላም', accent: '#123456', size: 1.5, fx: 0.2, fy: 0.7, speed: 'slow' }, 1920, 1080);
+  assert.strictEqual(a.layers[0].color, '#123456');
+  assert.strictEqual(a.layers[1].text, 'ሰላም');
+  assert.ok(Math.abs(a.layers[0].x - 384) < 1e-6 && Math.abs(a.layers[0].y - 756) < 1e-6);
+  assert.ok(Math.abs(a.layers[1].S - 86 * 1.5) < 1e-6, 'size');
+  assert.ok(a.layers[0].an.some((x) => x.p === 'sc' && Math.abs(x.t1 - 0.18 * 1.4) < 1e-9), 'slow = 1.4x the time');
+  assert.ok(/\\fad\(0,350\)/.test(E.textAss([{ id: 't', tpl: 'hook', start: 0, in: 0, out: 3 }], 1920, 1080, 10)), 'fades out at the end');
+  assert.ok(!/\\fad\(/.test(E.textAss([{ id: 't', tpl: 'hook', start: 0, in: 0, out: 3, end: 'none' }], 1920, 1080, 10)), 'or cuts');
+  // holidays: each its own greeting and colours; subscribe: pressed after 1.2 s
+  assert.strictEqual(E.tplOf({ tpl: 'holiday', theme: 'timket' }).text, E.HOLIDAYS.timket.text);
+  assert.strictEqual(E.tplOf({ tpl: 'holiday', theme: 'genna' }).accent, E.HOLIDAYS.genna.a);
+  const sub = E.tplLayers({ tpl: 'subscribe', start: 0, in: 0, out: 3 }, 1920, 1080).layers;
+  assert.ok(sub.some((x) => x.color === '#3A3A3A' && Math.abs(x.on - 1.3) < 1e-9) && sub.some((x) => x.color === '#FF0033' && Math.abs(x.off - 1.3) < 1e-9));
+  // the editor's text measuring is used by the export too
+  E.setMeasure(() => 500);
+  assert.strictEqual(E.tplLayers({ tpl: 'hook', start: 0, in: 0, out: 3 }, 1920, 1080).layers[0].w, 500 + 60);
+  E.setMeasure(null);
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');

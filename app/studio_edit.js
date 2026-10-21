@@ -316,6 +316,7 @@
     syncZoom(time());
     syncOverlays(time());
     syncTexts(time());
+    syncTemplates(time());
   }
   // 🔍 the zoom, live: the main picture's layer, scaled and moved exactly as
   // the export's perspective filter (E.zoomRect = E.zoomExprs)
@@ -360,6 +361,7 @@
     const k = stage.clientWidth / W || 0;
     const on = {};
     txt.forEach((it) => {
+      if (it.tpl) return;                    // 🇪🇹 templates are drawn on the canvas (syncTemplates)
       const vis = t >= it.start && t < it.start + E.ovLen(it) && t < total();
       let e = TXEL[it.id];
       if (!vis) { if (e) e.style.display = 'none'; return; }
@@ -595,7 +597,7 @@
   const hint = el('span', 'ed-hint', '');
   const bTrans = btn('ed-tool', '', '', () => addTransition());
   const bZoom = btn('ed-tool ed-tool-zoom', '', '', () => addZoom(time()));
-  const bText = btn('ed-tool ed-tool-text', '', '', () => { tmenu.style.display = tmenu.style.display === 'none' ? '' : 'none'; });
+  const bText = btn('ed-tool ed-tool-text', '', '', () => { const open = tmenu.style.display === 'none'; tmenu.style.display = open ? '' : 'none'; if (open) renderTextMenu(); });
   const tmenu = el('div', 'ed-tmenu');
   tmenu.style.display = 'none';
   const tdrop = el('span', 'ed-tdrop');
@@ -609,15 +611,6 @@
   [pdrop, bSplit, bDel, bTrans, bZoom, tdrop, bUndo, bRedo, hint, el('span', 'st-flex'), zOut, zIn, zFit].forEach((x) => tbar.appendChild(x));
   document.addEventListener('mousedown', (e) => { if (pmenu.style.display !== 'none' && !pdrop.contains(e.target)) pmenu.style.display = 'none'; });
   document.addEventListener('mousedown', (e) => { if (tmenu.style.display !== 'none' && !tdrop.contains(e.target)) tmenu.style.display = 'none'; });
-  function renderTextMenu() {
-    tmenu.textContent = '';
-    [['title', tx('ርዕስ', 'Title'), tx('ትልቅ፣ በመሃል', 'Big, in the middle')], ['lower', tx('የስም ጽሑፍ', 'Lower third'), tx('ስምና ማዕረግ ከታች', 'Name and title, bottom left')],
-      ['box', tx('በሳጥን ላይ', 'On a box'), tx('ጽሑፍ በጨለማ ሳጥን ላይ', 'Text on a dark box')], ['plain', tx('ቀላል ጽሑፍ', 'Plain text'), tx('ነጭ ከጥቁር ጠርዝ ጋር', 'White with a dark edge')]].forEach(([pr, name, sub]) => {
-      const b = btn('ed-tmi', '', '', () => { tmenu.style.display = 'none'; addText(pr); });
-      b.appendChild(el('b', '', name)); b.appendChild(el('span', '', sub));
-      tmenu.appendChild(b);
-    });
-  }
   // ✨ Make it pro (1.59, owner's friend: "no keyframes, a junior editor does a
   // pro edit by one move"). Ticks, all on: the ✂ Clean up finds (pauses,
   // repeated takes, እ… sounds, your ✂ words), clean voice, loudness for
@@ -897,6 +890,7 @@
     syncZoom(t);
     syncOverlays(t);
     syncTexts(t);
+    syncTemplates(t);
     syncMusic(t);
     if (window.__amhSubsTick) window.__amhSubsTick(t);   // the caption style, live (studio_subs.js)
     tTime.textContent = S.fmtClock(t, true) + ' / ' + S.fmtClock(total());
@@ -1468,7 +1462,7 @@
     const ov = ovl.find((x) => x.id === sel);
     if (ov) { renderOverlayInspector(ov); return; }
     const ti = txt.find((x) => x.id === sel);
-    if (ti) { renderTextInspector(ti); return; }
+    if (ti) { if (ti.tpl) renderTemplateInspector(ti); else renderTextInspector(ti); return; }
     const mu = mus.find((x) => x.id === sel);
     if (mu) { renderMusicInspector(mu); return; }
     const c = clips.find((x) => x.id === sel);
@@ -1876,6 +1870,342 @@
     soundPane.appendChild(el('div', 'st-note', tx('ማጽዳትና loudness ሲላክ ይሠራሉ።', 'Cleaning and loudness are applied when you export.')));
   }
 
+  // ── 🇪🇹 Templates (1.62): the preview canvas, the gallery, ⚙ settings ──
+  // The editor measures text with the real fonts — the export uses the same
+  // numbers (E.setMeasure), so boxes fit the words in both.
+  const mctx = document.createElement('canvas').getContext('2d');
+  const fontCss = (font, S, bold) => (bold ? '700 ' : '400 ') + (S * E.fontInfo(font).css) + "px 'AC " + (FONTFILES[font] ? font : 'sans') + "', 'Abyssinica SIL', serif";
+  E.setMeasure((text, font, S, bold, fsp) => {
+    if (!mctx) return 0;
+    mctx.font = fontCss(font, S, bold);
+    try { mctx.letterSpacing = (fsp || 0) + 'px'; } catch (e) {}
+    return mctx.measureText(String(text || '')).width;
+  });
+  let TPLCACHE = {};
+  if (document.fonts && document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', () => { TPLCACHE = {}; });
+  function tplLayersOf(it, W, H) {
+    const key = JSON.stringify([it.tpl, it.text, it.sub, it.accent, it.color, it.font, it.size, it.fx, it.fy, it.speed, it.end, it.theme, it.in, it.out, W, H]);
+    if (!TPLCACHE[key]) TPLCACHE[key] = E.tplLayers(it, W, H);
+    return TPLCACHE[key];
+  }
+  // one template at τ seconds after its start, in canvas px (k = screen px per canvas px)
+  function drawTpl(c2, it, tau, k, W, H, boxOut) {
+    const T = tplLayersOf(it, W, H);
+    let bb = null;
+    T.layers.forEach((l) => {
+      if (tau < l.on || tau >= l.off) return;
+      const st = E.tplState(l, tau);
+      const last = Math.abs(l.off - T.len) < 0.01;
+      const fade = last ? E.tplFade(T, tau) : 1;
+      const a = Math.max(0, Math.min(1, st.al)) * fade;
+      if (a <= 0.001) return;
+      c2.save();
+      c2.scale(k, k);
+      if (st.wipe < 1) {
+        const bx = l.kind === 'text' ? { x0: l.x - l.w2 - l.S, x1: l.x + l.w2 + l.S, y0: l.y - l.S, y1: l.y + l.S }
+          : { x0: l.x - (l.w || 0) / 2 - 2, x1: l.x + (l.w || 0) / 2 + 2, y0: l.y - (l.h || 0) / 2 - 2, y1: l.y + (l.h || 0) / 2 + 2 };
+        c2.beginPath(); c2.rect(bx.x0, bx.y0, Math.max(0, (bx.x1 - bx.x0) * st.wipe), bx.y1 - bx.y0); c2.clip();
+      }
+      c2.translate(l.x + st.mv[0], l.y + st.mv[1]);
+      if (st.rot) c2.rotate(st.rot * Math.PI / 180);
+      const sc = Math.max(0, st.sc) / 100;
+      c2.scale(l.sy ? 1 : sc, sc);
+      if (l.kind === 'rect') {
+        c2.globalAlpha = a * (l.a == null ? 1 : l.a);
+        c2.fillStyle = l.color;
+        c2.beginPath();
+        const r = Math.min(l.r || 0, l.w / 2, l.h / 2);
+        if (c2.roundRect) c2.roundRect(-l.w / 2, -l.h / 2, l.w, l.h, r); else c2.rect(-l.w / 2, -l.h / 2, l.w, l.h);
+        c2.fill();
+      } else if (l.kind === 'poly') {
+        c2.globalAlpha = a * (l.a == null ? 1 : l.a);
+        c2.fillStyle = l.color;
+        c2.beginPath();
+        l.pts.forEach((p, i) => { if (i) c2.lineTo(p[0] - l.x, p[1] - l.y); else c2.moveTo(p[0] - l.x, p[1] - l.y); });
+        c2.closePath(); c2.fill();
+      } else {
+        c2.font = fontCss(l.font, l.S, l.bold);
+        try { c2.letterSpacing = (st.sp || 0) + 'px'; } catch (e) {}
+        c2.textAlign = 'center'; c2.textBaseline = 'middle';
+        c2.lineJoin = 'round';
+        if (l.sh) { c2.globalAlpha = a * 0.55; c2.fillStyle = '#000'; if (l.ob) { c2.lineWidth = l.ob * 2; c2.strokeStyle = '#000'; c2.strokeText(l.text, l.sh, l.sh); } c2.fillText(l.text, l.sh, l.sh); }
+        if (l.ob) { c2.globalAlpha = a; c2.lineWidth = l.ob * 2; c2.strokeStyle = l.oc || '#000'; c2.strokeText(l.text, 0, 0); }
+        c2.globalAlpha = a * (l.a == null ? 1 : l.a);
+        c2.fillStyle = l.color;
+        c2.fillText(l.text, 0, 0);
+      }
+      c2.restore();
+      const hw = l.kind === 'text' ? l.w2 : (l.w || 0) / 2, hh = l.kind === 'text' ? l.S / 2 : (l.h || 0) / 2;
+      if (l.kind !== 'poly') bb = bb ? { x0: Math.min(bb.x0, l.x - hw), y0: Math.min(bb.y0, l.y - hh), x1: Math.max(bb.x1, l.x + hw), y1: Math.max(bb.y1, l.y + hh) }
+        : { x0: l.x - hw, y0: l.y - hh, x1: l.x + hw, y1: l.y + hh };
+    });
+    if (boxOut) boxOut[it.id] = bb;
+  }
+  // the canvas over the picture (under the captions)
+  const tcv = document.createElement('canvas');
+  tcv.className = 'ed-tplcv';
+  const TPLBOX = {};
+  function syncTemplates(t) {
+    if (!tcv.parentNode && stage) { const cap = $('appCap'); stage.insertBefore(tcv, cap && cap.parentNode === stage ? cap : null); }
+    const { w: W, h: H } = E.canvasSize(fmt);
+    const sw = stage.clientWidth || 0, shh = stage.clientHeight || 0, dpr = window.devicePixelRatio || 1;
+    if (tcv.width !== Math.round(sw * dpr) || tcv.height !== Math.round(shh * dpr)) { tcv.width = Math.round(sw * dpr); tcv.height = Math.round(shh * dpr); tcv.style.width = sw + 'px'; tcv.style.height = shh + 'px'; }
+    const c2 = tcv.getContext('2d');
+    c2.setTransform(1, 0, 0, 1, 0, 0);
+    c2.clearRect(0, 0, tcv.width, tcv.height);
+    Object.keys(TPLBOX).forEach((id) => { delete TPLBOX[id]; });
+    const k = (sw / W) * dpr;
+    txt.forEach((it) => {
+      if (!it.tpl || t < it.start || t >= it.start + E.ovLen(it) || t >= total()) return;
+      drawTpl(c2, it, t - it.start, k, W, H, TPLBOX);
+      const b = TPLBOX[it.id];
+      if (b && it.id === sel) {
+        c2.save(); c2.scale(k, k); c2.strokeStyle = '#2ECC71'; c2.lineWidth = 2 / (k / dpr); c2.setLineDash([8 / (k / dpr), 6 / (k / dpr)]);
+        c2.strokeRect(b.x0 - 10, b.y0 - 10, b.x1 - b.x0 + 20, b.y1 - b.y0 + 20); c2.restore();
+      }
+    });
+  }
+  // a press on a template in the picture: select it, drag it (its fx / fy)
+  function tplAt(e) {
+    const { w: W } = E.canvasSize(fmt);
+    const r = stage.getBoundingClientRect(), k = (stage.clientWidth || 1) / W;
+    const x = (e.clientX - r.left) / k, y = (e.clientY - r.top) / k;
+    const ids = Object.keys(TPLBOX).reverse();
+    return ids.find((id) => { const b = TPLBOX[id]; return b && x >= b.x0 - 14 && x <= b.x1 + 14 && y >= b.y0 - 14 && y <= b.y1 + 14; }) || null;
+  }
+  stage.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    const id = tplAt(e);
+    if (!id) return;
+    e.stopImmediatePropagation(); e.preventDefault();
+    const it = txt.find((x) => x.id === id);
+    if (sel !== id) { sel = id; renderInspector(); ST.showTab('clip'); }
+    const P = E.tplOf(it);
+    const { w: W, h: H } = E.canvasSize(fmt);
+    pushReviewUndo('move template');
+    const k = stage.clientWidth / W, x0 = e.clientX, y0 = e.clientY;
+    const mm = (ev) => {
+      const fx = Math.round((P.fx + (ev.clientX - x0) / k / W) * 1000) / 1000, fy = Math.round((P.fy + (ev.clientY - y0) / k / H) * 1000) / 1000;
+      txt = txt.map((x) => (x.id === id ? Object.assign({}, x, { fx: Math.max(0, Math.min(1, fx)), fy: Math.max(0, Math.min(1, fy)) }) : x));
+      frame();
+    };
+    const mu = () => { document.removeEventListener('mousemove', mm); document.removeEventListener('mouseup', mu); renderInspector(); ST.saveSoon(); };
+    document.addEventListener('mousemove', mm);
+    document.addEventListener('mouseup', mu);
+  }, true);
+
+  // the gallery (＋ T Text): basics, then the template groups, with live thumbnails
+  let TGROUP = 'mine';
+  let thumbRaf = 0;
+  const TW = 176, TH = 99;
+  function myTemplates() { try { const l = loadSettings().myTemplates; return Array.isArray(l) ? l.filter((x) => x && x.tpl && E.TEMPLATES[x.tpl]) : []; } catch (e) { return []; } }
+  function renderTextMenu() {
+    tmenu.textContent = '';
+    tmenu.className = 'ed-tmenu ed-tgal';
+    const mine = myTemplates();
+    if (TGROUP === 'mine' && !mine.length) TGROUP = 'basic';
+    const tabs = el('div', 'tg-tabs');
+    const groups = [['basic', tx('ቀላል ጽሑፍ', 'Basic text')]].concat(mine.length ? [['mine', '★ ' + tx('የኔ', 'Mine')]] : [])
+      .concat(Object.keys(E.TPL_GROUPS).map((g) => [g, tx(E.TPL_GROUPS[g][0], E.TPL_GROUPS[g][1])]));
+    groups.forEach(([g, name]) => tabs.appendChild(btn('tg-tab' + (TGROUP === g ? ' on' : ''), name, '', () => { TGROUP = g; renderTextMenu(); })));
+    tmenu.appendChild(tabs);
+    const grid = el('div', 'tg-grid');
+    const thumbs = [];
+    if (TGROUP === 'basic') {
+      [['title', tx('ርዕስ', 'Title'), tx('ትልቅ፣ በመሃል', 'Big, in the middle')], ['lower', tx('የስም ጽሑፍ', 'Lower third'), tx('ስምና ማዕረግ ከታች', 'Name and title, bottom left')],
+        ['box', tx('በሳጥን ላይ', 'On a box'), tx('ጽሑፍ በጨለማ ሳጥን ላይ', 'Text on a dark box')], ['plain', tx('ቀላል ጽሑፍ', 'Plain text'), tx('ነጭ ከጥቁር ጠርዝ ጋር', 'White with a dark edge')]].forEach(([pr, name, sub]) => {
+        const b = btn('ed-tmi', '', '', () => { tmenu.style.display = 'none'; addText(pr); });
+        b.appendChild(el('b', '', name)); b.appendChild(el('span', '', sub));
+        grid.appendChild(b);
+      });
+      grid.classList.add('tg-basic');
+    } else {
+      const list = TGROUP === 'mine' ? mine.map((m) => Object.assign({}, m, { _mine: true }))
+        : Object.keys(E.TEMPLATES).filter((id) => E.TEMPLATES[id].g === TGROUP).map((id) => ({ tpl: id }));
+      list.forEach((spec) => {
+        const D = E.TEMPLATES[spec.tpl];
+        const card = btn('tg-card', '', '', () => { tmenu.style.display = 'none'; addTemplate(spec); });
+        const cv = el('canvas', 'tg-cv');
+        cv.width = TW * 2; cv.height = TH * 2;
+        card.appendChild(cv);
+        card.appendChild(el('b', '', spec._mine ? spec.name : tx(D.name[0], D.name[1])));
+        if (spec._mine) {
+          const del = el('i', 'tg-del', '✕');
+          del.title = tx('ሰርዝ', 'Delete');
+          del.addEventListener('click', (e) => { e.stopPropagation(); saveSettings({ myTemplates: myTemplates().filter((x) => x.name !== spec.name) }); renderTextMenu(); });
+          card.appendChild(del);
+        }
+        grid.appendChild(card);
+        thumbs.push({ cv, it: Object.assign({ id: 'thumb', start: 0, in: 0, out: 3.2 }, spec, { _mine: undefined, name: undefined }) });
+      });
+      if (TGROUP === 'holiday') {
+        // one card per holiday
+        grid.textContent = ''; thumbs.length = 0;
+        Object.keys(E.HOLIDAYS).forEach((th) => {
+          const card = btn('tg-card', '', '', () => { tmenu.style.display = 'none'; addTemplate({ tpl: 'holiday', theme: th }); });
+          const cv = el('canvas', 'tg-cv'); cv.width = TW * 2; cv.height = TH * 2;
+          card.appendChild(cv);
+          card.appendChild(el('b', '', tx(E.HOLIDAYS[th].name[0], E.HOLIDAYS[th].name[1])));
+          grid.appendChild(card);
+          thumbs.push({ cv, it: { id: 'thumb', tpl: 'holiday', theme: th, start: 0, in: 0, out: 3.2, size: 1.25 } });
+        });
+      }
+    }
+    tmenu.appendChild(grid);
+    tmenu.appendChild(el('div', 'st-note', tx('ካርዱ ላይ ሲያንዣብቡ ይንቀሳቀሳል — ይጫኑት፣ በማጫወቻው ቦታ ይገባል።', 'Each card plays its animation — click one to add it at the playhead.')));
+    // the thumbnails play (only while the gallery is open)
+    cancelAnimationFrame(thumbRaf);
+    const t0 = performance.now();
+    const loop = () => {
+      if (tmenu.style.display === 'none' || !thumbs.length) return;
+      const tau = ((performance.now() - t0) / 1000) % 3.4;
+      thumbs.forEach(({ cv, it }) => {
+        const c2 = cv.getContext('2d');
+        c2.setTransform(1, 0, 0, 1, 0, 0);
+        c2.fillStyle = '#26323a'; c2.fillRect(0, 0, cv.width, cv.height);
+        c2.fillStyle = '#31414b'; c2.fillRect(0, cv.height * 0.62, cv.width, cv.height * 0.38);
+        if (!it._fit) {
+          // zoom the card onto the design itself (it is small on a full frame)
+          const T = tplLayersOf(it, 1920, 1080);
+          let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+          // a full-width banner: fit on its words, not the whole width
+          const wide = T.layers.some((l) => l.kind === 'rect' && l.w > 1500);
+          T.layers.filter((l) => !wide || l.kind === 'text').forEach((l) => {
+            const hw = l.kind === 'text' ? l.w2 + l.S * 0.2 : l.kind === 'poly' ? Math.max.apply(null, l.pts.map((q) => Math.abs(q[0] - l.x))) : l.w / 2;
+            const hh = l.kind === 'text' ? l.S * 0.6 : l.kind === 'poly' ? Math.max.apply(null, l.pts.map((q) => Math.abs(q[1] - l.y))) : l.h / 2;
+            x0 = Math.min(x0, l.x - hw); x1 = Math.max(x1, l.x + hw); y0 = Math.min(y0, l.y - hh); y1 = Math.max(y1, l.y + hh);
+          });
+          const kk = Math.min(cv.width * 0.84 / Math.max(1, x1 - x0), cv.height * 0.72 / Math.max(1, y1 - y0), cv.width / 1920 * 3.2);
+          it._fit = { k: kk, ox: cv.width / 2 - (x0 + x1) / 2 * kk, oy: cv.height / 2 - (y0 + y1) / 2 * kk };
+        }
+        c2.setTransform(1, 0, 0, 1, it._fit.ox, it._fit.oy);
+        drawTpl(c2, it, tau, it._fit.k, 1920, 1080, null);
+      });
+      thumbRaf = requestAnimationFrame(loop);
+    };
+    thumbRaf = requestAnimationFrame(loop);
+  }
+  const TPL_LEN = { subscribe: 3.2, cta: 4, banner: 5, price: 3, holiday: 5, cinema: 4.5 };
+  function addTemplate(spec) {
+    const D = E.TEMPLATES[spec.tpl];
+    const at = Math.min(time(), Math.max(0, total() - 0.5));
+    const id = newId();
+    const P = E.tplOf(spec);
+    const it = Object.assign({ id, start: Math.round(at * 1000) / 1000, in: 0, out: TPL_LEN[spec.tpl] || 3.5, text: P.text, sub: P.sub }, spec);
+    delete it._mine; delete it.name;
+    if (it.tpl === 'holiday' && !spec.text) it.text = E.HOLIDAYS[it.theme || 'meskel'].text;
+    it.out = Math.min(it.out, Math.max(0.5, total() - it.start));
+    change('add template', () => { txt = txt.concat([it]); });
+    sel = id; after(); ST.showTab('clip');
+    void D;
+  }
+  const TPL_SUB = { subscribe: tx('ከተጫነ በኋላ', 'After the click'), follow: tx('የአዝራሩ ጽሑፍ', 'Button text'), number: tx('ቁጥር', 'Number'),
+    price: tx('ከላይ ያለው ጽሑፍ', 'Small text on top'), quote: tx('ማን አለው', 'Who said it'), banner: tx('ሁለተኛ መስመር', 'Second line'),
+    hook: tx('ከስር ያለ ትንሽ ጽሑፍ', 'Small line under it'), slam: tx('ከስር ያለ ጽሑፍ', 'Line under it'), cinema: tx('ከላይ ያለ ትንሽ ጽሑፍ', 'Small line above'),
+    stack: tx('የላይኛው መስመር', 'Top line'), lower: tx('ማዕረግ', 'Title / role'), minimal: tx('ማዕረግ', 'Title / role'), holiday: tx('ከማን', 'From') };
+  const BRAND = ['#2ECC71', '#FFD60A', '#FF0033', '#FE2C55', '#1565C0', '#42A5F5', '#AB47BC', '#FF9800', '#E8C77A', '#FFFFFF', '#111111'];
+  function renderTemplateInspector(it) {
+    const P = E.tplOf(it);
+    const D = P.D;
+    const setT = (props, undo) => {
+      if (undo) pushReviewUndo('template');
+      txt = txt.map((x) => (x.id === it.id ? Object.assign({}, x, props) : x));
+      Object.assign(it, props);
+      frame(); drawSoon();
+    };
+    const setC = (props) => change('template', () => { txt = txt.map((x) => (x.id === it.id ? Object.assign({}, x, props) : x)); });
+    clipPane.appendChild(el('div', 'ed-cname', '✦ ' + tx(D.name[0], D.name[1]) + ' · ' + S.fmtClock(E.ovLen(it), true)));
+    const field = (label, key, ph) => {
+      clipPane.appendChild(el('div', 'ed-sec', label));
+      const inp = el('input', 'ed-in');
+      inp.dataset.amhType = '1';
+      inp.value = it[key] == null ? '' : it[key];
+      inp.placeholder = ph || '';
+      let started = false;
+      inp.addEventListener('input', () => { setT({ [key]: inp.value }, !started); started = true; });
+      inp.addEventListener('change', () => { started = false; ST.saveSoon(); renderInspector(); });
+      clipPane.appendChild(inp);
+    };
+    field(tx('ጽሑፍ', 'Text'), 'text');
+    if (TPL_SUB[P.id] || P.id === 'subscribe') field(TPL_SUB[P.id] || tx('ሁለተኛ ጽሑፍ', 'Second text'), 'sub');
+    if (P.id === 'holiday') {
+      clipPane.appendChild(el('div', 'ed-sec', tx('በዓል', 'Holiday')));
+      const hs = el('div', 'br-chips');
+      Object.keys(E.HOLIDAYS).forEach((th) => hs.appendChild(btn('br-chip' + ((it.theme || 'meskel') === th ? ' on' : ''), tx(E.HOLIDAYS[th].name[0], E.HOLIDAYS[th].name[1]), '', () => {
+        const old = E.HOLIDAYS[it.theme || 'meskel'];
+        const props = { theme: th, accent: null, color: null };
+        if (!it.text || it.text === old.text) props.text = E.HOLIDAYS[th].text;     // a text the editor did not change follows the holiday
+        setC(props);
+      })));
+      clipPane.appendChild(hs);
+    }
+    const swatches = (label, key, cur, list) => {
+      clipPane.appendChild(el('div', 'ed-sec', label));
+      const sw = el('div', 'ed-swatches');
+      list.forEach((c) => {
+        const b = btn('ed-sw' + (cur.toUpperCase() === c ? ' on' : ''), '', c, () => setC({ [key]: c }));
+        b.style.background = c;
+        sw.appendChild(b);
+      });
+      const pick = el('input'); pick.type = 'color'; pick.className = 'ed-pick'; pick.value = cur;
+      pick.title = tx('ማንኛውም ቀለም', 'Any colour');
+      pick.addEventListener('change', () => setC({ [key]: pick.value.toUpperCase() }));
+      sw.appendChild(pick);
+      clipPane.appendChild(sw);
+    };
+    swatches(tx('ዋና ቀለም', 'Accent colour'), 'accent', P.accent, BRAND);
+    swatches(tx('የጽሑፍ ቀለም', 'Text colour'), 'color', P.color, ['#FFFFFF', '#111111', '#FFD60A', '#2ECC71', '#E8C77A']);
+    clipPane.appendChild(el('div', 'ed-sec', tx('ፊደል', 'Font')));
+    const fr = el('div', 'st-seg ed-fonts');
+    Object.keys(FONTFILES).forEach((f) => { const b = btn(P.font === f ? 'on' : '', 'ሰላም', f, () => setC({ font: f })); b.style.fontFamily = "'AC " + f + "', serif"; fr.appendChild(b); });
+    clipPane.appendChild(fr);
+    const row = el('div', 'ed-row');
+    row.appendChild(el('span', 'ed-lab', tx('መጠን', 'Size')));
+    const r = el('input'); r.type = 'range'; r.min = 0.5; r.max = 2; r.step = 0.01; r.value = P.size;
+    const val = el('span', 'ed-val', Math.round(P.size * 100) + '%');
+    let s3 = false;
+    r.addEventListener('input', () => { setT({ size: Number(r.value) }, !s3); s3 = true; val.textContent = Math.round(r.value * 100) + '%'; });
+    r.addEventListener('change', () => { s3 = false; ST.saveSoon(); });
+    row.appendChild(r); row.appendChild(val);
+    clipPane.appendChild(row);
+    clipPane.appendChild(el('div', 'ed-sec', tx('ቦታ', 'Position')));
+    const pw = el('div', 'zm-focus-wrap');
+    const pg = el('div', 'zm-focus');
+    [0.15, 0.5, 0.85].forEach((fy) => [0.1, 0.5, 0.9].forEach((fx) => {
+      const near = Math.abs(P.fx - fx) < 0.06 && Math.abs(P.fy - fy) < 0.06;
+      pg.appendChild(btn('zm-dot' + (near ? ' on' : ''), '', '', () => setC({ fx: P.D.fx < 0.2 && fx === 0.1 ? P.D.fx : fx, fy })));
+    }));
+    pw.appendChild(pg);
+    pw.appendChild(el('div', 'st-note', tx('ወይም በምስሉ ላይ ይጎትቱት።', 'Or drag it on the picture.')));
+    clipPane.appendChild(pw);
+    const seg = (label, opts, cur, key) => {
+      clipPane.appendChild(el('div', 'ed-sec', label));
+      const s2 = el('div', 'st-seg');
+      opts.forEach(([v, t]) => s2.appendChild(btn(cur === v ? 'on' : '', t, '', () => setC({ [key]: v }))));
+      clipPane.appendChild(s2);
+    };
+    seg(tx('የእንቅስቃሴ ፍጥነት', 'Animation speed'), [['slow', tx('ቀስ', 'Slow')], ['normal', tx('መደበኛ', 'Normal')], ['fast', tx('ፈጣን', 'Fast')]], it.speed || 'normal', 'speed');
+    seg(tx('ሲጨርስ', 'At the end'), [['fade', tx('ደብዝዞ ይጠፋል', 'Fades out')], ['none', tx('በቀጥታ ይቆማል', 'Cuts')]], it.end === 'none' ? 'none' : 'fade', 'end');
+    const acts = el('div', 'st-row br-acts');
+    acts.appendChild(btn('st-btn primary', '▶ ' + tx('አሳይ', 'Preview'), '', () => {
+      seek(Math.max(0, it.start - 0.3)); play();
+      const end = it.start + E.ovLen(it) + 0.4;
+      const stop = () => { if (time() >= end) pause(); else if (playing) requestAnimationFrame(stop); };
+      requestAnimationFrame(stop);
+    }));
+    acts.appendChild(btn('st-btn', '★ ' + tx('እንደ የኔ አስቀምጥ', 'Save as mine'), tx('ይህን መልክ በ«የኔ» ውስጥ ያስቀምጡ', 'Keep this look under «Mine»'), () => {
+      const name = (it.text || tx(D.name[0], D.name[1])).slice(0, 24);
+      const keep = { name, tpl: it.tpl };
+      ['text', 'sub', 'accent', 'color', 'font', 'size', 'fx', 'fy', 'speed', 'end', 'theme'].forEach((k) => { if (it[k] != null) keep[k] = it[k]; });
+      const list = myTemplates().filter((x) => x.name !== name).concat([keep]).slice(-24);
+      saveSettings({ myTemplates: list });
+      log('★ ' + tx('ተቀምጧል፦ ', 'Saved: ') + name);
+    }));
+    acts.appendChild(btn('st-btn', '⤓ ' + tx('ወደ ማጫወቻው', 'To playhead'), '', () => change('move text', () => { txt = E.ovMove(txt, it.id, time()); })));
+    acts.appendChild(btn('st-btn', '🗑 ' + tx('ሰርዝ', 'Delete'), '', deleteSel));
+    clipPane.appendChild(acts);
+  }
+
   function renderTextInspector(it) {
     const setT = (props, undo) => {
       if (undo) pushReviewUndo('text');
@@ -2135,8 +2465,8 @@
     labels.appendChild(el('div', 'ed-ltx', 'T ' + tx('ጽሑፍ', 'Text')));
     labels.appendChild(el('div', 'ed-lov', '🎞 ' + tx('ተደራቢ', 'Overlay')));
     labels.appendChild(el('div', 'ed-lzm', '🔍 ' + tx('ዙም', 'Zoom')));
-    bText.textContent = '＋ T ' + tx('ጽሑፍ', 'Text');
-    bText.title = tx('ርዕስ፣ የስም ጽሑፍ፣ በሳጥን ላይ…', 'Title, lower third, text on a box…');
+    bText.textContent = '＋ T ' + tx('ጽሑፍ እና ቴምፕሌቶች', 'Text & templates');
+    bText.title = tx('ርዕሶች፣ የስም ጽሑፍ፣ ሰብስክራይብ፣ በዓላት… ተንቀሳቃሽ ቴምፕሌቶች', 'Titles, lower thirds, subscribe, holidays… animated templates');
     renderTextMenu();
     labels.appendChild(el('div', 'ed-lmain', '🎬 ' + tx('ዋና', 'Main')));
     labels.appendChild(el('div', 'ed-lmus', '♪ ' + tx('ሙዚቃ', 'Music')));
