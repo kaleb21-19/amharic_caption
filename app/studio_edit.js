@@ -37,6 +37,7 @@
   let clips = [];          // the main track
   let ovl = [];            // the overlay track (1.21.0): B-roll, photos, logos
   let txt = [];            // the text track (1.22.0): titles, lower thirds, text on a box
+  let zm = [];             // 🔍 zooms on the main picture (1.60): { id, start, in: 0, out, style, amt, speed, fx, fy }
   let mus = [];            // the music track (1.23.0)
   let snd = { clean: false, loud: 'off' };   // clean voice, loudness (1.23.0)
   let SRC = {};            // the captions of each file, in that file's time
@@ -126,10 +127,10 @@
   const origUndo = window.undoReview;
   const REDO = [];
   let redoing = false;
-  const snap = () => JSON.stringify({ clips, ovl, txt, mus, snd, fmt, media, SRC: built ? E.syncBack(clips, SRC, reviewCues) : SRC });
+  const snap = () => JSON.stringify({ clips, ovl, txt, mus, snd, zm, fmt, media, SRC: built ? E.syncBack(clips, SRC, reviewCues) : SRC });
   function restore(json) {
     const o = JSON.parse(json);
-    clips = o.clips; ovl = o.ovl || []; txt = o.txt || []; mus = o.mus || []; snd = o.snd || { clean: false, loud: 'off' }; fmt = o.fmt; SRC = o.SRC;
+    clips = o.clips; ovl = o.ovl || []; txt = o.txt || []; mus = o.mus || []; snd = o.snd || { clean: false, loud: 'off' }; zm = o.zm || []; fmt = o.fmt; SRC = o.SRC;
     Object.keys(o.media || {}).forEach((k) => { if (!media[k]) { media[k] = o.media[k]; loadPeaks(k); } });
   }
   window.pushReviewUndo = function (what) {
@@ -312,8 +313,19 @@
     stage.classList.toggle('sel', !!sel && c.id === sel);
     colorTo(v, 'A', c.col);
     syncTrans(time());
+    syncZoom(time());
     syncOverlays(time());
     syncTexts(time());
+  }
+  // 🔍 the zoom, live: the main picture's layer, scaled and moved exactly as
+  // the export's perspective filter (E.zoomRect = E.zoomExprs)
+  function syncZoom(t) {
+    const { w: W, h: H } = E.canvasSize(fmt);
+    const r = E.zoomRect(zm, t, W, H);
+    if (r.z <= 1.0001) { if (mainLayer.style.transform) mainLayer.style.transform = ''; return; }
+    const k = (stage.clientWidth || W) / W;
+    mainLayer.style.transformOrigin = '0 0';
+    mainLayer.style.transform = 'translate(' + (-r.z * r.x * k) + 'px,' + (-r.z * r.y * k) + 'px) scale(' + r.z + ')';
   }
   window.addEventListener('resize', () => { frame(); drawSoon(); });
   // the shipped Amharic fonts, so the text on the canvas is the exported text
@@ -511,7 +523,7 @@
   }
   // drag the picture to move the selected clip (one undo step per drag)
   let moving = null;
-  const findItem = (id) => clips.find((c) => c.id === id) || ovl.find((o) => o.id === id) || txt.find((o) => o.id === id) || mus.find((o) => o.id === id);
+  const findItem = (id) => clips.find((c) => c.id === id) || ovl.find((o) => o.id === id) || txt.find((o) => o.id === id) || mus.find((o) => o.id === id) || zm.find((o) => o.id === id);
   function startMove(id, e) {
     const it = findItem(id);
     if (!it || e.button !== 0) return;
@@ -548,6 +560,7 @@
   const zFit = btn('tl-btn', '⤢', '', () => { view = S.fitView(total(), width()); drawSoon(); });
   const hint = el('span', 'ed-hint', '');
   const bTrans = btn('ed-tool', '', '', () => addTransition());
+  const bZoom = btn('ed-tool ed-tool-zoom', '', '', () => addZoom(time()));
   const bText = btn('ed-tool ed-tool-text', '', '', () => { tmenu.style.display = tmenu.style.display === 'none' ? '' : 'none'; });
   const tmenu = el('div', 'ed-tmenu');
   tmenu.style.display = 'none';
@@ -559,7 +572,7 @@
   pmenu.style.display = 'none';
   const pdrop = el('span', 'ed-tdrop');
   pdrop.appendChild(bPro); pdrop.appendChild(pmenu);
-  [pdrop, bSplit, bDel, bTrans, tdrop, bUndo, bRedo, hint, el('span', 'st-flex'), zOut, zIn, zFit].forEach((x) => tbar.appendChild(x));
+  [pdrop, bSplit, bDel, bTrans, bZoom, tdrop, bUndo, bRedo, hint, el('span', 'st-flex'), zOut, zIn, zFit].forEach((x) => tbar.appendChild(x));
   document.addEventListener('mousedown', (e) => { if (pmenu.style.display !== 'none' && !pdrop.contains(e.target)) pmenu.style.display = 'none'; });
   document.addEventListener('mousedown', (e) => { if (tmenu.style.display !== 'none' && !tdrop.contains(e.target)) tmenu.style.display = 'none'; });
   function renderTextMenu() {
@@ -581,9 +594,9 @@
     const items = C && C.items ? C.items().filter((x) => x.on) : [];
     const ranges = mergeRanges(items);
     const gone = ranges.reduce((n, r) => n + r.end - r.start, 0);
-    return { ranges, gone, n: items.length, clean: !snd.clean, loud: snd.loud !== 'web' };
+    return { ranges, gone, n: items.length, clean: !snd.clean, loud: snd.loud !== 'web', zooms: zoomMoments(ranges).length };
   }
-  let PRO = { cuts: true, clean: true, loud: true };
+  let PRO = { cuts: true, clean: true, loud: true, zoom: true };
   function openPro(done) {
     pmenu.textContent = '';
     pmenu.style.display = '';
@@ -600,6 +613,8 @@
         P.n ? P.n + ' ' + tx('ቦታዎች', 'places') + ' · −' + P.gone.toFixed(1) + ' ' + tx('ሰከንድ', 's') : tx('የሚወገድ የለም — አስቀድሞ ጥብቅ ነው', 'Nothing to remove — already tight'), P.n > 0],
       ['clean', '🎙 ' + tx('ድምፁን አጽዳ', 'Clean the voice'), P.clean ? tx('ጫጫታና ጉምጉምታ ይቀንሳል', 'Less noise and hum') : tx('✓ አስቀድሞ በርቷል', '✓ Already on'), P.clean],
       ['loud', '🔊 ' + tx('እንደ TikTok እና YouTube ጮክ አድርግ', 'Loud like TikTok and YouTube'), P.loud ? '−14 LUFS' : tx('✓ አስቀድሞ በርቷል', '✓ Already on'), P.loud],
+      ['zoom', '🔍 ' + tx('አስፈላጊ ቃላት ላይ ዙም', 'Zoom on the important words'),
+        P.zooms ? P.zooms + ' ' + tx('ቦታዎች — ★ ቃላት፣ ቁጥሮች፣ ገንዘብ', 'places — ★ words, numbers, money') : tx('★ ቃል ወይም ቁጥር አልተገኘም', 'No ★ word or number found'), P.zooms > 0],
     ];
     let any = false;
     steps.forEach(([k, name, sub, can]) => {
@@ -618,12 +633,14 @@
     pmenu.appendChild(go);
   }
   function doPro(P) {
-    const cut = PRO.cuts && P.n > 0, clean = PRO.clean && P.clean, loud = PRO.loud && P.loud;
-    if (!cut && !clean && !loud) return;
+    const cut = PRO.cuts && P.n > 0, clean = PRO.clean && P.clean, loud = PRO.loud && P.loud, zoomOn = PRO.zoom && P.zooms > 0;
+    if (!cut && !clean && !loud && !zoomOn) return;
+    let nz = 0;
     const list = cut ? P.ranges.slice().sort((a, b) => b.start - a.start) : [];
     change('make it pro', () => {
       list.forEach((r) => { clips = E.cutRange(clips, r.start, r.end, newId); });
       if (clean || loud) snd = Object.assign({}, snd, clean ? { clean: true } : {}, loud ? { loud: 'web' } : {});
+      if (zoomOn) nz = autoZooms(cut ? P.ranges : []);
     });
     seek(Math.min(time(), total()));
     const C = window.__amhCuts;
@@ -632,8 +649,161 @@
     if (cut) said.push('✂ −' + P.gone.toFixed(1) + ' ' + tx('ሰከንድ', 's'));
     if (clean) said.push('🎙 ' + tx('ድምፁ ጸድቷል', 'voice cleaned'));
     if (loud) said.push('🔊 −14 LUFS');
+    if (nz) said.push('🔍 ' + nz + ' ' + tx('ዙሞች', 'zooms'));
     openPro('✓ ' + said.join(' · '));
     if (clean || loud) log(tx('ድምፅ ማጽዳትና loudness ሲላክ ይሠራሉ።', 'Voice cleaning and loudness are applied when you export.'));
+  }
+  // 🔍 Zoom (1.60): smooth, After Effects-like zooms without keyframes. Add
+  // one at the playhead (or on a word in the Script view), pick a style
+  // (each card shows its motion), strength, speed and focus in ⚙.
+  const ZOOM_NAMES = {
+    push: [tx('ለስላሳ ግፊት', 'Smooth push'), tx('ቀስ ብሎ ይቀርባል፣ ይመለሳል', 'Eases in, holds, eases out')],
+    punch: [tx('ፈጣን ዝላይ', 'Punch'), tx('በቅጽበት ይቀርባል — TikTok', 'Snaps in — TikTok style')],
+    creep: [tx('ቀስ ያለ ጉዞ', 'Slow creep'), tx('ሙሉ ጊዜ ቀስ ብሎ ይቀርባል', 'Creeps in the whole time')],
+    bounce: [tx('ዝላይ', 'Bounce'), tx('አልፎ ተመልሶ ይረጋል', 'Overshoots, then settles')],
+    pulse: [tx('የልብ ምት', 'Pulse'), tx('አንድ ፈጣን ምት', 'One quick beat')],
+    reveal: [tx('መግለጥ', 'Reveal'), tx('ከቅርብ ጀምሮ ይርቃል', 'Starts close, opens out')],
+    impact: [tx('ኃይለኛ', 'Impact'), tx('ዝላይ ከመንቀጥቀጥ ጋር', 'Punch with a camera shake')],
+  };
+  const zoomName = (st) => (ZOOM_NAMES[st] || ZOOM_NAMES.push)[0];
+  const ZOOM_LEN = { push: 2, punch: 1.2, creep: 3, bounce: 1.6, pulse: 0.6, reveal: 1.5, impact: 1.2 };
+  function zoomLast() {
+    let z = {};
+    try { z = (typeof loadSettings === 'function' && loadSettings().zoomLast) || {}; } catch (e) {}
+    return {
+      style: E.ZOOM_STYLES[z.style] ? z.style : E.ZOOM_DEFAULT.style,
+      amt: Number(z.amt) >= 1.05 && Number(z.amt) <= 1.6 ? Number(z.amt) : E.ZOOM_DEFAULT.amt,
+      speed: E.ZOOM_SPEED[z.speed] ? z.speed : E.ZOOM_DEFAULT.speed,
+    };
+  }
+  function rememberZoom(o) {
+    try { if (typeof saveSettings === 'function') saveSettings({ zoomLast: { style: o.style, amt: o.amt, speed: o.speed } }); } catch (e) {}
+  }
+  // a zoom that does not run into the next one; null when there is no room
+  function zoomItem(at, props) {
+    const d0 = total();
+    const look = Object.assign(zoomLast(), props || {});
+    let start = Math.max(0, Math.min(Number(at) || 0, d0 - 0.3));
+    // past every zoom that is already there (one after the other, never on top)
+    for (let hit = 1; hit;) {
+      hit = zm.find((o) => start >= o.start - 1e-6 && start < o.start + E.ovLen(o) - 1e-6);
+      if (hit) start = hit.start + E.ovLen(hit);
+    }
+    const next = zm.filter((o) => o.start > start + 1e-6).sort((a, b) => a.start - b.start)[0];
+    let len = props && props.len ? props.len : ZOOM_LEN[look.style] || 1.6;
+    len = Math.min(len, d0 - start, next ? next.start - start : Infinity);
+    if (!(len >= 0.3)) return null;
+    return { id: newId(), start: Math.round(start * 1000) / 1000, in: 0, out: Math.round(len * 1000) / 1000,
+      style: look.style, amt: look.amt, speed: look.speed, fx: look.fx == null ? 0.5 : look.fx, fy: look.fy == null ? 0.5 : look.fy };
+  }
+  function addZoom(at, props) {
+    if (at == null) at = time();
+    // already a zoom there: open it (change its style in ⚙) instead of adding one elsewhere
+    const there = zm.find((o) => at >= o.start - 0.3 && at < o.start + E.ovLen(o));
+    if (there) {
+      sel = there.id; after(); ST.showTab('clip');
+      hint.textContent = tx('እዚህ ዙም አለ — በ⚙ ይቀይሩት', 'There is a zoom here already — change it in ⚙');
+      setTimeout(() => { hint.textContent = ''; }, 2500);
+      return there;
+    }
+    const it = zoomItem(at, props);
+    if (!it) { hint.textContent = tx('እዚህ ለዙም ቦታ የለም', 'No room for a zoom here'); setTimeout(() => { hint.textContent = ''; }, 2500); return null; }
+    change('add zoom', () => { zm = zm.concat([it]); });
+    sel = it.id; after(); ST.showTab('clip');
+    return it;
+  }
+  // the moments worth a zoom (★ words, numbers, money — core.js), in edit
+  // time after `cuts` (✨ Make it pro cuts first), none where a zoom is
+  function zoomMoments(cuts) {
+    if (typeof findZoomMoments !== 'function') return [];
+    const cues = (typeof reviewCues !== 'undefined' && reviewCues) || [];
+    const at = (t) => (cuts && cuts.length && typeof cutTime === 'function' ? cutTime(t, cuts) : t);
+    return findZoomMoments(cues, { auto: true, minGap: 3 }).map((m) => at(Math.max(0, m.word - 0.05)))
+      .filter((t) => !zm.some((o) => t >= o.start - 0.5 && t < o.start + E.ovLen(o) + 0.5));
+  }
+  function autoZooms(cuts) {
+    const add = [];
+    zoomMoments(cuts).forEach((t) => {
+      const it = zoomItem(t, { style: 'punch', amt: 1.15, len: 1.2 });
+      if (it && !add.some((a) => it.start < a.start + a.out && a.start < it.start + it.out)) add.push(it);
+    });
+    zm = zm.concat(add).sort((a, b) => a.start - b.start);
+    return add.length;
+  }
+  function renderZoomInspector(o) {
+    const setZ = (props, label) => {
+      change(label || 'zoom', () => { zm = zm.map((x) => (x.id === o.id ? Object.assign({}, x, props) : x)); });
+      const cur = zm.find((x) => x.id === o.id);
+      if (cur) rememberZoom(cur);
+    };
+    const now = zm.find((x) => x.id === o.id) || o;
+    clipPane.appendChild(el('div', 'ed-cname', '🔍 ' + tx('ዙም', 'Zoom') + ' · ' + zoomName(now.style) + ' · ' + S.fmtClock(E.ovLen(now), true)));
+    clipPane.appendChild(el('div', 'ed-sec', tx('ስታይል', 'Style')));
+    const grid = el('div', 'zm-grid');
+    Object.keys(E.ZOOM_STYLES).forEach((st) => {
+      const b = btn('zm-card' + (now.style === st ? ' on' : ''), '', ZOOM_NAMES[st][1], () => setZ({ style: st }));
+      const demo = el('span', 'zm-demo');
+      const pic = el('span', 'zm-pic zm-a-' + st);
+      pic.appendChild(el('i', 'zm-face'));
+      demo.appendChild(pic);
+      b.appendChild(demo);
+      b.appendChild(el('b', '', ZOOM_NAMES[st][0]));
+      b.appendChild(el('span', '', ZOOM_NAMES[st][1]));
+      grid.appendChild(b);
+    });
+    clipPane.appendChild(grid);
+    clipPane.appendChild(el('div', 'ed-sec', tx('ጥንካሬ', 'Strength')));
+    const amts = el('div', 'st-seg zm-seg');
+    [[1.1, '110%'], [1.2, '120%'], [1.35, '135%'], [1.5, '150%']].forEach(([v, t]) => {
+      amts.appendChild(btn(Math.abs((Number(now.amt) || 1.2) - v) < 0.001 ? 'on' : '', t, '', () => setZ({ amt: v })));
+    });
+    clipPane.appendChild(amts);
+    const row = el('div', 'ed-row');
+    row.appendChild(el('span', 'ed-lab', tx('በትክክል', 'Exact')));
+    const r = el('input'); r.type = 'range'; r.min = 1.05; r.max = 1.6; r.step = 0.01; r.value = Number(now.amt) || 1.2;
+    const val = el('span', 'ed-val', Math.round(r.value * 100) + '%');
+    let started = false;
+    r.addEventListener('input', () => {
+      if (!started) { pushReviewUndo('zoom'); started = true; }
+      zm = zm.map((x) => (x.id === o.id ? Object.assign({}, x, { amt: Number(r.value) }) : x));
+      val.textContent = Math.round(r.value * 100) + '%';
+      frame();
+    });
+    r.addEventListener('change', () => { started = false; rememberZoom(zm.find((x) => x.id === o.id) || o); ST.saveSoon(); drawSoon(); renderInspector(); });
+    row.appendChild(r); row.appendChild(val);
+    clipPane.appendChild(row);
+    clipPane.appendChild(el('div', 'ed-sec', tx('ፍጥነት', 'Speed')));
+    const sp = el('div', 'st-seg zm-seg');
+    [['slow', tx('ቀስ', 'Slow')], ['normal', tx('መደበኛ', 'Normal')], ['fast', tx('ፈጣን', 'Fast')]].forEach(([v, t]) => {
+      sp.appendChild(btn((now.speed || 'normal') === v ? 'on' : '', t, '', () => setZ({ speed: v })));
+    });
+    clipPane.appendChild(sp);
+    clipPane.appendChild(el('div', 'ed-sec', tx('ወደ የት', 'Focus')));
+    const fwrap = el('div', 'zm-focus-wrap');
+    const fg = el('div', 'zm-focus');
+    [0.25, 0.5, 0.75].forEach((fy) => [0.25, 0.5, 0.75].forEach((fx) => {
+      const on = Math.abs((now.fx == null ? 0.5 : now.fx) - fx) < 0.01 && Math.abs((now.fy == null ? 0.5 : now.fy) - fy) < 0.01;
+      fg.appendChild(btn('zm-dot' + (on ? ' on' : ''), '', '', () => setZ({ fx, fy })));
+    }));
+    fwrap.appendChild(fg);
+    fwrap.appendChild(el('div', 'st-note', tx('ዙሙ ወደ የትኛው የቪዲዮ ክፍል እንደሚቀርብ — ለምሳሌ ፊት።', 'Which part of the picture it zooms to — a face, for example.')));
+    clipPane.appendChild(fwrap);
+    const acts = el('div', 'st-row zm-acts');
+    acts.appendChild(btn('st-btn primary', '▶ ' + tx('አሳይ', 'Preview'), '', () => {
+      const z = zm.find((x) => x.id === o.id) || o;
+      seek(Math.max(0, z.start - 0.5));
+      play();
+      const end = z.start + E.ovLen(z) + 0.6;
+      const stop = () => { if (time() >= end) pause(); else if (playing) requestAnimationFrame(stop); };
+      requestAnimationFrame(stop);
+    }));
+    acts.appendChild(btn('st-btn', tx('ለሁሉም ዙሞች', 'Apply to all zooms'), '', () => {
+      const z = zm.find((x) => x.id === o.id) || o;
+      change('zoom all', () => { zm = zm.map((x) => Object.assign({}, x, { style: z.style, amt: z.amt, speed: z.speed })); });
+    }));
+    acts.appendChild(btn('st-btn', '🗑 ' + tx('ሰርዝ', 'Delete'), '', () => deleteSel()));
+    clipPane.appendChild(acts);
+    clipPane.appendChild(el('div', 'st-note', tx('በጊዜ መስመሩ ላይ ዙሙን ይጎትቱ፣ ጫፎቹን ያራዝሙ።', 'Drag the zoom on the timeline; drag its ends to make it longer or shorter.')));
   }
   // ⧓ a dissolve on the cut nearest the playhead (then choose the kind in ⚙)
   function addTransition() {
@@ -666,8 +836,8 @@
   tl.appendChild(tbar); tl.appendChild(lanes);
   review.appendChild(tl);
   const ctx = canvas.getContext ? canvas.getContext('2d') : null;
-  const RULER = 20, CAP = 28, TXT = 26, OVL = 34, MAIN = 48, MUS = 30, GAP = 6;
-  const capTop = RULER + 4, txTop = capTop + CAP + GAP, ovTop = txTop + TXT + GAP, mainTop = ovTop + OVL + GAP, musTop = mainTop + MAIN + GAP;
+  const RULER = 20, CAP = 28, TXT = 26, OVL = 34, ZM = 18, MAIN = 48, MUS = 30, GAP = 6;
+  const capTop = RULER + 4, txTop = capTop + CAP + GAP, ovTop = txTop + TXT + GAP, zmTop = ovTop + OVL + GAP, mainTop = zmTop + ZM + GAP, musTop = mainTop + MAIN + GAP;
   let view = { start: 0, pps: 50 };
   let fitted = false;
   const width = () => Math.max(50, cwrap.clientWidth || 600);
@@ -690,6 +860,7 @@
   function tick(follow) {
     const t = time();
     syncTrans(t);
+    syncZoom(t);
     syncOverlays(t);
     syncTexts(t);
     syncMusic(t);
@@ -778,6 +949,24 @@
         ctx.restore();
       }
     });
+    // 🔍 zooms
+    zm.forEach((o) => {
+      const x0 = S.timeToX(o.start, view), x1 = S.timeToX(o.start + E.ovLen(o), view);
+      if (x1 < 0 || x0 > w) return;
+      const isSel = o.id === sel;
+      ctx.fillStyle = isSel ? '#1f7a8c' : '#155766';
+      ctx.fillRect(x0 + 1, zmTop, Math.max(2, x1 - x0 - 2), ZM);
+      ctx.strokeStyle = isSel ? '#ffffff' : '#3fb6cc';
+      ctx.lineWidth = isSel ? 2 : 1;
+      ctx.strokeRect(x0 + 1.5, zmTop + 0.5, Math.max(2, x1 - x0 - 3), ZM - 1);
+      if (hover && hover.lane === 'zm' && hover.id === o.id && hover.edge !== 'body') { ctx.fillStyle = '#fff'; ctx.fillRect(hover.edge === 'in' ? x0 + 1 : x1 - 4, zmTop, 3, ZM); }
+      if (x1 - x0 > 26) {
+        ctx.save(); ctx.beginPath(); ctx.rect(x0 + 4, zmTop, x1 - x0 - 8, ZM); ctx.clip();
+        ctx.fillStyle = '#dff8fc'; ctx.font = '600 10px "Segoe UI", sans-serif';
+        ctx.fillText('🔍 ' + zoomName(o.style) + ' · ' + Math.round((Number(o.amt) || 1.2) * 100) + '%', x0 + 5, zmTop + ZM / 2);
+        ctx.restore();
+      }
+    });
     // 🎞 overlays
     const R = ovRows();
     ovl.forEach((o) => {
@@ -861,6 +1050,16 @@
   }
   function xy(e) { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
   function hitAt(p) {
+    if (p.y >= zmTop && p.y <= zmTop + ZM) {
+      for (let k = zm.length - 1; k >= 0; k--) {
+        const o = zm[k];
+        const x0 = S.timeToX(o.start, view), x1 = S.timeToX(o.start + E.ovLen(o), view);
+        if (Math.abs(p.x - x0) <= 6 && p.x >= x0 - 2) return { lane: 'zm', id: o.id, edge: 'in' };
+        if (Math.abs(p.x - x1) <= 6 && p.x <= x1 + 2) return { lane: 'zm', id: o.id, edge: 'out' };
+        if (p.x > x0 && p.x < x1) return { lane: 'zm', id: o.id, edge: 'body' };
+      }
+      return null;
+    }
     if (p.y >= txTop && p.y <= txTop + TXT) {
       for (let k = txt.length - 1; k >= 0; k--) {
         const it = txt[k];
@@ -916,10 +1115,10 @@
     const p = xy(e);
     const hit = hitAt(p);
     if (playing) pause();
-    if (hit && (hit.lane === 'ov' || hit.lane === 'tx' || hit.lane === 'mu')) {
-      const isTx = hit.lane === 'tx';
-      const arr = isTx ? 'txt' : (hit.lane === 'mu' ? 'mus' : 'ovl');
-      const o = (isTx ? txt : (arr === 'mus' ? mus : ovl)).find((x) => x.id === hit.id);
+    if (hit && (hit.lane === 'ov' || hit.lane === 'tx' || hit.lane === 'mu' || hit.lane === 'zm')) {
+      const isTx = hit.lane === 'tx' || hit.lane === 'zm';          // no media length to keep to
+      const arr = hit.lane === 'zm' ? 'zm' : (hit.lane === 'tx' ? 'txt' : (hit.lane === 'mu' ? 'mus' : 'ovl'));
+      const o = ({ zm, txt, mus, ovl })[arr].find((x) => x.id === hit.id);
       if (sel !== hit.id) { sel = hit.id; renderInspector(); ST.showTab('clip'); }
       pushReviewUndo(hit.edge === 'body' ? 'move' : 'trim');
       drag = { kind: 'ov', arr, id: hit.id, edge: hit.edge, x0: p.x, start0: o.start, end0: E.ovEnd(o),
@@ -960,7 +1159,10 @@
           const snaps = [0, time()].concat(L().map((c) => c.s), L().map((c) => c.e));
           const near = snaps.find((x) => Math.abs((x - st) * view.pps) < 8);
           if (near != null) st = near;
-          if (drag.arr === 'txt') txt = E.ovMove(txt, drag.id, st); else if (drag.arr === 'mus') mus = E.ovMove(mus, drag.id, st); else ovl = E.ovMove(ovl, drag.id, st);
+          if (drag.arr === 'zm') zm = E.ovMove(zm, drag.id, st);
+          else if (drag.arr === 'txt') txt = E.ovMove(txt, drag.id, st); else if (drag.arr === 'mus') mus = E.ovMove(mus, drag.id, st); else ovl = E.ovMove(ovl, drag.id, st);
+        } else if (drag.arr === 'zm') {
+          zm = E.ovTrim(zm, drag.id, drag.edge, (drag.edge === 'in' ? drag.start0 : drag.end0) + d, null).map((x) => (x.id === drag.id ? Object.assign({}, x, { in: 0, out: Math.max(0.3, Math.round((x.out - x.in) * 1000) / 1000) }) : x));
         } else if (drag.arr === 'txt') {
           txt = E.ovTrim(txt, drag.id, drag.edge, (drag.edge === 'in' ? drag.start0 : drag.end0) + d, null).map((x) => (x.id === drag.id ? Object.assign({}, x, { in: 0, out: Math.round((x.out - x.in) * 1000) / 1000 }) : x));
         } else if (drag.arr === 'mus') mus = E.ovTrim(mus, drag.id, drag.edge, (drag.edge === 'in' ? drag.start0 : drag.end0) + d, drag.len);
@@ -1025,6 +1227,11 @@
     after();
   }
   function deleteSel() {
+    if (sel && zm.some((o) => o.id === sel)) {
+      const zid = sel;
+      change('delete zoom', () => { zm = zm.filter((o) => o.id !== zid); });
+      sel = null; after(); return;
+    }
     if (sel && mus.some((o) => o.id === sel)) {
       const mid = sel;
       change('delete music', () => { mus = mus.filter((o) => o.id !== mid); });
@@ -1217,6 +1424,8 @@
   ST.addTab('clip', () => '⚙ ' + tx('ክሊፕ', 'Clip'), clipPane);
   function renderInspector() {
     clipPane.textContent = '';
+    const zo = zm.find((x) => x.id === sel);
+    if (zo) { renderZoomInspector(zo); return; }
     const ov = ovl.find((x) => x.id === sel);
     if (ov) { renderOverlayInspector(ov); return; }
     const ti = txt.find((x) => x.id === sel);
@@ -1540,7 +1749,7 @@
   // ── export (1.25.0): jobs, the graphics card, the queue ────────────────
   // A job is a snapshot of the edit + where it goes; the captions (when a
   // style is chosen) are drawn in the SAME render as the edit (one encode).
-  const snapshot = () => JSON.parse(JSON.stringify({ clips, ovl, txt, mus, snd, media, fmt }));
+  const snapshot = () => JSON.parse(JSON.stringify({ clips, ovl, txt, mus, snd, zm, media, fmt }));
   let GPU = null;                                  // promise -> encoder name or null
   function detectGpu() {
     if (GPU) return GPU;
@@ -1604,7 +1813,7 @@
         await renderStyled(Object.assign({}, job.caps, { mode: 'script', width: W, height: H, fps: 30, duration: tot, out: path.join(cwd, 'c.ass') }));
         made.push(path.join(cwd, 'c.ass')); ass.push('c.ass');
       }
-      const g = E.editGraph(st.clips, info, f, 30, st.ovl || [], { ass: ass.length ? ass : null, res: job.res, mus: st.mus, snd: st.snd });
+      const g = E.editGraph(st.clips, info, f, 30, st.ovl || [], { ass: ass.length ? ass : null, res: job.res, mus: st.mus, snd: st.snd, zm: st.zm || [] });
       let gfile = null;
       const args = (enc) => {
         const a = ['-v', 'error', '-y'];
@@ -1717,6 +1926,8 @@
     bDel.textContent = '🗑 ' + tx('ሰርዝ', 'Delete');
     bDel.title = tx('የተመረጠውን ክሊፕ ሰርዝ (Delete)', 'Remove the selected clip (Delete)');
     bTrans.textContent = '⧓ ' + tx('ሽግግር', 'Transition');
+    bZoom.textContent = '🔍 ' + tx('ዙም', 'Zoom');
+    bZoom.title = tx('በማጫወቻው ቦታ ለስላሳ ዙም — ስታይሉን በ⚙ ይምረጡ', 'A smooth zoom at the playhead — choose its style in ⚙');
     bTrans.title = tx('ከማጫወቻው አጠገብ ባለው ቁርጥ ላይ ሽግግር', 'A transition on the cut nearest the playhead');
     bUndo.title = tx('መልስ (Ctrl+Z)', 'Undo (Ctrl+Z)');
     bRedo.title = tx('እንደገና (Ctrl+Shift+Z)', 'Redo (Ctrl+Shift+Z)');
@@ -1726,6 +1937,7 @@
     labels.appendChild(el('div', 'ed-lcap', '💬 ' + tx('ካፕሽን', 'Captions')));
     labels.appendChild(el('div', 'ed-ltx', 'T ' + tx('ጽሑፍ', 'Text')));
     labels.appendChild(el('div', 'ed-lov', '🎞 ' + tx('ተደራቢ', 'Overlay')));
+    labels.appendChild(el('div', 'ed-lzm', '🔍 ' + tx('ዙም', 'Zoom')));
     bText.textContent = '＋ T ' + tx('ጽሑፍ', 'Text');
     bText.title = tx('ርዕስ፣ የስም ጽሑፍ፣ በሳጥን ላይ…', 'Title, lower third, text on a box…');
     renderTextMenu();
@@ -1761,26 +1973,26 @@
   function saveState() {
     if (!built) return null;
     syncSrc();
-    return { v: 1, fmt, clips, ovl, txt, mus, snd, media, S: SRC };
+    return { v: 1, fmt, clips, ovl, txt, mus, snd, zm, media, S: SRC };
   }
   function loadState(ed, cues) {
     opening = null;
     if (ed && Array.isArray(ed.clips) && ed.clips.length && ed.media) {
-      media = ed.media; clips = ed.clips; ovl = ed.ovl || []; txt = ed.txt || []; mus = ed.mus || []; snd = ed.snd || { clean: false, loud: 'off' }; fmt = ed.fmt || '16:9'; SRC = ed.S || {};
+      media = ed.media; clips = ed.clips; ovl = ed.ovl || []; txt = ed.txt || []; mus = ed.mus || []; snd = ed.snd || { clean: false, loud: 'off' }; zm = ed.zm || []; fmt = ed.fmt || '16:9'; SRC = ed.S || {};
       Object.keys(media).forEach(loadPeaks);
       built = true; fitted = false; cur = 0; ET = 0; sel = null;
       reviewCues = E.deriveCaptions(clips, SRC);
       renderReview();
       seek(0); after(); renderMedia(); syncUndo();
     } else {
-      built = false; media = {}; clips = []; ovl = []; txt = []; mus = []; snd = { clean: false, loud: 'off' }; SRC = {};
+      built = false; media = {}; clips = []; ovl = []; txt = []; mus = []; snd = { clean: false, loud: 'off' }; zm = []; SRC = {};
       void cues;
       open();
     }
   }
   function reset() {
     pause();
-    built = false; media = {}; clips = []; ovl = []; txt = []; mus = []; snd = { clean: false, loud: 'off' }; SRC = {}; sel = null; fitted = false; REDO.length = 0; opening = null;
+    built = false; media = {}; clips = []; ovl = []; txt = []; mus = []; snd = { clean: false, loud: 'off' }; zm = []; SRC = {}; sel = null; fitted = false; REDO.length = 0; opening = null;
     Object.keys(TXEL).forEach((id) => { TXEL[id].remove(); delete TXEL[id]; });
     Object.keys(OVEL).forEach((id) => { OVEL[id].remove(); delete OVEL[id]; });
     Object.keys(MUEL).forEach((id) => { MUEL[id].pause(); MUEL[id].remove(); delete MUEL[id]; });
@@ -1795,6 +2007,6 @@
   ST.attachEditor({ draw, drawSoon, seek, duration: total, peaks: editPeaks, open, shown, saveState, loadState, exportVideo, format: () => fmt,
     queueExports, stopExport, clearDone, detectGpu, gpuName: (e) => GPU_NAMES[e] || '', queue: () => QUEUE, onQueue: (f) => qWatch.push(f),
     setFormat: (f) => { if (f !== fmt) change('format', () => { fmt = f; }); } });
-  window.__amhEditor = { renderJob, snapshot, state: () => ({ clips, ovl, txt, mus, snd, media, SRC, fmt, sel, built }), addOverlay, addText, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, moveRange, total, redo,
+  window.__amhEditor = { renderJob, snapshot, state: () => ({ clips, ovl, txt, mus, snd, zm, media, SRC, fmt, sel, built }), addOverlay, addText, addZoom, autoZooms, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, moveRange, total, redo,
     select: (id) => { sel = id; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, render, exportVideo, frame, setFormat: (f) => change('format', () => { fmt = f; }) };
 })();

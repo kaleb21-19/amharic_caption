@@ -212,12 +212,21 @@
     bar.appendChild(action('★', tx('ጎልቶ', 'Pop'), 'Ctrl+B', star));
     if (editor()) bar.appendChild(action('✂', tx('ከቪዲዮው ቁረጥ', 'Cut from video'), 'Delete', cut));
     else if (window.__amhStudioCuts) bar.appendChild(action('✂', tx('ቁረጥ', 'Cut'), 'Ctrl+D', cut));
+    if (editor() && editor().addZoom) bar.appendChild(action('🔍', tx('ዙም', 'Zoom'), '', zoomHere));
     bar.appendChild(action('✎', tx('አርም', 'Fix'), 'Enter', () => openFix(current)));
     bar.appendChild(action('▶', tx('አጫውት', 'Play'), '', play));
     bar.style.display = '';
     place(rectOf(p));
   }
   function hideBar() { bar.style.display = 'none'; current = []; }
+  // 🔍 (1.60): a smooth zoom on these words — its style in ⚙ (the last one used)
+  function zoomHere() {
+    const p = current;
+    if (!p.length || !editor()) return;
+    const a = p[0].s, z = p[p.length - 1].e;
+    hideBar();
+    editor().addZoom(Math.max(0, a - 0.05), p.length > 1 ? { len: Math.max(1, z - a + 0.6) } : null);
+  }
   function star() {
     const p = current;
     if (!p.length) return;
