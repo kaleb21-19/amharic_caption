@@ -222,6 +222,9 @@ for f in amh_app.py node_shim.js app_mode.js app.css studio_core.js studio.js st
 done
 # the live caption-style preview (JASSUB = libass in WebAssembly; licenses in app/vendor/NOTICE.txt)
 cp -R "$ROOT/app/vendor" "${BUILD_DIR}/${NAME}/app/vendor"
+# the face finder (1.63): its script and the MIT face model (app/faces/LICENSE)
+cp "$ROOT/app/amh_faces.py" "${BUILD_DIR}/${NAME}/app/amh_faces.py"
+cp -R "$ROOT/app/faces" "${BUILD_DIR}/${NAME}/app/faces"
 if ! ls -d "$RT"/python/lib/python3.11/site-packages/webview >/dev/null 2>&1; then
   echo "  [FAIL] pywebview missing from the bundled python (tools/prepare_python.sh)"; exit 1
 fi

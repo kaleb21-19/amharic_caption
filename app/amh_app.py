@@ -647,7 +647,7 @@ class Handler(BaseHTTPRequestHandler):
             if self.headers.get("Sec-Fetch-Site", "same-origin") not in ("same-origin", "none"):
                 return self._send(403, "")
             js = "window.__AMH_APP__=%s;" % json.dumps(
-                {"token": TOKEN, "ext": self.ext_dir, "api": API_URL, "info": env_info(),
+                {"token": TOKEN, "ext": self.ext_dir, "appdir": HERE, "api": API_URL, "info": env_info(),
                  "files": self.files})
             return self._send(200, js, "text/javascript; charset=utf-8")
         if rel.startswith("__app/vendor/"):

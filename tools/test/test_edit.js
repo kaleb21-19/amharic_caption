@@ -404,4 +404,33 @@ test('templates: all draw, animate like libass, follow their settings', () => {
   E.setMeasure(null);
 });
 
+// 📱 Reframe (1.63): a calm camera that follows the face; export = preview
+test('reframe: the camera holds, then glides to the face; the export places it the same', () => {
+  const m = { w: 1920, h: 1080, video: true, audio: true, dur: 20 };
+  const faces = [];
+  for (let t = 0; t < 20; t += 0.5) faces.push(t === 3 ? [t] : [t, t < 8 ? 0.25 + (t % 1 ? 0.01 : 0) : 0.75, 0.4, 0.1, 0.15, 0.9]);
+  const c = { id: 'a', m: 'v', in: 0, out: 20, rf: { mode: 'face', pace: 'normal' } };
+  c.rfk = E.rfTrack(faces, m, c, 1080, 1920, 'normal');
+  // small wobbles and a missing frame do not move it; the jump at 8 s glides in 0.6 s
+  assert.deepStrictEqual(c.rfk.map((k) => k[0]), [0, 8, 8.6], JSON.stringify(c.rfk));
+  const at = (s) => E.rfPlace(m, c, 1080, 1920, s);
+  assert.strictEqual(at(2).x, at(7.9).x, 'still while the face stays');
+  assert.ok(at(8.3).x < at(2).x && at(8.3).x > at(9).x, 'gliding');
+  // the window never shows outside the picture
+  [0, 5, 8.3, 15].forEach((s) => { const p = at(s); assert.ok(p.x <= 0 && p.x + p.sw >= 1080 && p.y <= 0 && p.y + p.sh >= 1920, JSON.stringify(p)); });
+  // the export's overlay x = the preview's, at every frame (smoothstep glides)
+  const ex = E.rfExpr(m, c, 1080, 1920, 0, 0, 1);
+  const ev = (e, t) => Function('t', 'clip', 'pow', 'return (' + e + ');')(t, (x, a, b) => Math.max(a, Math.min(b, x)), Math.pow);
+  for (let t = 0; t < 20; t += 1 / 30) assert.ok(Math.abs(ev(ex.x, t) - at(t).x) <= 1, 't=' + t + ' ' + ev(ex.x, t) + ' vs ' + at(t).x);
+  // fixed framings, no face, off
+  assert.strictEqual(E.rfPlace(m, Object.assign({}, c, { rf: { mode: 'left' } }), 1080, 1920, 5).x, 0);
+  const right = E.rfPlace(m, Object.assign({}, c, { rf: { mode: 'right' } }), 1080, 1920, 5);
+  assert.strictEqual(right.x + right.sw, 1080);
+  assert.deepStrictEqual(E.rfTrack([[0], [0.5]], m, c, 1080, 1920), [], 'no face: no path');
+  assert.deepStrictEqual(E.rfPlace(m, { id: 'b', in: 0, out: 5 }, 1080, 1920, 1), E.placement(m, { id: 'b', in: 0, out: 5 }, 1080, 1920), 'off: as before');
+  // in the export graph
+  const g = E.editGraph([Object.assign({}, c, { m: 'v' })], { v: Object.assign({ idx: 0 }, m) }, '9:16', 30, [], {}).graph;
+  assert.ok(/overlay='-?[\d.]+\+-?[\d.]+\*\(3\*pow\(clip\(\(t-8\)\/0\.6,0,1\),2\)/.test(g), g.slice(0, 400));
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');
