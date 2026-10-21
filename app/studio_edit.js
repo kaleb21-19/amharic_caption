@@ -620,6 +620,32 @@
   const zIn = btn('tl-btn', '+', '', () => { view = S.zoomAt(view, 1.6, S.timeToX(time(), view), total(), width()); drawSoon(); });
   const zFit = btn('tl-btn', '⤢', '', () => { view = S.fitView(total(), width()); drawSoon(); });
   const hint = el('span', 'ed-hint', '');
+  // 🧩 Simple / Pro (1.64): Simple hides the exact sliders (position X/Y,
+  // colour grading, speed, exact zoom, music fades) — every choice made of
+  // buttons stays. New users start in Simple; nothing is lost either way.
+  const modeSw = el('span', 'st-seg ed-mode');
+  function studioMode() {
+    let v = null;
+    try { v = loadSettings().studioMode; } catch (e) {}
+    if (v === 'simple' || v === 'pro') return v;
+    let n = 0;
+    try { n = (ST.listProjects && ST.listProjects().length) || 0; } catch (e) {}
+    return n > 1 ? 'pro' : 'simple';
+  }
+  function setStudioMode(v) {
+    try { saveSettings({ studioMode: v }); } catch (e) {}
+    document.documentElement.classList.toggle('amh-simple', v === 'simple');
+    renderModeSw();
+  }
+  function renderModeSw() {
+    const v = studioMode();
+    document.documentElement.classList.toggle('amh-simple', v === 'simple');
+    modeSw.textContent = '';
+    [['simple', tx('ቀላል', 'Simple')], ['pro', tx('ፕሮ', 'Pro')]].forEach(([k, t]) => {
+      const b = btn(v === k ? 'on' : '', t, k === 'simple' ? tx('ዋና ዋና አዝራሮች ብቻ', 'Only the main buttons') : tx('ሁሉም ትክክለኛ ማስተካከያዎች', 'Every exact setting too'), () => setStudioMode(k));
+      modeSw.appendChild(b);
+    });
+  }
   const bTrans = btn('ed-tool', '', '', () => addTransition());
   const bZoom = btn('ed-tool ed-tool-zoom', '', '', () => addZoom(time()));
   const bText = btn('ed-tool ed-tool-text', '', '', () => { const open = tmenu.style.display === 'none'; tmenu.style.display = open ? '' : 'none'; if (open) renderTextMenu(); });
@@ -633,7 +659,7 @@
   pmenu.style.display = 'none';
   const pdrop = el('span', 'ed-tdrop');
   pdrop.appendChild(bPro); pdrop.appendChild(pmenu);
-  [pdrop, bSplit, bDel, bTrans, bZoom, tdrop, bUndo, bRedo, hint, el('span', 'st-flex'), zOut, zIn, zFit].forEach((x) => tbar.appendChild(x));
+  [pdrop, bSplit, bDel, bTrans, bZoom, tdrop, bUndo, bRedo, hint, el('span', 'st-flex'), modeSw, zOut, zIn, zFit].forEach((x) => tbar.appendChild(x));
   document.addEventListener('mousedown', (e) => { if (pmenu.style.display !== 'none' && !pdrop.contains(e.target)) pmenu.style.display = 'none'; });
   document.addEventListener('mousedown', (e) => { if (tmenu.style.display !== 'none' && !tdrop.contains(e.target)) tmenu.style.display = 'none'; });
   // ✨ Make it pro (1.59, owner's friend: "no keyframes, a junior editor does a
@@ -1621,6 +1647,12 @@
   }
   function renderInspector() {
     clipPane.textContent = '';
+    setTimeout(() => {
+      if (clipPane.querySelector('.ed-row:not(.simple-ok), .pro-only') && !clipPane.querySelector('.ed-simplenote')) {
+        const n = el('div', 'st-note ed-simplenote', tx('ተጨማሪ ትክክለኛ ማስተካከያዎች በ «ፕሮ» ውስጥ ናቸው (ከጊዜ መስመሩ በላይ)።', 'More exact settings are in «Pro» (above the timeline).'));
+        clipPane.appendChild(n);
+      }
+    }, 0);
     const zo = zm.find((x) => x.id === sel);
     if (zo) { renderZoomInspector(zo); return; }
     const ov = ovl.find((x) => x.id === sel);
@@ -1652,12 +1684,13 @@
       row.appendChild(r); row.appendChild(val);
       clipPane.appendChild(row);
     };
-    clipPane.appendChild(el('div', 'ed-sec', tx('ቦታና መጠን', 'Size and position')));
+    clipPane.appendChild(el('div', 'ed-sec pro-only', tx('ቦታና መጠን', 'Size and position')));
     slider(tx('መጠን', 'Size'), 'scale', 0.5, 3, 0.01, 1, (v) => Math.round(v * 100) + '%');
     slider('X', 'x', -0.5, 0.5, 0.005, 0, (v) => Math.round(v * 100));
     slider('Y', 'y', -0.5, 0.5, 0.005, 0, (v) => Math.round(v * 100));
     clipPane.appendChild(el('div', 'ed-sec', tx('ድምፅ', 'Sound')));
     slider(tx('ድምፅ', 'Volume'), 'volume', 0, 2, 0.01, 1, (v) => Math.round(v * 100) + '%');
+    clipPane.lastChild.classList.add('simple-ok');
     renderFx(c);
     const row = el('div', 'st-row');
     row.appendChild(btn('st-btn', tx('ወደ መጀመሪያው መልስ', 'Reset'), '', () => change('clip', () => {
@@ -1677,8 +1710,8 @@
   function renderFx(c) {
     const set = (props) => { clips = clips.map((x) => (x.id === c.id ? Object.assign({}, x, props) : x)); };
     // ⏩ speed
-    clipPane.appendChild(el('div', 'ed-sec', '⏩ ' + tx('ፍጥነት', 'Speed')));
-    const srow = el('div', 'st-seg ed-speeds');
+    clipPane.appendChild(el('div', 'ed-sec pro-only', '⏩ ' + tx('ፍጥነት', 'Speed')));
+    const srow = el('div', 'st-seg ed-speeds pro-only');
     SPEEDS.forEach((k) => srow.appendChild(btn(E.speedOf(c) === k ? 'on' : '', k + '×', '', () => change('speed', () => { set({ speed: k }); }))));
     clipPane.appendChild(srow);
     if (E.speedOf(c) !== 1) clipPane.appendChild(el('div', 'st-note', tx('ድምፁ የራሱን ቅላጼ ይይዛል፤ ካፕሽኖቹ ከቃላቱ ጋር ይሄዳሉ።', 'The voice keeps its pitch; the captions stay on their words.')));
@@ -1873,7 +1906,7 @@
     clipPane.appendChild(el('div', 'ed-sec', tx('አቀማመጥ', 'Layout')));
     const grid = el('div', 'br-grid');
     ['full', 'blur', 'whole', 'pip', 'top', 'bottom', 'free'].forEach((lay) => {
-      const b = btn('br-card' + (L.layout === lay ? ' on' : ''), '', BR_LAYOUTS[lay][1], () => setO({ layout: lay }));
+      const b = btn('br-card' + (L.layout === lay ? ' on' : '') + (lay === 'free' && L.layout !== 'free' ? ' pro-only' : ''), '', BR_LAYOUTS[lay][1], () => setO({ layout: lay }));
       const d = el('span', 'br-d br-d-' + lay);
       d.appendChild(el('i', 'br-d-main'));
       d.appendChild(el('i', 'br-d-pic'));
@@ -1945,7 +1978,7 @@
     segRow(tx('እንቅስቃሴ በውስጡ', 'Motion inside'), BR_MOT, L.mot, 'mot');
     clipPane.appendChild(el('div', 'ed-sec', tx('ግልጽነትና ድምፅ', 'Opacity and sound')));
     slider(tx('ግልጽነት', 'Opacity'), 'opacity', 0, 1, 0.01, 1, (v) => Math.round(v * 100) + '%');
-    if (!m.image && m.audio) slider(tx('ድምፅ', 'Volume'), 'volume', 0, 2, 0.01, 0, (v) => (v ? Math.round(v * 100) + '%' : tx('ድምፅ የለም', 'muted')));
+    if (!m.image && m.audio) { slider(tx('ድምፅ', 'Volume'), 'volume', 0, 2, 0.01, 0, (v) => (v ? Math.round(v * 100) + '%' : tx('ድምፅ የለም', 'muted'))); clipPane.lastChild.classList.add('simple-ok'); }
     const row = el('div', 'st-row br-acts');
     row.appendChild(btn('st-btn primary', '▶ ' + tx('አሳይ', 'Preview'), '', () => {
       const z = ovl.find((x) => x.id === o.id) || o;
@@ -1989,9 +2022,11 @@
     const sec = (v) => (Math.round(v * 10) / 10) + ' s';
     clipPane.appendChild(el('div', 'ed-sec', tx('ድምፅ', 'Sound')));
     slider(tx('ድምፅ', 'Volume'), 'volume', 0, 1.5, 0.01, (v) => Math.round(v * 100) + '%');
+    clipPane.lastChild.classList.add('simple-ok');
     slider(tx('ሲናገሩ ቀንስ', 'Duck under speech'), 'duck', 0, 1, 0.05, (v) => (v ? Math.round(v * 100) + '%' : tx('አይቀንስም', 'off')));
+    clipPane.lastChild.classList.add('simple-ok');
     clipPane.appendChild(el('div', 'st-note', tx('ሰው ሲናገር ሙዚቃው ራሱ ይቀንሳል፤ ዝም ሲል ይመለሳል።', 'The music gets quieter by itself while someone speaks, and comes back in the pauses.')));
-    clipPane.appendChild(el('div', 'ed-sec', tx('መግቢያና መውጫ', 'Fades')));
+    clipPane.appendChild(el('div', 'ed-sec pro-only', tx('መግቢያና መውጫ', 'Fades')));
     slider(tx('መግቢያ', 'Fade in'), 'fadeIn', 0, 8, 0.1, sec);
     slider(tx('መውጫ', 'Fade out'), 'fadeOut', 0, 8, 0.1, sec);
     const row = el('div', 'st-row');
@@ -2332,6 +2367,7 @@
     r.addEventListener('input', () => { setT({ size: Number(r.value) }, !s3); s3 = true; val.textContent = Math.round(r.value * 100) + '%'; });
     r.addEventListener('change', () => { s3 = false; ST.saveSoon(); });
     row.appendChild(r); row.appendChild(val);
+    row.classList.add('simple-ok');
     clipPane.appendChild(row);
     clipPane.appendChild(el('div', 'ed-sec', tx('ቦታ', 'Position')));
     const pw = el('div', 'zm-focus-wrap');
@@ -2421,6 +2457,7 @@
     r.addEventListener('input', () => { setT({ size: Number(r.value) }, !s3); s3 = true; val.textContent = Math.round(r.value * 1000) / 10 + '%'; });
     r.addEventListener('change', () => { s3 = false; ST.saveSoon(); });
     row.appendChild(r); row.appendChild(val);
+    row.classList.add('simple-ok');
     clipPane.appendChild(row);
     clipPane.appendChild(el('div', 'ed-sec', tx('ቀለም', 'Colour')));
     const sw2 = el('div', 'ed-swatches');
@@ -2632,7 +2669,7 @@
     labels.appendChild(el('div', 'ed-lzm', '🔍 ' + tx('ዙም', 'Zoom')));
     bText.textContent = '＋ T ' + tx('ጽሑፍ እና ቴምፕሌቶች', 'Text & templates');
     bText.title = tx('ርዕሶች፣ የስም ጽሑፍ፣ ሰብስክራይብ፣ በዓላት… ተንቀሳቃሽ ቴምፕሌቶች', 'Titles, lower thirds, subscribe, holidays… animated templates');
-    renderTextMenu();
+    renderModeSw();
     labels.appendChild(el('div', 'ed-lmain', '🎬 ' + tx('ዋና', 'Main')));
     labels.appendChild(el('div', 'ed-lmus', '♪ ' + tx('ሙዚቃ', 'Music')));
     renderSound();
