@@ -478,6 +478,124 @@
   // opts.mus / opts.snd: the music track and the sound settings (1.23.0)
   // opts.ass: a libass script (file name, in the folder ffmpeg runs in, with a
   // fonts/ folder) drawn over everything — the text track
+
+  // ── 🔍 Zoom (1.60) ───────────────────────────────────────────────────────
+  // Smooth zooms on the main picture, no keyframes to set: a zoom is
+  // { id, start, in: 0, out: length, style, amt (1.05-1.6), speed
+  // ('slow'|'normal'|'fast'), fx, fy (the focus, 0-1 of the picture) }.
+  // A style = how it moves in and out, with After Effects-like easing. The
+  // preview (CSS) and the export (ffmpeg perspective: sub-pixel, per frame,
+  // no jitter) use the SAME curves (zoomRect / zoomExprs).
+  const ZOOM_STYLES = {
+    push: { din: 0.6, dout: 0.6, ein: 'io', eout: 'io' },          // smooth push in, hold, back out
+    punch: { din: 0.12, dout: 0.16, ein: 'expo', eout: 'io' },     // snap zoom (TikTok)
+    creep: { whole: true, dout: 0.35, ein: 'sine', eout: 'io' },   // slow push the whole time (Ken Burns)
+    bounce: { din: 0.5, dout: 0.4, ein: 'back', eout: 'io' },      // overshoots, settles
+    pulse: { din: 0.12, dout: 0.38, ein: 'quad', eout: 'quadin' }, // a heartbeat
+    reveal: { reveal: true, din: 0.9, ein: 'io' },                 // starts close, opens out
+    impact: { din: 0.1, dout: 0.16, ein: 'expo', eout: 'io', shake: true }, // punch + camera shake
+  };
+  const ZOOM_SPEED = { slow: 1.6, normal: 1, fast: 0.6 };
+  const ZOOM_DEFAULT = { style: 'push', amt: 1.2, speed: 'normal', fx: 0.5, fy: 0.5 };
+  const clip01 = (u) => Math.max(0, Math.min(1, u));
+  const EASE = {
+    io: (u) => (u < 0.5 ? 4 * u * u * u : 1 - Math.pow(2 - 2 * u, 3) / 2),
+    expo: (u) => 1 - Math.pow(2, -10 * u),
+    sine: (u) => (1 - Math.cos(Math.PI * u)) / 2,
+    back: (u) => 1 + 2.70158 * Math.pow(u - 1, 3) + 1.70158 * Math.pow(u - 1, 2),
+    quad: (u) => 1 - (1 - u) * (1 - u),
+    quadin: (u) => u * u,
+  };
+  // the same curves as ffmpeg expressions of u (a string)
+  const EASE_X = {
+    io: (u) => 'if(lt(' + u + ',0.5),4*pow(' + u + ',3),1-pow(2-2*' + u + ',3)/2)',
+    expo: (u) => '(1-pow(2,-10*' + u + '))',
+    sine: (u) => '((1-cos(PI*' + u + '))/2)',
+    back: (u) => '(1+2.70158*pow(' + u + '-1,3)+1.70158*pow(' + u + '-1,2))',
+    quad: (u) => '(1-pow(1-' + u + ',2))',
+    quadin: (u) => 'pow(' + u + ',2)',
+  };
+  function zoomOf(o) {
+    const st = ZOOM_STYLES[o.style] ? o.style : ZOOM_DEFAULT.style;
+    const amt = Math.max(1.02, Math.min(2, Number(o.amt) || ZOOM_DEFAULT.amt));
+    const k = ZOOM_SPEED[o.speed] || 1;
+    const fx = Math.max(0, Math.min(1, o.fx == null ? 0.5 : Number(o.fx)));
+    const fy = Math.max(0, Math.min(1, o.fy == null ? 0.5 : Number(o.fy)));
+    const S = ZOOM_STYLES[st], d = ovLen(o), s = Number(o.start) || 0;
+    let din = Math.min((S.din || 0) * k, d / 2), dout = Math.min((S.dout || 0) * k, d / 2);
+    if (S.whole) din = Math.max(0.1, d - dout);
+    if (S.reveal) { din = Math.min((S.din || 0.9) * k, d); dout = 0; }
+    return { st, S, amt, fx, fy, s, d, din: r3(din), dout: r3(dout) };
+  }
+  // how far in (0 = not at all, 1 = the full amount; a bounce goes a bit past 1)
+  function zoomEnv(o, t) {
+    const z = zoomOf(o);
+    if (t < z.s || t >= z.s + z.d || z.d <= 0) return 0;
+    const x = t - z.s;
+    if (z.S.reveal) return 1 - EASE[z.S.ein](clip01(x / Math.max(0.001, z.din)));
+    const a = EASE[z.S.ein](clip01(x / Math.max(0.001, z.din)));
+    const b = z.dout > 0 ? EASE[z.S.eout](clip01((x - (z.d - z.dout)) / z.dout)) : 0;
+    return a * (1 - b);
+  }
+  // the part of the picture shown at edit time t: { z, x, y, w, h } (canvas px)
+  function zoomRect(zm, t, W, H) {
+    let z = 1, fx = 0.5, fy = 0.5;
+    (zm || []).forEach((o) => {
+      const q = zoomOf(o);
+      if (q.d <= 0) return;
+      if (t >= q.s && t < q.s + q.d) {
+        fx += q.fx - 0.5; fy += q.fy - 0.5;
+        if (q.S.shake) {
+          const x = t - q.s, f = Math.max(0, 1 - x / 0.45);
+          fx += 0.012 * Math.sin(2 * Math.PI * 13 * x) * f;
+          fy += 0.009 * Math.cos(2 * Math.PI * 11 * x) * f;
+        }
+      }
+      z += (q.amt - 1) * zoomEnv(o, t);
+    });
+    z = Math.max(1, z);
+    const w = W / z, h = H / z;
+    return { z, w, h, x: Math.max(0, Math.min(W - w, fx * W - w / 2)), y: Math.max(0, Math.min(H - h, fy * H - h / 2)) };
+  }
+  // ffmpeg perspective corners (sense=source, eval=frame); time = in / fps
+  function zoomExprs(zm, fps) {
+    const T = '(in/' + fps + ')';
+    const zs = [], fxs = [], fys = [];
+    (zm || []).forEach((o) => {
+      const q = zoomOf(o);
+      if (q.d <= 0) return;
+      const x = '(' + T + '-' + q.s + ')';
+      const inside = '(gte(' + T + ',' + q.s + ')*lt(' + T + ',' + r3(q.s + q.d) + '))';
+      const uin = 'clip(' + x + '/' + Math.max(0.001, q.din) + ',0,1)';
+      let env;
+      if (q.S.reveal) env = '(1-' + EASE_X[q.S.ein](uin) + ')';
+      else {
+        env = EASE_X[q.S.ein](uin);
+        if (q.dout > 0) env = '(' + env + '*(1-' + EASE_X[q.S.eout]('clip((' + x + '-' + r3(q.d - q.dout) + ')/' + q.dout + ',0,1)') + '))';
+      }
+      zs.push(r3(q.amt - 1) + '*' + inside + '*' + env);
+      if (q.fx !== 0.5) fxs.push(r3(q.fx - 0.5) + '*' + inside);
+      if (q.fy !== 0.5) fys.push(r3(q.fy - 0.5) + '*' + inside);
+      if (q.S.shake) {
+        const f = 'max(0,1-' + x + '/0.45)';
+        fxs.push('0.012*sin(2*PI*13*' + x + ')*' + f + '*' + inside);
+        fys.push('0.009*cos(2*PI*11*' + x + ')*' + f + '*' + inside);
+      }
+    });
+    const Z = 'max(1,1+' + (zs.join('+') || '0') + ')';
+    const FX = '(0.5' + fxs.map((v) => '+' + v).join('') + ')', FY = '(0.5' + fys.map((v) => '+' + v).join('') + ')';
+    // st(0) = the zoom, then the window's edge, kept inside the picture
+    const left = 'st(0,' + Z + ');clip(' + FX + '*W-W/(2*ld(0)),0,W-W/ld(0))';
+    const top = 'st(0,' + Z + ');clip(' + FY + '*H-H/(2*ld(0)),0,H-H/ld(0))';
+    const right = left + '+W/ld(0)', bottom = top + '+H/ld(0)';
+    return { x0: left, y0: top, x1: right, y1: top, x2: left, y2: bottom, x3: right, y3: bottom };
+  }
+  function zoomFilter(zm, fps) {
+    const e = zoomExprs(zm, fps);
+    return 'perspective=' + ['x0', 'y0', 'x1', 'y1', 'x2', 'y2', 'x3', 'y3'].map((k) => k + "='" + e[k] + "'").join(':') +
+      ':interpolation=cubic:eval=frame';
+  }
+
   function editGraph(clips, media, fmt, fps, ovl, opts) {
     opts = opts || {};
     fps = fps || 30;
@@ -521,7 +639,10 @@
     const vOut = opts.ass ? 'vx' : 'v';
     const soundOn = (opts.mus || []).some((o) => media[o.m]) || (opts.snd && (opts.snd.clean || LOUD[opts.snd.loud]));
     const aOut = soundOn ? 'av' : 'a';
-    const vEnd = list.length ? 'vm' : vOut, aEnd = list.length ? 'am' : aOut;
+    const vFinal = list.length ? 'vm' : vOut, aEnd = list.length ? 'am' : aOut;
+    // 🔍 zooms (1.60): on the main track only, before the overlays and text
+    const zm = (opts.zm || []).filter((o) => ovLen(o) > 0 && o.start < total(clips));
+    const vEnd = zm.length ? 'vzm' : vFinal;
     if (!D.some((x) => x > 0)) parts.push(ins.join('') + 'concat=n=' + L.length + ':v=1:a=1[' + vEnd + '][' + aEnd + ']');
     else {
       // one cut after the other: a transition (xfade + acrossfade) or a plain join
@@ -543,6 +664,7 @@
         cv = nv; ca = na;
       }
     }
+    if (zm.length) parts.push('[vzm]' + zoomFilter(zm, fps) + '[' + vFinal + ']');
     if (list.length) {
       let base = 'vm';
       const mix = ['[am]'];
@@ -578,7 +700,7 @@
     words, deriveCaptions, syncBack, FORMATS, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
     TFONTS, TPRESETS, assColor, textAnchor, textAss, setFontInfo, fontInfo, textSize, LOUD, MUS_DEFAULT, musicGain,
     PRESETS, presetFor, GPU_ENCODERS, encoderArgs, eta,
-    speedOf: sp, clipLen, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter };
+    speedOf: sp, clipLen, ZOOM_STYLES, ZOOM_SPEED, ZOOM_DEFAULT, zoomEnv, zoomRect, zoomExprs, zoomFilter, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhEdit = api;
 })(typeof window !== 'undefined' ? window : this);

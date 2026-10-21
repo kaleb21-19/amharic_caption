@@ -563,3 +563,41 @@ html.amh-studio:has(#review.show), html.amh-studio body:has(#review.show) { over
 .st-pick:has(.st-pick-now) { padding-top: 10px; padding-bottom: 10px; }
 .st-pick-row { flex-wrap: wrap; gap: 8px; }
 .st-pick-now .st-link { display: inline; margin: 0; color: var(--accent); text-decoration: none; font-size: inherit; }
+
+/* 🔍 Zoom (1.60): the lane, the toolbar button and the ⚙ style cards (each
+   shows its own motion, like an After Effects preset preview) */
+.ed-lzm { height: 24px; display: flex; align-items: center; padding-left: 10px; font-size: 11px; }
+html.amh-editor .ed-cwrap { height: 246px; }
+.ed-tool-zoom { border-color: #3fb6cc; }
+.zm-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 4px; }
+.zm-card { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 6px; border: 1px solid var(--border);
+  border-radius: 9px; background: var(--bg-card); color: var(--text-primary); text-align: left; cursor: pointer; font-family: inherit; }
+.zm-card:hover { border-color: #3fb6cc; }
+.zm-card.on { border-color: #3fb6cc; box-shadow: 0 0 0 1px #3fb6cc inset; background: #12303a; }
+.zm-card b { font-size: 12.5px; font-weight: 700; }
+.zm-card > span:last-child { font-size: 10.5px; color: var(--text-secondary); line-height: 1.3; }
+.zm-demo { position: relative; display: block; width: 100%; height: 54px; border-radius: 6px; overflow: hidden; background: #0b1110; }
+.zm-pic { position: absolute; inset: 0; background: radial-gradient(60% 70% at 50% 45%, #3a5a7a 0%, #1c2b38 55%, #0e1418 100%); transform-origin: 50% 45%; }
+.zm-face { position: absolute; left: 50%; top: 45%; width: 16px; height: 20px; margin: -10px 0 0 -8px; border-radius: 50%; background: #e2b48c; box-shadow: 0 13px 0 4px #2d5c8f; }
+.zm-a-push { animation: zmPush 2.4s cubic-bezier(.65,0,.35,1) infinite; }
+.zm-a-punch { animation: zmPunch 2s infinite; }
+.zm-a-creep { animation: zmCreep 3s ease-in-out infinite; }
+.zm-a-bounce { animation: zmBounce 2.2s infinite; }
+.zm-a-pulse { animation: zmPulse 1.4s infinite; }
+.zm-a-reveal { animation: zmReveal 2.4s cubic-bezier(.65,0,.35,1) infinite; }
+.zm-a-impact { animation: zmImpact 2s infinite; }
+@keyframes zmPush { 0%, 12% { transform: scale(1); } 40%, 68% { transform: scale(1.45); } 96%, 100% { transform: scale(1); } }
+@keyframes zmPunch { 0%, 20% { transform: scale(1); animation-timing-function: cubic-bezier(.16,1,.3,1); } 26%, 70% { transform: scale(1.5); animation-timing-function: cubic-bezier(.65,0,.35,1); } 80%, 100% { transform: scale(1); } }
+@keyframes zmCreep { 0% { transform: scale(1); } 85% { transform: scale(1.4); } 100% { transform: scale(1); } }
+@keyframes zmBounce { 0%, 15% { transform: scale(1); animation-timing-function: cubic-bezier(.34,1.56,.64,1); } 45%, 70% { transform: scale(1.4); animation-timing-function: cubic-bezier(.65,0,.35,1); } 92%, 100% { transform: scale(1); } }
+@keyframes zmPulse { 0%, 30% { transform: scale(1); animation-timing-function: ease-out; } 40% { transform: scale(1.3); animation-timing-function: ease-in; } 70%, 100% { transform: scale(1); } }
+@keyframes zmReveal { 0%, 15% { transform: scale(1.6); } 60%, 100% { transform: scale(1); } }
+@keyframes zmImpact { 0%, 20% { transform: scale(1); animation-timing-function: cubic-bezier(.16,1,.3,1); } 25% { transform: scale(1.5) translate(2px, -1px); } 30% { transform: scale(1.5) translate(-2px, 1px); }
+  35% { transform: scale(1.5) translate(1px, 1px); } 40%, 70% { transform: scale(1.5); } 80%, 100% { transform: scale(1); } }
+.zm-seg { margin-bottom: 4px; }
+.zm-focus-wrap { display: flex; align-items: center; gap: 12px; }
+.zm-focus { display: grid; grid-template-columns: repeat(3, 22px); gap: 4px; padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: #0b1110; flex: 0 0 auto; }
+.zm-dot { width: 22px; height: 22px; padding: 0; border: 1px solid #2c3d38; border-radius: 50%; background: #16211d; cursor: pointer; }
+.zm-dot:hover { border-color: #3fb6cc; }
+.zm-dot.on { background: #3fb6cc; border-color: #fff; }
+.zm-acts { flex-wrap: wrap; gap: 6px; margin-top: 10px; }

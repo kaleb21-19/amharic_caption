@@ -282,4 +282,46 @@ test('fonts (1.28.0): 12 Amharic fonts, each the same size on screen, and the pr
   assert.deepStrictEqual(E.fontInfo('yebse'), { scale: 1, css: 1 }, 'no measurements: plain sizes');
 });
 
+// 🔍 Zoom (1.60): the export's ffmpeg expressions = the preview's curves
+test('zoom: seven styles, the export expressions draw exactly what the preview shows', () => {
+  // ffmpeg's expression language (the part zoomExprs uses) as JavaScript
+  const run = (expr, W, H, frame) => {
+    const js = expr.replace(/;/g, ',').replace(/\bPI\b/g, 'Math.PI').replace(/\bin\b/g, 'IN').replace(/\bif\(/g, 'IF(');
+    const f = new Function('W', 'H', 'IN', 'IF', 'lt', 'gte', 'clip', 'pow', 'sin', 'cos', 'max', 'st', 'ld',
+      'const R = []; return (' + js.replace(/\bst\(/g, 'st(R,').replace(/\bld\(/g, 'ld(R,') + ');');
+    return f(W, H, frame, (a, b, c) => (a ? b : c), (a, b) => (a < b ? 1 : 0), (a, b) => (a >= b ? 1 : 0),
+      (x, a, b) => Math.max(a, Math.min(b, x)), Math.pow, Math.sin, Math.cos, Math.max,
+      (R, i, v) => { R[i] = v; return v; }, (R, i) => R[i]);
+  };
+  assert.deepStrictEqual(Object.keys(E.ZOOM_STYLES), ['push', 'punch', 'creep', 'bounce', 'pulse', 'reveal', 'impact']);
+  const W = 1280, H = 720, fps = 30;
+  Object.keys(E.ZOOM_STYLES).forEach((style, i) => {
+    ['slow', 'normal', 'fast'].forEach((speed) => {
+      const zm = [{ id: 'z', start: 0.5, in: 0, out: 1.8, style, amt: 1.35, speed, fx: 0.3 + i * 0.05, fy: 0.6 }];
+      const ex = E.zoomExprs(zm, fps);
+      for (let n = 0; n < 90; n++) {
+        const r = E.zoomRect(zm, n / fps, W, H);
+        const x0 = run(ex.x0, W, H, n), y0 = run(ex.y0, W, H, n), x3 = run(ex.x3, W, H, n), y3 = run(ex.y3, W, H, n);
+        assert.ok(Math.abs(x0 - r.x) < 0.01 && Math.abs(y0 - r.y) < 0.01 && Math.abs(x3 - (r.x + r.w)) < 0.01 && Math.abs(y3 - (r.y + r.h)) < 0.01,
+          style + '/' + speed + ' frame ' + n + ': ' + [x0, y0, x3, y3].join(',') + ' vs ' + JSON.stringify(r));
+      }
+    });
+  });
+  // before and after: the whole picture; at the top: the full amount
+  const zm = [{ id: 'z', start: 1, in: 0, out: 2, style: 'push', amt: 1.25 }];
+  assert.strictEqual(E.zoomRect(zm, 0.5, W, H).z, 1);
+  assert.ok(Math.abs(E.zoomRect(zm, 2, W, H).z - 1.25) < 1e-9);
+  assert.strictEqual(E.zoomRect(zm, 3.01, W, H).z, 1);
+  assert.ok(E.zoomEnv({ start: 0, in: 0, out: 2, style: 'bounce', amt: 1.2 }, 0.4) > 1, 'a bounce overshoots');
+  assert.strictEqual(E.zoomEnv({ start: 0, in: 0, out: 2, style: 'reveal', amt: 1.2 }, 0), 1, 'a reveal starts close');
+  // the window never leaves the picture, even with the focus at the very edge
+  const edge = E.zoomRect([{ start: 0, in: 0, out: 2, style: 'push', amt: 1.5, fx: 0, fy: 1 }], 1, W, H);
+  assert.deepStrictEqual([edge.x, Math.round(edge.y + edge.h)], [0, H]);
+  // the export: one perspective filter on the main track, before overlays and text
+  const g = E.editGraph([{ id: 'a', m: 'v', in: 0, out: 5 }], { v: { idx: 0, video: true, audio: true, w: 1920, h: 1080, dur: 5 } }, '16:9', 30, [],
+    { zm: [{ id: 'z', start: 1, in: 0, out: 2, style: 'punch', amt: 1.3 }] }).graph;
+  assert.ok(/concat=n=1:v=1:a=1\[vzm\]\[a\];\[vzm\]perspective=x0='st\(0,max\(1,1\+/.test(g) && /interpolation=cubic:eval=frame\[v\]/.test(g), g.slice(0, 300));
+  assert.ok(!/perspective/.test(E.editGraph([{ id: 'a', m: 'v', in: 0, out: 5 }], { v: { idx: 0, video: true, audio: true, w: 1920, h: 1080, dur: 5 } }, '16:9', 30, [], {}).graph), 'no zoom: no filter');
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');
