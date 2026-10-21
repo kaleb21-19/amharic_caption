@@ -672,9 +672,9 @@
     const items = C && C.items ? C.items().filter((x) => x.on) : [];
     const ranges = mergeRanges(items);
     const gone = ranges.reduce((n, r) => n + r.end - r.start, 0);
-    return { ranges, gone, n: items.length, clean: !snd.clean, loud: snd.loud !== 'web', zooms: zoomMoments(ranges).length };
+    return { ranges, gone, n: items.length, clean: !snd.clean, loud: snd.loud !== 'web', zooms: zoomMoments(ranges).length, sfx: !snd.sfx };
   }
-  let PRO = { cuts: true, clean: true, loud: true, zoom: true };
+  let PRO = { cuts: true, clean: true, loud: true, zoom: true, sfx: true };
   function openPro(done) {
     pmenu.textContent = '';
     pmenu.style.display = '';
@@ -693,6 +693,7 @@
       ['loud', '🔊 ' + tx('እንደ TikTok እና YouTube ጮክ አድርግ', 'Loud like TikTok and YouTube'), P.loud ? '−14 LUFS' : tx('✓ አስቀድሞ በርቷል', '✓ Already on'), P.loud],
       ['zoom', '🔍 ' + tx('አስፈላጊ ቃላት ላይ ዙም', 'Zoom on the important words'),
         P.zooms ? P.zooms + ' ' + tx('ቦታዎች — ★ ቃላት፣ ቁጥሮች፣ ገንዘብ', 'places — ★ words, numbers, money') : tx('★ ቃል ወይም ቁጥር አልተገኘም', 'No ★ word or number found'), P.zooms > 0],
+      ['sfx', '🔊 ' + tx('የድምፅ ውጤቶች ጨምር', 'Add sound effects'), P.sfx ? tx('በዙም ዉሽ፣ በርዕስ ፖፕ፣ በሽግግር ስዊሽ', 'Whoosh on zooms, pop on titles, swish on transitions') : tx('✓ አስቀድሞ በርቷል', '✓ Already on'), P.sfx],
     ];
     let any = false;
     steps.forEach(([k, name, sub, can]) => {
@@ -711,13 +712,13 @@
     pmenu.appendChild(go);
   }
   function doPro(P) {
-    const cut = PRO.cuts && P.n > 0, clean = PRO.clean && P.clean, loud = PRO.loud && P.loud, zoomOn = PRO.zoom && P.zooms > 0;
-    if (!cut && !clean && !loud && !zoomOn) return;
+    const cut = PRO.cuts && P.n > 0, clean = PRO.clean && P.clean, loud = PRO.loud && P.loud, zoomOn = PRO.zoom && P.zooms > 0, sfxOn = PRO.sfx && P.sfx;
+    if (!cut && !clean && !loud && !zoomOn && !sfxOn) return;
     let nz = 0;
     const list = cut ? P.ranges.slice().sort((a, b) => b.start - a.start) : [];
     change('make it pro', () => {
       list.forEach((r) => { clips = E.cutRange(clips, r.start, r.end, newId); });
-      if (clean || loud) snd = Object.assign({}, snd, clean ? { clean: true } : {}, loud ? { loud: 'web' } : {});
+      if (clean || loud || sfxOn) snd = Object.assign({}, snd, clean ? { clean: true } : {}, loud ? { loud: 'web' } : {}, sfxOn ? { sfx: true } : {});
       if (zoomOn) nz = autoZooms(cut ? P.ranges : []);
     });
     seek(Math.min(time(), total()));
@@ -728,6 +729,7 @@
     if (clean) said.push('🎙 ' + tx('ድምፁ ጸድቷል', 'voice cleaned'));
     if (loud) said.push('🔊 −14 LUFS');
     if (nz) said.push('🔍 ' + nz + ' ' + tx('ዙሞች', 'zooms'));
+    if (sfxOn) said.push('🔊 ' + tx('የድምፅ ውጤቶች', 'sound effects'));
     openPro('✓ ' + said.join(' · '));
     if (clean || loud) log(tx('ድምፅ ማጽዳትና loudness ሲላክ ይሠራሉ።', 'Voice cleaning and loudness are applied when you export.'));
   }
@@ -867,6 +869,7 @@
     fwrap.appendChild(el('div', 'st-note', tx('ዙሙ ወደ የትኛው የቪዲዮ ክፍል እንደሚቀርብ — ለምሳሌ ፊት።', 'Which part of the picture it zooms to — a face, for example.')));
     clipPane.appendChild(fwrap);
     const acts = el('div', 'st-row zm-acts');
+    sfxRow(now.sfx, (v) => setZ({ sfx: v }));
     acts.appendChild(btn('st-btn primary', '▶ ' + tx('አሳይ', 'Preview'), '', () => {
       const z = zm.find((x) => x.id === o.id) || o;
       seek(Math.max(0, z.start - 0.5));
@@ -937,6 +940,7 @@
   }
   function tick(follow) {
     const t = time();
+    syncSfx(t);
     if ((L()[cur] || {}).rf) posMain(t);
     syncTrans(t);
     syncZoom(t);
@@ -1124,6 +1128,16 @@
       }
     });
     ST.overlays.forEach((f) => { try { f(ctx, view, w, h, { ruler: RULER, laneTop: capTop, lane: CAP }); } catch (e) {} });
+    // 🔊 where each sound effect plays (on the ruler)
+    if (snd.sfx) {
+      E.sfxEvents({ snd, clips, ovl, txt, zm }, total()).forEach((ev) => {
+        const x0 = S.timeToX(ev.t, view), x1 = S.timeToX(ev.t + (E.SFX_LEN[ev.name] || 0.3), view);
+        if (x1 < 0 || x0 > w) return;
+        ctx.fillStyle = 'rgba(255,196,0,.85)';
+        ctx.fillRect(x0, RULER - 6, Math.max(3, x1 - x0), 4);
+        ctx.beginPath(); ctx.moveTo(x0, RULER - 9); ctx.lineTo(x0 + 5, RULER - 6); ctx.lineTo(x0, RULER - 3); ctx.closePath(); ctx.fill();
+      });
+    }
     const px = S.timeToX(t, view);
     ctx.fillStyle = '#ff5c5c'; ctx.fillRect(Math.round(px) - 1, 0, 2, h);
     ctx.beginPath(); ctx.moveTo(px - 6, 0); ctx.lineTo(px + 6, 0); ctx.lineTo(px, 8); ctx.closePath(); ctx.fill();
@@ -1979,6 +1993,7 @@
     clipPane.appendChild(el('div', 'ed-sec', tx('ግልጽነትና ድምፅ', 'Opacity and sound')));
     slider(tx('ግልጽነት', 'Opacity'), 'opacity', 0, 1, 0.01, 1, (v) => Math.round(v * 100) + '%');
     if (!m.image && m.audio) { slider(tx('ድምፅ', 'Volume'), 'volume', 0, 2, 0.01, 0, (v) => (v ? Math.round(v * 100) + '%' : tx('ድምፅ የለም', 'muted'))); clipPane.lastChild.classList.add('simple-ok'); }
+    sfxRow(o.sfx, (v) => setO({ sfx: v }));
     const row = el('div', 'st-row br-acts');
     row.appendChild(btn('st-btn primary', '▶ ' + tx('አሳይ', 'Preview'), '', () => {
       const z = ovl.find((x) => x.id === o.id) || o;
@@ -2041,6 +2056,35 @@
   // ── 🔊 Sound (right): for the whole video ───────────────────────────────
   const soundPane = el('div', 'ed-clip ed-sound');
   ST.addTab('sound', () => '🔊 ' + tx('ድምፅ', 'Sound'), soundPane);
+  // ── 🔊 Sound effects (1.65): heard while playing, mixed into the export ──
+  const sfxFile = (name) => path.join(((window.__AMH_APP__ || {}).appdir) || '', 'sfx', name + '.wav');
+  const SFXURL = {};
+  const sfxUrl = (name) => { if (!SFXURL[name]) { try { SFXURL[name] = APP.call('media', [sfxFile(name)]); } catch (e) { SFXURL[name] = ''; } } return SFXURL[name]; };
+  const SFXNAME = () => ({ whoosh: tx('ዉሽ', 'Whoosh'), swish: tx('ስዊሽ', 'Swish'), boom: tx('ቡም', 'Boom'), pop: tx('ፖፕ', 'Pop'), click: tx('ክሊክ', 'Click'),
+    ding: tx('ዲንግ', 'Ding'), riser: tx('ከፍ የሚል', 'Riser'), tick: tx('ቲክ', 'Tick') });
+  function sfxPlay(name, vol) {
+    const u = sfxUrl(name);
+    if (!u) return;
+    try { const a = new Audio(u); a.volume = Math.max(0, Math.min(1, vol)); a.play().catch(() => {}); } catch (e) {}
+  }
+  let sfxLastT = -1;
+  function syncSfx(t) {
+    if (!playing || !snd.sfx) { sfxLastT = t; return; }
+    if (t < sfxLastT || t - sfxLastT > 0.5) { sfxLastT = t; return; }        // a seek: nothing plays
+    const vol = snd.sfxVol == null ? 0.7 : Number(snd.sfxVol);
+    E.sfxEvents({ snd, clips, ovl, txt, zm }, total()).forEach((ev) => { if (ev.t > sfxLastT && ev.t <= t) sfxPlay(ev.name, vol * ev.vol); });
+    sfxLastT = t;
+  }
+  // ⚙: an item's own sound (Auto = the Studio's choice for it)
+  function sfxRow(cur, onPick) {
+    clipPane.appendChild(el('div', 'ed-sec', '🔊 ' + tx('የድምፅ ውጤት', 'Sound effect') + (snd.sfx ? '' : ' · ' + tx('ጠፍቷል (🔊 ድምፅ ላይ ያብሩ)', 'off (turn on in 🔊 Sound)'))));
+    const row = el('div', 'br-chips');
+    const N = SFXNAME();
+    [['auto', tx('ራስ-ሰር', 'Auto')], ['none', tx('የለም', 'None')]].concat(E.SFX.map((k) => [k, '▶ ' + N[k]])).forEach(([v, t]) => {
+      row.appendChild(btn('br-chip' + ((cur || 'auto') === v ? ' on' : ''), t, '', () => { if (E.SFX.indexOf(v) >= 0) sfxPlay(v, 0.8); onPick(v); }));
+    });
+    clipPane.appendChild(row);
+  }
   function renderSound() {
     soundPane.textContent = '';
     soundPane.appendChild(el('div', 'ed-sec', tx('የንግግር ድምፅ', 'Voice')));
@@ -2058,6 +2102,30 @@
     soundPane.appendChild(seg);
     soundPane.appendChild(el('div', 'st-note', snd.loud === 'web' ? tx('−14 LUFS፦ YouTube፣ TikTok፣ Instagram የሚጠብቁት — ቪዲዮዎ ከሌሎቹ እኩል ይሰማል።', '−14 LUFS: what YouTube, TikTok and Instagram expect — your video sounds as loud as the others.')
       : (snd.loud === 'tv' ? tx('−23 LUFS፦ የቲቪ ስርጭት መስፈርት (EBU R128)።', '−23 LUFS: the broadcast TV standard (EBU R128).') : tx('ድምፁ እንዳለ ይላካል።', 'The sound is exported as it is.'))));
+    soundPane.appendChild(el('div', 'ed-sec', '🔊 ' + tx('የድምፅ ውጤቶች', 'Sound effects')));
+    const fl = el('label', 'ed-check');
+    const fcb = el('input'); fcb.type = 'checkbox'; fcb.checked = !!snd.sfx;
+    fcb.addEventListener('change', () => { change('sound', () => { snd = Object.assign({}, snd, { sfx: fcb.checked }); }); renderSound(); drawSoon(); });
+    fl.appendChild(fcb);
+    fl.appendChild(el('span', '', tx('ራስ-ሰር የድምፅ ውጤቶች — በዙም ዉሽ፣ በርዕስ ፖፕ፣ በሽግግር ስዊሽ…', 'Automatic sound effects — a whoosh on zooms, a pop on titles, a swish on transitions…')));
+    soundPane.appendChild(fl);
+    if (snd.sfx) {
+      const vr = el('div', 'ed-row simple-ok');
+      vr.appendChild(el('span', 'ed-lab', tx('መጠን', 'Volume')));
+      const r = el('input'); r.type = 'range'; r.min = 0.1; r.max = 1.5; r.step = 0.05; r.value = snd.sfxVol == null ? 0.7 : snd.sfxVol;
+      const val = el('span', 'ed-val', Math.round(r.value * 100) + '%');
+      r.addEventListener('input', () => { val.textContent = Math.round(r.value * 100) + '%'; });
+      r.addEventListener('change', () => { change('sound', () => { snd = Object.assign({}, snd, { sfxVol: Number(r.value) }); }); sfxPlay('whoosh', Number(r.value) * 0.8); });
+      vr.appendChild(r); vr.appendChild(val);
+      soundPane.appendChild(vr);
+      const n = E.sfxEvents({ snd, clips, ovl, txt, zm }, total()).length;
+      soundPane.appendChild(el('div', 'st-note', n ? n + ' ' + tx('የድምፅ ውጤቶች በዚህ ቪዲዮ ውስጥ (በጊዜ መስመሩ ላይ 🔊)።', 'sound effects in this video (🔊 on the timeline).')
+        : tx('ዙም፣ B-roll፣ ቴምፕሌት ወይም ሽግግር ሲጨምሩ ድምፁ ራሱ ይገባል።', 'Add a zoom, B-roll, template or transition — its sound comes by itself.')));
+    }
+    const tryRow = el('div', 'br-chips');
+    const N = SFXNAME();
+    E.SFX.forEach((k) => tryRow.appendChild(btn('br-chip', '▶ ' + N[k], tx('ያዳምጡ', 'Listen'), () => sfxPlay(k, 0.8))));
+    soundPane.appendChild(tryRow);
     soundPane.appendChild(el('div', 'ed-sec', '♪ ' + tx('ሙዚቃ', 'Music')));
     if (!mus.length) {
       soundPane.appendChild(el('div', 'st-note', tx('ሙዚቃ ፋይል (mp3፣ wav፣ m4a) ወደ መስኮቱ ይጎትቱ ወይም ከ📁 ሚዲያ ያስገቡ — ከዋናው መስመር በታች ይገባል።', 'Drop a music file (mp3, wav, m4a) onto the window or import it in 📁 Media — it goes under the main track.')));
@@ -2387,6 +2455,7 @@
     };
     seg(tx('የእንቅስቃሴ ፍጥነት', 'Animation speed'), [['slow', tx('ቀስ', 'Slow')], ['normal', tx('መደበኛ', 'Normal')], ['fast', tx('ፈጣን', 'Fast')]], it.speed || 'normal', 'speed');
     seg(tx('ሲጨርስ', 'At the end'), [['fade', tx('ደብዝዞ ይጠፋል', 'Fades out')], ['none', tx('በቀጥታ ይቆማል', 'Cuts')]], it.end === 'none' ? 'none' : 'fade', 'end');
+    sfxRow(it.sfx, (v) => setC({ sfx: v }));
     const acts = el('div', 'st-row br-acts');
     acts.appendChild(btn('st-btn primary', '▶ ' + tx('አሳይ', 'Preview'), '', () => {
       seek(Math.max(0, it.start - 0.3)); play();
@@ -2542,11 +2611,14 @@
         await renderStyled(Object.assign({}, job.caps, { mode: 'script', width: W, height: H, fps: 30, duration: tot, out: path.join(cwd, 'c.ass') }));
         made.push(path.join(cwd, 'c.ass')); ass.push('c.ass');
       }
-      const g = E.editGraph(st.clips, info, f, 30, st.ovl || [], { ass: ass.length ? ass : null, res: job.res, mus: st.mus, snd: st.snd, zm: st.zm || [] });
+      const sv = st.snd && st.snd.sfxVol != null ? Number(st.snd.sfxVol) : 0.7;
+      const sfx = E.sfxEvents(st, tot).filter((x) => fs.existsSync(sfxFile(x.name))).map((x, k) => ({ idx: used.length + k, t: x.t, vol: sv * x.vol, file: sfxFile(x.name) }));
+      const g = E.editGraph(st.clips, info, f, 30, st.ovl || [], { ass: ass.length ? ass : null, res: job.res, mus: st.mus, snd: st.snd, zm: st.zm || [], sfx });
       let gfile = null;
       const args = (enc) => {
         const a = ['-v', 'error', '-y'];
         used.forEach((id) => { if (st.media[id].image) a.push('-loop', '1', '-framerate', '30'); a.push('-i', st.media[id].path); });
+        sfx.forEach((x) => a.push('-i', x.file));
         if (g.graph.length > 6000) {
           if (!gfile) { gfile = path.join(os.tmpdir(), 'amh_edit_' + Date.now() + '_' + nid + '.txt'); fs.writeFileSync(gfile, g.graph, { encoding: 'utf8' }); made.push(gfile); }
           a.push('-/filter_complex', gfile);

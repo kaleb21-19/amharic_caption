@@ -433,4 +433,24 @@ test('reframe: the camera holds, then glides to the face; the export places it t
   assert.ok(/overlay='-?[\d.]+\+-?[\d.]+\*\(3\*pow\(clip\(\(t-8\)\/0\.6,0,1\),2\)/.test(g), g.slice(0, 400));
 });
 
+// 🔊 Sound effects (1.65): from the edit, overridable, mixed into the export
+test('sound effects: come from zooms, B-roll, templates, transitions; mixed at their times', () => {
+  const st = { snd: { sfx: true }, clips: [{ id: 'a', m: 'v', in: 0, out: 10 }, { id: 'b', m: 'v', in: 10, out: 20, tr: { type: 'fade', d: 0.5 } }],
+    zm: [{ start: 2, in: 0, out: 2, style: 'punch' }, { start: 5, in: 0, out: 2, style: 'push' }, { start: 13, in: 0, out: 1, style: 'impact', sfx: 'none' }],
+    ovl: [{ start: 6, in: 0, out: 2, m: 'p', layout: 'full', ain: 'left', aout: 'fade' }, { start: 15, in: 0, out: 2, m: 'p' }],
+    txt: [{ start: 1, in: 0, out: 3, tpl: 'subscribe' }, { start: 12, in: 0, out: 3, tpl: 'cinema' }, { start: 17, in: 0, out: 2, tpl: 'hook', sfx: 'ding' }] };
+  const ev = E.sfxEvents(st).map((x) => x.name + '@' + x.t);
+  assert.deepStrictEqual(ev, ['pop@1', 'swish@1.94', 'click@2.2', 'whoosh@4.82', 'whoosh@5.82', 'swish@9.94', 'riser@10.8', 'ding@17'], JSON.stringify(ev));
+  assert.deepStrictEqual(E.sfxEvents(Object.assign({}, st, { snd: {} })), [], 'off: none');
+  assert.ok(!ev.some((x) => /^boom/.test(x)), "an item's 'none' wins");
+  // the export: the sounds are inputs, delayed to their times, in the final mix
+  const media = { v: { idx: 0, video: true, audio: true, w: 1920, h: 1080, dur: 20 } };
+  const g = E.editGraph([{ id: 'a', m: 'v', in: 0, out: 10 }], media, '16:9', 30, [], { snd: { sfx: true }, sfx: [{ idx: 1, t: 2.5, vol: 0.56 }, { idx: 2, t: 7, vol: 0.7 }] }).graph;
+  assert.ok(/\[1:a\]aresample=48000,aformat=channel_layouts=stereo,volume=0\.56,adelay=2500\|2500,apad\[sx0\]/.test(g), g);
+  assert.ok(/\[sx0\]\[sx1\]amix=inputs=3:duration=first/.test(g), 'mixed with the voice, as long as the video');
+  // the sound files exist and are short
+  const dir = require('path').join(__dirname, '..', '..', 'app', 'sfx');
+  E.SFX.forEach((n) => { const st2 = require('fs').statSync(require('path').join(dir, n + '.wav')); assert.ok(st2.size > 1000 && st2.size < 200000, n); });
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');
