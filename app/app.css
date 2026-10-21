@@ -647,3 +647,23 @@ html.amh-editor .ed-cwrap { height: 246px; }
 .br-pick-th img { width: 100%; height: 100%; object-fit: cover; }
 .br-pick-n { font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .st-script .w.drop { outline: 2px dashed #a58be0; outline-offset: 2px; border-radius: 4px; }
+
+/* 🇪🇹 Templates (1.62): the preview canvas and the gallery */
+.ed-canvas .ed-tplcv { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 2; }
+.ed-tmenu.ed-tgal { width: 620px; max-width: calc(100vw - 40px); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.tg-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.tg-tab { height: 30px; padding: 0 12px; border: 1px solid var(--border); border-radius: 15px; background: var(--bg-card); color: var(--text-secondary);
+  font-family: inherit; font-size: 12.5px; cursor: pointer; }
+.tg-tab:hover { color: var(--text-primary); border-color: #c08a3d; }
+.tg-tab.on { background: #c08a3d; border-color: #c08a3d; color: #1a1205; font-weight: 700; }
+.tg-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; max-height: 330px; overflow-y: auto; }
+.tg-grid.tg-basic { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.tg-card { position: relative; display: flex; flex-direction: column; gap: 5px; padding: 5px; border: 1px solid var(--border); border-radius: 9px;
+  background: var(--bg-card); color: var(--text-primary); font-family: inherit; cursor: pointer; text-align: left; }
+.tg-card:hover { border-color: #c08a3d; box-shadow: 0 0 0 1px #c08a3d inset; }
+.tg-cv { width: 100%; aspect-ratio: 16 / 9; border-radius: 6px; display: block; }
+.tg-card b { font-size: 12px; font-weight: 600; padding: 0 2px 2px; }
+.tg-del { position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 50%; font-style: normal;
+  font-size: 11px; background: rgba(0,0,0,.6); color: #fff; opacity: 0; }
+.tg-card:hover .tg-del { opacity: 1; }
+.ed-pick { width: 26px; height: 26px; padding: 0; border: 1px solid var(--border); border-radius: 50%; background: none; cursor: pointer; }

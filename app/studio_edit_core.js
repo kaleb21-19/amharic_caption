@@ -372,6 +372,7 @@
       '', '[Events]', 'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text'];
     const ev = [];
     (items || []).forEach((t) => {
+      if (t.tpl) { tplAss(t, W, H, totalLen).forEach((x) => ev.push(x)); return; }      // 🇪🇹 a template (1.62)
       const st = Number(t.start) || 0;
       const en = Math.min(totalLen == null ? Infinity : totalLen, st + Math.max(0, t.out - (t.in || 0)));
       if (en <= st || !String(t.text || '').trim()) return;
@@ -409,6 +410,287 @@
       }
     });
     return head.concat(ev).join('\n') + '\n';
+  }
+
+
+  // ── 🇪🇹 Templates (1.62) ─────────────────────────────────────────────────
+  // Animated titles made of layers (rect / poly / text), each with its own
+  // motion. The SAME layers make the export (libass lines: \t with accel,
+  // \move, \clip, \frz) and the preview (studio_edit draws them on a canvas
+  // with tplState) — so the preview is the export. A template is a text item
+  // with `tpl`: { tpl, text, sub, accent, color, font, size, fx, fy, speed,
+  // end ('fade'|'none': how it ends), theme (holidays) }.
+  let MEASURE = null;                 // (text, font, S, bold, fsp) -> px width; set by the editor (the real fonts)
+  function setMeasure(fn) { MEASURE = fn; }
+  const measureText = (text, font, S, bold, fsp) => {
+    if (MEASURE) { try { const w = MEASURE(text, font, S, bold, fsp || 0); if (w > 0) return w; } catch (e) {} }
+    const n = Array.from(String(text || '')).length;
+    return n * S * (bold ? 0.62 : 0.58) + Math.max(0, n - 1) * (fsp || 0);
+  };
+  const HOLIDAYS = {
+    meskel: { name: ['መስቀል', 'Meskel'], text: 'እንኳን ለብርሃነ መስቀሉ በሰላም አደረሳችሁ', a: '#FFC300', c: '#FFFFFF', d: '#2E7D32' },
+    timket: { name: ['ጥምቀት', 'Timket'], text: 'እንኳን ለብርሃነ ጥምቀቱ በሰላም አደረሳችሁ', a: '#42A5F5', c: '#FFFFFF', d: '#FFFFFF' },
+    enkutatash: { name: ['እንቁጣጣሽ', 'New Year'], text: 'እንኳን ለአዲሱ ዓመት በሰላም አደረሳችሁ', a: '#FFD600', c: '#FFFFFF', d: '#43A047' },
+    genna: { name: ['ገና', 'Genna'], text: 'እንኳን ለብርሃነ ልደቱ በሰላም አደረሳችሁ', a: '#E53935', c: '#FFFFFF', d: '#FFC107' },
+    fasika: { name: ['ፋሲካ', 'Fasika'], text: 'እንኳን ለብርሃነ ትንሣኤው በሰላም አደረሳችሁ', a: '#AB47BC', c: '#FFFFFF', d: '#FFD54F' },
+    eid: { name: ['ኢድ', 'Eid'], text: 'ኢድ ሙባረክ', a: '#26A69A', c: '#FFFFFF', d: '#FFD54F' },
+    any: { name: ['በዓል', 'Holiday'], text: 'መልካም በዓል', a: '#FFC107', c: '#FFFFFF', d: '#FFFFFF' },
+  };
+  // the catalogue: group, names, default texts, look; build -> layers
+  const TEMPLATES = {
+    hook: { g: 'hook', name: ['ርዕስ በሳጥን', 'Hook on a box'], text: 'ይህን ማወቅ አለብዎት!', sub: '', accent: '#FFD60A', color: '#111111', fx: 0.5, fy: 0.3 },
+    slam: { g: 'hook', name: ['ኃይለኛ ርዕስ', 'Slam title'], text: 'አስደናቂ ውጤት', sub: 'በ3 ቀን ብቻ', accent: '#FFD60A', color: '#FFFFFF', fx: 0.5, fy: 0.32 },
+    cinema: { g: 'hook', name: ['ሲኒማ ርዕስ', 'Cinematic title'], text: 'የኢትዮጵያ ታሪክ', sub: 'ክፍል አንድ', accent: '#E8C77A', color: '#FFFFFF', font: 'serif', fx: 0.5, fy: 0.45 },
+    stack: { g: 'hook', name: ['ባለ ሁለት መስመር', 'Two-line title'], text: 'ቡና በኢትዮጵያ', sub: 'ዛሬ የምናየው', accent: '#2ECC71', color: '#FFFFFF', fx: 0.08, fy: 0.42 },
+    lower: { g: 'name', name: ['ዘመናዊ የስም ጽሑፍ', 'Modern lower third'], text: 'አበበ በቀለ', sub: 'ሥራ ፈጣሪ', accent: '#2ECC71', color: '#FFFFFF', fx: 0.06, fy: 0.84 },
+    minimal: { g: 'name', name: ['ቀላል የስም ጽሑፍ', 'Minimal lower third'], text: 'ሰላም ታደሰ', sub: 'ጋዜጠኛ', accent: '#FFFFFF', color: '#FFFFFF', fx: 0.06, fy: 0.84 },
+    pill: { g: 'name', name: ['የስም ካፕሱል', 'Name pill'], text: 'ዮሐንስ ዳዊት', sub: '', accent: '#2ECC71', color: '#111111', fx: 0.5, fy: 0.84 },
+    subscribe: { g: 'social', name: ['ሰብስክራይብ', 'Subscribe button'], text: 'ሰብስክራይብ', sub: 'ተመዝግበዋል', accent: '#FF0033', color: '#FFFFFF', fx: 0.5, fy: 0.8 },
+    follow: { g: 'social', name: ['ተከተሉን', 'Follow us'], text: '@your.channel', sub: 'ተከተሉን', accent: '#FE2C55', color: '#FFFFFF', fx: 0.5, fy: 0.8 },
+    cta: { g: 'social', name: ['ጥሪ ከቀስት ጋር', 'Call to action'], text: 'ሊንኩን ይጫኑ', sub: '', accent: '#FFD60A', color: '#111111', fx: 0.5, fy: 0.62 },
+    banner: { g: 'social', name: ['የታች ባነር', 'Bottom banner'], text: 'ለበለጠ መረጃ ይደውሉ', sub: '0911 00 00 00', accent: '#1565C0', color: '#FFFFFF', fx: 0.5, fy: 0.92 },
+    quote: { g: 'text', name: ['ጥቅስ', 'Quote'], text: 'ትዕግስት መራራ ናት፣ ፍሬዋ ግን ጣፋጭ ነው', sub: 'ተረት', accent: '#FFD60A', color: '#FFFFFF', font: 'serif', fx: 0.5, fy: 0.5 },
+    number: { g: 'text', name: ['ቁጥር ዝርዝር', 'Numbered point'], text: 'በጠዋት ውሃ ይጠጡ', sub: '1', accent: '#2ECC71', color: '#FFFFFF', fx: 0.1, fy: 0.5 },
+    price: { g: 'text', name: ['ቅናሽ ማህተም', 'Sale badge'], text: '-30%', sub: 'ቅናሽ', accent: '#E53935', color: '#FFFFFF', fx: 0.78, fy: 0.3 },
+    holiday: { g: 'holiday', name: ['የበዓል ሰላምታ', 'Holiday greeting'], text: '', sub: 'ከ ቤተሰቦቻችን', accent: '', color: '', theme: 'meskel', fx: 0.5, fy: 0.45 },
+  };
+  const TPL_GROUPS = { hook: ['ርዕስ', 'Titles'], name: ['የስም ጽሑፍ', 'Names'], social: ['ሶሻል እና ጥሪ', 'Social & CTA'], text: ['ጥቅስ እና ዝርዝር', 'Quotes & lists'], holiday: ['በዓላት', 'Holidays'] };
+  const TPL_SPEED = { slow: 1.4, normal: 1, fast: 0.7 };
+  // the look of a template item, defaults filled in
+  function tplOf(t) {
+    const D = TEMPLATES[t.tpl] || TEMPLATES.hook;
+    const th = HOLIDAYS[t.theme] || HOLIDAYS[D.theme] || HOLIDAYS.meskel;
+    const hol = (TEMPLATES[t.tpl] ? t.tpl : 'hook') === 'holiday';
+    const hex = (v, d) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v) : d);
+    return {
+      id: TEMPLATES[t.tpl] ? t.tpl : 'hook', D, th,
+      text: String(t.text == null ? (hol ? th.text : D.text) : t.text).replace(/\s*\n\s*/g, ' ').trim(),
+      sub: String(t.sub == null ? D.sub : t.sub).replace(/\s*\n\s*/g, ' ').trim(),
+      accent: hex(t.accent, hol ? th.a : D.accent), color: hex(t.color, hol ? th.c : D.color),
+      font: TFONTS[t.font] ? t.font : (D.font || 'sans'),
+      size: Math.max(0.5, Math.min(2, Number(t.size) || 1)),
+      fx: t.fx == null ? D.fx : Number(t.fx), fy: t.fy == null ? D.fy : Number(t.fy),
+      k: TPL_SPEED[t.speed] || 1, out: t.end === 'none' ? 'none' : 'fade',
+    };
+  }
+  // layers in canvas px: { kind, x, y (centre), w, h, r, color, a, text, S, font, bold, ob (outline), oc, sh,
+  //   on, off (s, relative), an: [{ p, t0, t1, from, to, accel }] } — p: 'sc' (scale %), 'al' (0-1),
+  //   'mv' ([dx, dy] -> [0, 0], linear like \move), 'sp' (letter spacing), 'wipe' (0-1 shown from the left), 'rot' (deg)
+  function tplLayers(t, W, H) {
+    const P = tplOf(t);
+    const u = Math.min(W, H) / 1080 * P.size, k = P.k;
+    const len = Math.max(0.5, ovLen(t));
+    const ax = P.fx * W, ay = P.fy * H, F = P.font;
+    const L = [];
+    const tw = (text, S, bold, fsp) => measureText(text, F, S, bold, fsp);
+    const A = (p, t0, t1, from, to, accel) => ({ p, t0: t0 * k, t1: t1 * k, from, to, accel: accel == null ? 1 : accel });
+    const rect = (o) => { L.push(Object.assign({ kind: 'rect', r: 0, a: 1, an: [] }, o)); return L[L.length - 1]; };
+    const text = (o) => { L.push(Object.assign({ kind: 'text', font: F, bold: true, a: 1, ob: 0, oc: '#000000', sh: 0, an: [] }, o)); return L[L.length - 1]; };
+    const poly = (o) => { L.push(Object.assign({ kind: 'poly', a: 1, an: [] }, o)); return L[L.length - 1]; };
+    const pop = (d0) => [A('sc', d0, d0 + 0.18, 0, 108, 0.5), A('sc', d0 + 0.18, d0 + 0.3, 108, 100), A('al', d0, d0 + 0.12, 0, 1)];
+    const rise = (d0, dy) => [A('mv', d0, d0 + 0.35, [0, dy], [0, 0]), A('al', d0, d0 + 0.3, 0, 1)];
+    const wipe = (d0, d1) => [A('wipe', d0, d1, 0, 1, 0.6)];
+    const id = P.id;
+    if (id === 'hook') {
+      const S = 86 * u, w = tw(P.text, S, true) + 60 * u, h = S + 36 * u;
+      rect({ x: ax, y: ay, w, h, r: 14 * u, color: P.accent, an: pop(0) });
+      text({ x: ax, y: ay, text: P.text, S, color: P.color, an: pop(0) });
+      if (P.sub) text({ x: ax, y: ay + h / 2 + 40 * u, text: P.sub, S: 42 * u, color: '#FFFFFF', ob: 3 * u, an: rise(0.25, 24 * u) });
+    } else if (id === 'slam') {
+      const S = 104 * u;
+      text({ x: ax, y: ay, text: P.text, S, color: P.color, ob: 6 * u, sh: 4 * u, an: [A('sc', 0, 0.22, 165, 100, 0.4), A('al', 0, 0.12, 0, 1)] });
+      if (P.sub) text({ x: ax, y: ay + S * 0.95, text: P.sub, S: 48 * u, color: P.accent, ob: 4 * u, an: [A('sc', 0.25, 0.45, 140, 100, 0.4), A('al', 0.25, 0.35, 0, 1)] });
+    } else if (id === 'cinema') {
+      const S = 76 * u, w0 = tw(P.text, S, false, 4 * u);
+      text({ x: ax, y: ay, text: P.text, S, bold: false, color: P.color, sh: 2 * u, an: [A('sp', 0, 1.4, 22 * u, 4 * u, 0.5), A('al', 0, 0.6, 0, 1)] });
+      rect({ x: ax, y: ay + S * 0.78, w: Math.min(W * 0.6, w0 + 90 * u), h: 4 * u, color: P.accent, an: [A('wipe', 0.35, 1.1, 0, 1, 0.5), A('al', 0.35, 0.36, 0, 1)] });
+      if (P.sub) text({ x: ax, y: ay - S * 0.92, text: P.sub, S: 32 * u, bold: false, color: P.accent, an: [A('sp', 0.4, 1.4, 14 * u, 8 * u, 0.5), A('al', 0.4, 0.9, 0, 1)] });
+    } else if (id === 'stack') {
+      const S = 84 * u, S2 = 42 * u, w1 = tw(P.text, S, true), w2 = P.sub ? tw(P.sub, S2, true) : 0;
+      const top = ay - (P.sub ? S2 * 0.65 + S * 0.6 : S * 0.6), x0 = ax + 22 * u;
+      rect({ x: ax + 4 * u, y: top + (P.sub ? S2 * 1.3 + S * 1.2 : S * 1.2) / 2, w: 8 * u, h: P.sub ? S2 * 1.3 + S * 1.2 : S * 1.2, color: P.accent, an: [A('sc', 0, 0.3, 0, 100, 0.5), A('al', 0, 0.01, 0, 1)], sy: true });
+      if (P.sub) text({ x: x0 + w2 / 2, y: top + S2 * 0.65, text: P.sub, S: S2, color: P.accent, sh: 2 * u, an: wipe(0.15, 0.5) });
+      text({ x: x0 + w1 / 2, y: top + (P.sub ? S2 * 1.3 : 0) + S * 0.6, text: P.text, S, color: P.color, ob: 3 * u, sh: 2 * u, an: wipe(0.3, 0.75) });
+    } else if (id === 'lower' || id === 'minimal') {
+      const S = (id === 'lower' ? 52 : 58) * u, S2 = 32 * u, wn = tw(P.text, S, true), ws = P.sub ? tw(P.sub, S2, id === 'lower') : 0;
+      const h = S * 1.25 + (P.sub ? S2 * 1.45 : 0) + 24 * u, bottom = ay, top = bottom - h, x0 = ax;
+      if (id === 'lower') {
+        const w = Math.max(wn, ws) + 56 * u;
+        rect({ x: x0 + 10 * u + w / 2, y: top + h / 2, w, h, r: 8 * u, color: '#101614', a: 0.88, an: wipe(0.12, 0.45) });
+        rect({ x: x0 + 4 * u, y: top + h / 2, w: 8 * u, h, color: P.accent, an: [A('sc', 0, 0.25, 0, 100, 0.5), A('al', 0, 0.01, 0, 1)], sy: true });
+        text({ x: x0 + 38 * u + wn / 2, y: top + 12 * u + S * 0.62, text: P.text, S, color: P.color, an: wipe(0.3, 0.6) });
+        if (P.sub) text({ x: x0 + 38 * u + ws / 2, y: top + 12 * u + S * 1.25 + S2 * 0.7, text: P.sub, S: S2, color: P.accent, an: wipe(0.42, 0.72) });
+      } else {
+        const lw = Math.max(wn, ws) + 8 * u;
+        text({ x: x0 + wn / 2, y: top + S * 0.62, text: P.text, S, color: P.color, ob: 2 * u, sh: 3 * u, an: rise(0, 20 * u) });
+        rect({ x: x0 + lw / 2, y: top + S * 1.25 + 4 * u, w: lw, h: 3 * u, color: P.accent, an: [A('wipe', 0.2, 0.65, 0, 1, 0.5), A('al', 0.2, 0.21, 0, 1)] });
+        if (P.sub) text({ x: x0 + ws / 2, y: top + S * 1.25 + 12 * u + S2 * 0.7, text: P.sub, S: S2, bold: false, color: '#E6ECE9', sh: 2 * u, an: rise(0.3, 14 * u) });
+      }
+    } else if (id === 'pill') {
+      const S = 42 * u, h = 78 * u, w = tw(P.text, S, true) + h + 40 * u;
+      rect({ x: ax, y: ay, w, h, r: h / 2, color: '#FFFFFF', an: pop(0) });
+      rect({ x: ax - w / 2 + h / 2, y: ay, w: h - 26 * u, h: h - 26 * u, r: (h - 26 * u) / 2, color: P.accent, an: pop(0.08) });
+      text({ x: ax + h / 2 - 10 * u, y: ay, text: P.text, S, color: P.color, an: pop(0.05) });
+    } else if (id === 'subscribe') {
+      // red, then pressed (1.2 s): grey with the second text
+      const S = 42 * u, h = 88 * u, press = 1.2 * k;
+      const w1 = tw(P.text, S, true) + 130 * u, w2 = tw(P.sub || P.text, S, true) + 130 * u;
+      const tri = (cx, cy, s) => [[cx - s * 0.45, cy - s * 0.55], [cx + s * 0.6, cy], [cx - s * 0.45, cy + s * 0.55]];
+      const pr = (d) => [A('sc', press, press + 0.1, 100, 88), A('sc', press + 0.1, press + 0.25, 88, 100, 0.5)].concat(d ? pop(0) : []);
+      rect({ x: ax, y: ay, w: w1, h, r: 14 * u, color: P.accent, off: press + 0.1, an: pr(true) });
+      poly({ pts: tri(ax - w1 / 2 + 50 * u, ay, 30 * u), color: '#FFFFFF', off: press + 0.1, cx: ax, cy: ay, an: pr(true) });
+      text({ x: ax + 24 * u, y: ay, text: P.text, S, color: P.color, off: press + 0.1, an: pr(true) });
+      rect({ x: ax, y: ay, w: w2, h, r: 14 * u, color: '#3A3A3A', on: press + 0.1, an: [A('sc', press + 0.1, press + 0.25, 88, 100, 0.5)] });
+      text({ x: ax + 24 * u, y: ay, text: P.sub || P.text, S, color: '#FFFFFF', on: press + 0.1, an: [A('sc', press + 0.1, press + 0.25, 88, 100, 0.5)] });
+      poly({ pts: [[ax - w2 / 2 + 32 * u, ay], [ax - w2 / 2 + 46 * u, ay + 14 * u], [ax - w2 / 2 + 72 * u, ay - 14 * u], [ax - w2 / 2 + 66 * u, ay - 20 * u], [ax - w2 / 2 + 46 * u, ay + 2 * u], [ax - w2 / 2 + 38 * u, ay - 6 * u]],
+        color: '#FFFFFF', on: press + 0.1, cx: ax, cy: ay, an: [A('sc', press + 0.1, press + 0.25, 88, 100, 0.5)] });
+    } else if (id === 'follow') {
+      const S = 42 * u, S2 = 32 * u, h = 84 * u, w1 = tw(P.text, S, true), w2 = tw(P.sub, S2, true) + 40 * u;
+      const w = w1 + w2 + 70 * u;
+      const up = [A('mv', 0, 0.35, [0, 70 * u], [0, 0]), A('al', 0, 0.25, 0, 1)];
+      rect({ x: ax, y: ay, w, h, r: 18 * u, color: '#111111', a: 0.9, an: up });
+      text({ x: ax - w / 2 + 25 * u + w1 / 2, y: ay, text: P.text, S, color: P.color, an: up });
+      rect({ x: ax + w / 2 - 14 * u - w2 / 2, y: ay, w: w2, h: h - 26 * u, r: (h - 26 * u) / 2, color: P.accent, an: up.concat([A('sc', 0.4, 0.55, 100, 112), A('sc', 0.55, 0.7, 112, 100)]) });
+      text({ x: ax + w / 2 - 14 * u - w2 / 2, y: ay, text: P.sub, S: S2, color: '#FFFFFF', an: up.concat([A('sc', 0.4, 0.55, 100, 112), A('sc', 0.55, 0.7, 112, 100)]) });
+    } else if (id === 'cta') {
+      const S = 50 * u, w = tw(P.text, S, true) + 64 * u, h = S + 34 * u;
+      rect({ x: ax, y: ay, w, h, r: 12 * u, color: P.accent, an: pop(0) });
+      text({ x: ax, y: ay, text: P.text, S, color: P.color, an: pop(0) });
+      // the arrow bounces, one bounce every 0.6 s
+      const ay2 = ay + h / 2 + 52 * u, s = 34 * u;
+      const arrow = [[ax - s, ay2 - s * 0.5], [ax, ay2 + s * 0.6], [ax + s, ay2 - s * 0.5], [ax + s * 0.55, ay2 - s * 0.85], [ax, ay2 - s * 0.15], [ax - s * 0.55, ay2 - s * 0.85]];
+      for (let b = 0.3 * k, n = 0; b < len && n < 60; b += 0.6, n++) {
+        const down = n % 2 === 0;
+        const mvb = { p: 'mv', t0: b, t1: b + 0.6, from: [0, down ? 0 : 16 * u], to: [0, down ? 16 * u : 0], accel: 1 };
+        poly({ pts: arrow, color: P.accent, on: b, off: Math.min(len, b + 0.6), an: [mvb].concat(n === 0 ? [A('al', 0.3, 0.45, 0, 1)] : []) });
+      }
+    } else if (id === 'banner') {
+      const h = (P.sub ? 150 : 112) * u, cy = Math.min(H - h / 2, ay), S = 48 * u, S2 = 34 * u;
+      const up = [A('mv', 0, 0.35, [0, h + 40 * u], [0, 0])];
+      rect({ x: W / 2, y: cy, w: W, h, color: P.accent, a: 0.95, an: up });
+      rect({ x: W / 2, y: cy - h / 2 + 3 * u, w: W, h: 6 * u, color: '#FFFFFF', a: 0.9, an: up });
+      text({ x: ax, y: cy - (P.sub ? S2 * 0.75 : 0), text: P.text, S, color: P.color, an: up });
+      if (P.sub) text({ x: ax, y: cy + S * 0.62, text: P.sub, S: S2, color: P.color, bold: false, an: up.concat([A('al', 0.25, 0.45, 0, 1)]) });
+    } else if (id === 'quote') {
+      // a dark card with an accent edge; the big quote mark on its corner
+      const S = 56 * u, w = tw(P.text, S, false), bw = w + 110 * u, bh = S * 1.5 + (P.sub ? 70 * u : 40 * u);
+      const cy = ay + (P.sub ? 18 * u : 0);
+      rect({ x: ax, y: cy, w: bw, h: bh, r: 12 * u, color: '#0E1412', a: 0.82, an: [A('al', 0, 0.3, 0, 1), A('sc', 0, 0.3, 94, 100, 0.5)] });
+      rect({ x: ax - bw / 2 + 4 * u, y: cy, w: 8 * u, h: bh, color: P.accent, an: [A('sc', 0.1, 0.4, 0, 100, 0.5), A('al', 0.1, 0.11, 0, 1)], sy: true });
+      text({ x: ax - bw / 2 + 40 * u, y: cy - bh / 2 - 6 * u, text: '“', S: 150 * u, bold: true, font: 'serif', color: P.accent, an: pop(0.15) });
+      text({ x: ax, y: ay, text: P.text, S, bold: false, color: P.color, an: rise(0.25, 20 * u) });
+      if (P.sub) text({ x: ax + w / 2 - tw('— ' + P.sub, 34 * u, false) / 2, y: ay + S * 1.0, text: '— ' + P.sub, S: 34 * u, bold: false, color: P.accent, an: rise(0.5, 14 * u) });
+    } else if (id === 'number') {
+      const d = 112 * u, S = 54 * u, w = tw(P.text, S, true);
+      rect({ x: ax + d / 2, y: ay, w: d, h: d, r: d / 2, color: P.accent, an: pop(0) });
+      text({ x: ax + d / 2, y: ay, text: P.sub || '1', S: 66 * u, color: '#111111', an: pop(0) });
+      text({ x: ax + d + 28 * u + w / 2, y: ay, text: P.text, S, color: P.color, ob: 3 * u, sh: 2 * u, an: wipe(0.2, 0.65) });
+    } else if (id === 'price') {
+      const R = 150 * u, pts = [];
+      for (let i = 0; i < 24; i++) { const ang = Math.PI * 2 * i / 24 - Math.PI / 2, r = i % 2 ? R * 0.84 : R; pts.push([ax + r * Math.cos(ang), ay + r * Math.sin(ang)]); }
+      const sp = [A('sc', 0, 0.22, 0, 112, 0.5), A('sc', 0.22, 0.34, 112, 100), A('al', 0, 0.1, 0, 1), A('rot', 0, 0.5, -40, -8, 0.5)];
+      poly({ pts, color: P.accent, cx: ax, cy: ay, an: sp });
+      text({ x: ax, y: ay + (P.sub ? 16 * u : 0), text: P.text, S: 78 * u, color: P.color, an: sp });
+      if (P.sub) text({ x: ax, y: ay - 52 * u, text: P.sub, S: 34 * u, color: P.color, an: sp });
+    } else if (id === 'holiday') {
+      const S = 58 * u, S2 = 36 * u, th = P.th, gap = 34 * u;
+      for (let i = -2; i <= 2; i++) {
+        const cx = ax + i * gap, cy = ay - S * 1.15, s = (i === 0 ? 14 : 9) * u;
+        poly({ pts: [[cx, cy - s], [cx + s, cy], [cx, cy + s], [cx - s, cy]], color: i === 0 ? P.accent : th.d, cx, cy, an: [A('sc', 0.1 * (Math.abs(i) + 1), 0.1 * (Math.abs(i) + 1) + 0.3, 0, 100, 0.5), A('al', 0.1 * (Math.abs(i) + 1), 0.1 * (Math.abs(i) + 1) + 0.15, 0, 1)] });
+      }
+      text({ x: ax, y: ay, text: P.text, S, color: P.color, ob: 3 * u, oc: '#000000', sh: 3 * u, an: rise(0.25, 30 * u) });
+      if (P.sub) text({ x: ax, y: ay + S * 1.05, text: P.sub, S: S2, bold: false, color: P.accent, sh: 2 * u, an: rise(0.55, 18 * u) });
+    }
+    L.forEach((l) => {
+      // a text's half width (the wipe's box); a polygon's own box (it turns / scales in place)
+      if (l.kind === 'text') l.w2 = measureText(l.text, l.font, l.S, l.bold, 0) / 2;
+      if (l.kind === 'poly') {
+        const xs = l.pts.map((q) => q[0]), ys = l.pts.map((q) => q[1]);
+        l.px0 = Math.min.apply(null, xs); l.py0 = Math.min.apply(null, ys);
+        l.x = (l.px0 + Math.max.apply(null, xs)) / 2; l.y = (l.py0 + Math.max.apply(null, ys)) / 2;
+      }
+      if (l.on == null) l.on = 0;
+      if (l.off == null) l.off = len;
+      l.off = Math.min(l.off, len);
+    });
+    return { layers: L.filter((l) => l.off > l.on && (l.kind !== 'text' || String(l.text || '').trim())), len, out: P.out };
+  }
+  // a layer's state at τ seconds after the item starts (the libass maths:
+  // \t progress = ((τ-t0)/(t1-t0))^accel; \move linear)
+  function tplState(l, tau) {
+    const st = { sc: 100, al: 1, mv: [0, 0], sp: 0, wipe: 1, rot: 0 };
+    const firsts = {};
+    l.an.forEach((a) => { if (!(a.p in firsts)) { firsts[a.p] = a; st[a.p] = a.from; } });
+    l.an.forEach((a) => {
+      if (tau <= a.t0) return;
+      const q = tau >= a.t1 ? 1 : Math.pow((tau - a.t0) / Math.max(1e-6, a.t1 - a.t0), a.accel);
+      st[a.p] = a.p === 'mv' ? [a.from[0] + (a.to[0] - a.from[0]) * (tau >= a.t1 ? 1 : (tau - a.t0) / Math.max(1e-6, a.t1 - a.t0)),
+        a.from[1] + (a.to[1] - a.from[1]) * (tau >= a.t1 ? 1 : (tau - a.t0) / Math.max(1e-6, a.t1 - a.t0))] : a.from + (a.to - a.from) * q;
+    });
+    return st;
+  }
+  const fadeOut = (tpl, tau) => (tpl.out === 'fade' ? Math.max(0, Math.min(1, (tpl.len - tau) / 0.35)) : 1);
+  // the export: libass lines for a template item
+  function tplAss(t, W, H, totalLen) {
+    const T = tplLayers(t, W, H);
+    const st0 = Number(t.start) || 0;
+    const out = [];
+    const a2 = (a) => '&H' + Math.round(Math.max(0, Math.min(1, 1 - a)) * 255).toString(16).padStart(2, '0').toUpperCase() + '&';
+    const ms = (s, l) => Math.round((s - l.on) * 1000);
+    T.layers.forEach((l) => {
+      const s = st0 + l.on, e = Math.min(totalLen == null ? Infinity : totalLen, st0 + l.off);
+      if (e <= s) return;
+      const firsts = {};
+      l.an.forEach((a) => { if (!(a.p in firsts)) firsts[a.p] = a; });
+      // alpha: fill / outline / shadow each from its base, times the animation
+      const baseA = l.a == null ? 1 : l.a;
+      const al = (k) => '\\1a' + a2(baseA * k) + '\\3a' + a2(k) + '\\4a' + a2(0.55 * k);
+      let tags = '\\an5';
+      const mv = l.an.find((a) => a.p === 'mv' && a.t1 > l.on);
+      if (mv) tags += '\\move(' + r3(l.x + mv.from[0]) + ',' + r3(l.y + mv.from[1]) + ',' + r3(l.x + mv.to[0]) + ',' + r3(l.y + mv.to[1]) + ',' + Math.max(0, ms(mv.t0, l)) + ',' + Math.max(0, ms(mv.t1, l)) + ')';
+      else tags += '\\pos(' + r3(l.x) + ',' + r3(l.y) + ')';
+      const s0 = tplState(l, l.on);
+      const scale = (v, sy) => (sy ? '\\fscx100\\fscy' + r3(v) : '\\fscx' + r3(v) + '\\fscy' + r3(v));
+      tags += scale(s0.sc, l.sy) + al(s0.al);
+      if (firsts.rot) tags += '\\org(' + r3(l.cx == null ? l.x : l.cx) + ',' + r3(l.cy == null ? l.y : l.cy) + ')\\frz' + r3(-s0.rot);
+      // the wipe: a rectangle clip growing from the left edge
+      const box = l.kind === 'text' ? { x0: l.x - l.w2 - l.S, x1: l.x + l.w2 + l.S, y0: l.y - l.S, y1: l.y + l.S } : null;
+      const bx = box || (l.kind === 'rect' ? { x0: l.x - l.w / 2 - 2, x1: l.x + l.w / 2 + 2, y0: l.y - l.h / 2 - 2, y1: l.y + l.h / 2 + 2 } : null);
+      const clip = (q) => '\\clip(' + Math.round(bx.x0) + ',' + Math.round(bx.y0) + ',' + Math.round(bx.x0 + (bx.x1 - bx.x0) * q) + ',' + Math.round(bx.y1) + ')';
+      if (firsts.wipe && bx) tags += clip(s0.wipe);
+      if (l.kind === 'text') tags += '\\fn' + (TFONTS[l.font] || TFONTS.sans) + '\\fs' + r3(l.S) + '\\b' + (l.bold ? 1 : 0) + '\\c' + assColor(l.color) +
+        '\\bord' + r3(l.ob || 0) + '\\3c' + assColor(l.oc || '#000000') + '\\shad' + r3(l.sh || 0) + '\\4c&H000000&\\fsp' + r3(s0.sp || 0);
+      else tags += '\\c' + assColor(l.color) + '\\bord0\\shad0\\p1';
+      l.an.forEach((a) => {
+        if (a.p === 'mv' || a.t1 <= l.on) return;
+        const t0 = Math.max(0, ms(a.t0, l)), t1 = Math.max(t0 + 1, ms(a.t1, l));
+        let to = '';
+        if (a.p === 'sc') to = scale(a.to, l.sy);
+        else if (a.p === 'al') to = al(a.to);
+        else if (a.p === 'sp' && l.kind === 'text') to = '\\fsp' + r3(a.to);
+        else if (a.p === 'rot') to = '\\frz' + r3(-a.to);
+        else if (a.p === 'wipe' && bx) to = clip(a.to);
+        if (to) tags += '\\t(' + t0 + ',' + t1 + ',' + r3(a.accel) + ',' + to + ')';
+      });
+      const fo = T.out === 'fade' && st0 + T.len - e < 0.01 ? Math.round(Math.min(350, (e - s) * 1000)) : 0;
+      if (fo) tags += '\\fad(0,' + fo + ')';
+      let body;
+      if (l.kind === 'text') body = assText(l.text);
+      else if (l.kind === 'rect') body = rrPath(l.w, l.h, Math.min(l.r || 0, l.w / 2, l.h / 2)) + '{\\p0}';
+      else body = 'm ' + l.pts.map((p, i) => (i === 1 ? 'l ' : '') + Math.round((p[0] - l.px0) * 10) / 10 + ' ' + Math.round((p[1] - l.py0) * 10) / 10).join(' ') + '{\\p0}';
+      out.push('Dialogue: 1,' + assTime(s) + ',' + assTime(e) + ',T,,0,0,0,,{' + tags + '}' + body);
+    });
+    return out;
+  }
+  // a rounded rectangle as a libass drawing (0,0 - w,h)
+  function rrPath(w, h, r) {
+    const f = (v) => Math.round(v * 10) / 10;
+    if (!(r > 0.5)) return 'm 0 0 l ' + f(w) + ' 0 l ' + f(w) + ' ' + f(h) + ' l 0 ' + f(h);
+    const c = r * 0.4477;
+    return 'm ' + f(r) + ' 0 l ' + f(w - r) + ' 0 b ' + f(w - c) + ' 0 ' + f(w) + ' ' + f(c) + ' ' + f(w) + ' ' + f(r) +
+      ' l ' + f(w) + ' ' + f(h - r) + ' b ' + f(w) + ' ' + f(h - c) + ' ' + f(w - c) + ' ' + f(h) + ' ' + f(w - r) + ' ' + f(h) +
+      ' l ' + f(r) + ' ' + f(h) + ' b ' + f(c) + ' ' + f(h) + ' 0 ' + f(h - c) + ' 0 ' + f(h - r) +
+      ' l 0 ' + f(r) + ' b 0 ' + f(c) + ' ' + f(c) + ' 0 ' + f(r) + ' 0';
   }
 
 
@@ -817,7 +1099,7 @@
     words, deriveCaptions, syncBack, FORMATS, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
     TFONTS, TPRESETS, assColor, textAnchor, textAss, setFontInfo, fontInfo, textSize, LOUD, MUS_DEFAULT, musicGain,
     PRESETS, presetFor, GPU_ENCODERS, encoderArgs, eta,
-    speedOf: sp, clipLen, OV_LAYOUTS, OV_ANIMS, OV_MOTION, ovLook, ovBox, ovAnim, ovChain, ovPos, ZOOM_STYLES, ZOOM_SPEED, ZOOM_DEFAULT, zoomEnv, zoomRect, zoomExprs, zoomFilter, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter };
+    speedOf: sp, clipLen, TEMPLATES, TPL_GROUPS, HOLIDAYS, TPL_SPEED, tplOf, tplLayers, tplState, tplAss, setMeasure, tplFade: fadeOut, OV_LAYOUTS, OV_ANIMS, OV_MOTION, ovLook, ovBox, ovAnim, ovChain, ovPos, ZOOM_STYLES, ZOOM_SPEED, ZOOM_DEFAULT, zoomEnv, zoomRect, zoomExprs, zoomFilter, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhEdit = api;
 })(typeof window !== 'undefined' ? window : this);
