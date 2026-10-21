@@ -796,6 +796,59 @@
   }
 
 
+  // ── 🔊 Sound effects (1.65) ──────────────────────────────────────────────
+  // Our own synthesized sounds (tools/make_sfx.py -> app/sfx/*.wav). They come
+  // from the edit itself: a zoom, a B-roll sliding in / out, a template, a
+  // transition — so they move when those move. snd.sfx turns them on,
+  // snd.sfxVol is their loudness; an item's own `sfx` ('none' or a sound)
+  // overrides the automatic choice. The preview and the export use the same
+  // list (sfxEvents).
+  const SFX = ['whoosh', 'swish', 'boom', 'pop', 'click', 'ding', 'riser', 'tick'];
+  // when a sound starts, from the moment it belongs to (so its loudest part lands on it)
+  const SFX_LEAD = { whoosh: -0.18, swish: -0.06, boom: 0, pop: 0, click: 0, ding: 0, riser: -1.2, tick: 0 };
+  const SFX_LEN = { whoosh: 0.6, swish: 0.28, boom: 0.9, pop: 0.14, click: 0.06, ding: 1.4, riser: 1.5, tick: 0.045 };
+  function sfxPick(own, auto) {
+    if (own === 'none') return null;
+    if (SFX.indexOf(own) >= 0) return own;
+    return auto;
+  }
+  function sfxEvents(st, totalLen) {
+    st = st || {};
+    const snd = st.snd || {};
+    if (!snd.sfx) return [];
+    const len = totalLen == null ? total(st.clips || []) : totalLen;
+    const out = [];
+    const add = (t, name, vol) => {
+      if (!name) return;
+      const at = r3(Math.max(0, t + SFX_LEAD[name]));
+      if (at < len) out.push({ t: at, name, vol: vol == null ? 1 : vol });
+    };
+    (st.zm || []).forEach((o) => {
+      const auto = o.style === 'punch' || o.style === 'pulse' ? 'swish' : o.style === 'impact' ? 'boom' : 'whoosh';
+      add(Number(o.start) || 0, sfxPick(o.sfx, auto), 0.8);
+    });
+    (st.ovl || []).forEach((o) => {
+      const L = ovLook(o), d = ovLen(o), ad = Math.min(L.ad, d / 2);
+      const slide = (a) => ['left', 'right', 'up', 'down'].indexOf(a) >= 0;
+      if (o.sfx && o.sfx !== 'auto') { add(Number(o.start) || 0, sfxPick(o.sfx, null)); return; }
+      if (slide(L.ain)) add(Number(o.start) || 0, 'whoosh', 0.9);
+      if (slide(L.aout)) add((Number(o.start) || 0) + d - ad, 'whoosh', 0.7);
+    });
+    (st.txt || []).forEach((t) => {
+      const s0 = Number(t.start) || 0;
+      if (!t.tpl) { add(s0, sfxPick(t.sfx, 'pop'), 0.8); return; }
+      const auto = { cinema: 'riser', slam: 'boom', holiday: 'ding', price: 'pop' }[t.tpl] || 'pop';
+      add(s0, sfxPick(t.sfx, auto), 0.9);
+      if (t.tpl === 'subscribe' && (!t.sfx || t.sfx === 'auto')) add(s0 + 1.2 * (TPL_SPEED[t.speed] || 1), 'click', 1);
+    });
+    const L = layout(st.clips || []);
+    (st.clips || []).forEach((c, i) => {
+      if (i > 0 && c.tr && trDur(st.clips, i) > 0) add(L[i].s, sfxPick(c.sfx, 'swish'), 0.6);
+    });
+    return out.sort((a, b) => a.t - b.t);
+  }
+
+
   // ── sound (1.23.0): the music track, ducking, clean voice, loudness ──────
   // music: { id, m, in, out, start, volume, fadeIn, fadeOut, duck (0-1: how
   // much quieter while someone speaks) }. snd: { clean: true|false (a gentle
@@ -818,7 +871,7 @@
     return g;
   }
   // the audio after the voice [vin]: clean, music (ducked by the voice), loudness -> [a]
-  function soundChain(parts, vin, totalLen, media, mus, snd) {
+  function soundChain(parts, vin, totalLen, media, mus, snd, sfx) {
     snd = snd || {};
     let v = vin;
     if (snd.clean) { parts.push('[' + v + ']highpass=f=80,afftdn=nr=12:nf=-40[vcl]'); v = 'vcl'; }
@@ -851,6 +904,12 @@
         parts.push(f + '[md' + k + ']');
         mix.push('[md' + k + ']');
       }
+    });
+    // 🔊 the sound effects (1.65): each its own input, at its time, not ducked
+    (sfx || []).forEach((x, k) => {
+      const ms = Math.round(x.t * 1000);
+      parts.push('[' + x.idx + ':a]aresample=48000,aformat=channel_layouts=stereo,volume=' + r3(x.vol) + ',adelay=' + ms + '|' + ms + ',apad[sx' + k + ']');
+      mix.push('[sx' + k + ']');
     });
     const lo = LOUD[snd.loud];
     let tail = lo ? ',loudnorm=I=' + lo + ':TP=-1.5:LRA=11,aresample=48000' : '';
@@ -1121,7 +1180,7 @@
     });
     const list = (ovl || []).filter((o) => media[o.m] && o.start < total(clips) && ovLen(o) > 0);
     const vOut = opts.ass ? 'vx' : 'v';
-    const soundOn = (opts.mus || []).some((o) => media[o.m]) || (opts.snd && (opts.snd.clean || LOUD[opts.snd.loud]));
+    const soundOn = (opts.mus || []).some((o) => media[o.m]) || (opts.snd && (opts.snd.clean || LOUD[opts.snd.loud])) || (opts.sfx || []).length > 0;
     const aOut = soundOn ? 'av' : 'a';
     const vFinal = list.length ? 'vm' : vOut, aEnd = list.length ? 'am' : aOut;
     // 🔍 zooms (1.60): on the main track only, before the overlays and text
@@ -1192,7 +1251,7 @@
       if (mix.length > 1) parts.push(mix.join('') + 'amix=inputs=' + mix.length + ':duration=first:normalize=0[' + aOut + ']');
       else parts.push('[am]anull[' + aOut + ']');
     }
-    if (soundOn) soundChain(parts, aOut, total(clips), media, opts.mus, opts.snd);
+    if (soundOn) soundChain(parts, aOut, total(clips), media, opts.mus, opts.snd || {}, opts.sfx);
     // opts.ass: one script or several (the text track, then the captions on top)
     if (opts.ass) parts.push('[vx]' + [].concat(opts.ass).map((a) => 'subtitles=' + a + ':fontsdir=fonts').join(',') + ',format=yuv420p[v]');
     return { graph: parts.join(';'), w: W, h: H, duration: total(clips) };
@@ -1202,7 +1261,7 @@
     words, deriveCaptions, syncBack, FORMATS, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
     TFONTS, TPRESETS, assColor, textAnchor, textAss, setFontInfo, fontInfo, textSize, LOUD, MUS_DEFAULT, musicGain,
     PRESETS, presetFor, GPU_ENCODERS, encoderArgs, eta,
-    speedOf: sp, clipLen, RF_PACE, rfWindow, rfTrack, rfAt, rfPlace, rfExpr, rfOn, TEMPLATES, TPL_GROUPS, HOLIDAYS, TPL_SPEED, tplOf, tplLayers, tplState, tplAss, setMeasure, tplFade: fadeOut, OV_LAYOUTS, OV_ANIMS, OV_MOTION, ovLook, ovBox, ovAnim, ovChain, ovPos, ZOOM_STYLES, ZOOM_SPEED, ZOOM_DEFAULT, zoomEnv, zoomRect, zoomExprs, zoomFilter, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter };
+    speedOf: sp, clipLen, SFX, SFX_LEN, sfxEvents, RF_PACE, rfWindow, rfTrack, rfAt, rfPlace, rfExpr, rfOn, TEMPLATES, TPL_GROUPS, HOLIDAYS, TPL_SPEED, tplOf, tplLayers, tplState, tplAss, setMeasure, tplFade: fadeOut, OV_LAYOUTS, OV_ANIMS, OV_MOTION, ovLook, ovBox, ovAnim, ovChain, ovPos, ZOOM_STYLES, ZOOM_SPEED, ZOOM_DEFAULT, zoomEnv, zoomRect, zoomExprs, zoomFilter, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhEdit = api;
 })(typeof window !== 'undefined' ? window : this);
