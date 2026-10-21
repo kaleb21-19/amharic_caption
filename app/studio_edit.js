@@ -553,7 +553,14 @@
   tmenu.style.display = 'none';
   const tdrop = el('span', 'ed-tdrop');
   tdrop.appendChild(bText); tdrop.appendChild(tmenu);
-  [bSplit, bDel, bTrans, tdrop, bUndo, bRedo, hint, el('span', 'st-flex'), zOut, zIn, zFit].forEach((x) => tbar.appendChild(x));
+  // ✨ Make it pro (1.59): one button for what a junior editor does by hand
+  const bPro = btn('ed-tool ed-tool-pro', '', '', () => { if (pmenu.style.display === 'none') openPro(); else pmenu.style.display = 'none'; });
+  const pmenu = el('div', 'ed-pmenu');
+  pmenu.style.display = 'none';
+  const pdrop = el('span', 'ed-tdrop');
+  pdrop.appendChild(bPro); pdrop.appendChild(pmenu);
+  [pdrop, bSplit, bDel, bTrans, tdrop, bUndo, bRedo, hint, el('span', 'st-flex'), zOut, zIn, zFit].forEach((x) => tbar.appendChild(x));
+  document.addEventListener('mousedown', (e) => { if (pmenu.style.display !== 'none' && !pdrop.contains(e.target)) pmenu.style.display = 'none'; });
   document.addEventListener('mousedown', (e) => { if (tmenu.style.display !== 'none' && !tdrop.contains(e.target)) tmenu.style.display = 'none'; });
   function renderTextMenu() {
     tmenu.textContent = '';
@@ -563,6 +570,70 @@
       b.appendChild(el('b', '', name)); b.appendChild(el('span', '', sub));
       tmenu.appendChild(b);
     });
+  }
+  // ✨ Make it pro (1.59, owner's friend: "no keyframes, a junior editor does a
+  // pro edit by one move"). Ticks, all on: the ✂ Clean up finds (pauses,
+  // repeated takes, እ… sounds, your ✂ words), clean voice, loudness for
+  // TikTok / YouTube. One change = one ↶ brings everything back. Steps
+  // already done are not offered again.
+  function proPlan() {
+    const C = window.__amhCuts;
+    const items = C && C.items ? C.items().filter((x) => x.on) : [];
+    const ranges = mergeRanges(items);
+    const gone = ranges.reduce((n, r) => n + r.end - r.start, 0);
+    return { ranges, gone, n: items.length, clean: !snd.clean, loud: snd.loud !== 'web' };
+  }
+  let PRO = { cuts: true, clean: true, loud: true };
+  function openPro(done) {
+    pmenu.textContent = '';
+    pmenu.style.display = '';
+    const P = proPlan();
+    pmenu.appendChild(el('div', 'ed-pm-title', '✨ ' + tx('ፕሮ አድርግ', 'Make it pro')));
+    if (done) {
+      pmenu.appendChild(el('div', 'ed-pm-done', done));
+      pmenu.appendChild(el('div', 'st-note', tx('ያልወደዱት ነገር ካለ፦ አንድ ጊዜ ↶ ሁሉንም ይመልሳል።', "Don't like it? One ↶ brings everything back.")));
+      return;
+    }
+    pmenu.appendChild(el('div', 'st-note', tx('አንድ ጊዜ በመጫን ቪዲዮዎን ያጸዳል — ምን እንደሚደረግ ይምረጡ።', 'Cleans up your video in one click — choose what it does.')));
+    const steps = [
+      ['cuts', '✂ ' + tx('ዝምታ፣ የተደገመና እ… ድምፆችን አስወግድ', 'Remove pauses, repeated takes and እ… sounds'),
+        P.n ? P.n + ' ' + tx('ቦታዎች', 'places') + ' · −' + P.gone.toFixed(1) + ' ' + tx('ሰከንድ', 's') : tx('የሚወገድ የለም — አስቀድሞ ጥብቅ ነው', 'Nothing to remove — already tight'), P.n > 0],
+      ['clean', '🎙 ' + tx('ድምፁን አጽዳ', 'Clean the voice'), P.clean ? tx('ጫጫታና ጉምጉምታ ይቀንሳል', 'Less noise and hum') : tx('✓ አስቀድሞ በርቷል', '✓ Already on'), P.clean],
+      ['loud', '🔊 ' + tx('እንደ TikTok እና YouTube ጮክ አድርግ', 'Loud like TikTok and YouTube'), P.loud ? '−14 LUFS' : tx('✓ አስቀድሞ በርቷል', '✓ Already on'), P.loud],
+    ];
+    let any = false;
+    steps.forEach(([k, name, sub, can]) => {
+      const row = el('label', 'ed-pm-row' + (can ? '' : ' off'));
+      const cb = el('input'); cb.type = 'checkbox'; cb.checked = can && PRO[k]; cb.disabled = !can;
+      cb.addEventListener('change', () => { PRO[k] = cb.checked; openPro(); });
+      const tx2 = el('span', 'ed-pm-text');
+      tx2.appendChild(el('b', '', name));
+      tx2.appendChild(el('span', '', sub));
+      row.appendChild(cb); row.appendChild(tx2);
+      pmenu.appendChild(row);
+      if (can && PRO[k]) any = true;
+    });
+    const go = btn('st-btn primary st-wide', '✨ ' + tx('አድርግ', 'Do it'), '', () => doPro(P));
+    go.disabled = !any;
+    pmenu.appendChild(go);
+  }
+  function doPro(P) {
+    const cut = PRO.cuts && P.n > 0, clean = PRO.clean && P.clean, loud = PRO.loud && P.loud;
+    if (!cut && !clean && !loud) return;
+    const list = cut ? P.ranges.slice().sort((a, b) => b.start - a.start) : [];
+    change('make it pro', () => {
+      list.forEach((r) => { clips = E.cutRange(clips, r.start, r.end, newId); });
+      if (clean || loud) snd = Object.assign({}, snd, clean ? { clean: true } : {}, loud ? { loud: 'web' } : {});
+    });
+    seek(Math.min(time(), total()));
+    const C = window.__amhCuts;
+    if (cut && C && C.load && C.save) C.load(Object.assign(C.save(), { overrides: {} }));
+    const said = [];
+    if (cut) said.push('✂ −' + P.gone.toFixed(1) + ' ' + tx('ሰከንድ', 's'));
+    if (clean) said.push('🎙 ' + tx('ድምፁ ጸድቷል', 'voice cleaned'));
+    if (loud) said.push('🔊 −14 LUFS');
+    openPro('✓ ' + said.join(' · '));
+    if (clean || loud) log(tx('ድምፅ ማጽዳትና loudness ሲላክ ይሠራሉ።', 'Voice cleaning and loudness are applied when you export.'));
   }
   // ⧓ a dissolve on the cut nearest the playhead (then choose the kind in ⚙)
   function addTransition() {
@@ -1639,6 +1710,8 @@
   // ── labels ─────────────────────────────────────────────────────────────
   function relabel() {
     bMedia.textContent = '📁 ' + tx('ሚዲያ', 'Media');
+    bPro.textContent = '✨ ' + tx('ፕሮ አድርግ', 'Make it pro');
+    bPro.title = tx('ዝምታና እ… ድምፆች፣ የድምፅ ማጽዳት፣ loudness — በአንድ ጊዜ', 'Pauses and እ… sounds, clean voice, loudness — in one click');
     bSplit.textContent = '✂ ' + tx('ቁረጥ', 'Split');
     bSplit.title = tx('በማጫወቻው ቦታ ቁረጥ (S)', 'Split at the playhead (S)');
     bDel.textContent = '🗑 ' + tx('ሰርዝ', 'Delete');
