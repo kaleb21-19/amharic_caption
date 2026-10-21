@@ -213,12 +213,52 @@
     if (editor()) bar.appendChild(action('✂', tx('ከቪዲዮው ቁረጥ', 'Cut from video'), 'Delete', cut));
     else if (window.__amhStudioCuts) bar.appendChild(action('✂', tx('ቁረጥ', 'Cut'), 'Ctrl+D', cut));
     if (editor() && editor().addZoom) bar.appendChild(action('🔍', tx('ዙም', 'Zoom'), '', zoomHere));
+    if (editor() && editor().brollPicker) bar.appendChild(action('🎞', 'B-roll', '', brollHere));
     bar.appendChild(action('✎', tx('አርም', 'Fix'), 'Enter', () => openFix(current)));
     bar.appendChild(action('▶', tx('አጫውት', 'Play'), '', play));
     bar.style.display = '';
     place(rectOf(p));
   }
   function hideBar() { bar.style.display = 'none'; current = []; }
+  // 🎞 (1.61): B-roll over these words, or over their whole sentence
+  function spanOf(p) {
+    const cues = (typeof reviewCues !== 'undefined' && reviewCues) || [];
+    const a = cues[p[0].cue], z = cues[p[p.length - 1].cue];
+    return { word: { s: p[0].s, e: p[p.length - 1].e }, sentence: { s: a ? Number(a.start) : p[0].s, e: z ? Number(z.end) : p[p.length - 1].e } };
+  }
+  function brollHere() {
+    const p = current;
+    if (!p.length || !editor()) return;
+    const r = spanOf(p);
+    const anchor = spans[p[p.length - 1].i];
+    hideBar();
+    editor().brollPicker(anchor, r.word, r.sentence);
+  }
+  // a photo / video dropped on a word: B-roll for the word or its sentence (the last choice)
+  box.addEventListener('dragover', (e) => {
+    const t = e.target;
+    if (!t.classList || !t.classList.contains('w') || !editor() || !editor().addBroll) return;
+    e.preventDefault();
+    try { e.dataTransfer.dropEffect = 'copy'; } catch (x) {}
+    spans.forEach((sp) => sp && sp.classList.remove('drop'));
+    t.classList.add('drop');
+  });
+  box.addEventListener('dragleave', (e) => { if (e.target.classList) e.target.classList.remove('drop'); });
+  box.addEventListener('drop', (e) => {
+    spans.forEach((sp) => sp && sp.classList.remove('drop'));
+    const t = e.target;
+    let id = '';
+    try { id = e.dataTransfer.getData('text/amh-media'); } catch (x) {}
+    if (!id || !t.classList || !t.classList.contains('w') || !editor()) return;
+    e.preventDefault();
+    const x = words[Number(t.dataset.i)];
+    if (!x) return;
+    const r = spanOf([x]);
+    let mode = 'sentence';
+    try { mode = (typeof loadSettings === 'function' && loadSettings().brollLen) === 'word' ? 'word' : 'sentence'; } catch (y) {}
+    const g = mode === 'word' ? r.word : r.sentence;
+    editor().addBroll(id, g.s, Math.max(g.e, g.s + 0.6));
+  });
   // 🔍 (1.60): a smooth zoom on these words — its style in ⚙ (the last one used)
   function zoomHere() {
     const p = current;
