@@ -207,6 +207,9 @@ foreach ($f in @("amh_app.py", "node_shim.js", "app_mode.js", "app.css", "studio
 }
 # the live caption-style preview (JASSUB = libass in WebAssembly; licenses in app\vendor\NOTICE.txt)
 Copy-Item -Recurse (Join-Path $ROOT "app\vendor") (Join-Path $APPDST "vendor")
+# 📱 the face finder (1.63): its script and the MIT face model (app\faces\LICENSE)
+Copy-Item (Join-Path $ROOT "app\amh_faces.py") (Join-Path $APPDST "amh_faces.py")
+Copy-Item -Recurse (Join-Path $ROOT "app\faces") (Join-Path $APPDST "faces")
 if (-not (Test-Path (Join-Path $SITE "webview"))) { throw "pywebview missing from the bundled python (tools/prepare_python.sh)" }
 Write-Host "  [ok] desktop app"
 # The released JavaScript without comments/whitespace (names unchanged).

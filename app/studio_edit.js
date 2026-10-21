@@ -278,7 +278,7 @@
   }
   const fmtBar = el('div', 'ed-fmt');
   ['16:9', '9:16', '1:1', '4:5'].forEach((f) => {
-    const b = btn('', f, '', () => { if (f !== fmt) change('format', () => { fmt = f; }); });
+    const b = btn('', f, '', () => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } });
     b.dataset.f = f;
     fmtBar.appendChild(b);
   });
@@ -307,9 +307,7 @@
     const m = c && media[c.m];
     if (!m || !m.video) { v.style.visibility = 'hidden'; return; }
     v.style.visibility = '';
-    const p = E.placement(m, c, W, H);
-    v.style.left = (p.x * k) + 'px'; v.style.top = (p.y * k) + 'px';
-    v.style.width = (p.sw * k) + 'px'; v.style.height = (p.sh * k) + 'px';
+    posMain(time());
     stage.classList.toggle('sel', !!sel && c.id === sel);
     colorTo(v, 'A', c.col);
     syncTrans(time());
@@ -327,6 +325,18 @@
     const k = (stage.clientWidth || W) / W;
     mainLayer.style.transformOrigin = '0 0';
     mainLayer.style.transform = 'translate(' + (-r.z * r.x * k) + 'px,' + (-r.z * r.y * k) + 'px) scale(' + r.z + ')';
+  }
+  // the main picture's place at edit time t (📱 framed clips follow their camera)
+  function posMain(t) {
+    const v = V();
+    const c = L()[cur] || L()[0];
+    const m = c && media[c.m];
+    if (!v || !m || !m.video) return;
+    const { w: W, h: H } = E.canvasSize(fmt);
+    const k = stage.clientWidth / W || 0;
+    const p = E.rfPlace(m, c, W, H, c.in + Math.max(0, t - c.s) * E.speedOf(c));
+    v.style.left = (p.x * k) + 'px'; v.style.top = (p.y * k) + 'px';
+    v.style.width = (p.sw * k) + 'px'; v.style.height = (p.sh * k) + 'px';
   }
   window.addEventListener('resize', () => { frame(); drawSoon(); });
   // the shipped Amharic fonts, so the text on the canvas is the exported text
@@ -489,7 +499,7 @@
     const k = stage.clientWidth / W || 0;
     const m = media[c.m];
     if (!m) return;
-    const p = E.placement(m, c, W, H);
+    const p = E.rfPlace(m, c, W, H, c.in);
     e.style.left = (p.x * k) + 'px'; e.style.top = (p.y * k) + 'px';
     e.style.width = (p.sw * k) + 'px'; e.style.height = (p.sh * k) + 'px';
   }
@@ -566,7 +576,8 @@
     if (ovl.some((o) => o.id === id && E.ovLook(o).layout !== 'free')) return;
     const { w: W, h: H } = E.canvasSize(fmt);
     pushReviewUndo('move picture');
-    moving = { id, x0: e.clientX, y0: e.clientY, cx: Number(it.x) || 0, cy: Number(it.y) || 0, k: stage.clientWidth / W, W, H };
+    moving = { id, x0: e.clientX, y0: e.clientY, cx: Number(it.x) || 0, cy: Number(it.y) || 0, k: stage.clientWidth / W, W, H,
+      framed: clips.some((c) => c.id === id && E.rfOn(c)) };
   }
   stage.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
@@ -577,6 +588,20 @@
   });
   document.addEventListener('mousemove', (e) => {
     if (!moving) return;
+    // 📱 a framed picture dragged by hand: it keeps the place it had and becomes "by hand"
+    if (moving.framed && Math.abs(e.clientX - moving.x0) + Math.abs(e.clientY - moving.y0) > 3) {
+      const id = moving.id, W = moving.W, H = moving.H;
+      const lc = L().find((c) => c.id === id);
+      const fc = clips.find((c) => c.id === id);
+      if (lc && fc) {
+        const fp = E.rfPlace(media[fc.m], lc, W, H, lc.in + Math.max(0, time() - (lc.s || 0)) * E.speedOf(lc));
+        const nx = Math.round((fp.x - (W - fp.sw) / 2) / W * 1000) / 1000, ny = Math.round((fp.y - (H - fp.sh) / 2) / H * 1000) / 1000;
+        clips = clips.map((c) => (c.id === id ? Object.assign({}, c, { rf: null, rfk: null, x: nx, y: ny }) : c));
+        moving.cx = nx; moving.cy = ny;
+      }
+      moving.framed = false;
+    }
+    if (moving.framed) return;
     const dx = (e.clientX - moving.x0) / moving.k / moving.W, dy = (e.clientY - moving.y0) / moving.k / moving.H;
     const upd = (x) => (x.id === moving.id ? Object.assign({}, x, { x: Math.round((moving.cx + dx) * 1000) / 1000, y: Math.round((moving.cy + dy) * 1000) / 1000 }) : x);
     clips = clips.map(upd); ovl = ovl.map(upd); txt = txt.map(upd);
@@ -886,6 +911,7 @@
   }
   function tick(follow) {
     const t = time();
+    if ((L()[cur] || {}).rf) posMain(t);
     syncTrans(t);
     syncZoom(t);
     syncOverlays(t);
@@ -1455,6 +1481,144 @@
   // ── ⚙ Clip (right) ──────────────────────────────────────────────────────
   const clipPane = el('div', 'ed-clip');
   ST.addTab('clip', () => '⚙ ' + tx('ክሊፕ', 'Clip'), clipPane);
+  // ── 📱 Wide -> TikTok (1.63): keep the speaker in the frame ──────────────
+  // The face finder (app/amh_faces.py, a small MIT face model on the speech
+  // engine's onnxruntime) answers 2 times a second; the answers are kept with
+  // the file (media[id].faces), so it runs once per file.
+  const appDir = () => ((window.__AMH_APP__ || {}).appdir) || '';
+  const FACEJOBS = {};
+  function findFaces(id, onProgress) {
+    const m = media[id];
+    if (!m || !m.video) return Promise.resolve(null);
+    if (m.faces && m.faces.list) return Promise.resolve(m.faces);
+    if (FACEJOBS[id]) return FACEJOBS[id];
+    FACEJOBS[id] = new Promise((resolve) => {
+      const script = appDir() ? path.join(appDir(), 'amh_faces.py') : '';
+      if (!script || typeof PYTHON === 'undefined' || !PYTHON || !FFMPEG) { resolve(null); return; }
+      let p;
+      try { p = spawn(PYTHON, ['-E', '-s', script, FFMPEG, m.path, String(m.w || 1920), String(m.h || 1080), '2', '0', String(m.dur || 60)], { windowsHide: true }); } catch (e) { resolve(null); return; }
+      let buf = '', res = null;
+      p.stdout.on('data', (d) => {
+        buf += String(d);
+        let i;
+        while ((i = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+          const mm = /^\[faces\] ([\d.]+)/.exec(line);
+          if (mm) { if (onProgress) onProgress(Number(mm[1])); continue; }
+          try { const j = JSON.parse(line); if (j && j.ok) res = j; } catch (e) {}
+        }
+      });
+      p.on('close', () => {
+        if (!res && buf.trim()) { try { const j = JSON.parse(buf.trim()); if (j && j.ok) res = j; } catch (e) {} }
+        if (res) { m.faces = { fps: res.fps, list: res.faces }; ST.saveSoon(); }
+        delete FACEJOBS[id];
+        resolve(res ? m.faces : null);
+      });
+    });
+    return FACEJOBS[id];
+  }
+  // how much of a clip's picture was a face (0-1)
+  const faceShare = (m) => (m && m.faces && m.faces.list && m.faces.list.length ? m.faces.list.filter((f) => f.length > 2).length / m.faces.list.length : 0);
+  // a framing for these clips (face: the camera path from the faces)
+  function frameClips(ids, mode, pace) {
+    const { w: W, h: H } = E.canvasSize(fmt);
+    change('framing', () => {
+      clips = clips.map((c) => {
+        if (ids.indexOf(c.id) < 0) return c;
+        const m = media[c.m];
+        if (!m || !m.video) return c;
+        if (mode === 'off') return Object.assign({}, c, { rf: null, rfk: null });
+        const n = Object.assign({}, c, { rf: { mode, pace: pace || 'normal' }, x: 0, y: 0 });
+        n.rfk = mode === 'face' && m.faces ? E.rfTrack(m.faces.list, m, n, W, H, pace || 'normal') : null;
+        if (mode === 'face' && !(n.rfk && n.rfk.length)) n.rf = { mode: 'center', pace: n.rf.pace, noface: true };
+        return n;
+      });
+    });
+  }
+  // follow the faces in these clips: find them first (once per file)
+  async function followFaces(ids, pace, say) {
+    const need = Array.from(new Set(clips.filter((c) => ids.indexOf(c.id) >= 0 && media[c.m] && media[c.m].video).map((c) => c.m)));
+    for (let i = 0; i < need.length; i++) {
+      await findFaces(need[i], (q) => { if (say) say(Math.round(((i + q) / need.length) * 100)); });
+    }
+    frameClips(ids, 'face', pace);
+  }
+  // the camera path follows the canvas: a new format or size makes it again
+  function reframeAll() {
+    const { w: W, h: H } = E.canvasSize(fmt);
+    clips = clips.map((c) => {
+      if (!E.rfOn(c) || c.rf.mode !== 'face') return c;
+      const m = media[c.m];
+      return m && m.faces ? Object.assign({}, c, { rfk: E.rfTrack(m.faces.list, m, c, W, H, c.rf.pace) }) : c;
+    });
+  }
+  // the offer after a tall / square format is chosen for wide clips
+  const rfOffer = el('div', 'ed-rfoffer');
+  rfOffer.style.display = 'none';
+  if (pv) pv.insertBefore(rfOffer, fmtBar.nextSibling);
+  function wideClips() {
+    const { w: W, h: H } = E.canvasSize(fmt);
+    return clips.filter((c) => { const m = media[c.m]; return m && m.video && !E.rfOn(c) && E.rfWindow(m, c, W, H).ww < 0.9; });
+  }
+  function showRfOffer() {
+    const list = wideClips();
+    if (!list.length) { rfOffer.style.display = 'none'; return; }
+    rfOffer.textContent = '';
+    rfOffer.appendChild(el('span', 'ed-rf-t', '🎯 ' + tx('ተናጋሪው ከፍሬሙ እንዳይወጣ ፊቱን ልከተል?', 'Keep the speaker in the frame — follow the face?')));
+    const go = btn('st-btn primary', '🎯 ' + tx('ፊቱን ተከተል', 'Follow the face'), '', async () => {
+      go.disabled = true;
+      const ids = wideClips().map((c) => c.id);
+      await followFaces(ids, 'normal', (pc) => { go.textContent = '⏳ ' + tx('ፊት እየፈለግሁ… ', 'Finding faces… ') + pc + '%'; });
+      const n = clips.filter((c) => ids.indexOf(c.id) >= 0 && c.rf && c.rf.mode === 'face').length;
+      rfOffer.textContent = '';
+      rfOffer.appendChild(el('span', 'ed-rf-t', n ? '✓ ' + tx('ፊቱ በ' + n + ' ክሊፖች ይከተላል — በ⚙ ክሊፕ ይቀይሩ።', 'Following the face in ' + n + ' clip(s) — change it in ⚙ Clip.')
+        : tx('ፊት አልተገኘም — መሃሉ ይታያል።', 'No face found — the centre is shown.')));
+      setTimeout(() => { rfOffer.style.display = 'none'; }, 4000);
+    });
+    rfOffer.appendChild(go);
+    rfOffer.appendChild(btn('st-btn', tx('አሁን አይደለም', 'Not now'), '', () => { rfOffer.style.display = 'none'; }));
+    rfOffer.style.display = '';
+  }
+  // ⚙ Clip: the framing of a wide picture in a tall frame (and the other way)
+  function renderFraming(c) {
+    const m = media[c.m];
+    const { w: W, h: H } = E.canvasSize(fmt);
+    if (!m || !m.video) return;
+    const win = E.rfWindow(m, c, W, H);
+    if (win.ww > 0.97 && win.wh > 0.97) return;
+    clipPane.appendChild(el('div', 'ed-sec', '📱 ' + tx('ፍሬም', 'Framing')));
+    const mode = E.rfOn(c) ? c.rf.mode : 'off';
+    const row = el('div', 'br-chips');
+    [['face', '🎯 ' + tx('ፊቱን ተከተል', 'Follow the face')], ['center', tx('መሃል', 'Centre')], ['left', '← ' + tx('ግራ', 'Left')], ['right', tx('ቀኝ', 'Right') + ' →'], ['off', tx('በእጅ', 'By hand')]].forEach(([v, t]) => {
+      row.appendChild(btn('br-chip' + (mode === v ? ' on' : ''), t, '', async () => {
+        if (v === 'face') {
+          const b = row.firstChild;
+          b.textContent = '⏳ ' + tx('ፊት እየፈለግሁ…', 'Finding faces…');
+          await followFaces([c.id], (c.rf && c.rf.pace) || 'normal', (pc) => { b.textContent = '⏳ ' + pc + '%'; });
+        } else frameClips([c.id], v, (c.rf && c.rf.pace) || 'normal');
+      }));
+    });
+    clipPane.appendChild(row);
+    if (mode === 'face') {
+      const s2 = el('div', 'st-seg');
+      [['calm', tx('ረጋ ያለ', 'Calm')], ['normal', tx('መደበኛ', 'Normal')], ['fast', tx('ፈጣን', 'Quick')]].forEach(([v, t]) => {
+        s2.appendChild(btn(((c.rf && c.rf.pace) || 'normal') === v ? 'on' : '', t, tx('ካሜራው ምን ያህል በፍጥነት ይከተላል', 'How quickly the camera follows'), () => frameClips([c.id], 'face', v)));
+      });
+      clipPane.appendChild(s2);
+      const share = Math.round(faceShare(m) * 100);
+      clipPane.appendChild(el('div', 'st-note', tx('ፊት በ' + share + '% ቪዲዮው ውስጥ ተገኝቷል። ካሜራው ፊቱ ሲርቅ ብቻ በለስላሳ ይንቀሳቀሳል።', 'A face is in ' + share + '% of the video. The camera only moves, smoothly, when the face moves away.')));
+    } else if (c.rf && c.rf.noface) {
+      clipPane.appendChild(el('div', 'st-note', tx('በዚህ ክሊፕ ፊት አልተገኘም — መሃሉ ይታያል።', 'No face was found in this clip — the centre is shown.')));
+    }
+    const all = clips.filter((x) => media[x.m] && media[x.m].video && x.id !== c.id);
+    if (all.length && mode !== 'off') {
+      clipPane.appendChild(btn('st-btn', tx('ይህን ፍሬም ለሁሉም ክሊፖች', 'This framing for all clips'), '', async () => {
+        const ids = clips.map((x) => x.id);
+        if (mode === 'face') await followFaces(ids, (c.rf && c.rf.pace) || 'normal');
+        else frameClips(ids, mode, (c.rf && c.rf.pace) || 'normal');
+      }));
+    }
+  }
   function renderInspector() {
     clipPane.textContent = '';
     const zo = zm.find((x) => x.id === sel);
@@ -1469,6 +1633,7 @@
     if (!c) { clipPane.appendChild(el('div', 'st-note', tx('በጊዜ መስመሩ ላይ ክሊፕ ይምረጡ — ከዚያ መጠኑን፣ ቦታውንና ድምፁን እዚህ ያስተካክሉ።', 'Select a clip on the timeline — then set its size, position and volume here.'))); return; }
     const lc = L().find((x) => x.id === c.id);
     clipPane.appendChild(el('div', 'ed-cname', (media[c.m] ? media[c.m].name : '') + ' · ' + S.fmtClock(lc ? lc.e - lc.s : 0, true)));
+    renderFraming(c);
     const slider = (label, key, min, max, step, dflt, show) => {
       const row = el('div', 'ed-row');
       row.appendChild(el('span', 'ed-lab', label));
@@ -2533,7 +2698,7 @@
   loadFonts();
   ST.attachEditor({ draw, drawSoon, seek, duration: total, peaks: editPeaks, open, shown, saveState, loadState, exportVideo, format: () => fmt,
     queueExports, stopExport, clearDone, detectGpu, gpuName: (e) => GPU_NAMES[e] || '', queue: () => QUEUE, onQueue: (f) => qWatch.push(f),
-    setFormat: (f) => { if (f !== fmt) change('format', () => { fmt = f; }); } });
-  window.__amhEditor = { renderJob, snapshot, state: () => ({ clips, ovl, txt, mus, snd, zm, media, SRC, fmt, sel, built }), addOverlay, addText, addZoom, autoZooms, addBroll, brollPicker, addMedia, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, moveRange, total, redo,
-    select: (id) => { sel = id; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, render, exportVideo, frame, setFormat: (f) => change('format', () => { fmt = f; }) };
+    setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } });
+  window.__amhEditor = { renderJob, snapshot, state: () => ({ clips, ovl, txt, mus, snd, zm, media, SRC, fmt, sel, built }), addOverlay, addText, addZoom, autoZooms, addBroll, brollPicker, findFaces, followFaces, frameClips, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, moveRange, total, redo,
+    select: (id) => { sel = id; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, render, exportVideo, frame, setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } };
 })();

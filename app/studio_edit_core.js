@@ -292,6 +292,108 @@
     const sw = Math.max(2, Math.round(mw * k / 2) * 2), sh = Math.max(2, Math.round(mh * k / 2) * 2);
     return { sw, sh, x: Math.round((W - sw) / 2 + (Number(clip.x) || 0) * W), y: Math.round((H - sh) / 2 + (Number(clip.y) || 0) * H) };
   }
+  // ── 📱 Reframe (1.63): wide video in a tall frame that keeps the speaker ──
+  // A clip can have rf: { mode: 'face' | 'center' | 'left' | 'right', pace:
+  // 'calm' | 'normal' | 'fast' } and rfk: the camera's path, [[file second,
+  // cx, cy], ...] (0-1 of the picture), made from the face finder's answers
+  // (app/amh_faces.py) by rfTrack. The camera only moves when the face leaves
+  // a calm zone, then glides there — no shaking. Preview and export place the
+  // picture with the same numbers (rfPlace / rfExpr).
+  const RF_PACE = { calm: { dz: 0.1, glide: 0.9 }, normal: { dz: 0.06, glide: 0.6 }, fast: { dz: 0.03, glide: 0.35 } };
+  // how much of the picture the frame shows (0-1 of its width / height)
+  function rfWindow(m, c, W, H) {
+    const p = placement(m || {}, Object.assign({}, c, { x: 0, y: 0 }), W, H);
+    return { ww: Math.min(1, W / p.sw), wh: Math.min(1, H / p.sh), p };
+  }
+  // faces: [[t, cx, cy, fw, fh, s] | [t]] -> the camera's path in file seconds
+  function rfTrack(faces, m, c, W, H, pace) {
+    const P = RF_PACE[pace] || RF_PACE.normal;
+    const win = rfWindow(m, c, W, H);
+    const list = (faces || []).filter((f) => Array.isArray(f) && f.length >= 1);
+    if (!list.length) return [];
+    // no face in a frame: the last face seen (or the first one coming)
+    const first = list.find((f) => f.length > 2);
+    if (!first) return [];
+    let last = first;
+    const raw = list.map((f) => { if (f.length > 2) last = f; return [f[0], last[1], last[2]]; });
+    // steady: the median of 5, then a short average (one bad frame does not move the camera)
+    const med = (arr) => arr.slice().sort((a, b) => a - b)[arr.length >> 1];
+    const sm = raw.map((r, i) => {
+      const nb = raw.slice(Math.max(0, i - 2), i + 3);
+      return [r[0], med(nb.map((x) => x[1])), med(nb.map((x) => x[2]))];
+    });
+    const clampX = (x) => (win.ww >= 1 ? 0.5 : Math.max(win.ww / 2, Math.min(1 - win.ww / 2, x)));
+    const clampY = (y) => (win.wh >= 1 ? 0.5 : Math.max(win.wh / 2, Math.min(1 - win.wh / 2, y)));
+    // the camera: holds still while the face stays in the calm zone; a move
+    // glides to the new place in `glide` seconds
+    const dzx = P.dz * Math.max(0.2, win.ww), dzy = P.dz * Math.max(0.2, win.wh);
+    let cx = clampX(sm[0][1]), cy = clampY(sm[0][2]);
+    const kf = [[r3(sm[0][0]), r3(cx), r3(cy)]];
+    let busyUntil = -1;
+    sm.forEach(([t, fx, fy]) => {
+      if (t < busyUntil) return;
+      const tx = clampX(fx), ty = clampY(fy);
+      if (Math.abs(tx - cx) > dzx || Math.abs(ty - cy) > dzy) {
+        const nx = Math.abs(tx - cx) > dzx ? tx : cx, ny = Math.abs(ty - cy) > dzy ? ty : cy;
+        if (kf[kf.length - 1][0] < t) kf.push([r3(t), r3(cx), r3(cy)]);
+        cx = nx; cy = ny;
+        kf.push([r3(t + P.glide), r3(cx), r3(cy)]);
+        busyUntil = t + P.glide;
+      }
+    });
+    return kf;
+  }
+  // the camera at file second s (between two points: a smoothstep glide)
+  function rfAt(kf, s) {
+    if (!kf || !kf.length) return null;
+    if (s <= kf[0][0]) return { cx: kf[0][1], cy: kf[0][2] };
+    for (let i = 1; i < kf.length; i++) {
+      if (s < kf[i][0]) {
+        const a = kf[i - 1], b = kf[i], u = (s - a[0]) / Math.max(1e-6, b[0] - a[0]), q = u * u * (3 - 2 * u);   // smoothstep
+        return { cx: a[1] + (b[1] - a[1]) * q, cy: a[2] + (b[2] - a[2]) * q };
+      }
+    }
+    const z = kf[kf.length - 1];
+    return { cx: z[1], cy: z[2] };
+  }
+  // where the window's centre is at file second s, by the clip's framing mode
+  function rfCenter(m, c, W, H, s) {
+    const win = rfWindow(m, c, W, H);
+    const mode = c.rf && c.rf.mode;
+    let cx = 0.5, cy = 0.5;
+    if (mode === 'left') cx = win.ww / 2;
+    else if (mode === 'right') cx = 1 - win.ww / 2;
+    else if (mode === 'face') { const a = rfAt(c.rfk, s); if (a) { cx = a.cx; cy = a.cy; } }
+    return { cx, cy, win };
+  }
+  const rfOn = (c) => !!(c && c.rf && c.rf.mode && c.rf.mode !== 'off');
+  // the picture's place at file second s ({ sw, sh, x, y }), framed
+  function rfPlace(m, c, W, H, s) {
+    if (!rfOn(c)) return placement(m, c, W, H);
+    const r = rfCenter(m, c, W, H, s);
+    const p = r.win.p;
+    return { sw: p.sw, sh: p.sh, x: Math.round(W / 2 - r.cx * p.sw), y: Math.round(H / 2 - r.cy * p.sh) };
+  }
+  // the export: overlay x / y as expressions of the segment's own time t
+  // (file second = tin + (t - hold) * speed); the same smoothstep glides
+  function rfExpr(m, c, W, H, tin, hold, k) {
+    const r0 = rfPlace(m, c, W, H, tin);
+    if (!(c.rf && c.rf.mode === 'face' && c.rfk && c.rfk.length > 1)) return { x: String(r0.x), y: String(r0.y) };
+    const p = rfWindow(m, c, W, H).p;
+    const segT = (s) => (s - tin) / k + hold;
+    const pts = c.rfk.map((q) => [segT(q[0]), W / 2 - q[1] * p.sw, H / 2 - q[2] * p.sh]);
+    const line = (j) => {
+      let e = String(r3(pts[0][j]));
+      for (let i = 1; i < pts.length; i++) {
+        const d = pts[i][0] - pts[i - 1][0], dv = pts[i][j] - pts[i - 1][j];
+        if (Math.abs(dv) < 1e-6 || d <= 0) continue;
+        const u = 'clip((t-' + r3(pts[i - 1][0]) + ')/' + r3(d) + ',0,1)';
+        e += '+' + r3(dv) + '*(3*pow(' + u + ',2)-2*pow(' + u + ',3))';
+      }
+      return e;
+    };
+    return { x: line(1), y: line(2) };
+  }
   // ── the overlay track (1.21.0): B-roll, photos, logos ABOVE the main track ──
   // free placement in time: { id, m, in, out, start, scale, x, y, opacity,
   // volume (B-roll is silent unless raised), fit }. A photo has no length of
@@ -999,10 +1101,11 @@
       const f = Math.min(0.01, d / 4).toFixed(3);
       if (m.video) {
         const p = placement(m, c, W, H);
+        const rx = rfOn(c) ? rfExpr(m, c, W, H, tin, holdA, k) : null;      // 📱 framed (1.63)
         const hold = (holdA > 0.001 || holdB > 0.001) ? ',tpad=' + [holdA > 0.001 ? 'start_mode=clone:start_duration=' + holdA : '', holdB > 0.001 ? 'stop_mode=clone:stop_duration=' + holdB : ''].filter(Boolean).join(':') : '';
         parts.push('[' + m.idx + ':v]trim=start=' + tin + ':end=' + tout + ',setpts=' + (k === 1 ? 'PTS-STARTPTS' : '(PTS-STARTPTS)/' + r3(k)) + ',fps=' + fps + hold + ',scale=' + p.sw + ':' + p.sh + ',setsar=1' + colorFilter(c.col) + '[s' + i + ']');
         parts.push('color=c=black:s=' + W + 'x' + H + ':r=' + fps + ':d=' + d + '[b' + i + ']');
-        parts.push('[b' + i + '][s' + i + ']overlay=' + p.x + ':' + p.y + ':shortest=1,format=yuv420p[v' + i + ']');
+        parts.push('[b' + i + '][s' + i + ']overlay=' + (rx ? "'" + rx.x + "':'" + rx.y + "'" : p.x + ':' + p.y) + ':shortest=1,format=yuv420p[v' + i + ']');
       } else {
         parts.push('color=c=black:s=' + W + 'x' + H + ':r=' + fps + ':d=' + d + ',format=yuv420p[v' + i + ']');
       }
@@ -1099,7 +1202,7 @@
     words, deriveCaptions, syncBack, FORMATS, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
     TFONTS, TPRESETS, assColor, textAnchor, textAss, setFontInfo, fontInfo, textSize, LOUD, MUS_DEFAULT, musicGain,
     PRESETS, presetFor, GPU_ENCODERS, encoderArgs, eta,
-    speedOf: sp, clipLen, TEMPLATES, TPL_GROUPS, HOLIDAYS, TPL_SPEED, tplOf, tplLayers, tplState, tplAss, setMeasure, tplFade: fadeOut, OV_LAYOUTS, OV_ANIMS, OV_MOTION, ovLook, ovBox, ovAnim, ovChain, ovPos, ZOOM_STYLES, ZOOM_SPEED, ZOOM_DEFAULT, zoomEnv, zoomRect, zoomExprs, zoomFilter, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter };
+    speedOf: sp, clipLen, RF_PACE, rfWindow, rfTrack, rfAt, rfPlace, rfExpr, rfOn, TEMPLATES, TPL_GROUPS, HOLIDAYS, TPL_SPEED, tplOf, tplLayers, tplState, tplAss, setMeasure, tplFade: fadeOut, OV_LAYOUTS, OV_ANIMS, OV_MOTION, ovLook, ovBox, ovAnim, ovChain, ovPos, ZOOM_STYLES, ZOOM_SPEED, ZOOM_DEFAULT, zoomEnv, zoomRect, zoomExprs, zoomFilter, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhEdit = api;
 })(typeof window !== 'undefined' ? window : this);
