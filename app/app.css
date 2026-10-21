@@ -601,3 +601,49 @@ html.amh-editor .ed-cwrap { height: 246px; }
 .zm-dot:hover { border-color: #3fb6cc; }
 .zm-dot.on { background: #3fb6cc; border-color: #fff; }
 .zm-acts { flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+
+/* 🎞 B-roll (1.61): the preview box, the ⚙ layout cards, the word picker */
+.ed-canvas .ed-ov { overflow: hidden; }
+.ed-canvas .ed-ov > .ed-ov-m, .ed-canvas .ed-ov > .ed-ov-bg { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; }
+.ed-canvas .ed-ov > .ed-ov-bg { object-fit: cover; filter: blur(10px) brightness(.85); transform: scale(1.08); }
+.br-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-bottom: 6px; }
+.br-card { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 4px; border: 1px solid var(--border); border-radius: 9px;
+  background: var(--bg-card); color: var(--text-primary); font-family: inherit; cursor: pointer; }
+.br-card:hover { border-color: #8b6fc0; }
+.br-card.on { border-color: #a58be0; box-shadow: 0 0 0 1px #a58be0 inset; background: #251d38; }
+.br-card b { font-size: 10.5px; font-weight: 600; line-height: 1.2; text-align: center; }
+.br-d { position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 4px; overflow: hidden; background: #2a3a33; }
+.br-d-main { position: absolute; inset: 0; background: linear-gradient(135deg, #3d5c4f, #22332c); }
+.br-d-pic { position: absolute; background: linear-gradient(135deg, #b58cf0, #6a4bb0); }
+.br-d-full .br-d-pic { inset: 0; }
+.br-d-whole .br-d-pic { inset: 0 28%; box-shadow: 0 0 0 40px #000; }
+.br-d-blur .br-d-main { background: linear-gradient(135deg, #8e74c0, #4b3a6b); filter: blur(2px); }
+.br-d-blur .br-d-pic { inset: 0 28%; }
+.br-d-pip .br-d-pic { right: 6%; top: 10%; width: 36%; height: 38%; outline: 1.5px solid #fff; }
+.br-d-top .br-d-pic { left: 0; right: 0; top: 0; height: 50%; }
+.br-d-bottom .br-d-pic { left: 0; right: 0; bottom: 0; height: 50%; }
+.br-d-free .br-d-pic { left: 30%; top: 25%; width: 40%; height: 45%; outline: 1px dashed #fff; }
+.br-pip { display: flex; gap: 10px; align-items: flex-start; margin: 4px 0 6px; }
+.br-corner { display: grid; grid-template-columns: repeat(2, 22px); gap: 4px; padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: #0b1110; }
+.br-cdot { width: 22px; height: 22px; padding: 0; border: 1px solid #2c3d38; border-radius: 5px; background: #16211d; cursor: pointer; }
+.br-cdot.on { background: #a58be0; border-color: #fff; }
+.br-pip-r { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+.br-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 4px; }
+.br-chip { height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-card); color: var(--text-primary);
+  font-family: inherit; font-size: 12px; cursor: pointer; }
+.br-chip:hover { border-color: #a58be0; }
+.br-chip.on { background: #a58be0; border-color: #a58be0; color: #160e26; font-weight: 700; }
+.br-acts { flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.br-pick { position: fixed; z-index: 60; width: 320px; padding: 12px; display: flex; flex-direction: column; gap: 10px; background: #1a2320;
+  border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+.br-pick-head { display: flex; align-items: center; justify-content: space-between; font-size: 14px; }
+.br-x { width: 26px; height: 26px; border: 0; border-radius: 6px; background: none; color: var(--text-secondary); cursor: pointer; }
+.br-x:hover { background: #24302b; color: var(--text-primary); }
+.br-pick-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; max-height: 210px; overflow-y: auto; }
+.br-pick-it { display: flex; flex-direction: column; gap: 3px; padding: 4px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card);
+  color: var(--text-primary); font-family: inherit; cursor: pointer; }
+.br-pick-it:hover { border-color: #a58be0; }
+.br-pick-th { display: flex; align-items: center; justify-content: center; height: 54px; border-radius: 5px; overflow: hidden; background: #0b1110; font-size: 20px; }
+.br-pick-th img { width: 100%; height: 100%; object-fit: cover; }
+.br-pick-n { font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.st-script .w.drop { outline: 2px dashed #a58be0; outline-offset: 2px; border-radius: 4px; }

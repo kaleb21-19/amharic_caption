@@ -324,4 +324,42 @@ test('zoom: seven styles, the export expressions draw exactly what the preview s
   assert.ok(!/perspective/.test(E.editGraph([{ id: 'a', m: 'v', in: 0, out: 5 }], { v: { idx: 0, video: true, audio: true, w: 1920, h: 1080, dur: 5 } }, '16:9', 30, [], {}).graph), 'no zoom: no filter');
 });
 
+// 🎞 B-roll (1.61): layouts, slides and motion — the export = the preview
+test('B-roll looks: layouts, slides in / out, motion; old overlays unchanged', () => {
+  const W = 1920, H = 1080, m = { w: 800, h: 1000, image: true };
+  const evalX = (expr, t) => Function('t', 'clip', 'pow', 'return (' + expr + ');')(t, (x, a, b) => Math.max(a, Math.min(b, x)), Math.pow);
+  ['full', 'whole', 'blur', 'pip', 'top', 'bottom'].forEach((layout) => {
+    E.OV_ANIMS.forEach((ain) => E.OV_ANIMS.forEach((aout) => {
+      const o = { id: 'x', m: 'p', start: 2, in: 0, out: 3, layout, ain, aout, ad: 0.4, corner: 'bl' };
+      const box = E.ovBox(o, m, W, H);
+      const pos = E.ovPos(o, box, W, H);
+      for (let t = 2; t < 5; t += 0.05) {
+        const a = E.ovAnim(o, t, box, W, H);
+        const x = evalX(pos.x, t), y = evalX(pos.y, t);
+        assert.ok(Math.abs(x - (box.x - box.b + a.dx)) < 0.01 && Math.abs(y - (box.y - box.b + a.dy)) < 0.01, layout + ' ' + ain + '/' + aout + ' t=' + t);
+      }
+    }));
+  });
+  // where things sit
+  assert.deepStrictEqual(E.ovBox({ layout: 'full' }, m, W, H), { x: 0, y: 0, w: W, h: H, fit: 'cover', b: 0 });
+  assert.deepStrictEqual(E.ovBox({ layout: 'bottom' }, m, W, H), { x: 0, y: 540, w: W, h: 540, fit: 'cover', b: 0 });
+  const pip = E.ovBox({ layout: 'pip', corner: 'tr', size: 0.38 }, m, W, H);
+  assert.ok(pip.x + pip.w + pip.b <= W && pip.y - pip.b >= 0 && pip.b > 0 && pip.w % 2 === 0 && pip.h % 2 === 0, JSON.stringify(pip));
+  // fade: 0 at the start, full in the middle, 0 at the very end
+  const f = { start: 1, in: 0, out: 2, layout: 'full', ain: 'fade', aout: 'fade', ad: 0.4 };
+  const bx = E.ovBox(f, m, W, H);
+  assert.strictEqual(E.ovAnim(f, 1, bx, W, H).a, 0);
+  assert.strictEqual(E.ovAnim(f, 2, bx, W, H).a, 1);
+  assert.ok(E.ovAnim(f, 2.999, bx, W, H).a < 0.01);
+  // motion: never under 1 (ffmpeg refuses 0.9999999), zooms in / out / pans
+  ['in', 'out', 'pan'].forEach((mot) => { for (let t = 1; t <= 3; t += 0.01) assert.ok(E.ovAnim(Object.assign({}, f, { mot }), t, bx, W, H).z >= 1); });
+  assert.ok(/max\(1,1\.15-0\.15\*/.test(E.ovChain(Object.assign({}, f, { mot: 'out' }), m, W, H, 30, 0).steps.join(',')));
+  // an old overlay (no look) exports exactly as before
+  const media = { v: { idx: 0, video: true, audio: true, w: 1920, h: 1080, dur: 5 }, p: { idx: 1, image: true, w: 800, h: 1000 } };
+  const g = E.editGraph([{ id: 'a', m: 'v', in: 0, out: 5 }], media, '16:9', 30, [{ id: 'o', m: 'p', start: 1, in: 0, out: 2, volume: 0 }], {}).graph;
+  assert.ok(/\[1:v\]trim=duration=2,setpts=PTS-STARTPTS\+1\/TB,fps=30,scale=\d+:\d+,setsar=1,format=yuva420p\[o0\]/.test(g), g);
+  const g2 = E.editGraph([{ id: 'a', m: 'v', in: 0, out: 5 }], media, '16:9', 30, [Object.assign({ id: 'o', m: 'p', volume: 0 }, f, { layout: 'blur', mot: 'in' })], {}).graph;
+  assert.ok(/split=2\[ob0\]\[of0\]/.test(g2) && /boxblur/.test(g2) && /fade=t=in:st=1:d=0\.4:alpha=1/.test(g2) && /perspective=/.test(g2), g2);
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');

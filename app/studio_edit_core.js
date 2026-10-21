@@ -479,6 +479,105 @@
   // opts.ass: a libass script (file name, in the folder ffmpeg runs in, with a
   // fonts/ folder) drawn over everything — the text track
 
+  // ── 🎞 B-roll looks (1.61) ───────────────────────────────────────────────
+  // An overlay can also have: layout ('free' = the old size/X/Y placement;
+  // 'full' | 'whole' | 'blur' | 'pip' | 'top' | 'bottom'), corner + size +
+  // border (picture-in-picture), ain / aout (how it comes in / goes:
+  // 'none' | 'fade' | 'left' | 'right' | 'up' | 'down'), ad (that time),
+  // mot (motion inside it: 'none' | 'in' | 'out' | 'pan'). The preview
+  // (ovBox / ovAnim) and the export (ovChain / ovPos) use the same numbers.
+  const OV_LAYOUTS = ['free', 'full', 'whole', 'blur', 'pip', 'top', 'bottom'];
+  const OV_ANIMS = ['none', 'fade', 'left', 'right', 'up', 'down'];
+  const OV_MOTION = ['none', 'in', 'out', 'pan'];
+  const evenN = (x) => Math.max(2, Math.round(x / 2) * 2);
+  function ovLook(o) {
+    const layout = OV_LAYOUTS.indexOf(o.layout) >= 0 ? o.layout : 'free';
+    return {
+      layout,
+      corner: ['tl', 'tr', 'bl', 'br'].indexOf(o.corner) >= 0 ? o.corner : 'tr',
+      size: Math.max(0.2, Math.min(0.6, Number(o.size) || 0.38)),
+      border: ['none', 'white', 'black'].indexOf(o.border) >= 0 ? o.border : (layout === 'pip' ? 'white' : 'none'),
+      ain: OV_ANIMS.indexOf(o.ain) >= 0 ? o.ain : 'none',
+      aout: OV_ANIMS.indexOf(o.aout) >= 0 ? o.aout : 'none',
+      ad: Math.max(0.1, Math.min(1.2, Number(o.ad) || 0.35)),
+      mot: OV_MOTION.indexOf(o.mot) >= 0 ? o.mot : 'none',
+    };
+  }
+  // where it sits: { x, y, w, h, fit ('fill' | 'cover' | 'contain' | 'blur'), b (border px) }
+  function ovBox(o, m, W, H) {
+    const L = ovLook(o);
+    if (L.layout === 'free') { const p = placement(m || {}, o, W, H); return { x: p.x, y: p.y, w: p.sw, h: p.sh, fit: 'fill', b: 0 }; }
+    if (L.layout === 'full') return { x: 0, y: 0, w: W, h: H, fit: 'cover', b: 0 };
+    if (L.layout === 'whole') return { x: 0, y: 0, w: W, h: H, fit: 'contain', b: 0 };
+    if (L.layout === 'blur') return { x: 0, y: 0, w: W, h: H, fit: 'blur', b: 0 };
+    if (L.layout === 'top') return { x: 0, y: 0, w: W, h: evenN(H / 2), fit: 'cover', b: 0 };
+    if (L.layout === 'bottom') return { x: 0, y: H - evenN(H / 2), w: W, h: evenN(H / 2), fit: 'cover', b: 0 };
+    const mw = (m && m.w) || 16, mh = (m && m.h) || 9;
+    let w = evenN(L.size * Math.min(W, H * 1.2)), h = evenN(w * mh / mw);
+    if (h > H * 0.6) { h = evenN(H * 0.6); w = evenN(h * mw / mh); }
+    const b = L.border === 'none' ? 0 : Math.max(2, Math.round(Math.min(W, H) * 0.006));
+    const mg = Math.round(Math.min(W, H) * 0.04);
+    const x = L.corner.charAt(1) === 'l' ? mg + b : W - mg - b - w;
+    const y = L.corner.charAt(0) === 't' ? mg + b : H - mg - b - h;
+    return { x, y, w, h, fit: 'cover', b };
+  }
+  const outC = (u) => 1 - Math.pow(1 - u, 3), inC = (u) => u * u * u;
+  // how far it is pushed off screen to come in / go (px), per direction
+  function ovSlide(dir, box, W, H) {
+    const b = box.b || 0;
+    return dir === 'left' ? [-(box.x + box.w + b), 0] : dir === 'right' ? [W - box.x + b, 0]
+      : dir === 'up' ? [0, H - box.y + b] : dir === 'down' ? [0, -(box.y + box.h + b)] : [0, 0];
+  }
+  // at edit time t: { dx, dy (px), a (0-1), z, fx (motion inside, 0-1) }
+  function ovAnim(o, t, box, W, H) {
+    const L = ovLook(o), s = Number(o.start) || 0, d = ovLen(o);
+    const ad = Math.min(L.ad, d / 2);
+    const ui = Math.max(0, Math.min(1, (t - s) / ad)), uo = Math.max(0, Math.min(1, (t - (s + d - ad)) / ad));
+    let dx = 0, dy = 0, a = o.opacity == null ? 1 : Number(o.opacity);
+    if (L.ain === 'fade') a *= outC(ui); else if (L.ain !== 'none') { const v = ovSlide(L.ain, box, W, H); dx += v[0] * (1 - outC(ui)); dy += v[1] * (1 - outC(ui)); }
+    if (L.aout === 'fade') a *= 1 - inC(uo); else if (L.aout !== 'none') { const v = ovSlide(L.aout, box, W, H); dx += v[0] * inC(uo); dy += v[1] * inC(uo); }
+    const p = d > 0 ? Math.max(0, Math.min(1, (t - s) / d)) : 0, e = (1 - Math.cos(Math.PI * p)) / 2;
+    const z = Math.max(1, L.mot === 'in' ? 1 + 0.15 * e : L.mot === 'out' ? 1.15 - 0.15 * e : L.mot === 'pan' ? 1.15 : 1);
+    const fx = L.mot === 'pan' ? 0.3 + 0.4 * e : 0.5;
+    return { dx, dy, a, z, fx };
+  }
+  // the export: the overlay's own filters (after trim / setpts / fps) and its place
+  function ovChain(o, m, W, H, fps, k) {
+    const L = ovLook(o), box = ovBox(o, m, W, H), d = ovLen(o), s = Number(o.start) || 0;
+    const steps = [];
+    if (box.fit === 'fill') steps.push('scale=' + box.w + ':' + box.h);
+    else if (box.fit === 'cover') steps.push('scale=' + box.w + ':' + box.h + ':force_original_aspect_ratio=increase,crop=' + box.w + ':' + box.h);
+    else if (box.fit === 'contain') steps.push('scale=' + box.w + ':' + box.h + ':force_original_aspect_ratio=decrease:force_divisible_by=2,pad=' + box.w + ':' + box.h + ':(ow-iw)/2:(oh-ih)/2:color=black');
+    if (L.mot !== 'none') {
+      // the same slow zoom / pan as ovAnim, over the overlay's own frames
+      const T = '(in/' + fps + ')', e = '((1-cos(PI*clip(' + T + '/' + Math.max(0.1, d) + ',0,1)))/2)';
+      // never under 1 (1.15 - 0.15 is 0.9999999999999999 in floating point: ffmpeg refuses the frame)
+      const Z = 'max(1,' + (L.mot === 'in' ? '1+0.15*' + e : L.mot === 'out' ? '1.15-0.15*' + e : '1.15') + ')';
+      const FX = L.mot === 'pan' ? '(0.3+0.4*' + e + ')' : '0.5';
+      const left = 'st(0,' + Z + ');clip(' + FX + '*W-W/(2*ld(0)),0,W-W/ld(0))', top = 'st(0,' + Z + ');(H-H/ld(0))/2';
+      const right = left + '+W/ld(0)', bottom = top + '+H/ld(0)';
+      steps.push('perspective=x0=\'' + left + '\':y0=\'' + top + '\':x1=\'' + right + '\':y1=\'' + top + '\':x2=\'' + left + '\':y2=\'' + bottom +
+        '\':x3=\'' + right + '\':y3=\'' + bottom + '\':interpolation=cubic:eval=frame');
+    }
+    if (box.b) steps.push('pad=iw+' + 2 * box.b + ':ih+' + 2 * box.b + ':' + box.b + ':' + box.b + ':color=' + (L.border === 'black' ? 'black' : 'white'));
+    steps.push('setsar=1', 'format=yuva420p');
+    const op = o.opacity == null ? 1 : Number(o.opacity);
+    if (op < 1) steps.push('colorchannelmixer=aa=' + op);
+    const ad = r3(Math.min(L.ad, d / 2));
+    if (L.ain === 'fade') steps.push('fade=t=in:st=' + s + ':d=' + ad + ':alpha=1');
+    if (L.aout === 'fade') steps.push('fade=t=out:st=' + r3(s + d - ad) + ':d=' + ad + ':alpha=1');
+    return { box, steps, blur: box.fit === 'blur' };
+  }
+  // overlay x / y (of the top-left corner, border included), with the slides
+  function ovPos(o, box, W, H) {
+    const L = ovLook(o), s = Number(o.start) || 0, d = ovLen(o), ad = r3(Math.min(L.ad, d / 2));
+    const ui = 'clip((t-' + s + ')/' + ad + ',0,1)', uo = 'clip((t-' + r3(s + d - ad) + ')/' + ad + ',0,1)';
+    let x = String(box.x - box.b), y = String(box.y - box.b);
+    if (L.ain !== 'none' && L.ain !== 'fade') { const v = ovSlide(L.ain, box, W, H); if (v[0]) x += '+' + v[0] + '*pow(1-' + ui + ',3)'; if (v[1]) y += '+' + v[1] + '*pow(1-' + ui + ',3)'; }
+    if (L.aout !== 'none' && L.aout !== 'fade') { const v = ovSlide(L.aout, box, W, H); if (v[0]) x += '+' + v[0] + '*pow(' + uo + ',3)'; if (v[1]) y += '+' + v[1] + '*pow(' + uo + ',3)'; }
+    return { x, y };
+  }
+
   // ── 🔍 Zoom (1.60) ───────────────────────────────────────────────────────
   // Smooth zooms on the main picture, no keyframes to set: a zoom is
   // { id, start, in: 0, out: length, style, amt (1.05-1.6), speed
@@ -674,10 +773,28 @@
         const d = Math.min(ovLen(o), total(clips) - o.start);
         const src = m.image ? '[' + m.idx + ':v]trim=duration=' + r3(d) : '[' + m.idx + ':v]trim=start=' + o.in + ':end=' + r3(o.in + d);
         const op = o.opacity == null ? 1 : Number(o.opacity);
-        parts.push(src + ',setpts=PTS-STARTPTS+' + o.start + '/TB,fps=' + fps + ',scale=' + p.sw + ':' + p.sh + ',setsar=1,format=yuva420p' +
-          (op < 1 ? ',colorchannelmixer=aa=' + op : '') + '[o' + k + ']');
         const next = k === list.length - 1 ? vOut : 'vo' + k;
-        parts.push('[' + base + '][o' + k + ']overlay=' + p.x + ':' + p.y + ":enable='between(t," + o.start + ',' + r3(o.start + d) + ")':eof_action=pass" +
+        const LK = ovLook(o);
+        let px = p.x, py = p.y;
+        if (LK.layout === 'free' && LK.ain === 'none' && LK.aout === 'none' && LK.mot === 'none') {
+          parts.push(src + ',setpts=PTS-STARTPTS+' + o.start + '/TB,fps=' + fps + ',scale=' + p.sw + ':' + p.sh + ',setsar=1,format=yuva420p' +
+            (op < 1 ? ',colorchannelmixer=aa=' + op : '') + '[o' + k + ']');
+        } else {
+          // 🎞 B-roll looks (1.61): layout, motion, border, fades; slides in the overlay's x / y
+          const o2 = Object.assign({}, o, { out: r3(o.in + d) });
+          const ch = ovChain(o2, m, W, H, fps, k);
+          const head = src + ',setpts=PTS-STARTPTS+' + o.start + '/TB,fps=' + fps;
+          if (ch.blur) {
+            const bw = ch.box.w, bh = ch.box.h;
+            parts.push(head + ',split=2[ob' + k + '][of' + k + ']');
+            parts.push('[ob' + k + ']scale=' + bw + ':' + bh + ':force_original_aspect_ratio=increase,crop=' + bw + ':' + bh + ',boxblur=24:2[obb' + k + ']');
+            parts.push('[of' + k + ']scale=' + bw + ':' + bh + ':force_original_aspect_ratio=decrease:force_divisible_by=2[off' + k + ']');
+            parts.push('[obb' + k + '][off' + k + ']overlay=(W-w)/2:(H-h)/2,' + ch.steps.join(',') + '[o' + k + ']');
+          } else parts.push(head + ',' + ch.steps.join(',') + '[o' + k + ']');
+          const pos = ovPos(o2, ch.box, W, H);
+          px = "'" + pos.x + "'"; py = "'" + pos.y + "'";
+        }
+        parts.push('[' + base + '][o' + k + ']overlay=' + px + ':' + py + ":enable='between(t," + o.start + ',' + r3(o.start + d) + ")':eof_action=pass" +
           (k === list.length - 1 ? ',format=yuv420p' : '') + '[' + next + ']');
         base = next;
         if (m.audio && !m.image && Number(o.volume) > 0) {
@@ -700,7 +817,7 @@
     words, deriveCaptions, syncBack, FORMATS, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
     TFONTS, TPRESETS, assColor, textAnchor, textAss, setFontInfo, fontInfo, textSize, LOUD, MUS_DEFAULT, musicGain,
     PRESETS, presetFor, GPU_ENCODERS, encoderArgs, eta,
-    speedOf: sp, clipLen, ZOOM_STYLES, ZOOM_SPEED, ZOOM_DEFAULT, zoomEnv, zoomRect, zoomExprs, zoomFilter, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter };
+    speedOf: sp, clipLen, OV_LAYOUTS, OV_ANIMS, OV_MOTION, ovLook, ovBox, ovAnim, ovChain, ovPos, ZOOM_STYLES, ZOOM_SPEED, ZOOM_DEFAULT, zoomEnv, zoomRect, zoomExprs, zoomFilter, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhEdit = api;
 })(typeof window !== 'undefined' ? window : this);

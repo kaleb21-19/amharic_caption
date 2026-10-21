@@ -400,22 +400,42 @@
   // overlay pictures on the canvas, placed exactly as the export places them
   const OVEL = {};
   function ovEl(o) {
-    let e = OVEL[o.id];
+    let box = OVEL[o.id];
     const m = media[o.m];
     if (!m) return null;
-    if (!e || e.dataset.m !== o.m) {
-      if (e) e.remove();
-      e = document.createElement(m.image ? 'img' : 'video');
-      e.className = 'ed-ov';
-      e.dataset.m = o.m;
-      if (!m.image) { e.muted = true; e.playsInline = true; e.preload = 'auto'; }
-      e.src = urlOf(o.m);
-      e.addEventListener('mousedown', (ev) => { ev.stopPropagation(); ev.preventDefault(); startMove(o.id, ev); });
+    if (!box || box.dataset.m !== o.m) {
+      if (box) box.remove();
+      // 1.61: a box (layout, border, slides) holding the picture (fit, motion)
+      // and, for "whole + blur", a blurred copy behind it
+      box = document.createElement('div');
+      box.className = 'ed-ov';
+      box.dataset.m = o.m;
+      const mk = (cls) => {
+        const e = document.createElement(m.image ? 'img' : 'video');
+        e.className = cls;
+        if (!m.image) { e.muted = true; e.playsInline = true; e.preload = 'auto'; }
+        e.src = urlOf(o.m);
+        e.draggable = false;
+        return e;
+      };
+      box._m = mk('ed-ov-m');
+      box.appendChild(box._m);
+      box._mk = mk;
+      box.addEventListener('mousedown', (ev) => { ev.stopPropagation(); ev.preventDefault(); startMove(o.id, ev); });
       const cap = $('appCap');
-      stage.insertBefore(e, cap && cap.parentNode === stage ? cap : null);
-      OVEL[o.id] = e;
+      stage.insertBefore(box, cap && cap.parentNode === stage ? cap : null);
+      OVEL[o.id] = box;
     }
-    return e;
+    return box;
+  }
+  // play a video element at the overlay's second (or hold it, paused)
+  function ovSeek(e, o, t, sound) {
+    if (e.tagName !== 'VIDEO') return;
+    const want = o.in + (t - o.start);
+    e.muted = !sound;
+    if (sound) e.volume = Math.min(1, Number(o.volume));
+    if (playing) { if (e.paused) { try { e.currentTime = want; } catch (x) {} e.play().catch(() => {}); } else if (Math.abs(e.currentTime - want) > 0.25) { try { e.currentTime = want; } catch (x) {} } }
+    else { if (!e.paused) e.pause(); if (Math.abs(e.currentTime - want) > 0.04) { try { e.currentTime = want; } catch (x) {} } }
   }
   function syncOverlays(t) {
     const { w: W, h: H } = E.canvasSize(fmt);
@@ -423,29 +443,42 @@
     const on = {};
     E.ovAt(ovl, t).forEach((o) => {
       if (t >= total()) return;
-      const e = ovEl(o);
-      if (!e) return;
+      const box = ovEl(o);
+      if (!box) return;
       on[o.id] = 1;
-      const p = E.placement(media[o.m], o, W, H);
-      e.style.display = '';
-      e.style.left = (p.x * k) + 'px'; e.style.top = (p.y * k) + 'px';
-      e.style.width = (p.sw * k) + 'px'; e.style.height = (p.sh * k) + 'px';
-      e.style.opacity = o.opacity == null ? 1 : o.opacity;
-      e.classList.toggle('sel', o.id === sel);
-      if (e.tagName === 'VIDEO') {
-        const want = o.in + (t - o.start);
-        e.muted = !(Number(o.volume) > 0);
-        if (!e.muted) e.volume = Math.min(1, Number(o.volume));
-        if (playing) { if (e.paused) { try { e.currentTime = want; } catch (x) {} e.play().catch(() => {}); } else if (Math.abs(e.currentTime - want) > 0.25) { try { e.currentTime = want; } catch (x) {} } }
-        else { if (!e.paused) e.pause(); if (Math.abs(e.currentTime - want) > 0.04) { try { e.currentTime = want; } catch (x) {} } }
-      }
+      const m = media[o.m];
+      const L = E.ovLook(o);
+      const b = E.ovBox(o, m, W, H);
+      const an = E.ovAnim(o, t, b, W, H);
+      box.style.display = '';
+      box.style.left = ((b.x + an.dx) * k) + 'px'; box.style.top = ((b.y + an.dy) * k) + 'px';
+      box.style.width = (b.w * k) + 'px'; box.style.height = (b.h * k) + 'px';
+      box.style.opacity = an.a;
+      box.style.outline = b.b ? (Math.max(1, b.b * k) + 'px solid ' + (L.border === 'black' ? '#000' : '#fff')) : '';
+      box.style.background = b.fit === 'contain' ? '#000' : '';
+      box.classList.toggle('sel', o.id === sel);
+      const pic = box._m;
+      pic.style.objectFit = b.fit === 'fill' ? 'fill' : (b.fit === 'cover' ? 'cover' : 'contain');
+      // the slow zoom / pan inside, as the export's perspective window
+      if (an.z > 1.0001) {
+        const left = Math.max(0, Math.min(b.w - b.w / an.z, an.fx * b.w - b.w / (2 * an.z)));
+        const ox = left / (1 - 1 / an.z);
+        pic.style.transformOrigin = (ox * k) + 'px 50%';
+        pic.style.transform = 'scale(' + an.z + ')';
+      } else pic.style.transform = '';
+      if (b.fit === 'blur') {
+        if (!box._bg) { box._bg = box._mk('ed-ov-bg'); box.insertBefore(box._bg, pic); }
+        box._bg.style.display = '';
+        ovSeek(box._bg, o, t, false);
+      } else if (box._bg) { box._bg.style.display = 'none'; if (box._bg.tagName === 'VIDEO' && !box._bg.paused) box._bg.pause(); }
+      ovSeek(pic, o, t, Number(o.volume) > 0);
     });
     Object.keys(OVEL).forEach((id) => {
       if (on[id]) return;
-      const e = OVEL[id];
-      if (!ovl.some((o) => o.id === id)) { e.remove(); delete OVEL[id]; return; }
-      e.style.display = 'none';
-      if (e.tagName === 'VIDEO' && !e.paused) e.pause();
+      const box = OVEL[id];
+      if (!ovl.some((o) => o.id === id)) { box.remove(); delete OVEL[id]; return; }
+      box.style.display = 'none';
+      [box._m, box._bg].forEach((e) => { if (e && e.tagName === 'VIDEO' && !e.paused) e.pause(); });
     });
   }
   // ⧓ a transition in the preview: the other clip in vB, mixed like xfade
@@ -528,6 +561,7 @@
     const it = findItem(id);
     if (!it || e.button !== 0) return;
     if (sel !== id) { sel = id; renderInspector(); ST.showTab('clip'); }
+    if (ovl.some((o) => o.id === id && E.ovLook(o).layout !== 'free')) return;
     const { w: W, h: H } = E.canvasSize(fmt);
     pushReviewUndo('move picture');
     moving = { id, x0: e.clientX, y0: e.clientY, cx: Number(it.x) || 0, cy: Number(it.y) || 0, k: stage.clientWidth / W, W, H };
@@ -1350,6 +1384,11 @@
     Object.keys(media).forEach((id) => {
       const m = media[id];
       const it = el('div', 'ed-mitem');
+      if (m.image || m.video) {
+        it.draggable = true;
+        it.title = tx('ወደ አንድ ቃል ይጎትቱ — B-roll ይሆናል', 'Drag onto a word in the Script — it becomes B-roll');
+        it.addEventListener('dragstart', (e) => { try { e.dataTransfer.setData('text/amh-media', id); e.dataTransfer.effectAllowed = 'copy'; } catch (x) {} });
+      }
       const th = el('div', 'ed-mthumb', m.image ? '' : (m.video ? '🎬' : '♪'));
       if (m.image) { const im = el('img'); im.src = urlOf(id); th.appendChild(im); }
       th.appendChild(el('b', '', m.image ? '🖼' : S.fmtClock(m.dur)));
@@ -1564,9 +1603,145 @@
     }
   }
 
+  // ── 🎞 B-roll (1.61): a photo or a video over the main video, made to look
+  // finished in a few clicks — layout, how it comes in and goes, motion inside.
+  // Added from a word in the Script view (its word or its sentence), by
+  // dragging media onto a word, or from Media (＋ Overlay).
+  const BR_LAYOUTS = {
+    full: [tx('ሙሉ ገጽ', 'Full screen'), tx('ሙሉውን ይሞላል', 'Fills the frame')],
+    blur: [tx('ደብዛዛ ጀርባ', 'Blurred back'), tx('ሙሉ ስዕሉ፣ ጀርባው ደብዛዛ', 'Whole picture on a blur')],
+    whole: [tx('ሙሉውን', 'Whole'), tx('ሙሉ ስዕሉ፣ ጥቁር ጠርዝ', 'Whole picture, black bars')],
+    pip: [tx('ትንሽ መስኮት', 'Picture in picture'), tx('በጥግ ላይ ትንሽ', 'Small, in a corner')],
+    top: [tx('የላይ ግማሽ', 'Top half'), tx('ለ TikTok ጥሩ', 'Great for TikTok')],
+    bottom: [tx('የታች ግማሽ', 'Bottom half'), tx('ተናጋሪው ከላይ ይታያል', 'The speaker stays on top')],
+    free: [tx('ነፃ', 'Free'), tx('በእጅ ይጎትቱ፣ መጠኑን ይምረጡ', 'Drag it, set its size')],
+  };
+  const BR_IN = { none: tx('የለም', 'None'), fade: tx('ደብዝዞ', 'Fade'), left: '← ' + tx('ከግራ', 'From left'), right: tx('ከቀኝ', 'From right') + ' →',
+    up: '↑ ' + tx('ከታች', 'From below'), down: '↓ ' + tx('ከላይ', 'From above') };
+  const BR_OUT = { none: tx('የለም', 'None'), fade: tx('ደብዝዞ', 'Fade'), left: '← ' + tx('ወደ ግራ', 'To the left'), right: tx('ወደ ቀኝ', 'To the right') + ' →',
+    up: '↑ ' + tx('ወደ ላይ', 'Up'), down: '↓ ' + tx('ወደ ታች', 'Down') };
+  const BR_MOT = { none: tx('የለም', 'None'), in: tx('ቀስ ብሎ ቅረብ', 'Slow zoom in'), out: tx('ቀስ ብሎ ራቅ', 'Slow zoom out'), pan: tx('ተንሸራተት', 'Pan') };
+  const LOOK_KEYS = ['layout', 'corner', 'size', 'border', 'ain', 'aout', 'ad', 'mot'];
+  function brollLast(m) {
+    let s = {};
+    try { s = (typeof loadSettings === 'function' && loadSettings().brollLast) || {}; } catch (e) {}
+    const look = { layout: 'full', ain: 'fade', aout: 'fade', ad: 0.35, mot: m && m.image ? 'in' : 'none' };
+    LOOK_KEYS.forEach((k) => { if (s[k] != null) look[k] = s[k]; });
+    if (m && !m.image && look.mot !== 'none' && !s.motVideo) look.mot = 'none';      // motion is for photos unless chosen for videos
+    return look;
+  }
+  function rememberBroll(o) {
+    const keep = {};
+    LOOK_KEYS.forEach((k) => { if (o[k] != null) keep[k] = o[k]; });
+    try { if (typeof saveSettings === 'function') saveSettings({ brollLast: keep }); } catch (e) {}
+  }
+  // a B-roll from `a` to `b` (edit seconds)
+  function addBroll(mid, a, b) {
+    const m = media[mid];
+    if (!m || (!m.image && !m.video)) return null;
+    const start = Math.max(0, Math.min(Number(a) || 0, total() - 0.3));
+    let len = Math.max(0.6, (Number(b) || start + 3) - start);
+    if (!m.image) len = Math.min(len, m.dur);
+    len = Math.min(len, total() - start);
+    const oid = newId();
+    const it = Object.assign({ id: oid, m: mid, in: 0, out: Math.round(len * 1000) / 1000, start: Math.round(start * 1000) / 1000, volume: 0 }, brollLast(m));
+    change('add B-roll', () => { ovl = ovl.concat([it]); });
+    sel = oid; after(); ST.showTab('clip');
+    return it;
+  }
+  // the picker under a word: "this word / its sentence", then a picture
+  let picker = null;
+  function brollPicker(anchor, word, sentence) {
+    if (picker) picker.remove();
+    picker = el('div', 'br-pick');
+    let mode = 'sentence';
+    try { mode = (typeof loadSettings === 'function' && loadSettings().brollLen) === 'word' ? 'word' : 'sentence'; } catch (e) {}
+    const draw = () => {
+      picker.textContent = '';
+      const head = el('div', 'br-pick-head');
+      head.appendChild(el('b', '', '🎞 ' + tx('B-roll ጨምር', 'Add B-roll')));
+      head.appendChild(btn('br-x', '✕', tx('ዝጋ', 'Close'), () => { picker.remove(); picker = null; }));
+      picker.appendChild(head);
+      const seg = el('div', 'st-seg br-len');
+      [['word', tx('ለዚህ ቃል', 'This word') + ' · ' + S.fmtClock(Math.max(0.6, word.e - word.s), true)],
+        ['sentence', tx('ለዓረፍተ ነገሩ', 'The sentence') + ' · ' + S.fmtClock(Math.max(0.6, sentence.e - sentence.s), true)]].forEach(([v, t]) => {
+        seg.appendChild(btn(mode === v ? 'on' : '', t, '', () => { mode = v; try { saveSettings({ brollLen: v }); } catch (e) {} draw(); }));
+      });
+      picker.appendChild(seg);
+      const grid = el('div', 'br-pick-grid');
+      const ids = Object.keys(media).filter((id) => media[id].image || media[id].video);
+      ids.forEach((id) => {
+        const m = media[id];
+        const b = btn('br-pick-it', '', m.name, () => {
+          const r = mode === 'word' ? word : sentence;
+          picker.remove(); picker = null;
+          addBroll(id, r.s, Math.max(r.e, r.s + 0.6));
+        });
+        const th = el('span', 'br-pick-th');
+        if (m.image) { const im = el('img'); im.src = urlOf(id); th.appendChild(im); } else th.textContent = '🎬';
+        b.appendChild(th);
+        b.appendChild(el('span', 'br-pick-n', m.name));
+        grid.appendChild(b);
+      });
+      picker.appendChild(grid);
+      if (!ids.length) picker.appendChild(el('div', 'st-note', tx('ገና ፎቶ ወይም ቪዲዮ የለም — ያስገቡ።', 'No photos or videos yet — import some.')));
+      picker.appendChild(btn('st-btn br-imp', '＋ ' + tx('ፎቶ ወይም ቪዲዮ ያስገቡ', 'Import a photo or video'), '', async () => {
+        await importMedia();
+        if (picker) draw();
+      }));
+      picker.appendChild(el('div', 'st-note', tx('ወይም ፎቶ/ቪዲዮ ከ «ሚዲያ» ወደ ቃሉ ይጎትቱ።', 'Or drag a photo / video from Media onto a word.')));
+    };
+    draw();
+    picker._t = Date.now();
+    document.body.appendChild(picker);
+    const r = anchor && anchor.getBoundingClientRect ? anchor.getBoundingClientRect() : { left: 100, bottom: 100 };
+    picker.style.left = Math.max(8, Math.min(window.innerWidth - 330, r.left)) + 'px';
+    picker.style.top = Math.max(8, Math.min(window.innerHeight - 380, r.bottom + 6)) + 'px';
+  }
+  // (the press that opened it is not a press outside it)
+  document.addEventListener('mousedown', (e) => { if (picker && Date.now() - picker._t > 300 && !picker.contains(e.target)) { picker.remove(); picker = null; } });
+
   function renderOverlayInspector(o) {
     const m = media[o.m] || {};
+    const L = E.ovLook(o);
+    const setO = (props, label) => {
+      change(label || 'B-roll', () => { ovl = ovl.map((x) => (x.id === o.id ? Object.assign({}, x, props) : x)); });
+      const cur = ovl.find((x) => x.id === o.id);
+      if (cur && E.ovLook(cur).layout !== 'free') rememberBroll(cur);
+    };
     clipPane.appendChild(el('div', 'ed-cname', (m.image ? '🖼 ' : '🎞 ') + (m.name || '') + ' · ' + S.fmtClock(E.ovLen(o), true)));
+    // layout cards, each a small drawing of the frame
+    clipPane.appendChild(el('div', 'ed-sec', tx('አቀማመጥ', 'Layout')));
+    const grid = el('div', 'br-grid');
+    ['full', 'blur', 'whole', 'pip', 'top', 'bottom', 'free'].forEach((lay) => {
+      const b = btn('br-card' + (L.layout === lay ? ' on' : ''), '', BR_LAYOUTS[lay][1], () => setO({ layout: lay }));
+      const d = el('span', 'br-d br-d-' + lay);
+      d.appendChild(el('i', 'br-d-main'));
+      d.appendChild(el('i', 'br-d-pic'));
+      b.appendChild(d);
+      b.appendChild(el('b', '', BR_LAYOUTS[lay][0]));
+      grid.appendChild(b);
+    });
+    clipPane.appendChild(grid);
+    if (L.layout === 'pip') {
+      const row = el('div', 'br-pip');
+      const cg = el('div', 'br-corner');
+      ['tl', 'tr', 'bl', 'br'].forEach((c) => cg.appendChild(btn('br-cdot' + (L.corner === c ? ' on' : ''), '', '', () => setO({ corner: c }))));
+      row.appendChild(cg);
+      const right = el('div', 'br-pip-r');
+      const sz = el('div', 'st-seg');
+      [[0.28, tx('ትንሽ', 'Small')], [0.38, tx('መካከለኛ', 'Medium')], [0.48, tx('ትልቅ', 'Large')]].forEach(([v, t]) => {
+        sz.appendChild(btn(Math.abs(L.size - v) < 0.01 ? 'on' : '', t, '', () => setO({ size: v })));
+      });
+      right.appendChild(sz);
+      const bd = el('div', 'st-seg');
+      [['none', tx('ጠርዝ የለም', 'No border')], ['white', tx('ነጭ ጠርዝ', 'White')], ['black', tx('ጥቁር ጠርዝ', 'Black')]].forEach(([v, t]) => {
+        bd.appendChild(btn(L.border === v ? 'on' : '', t, '', () => setO({ border: v })));
+      });
+      right.appendChild(bd);
+      row.appendChild(right);
+      clipPane.appendChild(row);
+    }
     const slider = (label, key, min, max, step, dflt, show) => {
       const row = el('div', 'ed-row');
       row.appendChild(el('span', 'ed-lab', label));
@@ -1585,25 +1760,47 @@
       row.appendChild(r); row.appendChild(val);
       clipPane.appendChild(row);
     };
-    clipPane.appendChild(el('div', 'ed-sec', tx('ቦታና መጠን', 'Size and position')));
-    slider(tx('መጠን', 'Size'), 'scale', 0.05, 3, 0.01, 1, (v) => Math.round(v * 100) + '%');
-    slider('X', 'x', -0.6, 0.6, 0.005, 0, (v) => Math.round(v * 100));
-    slider('Y', 'y', -0.6, 0.6, 0.005, 0, (v) => Math.round(v * 100));
-    slider(tx('ግልጽነት', 'Opacity'), 'opacity', 0, 1, 0.01, 1, (v) => Math.round(v * 100) + '%');
-    const fitRow = el('div', 'st-seg ed-fit');
-    [['cover', tx('ሙላ', 'Fill')], ['contain', tx('ሙሉውን አሳይ', 'Whole')]].forEach(([f, t]) => {
-      const cur2 = o.fit || (m.image ? 'contain' : 'cover');
-      fitRow.appendChild(btn(cur2 === f ? 'on' : '', t, '', () => change('overlay', () => { ovl = ovl.map((x) => (x.id === o.id ? Object.assign({}, x, { fit: f }) : x)); })));
-    });
-    clipPane.appendChild(fitRow);
-    if (!m.image && m.audio) {
-      clipPane.appendChild(el('div', 'ed-sec', tx('ድምፅ', 'Sound')));
-      slider(tx('ድምፅ', 'Volume'), 'volume', 0, 2, 0.01, 0, (v) => (v ? Math.round(v * 100) + '%' : tx('ድምፅ የለም', 'muted')));
+    if (L.layout === 'free') {
+      slider(tx('መጠን', 'Size'), 'scale', 0.05, 3, 0.01, 1, (v) => Math.round(v * 100) + '%');
+      slider('X', 'x', -0.6, 0.6, 0.005, 0, (v) => Math.round(v * 100));
+      slider('Y', 'y', -0.6, 0.6, 0.005, 0, (v) => Math.round(v * 100));
+      const fitRow = el('div', 'st-seg ed-fit');
+      [['cover', tx('ሙላ', 'Fill')], ['contain', tx('ሙሉውን አሳይ', 'Whole')]].forEach(([f, t]) => {
+        const cur2 = o.fit || (m.image ? 'contain' : 'cover');
+        fitRow.appendChild(btn(cur2 === f ? 'on' : '', t, '', () => setO({ fit: f })));
+      });
+      clipPane.appendChild(fitRow);
     }
-    const row = el('div', 'st-row');
-    row.appendChild(btn('st-btn', tx('ወደ መጀመሪያው መልስ', 'Reset'), '', () => change('overlay', () => {
-      ovl = ovl.map((x) => (x.id === o.id ? Object.assign({}, x, { scale: 1, x: 0, y: 0, opacity: 1 }) : x));
-    })));
+    const segRow = (title, map, cur, key) => {
+      clipPane.appendChild(el('div', 'ed-sec', title));
+      const s2 = el('div', 'br-chips');
+      Object.keys(map).forEach((v) => s2.appendChild(btn('br-chip' + (cur === v ? ' on' : ''), map[v], '', () => setO({ [key]: v }))));
+      clipPane.appendChild(s2);
+    };
+    segRow(tx('ሲገባ', 'Comes in'), BR_IN, L.ain, 'ain');
+    segRow(tx('ሲወጣ', 'Goes out'), BR_OUT, L.aout, 'aout');
+    clipPane.appendChild(el('div', 'ed-sec', tx('የአገባብ ፍጥነት', 'In / out speed')));
+    const sp = el('div', 'st-seg');
+    [[0.2, tx('ፈጣን', 'Fast')], [0.35, tx('መደበኛ', 'Normal')], [0.7, tx('ቀስ', 'Slow')]].forEach(([v, t]) => sp.appendChild(btn(Math.abs(L.ad - v) < 0.01 ? 'on' : '', t, '', () => setO({ ad: v }))));
+    clipPane.appendChild(sp);
+    segRow(tx('እንቅስቃሴ በውስጡ', 'Motion inside'), BR_MOT, L.mot, 'mot');
+    clipPane.appendChild(el('div', 'ed-sec', tx('ግልጽነትና ድምፅ', 'Opacity and sound')));
+    slider(tx('ግልጽነት', 'Opacity'), 'opacity', 0, 1, 0.01, 1, (v) => Math.round(v * 100) + '%');
+    if (!m.image && m.audio) slider(tx('ድምፅ', 'Volume'), 'volume', 0, 2, 0.01, 0, (v) => (v ? Math.round(v * 100) + '%' : tx('ድምፅ የለም', 'muted')));
+    const row = el('div', 'st-row br-acts');
+    row.appendChild(btn('st-btn primary', '▶ ' + tx('አሳይ', 'Preview'), '', () => {
+      const z = ovl.find((x) => x.id === o.id) || o;
+      seek(Math.max(0, z.start - 0.5)); play();
+      const end = E.ovEnd(z) + 0.6;
+      const stop = () => { if (time() >= end) pause(); else if (playing) requestAnimationFrame(stop); };
+      requestAnimationFrame(stop);
+    }));
+    row.appendChild(btn('st-btn', tx('ይህን መልክ ለሁሉም B-roll', 'This look for all B-roll'), '', () => {
+      const z = ovl.find((x) => x.id === o.id) || o;
+      const look = {};
+      LOOK_KEYS.forEach((k) => { if (z[k] != null) look[k] = z[k]; });
+      change('B-roll all', () => { ovl = ovl.map((x) => (E.ovLook(x).layout === 'free' && x.id !== z.id ? x : Object.assign({}, x, look))); });
+    }));
     row.appendChild(btn('st-btn', '⤓ ' + tx('ወደ ማጫወቻው', 'To playhead'), tx('እዚህ እንዲጀምር', 'Start it here'), () => change('move overlay', () => { ovl = E.ovMove(ovl, o.id, time()); })));
     row.appendChild(btn('st-btn', '🗑 ' + tx('ሰርዝ', 'Delete'), '', deleteSel));
     clipPane.appendChild(row);
@@ -2007,6 +2204,6 @@
   ST.attachEditor({ draw, drawSoon, seek, duration: total, peaks: editPeaks, open, shown, saveState, loadState, exportVideo, format: () => fmt,
     queueExports, stopExport, clearDone, detectGpu, gpuName: (e) => GPU_NAMES[e] || '', queue: () => QUEUE, onQueue: (f) => qWatch.push(f),
     setFormat: (f) => { if (f !== fmt) change('format', () => { fmt = f; }); } });
-  window.__amhEditor = { renderJob, snapshot, state: () => ({ clips, ovl, txt, mus, snd, zm, media, SRC, fmt, sel, built }), addOverlay, addText, addZoom, autoZooms, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, moveRange, total, redo,
+  window.__amhEditor = { renderJob, snapshot, state: () => ({ clips, ovl, txt, mus, snd, zm, media, SRC, fmt, sel, built }), addOverlay, addText, addZoom, autoZooms, addBroll, brollPicker, addMedia, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, moveRange, total, redo,
     select: (id) => { sel = id; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, render, exportVideo, frame, setFormat: (f) => change('format', () => { fmt = f; }) };
 })();
