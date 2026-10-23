@@ -321,12 +321,12 @@ def _apply_layout(script, style, width, height, o):
                 f[18], f[21] = "8", str(round(h * 0.08))
             elif pos == "safe":
                 f[18], f[21] = "2", str(round(h * (0.30 if portrait else 0.16)))
-            if o["box"] and style not in NO_BOX:
+            if o["box"] and style not in NO_BOX and style not in TEMPLATES:
                 size = float(f[2])
                 f[15], f[5], f[16], f[17] = "3", "&H40000000", "%.1f" % (size * 0.28), "0"
             line = "Style: " + ",".join(f)
         elif line.startswith("Dialogue") and "\\pos(" in line and (pos != "bottom" or y is not None) \
-                and style not in SELF_PLACED:
+                and style not in SELF_PLACED and style not in TEMPLATES:
             py = y if y is not None else {"middle": 0.50, "top": 0.18, "safe": 0.62 if portrait else 0.70}[pos]
             line = re.sub(r"\\pos\((\d+),\d+\)", lambda m: "\\pos(%s,%d)" % (m.group(1), round(h * py)), line, count=1)
         out.append(line)
@@ -342,6 +342,15 @@ def caption_bottom(script, style, width, height, o):
     h = float(height)
     portrait = height > width
     pos = o["pos"]
+    if style in TEMPLATES:
+        look = template(style)
+        size, _font = _tpl_size(look, width, height, o)
+        for line in script.split("\n"):
+            if line.startswith("Style: S,"):
+                size = float(line[7:].split(",")[2])     # the font the editor picked
+                break
+        _cx, cy = _tpl_pos(size, width, height, o, 0.24 if portrait else 0.10)
+        return min(0.99, (cy + size * 0.62) / h)
     if style in SELF_PLACED:
         return {"bottom": 1 - (0.24 if portrait else 0.10), "safe": 1 - (0.30 if portrait else 0.16),
                 "middle": 0.54, "top": 0.15}[pos]
@@ -423,6 +432,8 @@ def build(words, style, width, height, font=FONT, opts=None):
     """The ASS script for `words` [(text, start, end)] in `style`, for a
     frame of width x height (sizes scale with the frame), customized by
     `opts` (see options())."""
+    if style in TEMPLATES:
+        return _build_template(words, style, width, height, font, opts)
     if style not in STYLES:
         raise ValueError("unknown style: %s" % style)
     o = options(opts)
@@ -654,6 +665,30 @@ def build(words, style, width, height, font=FONT, opts=None):
             script = script.replace(c, o["color"])
     if o["text"]:
         script = script.replace(WHITE, o["text"])
+    script = _apply_layout(script, style, width, height, o)
+    return script.replace("[Events]\n", "; amh-bottom: %.4f\n[Events]\n" % caption_bottom(script, style, width, height, o), 1)
+
+
+def _build_template(words, style, width, height, font=FONT, opts=None):
+    """The ASS script for a caption template - a professional look that is
+    drawn by one code for every template (see TEMPLATES)."""
+    look = template(style)
+    # the editor's own font wins over the template's (the panel starts a
+    # template on the font it came with)
+    raw_font = (opts or {}).get("font")
+    if raw_font in FONTS:
+        look = dict(look)
+        look["font"] = raw_font
+    o = options(opts)
+    ws = _mark_emphasis([(_clean(w[0]), float(w[1]), float(w[2])) for w in words if _clean(w[0])], o["emph"])
+    lines, st = _tpl_script(ws, look, width, height, o)
+    if o["lines"] == 2 and look["mode"] in ("line", "reveal") and int(look.get("rows") or 1) < 2:
+        lines = [_two_lines(x) for x in lines]
+    anim = o["anim"] if o["anim"] != "auto" else look["anim"]
+    lines = _entrances(lines, anim, st, width, height)
+    if o["anim"] in LETTER_ANIMS:
+        lines = _letters(lines, o["anim"])
+    script = _header(width, height, st) + "\n".join(_smooth_fades(lines)) + "\n"
     script = _apply_layout(script, style, width, height, o)
     return script.replace("[Events]\n", "; amh-bottom: %.4f\n[Events]\n" % caption_bottom(script, style, width, height, o), 1)
 
@@ -1103,6 +1138,527 @@ def _modern(words, style, width, height, font, K, NW, o):
                 lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,{\\an5\\pos(%d,%d)\\fad(90,90)}{%s}%s%s" % (
                     _ts(ws), _ts(e), round(cx), round(cy), spring, col, w[0]))
     return lines, st
+
+
+# ── Caption templates (1.66): professional looks, fully customizable ─────────
+# A template is a look made of numbers: the font, the colours, the outline, the
+# shadow, the glow, the box, the gradient and how the spoken word is marked.
+# One drawing code draws every template, so a look is DATA - the editor can
+# change it, save it under a name and share it as a file.
+#
+# mode: line   the phrase on one line, the spoken word marked
+#       word   one word at a time, big
+#       reveal the phrase is placed at once, each word appears when it is said
+#       chip   every word in its own rounded box
+#       arch   the words follow an upward curve
+# hl:   none | colour | fill | box   (how the spoken word is marked)
+TEMPLATE_DEFAULT = {
+    "font": "sans",
+    "size": 1.0,          # text size (1.0 = the size of the older styles)
+    "upper": False,       # ALL CAPS
+    "spacing": 0.0,       # letter spacing (x the font size)
+    "text": "#FFFFFF",    # text colour
+    "accent": "#FFD400",  # the colour of the spoken word
+    "outline": "#000000",
+    "outline_w": 0.0,     # outline width (x the font size)
+    "shadow": "#000000",
+    "shadow_w": 0.0,      # shadow depth (x the font size)
+    "glow": "",           # glow colour ("" = no glow)
+    "glow_w": 0.0,        # glow width (x the font size)
+    "box": "",            # box colour ("" = no box)
+    "box_a": 0.6,         # box opacity (0-1)
+    "box_pad": 0.22,      # box padding (x the font size)
+    "box_r": 0.0,         # box corner radius (x the font size; 0 = square)
+    "grad_a": "",         # gradient start colour ("" = no gradient)
+    "grad_b": "",         # gradient end colour
+    "words": 3,           # words per caption
+    "align": "center",    # center | left | right
+    "hl": "colour",       # how the spoken word is marked
+    "anim": "auto",       # entrance animation
+    "mode": "line",
+    "arc": 13.0,          # arch: degrees per word
+    "bold": True,
+    "rows": 1,            # 2 = the phrase may stack on two animated lines
+    "wrap": 0.86,         # the widest a line may be (x the frame width)
+    "line_gap": 1.14,     # distance between stacked lines (x the font size)
+    "stagger": 0.09,      # seconds between the lines' entrances
+    "exit": 0,            # fade-out of each line (ms; 0 = none)
+}
+
+# The built-in templates. Names are what the editor sees (Amharic in i18n.js).
+TEMPLATES = {
+    "modern": {"name": "Modern", "look": {
+        "font": "yebse", "size": 1.05, "text": "#FFFFFF", "accent": "#FFFFFF",
+        "outline": "#000000", "outline_w": 0.055, "hl": "none", "mode": "reveal",
+        "words": 3, "anim": "fade"}},
+    "boldpop": {"name": "Bold Pop", "look": {
+        "font": "yebse", "size": 1.10, "upper": True, "text": "#FFFFFF", "accent": "#FFD400",
+        "outline": "#000000", "outline_w": 0.075, "shadow": "#000000", "shadow_w": 0.05,
+        "hl": "colour", "mode": "line", "words": 2, "anim": "pop"}},
+    "creator": {"name": "Creator", "look": {
+        "font": "yebse", "size": 1.00, "upper": True, "text": "#FFFFFF", "accent": "#F7C204",
+        "outline": "#000000", "outline_w": 0.06, "shadow": "#000000", "shadow_w": 0.045,
+        "hl": "colour", "mode": "line", "words": 3, "anim": "pop"}},
+    "comic": {"name": "Comic", "look": {
+        "font": "washra", "size": 1.15, "upper": True, "text": "#FFE000", "accent": "#FF3B30",
+        "outline": "#000000", "outline_w": 0.11, "shadow": "#000000", "shadow_w": 0.06,
+        "hl": "colour", "mode": "line", "words": 2, "anim": "pop"}},
+    "gradient": {"name": "Gradient", "look": {
+        "font": "sans", "size": 1.05, "text": "#FFFFFF", "accent": "#FFFFFF",
+        "grad_a": "#FF7A00", "grad_b": "#FF2D95",
+        "outline": "#000000", "outline_w": 0.05, "shadow": "#000000", "shadow_w": 0.03,
+        "hl": "colour", "mode": "line", "words": 3, "anim": "pop"}},
+    "neonglow": {"name": "Neon Glow", "look": {
+        "font": "sans", "size": 1.00, "text": "#FFFFFF", "accent": "#00E5FF",
+        "outline": "#00E5FF", "outline_w": 0.025, "glow": "#00E5FF", "glow_w": 0.30,
+        "hl": "colour", "mode": "line", "words": 3, "anim": "fade"}},
+    "glass": {"name": "Glass Box", "look": {
+        "font": "sans", "size": 0.95, "text": "#FFFFFF", "accent": "#7DD3FC",
+        "box": "#0B0F1A", "box_a": 0.62, "box_r": 0.30,
+        "hl": "colour", "mode": "line", "words": 3, "anim": "fade"}},
+    "subtitle": {"name": "Subtitle", "look": {
+        "font": "sans", "size": 0.90, "text": "#FFFFFF", "accent": "#FFD400",
+        "box": "#000000", "box_a": 0.72, "box_r": 0.0,
+        "hl": "colour", "mode": "line", "words": 4, "anim": "fade"}},
+    "arch": {"name": "Arch", "look": {
+        "font": "yebse", "size": 1.15, "text": "#FFFFFF", "accent": "#FFD400",
+        "outline": "#000000", "outline_w": 0.065, "shadow": "#000000", "shadow_w": 0.04,
+        "hl": "colour", "mode": "arch", "arc": 13.0, "words": 3, "anim": "pop"}},
+    "editorial": {"name": "Editorial", "look": {
+        "font": "serif", "size": 0.80, "upper": True, "spacing": 0.08,
+        "text": "#F2F2F2", "accent": "#E8C36A", "shadow": "#000000", "shadow_w": 0.03,
+        "hl": "colour", "mode": "reveal", "words": 5, "anim": "fade"}},
+    "chips": {"name": "Chips", "look": {
+        "font": "sans", "size": 0.95, "text": "#FFFFFF", "accent": "#7C3AED",
+        "box": "#161A26", "box_a": 0.88, "box_r": 0.30,
+        "hl": "colour", "mode": "chip", "words": 3, "anim": "pop"}},
+    "paperink": {"name": "Paper", "look": {
+        "font": "serif", "size": 0.85, "text": "#14141A", "accent": "#B3261E",
+        "box": "#FFFFFF", "box_a": 0.94, "box_r": 0.12,
+        "hl": "colour", "mode": "line", "words": 4, "anim": "fade"}},
+    "story": {"name": "Story", "look": {
+        "font": "jiret", "size": 0.95, "text": "#FFB347", "accent": "#FFE0B2",
+        "hl": "colour", "mode": "line", "words": 4, "anim": "fade"}},
+    "duo": {"name": "Two Line", "look": {
+        "font": "yebse", "size": 1.02, "text": "#FFFFFF", "accent": "#FFD84D",
+        "outline": "#000000", "outline_w": 0.075, "shadow": "#000000", "shadow_w": 0.045,
+        "hl": "colour", "mode": "line", "words": 5, "rows": 2, "anim": "slide",
+        "wrap": 0.72, "line_gap": 1.16, "stagger": 0.09, "exit": 90}},
+}
+
+
+def template(tid):
+    """A template's look with the defaults filled in (None for an unknown id)."""
+    t = TEMPLATES.get(tid)
+    if not t:
+        return None
+    look = dict(TEMPLATE_DEFAULT)
+    look.update(t.get("look") or {})
+    look["id"] = tid
+    look["name"] = t.get("name") or tid
+    return look
+
+
+def template_ids():
+    """The built-in template ids (the panel lists them next to the styles)."""
+    return tuple(TEMPLATES.keys())
+
+
+def _hex_rgb(h):
+    m = re.match(r"^#?([0-9a-fA-F]{6})$", str(h or ""))
+    if not m:
+        return None
+    v = m.group(1)
+    return (int(v[0:2], 16), int(v[2:4], 16), int(v[4:6], 16))
+
+
+def _mix(a, b, t):
+    """Two colours mixed (t = 0 -> a, 1 -> b)."""
+    ca, cb = _hex_rgb(a), _hex_rgb(b)
+    if not ca or not cb:
+        return a
+    t = max(0.0, min(1.0, float(t)))
+    return "#%02X%02X%02X" % tuple(int(round(ca[i] + (cb[i] - ca[i]) * t)) for i in range(3))
+
+
+def _ass_color_a(hexrgb, opacity, default=None):
+    """'#RRGGBB' with an opacity (0-1) -> ASS '&H<alpha>BBGGRR'."""
+    rgb = _hex_rgb(hexrgb)
+    if not rgb:
+        return default
+    a = int(round((1.0 - max(0.0, min(1.0, float(opacity)))) * 255))
+    return "&H%02X%02X%02X%02X" % (a, rgb[2], rgb[1], rgb[0])
+
+
+def _ass_hex(col):
+    """An ASS colour ('&H00BBGGRR') back to '#RRGGBB' (the editor's colours are
+    already ASS colours - see options())."""
+    m = re.match(r"^&H([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$", str(col or ""))
+    if not m:
+        return ""
+    return "#%s%s%s" % (m.group(4), m.group(3), m.group(2))
+
+
+def _tpl_width(txts, font, size, look):
+    """How wide the phrase is on the screen (the metrics of the font)."""
+    sp = _text_w(" ", font, size) + size * look["spacing"]
+    w = 0.0
+    for x in txts:
+        x = x.lstrip(EM)
+        w += _text_w(x, font, size) + len(x) * size * look["spacing"]
+    return w + sp * max(0, len(txts) - 1)
+
+
+def _tpl_pos(size, width, height, o, bottom):
+    """Where the caption block sits: (centre x, centre y)."""
+    h = float(height)
+    portrait = height > width
+    block_h = size * 1.18
+    if o.get("y") is not None:
+        top = h * o["y"] - block_h
+    elif o["pos"] == "middle":
+        top = h / 2 - block_h / 2
+    elif o["pos"] == "top":
+        top = h * 0.08
+    elif o["pos"] == "safe":
+        top = h - h * (0.30 if portrait else 0.16) - block_h
+    else:
+        top = h - h * bottom - block_h
+    return width / 2.0, top + block_h / 2
+
+
+def _tpl_words(txts, look, tcol_a, acol_a, spoken=None):
+    """The phrase in pieces: [[(colour, text, bigger)]] - one list per word.
+    A gradient gives every letter its own colour, the spoken word and the
+    *marked* words are in the accent colour."""
+    ga, gb = look.get("grad_a"), look.get("grad_b")
+    grad = bool(ga and gb)
+    total = sum(len(x.lstrip(EM)) for x in txts) or 1
+    out = []
+    pos = 0
+    for j, x in enumerate(txts):
+        emph = x.startswith(EM)
+        word = x.lstrip(EM)
+        if look["upper"]:
+            word = word.upper()
+        if j == spoken or emph:
+            out.append([(acol_a, word, emph)])
+            pos += len(word)
+            continue
+        if grad:
+            pieces = []
+            for ch in word:
+                pieces.append((_ass_color(_mix(ga, gb, pos / float(max(1, total - 1))), tcol_a), ch, False))
+                pos += 1
+            out.append(pieces)
+        else:
+            out.append([(tcol_a, word, False)])
+            pos += len(word)
+    return out
+
+
+def _tpl_text(pieces):
+    """The phrase's text with its colour tags."""
+    out = []
+    last = None
+    for i, word in enumerate(pieces):
+        if i:
+            out.append(" ")
+        for col, txt, big in word:
+            if col != last:
+                out.append("{\\1c%s&}" % col)
+                last = col
+            if big:
+                out.append("{\\fscx%d\\fscy%d}" % (EMPH_SCALE, EMPH_SCALE))
+            out.append(txt)
+            if big:
+                out.append("{\\fscx100\\fscy100}")
+    return "".join(out)
+
+
+def _tpl_arch(txts, font, size, width, height, o, look, bottom):
+    """The words on an upward curve: (centre x, centre y, width, turn)."""
+    n = len(txts)
+    ws = [_text_w(x.lstrip(EM), font, size) for x in txts]
+    sp = _text_w(" ", font, size)
+    total = sum(ws) + sp * (n - 1)
+    step = math.radians(max(1.0, float(look["arc"])))
+    R = (total / float(max(1, n - 1))) / step if n > 1 else 1e6
+    cx, cy = _tpl_pos(size, width, height, o, bottom)
+    out = []
+    for i in range(n):
+        a = (i - (n - 1) / 2.0) * step
+        out.append((cx + R * math.sin(a), cy - R * (1 - math.cos(a)), ws[i], -math.degrees(a)))
+    return out
+
+
+def _tpl_size(look, width, height, o):
+    """The font size of a template (the font's own scale and the editor's size
+    slider included) and the font it uses."""
+    h = float(height)
+    portrait = height > width
+    fid = look["font"] if look["font"] in FONTS else "sans"
+    font = FONTS[fid]
+    K = o["k"] * float((_face(font) or {}).get("scale", 1.0))
+    size = max(8, int(round(K * h * (0.050 if portrait else 0.060) * look["size"])))
+    return size, font
+
+
+# Words that must not start a new line (conjunctions) and words that must not
+# end one (prepositions/particles that belong to the word after them) - the
+# same idea as the BBC and Netflix line-break rules, for Amharic.
+_L_NO_START = {"እና", "ግን", "ወይም", "አሊያም", "እንዲሁም", "ስለዚህ", "ስለሆነም",
+               "ምክንያቱም", "ወይስ", "በመሆኑም", "እንደነዚህ"}
+_L_NO_END = {"በ", "ለ", "የ", "ከ", "ስለ", "እንደ", "ወደ", "ጋር", "ውስጥ", "ላይ", "በኩል"}
+
+
+def _tpl_rows(txts, font, size, look, max_w):
+    """The phrase's words on one line, or on two when they do not fit: the
+    break goes to the most balanced point that is also a natural one (never
+    before a conjunction, never after a preposition, no one-word last line)."""
+    n = len(txts)
+    if n < 2 or int(look.get("rows") or 1) < 2:
+        return [list(range(n))]
+    if _tpl_width(txts, font, size, look) <= max_w:
+        return [list(range(n))]
+    best, best_cost = None, None
+    for k in range(1, n):
+        wl = _tpl_width(txts[:k], font, size, look)
+        wr = _tpl_width(txts[k:], font, size, look)
+        if wl > max_w or wr > max_w:
+            continue
+        cost = abs(wl - wr) / float(max_w)
+        if len(txts) - k == 1 and n > 2:
+            cost += 0.60                                   # an orphan word
+        if txts[k].lstrip(EM) in _L_NO_START:
+            cost += 0.35
+        if txts[k - 1].lstrip(EM) in _L_NO_END:
+            cost += 0.25
+        if best_cost is None or cost < best_cost:
+            best, best_cost = k, cost
+    if best is None:                                       # nothing fits: the narrowest blocks
+        best = min(range(1, n), key=lambda k: max(
+            _tpl_width(txts[:k], font, size, look), _tpl_width(txts[k:], font, size, look)))
+    return [list(range(best)), list(range(best, n))]
+
+
+def _tpl_row_y(cy, n, lh, o):
+    """The centre y of each line: a block grows upwards from its bottom line
+    (subtitles), downwards from the top, and stays centred in the middle."""
+    if n < 2:
+        return [cy]
+    y = o.get("y")
+    if o["pos"] == "middle":
+        return [cy + (i - (n - 1) / 2.0) * lh for i in range(n)]
+    if o["pos"] == "top" or (y is not None and y < 0.5):
+        return [cy + i * lh for i in range(n)]
+    return [cy - (n - 1 - i) * lh for i in range(n)]
+
+
+def _row_text(pieces, row, acol_a, spoken=None):
+    """One line's text: only its own words; the spoken word in the accent."""
+    out = []
+    for i in row:
+        w = pieces[i]
+        if i == spoken:
+            out.append([(acol_a, "".join(p[1] for p in w), False)])
+        else:
+            out.append(w)
+    return _tpl_text(out)
+
+
+def _row_spans(row, g, e, shown):
+    """(from, to, spoken word or None) for one line: the spoken word lights up
+    while it is said; before its first word and after its last the line stays
+    plain, so the reader can already read ahead."""
+    n = len(g)
+    a, b = row[0], row[-1]
+    out = []
+    if g[a][1] > shown + 0.001:
+        out.append((shown, g[a][1], None))
+    for i in row:
+        st = max(g[i][1], shown)
+        en = g[i + 1][1] if i + 1 < n else e
+        if en - st > 0.01:
+            out.append((st, en, i))
+    if b < n - 1:
+        out.append((max(g[b + 1][1], shown), e, None))
+    merged = []
+    for st, en, sp in out:
+        if en - st <= 0.01:
+            continue
+        if merged and sp is None and merged[-1][2] is None and abs(merged[-1][1] - st) < 0.002:
+            merged[-1] = (merged[-1][0], en, None)
+        else:
+            merged.append((st, en, sp))
+    return merged
+
+
+def _tpl_script(words, look, width, height, o):
+    """Draw a caption template. Returns (dialogue lines, style lines)."""
+    h = float(height)
+    portrait = height > width
+    size, font = _tpl_size(look, width, height, o)
+    # a very long word must still fit the frame: then everything gets smaller
+    widest = max([_tpl_width([w[0].lstrip(EM)], font, size, look) for w in words] + [1])
+    if widest > width * 0.86:
+        size = max(8, int(size * width * 0.86 / widest))
+    tcol = look["text"]
+    acol = look["accent"]
+    tcol_a = o["text"] or _ass_color(tcol, WHITE)
+    acol_a = o["color"] or _ass_color(acol, YELLOW)
+    acol_hex = _ass_hex(acol_a) or acol
+    bord = size * look["outline_w"]
+    shad = size * look["shadow_w"]
+    spc = size * look["spacing"]
+    align = {"center": 2, "left": 1, "right": 3}.get(look["align"], 2)
+    ml = mr = round(width * 0.06)
+    mv = round(h * (0.24 if portrait else 0.10))
+    bold = -1 if look["bold"] else 0
+    styles = ["Style: S,%s,%d,%s,%s,%s,%s,%d,0,0,0,100,100,%.1f,0,1,%.1f,%.1f,%d,%d,%d,%d,1" % (
+        font, size, tcol_a, acol_a, _ass_color(look["outline"], BLACK), _ass_color(look["shadow"], BLACK),
+        bold, spc, bord, shad, align, ml, mr, mv)]
+    if look["glow"]:
+        styles.append("Style: G,%s,%d,&HFF000000,&HFF000000,%s,&H00000000,%d,0,0,0,100,100,%.1f,0,1,%.1f,0,%d,%d,%d,%d,1" % (
+            font, size, _ass_color(look["glow"], CYAN), bold, spc, size * look["glow_w"], align, ml, mr, mv))
+    box_col = look["box"] or ("#000000" if o["box"] else "")
+    if box_col:
+        bc = _ass_color_a(box_col, look["box_a"], BLACK)
+        styles.append("Style: B,%s,%d,%s,%s,%s,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1" % (
+            font, size, bc, bc, bc))
+        if look["mode"] == "chip":
+            ac = _ass_color_a(acol_hex, 1.0, BLACK)
+            styles.append("Style: C,%s,%d,%s,%s,%s,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1" % (
+                font, size, ac, ac, ac))
+    mode = look["mode"]
+    NW = 1 if mode == "word" else (o["words"] or look["words"])
+    groups = _phrases(words, NW, o)
+    bottom = 0.24 if portrait else 0.10
+    lines = []
+    for g, (s0, e) in zip(groups, _spans(groups)):
+        txts = [w[0] for w in g]
+        if mode == "line":
+            cx, cy = _tpl_pos(size, width, height, o, bottom)
+            rows = _tpl_rows(txts, font, size, look, width * float(look["wrap"]))
+            nrows = len(rows)
+            lh = size * float(look["line_gap"])
+            ys = _tpl_row_y(cy, nrows, lh, o)
+            exit_ms = int(look["exit"] or 0)
+            stagger = float(look["stagger"] or 0.0) if nrows > 1 else 0.0
+            fade = ("\\fad(0,%d)" % exit_ms) if exit_ms > 0 else ""
+            if box_col:
+                pad = size * look["box_pad"]
+                bw = max(_tpl_width([txts[i] for i in r], font, size, look) for r in rows) + 2 * pad
+                bh = (nrows - 1) * lh + size * 1.24 + 2 * pad
+                by = (min(ys) + max(ys)) / 2.0
+                lines.append("Dialogue: 0,%s,%s,B,,0,0,0,,%s{\\an7\\pos(%d,%d)\\bord0\\shad0%s\\p1}%s" % (
+                    _ts(s0), _ts(e), IN, round(cx - bw / 2), round(by - bh / 2), fade,
+                    _pill(bw, bh, size * look["box_r"])))
+            if look["hl"] == "fill" and nrows == 1:
+                # one line for the whole phrase: \kf sweeps the colour across
+                parts, t = [], s0
+                for w, x in zip(g, txts):
+                    lead = max(0.0, w[1] - t)
+                    if lead >= 0.01:
+                        parts.append("{\\k%d}" % round(lead * 100))
+                    parts.append("{\\kf%d}%s " % (max(1, round((w[2] - w[1]) * 100)), x.lstrip(EM)))
+                    t = w[2]
+                body = "".join(parts).strip()
+                lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s{\\an5\\pos(%d,%d)}%s" % (
+                    _ts(s0), _ts(e), IN, round(cx), round(cy), body))
+                continue
+            pieces = _tpl_words(txts, look, tcol_a, acol_a)
+            for r, row in enumerate(rows):
+                y = round(ys[r])
+                shown = s0 + stagger * r
+                if shown > e - 0.05:                  # a very short cue: no room to stagger
+                    shown, y = s0, round(cy)
+                pos = "{\\an5\\pos(%d,%d)%s}" % (round(cx), y, fade)
+                if look["hl"] == "none":
+                    lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s%s" % (
+                        _ts(shown), _ts(e), IN + pos, "", _row_text(pieces, row, acol_a)))
+                    continue
+                # the spoken word is marked: the lines are drawn again per word
+                for st, en, spoken in _row_spans(row, g, e, shown):
+                    body = _row_text(pieces, row, acol_a, spoken)
+                    lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s%s" % (
+                        _ts(st), _ts(en),
+                        (IN + pos) if st <= shown + 0.001 else (_cont(st - shown) + pos), "", body))
+        elif mode == "reveal":
+            cx, cy = _tpl_pos(size, width, height, o, bottom)
+            parts = []
+            for w, x in zip(g, txts):
+                t = max(0, int(round((w[1] - s0) * 1000)))
+                parts.append("{\\alpha&HFF&\\t(%d,%d,\\alpha&H00&)}%s" % (t, t + 140, x.lstrip(EM)))
+            lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s{\\an5\\pos(%d,%d)\\fad(0,90)}%s" % (
+                _ts(s0), _ts(e), IN, round(cx), round(cy), " ".join(parts)))
+        elif mode == "word":
+            cx, cy = _tpl_pos(size, width, height, o, bottom)
+            for i, w in enumerate(g):
+                x = w[0]
+                big = x.startswith(EM)
+                col = acol_a if big else tcol_a
+                tag = "{\\1c%s&}" % col
+                if big:
+                    tag += "{\\fscx%d\\fscy%d}" % (EMPH_SCALE, EMPH_SCALE)
+                anim = ("{\\fad(90,70)\\fscx78\\fscy78\\t(0,200,0.6,\\fscx104\\fscy104)"
+                        "\\t(200,300,1.4,\\fscx100\\fscy100)}")
+                lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s{\\an5\\pos(%d,%d)}%s%s%s" % (
+                    _ts(s0), _ts(e), IN + anim, round(cx), round(cy), tag, x.lstrip(EM),
+                    "{\\fscx100\\fscy100}" if big else ""))
+        elif mode == "chip":
+            places = _place(txts, font, size, width, height, o, bottom, gap=0.9)
+            pad = size * look["box_pad"]
+            for i, x in enumerate(txts):
+                cx, cy, tw = places[i]
+                pw = tw + 2 * pad
+                ph = size * 1.10
+                lines.append("Dialogue: 0,%s,%s,B,,0,0,0,,%s{\\an7\\pos(%d,%d)\\bord0\\shad0\\fad(110,80)\\p1}%s" % (
+                    _ts(s0), _ts(e), IN if i == 0 else _cont(0),
+                    round(cx - pw / 2), round(cy - ph / 2), _pill(pw, ph, ph * 0.32)))
+            for i, w in enumerate(g):
+                ws = s0 if i == 0 else w[1]
+                we = g[i + 1][1] if i + 1 < len(g) else e
+                if we <= ws:
+                    continue
+                cx, cy, tw = places[i]
+                pw = tw + 2 * pad
+                ph = size * 1.10
+                lines.append("Dialogue: 1,%s,%s,C,,0,0,0,,%s{\\an7\\pos(%d,%d)\\bord0\\shad0\\p1}%s" % (
+                    _ts(ws), _ts(we), _cont(ws - s0),
+                    round(cx - pw / 2), round(cy - ph / 2), _pill(pw, ph, ph * 0.32)))
+            for i, x in enumerate(txts):
+                cx, cy, tw = places[i]
+                lines.append("Dialogue: 2,%s,%s,S,,0,0,0,,%s{\\an5\\pos(%d,%d)\\fad(110,80)}%s" % (
+                    _ts(s0), _ts(e), IN if i == 0 else _cont(0), round(cx), round(cy), x.lstrip(EM)))
+        else:  # arch
+            places = _tpl_arch(txts, font, size, width, height, o, look, bottom)
+            for i, w in enumerate(g):
+                ws = s0 if i == 0 else w[1]
+                we = g[i + 1][1] if i + 1 < len(g) else e
+                if we <= ws:
+                    continue
+                cells = []
+                for j, x in enumerate(txts):
+                    cx, cy, tw, rot = places[j]
+                    col = acol_a if j == i else tcol_a
+                    cells.append("{\\1c%s&\\an5\\pos(%d,%d)\\frz%.2f}%s" % (
+                        col, round(cx), round(cy), rot, x.lstrip(EM)))
+                body = " ".join(cells)
+                lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s" % (
+                    _ts(ws), _ts(we), (IN + "{\\an5}") if i == 0 else _cont(ws - s0), body))
+    if look["glow"]:
+        # the glow layer: the same text, blurred and thick-outlined, behind the
+        # words (the same trick the neon style uses)
+        blur = size * 0.18
+        halo = []
+        for line in lines:
+            head, sep, text = line.partition(",,0,0,0,,")
+            if not sep or not head.endswith(",S"):
+                continue
+            halo.append(head[:-2] + ",G" + sep + "{\\blur%.1f}" % blur + text)
+        lines = halo + lines
+    return lines, "\n".join(styles)
 
 
 TAG_TEXT = "Amharic Captions Pro"

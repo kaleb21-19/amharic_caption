@@ -7,7 +7,7 @@ the same PR that moves or renames the code. Keep this file under ~120 lines.
 ## Panel (Premiere / After Effects, CEP) — panel/
 - `panel/js/main.js` :: `function openReview` — the review screen opens (captions list, style strip)
 - `panel/js/main.js` :: `function placeReview` — "Place on timeline": plain captions or a styled layer (falls back to plain)
-- `panel/js/main.js` :: `function renderStyleStrip` — style buttons (Plain, My styles, NEW mark, 18 styles)
+- `panel/js/main.js` :: `function renderStyleStrip` — style buttons (Plain, My styles, NEW mark, 18 styles, the Templates group)
 - `panel/js/main.js` :: `function styleOpts` — Customize options per style (colour, text, anim, font, size, pos, words, box)
 - `panel/js/main.js` :: `function renderPreview` — the caption-strip preview (runs amh_styles.py preview)
 - `panel/js/main.js` :: `function renderStyled` — spawns `amh_styles.py render` (overlay / burn / preview)
@@ -35,7 +35,10 @@ the same PR that moves or renames the code. Keep this file under ~120 lines.
 - `panel/js/main.js` :: `function syncReviewSteps` — the review step bar ① Text ② ✂ ③ 🔍 ④ 🎨 ⑤ Place (✓ per finished step)
 - `panel/js/main.js` :: `function refreshSourceLine` — the line under Source: what Generate would use, or what to do
 - `panel/js/main.js` :: `function memoryRuleFor` — which store a green word came from (🧠 machine or 👤 client)
+- `panel/js/main.js` :: `TEMPLATE_LIST` — the 13 caption templates the editor picks (1.66)
+- `panel/js/main.js` :: `TEMPLATE_FONTS` — the font each template starts on (the editor can change it)
 - `panel/js/i18n.js` :: `'NEW'` — Amharic UI strings (key = the English text)
+- `panel/js/i18n.js` :: `'Templates'` — the Amharic name of the templates group
 - `panel/index.html` :: `id="review"` — markup + all panel CSS (dark only)
 - `panel/CSXS/manifest.xml` :: `ExtensionBundleVersion` — version (bump with tools/agent/bump.py)
 - `panel/jsx/host.jsx` :: `function amharic_getSelectedClip` — which clip Generate uses (audio tracks first, then video)
@@ -64,10 +67,16 @@ the same PR that moves or renames the code. Keep this file under ~120 lines.
 - `amh_styles.py` :: `def build` — words -> ASS script for a style (+ options)
 - `amh_styles.py` :: `def options` — cleans Customize options (FONTS, ANIMS, SIZES, POSITIONS)
 - `amh_styles.py` :: `def _modern` — Glide / Spotlight / Bounce (words placed by us from metrics.json)
+- `amh_styles.py` :: `TEMPLATES` — the 14 caption templates: a look made of numbers (font, size, colours, outline, shadow, glow, box, gradient, mode, highlight, motion, rows/stagger for two-line looks)
+- `amh_styles.py` :: `def template` — a template's look with the defaults filled in (None for an unknown id)
+- `amh_styles.py` :: `def _build_template` — the ASS script for a template (one code for every template)
+- `amh_styles.py` :: `def _tpl_script` — draws one template (text, box, glow, gradient, arch, chips, the spoken word; a stacked look = one event per line)
+- `amh_styles.py` :: `def _tpl_rows` — a phrase on one line, or two when it does not fit (natural, balanced break; never one word alone)
 - `amh_styles.py` :: `def _entrances` — entrance animations (Auto keeps the style's own)
 - `amh_styles.py` :: `def _caption_band` — preview = only the caption strip (480x160)
 - `amh_styles.py` :: `def render` — ffmpeg/libass: overlay .mov (qtrle alpha), burn .mp4, preview .webp/.gif
 - `tools/fonts/make_metrics.py` :: `def main` — rebuilds tools/fonts/metrics.json after a font change (needs fontTools)
+- `tools/make_style_gallery.py` :: `def main` — renders every style + template to MP4 and writes the HTML gallery (the owner's look check); `cue_words` turns sentences into word timings, `--thumbs` writes panel/img/styles/<id>.jpg
 - `tools/fonts/metrics.json` :: `"Noto Sans Ethiopic|1"` — letter widths (shipped in runtime/fonts)
 - `panel/img/styles/glide.jpg` :: — style thumbnails 300x150 (neutral background, no third-party video)
 
@@ -95,6 +104,7 @@ the same PR that moves or renames the code. Keep this file under ~120 lines.
 - `tools/test/test_panel_dom.js` :: `4g. customize` — panel UI (needs a runtime/ junction)
 - `tools/test/test_panel_dom.js` :: `3.12 review: 👤 client words` — per-client list: beats the 🧠 rule, never in the memory, import/export
 - `tools/test/test_styles.py` :: `glide: the pill slides` — styles (real ffmpeg if AMH_FFMPEG)
+- `tools/test/test_templates.py` :: `ALL PASS` — the templates: a clean script, the editor's options, the real drawing, the panel's list in step with the engine
 - `tools/test/test_trial_texts.py` :: `ALL PASS` — the free trial is promised with ONE number everywhere (website, guide, panel, bot profile)
 - `tools/test/test_host_pick.js` :: `nothing selected` — which clip is used
 - `tools/test/test_host_overlay.js` :: — styled layer placement
