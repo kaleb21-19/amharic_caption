@@ -296,6 +296,7 @@ const AM_TEXT = {
   'Styling captions…': 'ካፕሽኑን በማስዋብ ላይ…',
   'Colour': 'ቀለም',
   'Customize': 'አስተካክል',
+  'Templates': 'ቅርጾሮች',
   'Any colour…': 'ሌላ ቀለም…',
   'Saved as': 'ተቀምጧል፦',
   'Delete': 'ሰርዝ',

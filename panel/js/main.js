@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.65.0';
+const APP_VERSION = '1.66.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -417,6 +417,18 @@ setTimeout(() => track('open'), 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.66.0': {
+    banner: {
+      am: '✨ 13 አዳዲስ የካፕሽን ቅርጾሮች — ብሩት ፖፕ፣ ግራዲየንት፣ ኒዮን ግሎ፣ መስተዋት ዳሳች እና ተመሳሳይ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '✨ 13 new caption templates — Bold Pop, gradient, neon glow, glass box and more — your license stays the same.',
+    },
+    items: [
+      { am: 'በካፕሽን አሞሌው ላይ "ቅርጾሮች" ቡድን ተጨምሯል — 13 አዳዲስ እድታ', en: 'A new "Templates" group in the style strip — 13 new looks' },
+      { am: 'ብሩት ፖፕ፣ ግራዲየንት ፊል፣ ኒዮን ግሎ፣ መስተዋት ዳሳች፣ ቋርቭ፣ አርች፣ ኤዲቶሪያል፣ ቢት፣ ጽሑፍና ታሪክ', en: 'Bold Pop, Gradient fill, Neon glow, Glass box, Arch, Editorial, Chips, Paper and Story' },
+      { am: 'እያንዳንዱም ቅርጾሮ ቀለም፣ ፊደል፣ መጠን፣ ቦታና ንግግር ሊለወጥ ይችላል', en: 'Every template lets you change the colour, font, size, place and motion' },
+      { am: 'በእያንዳንዱ ቅርጾሮ የተናገረው ቃል ብቻ ይታራል — የአማርኛ ጽሑፍ ስር ያልቀየረም', en: 'In every template only the word being spoken lights up — the Amharic text itself never changes' },
+    ],
+  },
   '1.42.0': {
     banner: {
       am: '⬇ የአማርኛ ሞዴሉ ማውረድ አሁን ሁልጊዜ ይጨርሳል — ኢንተርኔት ቢቋረጥም — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -2862,7 +2874,7 @@ function applySettings() {
   // Old settings stored a raw number; 25 or fewer meant short captions.
   FORMAT = s.format === 'v' || s.format === 'h' ? s.format : ((s.chars && s.chars <= 25) ? 'v' : 'h');
   MAX_CHARS = FORMAT_CHARS[FORMAT];
-  STYLE = STYLE_LIST.indexOf(s.style) >= 0 ? s.style : 'plain';
+  STYLE = LOOK_LIST.indexOf(s.style) >= 0 ? s.style : 'plain';
   document.querySelectorAll('#srcSeg button').forEach((b) => {
     b.classList.toggle('active', b.dataset.src === SOURCE);
   });
@@ -5778,6 +5790,24 @@ function writeReviewSrt(outDir) {
 // when this computer's ffmpeg can draw them (libass).
 const STYLE_LIST = ['plain', 'glide', 'spotlight', 'bounce', 'karaoke', 'fill', 'highlight', 'bold', 'podcast', 'reveal', 'typewriter',
   'pop', 'word', 'impact', 'neon', 'retro', 'habesha', 'cinema', 'clean'];
+// 1.66: caption templates - professional looks that the editor can change
+// (the engine has the full look: amh_styles.TEMPLATES).
+const TEMPLATE_LIST = ['modern', 'boldpop', 'creator', 'comic', 'gradient', 'neonglow', 'glass',
+  'subtitle', 'arch', 'editorial', 'chips', 'paperink', 'story'];
+const TEMPLATE_NAMES = {
+  modern: 'Modern', boldpop: 'Bold Pop', creator: 'Creator', comic: 'Comic', gradient: 'Gradient',
+  neonglow: 'Neon Glow', glass: 'Glass Box', subtitle: 'Subtitle', arch: 'Arch',
+  editorial: 'Editorial', chips: 'Chips', paperink: 'Paper', story: 'Story',
+};
+// the font each template comes with (the editor's font choice starts there)
+const TEMPLATE_FONTS = {
+  modern: 'yebse', boldpop: 'yebse', creator: 'yebse', comic: 'washra', gradient: 'sans',
+  neonglow: 'sans', glass: 'sans', subtitle: 'sans', arch: 'yebse', editorial: 'serif',
+  chips: 'sans', paperink: 'serif', story: 'jiret',
+};
+// every look the editor can pick (the old styles and the templates)
+const LOOK_LIST = STYLE_LIST.concat(TEMPLATE_LIST);
+const isTemplate = (id) => TEMPLATE_LIST.indexOf(id) >= 0;
 // the newest looks get a small NEW mark on their button
 const STYLE_NEW = [];   // 1.49: none "new" now
 const STYLE_NAMES = {
@@ -5823,7 +5853,7 @@ const MY_MAX = 20;
 function myStyles() {
   const l = loadSettings().myStyles;
   if (!Array.isArray(l)) return [];
-  return l.filter((x) => x && typeof x.name === 'string' && x.name.trim() && STYLE_LIST.indexOf(x.style) > 0 && x.id)
+  return l.filter((x) => x && typeof x.name === 'string' && x.name.trim() && LOOK_LIST.indexOf(x.style) > 0 && x.id)
     .slice(0, MY_MAX);
 }
 function sameLook(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
@@ -5901,7 +5931,7 @@ function renderStyleStrip() {
   chips.dataset.sig = sig;
   chips.textContent = '';
   const builtIn = (id) => {
-    const b = styleChip(id, STYLE_NAMES[id], id, () => {
+    const b = styleChip(id, TEMPLATE_NAMES[id] || STYLE_NAMES[id], id, () => {
       STYLE = id;
       saveSettings({ style: id });
       renderStyleStrip();
@@ -5942,6 +5972,12 @@ function renderStyleStrip() {
     chips.appendChild(b);
   });
   STYLE_LIST.slice(1).forEach(builtIn);
+  // 1.66: the templates in their own group
+  const grp = document.createElement('span');
+  grp.className = 'style-group';
+  grp.textContent = L('Templates');
+  chips.appendChild(grp);
+  TEMPLATE_LIST.forEach(builtIn);
   const note = $('styleNote');
   if (note) note.textContent = L(styleNote());
   renderStyleCustom();
@@ -6274,7 +6310,7 @@ function styleOpts(style, raw) {
     y: cleanY(o.y),
     words: STYLE_WORDS.indexOf(Number(o.words)) >= 0 ? Number(o.words) : 0,
     box: !!o.box,
-    font: STYLE_FONTS.some((f) => f[0] === o.font) ? o.font : 'sans',
+    font: STYLE_FONTS.some((f) => f[0] === o.font) ? o.font : (TEMPLATE_FONTS[style || STYLE] || 'sans'),
     anim: STYLE_ANIMS.some((a) => a[0] === o.anim) ? o.anim : 'auto',
     emph: o.emph === 'off' ? 'off' : 'auto',
     lines: Number(o.lines) === 2 ? 2 : 1,          // 1.50: two balanced lines per caption
@@ -6756,7 +6792,7 @@ async function reopenHistory(rec) {
   lastCues = rec.cues.map((c) => ({ start: Number(c.start) || 0, end: Number(c.end) || 0, text: String(c.text || '') }));
   setPreviewMedia(rec.media || []);
   STYLED_PREV = rec.placed || null;
-  if (rec.style && STYLE_LIST.indexOf(rec.style) >= 0) {
+  if (rec.style && LOOK_LIST.indexOf(rec.style) >= 0) {
     STYLE = rec.style;
     const s = { style: rec.style };
     if (rec.opts && rec.style !== 'plain') {

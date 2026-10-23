@@ -238,7 +238,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.65.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.66.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1111,7 +1111,9 @@ await t('4f. caption styles (1.11): strip, choice remembered, styled layer place
     p.evalVm('STYLE_OK = true; renderStyleStrip();');
     assert.strictEqual(p.els('styleStrip').style.display, '', 'shown when it can');
     const chips = p.els('styleChips').children;
-    assert.strictEqual(chips.length, 19, 'Plain + 18 styles');
+    // Plain + the 18 styles + the templates group + the 13 templates (1.66)
+    const wantChips = p.evalVm('STYLE_LIST.length') + 1 + p.evalVm('TEMPLATE_LIST.length');
+    assert.strictEqual(chips.length, wantChips, 'Plain + 18 styles + the templates');
     assert.strictEqual(chips[0].dataset.style, 'plain');
     assert.ok(chips[0].classList.contains('active'), 'Plain is the default');
     assert.match(p.els('styleNote').textContent, /own captions/);
@@ -1121,6 +1123,15 @@ await t('4f. caption styles (1.11): strip, choice remembered, styled layer place
     assert.ok(kar.classList.contains('active') && !chips[0].classList.contains('active'));
     assert.strictEqual(JSON.parse(storage.getItem('amh.settings')).style, 'karaoke', 'the choice is remembered');
     assert.match(p.els('styleNote').textContent, /video layer/);
+    // the templates (1.66): their own group, their own font, the choice is remembered
+    const tpl = Array.from(chips).find((b) => b.dataset.style === 'boldpop');
+    assert.ok(tpl, 'the templates are in the strip');
+    assert.strictEqual(p.evalVm('styleOpts("boldpop").font'), 'yebse', 'a template starts on its own font');
+    tpl.fire('click');
+    assert.strictEqual(p.evalVm('STYLE'), 'boldpop');
+    assert.strictEqual(JSON.parse(storage.getItem('amh.settings')).style, 'boldpop', 'the template is remembered');
+    assert.ok(tpl.classList.contains('active'), 'the template is the one in use');
+    p.evalVm('STYLE = "karaoke"; renderStyleStrip();');
 
     // styled place: render at the sequence size/rate, then on a track above
     p.evalVm('LICENSED = true; globalThis.__jobs = []; renderStyled = async (job, prog) => { __jobs.push(job); prog(0.5); ' +
@@ -1323,7 +1334,8 @@ await t('4h. My styles (1.13): save a look under a name, one click to use it aga
     const mine = () => chips().filter((b) => b.dataset.my);
     assert.strictEqual(chips()[0].dataset.style, 'plain', 'Plain first');
     assert.strictEqual(chips()[1].dataset.my, saved[0].id, 'then My styles');
-    assert.strictEqual(chips().length, 20, 'Plain + 1 saved + 18 styles: ' + chips().map((b) => b.dataset.my ? 'MY' : b.dataset.style).join(','));
+    const wantChips = 1 + 1 + (p.evalVm('STYLE_LIST.length') - 1) + 1 + p.evalVm('TEMPLATE_LIST.length');
+    assert.strictEqual(chips().length, wantChips, 'Plain + 1 saved + 18 styles + the templates: ' + chips().map((b) => b.dataset.my ? 'MY' : b.dataset.style).join(','));
     // the modern styles (1.16) come first after the saved looks; no NEW marks since 1.49
     assert.deepStrictEqual(chips().slice(2, 5).map((b) => b.dataset.style), ['glide', 'spotlight', 'bounce']);
     const isNew = (b) => b.children.some((c) => c.className === 'style-new');
