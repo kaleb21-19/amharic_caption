@@ -59,7 +59,7 @@ the same PR that moves or renames the code. Keep this file under ~120 lines.
 - `app/studio_script.js` :: `function fix` — Studio Script view: flowing text, selection bar (★ Pop · ✎ Fix · ▶ Play), word following playback
 - `app/studio_cuts.js` :: `function renderClean` — Studio ✂ Clean up: tab, preview skip, red stripes, cleaned exports (non-destructive)
 - `app/studio_edit.js` :: `function splitHere` — Studio editor: player of the edit, format canvas, multi-lane timeline, Media, Clip tab, undo/redo, export
-- `app/studio_edit_core.js` :: `function syncBack` — the edit (clips), captions that follow it (deriveCaptions/syncBack), the export graph (tests: test_edit.js); `function soundChain` — music, ducking, clean voice, loudness (1.23.0)
+- `app/studio_edit_core.js` :: `function syncBack` — the edit (clips), captions that follow it (deriveCaptions/syncBack), the export graph (tests: test_edit.js); `function soundChain` — music, ducking, clean voice, loudness (1.23.0), the sound-effect mix; `function sfxEvents` — when each sound plays (zoom, B-roll, template, transition, and captions since 1.66: `snd.cap`, one per caption, 0.35 s apart)
 - `app/studio_core.js` :: `function hitCaption` — Studio pure parts: timeline view maths, ruler, project files (tests: test_studio.js)
 - `app/amh_app.py` :: `def peaks_from_raw` — the timeline's sound wave (bridge op "peaks"; the text bridge cannot carry binary)
 

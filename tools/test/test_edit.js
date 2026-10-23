@@ -453,4 +453,57 @@ test('sound effects: come from zooms, B-roll, templates, transitions; mixed at t
   E.SFX.forEach((n) => { const st2 = require('fs').statSync(require('path').join(dir, n + '.wav')); assert.ok(st2.size > 1000 && st2.size < 200000, n); });
 });
 
+// 🔊 Caption sounds (1.66): a short sound where each caption comes in, only
+// when chosen, one per caption, quiet, and silent for crowded captions
+test('caption sounds: opt-in, one per caption, crowded ones stay quiet', () => {
+  const base = { clips: [{ id: 'a', m: 'v', in: 0, out: 10 }] };
+  const caps = (snd, cap) => E.sfxEvents(Object.assign({}, base, { snd, cap })).map((x) => x.name + '@' + x.t + 'x' + x.vol);
+  assert.deepStrictEqual(caps({ sfx: true, cap: 'tick' }, [1, 2.5, 2.6, 4]),
+    ['tick@1x0.5', 'tick@2.5x0.5', 'tick@4x0.5'], 'a caption 0.1 s later adds nothing');
+  assert.deepStrictEqual(caps({ sfx: true }, [1, 2]), [], 'off until the user picks a sound');
+  assert.deepStrictEqual(caps({ sfx: true, cap: 'none' }, [1, 2]), [], "'none' is off");
+  assert.deepStrictEqual(caps({ sfx: true, cap: 'boom' }, [1]), [], 'a sound that is not offered for captions');
+  assert.deepStrictEqual(caps({ cap: 'tick' }, [1]), [], 'all sound effects off: nothing');
+  // the caption sound goes into the export mix like every other one
+  const media = { v: { idx: 0, video: true, audio: true, w: 1920, h: 1080, dur: 10 } };
+  const g = E.editGraph([{ id: 'a', m: 'v', in: 0, out: 10 }], media, '16:9', 30, [],
+    { snd: { sfx: true }, sfx: [{ idx: 1, t: 1, vol: 0.35 }] }).graph;
+  assert.ok(/\[1:a\]aresample=48000,aformat=channel_layouts=stereo,volume=0\.35,adelay=1000\|1000,apad\[sx0\]/.test(g), g);
+  assert.ok(/\[sx0\]amix=inputs=2:duration=first:normalize=0/.test(g), 'mixed under the voice');
+});
+
+// 🔊 a real render (needs ffmpeg: AMH_FFMPEG): the caption sound is really in
+// the exported audio, at the caption's time, and the rest stays quiet
+if (process.env.AMH_FFMPEG && require('fs').existsSync(process.env.AMH_FFMPEG)) {
+  test('caption sound: really in the exported audio', () => {
+    const fs = require('fs'), os = require('os'), cp = require('child_process'), path = require('path');
+    const ff = process.env.AMH_FFMPEG;
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_sfx_'));
+    try {
+      const vid = path.join(dir, 'v.mp4');
+      cp.execFileSync(ff, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=black:s=320x180:r=25:d=4',
+        '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo', '-t', '4', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', vid],
+      { stdio: 'inherit' });
+      const sfx = path.join(__dirname, '..', '..', 'app', 'sfx', 'tick.wav');
+      const media = { v: { idx: 0, video: true, audio: true, w: 320, h: 180, dur: 4 } };
+      const g = E.editGraph([{ id: 'a', m: 'v', in: 0, out: 4 }], media, '16:9', 30, [],
+        { snd: { sfx: true }, sfx: [{ idx: 1, t: 1, vol: 0.8 }] });
+      const out = path.join(dir, 'o.mp4');
+      cp.execFileSync(ff, ['-v', 'error', '-y', '-i', vid, '-i', sfx, '-filter_complex', g.graph,
+        '-map', '[v]', '-map', '[a]', '-t', '4', '-c:v', 'libx264', '-c:a', 'aac', out], { stdio: 'inherit' });
+      const peak = (t) => {
+        const r = cp.spawnSync(ff, ['-hide_banner', '-ss', String(t), '-t', '0.12', '-i', out, '-af', 'volumedetect', '-f', 'null', '-'],
+          { encoding: 'utf8' });
+        const m = /max_volume: (-?[\d.]+) dB/.exec(r.stderr || '');
+        return m ? Number(m[1]) : null;
+      };
+      const at = peak(1.0), silent = peak(2.0);
+      assert.ok(at != null && silent != null, 'ffmpeg reported the volumes');
+      assert.ok(at > silent + 6, 'the tick is at the caption: ' + at + ' dB vs the silence ' + silent + ' dB');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+}
+
 console.log('ALL PASS  (' + passed + ' tests)');

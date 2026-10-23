@@ -1130,7 +1130,8 @@
     ST.overlays.forEach((f) => { try { f(ctx, view, w, h, { ruler: RULER, laneTop: capTop, lane: CAP }); } catch (e) {} });
     // 🔊 where each sound effect plays (on the ruler)
     if (snd.sfx) {
-      E.sfxEvents({ snd, clips, ovl, txt, zm }, total()).forEach((ev) => {
+      E.sfxEvents({ snd, clips, ovl, txt, zm, cap: capTimes() }, total()).forEach((ev) => {
+        if (ev.cap) return;                     // the caption bars already show where they are
         const x0 = S.timeToX(ev.t, view), x1 = S.timeToX(ev.t + (E.SFX_LEN[ev.name] || 0.3), view);
         if (x1 < 0 || x0 > w) return;
         ctx.fillStyle = 'rgba(255,196,0,.85)';
@@ -2057,6 +2058,15 @@
   const soundPane = el('div', 'ed-clip ed-sound');
   ST.addTab('sound', () => '🔊 ' + tx('ድምፅ', 'Sound'), soundPane);
   // ── 🔊 Sound effects (1.65): heard while playing, mixed into the export ──
+  // 🔊 caption sounds (1.66): where the captions actually enter, in edit time.
+  // Nothing when no caption style is drawn - there is nothing to hear then.
+  function capTimes() {
+    if (typeof STYLE === 'undefined' || STYLE === 'plain' || !STYLE_OK) return [];
+    return (((typeof reviewCues !== 'undefined' && reviewCues) || []))
+      .filter((c) => String(c.text || '').trim())
+      .map((c) => Number(c.start) || 0)
+      .sort((a, b) => a - b);
+  }
   const sfxFile = (name) => path.join(((window.__AMH_APP__ || {}).appdir) || '', 'sfx', name + '.wav');
   const SFXURL = {};
   const sfxUrl = (name) => { if (!SFXURL[name]) { try { SFXURL[name] = APP.call('media', [sfxFile(name)]); } catch (e) { SFXURL[name] = ''; } } return SFXURL[name]; };
@@ -2072,7 +2082,7 @@
     if (!playing || !snd.sfx) { sfxLastT = t; return; }
     if (t < sfxLastT || t - sfxLastT > 0.5) { sfxLastT = t; return; }        // a seek: nothing plays
     const vol = snd.sfxVol == null ? 0.7 : Number(snd.sfxVol);
-    E.sfxEvents({ snd, clips, ovl, txt, zm }, total()).forEach((ev) => { if (ev.t > sfxLastT && ev.t <= t) sfxPlay(ev.name, vol * ev.vol); });
+    E.sfxEvents({ snd, clips, ovl, txt, zm, cap: capTimes() }, total()).forEach((ev) => { if (ev.t > sfxLastT && ev.t <= t) sfxPlay(ev.name, vol * ev.vol); });
     sfxLastT = t;
   }
   // ⚙: an item's own sound (Auto = the Studio's choice for it)
@@ -2118,9 +2128,22 @@
       r.addEventListener('change', () => { change('sound', () => { snd = Object.assign({}, snd, { sfxVol: Number(r.value) }); }); sfxPlay('whoosh', Number(r.value) * 0.8); });
       vr.appendChild(r); vr.appendChild(val);
       soundPane.appendChild(vr);
-      const n = E.sfxEvents({ snd, clips, ovl, txt, zm }, total()).length;
+      const n = E.sfxEvents({ snd, clips, ovl, txt, zm, cap: capTimes() }, total()).length;
       soundPane.appendChild(el('div', 'st-note', n ? n + ' ' + tx('የድምፅ ውጤቶች በዚህ ቪዲዮ ውስጥ (በጊዜ መስመሩ ላይ 🔊)።', 'sound effects in this video (🔊 on the timeline).')
         : tx('ዙም፣ B-roll፣ ቴምፕሌት ወይም ሽግግር ሲጨምሩ ድምፁ ራሱ ይገባል።', 'Add a zoom, B-roll, template or transition — its sound comes by itself.')));
+      // captions (1.66): a short sound where each caption comes in
+      soundPane.appendChild(el('div', 'ed-sec', '💬 ' + tx('ካፕሽን ሲገባ', 'When a caption comes in')));
+      const capSeg = el('div', 'st-seg');
+      const CN = SFXNAME();
+      [['none', tx('የለም', 'Off')]].concat((E.CAP_SFX || ['tick', 'pop', 'click']).map((k) => [k, '▶ ' + CN[k]])).forEach(([v, t]) => {
+        capSeg.appendChild(btn((snd.cap || 'none') === v ? 'on' : '', t, '', () => {
+          if (v !== 'none') sfxPlay(v, 0.8);
+          change('sound', () => { snd = Object.assign({}, snd, { cap: v }); });
+          renderSound();
+        }));
+      });
+      soundPane.appendChild(capSeg);
+      soundPane.appendChild(el('div', 'st-note', tx('አንድ አጭር ድምፅ ለእያንዳንዱ ካፕሽን — በጣም ተቀራራቢ የሆኑት ጸጥ ይላሉ።', 'One short sound per caption — captions that follow too closely stay quiet.')));
     }
     const tryRow = el('div', 'br-chips');
     const N = SFXNAME();
@@ -2612,7 +2635,7 @@
         made.push(path.join(cwd, 'c.ass')); ass.push('c.ass');
       }
       const sv = st.snd && st.snd.sfxVol != null ? Number(st.snd.sfxVol) : 0.7;
-      const sfx = E.sfxEvents(st, tot).filter((x) => fs.existsSync(sfxFile(x.name))).map((x, k) => ({ idx: used.length + k, t: x.t, vol: sv * x.vol, file: sfxFile(x.name) }));
+      const sfx = E.sfxEvents(Object.assign({}, st, { cap: capTimes() }), tot).filter((x) => fs.existsSync(sfxFile(x.name))).map((x, k) => ({ idx: used.length + k, t: x.t, vol: sv * x.vol, file: sfxFile(x.name) }));
       const g = E.editGraph(st.clips, info, f, 30, st.ovl || [], { ass: ass.length ? ass : null, res: job.res, mus: st.mus, snd: st.snd, zm: st.zm || [], sfx });
       let gfile = null;
       const args = (enc) => {

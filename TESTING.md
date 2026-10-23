@@ -65,6 +65,7 @@ point `AMH_MODEL_DIR` there for the tests that need the model.
 | `"$PY" tools/test/test_trial_texts.py` | the free trial is promised with ONE number everywhere (website, in-zip guide, panel, bot profile); no legacy "2 captions free" / "20 minutes free" text left; the panel builds the title from the live number | <1 s |
 | `"$PY" tools/test/test_app.py` | desktop app server without a window: refuses foreign Host / missing token / cross-site / CORS / traversal; file calls like Node (Amharic, ENOENT); spawn output, stdin, exit code, kill, timeout; license-server proxy; CapCut / DaVinci found, nothing else can be opened, Amharic path copied to the clipboard | 3 s |
 | `node tools/test/test_app_shim.js` | `node_shim.js`: Windows + macOS path rules, fs errors, hashes, execFile / spawn events and errors, dialogs, the proxy | 1 s |
+| `node tools/test/test_edit.js` | the Studio's edit engine: clips/trim/speed/transitions, the ffmpeg graph, reframe, B-roll looks, text templates, music + ducking + loudness, sound effects (zooms, B-roll, templates, transitions, **captions**: opt-in, one per caption, crowded ones quiet) | 2 s |
 | `"$PY" tools/test/test_background.py` | background-voice filter (synthetic audio) | 1 s |
 | `"$PY" tools/test/test_long.py` | long-audio windows, resume after a crash, punctuation | 1 s |
 | `"$PY" ctc_beam.py` | beam decoder self-check | 8 s |

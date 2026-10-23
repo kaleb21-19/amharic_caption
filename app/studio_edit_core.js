@@ -807,6 +807,10 @@
   // when a sound starts, from the moment it belongs to (so its loudest part lands on it)
   const SFX_LEAD = { whoosh: -0.18, swish: -0.06, boom: 0, pop: 0, click: 0, ding: 0, riser: -1.2, tick: 0 };
   const SFX_LEN = { whoosh: 0.6, swish: 0.28, boom: 0.9, pop: 0.14, click: 0.06, ding: 1.4, riser: 1.5, tick: 0.045 };
+  // captions that follow each other faster than this get no new sound (1.66)
+  const CAP_SFX_GAP = 0.35;
+  // the short ones only: a caption sound sits under the voice
+  const CAP_SFX = ['tick', 'pop', 'click'];
   function sfxPick(own, auto) {
     if (own === 'none') return null;
     if (SFX.indexOf(own) >= 0) return own;
@@ -845,6 +849,20 @@
     (st.clips || []).forEach((c, i) => {
       if (i > 0 && c.tr && trDur(st.clips, i) > 0) add(L[i].s, sfxPick(c.sfx, 'swish'), 0.6);
     });
+    // captions (1.66): a short sound where each caption comes in. Opt-in
+    // (snd.cap = a sound id), one per caption, never closer than
+    // CAP_SFX_GAP - short captions would machine-gun, and the sound sits
+    // under the voice, so it is quiet (0.5) and short (tick / pop / click).
+    if (CAP_SFX.indexOf(snd.cap) >= 0) {
+      let last = -99;
+      (st.cap || []).slice().sort((a, b) => a - b).forEach((t0) => {
+        const t = Number(t0) || 0;
+        if (t - last < CAP_SFX_GAP) return;
+        last = t;
+        const at = r3(Math.max(0, t + (SFX_LEAD[snd.cap] || 0)));
+        if (at < len) out.push({ t: at, name: snd.cap, vol: 0.5, cap: true });
+      });
+    }
     return out.sort((a, b) => a.t - b.t);
   }
 
@@ -1261,7 +1279,7 @@
     words, deriveCaptions, syncBack, FORMATS, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
     TFONTS, TPRESETS, assColor, textAnchor, textAss, setFontInfo, fontInfo, textSize, LOUD, MUS_DEFAULT, musicGain,
     PRESETS, presetFor, GPU_ENCODERS, encoderArgs, eta,
-    speedOf: sp, clipLen, SFX, SFX_LEN, sfxEvents, RF_PACE, rfWindow, rfTrack, rfAt, rfPlace, rfExpr, rfOn, TEMPLATES, TPL_GROUPS, HOLIDAYS, TPL_SPEED, tplOf, tplLayers, tplState, tplAss, setMeasure, tplFade: fadeOut, OV_LAYOUTS, OV_ANIMS, OV_MOTION, ovLook, ovBox, ovAnim, ovChain, ovPos, ZOOM_STYLES, ZOOM_SPEED, ZOOM_DEFAULT, zoomEnv, zoomRect, zoomExprs, zoomFilter, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter };
+    speedOf: sp, clipLen, SFX, SFX_LEN, sfxEvents, CAP_SFX, RF_PACE, rfWindow, rfTrack, rfAt, rfPlace, rfExpr, rfOn, TEMPLATES, TPL_GROUPS, HOLIDAYS, TPL_SPEED, tplOf, tplLayers, tplState, tplAss, setMeasure, tplFade: fadeOut, OV_LAYOUTS, OV_ANIMS, OV_MOTION, ovLook, ovBox, ovAnim, ovChain, ovPos, ZOOM_STYLES, ZOOM_SPEED, ZOOM_DEFAULT, zoomEnv, zoomRect, zoomExprs, zoomFilter, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhEdit = api;
 })(typeof window !== 'undefined' ? window : this);

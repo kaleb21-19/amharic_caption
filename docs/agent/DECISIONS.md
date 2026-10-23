@@ -19,6 +19,7 @@ Add a line (with the date) when the owner decides something. Keep < 60 lines.
 - Fonts must be free for commercial use (OFL). Abyssinica SIL ships unmodified (Reserved Font Name).
 - Never ship third-party videos or faces (thumbnails, demos, promo videos): neutral backgrounds.
 - 2026-10-22 (owner): caption looks become a real TEMPLATE system - a look is data (font, size, colours, outline, shadow, glow, box, gradient, mode, how the spoken word is marked, motion) and one renderer draws every template. The 18 old styles keep their own code (byte-identical output, checked). The panel shows the 13 new templates in their own "Templates" group; every template is customizable like a style. The owner checks the looks on his own PC before the release (the gallery + a test runtime of junctions, not a change to his installed product).
+- 2026-10-23 (owner): caption SOUND EFFECTS reuse the Studio's 🔊 system with OUR OWN synthesised sounds (tools/make_sfx.py - no samples, no licence, no money). Short ones only (tick / pop / click), opt-in (default off, so old exports are unchanged), one per caption, nothing when two captions are closer than 0.35 s, quiet under the voice. Premiere/AE captions cannot carry sound (the amhstyle_*.mov layers are video-only) - sound belongs to the Studio's export.
 
 ## Money
 - Prices: 1 month ETB 500, 2 months ETB 900, Forever ETB 2,500. No yearly plan.
