@@ -72,6 +72,7 @@ point `AMH_MODEL_DIR` there for the tests that need the model.
 | `"$PY" amh_correct.py` | number / spelling corrections | 1 s |
 | `"$PY" amh_lm.py` | word list: glued words split, known words stay whole | 1 s |
 | `"$PY" tools/test/test_model_download.py` | Lite: resumable, SHA-256-verified model download against a flaky local server | 30 s |
+| `"$PY" tools/test/test_templates.py` | caption styles + templates: a clean ASS script per look, the spoken word, box/glow/gradient/arch/chips, the editor's options, the old styles unchanged, the panel's list in step with the engine, two-line folding (one line when it fits, two when it does not, 90 ms stagger, no touching, no orphan line, the right line lit), and with `AMH_FFMPEG` set to a real ffmpeg a pixel check that the two lines are drawn as two separate blocks | 25 s |
 | `cd tools/telegram-worker && node test/e2e.mjs` | the whole bot + license server: buying, approve, keys, activation codes, trials, partners, referrals, admin PIN, `/find` `/move` `/givekey` `/active`, group helper, jobs feed. **145 checks.** The fake Telegram is strict: any message Telegram would refuse fails the suite | ~1 min |
 
 Local setup notes:
@@ -84,6 +85,11 @@ Local setup notes:
   tests fail. **Delete `runtime/` before committing** — it is not gitignored.
 - `test_mel_short.py` needs the model's mel assets in `tools/stage/model-ct2-int8/`
   (CI has them; locally `tools/stage` is usually empty — rely on CI).
+- `test_templates.py` draws its pixels only when `AMH_FFMPEG` points at a real ffmpeg
+  with libass (the installed runtime's `bin/ffmpeg.exe`); without it that part prints
+  `skip` and the rest still runs. `tools/make_style_gallery.py` makes the same renders
+  for the eye: `--out <dir>` for the gallery, `--only duo` to redo one look, `--thumbs`
+  for the panel's pictures.
 - The bot suite needs `npm install` once in `tools/telegram-worker`.
 
 ### Slow tests — need the real model (run after engine / SRT-maker changes)

@@ -67,15 +67,16 @@ the same PR that moves or renames the code. Keep this file under ~120 lines.
 - `amh_styles.py` :: `def build` — words -> ASS script for a style (+ options)
 - `amh_styles.py` :: `def options` — cleans Customize options (FONTS, ANIMS, SIZES, POSITIONS)
 - `amh_styles.py` :: `def _modern` — Glide / Spotlight / Bounce (words placed by us from metrics.json)
-- `amh_styles.py` :: `TEMPLATES` — the 13 caption templates: a look made of numbers (font, size, colours, outline, shadow, glow, box, gradient, mode, highlight, motion)
+- `amh_styles.py` :: `TEMPLATES` — the 14 caption templates: a look made of numbers (font, size, colours, outline, shadow, glow, box, gradient, mode, highlight, motion, rows/stagger for two-line looks)
 - `amh_styles.py` :: `def template` — a template's look with the defaults filled in (None for an unknown id)
 - `amh_styles.py` :: `def _build_template` — the ASS script for a template (one code for every template)
-- `amh_styles.py` :: `def _tpl_script` — draws one template (text, box, glow, gradient, arch, chips, the spoken word)
+- `amh_styles.py` :: `def _tpl_script` — draws one template (text, box, glow, gradient, arch, chips, the spoken word; a stacked look = one event per line)
+- `amh_styles.py` :: `def _tpl_rows` — a phrase on one line, or two when it does not fit (natural, balanced break; never one word alone)
 - `amh_styles.py` :: `def _entrances` — entrance animations (Auto keeps the style's own)
 - `amh_styles.py` :: `def _caption_band` — preview = only the caption strip (480x160)
 - `amh_styles.py` :: `def render` — ffmpeg/libass: overlay .mov (qtrle alpha), burn .mp4, preview .webp/.gif
 - `tools/fonts/make_metrics.py` :: `def main` — rebuilds tools/fonts/metrics.json after a font change (needs fontTools)
-- `tools/make_style_gallery.py` :: `def main` — renders every style + template to MP4 and writes the HTML gallery (the owner's look check); `--thumbs` writes panel/img/styles/<id>.jpg
+- `tools/make_style_gallery.py` :: `def main` — renders every style + template to MP4 and writes the HTML gallery (the owner's look check); `cue_words` turns sentences into word timings, `--thumbs` writes panel/img/styles/<id>.jpg
 - `tools/fonts/metrics.json` :: `"Noto Sans Ethiopic|1"` — letter widths (shipped in runtime/fonts)
 - `panel/img/styles/glide.jpg` :: — style thumbnails 300x150 (neutral background, no third-party video)
 

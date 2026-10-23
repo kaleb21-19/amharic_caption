@@ -1111,7 +1111,7 @@ await t('4f. caption styles (1.11): strip, choice remembered, styled layer place
     p.evalVm('STYLE_OK = true; renderStyleStrip();');
     assert.strictEqual(p.els('styleStrip').style.display, '', 'shown when it can');
     const chips = p.els('styleChips').children;
-    // Plain + the 18 styles + the templates group + the 13 templates (1.66)
+    // Plain + the 18 styles + the templates group + the 14 templates (1.66)
     const wantChips = p.evalVm('STYLE_LIST.length') + 1 + p.evalVm('TEMPLATE_LIST.length');
     assert.strictEqual(chips.length, wantChips, 'Plain + 18 styles + the templates');
     assert.strictEqual(chips[0].dataset.style, 'plain');

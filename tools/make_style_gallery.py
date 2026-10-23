@@ -24,10 +24,12 @@ CUES = [
     ("ሰላም ሁሉም", 0.4, 1.3),
     ("እንኳን ደህና መጡ", 1.4, 2.6),
     ("ዛሬ ገና አማርኛው ብዙ ነው", 2.7, 4.3),
-    ("በ TikTok ብዙ ሰዎች እየተጠበቁ ናቸው", 4.4, 6.2),
+    ("በ TikTok ብዙ ሰዎች ይመለከታሉ", 4.4, 6.2),
 ]
 # one word for the panel's little pictures
 THUMB_CUES = [("ትንብና", 0.4, 6.0)]
+# a phrase long enough to fold on two lines (the stacked looks' picture)
+THUMB_TWO = [("ትርጉሙን", 0.4, 1.6), ("በጣም", 1.6, 2.6), ("ወደድኩት", 2.6, 4.2), ("ጓደኛዬ", 4.2, 6.0)]
 
 
 def find_ffmpeg():
@@ -55,10 +57,39 @@ def background(ffmpeg, out, w, h, dur):
     return out
 
 
-def render_one(ffmpeg, fonts, style, out, w, h, dur, cues=None):
+def cue_words(cues, gap=0.65):
+    """The gallery's sentences as word timings: each word gets its share of the
+    cue's time (longer words a little more), and a pause longer than the
+    engine's GAP_HOLD between two cues, so every sentence is its own caption.
+    Returns (words, end time)."""
+    out, t = [], 0.0
+    for text, _s, _e in cues:
+        words = [w for w in text.split() if w]
+        if not words:
+            continue
+        dur = 0.35 + 0.32 * len(words)
+        weights = [max(2, len(w)) for w in words]
+        tot = float(sum(weights))
+        acc = 0
+        for w, wt in zip(words, weights):
+            a = t + dur * acc / tot
+            acc += wt
+            out.append((w, round(a, 3), round(t + dur * acc / tot, 3)))
+        t += dur + gap
+    return out, t
+
+
+def render_one(ffmpeg, fonts, style, out, w, h, dur=None, cues=None, raw=False):
+    cues = cues or CUES
+    if raw:                                    # the cues already are words
+        words = list(cues)
+        dur = dur or max(2.0, max([c[2] for c in words] + [0]) + 0.4)
+    else:
+        words, end = cue_words(cues)
+        dur = dur or max(2.0, end + 0.4)
     bg = out + ".bg.mp4"
     background(ffmpeg, bg, w, h, dur)
-    job = {"cues": cues or CUES, "style": style, "width": w, "height": h, "fps": 25,
+    job = {"cues": words, "style": style, "width": w, "height": h, "fps": 25,
            "out": out, "ffmpeg": ffmpeg, "fonts": fonts, "mode": "burn",
            "video": bg, "duration": dur}
     try:
@@ -70,15 +101,19 @@ def render_one(ffmpeg, fonts, style, out, w, h, dur, cues=None):
 
 
 def thumb(ffmpeg, fonts, sid, out, at=2.2):
-    """A 300x150 picture of the look (the panel's button): one word, cropped
-    tight around the caption, so the look is easy to recognise - like the
-    editor sees it on the video."""
+    """A 300x150 picture of the look (the panel's button), cropped tight around
+    the caption, so the look is easy to recognise - like the editor sees it on
+    the video. A stacked look is shot on a portrait frame with a longer phrase,
+    so its two lines are in the picture too."""
+    look = A.template(sid) if sid in A.template_ids() else {}
+    two = int((look or {}).get("rows") or 1) > 1
+    w, h = (540, 960) if two else (960, 540)
     vid = out.replace(".jpg", ".thumb.mp4")
-    render_one(ffmpeg, fonts, sid, vid, 960, 540, 6.5, cues=THUMB_CUES)
-    w, h = 960, 540
+    render_one(ffmpeg, fonts, sid, vid, w, h, 6.5,
+               cues=THUMB_TWO if two else THUMB_CUES, raw=True)
     raw = subprocess.run([ffmpeg, "-v", "error", "-ss", str(at), "-i", vid, "-frames:v", "1",
                           "-f", "rawvideo", "-pix_fmt", "gray", "-"], capture_output=True).stdout
-    box = "crop=440:220:260:300"          # the caption's place in a 16:9 frame
+    box = "crop=440:220:260:300" if not two else "crop=480:300:30:600"
     if len(raw) >= w * h:
         pix = sorted(raw[::7])                      # every 7th pixel is enough
         med = pix[len(pix) // 2]
@@ -144,19 +179,30 @@ def main():
         templates = []
     out = os.path.abspath(args.out)
     os.makedirs(out, exist_ok=True)
-    rows = []
-    made = []
+    every = {"Styles": styles, "Templates": templates}
+    if args.only not in ("all", "templates", "styles", ""):
+        keep = set(x.strip() for x in args.only.split(",") if x.strip())
+        styles = [s for s in styles if s in keep]
+        templates = [t for t in templates if t in keep]
+    rows, made = [], []
     for group, ids in (("Styles", styles), ("Templates", templates)):
         items = []
         for sid in ids:
             name = A.TEMPLATES[sid]["name"] if sid in A.TEMPLATES else sid
             vid = os.path.join(out, "%s.mp4" % sid)
             print("  rendering %s ..." % sid)
-            render_one(ffmpeg, fonts, sid, vid, args.width, args.height, 6.5)
+            render_one(ffmpeg, fonts, sid, vid, args.width, args.height)
             items.append((name, "%s.mp4" % sid))
             made.append((sid, vid))
         if items:
             rows.append((group, items))
+    if len(rows) < 2:                       # a partial render: the page keeps the whole gallery
+        rows = []
+        for group, ids in every.items():
+            items = [(A.TEMPLATES[s]["name"] if s in A.TEMPLATES else s, "%s.mp4" % s)
+                     for s in ids if os.path.isfile(os.path.join(out, "%s.mp4" % s))]
+            if items:
+                rows.append((group, items))
     page = html(out, rows)
     if args.thumbs:
         tdir = os.path.join(REPO, "panel", "img", "styles")

@@ -419,12 +419,13 @@ setTimeout(() => track('open'), 1200);
 const WHATS_NEW = {
   '1.66.0': {
     banner: {
-      am: '✨ 13 አዳዲስ የካፕሽን ቅርጾሮች — ብሩት ፖፕ፣ ግራዲየንት፣ ኒዮን ግሎ፣ መስተዋት ዳሳች እና ተመሳሳይ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
-      en: '✨ 13 new caption templates — Bold Pop, gradient, neon glow, glass box and more — your license stays the same.',
+      am: '✨ 14 አዳዲስ የካፕሽን ቅርጾሮች — ብሩት ፖፕ፣ ግራዲየንት፣ ኒዮን ግሎ፣ መስተዋት ዳሳች፣ ሁለት መስመር እና ተመሳሳይ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '✨ 14 new caption templates — Bold Pop, gradient, neon glow, glass box, two-line and more — your license stays the same.',
     },
     items: [
-      { am: 'በካፕሽን አሞሌው ላይ "ቅርጾሮች" ቡድን ተጨምሯል — 13 አዳዲስ እድታ', en: 'A new "Templates" group in the style strip — 13 new looks' },
+      { am: 'በካፕሽን አሞሌው ላይ "ቅርጾሮች" ቡድን ተጨምሯል — 14 አዳዲስ እድታ', en: 'A new "Templates" group in the style strip — 14 new looks' },
       { am: 'ብሩት ፖፕ፣ ግራዲየንት ፊል፣ ኒዮን ግሎ፣ መስተዋት ዳሳች፣ ቋርቭ፣ አርች፣ ኤዲቶሪያል፣ ቢት፣ ጽሑፍና ታሪክ', en: 'Bold Pop, Gradient fill, Neon glow, Glass box, Arch, Editorial, Chips, Paper and Story' },
+      { am: 'አዲሱ "ሁለት መስመር" ቅርጾሮ ረጅሙን ንግግር በሁለት መስመር ይከፍላል — ሁለተኛው መስመር ከመጀመሪያው በኋላ በለስላሳ ይገባል', en: 'The new "Two Line" template splits a long phrase on two lines — the second line glides in right after the first' },
       { am: 'እያንዳንዱም ቅርጾሮ ቀለም፣ ፊደል፣ መጠን፣ ቦታና ንግግር ሊለወጥ ይችላል', en: 'Every template lets you change the colour, font, size, place and motion' },
       { am: 'በእያንዳንዱ ቅርጾሮ የተናገረው ቃል ብቻ ይታራል — የአማርኛ ጽሑፍ ስር ያልቀየረም', en: 'In every template only the word being spoken lights up — the Amharic text itself never changes' },
     ],
@@ -5793,17 +5794,17 @@ const STYLE_LIST = ['plain', 'glide', 'spotlight', 'bounce', 'karaoke', 'fill', 
 // 1.66: caption templates - professional looks that the editor can change
 // (the engine has the full look: amh_styles.TEMPLATES).
 const TEMPLATE_LIST = ['modern', 'boldpop', 'creator', 'comic', 'gradient', 'neonglow', 'glass',
-  'subtitle', 'arch', 'editorial', 'chips', 'paperink', 'story'];
+  'subtitle', 'arch', 'editorial', 'chips', 'paperink', 'story', 'duo'];
 const TEMPLATE_NAMES = {
   modern: 'Modern', boldpop: 'Bold Pop', creator: 'Creator', comic: 'Comic', gradient: 'Gradient',
   neonglow: 'Neon Glow', glass: 'Glass Box', subtitle: 'Subtitle', arch: 'Arch',
-  editorial: 'Editorial', chips: 'Chips', paperink: 'Paper', story: 'Story',
+  editorial: 'Editorial', chips: 'Chips', paperink: 'Paper', story: 'Story', duo: 'Two Line',
 };
 // the font each template comes with (the editor's font choice starts there)
 const TEMPLATE_FONTS = {
   modern: 'yebse', boldpop: 'yebse', creator: 'yebse', comic: 'washra', gradient: 'sans',
   neonglow: 'sans', glass: 'sans', subtitle: 'sans', arch: 'yebse', editorial: 'serif',
-  chips: 'sans', paperink: 'serif', story: 'jiret',
+  chips: 'sans', paperink: 'serif', story: 'jiret', duo: 'yebse',
 };
 // every look the editor can pick (the old styles and the templates)
 const LOOK_LIST = STYLE_LIST.concat(TEMPLATE_LIST);

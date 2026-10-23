@@ -682,7 +682,7 @@ def _build_template(words, style, width, height, font=FONT, opts=None):
     o = options(opts)
     ws = _mark_emphasis([(_clean(w[0]), float(w[1]), float(w[2])) for w in words if _clean(w[0])], o["emph"])
     lines, st = _tpl_script(ws, look, width, height, o)
-    if o["lines"] == 2 and look["mode"] in ("line", "reveal"):
+    if o["lines"] == 2 and look["mode"] in ("line", "reveal") and int(look.get("rows") or 1) < 2:
         lines = [_two_lines(x) for x in lines]
     anim = o["anim"] if o["anim"] != "auto" else look["anim"]
     lines = _entrances(lines, anim, st, width, height)
@@ -1178,6 +1178,11 @@ TEMPLATE_DEFAULT = {
     "mode": "line",
     "arc": 13.0,          # arch: degrees per word
     "bold": True,
+    "rows": 1,            # 2 = the phrase may stack on two animated lines
+    "wrap": 0.86,         # the widest a line may be (x the frame width)
+    "line_gap": 1.14,     # distance between stacked lines (x the font size)
+    "stagger": 0.09,      # seconds between the lines' entrances
+    "exit": 0,            # fade-out of each line (ms; 0 = none)
 }
 
 # The built-in templates. Names are what the editor sees (Amharic in i18n.js).
@@ -1234,6 +1239,11 @@ TEMPLATES = {
     "story": {"name": "Story", "look": {
         "font": "jiret", "size": 0.95, "text": "#FFB347", "accent": "#FFE0B2",
         "hl": "colour", "mode": "line", "words": 4, "anim": "fade"}},
+    "duo": {"name": "Two Line", "look": {
+        "font": "yebse", "size": 1.02, "text": "#FFFFFF", "accent": "#FFD84D",
+        "outline": "#000000", "outline_w": 0.075, "shadow": "#000000", "shadow_w": 0.045,
+        "hl": "colour", "mode": "line", "words": 5, "rows": 2, "anim": "slide",
+        "wrap": 0.72, "line_gap": 1.16, "stagger": 0.09, "exit": 90}},
 }
 
 
@@ -1394,6 +1404,96 @@ def _tpl_size(look, width, height, o):
     return size, font
 
 
+# Words that must not start a new line (conjunctions) and words that must not
+# end one (prepositions/particles that belong to the word after them) - the
+# same idea as the BBC and Netflix line-break rules, for Amharic.
+_L_NO_START = {"እና", "ግን", "ወይም", "አሊያም", "እንዲሁም", "ስለዚህ", "ስለሆነም",
+               "ምክንያቱም", "ወይስ", "በመሆኑም", "እንደነዚህ"}
+_L_NO_END = {"በ", "ለ", "የ", "ከ", "ስለ", "እንደ", "ወደ", "ጋር", "ውስጥ", "ላይ", "በኩል"}
+
+
+def _tpl_rows(txts, font, size, look, max_w):
+    """The phrase's words on one line, or on two when they do not fit: the
+    break goes to the most balanced point that is also a natural one (never
+    before a conjunction, never after a preposition, no one-word last line)."""
+    n = len(txts)
+    if n < 2 or int(look.get("rows") or 1) < 2:
+        return [list(range(n))]
+    if _tpl_width(txts, font, size, look) <= max_w:
+        return [list(range(n))]
+    best, best_cost = None, None
+    for k in range(1, n):
+        wl = _tpl_width(txts[:k], font, size, look)
+        wr = _tpl_width(txts[k:], font, size, look)
+        if wl > max_w or wr > max_w:
+            continue
+        cost = abs(wl - wr) / float(max_w)
+        if len(txts) - k == 1 and n > 2:
+            cost += 0.60                                   # an orphan word
+        if txts[k].lstrip(EM) in _L_NO_START:
+            cost += 0.35
+        if txts[k - 1].lstrip(EM) in _L_NO_END:
+            cost += 0.25
+        if best_cost is None or cost < best_cost:
+            best, best_cost = k, cost
+    if best is None:                                       # nothing fits: the narrowest blocks
+        best = min(range(1, n), key=lambda k: max(
+            _tpl_width(txts[:k], font, size, look), _tpl_width(txts[k:], font, size, look)))
+    return [list(range(best)), list(range(best, n))]
+
+
+def _tpl_row_y(cy, n, lh, o):
+    """The centre y of each line: a block grows upwards from its bottom line
+    (subtitles), downwards from the top, and stays centred in the middle."""
+    if n < 2:
+        return [cy]
+    y = o.get("y")
+    if o["pos"] == "middle":
+        return [cy + (i - (n - 1) / 2.0) * lh for i in range(n)]
+    if o["pos"] == "top" or (y is not None and y < 0.5):
+        return [cy + i * lh for i in range(n)]
+    return [cy - (n - 1 - i) * lh for i in range(n)]
+
+
+def _row_text(pieces, row, acol_a, spoken=None):
+    """One line's text: only its own words; the spoken word in the accent."""
+    out = []
+    for i in row:
+        w = pieces[i]
+        if i == spoken:
+            out.append([(acol_a, "".join(p[1] for p in w), False)])
+        else:
+            out.append(w)
+    return _tpl_text(out)
+
+
+def _row_spans(row, g, e, shown):
+    """(from, to, spoken word or None) for one line: the spoken word lights up
+    while it is said; before its first word and after its last the line stays
+    plain, so the reader can already read ahead."""
+    n = len(g)
+    a, b = row[0], row[-1]
+    out = []
+    if g[a][1] > shown + 0.001:
+        out.append((shown, g[a][1], None))
+    for i in row:
+        st = max(g[i][1], shown)
+        en = g[i + 1][1] if i + 1 < n else e
+        if en - st > 0.01:
+            out.append((st, en, i))
+    if b < n - 1:
+        out.append((max(g[b + 1][1], shown), e, None))
+    merged = []
+    for st, en, sp in out:
+        if en - st <= 0.01:
+            continue
+        if merged and sp is None and merged[-1][2] is None and abs(merged[-1][1] - st) < 0.002:
+            merged[-1] = (merged[-1][0], en, None)
+        else:
+            merged.append((st, en, sp))
+    return merged
+
+
 def _tpl_script(words, look, width, height, o):
     """Draw a caption template. Returns (dialogue lines, style lines)."""
     h = float(height)
@@ -1439,14 +1539,22 @@ def _tpl_script(words, look, width, height, o):
         txts = [w[0] for w in g]
         if mode == "line":
             cx, cy = _tpl_pos(size, width, height, o, bottom)
+            rows = _tpl_rows(txts, font, size, look, width * float(look["wrap"]))
+            nrows = len(rows)
+            lh = size * float(look["line_gap"])
+            ys = _tpl_row_y(cy, nrows, lh, o)
+            exit_ms = int(look["exit"] or 0)
+            stagger = float(look["stagger"] or 0.0) if nrows > 1 else 0.0
+            fade = ("\\fad(0,%d)" % exit_ms) if exit_ms > 0 else ""
             if box_col:
                 pad = size * look["box_pad"]
-                bw = _tpl_width(txts, font, size, look) + 2 * pad
-                bh = size * 1.24 + 2 * pad
-                lines.append("Dialogue: 0,%s,%s,B,,0,0,0,,%s{\\an7\\pos(%d,%d)\\bord0\\shad0\\p1}%s" % (
-                    _ts(s0), _ts(e), IN, round(cx - bw / 2), round(cy - bh / 2),
+                bw = max(_tpl_width([txts[i] for i in r], font, size, look) for r in rows) + 2 * pad
+                bh = (nrows - 1) * lh + size * 1.24 + 2 * pad
+                by = (min(ys) + max(ys)) / 2.0
+                lines.append("Dialogue: 0,%s,%s,B,,0,0,0,,%s{\\an7\\pos(%d,%d)\\bord0\\shad0%s\\p1}%s" % (
+                    _ts(s0), _ts(e), IN, round(cx - bw / 2), round(by - bh / 2), fade,
                     _pill(bw, bh, size * look["box_r"])))
-            if look["hl"] == "fill":
+            if look["hl"] == "fill" and nrows == 1:
                 # one line for the whole phrase: \kf sweeps the colour across
                 parts, t = [], s0
                 for w, x in zip(g, txts):
@@ -1459,21 +1567,23 @@ def _tpl_script(words, look, width, height, o):
                 lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s{\\an5\\pos(%d,%d)}%s" % (
                     _ts(s0), _ts(e), IN, round(cx), round(cy), body))
                 continue
-            if look["hl"] == "none":
-                body = _tpl_text(_tpl_words(txts, look, tcol_a, acol_a))
-                lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s{\\an5\\pos(%d,%d)}%s" % (
-                    _ts(s0), _ts(e), IN, round(cx), round(cy), body))
-                continue
-            # the spoken word is marked: the phrase is drawn again for every word
-            for i, w in enumerate(g):
-                ws = s0 if i == 0 else w[1]
-                we = g[i + 1][1] if i + 1 < len(g) else e
-                if we <= ws:
+            pieces = _tpl_words(txts, look, tcol_a, acol_a)
+            for r, row in enumerate(rows):
+                y = round(ys[r])
+                shown = s0 + stagger * r
+                if shown > e - 0.05:                  # a very short cue: no room to stagger
+                    shown, y = s0, round(cy)
+                pos = "{\\an5\\pos(%d,%d)%s}" % (round(cx), y, fade)
+                if look["hl"] == "none":
+                    lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s%s" % (
+                        _ts(shown), _ts(e), IN + pos, "", _row_text(pieces, row, acol_a)))
                     continue
-                body = _tpl_text(_tpl_words(txts, look, tcol_a, acol_a, i))
-                pos = "{\\an5\\pos(%d,%d)}" % (round(cx), round(cy))
-                lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s%s" % (
-                    _ts(ws), _ts(we), (IN + pos) if i == 0 else (_cont(ws - s0) + pos), "", body))
+                # the spoken word is marked: the lines are drawn again per word
+                for st, en, spoken in _row_spans(row, g, e, shown):
+                    body = _row_text(pieces, row, acol_a, spoken)
+                    lines.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s%s%s" % (
+                        _ts(st), _ts(en),
+                        (IN + pos) if st <= shown + 0.001 else (_cont(st - shown) + pos), "", body))
         elif mode == "reveal":
             cx, cy = _tpl_pos(size, width, height, o, bottom)
             parts = []

@@ -168,6 +168,84 @@ for tid in A.template_ids():
     t = A.build(long, tid, 1080, 1920)
     check(len(events(t)) > 0, "%s: a long word still builds" % tid)
 
+# ── two lines that enter one after the other (duo, 1.66) ────────────────────
+TWO = [("የዚህ", 0.0, 0.4), ("ቪዲዮ", 0.4, 0.8), ("ትርጉም", 0.8, 1.2),
+       ("በጣም", 1.2, 1.6), ("ጥሩ", 1.6, 2.0)]
+SHORT = [("ሰላም", 0.0, 0.5), ("ሁሉም", 0.5, 1.0)]
+
+
+def secs(ts):
+    h, m, s = ts.split(":")
+    return int(h) * 3600 + int(m) * 60 + float(s)
+
+
+def rows_of(script):
+    """{y: (first start, last end, text of its last event)} per line."""
+    out = {}
+    for l in events(script):
+        p = l.split(",", 9)
+        m = re.search(r"\\pos\(\d+,(\d+)\)", p[9])
+        if not m or ",S," not in l:
+            continue
+        y = int(m.group(1))
+        a, b = secs(p[1]), secs(p[2])
+        txt = re.sub(r"\{[^}]*\}", "", p[9])
+        f, la, _ = out.get(y, (a, b, ""))
+        out[y] = (min(f, a), max(la, b), txt)
+    return out
+
+
+t = A.build(TWO, "duo", 1080, 1920)
+rows = rows_of(t)
+size = float(style_fields(t)[2])
+check(len(rows) == 2, "duo: a long phrase stands on two lines (%s)" % sorted(rows))
+ys = sorted(rows)
+check(len(ys) == 2 and ys[1] - ys[0] >= size,
+      "duo: the two lines never touch (%d px apart for %d px text)" % (
+          ys[1] - ys[0] if len(ys) == 2 else 0, round(size)))
+check(len(ys) == 2 and ys[1] + size * 0.7 < 1920 * 0.95,
+      "duo: the lower line stays above the bottom of the frame")
+if len(rows) == 2:
+    stagger = rows[ys[1]][0] - rows[ys[0]][0]
+    check(0.05 <= stagger <= 0.20, "duo: the second line comes %.0f ms after the first" % (stagger * 1000))
+    check(abs(rows[ys[0]][1] - rows[ys[1]][1]) < 0.02, "duo: both lines leave together")
+    top = rows[ys[0]][2].split()
+    bottom = rows[ys[1]][2].split()
+    check(top + bottom == [w[0] for w in TWO],
+          "duo: every word is on exactly one line (%s | %s)" % (" ".join(top), " ".join(bottom)))
+    check(len(top) >= 2 and len(bottom) >= 2, "duo: no line is left with a single word")
+check(len(rows_of(A.build(SHORT, "duo", 1080, 1920))) == 1, "duo: a short phrase stays on one line")
+check("\\N" not in A.build(TWO, "duo", 1080, 1920, opts={"lines": 2}),
+      "duo: the two-lines option does not break it twice")
+
+# the spoken word lights up on the line it belongs to
+for i, w in enumerate(TWO):
+    t = A.build(TWO, "duo", 1080, 1920)
+    at = w[1] + 0.02
+    live = []
+    for l in events(t):
+        p = l.split(",", 9)
+        if secs(p[1]) <= at < secs(p[2]):
+            live.append((int(re.search(r"\\pos\(\d+,(\d+)\)", p[9]).group(1)), p[9]))
+    hot = [y for y, body in live if "&H004DD8FF&" in body]
+    check(len(hot) == 1 and next(
+        (body for y, body in live if y == hot[0]), "").find(w[0]) >= 0,
+        "duo: while '%s' is said only its own line is lit" % w[0])
+
+# a stacked look with a box gets one box behind both lines
+A.TEMPLATES["_box2"] = {"name": "Box2",
+                        "look": dict(A.template("glass"), rows=2, words=5, stagger=0.09)}
+try:
+    tb = A.build(TWO, "_box2", 1080, 1920)
+finally:
+    del A.TEMPLATES["_box2"]
+box = [l for l in events(tb) if ",B," in l]
+check(len(box) == 1, "a boxed two-line look draws one box (%d)" % len(box))
+if box:
+    by = int(re.search(r"\\pos\(\d+,(\d+)\)", box[0].split(",", 9)[9]).group(1))
+    check(by < min(rows_of(tb)), "the box starts above both lines")
+    check("\\p1" in box[0], "the box is a drawn shape")
+
 # ── real drawing (needs an ffmpeg with libass; skipped otherwise) ───────────
 ff = os.environ.get("AMH_FFMPEG") or shutil.which("ffmpeg")
 if ff and A.supported(ff):
@@ -178,8 +256,8 @@ if ff and A.supported(ff):
         subprocess.run([ff, "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=320x568:r=25:d=3",
                         "-pix_fmt", "yuv420p", vid], check=True)
 
-        def frame(style, at=1.0, opts=None):
-            job = {"cues": CUES, "style": style, "width": 320, "height": 568, "fps": 25, "mode": "burn",
+        def frame(style, at=1.0, opts=None, cues=None):
+            job = {"cues": cues or CUES, "style": style, "width": 320, "height": 568, "fps": 25, "mode": "burn",
                    "video": vid, "duration": 3, "out": os.path.join(tmp, "b.mp4"), "ffmpeg": ff, "fonts": fonts}
             if opts:
                 job["opts"] = opts
@@ -187,6 +265,21 @@ if ff and A.supported(ff):
             raw = subprocess.run([ff, "-v", "error", "-ss", str(at), "-i", r["out"], "-frames:v", "1",
                                   "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True).stdout
             return raw
+
+        def bands(raw, w=320, h=568):
+            """Rows of the frame that have lit pixels, grouped into blocks."""
+            rows = [0] * h
+            for i in range(0, len(raw), 3):
+                if raw[i] + raw[i + 1] + raw[i + 2] > 40:
+                    rows[(i // 3) // w] += 1
+            lit = [y for y, c in enumerate(rows) if c > 0]
+            out = []
+            for y in lit:
+                if out and y - out[-1][1] <= 2:
+                    out[-1][1] = y
+                else:
+                    out.append([y, y])
+            return out
 
         for style, what in (("boldpop", "the words are drawn"), ("glass", "the box is drawn"),
                             ("neonglow", "the glow is drawn"), ("chips", "the boxes are drawn")):
@@ -211,6 +304,11 @@ if ff and A.supported(ff):
                 rows[(i // 3) // 320] += 1
         lit = [r for r, c in enumerate(rows) if c > 0]
         check(lit and lit[0] > 568 * 0.55, "boldpop: the caption is in the lower part of the frame")
+        # the two lines of duo are really drawn as two separate blocks
+        raw = frame("duo", at=1.0, cues=TWO)
+        bl = bands(raw)
+        check(len(bl) == 2 and bl[1][0] - bl[0][1] >= 2,
+              "duo: two separate lines are on the screen (%s)" % bl)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 else:
