@@ -471,4 +471,56 @@ test('tracks: hide / mute leave the export, picture tracks in order, text tracks
   assert.deepStrictEqual(E.trackedState({}).ovl, [], 'an old project: nothing changes');
 });
 
+test('1.70 items follow the video: cuts, a deleted clip, a moved sentence, a trim, a speed', () => {
+  const base = [{ id: 'a', m: 'v', in: 0, out: 20 }];
+  const item = (iid, start, len, extra) => Object.assign({ id: iid, start, in: 0, out: len }, extra || {});
+  const zm = [item('z1', 2, 1), item('z2', 10, 1.2), item('z3', 15, 2), item('z4', 5.5, 1)];
+  // ✂ cut 4–8 s: what was after moves 4 s earlier; what was inside is gone
+  let c = E.cutRange(base, 4, 8, id);
+  let r = E.followClips(base, c, zm);
+  assert.deepStrictEqual(r.map((o) => [o.id, o.start, o.out]), [['z1', 2, 1], ['z2', 6, 1.2], ['z3', 11, 2]], 'z4 sat on the cut words');
+  assert.strictEqual(r[0], zm[0], 'an item before the cut is not even copied');
+  // a cut through the middle of an item: it gets shorter, keeps its start
+  const tx = [item('t', 3, 3)];          // 3–6, cut 4–8 removes 4–6
+  r = E.followClips(base, c, tx);
+  assert.deepStrictEqual(r.map((o) => [o.start, o.out]), [[3, 1]]);
+  // an item that starts inside the cut but goes on after: starts at the cut
+  r = E.followClips(base, c, [item('b', 7, 3)]);
+  assert.deepStrictEqual(r.map((o) => [o.start, o.out]), [[4, 2]]);
+  // music: only moved, never removed or shortened
+  r = E.followClips(base, c, [item('m', 5, 30, { m: 'song', in: 10, out: 40 })], true);
+  assert.deepStrictEqual(r.map((o) => [o.start, o.in, o.out]), [[4, 10, 40]]);
+  // many cuts at once (Clean up), last first — the same as one by one
+  c = E.cutRange(E.cutRange(base, 12, 13, id), 1, 2, id);
+  r = E.followClips(base, c, [item('z', 14, 1)]);
+  assert.deepStrictEqual(r.map((o) => o.start), [12]);
+  // delete a whole clip: the next clip's items move up
+  const two = [{ id: 'p', m: 'v', in: 0, out: 5 }, { id: 'q', m: 'w', in: 0, out: 5 }];
+  r = E.followClips(two, E.removeClip(two, 'p'), [item('o1', 6, 2, { m: 'pic' }), item('o2', 1, 2, { m: 'pic' })]);
+  assert.deepStrictEqual(r.map((o) => [o.id, o.start]), [['o1', 1]]);
+  // a sentence dragged to the start: its zoom goes with it, the rest moves after
+  c = E.moveRange(base, 10, 12, 0, id);
+  r = E.followClips(base, c, [item('z', 10.5, 1), item('y', 1, 1)]);
+  assert.deepStrictEqual(r.map((o) => [o.id, o.start, o.out]), [['z', 0.5, 1], ['y', 3, 1]]);
+  // clips swapped on the timeline
+  r = E.followClips(two, E.moveClip(two, 'q', 0), [item('z', 6, 1)]);
+  assert.deepStrictEqual(r.map((o) => o.start), [1]);
+  // a trim at the start of the first clip: the words come earlier
+  c = E.trimClip(base, 'a', 'in', 3, 20);
+  r = E.followClips(base, c, [item('z', 5, 1)]);
+  assert.deepStrictEqual(r.map((o) => o.start), [2]);
+  // 2× speed on the first of two clips: items on it squeeze, the next ones move up
+  c = two.map((x) => (x.id === 'p' ? Object.assign({}, x, { speed: 2 }) : x));
+  r = E.followClips(two, c, [item('a1', 2, 2), item('a2', 7, 1)]);
+  assert.deepStrictEqual(r.map((o) => [o.start, o.out]), [[1, 1], [4.5, 1]]);
+  // the same file twice (a copied clip): an item stays on ITS copy
+  const dup = [{ id: 'x1', m: 'v', in: 0, out: 5 }, { id: 'x2', m: 'v', in: 0, out: 5 }, { id: 'x3', m: 'w', in: 0, out: 4 }];
+  r = E.followClips(dup, E.removeClip(dup, 'x3').concat([]), [item('k', 6, 1)]);
+  assert.deepStrictEqual(r.map((o) => o.start), [6], 'nothing before it changed');
+  r = E.followClips(dup, dup.filter((x) => x.id !== 'x1'), [item('k', 6, 1)]);
+  assert.deepStrictEqual(r.map((o) => o.start), [1], 'the first copy deleted: the item moves with the second');
+  // nothing changed: the same array back
+  assert.strictEqual(E.followClips(base, base.slice(), zm), zm);
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');
