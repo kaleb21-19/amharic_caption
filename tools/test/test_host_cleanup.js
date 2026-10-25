@@ -246,4 +246,30 @@ test('step by step (progress + Stop in the panel): prepare, then cuts in groups,
   assert.deepStrictEqual(pp.seqs[0].vt[0].snap(), [[0, 1200, 'interview.mp4']]);
 });
 
+test('1.74 several clips: a cut on the transcribed clip cuts there; a cut on another clip is refused, nothing is cut', () => {
+  const A = 'C:/v/a.mp4', B = 'C:/v/b.mp4', C = 'C:/v/c.mp4';
+  const spec = () => ({ v: [[[0, 10, 'a.mp4', A], [10, 25, 'b.mp4', B], [25, 40, 'c.mp4', C]]],
+                        a: [[[0, 10, 'a.mp4', A], [10, 25, 'b.mp4', B], [25, 40, 'c.mp4', C]]] });
+  let pp = makePremiere(spec());
+  let r = pp.cut([[14, 15]], [B]);
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.deepStrictEqual(pp.project.activeSequence.vt[0].snap(), [[0, 10, 'a.mp4'], [10, 14, 'b.mp4'], [14, 24, 'b.mp4'], [24, 39, 'c.mp4']]);
+  // the captions were made from b.mp4, but the cut would land on a.mp4
+  pp = makePremiere(spec());
+  r = pp.cut([[4, 5]], [B]);
+  assert.strictEqual(r.ok, false);
+  assert.match(r.error, /0:04\.0-0:05\.0 would remove part of "a\.mp4", not the clip these captions were made from\. Nothing was cut/);
+  assert.strictEqual(pp.seqs.length, 1, 'no copy made');
+  assert.deepStrictEqual(pp.seqs[0].vt[0].snap(), [[0, 10, 'a.mp4'], [10, 25, 'b.mp4'], [25, 40, 'c.mp4']], 'nothing touched');
+  // one of several cuts on the wrong clip: none is made
+  pp = makePremiere(spec());
+  r = pp.cut([[12, 13], [30, 31]], [B]);
+  assert.strictEqual(r.ok, false);
+  assert.match(r.error, /"c\.mp4"/);
+  // captions from all three (Whole edit): every clip is theirs
+  pp = makePremiere(spec());
+  r = pp.cut([[4, 5], [30, 31]], [A, B, C]);
+  assert.ok(r.ok, JSON.stringify(r));
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');

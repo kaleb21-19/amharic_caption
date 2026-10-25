@@ -588,6 +588,9 @@ const AM_PATTERNS = [
   [/^You have (\d+:\d\d) free minutes left\.$/, '$1 ነጻ ደቂቃ ቀርቶዎታል።'],
   [/^Your free minutes covered the first (\d+:\d\d) of this video\.$/, 'ነጻ ደቂቃዎችዎ የዚህን ቪዲዮ የመጀመሪያ $1 ሸፍነዋል።'],
   [/^Get your (\d+) free minutes in Telegram first — the button under Generate\.$/, 'መጀመሪያ $1 ነጻ ደቂቃዎችዎን በቴሌግራም ይቀበሉ — ከ«ካፕሽን ፍጠር» በታች ያለውን ቁልፍ ይጫኑ።'],
+  // 1.74: a cut that would land on another clip (nothing was cut)
+  [/^The cut at (\S+) would remove part of (.+), not the clip these captions were made from\. Nothing was cut\. Transcribe the clip again \(select it, then Generate\) and try again\.$/,
+    'በ$1 ያለው ቁርጥ $2ን ይቆርጥ ነበር — ካፕሽኑ የተሰራበትን ክሊፕ አይደለም። ምንም አልተቆረጠም። ክሊፑን መርጠው እንደገና «ካፕሽን ፍጠር» ይጫኑ፣ ከዚያ ይሞክሩ።'],
   [/^Free trial: (\d+:\d\d) of free minutes for this job, (\d+:\d\d) left\.$/, 'ነጻ ሙከራ፦ ለዚህ ስራ $1 ደቂቃ፣ $2 ቀርቷል።'],
   [/^✓ (\d+:\d\d) free minutes are ready — press Generate\.$/, '✓ $1 ነጻ ደቂቃዎች ዝግጁ ናቸው — ካፕሽን ፍጠር ይጫኑ።'],
   [/^Licensed \(expires (\d+)\)$/, 'ፈቃድ አለው (እስከ $1)'],

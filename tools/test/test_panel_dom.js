@@ -238,7 +238,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.73.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.74.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -2651,6 +2651,20 @@ await t('10f2. a failed run: error types, and "Send problem report" (scrubbed, o
     assert.strictEqual(sent.length, 2);
     assert.strictEqual(sent[1].error, '(no message)', 'never a blank error');
     assert.ok(sent[1].log.includes('before') && !sent[1].log.some((l) => /Review your captions/.test(l)), 'the Log of the failure, not the one after it');
+  } finally { p.close(); }
+});
+
+await t('10f2c. 1.74 a cached run keeps the exact word times; a cut on another clip is explained in Amharic', async () => {
+  const p = loadPanel({});
+  try {
+    await flush(10);
+    const srt = '1\n00:00:10,000 --> 00:00:12,000\nሰላም ሁሉም\n\n2\n00:00:12,500 --> 00:00:14,000\nእንዴት ናችሁ\n\n';
+    const r = p.evalVm('cacheStore("k174", ' + JSON.stringify(srt) + ', "", [{ start: 10, end: 12, text: "ሰላም ሁሉም", wt: [[10, 10.6], [10.7, 11.9]] }, { start: 12.5, end: 14, text: "እንዴት ናችሁ" }]).then(() => JSON.stringify(cacheLookup("k174").cues.map((c) => c.wt || null)))');
+    assert.deepStrictEqual(JSON.parse(await r), [[[10, 10.6], [10.7, 11.9]], null], 'the word times come back from the cache');
+    p.evalVm('AMH_LANG = "am";');
+    const msg = p.evalVm('L(' + JSON.stringify('The cut at 0:04.0-0:05.0 would remove part of "a.mp4", not the clip these captions were made from. Nothing was cut. Transcribe the clip again (select it, then Generate) and try again.') + ')');
+    assert.ok(/0:04\.0-0:05\.0/.test(msg) && /a\.mp4/.test(msg) && /ምንም አልተቆረጠም/.test(msg), msg);
+    p.evalVm('AMH_LANG = "en";');
   } finally { p.close(); }
 });
 

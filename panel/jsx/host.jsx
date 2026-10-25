@@ -1524,6 +1524,45 @@ function amhCleanupHasMedia(seq, wantSet, depth) {
     return false;
 }
 
+// 1.74: which clips lie under edit time t (every track): [{ name, media, nested }]
+function amhCleanupUnder(seq, t) {
+    var out = [];
+    var tracks = amhCleanupTracks(seq);
+    for (var w = 0; w < tracks.length; w++) {
+        var cl = tracks[w].track.clips;
+        var k = amhCleanupFirstAfter(cl, t);
+        if (k >= cl.numItems) { continue; }
+        var it = cl[k];
+        var s0 = Number(it.start.seconds);
+        if (s0 > t) { continue; }
+        var item = null;
+        try { item = it.projectItem; } catch (e) {}
+        out.push({ name: amhClipName(it), media: amhMediaPath(item) || "", nested: !!amhNestedSequence(item), kind: tracks[w].kind });
+    }
+    return out;
+}
+
+// A cut must fall on the clip the captions were made from (owner report: with
+// several clips, "Edit with text" cut another clip). If one does not, nothing
+// is cut and the editor is told which clip it would have hit.
+function amhCleanupCheckCuts(seq, cuts, wantSet) {
+    var fmt = function (x) { var m = Math.floor(x / 60), r = x - m * 60; return m + ":" + (r < 10 ? "0" : "") + r.toFixed(1); };
+    for (var i = 0; i < cuts.length; i++) {
+        var mid = (cuts[i][0] + cuts[i][1]) / 2;
+        var under = amhCleanupUnder(seq, mid);
+        var ours = false, other = "";
+        for (var u = 0; u < under.length; u++) {
+            if (under[u].nested || (under[u].media && wantSet[amhCleanupKey(under[u].media)])) { ours = true; break; }
+            if (!other && under[u].media && under[u].kind === "v") { other = under[u].name; }
+            if (!other && under[u].media) { other = under[u].name; }
+        }
+        if (!ours) {
+            return { at: fmt(cuts[i][0]) + "-" + fmt(cuts[i][1]), other: other };
+        }
+    }
+    return null;
+}
+
 function amhClipName(cl) {
     try { return String(cl.name || (cl.projectItem && cl.projectItem.name) || ""); } catch (e) { return ""; }
 }
@@ -1618,6 +1657,13 @@ function amh_cleanupPrepare(argsJSON) {
             for (var m = 0; m < want.length; m++) { wantSet[amhCleanupKey(want[m])] = true; }
             if (!amhCleanupHasMedia(seq, wantSet, 0)) {
                 return amhErr("The open sequence is not the one these captions were made from. Open that sequence, then press Cut again.");
+            }
+        }
+        if (want.length) {
+            var bad = amhCleanupCheckCuts(seq, cuts, wantSet);
+            if (bad) {
+                return amhErr("The cut at " + bad.at + " would remove part of " + (bad.other ? "\"" + bad.other + "\"" : "an empty part of the timeline") +
+                              ", not the clip these captions were made from. Nothing was cut. Transcribe the clip again (select it, then Generate) and try again.");
             }
         }
         var tracks = amhCleanupTracks(seq);
