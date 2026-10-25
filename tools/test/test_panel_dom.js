@@ -238,7 +238,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.76.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.77.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -988,15 +988,18 @@ await t('4b. free minutes from Telegram: offer, one-time bot link, the panel not
     assert.strictEqual(p.els('freeMinTitle').textContent, 'Try 20 minutes free');
     assert.strictEqual(p.els('runBtn').disabled, false, 'Generate stays clickable and explains');
     assert.strictEqual(p.evalVm('assertCanRun()'), false, 'no free caption before Telegram');
+    await flush(10);                           // 1.77: first asks for the first minutes (an old server: none)
+    assert.strictEqual(reqs.length, 1);
+    assert.strictEqual(reqs[0].starter, true, '1.77: asks for the first minutes on this computer');
     assert.ok(/Get your 20 free minutes in Telegram first/.test(p.els('logBox').textContent));
     p.evalVm('hideTrialGate(); updateLicenseUI();');
     p.els('freeMinBtn').fire('click');
     await flush(10);
     opened = p.evalVm('globalThis.__opened');
     assert.strictEqual(opened, 'https://t.me/AmharicCaptionsBot?start=t_abcdefghijklmnop', 'opens the one-time bot link');
-    assert.strictEqual(reqs.length, 1);
-    assert.strictEqual(reqs[0].mid, p.mid);
-    assert.ok(/^[0-9a-f]{8}$/.test(reqs[0].hf || ''), 'with the computer fingerprint');
+    assert.strictEqual(reqs.length, 2);
+    assert.strictEqual(reqs[1].mid, p.mid);
+    assert.ok(/^[0-9a-f]{8}$/.test(reqs[1].hf || ''), 'with the computer fingerprint');
     assert.ok(/Waiting for Telegram/.test(p.els('freeMinWait').textContent), 'says it is waiting');
     status = 'active';                         // the person pressed START
     await p.evalVm('refreshTrialFromServer()');
@@ -1025,6 +1028,7 @@ await t('4d. Generate without free minutes: a clear card under Generate, one tap
     p.evalVm('cep.util.openURLInDefaultBrowser = (u) => { globalThis.__opened = u; }; setInterval = (fn) => { globalThis.__tick = fn; return 77; }; clearInterval = () => {};');
     p.evalVm('globalThis.__runs = 0;');
     assert.strictEqual(p.evalVm('assertCanRun(() => { globalThis.__runs++; })'), false);
+    await flush(10);
     assert.strictEqual(p.els('trialGate').style.display, '', 'the card shows under Generate');
     assert.strictEqual(p.els('freeMinBox').style.display, 'none', 'no second free-minutes box at the same time');
     assert.strictEqual(p.els('trialGateTitle').textContent, '🎁 First, get your 20 free minutes');
@@ -1069,6 +1073,75 @@ await t('4d. Generate without free minutes: a clear card under Generate, one tap
     // A license hides the card.
     p.evalVm('showTrialGate("none", null); LICENSED = true; updateLicenseUI();');
     assert.strictEqual(p.els('trialGate').style.display, 'none', 'licensed: no card');
+  } finally { p.close(); }
+});
+
+await t('4f. 1.77 the first video without Telegram: first minutes here, the job starts, the bot for the rest', async () => {
+  let st = 'none';
+  const reqs = [];
+  const f = async (url, init) => {
+    if (String(url).includes('/api/trial/request')) {
+      const b = JSON.parse(init.body);
+      reqs.push(b);
+      if (st === 'none' && b.starter) st = 'starter';
+      return { ok: true, json: async () => (st === 'starter' || st === 'used'
+        ? minutesState(st === 'used' ? 0 : 300, { seconds_total: 300, starter: true, started: reqs.length === 1, link: 'https://t.me/AmharicCaptionsBot?start=t_abcdefghijklmnop' })
+        : minutesState(0, { status: 'none', seconds_total: 0 })) };
+    }
+    if (String(url).includes('/api/trial?v=2')) {
+      return { ok: true, json: async () => (st === 'linked' ? minutesState(900, { seconds_total: 1200 })
+        : st === 'used' ? minutesState(0, { seconds_total: 300, starter: true })
+          : st === 'starter' ? minutesState(300, { seconds_total: 300, starter: true }) : minutesState(0, { status: 'none', seconds_total: 0 })) };
+    }
+    return { ok: true, json: async () => ({}) };
+  };
+  const p = loadPanel({ fetch: f });
+  try {
+    await flush(10);
+    p.evalVm('cep.util.openURLInDefaultBrowser = (u) => { globalThis.__opened = u; }; setInterval = (fn) => { globalThis.__tick = fn; return 78; }; clearInterval = () => {}; globalThis.__runs = 0;');
+    // Make captions on a new computer: no Telegram card, the job starts
+    assert.strictEqual(p.evalVm('assertCanRun(() => { globalThis.__runs++; })'), false);
+    await flush(10);
+    assert.strictEqual(p.evalVm('__runs'), 1, 'the captions start at once');
+    assert.strictEqual(p.els('trialGate').style.display, 'none', 'no Telegram card');
+    assert.strictEqual(p.evalVm('globalThis.__opened'), undefined, 'Telegram not opened');
+    assert.ok(/5:00 free minutes on this computer — your captions start now/.test(p.els('logBox').textContent));
+    assert.strictEqual(reqs[0].starter, true);
+    assert.ok(/^[0-9a-f]{8}$/.test(reqs[0].hf || ''), 'with the computer fingerprint');
+    assert.strictEqual(p.evalVm('assertCanRun()'), true, 'minutes left: Generate works');
+    // the box under Generate offers the rest
+    assert.strictEqual(p.els('freeMinBox').style.display, '');
+    assert.strictEqual(p.els('freeMinTitle').textContent, 'Get 15 more free minutes');
+    // used up: no "buy" wall — the card offers 15 more free minutes
+    st = 'used';
+    await p.evalVm('refreshTrialFromServer()');
+    p.evalVm('updateLicenseUI()');
+    assert.strictEqual(p.els('runBtn').disabled, false, 'Generate stays clickable');
+    assert.strictEqual(p.els('trialBanner').style.display, 'none', 'no "trial used up" banner');
+    assert.strictEqual(p.evalVm('assertCanRun(() => { globalThis.__runs++; })'), false);
+    assert.strictEqual(p.els('trialGateTitle').textContent, '🎁 Get 15 more free minutes');
+    assert.strictEqual(p.els('trialGateBtn').textContent, '🎁 Get 15 more free minutes — 1 tap');
+    p.els('trialGateBtn').fire('click');
+    await flush(10);
+    assert.strictEqual(p.evalVm('globalThis.__opened'), 'https://t.me/AmharicCaptionsBot?start=t_abcdefghijklmnop', 'the bot for the rest');
+    // still computer-only: keeps waiting; START pressed: the job starts by itself
+    await p.evalVm('__tick()');
+    assert.strictEqual(p.evalVm('__runs'), 1);
+    st = 'linked';
+    await p.evalVm('__tick()');
+    await flush(5);
+    assert.strictEqual(p.evalVm('__runs'), 2, 'continues by itself after START');
+    assert.strictEqual(p.els('freeMinBox').style.display, 'none');
+    // the card after a free caption: "15 more free minutes" instead of Buy
+    p.evalVm('LICENSED = false; setTrialState({ mode: "minutes", status: "active", minutes: 20, seconds_total: 300, seconds_left: 0, starter: true }); TRIAL_CARD_DUE = { remaining: 0, cut: 120 }; showTrialCardIfDue();');
+    assert.ok(p.els('trialCard').classList.contains('tc-more') && !p.els('trialCard').classList.contains('tc-cut'), 'more, not "needs a license"');
+    assert.strictEqual(p.els('tcMore').textContent, '🎁 Get 15 more free minutes — 1 tap');
+    assert.ok(/covered the first 2:00 of this video/.test(p.els('tcMoreText').textContent));
+    // Amharic
+    p.evalVm('AMH_LANG = "am"; renderFreeMinBox(); showTrialGate("more", null);');
+    assert.strictEqual(p.els('trialGateBtn').textContent, '🎁 15 ተጨማሪ ነጻ ደቂቃ ያግኙ — 1 ንክኪ');
+    assert.strictEqual(p.els('trialGateBody').children[0].children[0].textContent, 'በዚህ ኮምፒውተር ላይ የመጀመሪያዎቹ ነጻ ደቂቃዎች ተጠቅመዋል።');
+    p.evalVm('AMH_LANG = "en";');
   } finally { p.close(); }
 });
 

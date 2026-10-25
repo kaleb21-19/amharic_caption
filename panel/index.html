@@ -409,7 +409,10 @@
   .tc-group span { font-size: var(--font-s); color: var(--text-secondary); line-height: 1.45; }
   #trialCard .btn { width: 100%; }
   #trialCard [data-tc] { display: none; }
-  #trialCard.tc-left [data-tc="left"], #trialCard.tc-last [data-tc="last"], #trialCard.tc-cut [data-tc="cut"] { display: inline; }
+  #trialCard.tc-left [data-tc="left"], #trialCard.tc-last [data-tc="last"], #trialCard.tc-cut [data-tc="cut"], #trialCard.tc-more [data-tc="more"] { display: inline; }
+  #tcMore { display: none; }
+  #trialCard.tc-more #tcMore { display: block; }
+  #trialCard.tc-more #tcBuy { display: none; }
   /* Buy with your phone (1.41): the QR is always black on white with a quiet
      zone (phones read it in dark mode too) */
   #buyQrCard {
@@ -877,15 +880,18 @@
         <span data-tc="left" data-i18n="tc.titleLeft">Your free captions are done</span>
         <span data-tc="last" data-i18n="tc.titleLast">Your free minutes are used up</span>
         <span data-tc="cut" data-i18n="tc.titleCut">The rest of this video needs a license</span>
+        <span data-tc="more" id="tcMoreTitle">Liked it? Get more free minutes</span>
       </div>
       <div class="tc-sub">
         <span data-tc="left" id="tcLeftText">You have free minutes left.</span>
         <span data-tc="last" data-i18n="tc.last">Buy a license to keep making captions — from ETB 500 a month, or once forever.</span>
+        <span data-tc="more" id="tcMoreText">One tap in our Telegram bot, press START, and come back — it continues by itself.</span>
         <span data-tc="cut"><span id="tcCutText">Your free minutes covered the first part of this video.</span> <span data-i18n="tc.cut">Buy a license to caption whole videos — from ETB 500 a month, or once forever.</span></span>
       </div>
       <div class="tc-group" data-i18n-html="tc.group"><b>Questions or a problem?</b><span>Ask in our Telegram group — we answer fast, and editors share tips there.</span></div>
       <button type="button" id="tcGroup" class="btn" data-i18n="tc.join">Join the Telegram group</button>
       <button type="button" id="tcBuy" class="btn" data-i18n="lic.buy">Buy a license — from ETB 500</button>
+      <button type="button" id="tcMore" class="btn btn-primary">🎁 Get more free minutes — 1 tap</button>
       <button type="button" id="tcLater" class="tc-later" data-i18n="tc.later">Not now</button>
     </div>
   </div>
@@ -1158,7 +1164,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.76.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.77.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
