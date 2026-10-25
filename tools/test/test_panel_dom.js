@@ -238,7 +238,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.72.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.73.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1238,7 +1238,7 @@ await t('4g. customize (1.12): colour, size, position, words, box remembered per
     assert.strictEqual(shown(), '7,10', 'Motion: animations');
     Array.from(p.els('styleTabs').children)[0].fire('click');
     assert.deepStrictEqual(Array.from(rows[7].children[1].children).map((b) => b.dataset.value),
-      ['auto', 'none', 'fade', 'slide', 'drop', 'pop', 'zoom', 'blur', 'typewriter', 'wave', 'slidecolor', 'shake', 'glow', 'blurzoom']);
+      ['auto', 'none', 'fade', 'slide', 'drop', 'pop', 'zoom', 'blur', 'typewriter', 'wave', 'slidecolor', 'shake', 'glow', 'blurzoom', 'bounce', 'flicker', 'snap', 'rampup', 'fadeup']);
     assert.ok(rows[7].children[1].className === 'sc-seg pills', 'animations wrap as pills');
     assert.deepStrictEqual(Array.from(rows[5].children[1].children).map((b) => b.dataset.value), ['auto', 'off'], 'emphasis: numbers & ★ / ★ only');
     // ⬇ Install these fonts on this PC (1.28.0)
@@ -1336,10 +1336,12 @@ await t('4h. My styles (1.13): save a look under a name, one click to use it aga
     assert.strictEqual(chips()[1].dataset.my, saved[0].id, 'then My styles');
     const wantChips = 1 + 1 + (p.evalVm('STYLE_LIST.length') - 1) + 1 + p.evalVm('TEMPLATE_LIST.length');
     assert.strictEqual(chips().length, wantChips, 'Plain + 1 saved + 18 styles + the templates: ' + chips().map((b) => b.dataset.my ? 'MY' : b.dataset.style).join(','));
-    // the modern styles (1.16) come first after the saved looks; no NEW marks since 1.49
+    // the modern styles (1.16) come first after the saved looks; only the
+    // 1.73 kinetic pack carries a NEW mark
     assert.deepStrictEqual(chips().slice(2, 5).map((b) => b.dataset.style), ['glide', 'spotlight', 'bounce']);
     const isNew = (b) => b.children.some((c) => c.className === 'style-new');
-    assert.ok(!chips().some(isNew), 'no style carries a NEW mark any more (1.49)');
+    assert.deepStrictEqual(chips().filter(isNew).map((b) => b.dataset.style), ['reels', 'reelsgold', 'kinetic', 'kineticpop', 'bouncy', 'flicker', 'snap'],
+      'NEW: only the 1.73 kinetic pack');
     assert.ok(mine()[0].classList.contains('active'), 'the saved look is the one in use');
     assert.ok(!chips().find((b) => b.dataset.style === 'bold' && !b.dataset.my).classList.contains('active'));
     // change the look: the saved one is no longer "in use"; one click brings it back

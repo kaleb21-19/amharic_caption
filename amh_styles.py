@@ -239,7 +239,9 @@ SELF_PLACED = ("glide", "spotlight", "bounce")
 # Entrance animations (Customize): "auto" = the style's own.
 ANIMS = ("auto", "none", "fade", "slide", "drop", "pop", "zoom", "blur",
          # 1.40 animation pack (our own, in the spirit of TikTok editors' favourites)
-         "typewriter", "wave", "slidecolor", "shake", "glow", "blurzoom")
+         "typewriter", "wave", "slidecolor", "shake", "glow", "blurzoom",
+         # 1.73 motion pack (our own takes on the moves editors love)
+         "bounce", "flicker", "snap", "rampup", "fadeup")
 # letter by letter: drawn by _letters() after the ★ words are coloured
 LETTER_ANIMS = ("typewriter", "wave")
 
@@ -760,6 +762,28 @@ def _anim_spec(anim, size, width, height, look=None):
         return 160, "\\fscx145\\fscy145\\blur%s", [(0, 360, 0.45, "\\fscx100\\fscy100\\blur%s")]
     if anim == "fade":
         return 220, "", []
+    # 1.73 motion pack
+    if anim == "bounce":
+        # falls in from above, lands, bounces twice and settles
+        ang = math.degrees(math.atan(size * 1.1 / (20.0 * width)))
+        org = "\\org(%d,%d)" % (-20 * width, height // 2)
+        return 120, "%s\\frz%.4f" % (org, ang), [(0, 230, 1.8, "\\frz%.4f" % (-ang * 0.16)), (230, 330, 0.6, "\\frz%.4f" % (ang * 0.07)),
+                                                 (330, 420, 1.6, "\\frz%.4f" % (-ang * 0.025)), (420, 480, 1.0, "\\frz0")]
+    if anim == "flicker":
+        # a sign switching on: off-on-off-on, then steady
+        return 0, "\\alpha&HFF&", [(0, 1, 1.0, "\\alpha&H00&"), (70, 71, 1.0, "\\alpha&HD0&"), (120, 121, 1.0, "\\alpha&H00&"),
+                                     (170, 171, 1.0, "\\alpha&H90&"), (220, 221, 1.0, "\\alpha&H00&")]
+    if anim == "snap":
+        # big and fast, then snaps to its size
+        return 40, "\\fscx165\\fscy165", [(0, 110, 0.35, "\\fscx94\\fscy94"), (110, 170, 1.0, "\\fscx100\\fscy100")]
+    if anim == "rampup":
+        # grows from a flat line, faster and faster, a tiny overshoot
+        return 110, "\\fscy8\\fscx92", [(0, 230, 2.2, "\\fscy112\\fscx100"), (230, 300, 1.0, "\\fscy100")]
+    if anim == "fadeup":
+        # a slow, soft rise
+        ang = math.degrees(math.atan(size * 1.3 / (20.0 * width)))
+        org = "\\org(%d,%d)" % (-20 * width, height // 2)
+        return 380, "%s\\frz%.4f" % (org, -ang), [(0, 560, 0.35, "\\frz0")]
     if anim in ("slide", "drop"):
         ang = math.degrees(math.atan(size * 0.8 / (20.0 * width)))
         org = "\\org(%d,%d)" % (-20 * width, height // 2)
@@ -1209,7 +1233,7 @@ TEMPLATES = {
         "outline": "#000000", "outline_w": 0.05, "shadow": "#000000", "shadow_w": 0.03,
         "hl": "colour", "mode": "line", "words": 3, "anim": "pop"}},
     "neonglow": {"name": "Neon Glow", "look": {
-        "font": "sans", "size": 1.00, "text": "#FFFFFF", "accent": "#00E5FF",
+        "font": "sans", "size": 1.00, "text": "#FFFFFF", "accent": "#FFF35C",
         "outline": "#00E5FF", "outline_w": 0.025, "glow": "#00E5FF", "glow_w": 0.30,
         "hl": "colour", "mode": "line", "words": 3, "anim": "fade"}},
     "glass": {"name": "Glass Box", "look": {
@@ -1244,6 +1268,35 @@ TEMPLATES = {
         "outline": "#000000", "outline_w": 0.075, "shadow": "#000000", "shadow_w": 0.045,
         "hl": "colour", "mode": "line", "words": 5, "rows": 2, "anim": "slide",
         "wrap": 0.72, "line_gap": 1.16, "stagger": 0.09, "exit": 90}},
+    # 1.73 kinetic pack: our own Reels-emphasis and kinetic-typography looks
+    "reels": {"name": "Reels", "look": {
+        "font": "yebse", "size": 1.0, "text": "#FFFFFF", "accent": "#FF2D3A",
+        "glow": "#9E0014", "glow_w": 0.11, "shadow": "#000000", "shadow_w": 0.03,
+        "hl": "none", "mode": "reels", "words": 4, "anim": "auto"}},
+    "reelsgold": {"name": "Reels Gold", "look": {
+        "font": "yebse", "size": 1.0, "text": "#F6F1E7", "accent": "#FFC23D",
+        "glow": "#8A5600", "glow_w": 0.10, "shadow": "#000000", "shadow_w": 0.03,
+        "hl": "none", "mode": "reels", "words": 4, "anim": "auto"}},
+    "kinetic": {"name": "Kinetic", "look": {
+        "font": "yebse", "size": 1.0, "text": "#FFFFFF", "accent": "#3DF5B5",
+        "shadow": "#000000", "shadow_w": 0.035, "outline": "#000000", "outline_w": 0.02,
+        "hl": "none", "mode": "kinetic", "words": 4, "anim": "auto"}},
+    "kineticpop": {"name": "Kinetic Pop", "look": {
+        "font": "washra", "size": 1.0, "text": "#FFFFFF", "accent": "#FFD400",
+        "outline": "#000000", "outline_w": 0.06, "shadow": "#000000", "shadow_w": 0.04,
+        "hl": "none", "mode": "kinetic", "words": 4, "anim": "auto"}},
+    "bouncy": {"name": "Bouncy", "look": {
+        "font": "yebse", "size": 1.08, "text": "#FFFFFF", "accent": "#FF3B6B",
+        "outline": "#000000", "outline_w": 0.07, "shadow": "#000000", "shadow_w": 0.05,
+        "hl": "colour", "mode": "line", "words": 2, "anim": "bounce"}},
+    "flicker": {"name": "Flicker", "look": {
+        "font": "sans", "size": 1.0, "text": "#FFFFFF", "accent": "#FF4D4D",
+        "glow": "#FF4D4D", "glow_w": 0.16, "outline": "#000000", "outline_w": 0.03,
+        "hl": "colour", "mode": "line", "words": 3, "anim": "flicker"}},
+    "snap": {"name": "Snap", "look": {
+        "font": "yebse", "size": 1.12, "text": "#FFFFFF", "accent": "#7CFFCB",
+        "outline": "#000000", "outline_w": 0.075, "shadow": "#000000", "shadow_w": 0.05,
+        "hl": "colour", "mode": "word", "words": 1, "anim": "snap"}},
 }
 
 
@@ -1494,6 +1547,113 @@ def _row_spans(row, g, e, shown):
     return merged
 
 
+def mode_small(look):
+    return look.get("mode") == "reels"
+
+
+def _accent_index(g, txts, font, size, look):
+    """The word a caption leans on: the one the editor starred (★), else the
+    longest (on the screen) — usually the word that carries the meaning."""
+    for i, w in enumerate(g):
+        if w[0].startswith(EM):
+            return i
+    widths = [_tpl_width([x], font, size, look) for x in txts]
+    return max(range(len(txts)), key=lambda i: widths[i])
+
+
+def _tpl_reels(g, txts, font, size, look, width, height, o, bottom, tcol_a, acol_a, s0, e):
+    """1.73 Reels emphasis: the words before the big one sit small above its
+    left edge, the words after it small below its right edge; the big word
+    pops in, glowing. (Our own layout, in the spirit of Reels text packs.)"""
+    ai = _accent_index(g, txts, font, size, look)
+    small = max(8, int(size * 0.62))
+    big = int(size * 1.6)
+    bw = _tpl_width([txts[ai]], font, big, look)
+    if bw > width * 0.84:
+        big = max(small + 2, int(big * width * 0.84 / bw))
+        bw = _tpl_width([txts[ai]], font, big, look)
+    before, after = txts[:ai], txts[ai + 1:]
+    cx, cy = _tpl_pos(size, width, height, o, bottom)
+    # the block's middle stays where one line would be; rows around it
+    yb = cy - big * 0.50 - small * 0.42
+    ya = cy + big * 0.50 + small * 0.42
+    if not after:
+        cy, yb = cy + small * 0.45, cy + small * 0.45 - big * 0.50 - small * 0.42
+    if not before:
+        cy, ya = cy - small * 0.45, cy - small * 0.45 + big * 0.50 + small * 0.42
+    out = []
+    fade = "\\fad(160,120)"
+    left = cx - bw / 2.0
+    right = cx + bw / 2.0
+    if before:
+        sw = _tpl_width(before, font, small, look)
+        an, x = (4, left) if sw <= bw * 1.05 else (5, cx)
+        out.append("Dialogue: 0,%s,%s,R,,0,0,0,,%s{\\an%d\\pos(%d,%d)\\fs%d%s}%s" % (
+            _ts(s0), _ts(e), IN, an, round(x), round(yb), small, fade, " ".join(t.lstrip(EM) for t in before)))
+    # the big word: pops in (a little blur that sharpens), in the accent colour
+    pop = "\\fscx45\\fscy45\\blur5\\t(0,200,0.55,\\fscx112\\fscy112\\blur0)\\t(200,300,1.3,\\fscx100\\fscy100)"
+    out.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s{\\an5\\pos(%d,%d)\\fs%d\\1c%s&\\fad(90,120)%s}%s" % (
+        _ts(s0), _ts(e), IN, round(cx), round(cy), big, acol_a, pop, txts[ai].lstrip(EM)))
+    if after:
+        sw = _tpl_width(after, font, small, look)
+        an, x = (6, right) if sw <= bw * 1.05 else (5, cx)
+        out.append("Dialogue: 0,%s,%s,R,,0,0,0,,%s{\\an%d\\pos(%d,%d)\\fs%d%s}%s" % (
+            _ts(s0), _ts(e), _cont(0), an, round(x), round(ya), small, fade, " ".join(t.lstrip(EM) for t in after)))
+    return out
+
+
+def _kinetic_rows(n):
+    """How many words on each row of a kinetic block (at most 3 rows)."""
+    r = min(3, n)
+    base, extra = divmod(n, r)
+    return [base + (1 if i < extra else 0) for i in range(r)]
+
+
+def _tpl_kinetic(g, txts, font, size, look, width, height, o, bottom, tcol_a, acol_a, s0, e):
+    """1.73 kinetic typography: the caption as 1-3 rows, each row scaled so
+    every row is exactly as wide as the block — short words become big. The
+    row with the word the caption leans on is in the accent colour. Rows open
+    one after the other (stretched in from flat)."""
+    counts = _kinetic_rows(len(txts))
+    rows, k = [], 0
+    for c in counts:
+        rows.append(list(range(k, k + c)))
+        k += c
+    target = width * (0.62 if height > width else 0.44)
+    sizes, widths = [], []
+    for r in rows:
+        w = _tpl_width([txts[i] for i in r], font, size, look) or 1.0
+        f = max(0.55, min(2.6, target / w))
+        sizes.append(size * f)
+        widths.append(w * f)
+    gap = size * 0.06
+    total = sum(sz * 0.98 for sz in sizes) + gap * (len(rows) - 1)
+    room = height * 0.40
+    if total > room:
+        f = room / total
+        sizes = [sz * f for sz in sizes]
+        total = room
+    ai = _accent_index(g, txts, font, size, look)
+    cx, cy = _tpl_pos(size, width, height, o, bottom)
+    # the block ends where a one-line caption would end
+    top = cy + size * 0.59 - total
+    if top < height * 0.04:
+        top = height * 0.04
+    out = []
+    y = top
+    for n, (r, sz) in enumerate(zip(rows, sizes)):
+        h = sz * 0.98
+        col = acol_a if ai in r else tcol_a
+        delay = int(70 * n)
+        ent = "\\fscy6\\t(%d,%d,0.45,\\fscy100)" % (delay, delay + 210)
+        alpha = "\\alpha&HFF&\\t(%d,%d,\\alpha&H00&)" % (delay, delay + 1)
+        out.append("Dialogue: 0,%s,%s,S,,0,0,0,,%s{\\an5\\pos(%d,%d)\\fs%d\\1c%s&\\fad(0,140)%s%s}%s" % (
+            _ts(s0), _ts(e), IN if n == 0 else _cont(0), round(cx), round(y + h / 2.0), max(8, int(round(sz))),
+            col, alpha, ent, " ".join(txts[i].lstrip(EM) for i in r)))
+        y += h + gap
+    return out
+
+
 def _tpl_script(words, look, width, height, o):
     """Draw a caption template. Returns (dialogue lines, style lines)."""
     h = float(height)
@@ -1518,6 +1678,9 @@ def _tpl_script(words, look, width, height, o):
     styles = ["Style: S,%s,%d,%s,%s,%s,%s,%d,0,0,0,100,100,%.1f,0,1,%.1f,%.1f,%d,%d,%d,%d,1" % (
         font, size, tcol_a, acol_a, _ass_color(look["outline"], BLACK), _ass_color(look["shadow"], BLACK),
         bold, spc, bord, shad, align, ml, mr, mv)]
+    if mode_small(look):
+        # the small words of a Reels caption: like S, never glowing
+        styles.append(styles[0].replace("Style: S,", "Style: R,", 1))
     if look["glow"]:
         styles.append("Style: G,%s,%d,&HFF000000,&HFF000000,%s,&H00000000,%d,0,0,0,100,100,%.1f,0,1,%.1f,0,%d,%d,%d,%d,1" % (
             font, size, _ass_color(look["glow"], CYAN), bold, spc, size * look["glow_w"], align, ml, mr, mv))
@@ -1631,6 +1794,10 @@ def _tpl_script(words, look, width, height, o):
                 cx, cy, tw = places[i]
                 lines.append("Dialogue: 2,%s,%s,S,,0,0,0,,%s{\\an5\\pos(%d,%d)\\fad(110,80)}%s" % (
                     _ts(s0), _ts(e), IN if i == 0 else _cont(0), round(cx), round(cy), x.lstrip(EM)))
+        elif mode == "reels":
+            lines += _tpl_reels(g, txts, font, size, look, width, height, o, bottom, tcol_a, acol_a, s0, e)
+        elif mode == "kinetic":
+            lines += _tpl_kinetic(g, txts, font, size, look, width, height, o, bottom, tcol_a, acol_a, s0, e)
         else:  # arch
             places = _tpl_arch(txts, font, size, width, height, o, look, bottom)
             for i, w in enumerate(g):
@@ -1656,7 +1823,12 @@ def _tpl_script(words, look, width, height, o):
             head, sep, text = line.partition(",,0,0,0,,")
             if not sep or not head.endswith(",S"):
                 continue
-            halo.append(head[:-2] + ",G" + sep + "{\\blur%.1f}" % blur + text)
+            # the phrase's start / redraw mark stays in FRONT (1.73): the
+            # entrance then animates the glow too, and the mark itself is
+            # removed (before, it was drawn as a box and a number)
+            m = _CONT.match(text)
+            mark = m.group(0) if m else (IN if text.startswith(IN) else "")
+            halo.append(head[:-2] + ",G" + sep + mark + "{\\blur%.1f}" % blur + text[len(mark):])
         lines = halo + lines
     return lines, "\n".join(styles)
 

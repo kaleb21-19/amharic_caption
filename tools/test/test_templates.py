@@ -252,6 +252,47 @@ if box:
     check(by < min(rows_of(tb)), "the box starts above both lines")
     check("\\p1" in box[0], "the box is a drawn shape")
 
+# ── 1.73 kinetic pack: Reels emphasis, kinetic typography, the motion pack ──
+FOUR = [("ዛሬ", 0.2, 0.6), ("የምነግራችሁ", 0.6, 1.4), ("ሚስጥር", 1.4, 2.0), ("ነው", 2.0, 2.6)]
+FS = re.compile(r"\\fs(\d+)")
+r = A.build(FOUR, "reels", 1080, 1920)
+ev = [x for x in events(r) if ",S," in x or ",R," in x]
+big = [x for x in ev if ",S," in x]
+small = [x for x in ev if ",R," in x]
+check(len(big) == 1 and len(small) == 2, "reels: one big word, the others in two small rows (%d big, %d small)" % (len(big), len(small)))
+check("የምነግራችሁ" in big[0], "reels: the big word is the longest one when nothing is starred")
+bs, ss = int(FS.search(big[0]).group(1)), int(FS.search(small[0]).group(1))
+check(bs > ss * 2, "reels: the big word is much bigger (%d vs %d)" % (bs, ss))
+check(A._ass_color("#FF2D3A", "") in big[0], "reels: the big word is in the accent colour")
+check(not any(",G," in x and ",R," in x for x in events(r)), "reels: only the big word glows")
+starred = A.build(FOUR, "reels", 1080, 1920, opts={"emph": "manual"})
+ws = [("ዛሬ", 0.2, 0.6), ("*የምነግራችሁ*", 0.6, 1.4), ("ሚስጥር", 1.4, 2.0), ("*ነው*", 2.0, 2.6)]
+k = A.build([("ዛሬ", 0.2, 0.6), ("የምነግራችሁ", 0.6, 1.4), ("ሚስጥር", 1.4, 2.0), ("★ነው", 2.0, 2.6)], "reels", 1080, 1920)
+check(len([x for x in events(k) if ",S," in x]) == 1, "reels: a starred word works too")
+kin = A.build(FOUR, "kinetic", 1080, 1920)
+rows = [x for x in events(kin) if ",S," in x]
+check(2 <= len(rows) <= 3, "kinetic: the caption stands on 2-3 rows (%d)" % len(rows))
+sizes = [int(FS.search(x).group(1)) for x in rows]
+check(max(sizes) > min(sizes) * 1.15, "kinetic: short rows are bigger (%s)" % sizes)
+ys = [int(re.search(r"\\pos\(\d+,(\d+)\)", x).group(1)) for x in rows]
+check(ys == sorted(ys) and len(set(ys)) == len(ys), "kinetic: the rows are stacked top to bottom")
+check(sum(1 for x in rows if A._ass_color("#3DF5B5", "") in x) == 1, "kinetic: one row in the accent colour")
+check(all(y < 1920 * 0.95 for y in ys), "kinetic: the block stays in the frame")
+# the glow never shows its marks (1.66's Neon Glow drew a box and a number before the text)
+for sid in ("neonglow", "reels", "flicker"):
+    t = A.build(FOUR, sid, 1080, 1920)
+    check(not re.search("[\x01-\x06]", t), "%s: no hidden mark reaches the script" % sid)
+    glow = [x for x in events(t) if ",G," in x]
+    check(glow and all("\\blur" in x for x in glow), "%s: the glow layer is there, blurred" % sid)
+check("\\fad(" in [x for x in events(A.build(FOUR, "neonglow", 1080, 1920)) if ",G," in x][0],
+      "neonglow: the glow comes in with its text (not before it)")
+# the motion pack: every new entrance has its own moves
+for an in ("bounce", "flicker", "snap", "rampup", "fadeup"):
+    check(an in A.ANIMS, "%s is an entrance the editor can pick" % an)
+    t = A.build(FOUR, "boldpop", 1080, 1920, opts={"anim": an})
+    check("\\t(" in t and not re.search("[\x01-\x06]", t), "%s: animated, clean script" % an)
+check("\\alpha&HD0&" in A.build(FOUR, "boldpop", 1080, 1920, opts={"anim": "flicker"}), "flicker: it switches off and on")
+
 # ── real drawing (needs an ffmpeg with libass; skipped otherwise) ───────────
 ff = os.environ.get("AMH_FFMPEG") or shutil.which("ffmpeg")
 if ff and A.supported(ff):

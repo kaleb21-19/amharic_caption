@@ -106,7 +106,7 @@ def thumb(ffmpeg, fonts, sid, out, at=2.2):
     the video. A stacked look is shot on a portrait frame with a longer phrase,
     so its two lines are in the picture too."""
     look = A.template(sid) if sid in A.template_ids() else {}
-    two = int((look or {}).get("rows") or 1) > 1
+    two = int((look or {}).get("rows") or 1) > 1 or (look or {}).get("mode") in ("reels", "kinetic")
     w, h = (540, 960) if two else (960, 540)
     vid = out.replace(".jpg", ".thumb.mp4")
     render_one(ffmpeg, fonts, sid, vid, w, h, 6.5,
@@ -126,7 +126,7 @@ def thumb(ffmpeg, fonts, sid, out, at=2.2):
                 xs.extend(x for x in range(0, w, 2) if row[x] > lim)
         if xs and ys:
             x0, x1, y0, y1 = min(xs), max(xs), ys[0], ys[-1]
-            cw = max(int((x1 - x0) * 1.08), 240)
+            cw = max(int((x1 - x0) * 1.08), 240, int((y1 - y0) * 2.16))   # a tall block (kinetic) fits too
             ch = int(cw / 2.0)
             cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
             x0, y0 = max(0, cx - cw // 2), max(0, cy - ch // 2)
