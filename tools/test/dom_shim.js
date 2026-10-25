@@ -183,7 +183,7 @@ const KNOWN = [
   'srcLine', 'wpcSeg', 'wpc1', 'wpc2', 'wpc3', 'wpc4', 'wpc5', 'wpcField', 'capField',
   'reviewSteps', 'stepText', 'stepStyle', 'stepPlace',
   // next-step card after a free caption
-  'trialCard', 'tcGroup', 'tcBuy', 'tcLater', 'tcLeftText', 'tcCutText', 'tcMore', 'tcMoreTitle', 'tcMoreText',
+  'trialCard', 'tcGroup', 'tcBuy', 'tcLater', 'tcLeftText', 'tcCutText', 'tcMore', 'tcMoreTitle', 'tcMoreText', 'freeMinNote',
   'freeMinBox', 'freeMinTitle', 'freeMinBtn', 'freeMinWait',
   'styleStrip', 'styleChips', 'styleNote', 'styleCustom', 'styleCustomToggle', 'styleOpts', 'styleTabs', 'stylePreview', 'stylePreviewNote',
   'trialGate', 'trialGateClose', 'trialGateTitle', 'trialGateBody', 'trialGateBtn', 'trialGateWait', 'trialGateKey',

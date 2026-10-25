@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.77.0';
+const APP_VERSION = '1.77.1';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -2141,6 +2141,7 @@ function setTrialState(data) {
     seconds_left: data.seconds_left || 0, seconds_total: data.seconds_total || 0,
     expires: /^\d{4}-\d{2}-\d{2}$/.test(String(data.expires || '')) ? data.expires : '',
     starter: !!data.starter,
+    starterMinutes: Math.max(0, parseInt(data.starter_minutes, 10) || 0),
   };
 }
 // 1.77: the first minutes were given on this computer, before Telegram; the
@@ -2442,6 +2443,12 @@ function renderFreeMinBox() {
   const title = document.getElementById('freeMinTitle');
   if (title) title.textContent = L('Try ' + trialMinutes() + ' minutes free');
   if (title && more) title.textContent = L('Get ' + more + ' more free minutes');
+  // 1.77.1: a new computer starts by pressing Make captions — not Telegram.
+  const first = st === 'none' && !TRIAL_WAIT && TRIAL_MIN.starterMinutes > 0 ? TRIAL_MIN.starterMinutes : 0;
+  box.classList.toggle('fm-first', !!first);
+  if (title && first) title.textContent = L('Free: press Make captions — the first ' + first + ' minutes start right here');
+  const note = document.getElementById('freeMinNote');
+  if (note) note.textContent = first ? L('Then ' + Math.max(1, trialMinutes() - first) + ' more free minutes in Telegram — one tap.') : '';
   const btn = document.getElementById('freeMinBtn');
   const wait = document.getElementById('freeMinWait');
   if (btn) btn.style.display = st === 'pending' ? 'none' : '';

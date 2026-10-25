@@ -238,7 +238,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.77.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.77.1');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1142,6 +1142,25 @@ await t('4f. 1.77 the first video without Telegram: first minutes here, the job 
     assert.strictEqual(p.els('trialGateBtn').textContent, '🎁 15 ተጨማሪ ነጻ ደቂቃ ያግኙ — 1 ንክኪ');
     assert.strictEqual(p.els('trialGateBody').children[0].children[0].textContent, 'በዚህ ኮምፒውተር ላይ የመጀመሪያዎቹ ነጻ ደቂቃዎች ተጠቅመዋል።');
     p.evalVm('AMH_LANG = "en";');
+  } finally { p.close(); }
+});
+
+await t('4g. 1.77.1 a new computer: the box says "press Make captions", not "Telegram first"', async () => {
+  const p = loadPanel({});
+  try {
+    await flush(5);
+    p.evalVm('LICENSED = false; setTrialState({ mode: "minutes", status: "none", minutes: 30, seconds_total: 0, seconds_left: 0, starter_minutes: 5 }); updateLicenseUI();');
+    assert.strictEqual(p.els('freeMinBox').style.display, '');
+    assert.ok(p.els('freeMinBox').classList.contains('fm-first'), 'Telegram button hidden');
+    assert.strictEqual(p.els('freeMinTitle').textContent, 'Free: press Make captions — the first 5 minutes start right here');
+    assert.strictEqual(p.els('freeMinNote').textContent, 'Then 25 more free minutes in Telegram — one tap.');
+    p.evalVm('AMH_LANG = "am"; renderFreeMinBox();');
+    assert.strictEqual(p.els('freeMinTitle').textContent, 'ነጻ፦ «ካፕሽን ፍጠር»ን ይጫኑ — የመጀመሪያዎቹ 5 ደቂቃዎች እዚሁ ይጀምራሉ');
+    p.evalVm('AMH_LANG = "en";');
+    // an old server (no starter_minutes): as before
+    p.evalVm('setTrialState({ mode: "minutes", status: "none", minutes: 30, seconds_total: 0, seconds_left: 0 }); updateLicenseUI();');
+    assert.ok(!p.els('freeMinBox').classList.contains('fm-first'));
+    assert.strictEqual(p.els('freeMinTitle').textContent, 'Try 30 minutes free');
   } finally { p.close(); }
 });
 

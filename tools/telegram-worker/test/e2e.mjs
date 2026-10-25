@@ -3990,8 +3990,12 @@ console.log('\n:: 1.77 the first video without Telegram');
   const HF = '7a7a7a7a';
   const U = 977000001;
 
+  // a new computer is told how many minutes it gets without Telegram
+  let j = await state('77ab77ab77ab77ab');
+  assert.equal(j.status, 'none');
+  assert.equal(j.starter_minutes, 5, 'the panel can say "the first 5 minutes start right here"');
   // an older panel (no "starter") still gets only the Telegram link
-  let j = await req({ mid: '77bb77bb77bb77bb', hf: '7b7b7b7b' });
+  j = await req({ mid: '77bb77bb77bb77bb', hf: '7b7b7b7b' });
   assert.equal(j.status, 'none');
   assert.ok(j.link, 'old panels: link only');
   // a 1.77 panel: the first 5 minutes right away, and a link for the rest
