@@ -1742,6 +1742,34 @@
     drawSoon();
   }, { passive: false });
 
+  // ── 🔎 a found moment into the edit (1.75) ─────────────────────────────
+  // At the playhead: a video on the main track with its sound (what comes
+  // after moves on, with its words); a sound only on the sound track.
+  async function insertFound(p, a, b) {
+    const key = String(p).replace(/\\/g, '/').toLowerCase();
+    let id = Object.keys(media).find((k) => String(media[k].path || '').replace(/\\/g, '/').toLowerCase() === key);
+    if (!id) id = await addMedia(p);
+    if (!id) throw new Error(tx('ፋይሉ ሊከፈት አልቻለም', 'The file could not be opened'));
+    const m = media[id];
+    const t = time();
+    const r3 = (x) => Math.round(x * 1000) / 1000;
+    const out = r3(Math.min(b, m.dur || b));
+    const fresh = newId();
+    if (m.video) {
+      change('insert found', () => {
+        const old = clips;
+        clips = E.insertClips(clips, t, [{ id: fresh, m: id, in: r3(a), out }], newId);
+        follow(old, [fresh]);
+      });
+    } else {
+      change('insert found', () => { mus = mus.concat([{ id: fresh, m: id, in: r3(a), out, start: r3(t), volume: 1, fadeIn: 0.1, fadeOut: 0.3, duck: 0 }]); });
+    }
+    sel = fresh; picks = [];
+    after(); renderMedia();
+    seek(t + 0.01);
+    return fresh;
+  }
+
   // ── 🔖 markers and the marked part (1.71) ──────────────────────────────
   function toggleMarker() {
     const t = time();
@@ -3972,5 +4000,5 @@
     queueExports, stopExport, clearDone, detectGpu, gpuName: (e) => GPU_NAMES[e] || '', queue: () => QUEUE, onQueue: (f) => qWatch.push(f),
     setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } });
   window.__amhEditor = { renderJob, snapshot, open, copySel, paste, duplicate, togglePick, selected, state: () => ({ clips, ovl, txt, mus, snd, zm, media, SRC, fmt, sel, built }), addOverlay, addText, addZoom, autoZooms, addBroll, brollPicker, findFaces, followFaces, frameClips, useSoundFolder, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, moveRange, total, redo,
-    select: (id) => { sel = id; picks = []; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, startCrop, endCrop, cropState: () => cropEdit, setCropView: (v) => { if (cropEdit) { cropEdit.v = v; frame(); } }, freezeFrame, reverseClip, rampClip, guide: () => maybeGuide(true), queueExports, queue: () => QUEUE, markedPart, toggleMarker, markIO, clearIO, setShuttle, markers: () => mk, addToMedia, findFile, missingFiles, checkFiles, render, exportVideo, frame, setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } };
+    select: (id) => { sel = id; picks = []; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, insertFound, startCrop, endCrop, cropState: () => cropEdit, setCropView: (v) => { if (cropEdit) { cropEdit.v = v; frame(); } }, freezeFrame, reverseClip, rampClip, guide: () => maybeGuide(true), queueExports, queue: () => QUEUE, markedPart, toggleMarker, markIO, clearIO, setShuttle, markers: () => mk, addToMedia, findFile, missingFiles, checkFiles, render, exportVideo, frame, setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } };
 })();

@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.74.0';
+const APP_VERSION = '1.75.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -1595,9 +1595,308 @@ function startBuyPoll() {
   checkPendingBuy();
 }
 
+
+// ── 🔎 Footage search (1.75) ────────────────────────────────────────────────
+// The panel listens ONCE to every video / audio file of the project (and the
+// folders the editor adds) - in the background, a minute of sound at a time,
+// only while nothing else is being transcribed - and keeps every word with
+// its time in Documents/AmharicCaptions/.index (nothing leaves the computer).
+// Then the editor types a word or a sentence: every place it was said, ▶ to
+// hear it, ➕ to put that moment on the timeline. With a license only (it
+// listens to hours of sound).
+const sEl = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const IDX_CHUNK = 60;                        // seconds of sound per piece
+const IDX_EXT = /\.(mp4|mov|m4v|mkv|avi|mxf|mts|m2ts|webm|wmv|mpg|mpeg|mp3|wav|m4a|aac|flac|ogg|wma)$/i;
+const IDX_AUDIO = /\.(mp3|wav|m4a|aac|flac|ogg|wma)$/i;
+const IDX = { files: {}, queue: [], busy: false, paused: false, loaded: false, msg: '' };
+const idxDir = () => path.join(USER_CAPTIONS_DIR, '.index');
+const idxKey = (p) => String(p || '').replace(/\\/g, '/').toLowerCase();
+const idxFile = (p) => path.join(idxDir(), crypto.createHash('sha1').update(idxKey(p)).digest('hex').slice(0, 16) + '.json');
+function idxLoad() {
+  if (IDX.loaded) return;
+  IDX.loaded = true;
+  let names = [];
+  try { names = fs.readdirSync(idxDir()).filter((n) => /\.json$/.test(n)); } catch (e) { return; }
+  names.forEach((n) => {
+    try {
+      const rec = JSON.parse(fs.readFileSync(path.join(idxDir(), n), 'utf8'));
+      if (rec && rec.path) IDX.files[idxKey(rec.path)] = rec;
+    } catch (e) {}
+  });
+}
+function idxSave(rec) {
+  try {
+    if (!fs.existsSync(idxDir())) fs.mkdirSync(idxDir(), { recursive: true });
+    const f = idxFile(rec.path);
+    const t = f + '.tmp';
+    fs.writeFileSync(t, JSON.stringify(rec), { encoding: 'utf8' });
+    fs.renameSync(t, f);
+  } catch (e) {}
+}
+// a file changed since it was listened to (or never was): from the start
+function idxRecord(p, name) {
+  let st = null;
+  try { st = fs.statSync(p); } catch (e) { return null; }
+  const k = idxKey(p);
+  let rec = IDX.files[k];
+  if (!rec || rec.size !== st.size || Math.floor(rec.mtime) !== Math.floor(st.mtimeMs)) {
+    rec = { v: 1, path: p, name: name || path.basename(p), size: st.size, mtime: Math.floor(st.mtimeMs), dur: 0, done: 0, words: [] };
+    IDX.files[k] = rec;
+  }
+  return rec;
+}
+const idxComplete = (rec) => !!rec && (rec.err || (rec.dur > 0 && rec.done >= rec.dur - 0.05));
+function idxDuration(p) {
+  return new Promise((resolve) => {
+    execFile(FFMPEG, ['-hide_banner', '-i', p], { timeout: 60000 }, (err, out, errText) => {
+      const m = /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(String(errText || ''));
+      resolve(m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) : 0);
+    });
+  });
+}
+// one piece of sound (its own ffmpeg: Cancel and the editor's runs are never touched)
+function idxWav(p, from, dur) {
+  const wav = path.join(os.tmpdir(), 'amh_idx_' + Date.now() + '_' + Math.floor(Math.random() * 1e5) + '.wav');
+  return new Promise((resolve, reject) => {
+    execFile(FFMPEG, ['-v', 'error', '-y', '-ss', String(from), '-i', p, '-t', String(dur), '-vn', '-sn', '-af', AUDIO_CLEAN_FILTER,
+      '-ac', '1', '-ar', '16000', wav], { timeout: 10 * 60 * 1000 }, (err) => {
+      if (err) { try { fs.unlinkSync(wav); } catch (e) {} reject(err); } else resolve(wav);
+    });
+  });
+}
+// the files to listen to: the project's (Premiere / the Studio's) and the editor's folders
+async function idxSources() {
+  const out = [];
+  if (IS_APP_MODE()) {
+    try {
+      const ed = window.__amhEditor;
+      const media = ed && ed.state ? ed.state().media || {} : {};
+      Object.keys(media).forEach((k) => { const m = media[k]; if (m && m.path && !m.image && !m.made) out.push({ path: m.path, name: m.name }); });
+      const c = window.__amhAppChosen && window.__amhAppChosen();
+      if (c && c.path) out.push({ path: c.path, name: c.name });
+    } catch (e) {}
+  } else if (!IS_AE) {
+    try { const r = await evalScript('amh_projectMedia()', 60000); if (r && r.ok) (r.media || []).forEach((m) => out.push(m)); } catch (e) {}
+  }
+  (loadSettings().searchFolders || []).forEach((d) => {
+    const walk = (dir, depth) => {
+      let names = [];
+      try { names = fs.readdirSync(dir); } catch (e) { return; }
+      names.forEach((n) => {
+        if (out.length > 3000) return;
+        const q = path.join(dir, n);
+        let st = null;
+        try { st = fs.statSync(q); } catch (e) { return; }
+        if (st.isDirectory && st.isDirectory()) { if (depth < 3 && !/^\./.test(n)) walk(q, depth + 1); return; }
+        if (IDX_EXT.test(n)) out.push({ path: q, name: n });
+      });
+    };
+    walk(d, 0);
+  });
+  const seen = {};
+  return out.filter((m) => { const k = idxKey(m.path); if (seen[k]) return false; seen[k] = true; return true; });
+}
+async function idxRefresh() {
+  idxLoad();
+  const list = await idxSources();
+  IDX.all = list.map((m) => idxKey(m.path));
+  IDX.queue = list.filter((m) => !idxComplete(idxRecord(m.path, m.name)));
+  renderSearchStatus();
+  idxNext();
+}
+const idxIdle = () => !(runInProgress || runStartInProgress || REVIEW_LIVE || (typeof CLEAN !== 'undefined' && CLEAN && CLEAN.cutting));
+let idxTimer = 0;
+function idxNext(ms) {
+  clearTimeout(idxTimer);
+  idxTimer = setTimeout(idxStep, ms == null ? 300 : ms);
+}
+// one piece: the next minute of the next file
+async function idxStep() {
+  if (IDX.busy || IDX.paused || !LICENSED || !IDX.queue.length) { renderSearchStatus(); return; }
+  if (!idxIdle()) { idxNext(4000); return; }
+  const m = IDX.queue[0];
+  const rec = idxRecord(m.path, m.name);
+  if (!rec) { IDX.queue.shift(); idxNext(); return; }
+  if (idxComplete(rec)) { IDX.queue.shift(); idxSave(rec); renderSearchStatus(); idxNext(); return; }
+  IDX.busy = true;
+  renderSearchStatus();
+  let wav = null;
+  const out = path.join(os.tmpdir(), 'amh_idx_' + Date.now() + '.srt');
+  try {
+    if (!rec.dur) rec.dur = await idxDuration(rec.path);
+    if (!rec.dur) throw new Error('no sound');
+    const from = rec.done, len = Math.min(IDX_CHUNK, rec.dur - rec.done);
+    wav = await idxWav(rec.path, from, len);
+    if (!warmStart()) throw new Error('engine');
+    const lic = getLicense();
+    await warmSend({ wav, out_srt: out, offset: from, mode: 'words', group: 0, max_chars: MAX_CHARS, lease: lic && lic.token });
+    let cues = [];
+    try { cues = withWordTimes(parseSrt(fs.readFileSync(out, 'utf8')), out); } catch (e) {}
+    rec.words = rec.words.filter((w) => w[1] < from).concat(wordsFromCues(cues));
+    rec.done = Math.min(rec.dur, from + len);
+    idxSave(rec);
+  } catch (e) {
+    const msg = String((e && e.message) || e);
+    // a file with no sound / that cannot be read: marked, never tried again
+    if (/no sound|ffmpeg|Invalid|does not contain|matches no streams/i.test(msg)) { rec.err = msg.slice(0, 120); idxSave(rec); IDX.queue.shift(); }
+    else { IDX.msg = msg; IDX.busy = false; renderSearchStatus(); idxNext(20000); return; }
+  } finally {
+    [wav, out, out + '.words.json', out + '.doubt.json'].forEach((f) => { if (f) { try { fs.unlinkSync(f); } catch (e) {} } });
+  }
+  IDX.busy = false;
+  if (idxComplete(rec)) IDX.queue.shift();
+  renderSearchStatus();
+  if (SEARCH_Q) runSearch();
+  idxNext();
+}
+// the card
+let SEARCH_Q = '';
+const fmtHMS = (sec) => { const s = Math.max(0, Math.floor(sec)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return h ? h + ':' + String(m).padStart(2, '0') + ' ' + L('h') : (m || '<1') + ' ' + L('min'); };
+function renderSearchStatus() {
+  const st = $('searchStatus');
+  if (!st) return;
+  const pz = $('searchPause');
+  if (!LICENSED) {
+    st.textContent = '🔒 ' + L('With a license: search every word said in all your videos.');
+    if (pz) pz.style.display = 'none';
+    return;
+  }
+  const keys = IDX.all || [];
+  const recs = keys.map((k) => IDX.files[k]).filter(Boolean);
+  const done = recs.filter(idxComplete).length;
+  const heard = recs.reduce((n, r) => n + (r.done || 0), 0);
+  let t = '';
+  if (!keys.length) t = L('No video or audio found yet — open a project, or add a folder.');
+  else if (done < keys.length) t = (IDX.paused ? '⏸ ' : '👂 ') + L('Listening to your footage') + ' — ' + done + ' / ' + keys.length + ' ' + L('files') + ' · ' + fmtHMS(heard);
+  else t = '✓ ' + L('Every file listened to') + ' — ' + keys.length + ' ' + L('files') + ' · ' + fmtHMS(heard);
+  if (IDX.msg) t += ' · ⚠ ' + IDX.msg;
+  st.textContent = t;
+  if (pz) { pz.style.display = done < keys.length ? '' : 'none'; pz.textContent = IDX.paused ? '▶ ' + L('Listen again') : '⏸ ' + L('Pause listening'); }
+}
+function searchFiles() {
+  idxLoad();
+  const keys = IDX.all && IDX.all.length ? IDX.all : Object.keys(IDX.files);
+  return keys.map((k) => IDX.files[k]).filter((r) => r && r.words && r.words.length);
+}
+function runSearch() {
+  const box = $('searchResults');
+  if (!box) return;
+  box.textContent = '';
+  if (!SEARCH_Q.trim()) return;
+  const hits = searchFootage(searchFiles(), SEARCH_Q, 100);
+  if (!hits.length) { box.appendChild(sEl('div', 'hint', L('Not found yet.') + (IDX.queue.length ? ' ' + L('Still listening — it may come.') : ''))); return; }
+  box.appendChild(sEl('div', 'hint', hits.length + ' ' + L('places')));
+  hits.forEach((h) => {
+    const r = sEl('div', 'search-hit');
+    const head = sEl('div', 'search-head');
+    head.appendChild(sEl('b', '', h.name));
+    head.appendChild(sEl('span', 'search-time', fmtClipTime(h.t)));
+    r.appendChild(head);
+    const txt = sEl('div', 'search-txt');
+    txt.appendChild(sEl('span', '', h.before ? '… ' + h.before + ' ' : ''));
+    txt.appendChild(sEl('mark', '', h.match));
+    txt.appendChild(sEl('span', '', h.after ? ' ' + h.after + ' …' : ''));
+    r.appendChild(txt);
+    const acts = sEl('div', 'search-acts');
+    const play = sEl('button', 'btn btn-neutral', '▶ ' + L('Listen'));
+    play.type = 'button';
+    play.addEventListener('click', () => searchPlay(h));
+    acts.appendChild(play);
+    if (!IS_AE) {
+      const put = sEl('button', 'btn btn-primary', '➕ ' + (IS_APP_MODE() ? L('Into the edit') : L('On the timeline')));
+      put.type = 'button';
+      put.title = L('At the playhead, a little before and after the words');
+      put.addEventListener('click', () => searchPut(h, put));
+      acts.appendChild(put);
+    }
+    r.appendChild(acts);
+    box.appendChild(r);
+  });
+}
+function searchUrl(p) {
+  if (IS_APP_MODE()) { try { return window.__amhApp.call('media', [p]); } catch (e) { return ''; } }
+  return 'file:///' + encodeURI(String(p).replace(/\\/g, '/')).replace(/#/g, '%23').replace(/\?/g, '%3F');
+}
+let searchStop = 0;
+function searchPlay(h) {
+  const v = $('searchVideo');
+  if (!v) return;
+  const u = searchUrl(h.path);
+  if (!u) return;
+  const rg = searchClipRange(h, (IDX.files[idxKey(h.path)] || {}).dur);
+  v.style.display = IDX_AUDIO.test(h.path) ? 'none' : '';
+  if (v.dataset.p !== h.path) { v.dataset.p = h.path; v.src = u; }
+  const go = () => { try { v.currentTime = rg.start; } catch (e) {} const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); };
+  if (v.readyState >= 1) go(); else v.addEventListener('loadedmetadata', go, { once: true });
+  clearTimeout(searchStop);
+  searchStop = setTimeout(() => { try { v.pause(); } catch (e) {} }, (rg.end - rg.start) * 1000 + 300);
+}
+async function searchPut(h, b) {
+  const rec = IDX.files[idxKey(h.path)] || {};
+  const rg = searchClipRange(h, rec.dur);
+  if (b) b.disabled = true;
+  try {
+    if (IS_APP_MODE()) {
+      const ed = window.__amhEditor;
+      if (!ed || !ed.insertFound) throw new Error(L('Open a project in the Studio first.'));
+      await ed.insertFound(h.path, rg.start, rg.end);
+      log('🔎 ' + h.name + ' ' + fmtClipTime(rg.start) + '–' + fmtClipTime(rg.end) + ' → ' + L('into the edit'));
+    } else {
+      const r = await evalScript('amh_insertFound(' + escJson(JSON.stringify({ path: h.path, start: rg.start, end: rg.end, video: !IDX_AUDIO.test(h.path) })) + ')', 60000);
+      if (!r || !r.ok) throw new Error(L((r && r.error) || 'Premiere did not answer.'));
+      log('🔎 ' + h.name + ' ' + fmtClipTime(rg.start) + '–' + fmtClipTime(rg.end) + ' → ' + r.track);
+    }
+    if (b) { b.textContent = '✓ ' + L('Put'); setTimeout(() => { b.disabled = false; b.textContent = '➕ ' + (IS_APP_MODE() ? L('Into the edit') : L('On the timeline')); }, 1800); }
+  } catch (e) {
+    if (b) b.disabled = false;
+    const st = $('searchStatus');
+    if (st) st.textContent = '⚠ ' + String((e && e.message) || e);
+  }
+}
+async function searchAddFolder() {
+  let dir = '';
+  try {
+    const r = window.cep.fs.showOpenDialog(false, true, L('A folder with your videos'));
+    dir = (r && r.data && r.data[0]) || '';
+  } catch (e) {}
+  if (!dir) return;
+  const f = (loadSettings().searchFolders || []).filter((x) => idxKey(x) !== idxKey(dir)).concat([dir]);
+  saveSettings({ searchFolders: f });
+  idxRefresh();
+}
+function openSearch(on) {
+  const card = $('searchCard');
+  if (!card) return;
+  card.classList.toggle('open', on !== false);
+  if (on !== false) {
+    // from now on the panel listens in the background (only once asked for)
+    if (LICENSED && !loadSettings().searchOn) saveSettings({ searchOn: true });
+    renderSearchStatus();
+    idxRefresh();
+    const q = $('searchQ');
+    if (q) setTimeout(() => q.focus(), 50);
+  }
+}
+function initSearch() {
+  const q = $('searchQ');
+  if (!q) return;
+  let t = 0;
+  q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { SEARCH_Q = q.value; runSearch(); }, 180); });
+  const f = $('searchFolderBtn');
+  if (f) f.addEventListener('click', (e) => { if (e && e.preventDefault) e.preventDefault(); searchAddFolder(); });
+  const pz = $('searchPause');
+  if (pz) pz.addEventListener('click', (e) => { if (e && e.preventDefault) e.preventDefault(); IDX.paused = !IDX.paused; renderSearchStatus(); if (!IDX.paused) idxNext(); });
+  const head = $('searchHead');
+  if (head) head.addEventListener('click', () => openSearch(!$('searchCard').classList.contains('open')));
+  window.__amhOpenSearch = () => openSearch(true);
+  // an editor who uses search: listening goes on a little after the panel opens
+  setTimeout(() => { if (LICENSED && loadSettings().searchOn) idxRefresh(); }, 15000);
+}
+
 function initBuy() {
   initFeedback();
   initReport();
+  initSearch();
   initTrialCard();
   initFreeMinutes();
   const b = document.getElementById('buyBtn');
