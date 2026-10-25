@@ -617,6 +617,8 @@ const AM_PATTERNS = [
   [/^Try (\d+) minutes free$/, '$1 ደቂቃ በነጻ ይሞክሩ'],
   // 1.77: the first minutes on the computer, the rest from the bot
   [/^Get (\d+) more free minutes$/, '$1 ተጨማሪ ነጻ ደቂቃ ያግኙ'],
+  [/^Free: press Make captions — the first (\d+) minutes start right here$/, 'ነጻ፦ «ካፕሽን ፍጠር»ን ይጫኑ — የመጀመሪያዎቹ $1 ደቂቃዎች እዚሁ ይጀምራሉ'],
+  [/^Then (\d+) more free minutes in Telegram — one tap\.$/, 'ከዚያ $1 ተጨማሪ ነጻ ደቂቃዎች በቴሌግራም — በአንድ ንክኪ።'],
   [/^🎁 Get (\d+) more free minutes$/, '🎁 $1 ተጨማሪ ነጻ ደቂቃ ያግኙ'],
   [/^🎁 Get (\d+) more free minutes — 1 tap$/, '🎁 $1 ተጨማሪ ነጻ ደቂቃ ያግኙ — 1 ንክኪ'],
   [/^Liked it\? Get (\d+) more free minutes$/, 'ወደዱት? $1 ተጨማሪ ነጻ ደቂቃ ያግኙ'],

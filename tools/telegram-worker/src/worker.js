@@ -5281,7 +5281,9 @@ async function trialMinutesState(mid) {
   const lic = await DB.prepare('SELECT revoked FROM customers WHERE machine_id = ?').bind(mid).first();
   if (lic && !lic.revoked) return { mode: 'minutes', status: 'licensed', minutes: terms.minutes };
   const g = await trialGrant(mid);
-  if (!g) return { mode: 'minutes', status: terms.on ? 'none' : 'off', minutes: terms.minutes, seconds_total: 0, seconds_left: 0 };
+  // 1.77.1: starter_minutes = what a new computer gets without Telegram (the
+  // panel says "press Make captions" instead of "Telegram first").
+  if (!g) return { mode: 'minutes', status: terms.on ? 'none' : 'off', minutes: terms.minutes, seconds_total: 0, seconds_left: 0, starter_minutes: terms.on ? terms.starter : 0 };
   const expired = g.status === 'active' && trialExpired(g);
   return {
     mode: 'minutes', status: expired ? 'expired' : g.status, minutes: terms.minutes,

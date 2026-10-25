@@ -443,6 +443,9 @@
   #freeMinBox { margin-bottom: 8px; padding: 10px 12px; border: 1px solid var(--accent, #3b82f6); border-radius: var(--radius); font-size: 11px; line-height: 1.45; }
   #freeMinBox .fm-title { font-weight: 700; font-size: 12.5px; margin-bottom: 3px; }
   #freeMinBox .btn { width: 100%; margin-top: 7px; }
+  #freeMinNote { display: none; }
+  #freeMinBox.fm-first #freeMinNote { display: block; }
+  #freeMinBox.fm-first .fm-hint, #freeMinBox.fm-first #freeMinBtn { display: none !important; }
   #trialGate { margin-top: 8px; padding: 12px; border: 2px solid var(--accent, #3b82f6); border-radius: var(--radius); font-size: 11.5px; line-height: 1.5; position: relative; }
   #trialGate .tg-title { font-weight: 700; font-size: 13.5px; margin-bottom: 6px; padding-right: 18px; }
   #trialGate ol { margin: 0 0 4px 18px; padding: 0; }
@@ -1084,7 +1087,8 @@
     <!-- Free trial (1.10.7): free minutes from our Telegram bot. -->
     <div id="freeMinBox" style="display:none;">
       <div class="fm-title">🎁 <span id="freeMinTitle">Try 20 minutes free</span></div>
-      <div class="hint" data-i18n="fm.hint">One tap in our Telegram bot, then come back here — it updates by itself. Use the minutes on any videos.</div>
+      <div class="hint" id="freeMinNote"></div>
+      <div class="hint fm-hint" data-i18n="fm.hint">One tap in our Telegram bot, then come back here — it updates by itself. Use the minutes on any videos.</div>
       <button type="button" id="freeMinBtn" class="btn btn-primary" data-i18n="fm.button">Get them in Telegram</button>
       <div class="hint" id="freeMinWait" style="display:none;margin-top:6px;font-weight:600;"></div>
     </div>
@@ -1164,7 +1168,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.77.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.77.1</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
