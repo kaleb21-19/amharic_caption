@@ -764,3 +764,24 @@ html.amh-editor .ed-cwrap { height: auto; }
 .st-search .search-card { border: 0; background: none; padding: 0; margin: 0; }
 .st-search .search-card .card-head { display: none; }
 .st-search .search-results { max-height: 55vh; }
+/* the project library (1.76): every project, search, groups, ⋯ menu */
+html.amh-studio .st-pick { display: none; }
+.st-lib-head { display: flex; align-items: center; gap: 10px; margin: 4px 0 6px; flex-wrap: wrap; }
+.st-lib-head .st-home-h { margin: 0; }
+.st-lib-q { flex: 0 1 340px; min-width: 200px; height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--border); background: #101613; color: var(--text-primary); font: inherit; }
+.st-lib-q:focus { border-color: var(--accent); outline: none; }
+.st-lib-sort { width: auto !important; flex: 0 0 auto; height: 32px; border-radius: 8px; border: 1px solid var(--border); background: #101613; color: var(--text-primary); padding: 0 8px; font: inherit; }
+.st-lib-group { font-size: 12px; font-weight: 700; color: var(--text-secondary); margin: 14px 0 8px; }
+.st-lib-card { position: relative; }
+.st-lib-more { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border-radius: 8px; border: 0; background: rgba(6, 12, 9, .78); color: #fff;
+  font-size: 16px; line-height: 1; cursor: pointer; opacity: 0; transition: opacity .15s; }
+.st-lib-card:hover .st-lib-more, .st-lib-more:focus { opacity: 1; }
+.st-lib-menu { position: absolute; top: 38px; right: 6px; z-index: 30; display: flex; flex-direction: column; min-width: 210px; padding: 4px;
+  background: #17211d; border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 26px rgba(0, 0, 0, .5); }
+.st-lib-mi { text-align: left; padding: 8px 10px; border: 0; border-radius: 7px; background: none; color: var(--text-primary); font: inherit; cursor: pointer; }
+.st-lib-mi:hover { background: #22302a; }
+.st-lib-hit { color: var(--accent); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-lib-missing { color: #ffb020; font-size: 12px; }
+.st-lib-rename { width: 100%; box-sizing: border-box; height: 28px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--accent); background: #0f1512; color: var(--text-primary); font: inherit; font-weight: 700; }
+.st-lib-undo { padding: 8px 12px; border-radius: 10px; background: #1d2a24; margin: 6px 0; font-size: var(--font-s); }
+.st-lib-moreall { margin: 14px auto 0; display: block; }

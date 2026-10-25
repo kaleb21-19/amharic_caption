@@ -3852,6 +3852,7 @@
       try {
         await renderJob(it.job, it.out, (x) => { it.p = x; it.eta = E.eta(x, (Date.now() - it.t0) / 1000); qSoon(); }, it.ctl);
         it.status = 'done'; it.p = 1; it.secs = Math.round((Date.now() - it.t0) / 1000);
+        if (window.__amhMarkDone) window.__amhMarkDone('video');
       } catch (e) {
         it.status = it.ctl.stopped ? 'stop' : 'fail';
         it.err = e && e.message ? e.message : String(e);

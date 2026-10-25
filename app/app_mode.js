@@ -138,6 +138,7 @@
     }
     lastSaved = out;
     if (typeof track === 'function') track('placed');
+    if (window.__amhMarkDone) window.__amhMarkDone('srt');
     log(tx('ተቀምጧል፦ ', 'Saved: ') + out);
     return { file: out, count: cues.length };
   }
@@ -153,6 +154,7 @@
     const vout = uniquePath(dir, baseName() + (opts.suffix || '') + ' (' + STYLE_NAMES[STYLE] + ')', '.mp4');
     await renderStyled({ cues: styleCues(cues), style: STYLE, opts: styleOpts(STYLE), mode: 'burn', video: src, out: vout, tag: !LICENSED }, onProgress);
     log(tx('ካፕሽኑ የተጻፈበት ቪዲዮ፦ ', 'Video with the captions: ') + vout);
+    if (window.__amhMarkDone) window.__amhMarkDone('video');
     return { file: vout };
   }
   window.__amhAppExport = { srt: exportSrt, video: exportVideo, chosen: () => chosen, uniquePath, baseName };

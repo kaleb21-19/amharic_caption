@@ -89,11 +89,14 @@
     return {
       kind: 'amharic-captions-studio', v: 1, at: p.at || Date.now(),
       video: String(p.video || ''), name: String(p.name || ''), duration: Number(p.duration) || 0,
+      title: p.title ? String(p.title).slice(0, 120) : '',          // the editor's own name for it (1.76)
       style: String(p.style || 'plain'), styleOpts: p.styleOpts || null,
       // words per caption + line length the captions were grouped with (1.33)
       group: p.group && p.group.n >= 1 && p.group.n <= 99 ? { n: Math.round(p.group.n), fmt: p.group.fmt === 'v' ? 'v' : 'h' } : null,
       cleanup: p.cleanup || null,
       edit: p.edit || null,
+      // what was last made from it (1.76): { kind: srt | video | capcut | davinci, at }
+      done: p.done && p.done.kind ? { kind: String(p.done.kind), at: Number(p.done.at) || 0 } : null,
       cues: (p.cues || []).map((c) => {
         const o = {};
         PROJECT_KEYS.forEach((k) => { if (c[k] != null) o[k] = c[k]; });
@@ -110,6 +113,41 @@
   }
   function recentProjects(list, n) {
     return (list || []).filter(Boolean).sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, n || 12);
+  }
+  // ── the project library (1.76) ──────────────────────────────────────────
+  // Every project (the home used to show only the 8 newest), found by its
+  // name or by any word said in it. fold: how text is compared (the panel's
+  // amhFold: letters that sound alike are one, spaces do not count).
+  const lowFold = (t) => String(t || '').toLowerCase().replace(/\s+/g, '');
+  function libraryMatch(p, q, fold) {
+    fold = fold || lowFold;
+    if (!q) return { by: 'all' };
+    const name = fold(p.title || '') + ' ' + fold(p.name || '') + ' ' + fold(String(p.video || '').split(/[\\/]/).pop());
+    if (name.indexOf(q) >= 0) return { by: 'name' };
+    const c = (p.cues || []).find((x) => fold(x.text).indexOf(q) >= 0);
+    return c ? { by: 'words', text: String(c.text || '').replace(/[*~]/g, ''), t: c.start } : null;
+  }
+  function libraryList(projects, query, sort, fold) {
+    fold = fold || lowFold;
+    const q = fold(query || '');
+    const out = [];
+    (projects || []).filter(Boolean).forEach((p) => { const m = libraryMatch(p, q, fold); if (m) out.push(Object.assign({}, p, { _hit: m })); });
+    if (sort === 'old') out.sort((a, b) => (a.at || 0) - (b.at || 0));
+    else if (sort === 'name') out.sort((a, b) => String(a.title || a.name || '').localeCompare(String(b.title || b.name || '')));
+    else out.sort((a, b) => (b.at || 0) - (a.at || 0));
+    return out;
+  }
+  // newest first, in groups: today, this week (7 days), this month (30), older
+  function libraryGroups(list, now) {
+    now = now || Date.now();
+    const day = new Date(now); day.setHours(0, 0, 0, 0);
+    const keys = ['today', 'week', 'month', 'older'];
+    const g = { today: [], week: [], month: [], older: [] };
+    (list || []).forEach((p) => {
+      const at = p.at || 0;
+      g[at >= day.getTime() ? 'today' : at >= now - 7 * 86400000 ? 'week' : at >= now - 30 * 86400000 ? 'month' : 'older'].push(p);
+    });
+    return keys.filter((k) => g[k].length).map((k) => ({ key: k, items: g[k] }));
   }
   // ── earlier versions (1.71) ─────────────────────────────────────────────
   // Every few minutes of work the project is also copied to
@@ -233,7 +271,7 @@
   const checkSuggest = (word, cues, fixes, max, dict) => CORE.suggestWords(word, cues, fixes, max, dict);
 
   const api = { MAX_PPS, minPps, clampView, fitView, timeToX, xToTime, zoomAt, follow, hitCaption, ticks, fmtClock,
-    projectId, projectFileName, makeProject, parseProject, recentProjects, VERSIONS_KEEP, VERSION_EVERY, versionName, versionTime, versionsSorted, versionsToDrop, firstProject, scriptParagraphs, wordRanges, wordAt, selectionByCaption,
+    projectId, projectFileName, makeProject, parseProject, recentProjects, libraryMatch, libraryList, libraryGroups, VERSIONS_KEEP, VERSION_EVERY, versionName, versionTime, versionsSorted, versionsToDrop, firstProject, scriptParagraphs, wordRanges, wordAt, selectionByCaption,
     keepRanges, cutFilter, keptLength, editDistance, checkSuggest };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhStudio = api;

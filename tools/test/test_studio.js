@@ -142,4 +142,23 @@ test('1.71 earlier versions: names by time, the newest 10 kept, a broken project
   assert.strictEqual(S.firstProject([cut, '']), null);
 });
 
+test('1.76 project library: every project, found by name or by a word said in it, newest first in groups', () => {
+  const now = new Date(2026, 9, 25, 15, 0, 0).getTime();
+  const P = (name, at, text, video) => ({ name, at, video: video || 'C:/v/' + name, cues: [{ start: 1, end: 2, text: text || 'ሰላም' }] });
+  const ps = [];
+  for (let i = 0; i < 20; i++) ps.push(P('clip' + i + '.mp4', now - i * 3 * 86400000));
+  ps.push(P('sermon.mp4', now - 2 * 3600000, 'ስለ ኢትዮጵያ ታሪክ'));
+  assert.strictEqual(S.libraryList(ps, '', 'new').length, 21, 'all of them, not 8');
+  assert.strictEqual(S.libraryList(ps, '', 'new')[0].name, 'clip0.mp4');
+  assert.strictEqual(S.libraryList(ps, '', 'old')[0].name, 'clip19.mp4');
+  let r = S.libraryList(ps, 'sermon', 'new');
+  assert.deepStrictEqual(r.map((p) => [p.name, p._hit.by]), [['sermon.mp4', 'name']]);
+  r = S.libraryList(ps, 'ኢትዮጵያ ታሪክ', 'new');
+  assert.deepStrictEqual(r.map((p) => [p.name, p._hit.by, p._hit.text]), [['sermon.mp4', 'words', 'ስለ ኢትዮጵያ ታሪክ']], 'a word said in it, spaces or not');
+  const g = S.libraryGroups(S.libraryList(ps, '', 'new'), now);
+  assert.deepStrictEqual(g.map((x) => [x.key, x.items.length]), [['today', 2], ['week', 2], ['month', 8], ['older', 9]]);
+  assert.strictEqual(S.makeProject({ video: 'a', done: { kind: 'capcut', at: 5 } }).done.kind, 'capcut', 'what was made is kept');
+  assert.strictEqual(S.makeProject({ video: 'a' }).done, null);
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');
