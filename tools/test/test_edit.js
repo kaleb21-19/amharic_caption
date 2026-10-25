@@ -523,4 +523,23 @@ test('1.70 items follow the video: cuts, a deleted clip, a moved sentence, a tri
   assert.strictEqual(E.followClips(base, base.slice(), zm), zm);
 });
 
+test('1.71 export only the marked part: main track, items clipped, music goes on', () => {
+  const st = {
+    clips: [{ id: 'a', m: 'v', in: 0, out: 10 }, { id: 'b', m: 'w', in: 5, out: 15 }],
+    ovl: [{ id: 'o1', m: 'pic', start: 3, in: 0, out: 4 }, { id: 'o2', m: 'pic', start: 16, in: 0, out: 2 }],
+    txt: [{ id: 't', start: 8, in: 0, out: 3 }],
+    mus: [{ id: 'm', m: 'song', start: 0, in: 2, out: 40 }],
+    zm: [{ id: 'z', start: 1, in: 0, out: 1 }],
+  };
+  const r = E.rangeState(st, 5, 12);
+  assert.strictEqual(E.total(r.clips), 7);
+  assert.deepStrictEqual(r.clips.map((c) => [c.m, c.in, c.out]), [['v', 5, 10], ['w', 5, 7]]);
+  assert.deepStrictEqual(r.ovl.map((o) => [o.id, o.start, o.in, o.out]), [['o1', 0, 2, 4]], 'the B-roll goes on from its 2nd second; the one after the part is gone');
+  assert.deepStrictEqual(r.txt.map((o) => [o.start, o.in, o.out]), [[3, 0, 3]]);
+  assert.deepStrictEqual(r.mus.map((o) => [o.start, o.in, o.out]), [[0, 7, 14]], 'the song is where it was at 5 s');
+  assert.deepStrictEqual(r.zm, [], 'a zoom before the part');
+  assert.strictEqual(E.rangeState(st, 3, 3.05), st, 'too short: the whole edit');
+  assert.strictEqual(E.total(E.rangeState(st, 0, 99).clips), 20, 'the whole edit');
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');

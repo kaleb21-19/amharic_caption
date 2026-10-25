@@ -34,7 +34,7 @@
   const brandEl = el('span', 'st-name', NAME);
   const projEl = el('span', 'st-proj', '');
   const undoB = btn('st-ico', '↶', '', () => { if (typeof undoReview === 'function') undoReview(); });
-  const savedEl = el('span', 'st-saved', '');
+  const savedEl = btn('st-saved', '', '', () => openVersions());
   const chip = btn('st-chip', '', '', () => openLicense());
   const langB = btn('st-chip', 'EN', '', () => i18nSetLang(AMH_LANG === 'am' ? 'en' : 'am'));
   const exportB = btn('st-export', '', '', () => openExport());
@@ -285,6 +285,10 @@
     ['square', tx('ካሬ', 'Square'), '1:1'], ['telegram', tx('ቴሌግራም — ቀላል ፋይል', 'Telegram — light file'), '720p'], ['master', tx('ማስተር — ምርጥ ጥራት', 'Master — best quality'), '']];
   const PFMT = { youtube: '16:9', shorts: '9:16', insta: '4:5', square: '1:1' };
   let picked = null;
+  // ⚙ 1.71: frame rate, 4K, only the marked part (I / O)
+  let expOpts = { fps: 30, k4: false, part: false };
+  try { const o = JSON.parse(localStorage.getItem('amh_expopts') || '{}'); expOpts.fps = [24, 25, 30, 50, 60].indexOf(o.fps) >= 0 ? o.fps : 30; expOpts.k4 = !!o.k4; } catch (e) {}
+  const saveExpOpts = () => { try { localStorage.setItem('amh_expopts', JSON.stringify({ fps: expOpts.fps, k4: expOpts.k4 })); } catch (e) {} };
   let useGpu = true;
   try { useGpu = localStorage.getItem('amh_gpu') !== '0'; } catch (e) {}
   let qList = null;
@@ -300,7 +304,7 @@
       make.disabled = true;
       const names = {};
       PRESETS().forEach(([id, name]) => { names[id] = name; });
-      try { await editor.queueExports(picked.slice(), styled, useGpu, names); } finally { make.disabled = false; }
+      try { await editor.queueExports(picked.slice(), styled, useGpu, names, expOpts); } finally { make.disabled = false; }
     });
     const paint = () => {
       chips.textContent = '';
@@ -327,6 +331,31 @@
     v.h.appendChild(make);
     v.c.appendChild(chips);
     v.c.appendChild(note);
+    // ⚙ the pro settings (the Pro switch shows them)
+    const part = editor.markedPart ? editor.markedPart() : null;
+    expOpts.part = !!part && expOpts.part;
+    const opt = el('div', 'st-sub st-expopts pro-only');
+    const fpsSel = el('select', 'st-sel');
+    [24, 25, 30, 50, 60].forEach((f) => { const o = el('option', '', f + ' fps'); o.value = f; if (f === expOpts.fps) o.selected = true; fpsSel.appendChild(o); });
+    fpsSel.addEventListener('change', () => { expOpts.fps = Number(fpsSel.value); saveExpOpts(); });
+    fpsSel.title = tx('ፍሬም በሰከንድ — 30 ለቲክቶክና ዩቲዩብ፣ 25 ለኢትዮጵያ ቴሌቪዥን፣ 60 ለፈጣን እንቅስቃሴ', 'Frames per second — 30 for TikTok and YouTube, 25 for Ethiopian TV, 60 for fast motion');
+    opt.appendChild(el('span', '', '⚙ '));
+    opt.appendChild(fpsSel);
+    const k4 = el('label', 'st-check');
+    const k4b = el('input'); k4b.type = 'checkbox'; k4b.checked = expOpts.k4;
+    k4b.addEventListener('change', () => { expOpts.k4 = k4b.checked; saveExpOpts(); });
+    k4.appendChild(k4b); k4.appendChild(el('span', '', '4K'));
+    k4.title = tx('2160p — ትልቅ ፋይል፣ ረጅም ጊዜ ይወስዳል', '2160p — a big file, takes longer');
+    opt.appendChild(k4);
+    v.c.appendChild(opt);
+    if (part) {
+      const pl = el('label', 'st-check st-partchk');
+      const pb = el('input'); pb.type = 'checkbox'; pb.checked = expOpts.part;
+      pb.addEventListener('change', () => { expOpts.part = pb.checked; });
+      pl.appendChild(pb);
+      pl.appendChild(el('span', '', '✂ ' + tx('የተመረጠውን ክፍል ብቻ', 'Only the marked part') + ' (' + S.fmtClock(part.a) + ' → ' + S.fmtClock(part.b) + ')'));
+      v.c.appendChild(pl);
+    }
     v.c.appendChild(gpuRow);
     gpuRow.textContent = tx('የግራፊክስ ካርድ እየተፈለገ ነው…', 'Looking for a graphics card…');
     editor.detectGpu().then((enc) => {
@@ -389,6 +418,7 @@
     try { document.title = NAME; } catch (e) {}
     homeB.title = tx('መነሻ', 'Home');
     undoB.title = tx('መልስ (Ctrl+Z)', 'Undo (Ctrl+Z)');
+    savedEl.title = tx('🕘 የቀድሞ ቅጂዎች — ስራዎ በየ5 ደቂቃው ይቀዳል', '🕘 Earlier versions — your work is copied every 5 minutes');
     langB.textContent = AMH_LANG === 'am' ? 'EN' : 'አማ';
     exportB.textContent = '⬆ ' + tx('ይላኩ', 'Export');
     exportB.title = tx('ይላኩ (Ctrl+E)', 'Export (Ctrl+E)');
@@ -479,10 +509,15 @@
     box.appendChild(head);
     const groups = [
       [tx('ማጫወት', 'Playing'), [
-        [['Space'], tx('አጫውት / አቁም', 'Play / pause')], [['J', 'L'], tx('1 ሰከንድ ወደኋላ / ወደፊት (Shift፦ 5)', '1 second back / forward (Shift: 5)')],
+        [['Space'], tx('አጫውት / አቁም', 'Play / pause')], [['L'], tx('አጫውት — እንደገና፦ 2×፣ 4×', 'Play — again: 2×, 4×')], [['K'], tx('አቁም', 'Stop')],
+        [['J'], tx('1 ሰከንድ ወደኋላ (Shift፦ 5)', '1 second back (Shift: 5)')],
         [['←', '→'], tx('አንድ ፍሬም (Shift፦ 1 ሰከንድ)', 'One frame (Shift: 1 second)')], [['Home', 'End'], tx('መጀመሪያ / መጨረሻ', 'Start / end')]]],
       [tx('ማረም', 'Editing'), [
         [['S'], tx('በማጫወቻው ቦታ ቁረጥ (Split)', 'Split at the playhead')], [['Delete'], tx('የተመረጠውን አጥፋ', 'Delete what is selected')],
+        [[C, 'C'], tx('ቅዳ', 'Copy')], [[C, 'V'], tx('በማጫወቻው ቦታ ለጥፍ', 'Paste at the playhead')], [[C, 'D'], tx('ድገም (ከተመረጠው በኋላ)', 'Duplicate (right after it)')],
+        [['Shift', 'Click'], tx('ብዙ ምረጥ', 'Select several')],
+        [['M'], tx('🔖 ምልክት አድርግ / አንሳ (Shift+M፦ ወደሚቀጥለው)', '🔖 Add / remove a marker (Shift+M: go to the next)')],
+        [['I', 'O'], tx('የሚላከው ክፍል መጀመሪያ / መጨረሻ (Alt+X፦ አጥፋ)', 'Start / end of the part to export (Alt+X: clear)')],
         [[C, 'Z'], tx('መልስ', 'Undo')], [[C, 'Y'], tx('እንደገና', 'Redo')]]],
       [tx('ጽሑፍ (Script)', 'Script'), [
         [[C, 'B'], tx('★ ቃሉን አጉላ', '★ Pop the word')], [[C, 'D'], tx('✂ ቃሉን ከቪዲዮው ቁረጥ', '✂ Cut the word from the video')],
@@ -497,7 +532,7 @@
       rows.forEach(([keys, what]) => {
         const r = el('div', 'st-keys-row');
         const k = el('span', 'st-keys-k');
-        keys.forEach((x, i) => { if (i) k.appendChild(document.createTextNode(keys.length === 2 && /^[JL←→]$|^Home$/.test(keys[0]) ? ' / ' : ' + ')); k.appendChild(el('kbd', '', x)); });
+        keys.forEach((x, i) => { if (i) k.appendChild(document.createTextNode(keys.length === 2 && /^[JLI←→]$|^Home$/.test(keys[0]) ? ' / ' : ' + ')); k.appendChild(el('kbd', '', x)); });
         r.appendChild(k);
         r.appendChild(el('span', '', what));
         box.appendChild(r);
@@ -528,11 +563,97 @@
     if (sig === lastSaved && !force) return false;
     try {
       if (!fs.existsSync(projDir())) fs.mkdirSync(projDir(), { recursive: true });
-      fs.writeFileSync(path.join(projDir(), S.projectFileName(p.video)), JSON.stringify(p), { encoding: 'utf8' });
+      const text = JSON.stringify(p);
+      writeSafe(path.join(projDir(), S.projectFileName(p.video)), text);
       lastSaved = sig;
+      keepVersion(p, text, false);
       savedEl.textContent = '✓ ' + tx('ተቀምጧል', 'Saved');
       return true;
     } catch (e) { savedEl.textContent = '⚠ ' + tx('አልተቀመጠም', 'Not saved'); return false; }
+  }
+  // 1.71: never half a project. The new text goes to <file>.tmp first and
+  // then takes the old file's place in one step, so a power cut while saving
+  // leaves the old project or the new one — never a broken file.
+  function writeSafe(file, text) {
+    const tmp = file + '.tmp';
+    fs.writeFileSync(tmp, text, { encoding: 'utf8' });
+    fs.renameSync(tmp, file);
+  }
+  // 🕘 earlier versions: a copy every few minutes of work, the newest 10 kept
+  const versionsDir = (video) => path.join(projDir(), 'versions', S.projectFileName(video).replace(/\.amhproj$/, ''));
+  const lastVersionAt = {};
+  function keepVersion(p, text, now) {
+    const dir = versionsDir(p.video);
+    const t = Date.now();
+    if (!now && lastVersionAt[dir] && t - lastVersionAt[dir] < S.VERSION_EVERY) return;
+    try {
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const names = fs.readdirSync(dir);
+      const newest = S.versionsSorted(names)[0];
+      // a project opened again: the clock starts from its newest copy
+      if (!now && !lastVersionAt[dir] && newest && t - S.versionTime(newest) < S.VERSION_EVERY) { lastVersionAt[dir] = S.versionTime(newest); return; }
+      writeSafe(path.join(dir, S.versionName(t)), text);
+      lastVersionAt[dir] = t;
+      S.versionsToDrop(fs.readdirSync(dir)).forEach((n) => { try { fs.unlinkSync(path.join(dir, n)); } catch (e) {} });
+    } catch (e) {}
+  }
+  function listVersions(video) {
+    const dir = versionsDir(video);
+    let names = [];
+    try { names = fs.readdirSync(dir); } catch (e) { return []; }
+    return S.versionsSorted(names).map((n) => ({ file: path.join(dir, n), at: S.versionTime(n) }));
+  }
+  // a project file that cannot be read (cut off by a crash): its .tmp, else
+  // its newest readable version — the editor gets their work back
+  function readProject(file, video) {
+    const texts = [];
+    const read = (f) => { try { return fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : null; } catch (e) { return null; } };
+    texts.push(read(file), read(file + '.tmp'));
+    if (video) listVersions(video).forEach((v) => texts.push(read(v.file)));
+    const r = S.firstProject(texts);
+    return r ? r.p : null;
+  }
+  const ago = (ms) => {
+    const m = Math.max(0, Math.round((Date.now() - ms) / 60000));
+    if (m < 1) return tx('አሁን', 'just now');
+    if (m < 60) return tx(m + ' ደቂቃ በፊት', m + ' min ago');
+    const h = Math.round(m / 60);
+    return h < 24 ? tx(h + ' ሰዓት በፊት', h + ' h ago') : new Date(ms).toLocaleDateString();
+  };
+  // 🕘 the sheet: open an earlier version (what is on screen now is kept as a version first)
+  function openVersions() {
+    const c = chosenVideo();
+    if (!c || typeof reviewOpen === 'undefined' || !reviewOpen) return;
+    saveProject(true);
+    const list = listVersions(c.path);
+    sheet.textContent = '';
+    const box = el('div', 'st-sheet-box st-vers');
+    const head = el('div', 'st-sheet-head');
+    head.appendChild(el('b', '', '🕘 ' + tx('የቀድሞ ቅጂዎች', 'Earlier versions')));
+    head.appendChild(el('span', 'st-flex'));
+    head.appendChild(btn('st-ico', '✕', tx('ዝጋ', 'Close'), closeSheet));
+    box.appendChild(head);
+    box.appendChild(el('div', 'st-note', tx('ስቱዲዮው በየ5 ደቂቃው ስራዎን ይቀዳል (የመጨረሻዎቹ 10)። አንዱን ቢከፍቱ አሁን ያለውም እንደ ቅጂ ይቀመጣል።',
+      'The Studio copies your work every 5 minutes (the last 10). Opening one keeps what you have now as a version too.')));
+    if (!list.length) box.appendChild(el('div', 'st-note', tx('ገና ቅጂ የለም — ከጥቂት ደቂቃ ስራ በኋላ ይመጣል።', 'No versions yet — they come after a few minutes of work.')));
+    list.forEach((v) => {
+      const r = el('div', 'st-vrow');
+      r.appendChild(el('span', 'st-vtime', new Date(v.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })));
+      r.appendChild(el('span', 'st-vago', ago(v.at)));
+      r.appendChild(el('span', 'st-flex'));
+      r.appendChild(btn('st-btn', '↩ ' + tx('ይህን ክፈት', 'Open this'), '', async () => {
+        const p = readProject(v.file, null);
+        if (!p) { r.appendChild(el('span', 'st-warn', tx('ይህ ቅጂ ሊነበብ አልቻለም', 'This version cannot be read'))); return; }
+        const now = currentProject();
+        if (now) keepVersion(now, JSON.stringify(now), true);
+        closeSheet();
+        await openProject(p);
+        saveProject(true);
+      }));
+      box.appendChild(r);
+    });
+    sheet.appendChild(box);
+    sheet.style.display = '';
   }
   let saveTimer = 0;
   function saveSoon() { clearTimeout(saveTimer); savedEl.textContent = tx('እየተቀመጠ ነው…', 'Saving…'); saveTimer = setTimeout(() => { if (!saveProject()) savedEl.textContent = '✓ ' + tx('ተቀምጧል', 'Saved'); }, 800); }
@@ -541,7 +662,7 @@
   function projectFor(videoPath) {
     try {
       const f = path.join(projDir(), S.projectFileName(videoPath));
-      return fs.existsSync(f) ? S.parseProject(fs.readFileSync(f, 'utf8')) : null;
+      return readProject(f, videoPath);
     } catch (e) { return null; }
   }
   function listProjects() {
@@ -550,6 +671,8 @@
     return S.recentProjects(names.map((n) => {
       let p = null;
       try { p = S.parseProject(fs.readFileSync(path.join(projDir(), n), 'utf8')); } catch (e) {}
+      // a broken file: its newest readable version (the video is in its name only)
+      if (!p) { try { const v = fs.readdirSync(path.join(projDir(), 'versions', n.replace(/\.amhproj$/, ''))); const nv = S.versionsSorted(v)[0]; if (nv) p = S.parseProject(fs.readFileSync(path.join(projDir(), 'versions', n.replace(/\.amhproj$/, ''), nv), 'utf8')); } catch (e) {} }
       return p;
     }), 8);
   }
