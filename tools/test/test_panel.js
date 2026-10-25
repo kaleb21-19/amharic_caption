@@ -607,6 +607,34 @@ t('suggestWords: memory, this video, then the Amharic dictionary (most used firs
   assert.strictEqual(core.editDistance('ሰላም', 'ሰላሞ'), 1);
 });
 
+// 🔎 Footage search (1.75)
+t('footage search: Amharic spellings that sound alike are one; words, phrases, words inside longer words', () => {
+  assert.strictEqual(core.amhFold('ሐሳብ'), core.amhFold('ሀሳብ'), 'ሐ = ሀ');
+  assert.strictEqual(core.amhFold('ሃሳብ'), core.amhFold('ሀሳብ'), 'ሃ = ሀ');
+  assert.strictEqual(core.amhFold('ሠላም'), core.amhFold('ሰላም'), 'ሠ = ሰ');
+  assert.strictEqual(core.amhFold('ዓለም'), core.amhFold('አለም'), 'ዓ = አ');
+  assert.strictEqual(core.amhFold('ፀሐይ'), core.amhFold('ጸሀይ'), 'ፀ = ጸ, ሐ = ሀ');
+  assert.strictEqual(core.amhFold('ኢትዮጵያ።'), 'ኢትዮጵያ', 'punctuation goes');
+  assert.notStrictEqual(core.amhFold('ቤት'), core.amhFold('ቢት'), 'other letters stay different');
+  const files = [
+    { path: 'C:/v/a.mp4', name: 'a.mp4', words: [['ሰላም', 0.5, 0.9], ['ለኢትዮጵያ', 1.0, 1.6], ['ህዝብ', 1.7, 2.0], ['ዛሬ', 2.1, 2.4]] },
+    { path: 'C:/v/b.mp4', name: 'b.mp4', words: [['ኢትዮጵያ', 10.0, 10.6], ['ታላቅ', 10.7, 11.1], ['ሀገር', 11.2, 11.6], ['ናት', 11.7, 11.9]] },
+  ];
+  let r = core.searchFootage(files, 'ኢትዮጵያ');
+  assert.deepStrictEqual(r.map((h) => [h.name, h.t]), [['b.mp4', 10], ['a.mp4', 1]], 'the exact word first, then inside a longer one');
+  assert.strictEqual(r[0].match, 'ኢትዮጵያ');
+  assert.strictEqual(r[0].after, 'ታላቅ ሀገር ናት');
+  r = core.searchFootage(files, 'ታላቅ ሃገር');
+  assert.deepStrictEqual(r.map((h) => [h.name, h.t, h.end, h.match]), [['b.mp4', 10.7, 11.6, 'ታላቅ ሀገር']], 'a phrase, typed with ሃ');
+  assert.deepStrictEqual(core.searchFootage(files, 'ሀገር ታላቅ'), [], 'the words in another order are not the phrase');
+  assert.deepStrictEqual(core.searchFootage(files, '  '), []);
+  assert.deepStrictEqual(core.searchClipRange({ t: 0.3, end: 1.0 }, 2.0), { start: 0, end: 2 }, 'never before 0 or past the end');
+  const ws = core.wordsFromCues([{ start: 0, end: 1, text: 'ሰላም ሁሉም' }, { start: 2, end: 3, text: '[S1] ዛሬ', wt: [[2.1, 2.6]] }]);
+  assert.deepStrictEqual(ws.map((w) => w[0]), ['ሰላም', 'ሁሉም', 'ዛሬ']);
+  assert.deepStrictEqual(ws[2], ['ዛሬ', 2.1, 2.6], 'exact times when the engine gave them');
+  assert.ok(ws[1][1] > 0.4 && ws[1][2] === 1, 'shared by length otherwise');
+});
+
 (async () => {
   await Promise.all(pending);
   console.log('\n' + (fail === 0 ? 'ALL PASS' : 'FAILURES: ' + fail) +

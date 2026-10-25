@@ -188,6 +188,7 @@ const KNOWN = [
   'styleStrip', 'styleChips', 'styleNote', 'styleCustom', 'styleCustomToggle', 'styleOpts', 'styleTabs', 'stylePreview', 'stylePreviewNote',
   'trialGate', 'trialGateClose', 'trialGateTitle', 'trialGateBody', 'trialGateBtn', 'trialGateWait', 'trialGateKey',
   'reportBox', 'reportBtn', 'reportStatus',
+  'searchCard', 'searchHead', 'searchQ', 'searchStatus', 'searchVideo', 'searchResults', 'searchFolderBtn', 'searchPause',
   'feedbackLink', 'feedbackCard', 'feedbackText', 'feedbackTg', 'feedbackSend', 'feedbackCancel', 'feedbackStatus',
   'selCapBar',
   // logs

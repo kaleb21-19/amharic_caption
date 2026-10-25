@@ -238,7 +238,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.74.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.75.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -2665,6 +2665,34 @@ await t('10f2c. 1.74 a cached run keeps the exact word times; a cut on another c
     const msg = p.evalVm('L(' + JSON.stringify('The cut at 0:04.0-0:05.0 would remove part of "a.mp4", not the clip these captions were made from. Nothing was cut. Transcribe the clip again (select it, then Generate) and try again.') + ')');
     assert.ok(/0:04\.0-0:05\.0/.test(msg) && /a\.mp4/.test(msg) && /ምንም አልተቆረጠም/.test(msg), msg);
     p.evalVm('AMH_LANG = "en";');
+  } finally { p.close(); }
+});
+
+await t('10f2d. 1.75 footage search: locked without a license; results from the index; ➕ puts the moment on the timeline', async () => {
+  const evalLog = [];
+  const p = loadPanel({ evalLog, csiRaw: (jsx) => JSON.stringify(/amh_insertFound/.test(jsx) ? { ok: true, track: 'V2', at: 10, len: 4 } : (/amh_projectMedia/.test(jsx) ? { ok: true, media: [] } : defaultCsiReply)) });
+  try {
+    await flush(10);
+    assert.ok(p.els('searchCard'), 'the card is in the panel');
+    p.evalVm('LICENSED = false; renderSearchStatus();');
+    assert.ok(/license/i.test(p.els('searchStatus').textContent), 'locked: says it comes with a license');
+    p.evalVm('LICENSED = true; IDX.loaded = true; IDX.all = ["c:/v/talk.mp4"]; IDX.files["c:/v/talk.mp4"] = { path: "C:/v/talk.mp4", name: "talk.mp4", dur: 90, done: 90, words: [["ዛሬ", 4, 4.4], ["ስለ", 4.5, 4.8], ["ኢትዮጵያ", 4.9, 5.6], ["እናወራለን", 5.7, 6.4]] };');
+    p.evalVm('SEARCH_Q = "ኢትዮጵያ"; runSearch();');
+    const box = p.els('searchResults');
+    assert.ok(/^1 /.test(box.children[0].textContent), 'one place: ' + box.children[0].textContent);
+    const hit = box.children[1];
+    assert.strictEqual(hit.children[0].children[0].textContent, 'talk.mp4');
+    assert.strictEqual(hit.children[0].children[1].textContent, '0:04');
+    assert.strictEqual(hit.children[1].children[1].textContent, 'ኢትዮጵያ', 'the words found, marked');
+    assert.strictEqual(hit.children[1].children[2].textContent, ' እናወራለን …');
+    // ➕: a little before and after the words, at the playhead (Premiere does the rest)
+    const put = hit.children[2].children[1];
+    put.fire('click');
+    await flush(10);
+    const call = evalLog.find((x) => /amh_insertFound/.test(x));
+    assert.ok(call, 'Premiere was asked to put it');
+    const args = JSON.parse(JSON.parse(call.slice(call.indexOf('(') + 1, call.lastIndexOf(')'))));
+    assert.deepStrictEqual(args, { path: 'C:/v/talk.mp4', start: 4.3, end: 8.1, video: true });
   } finally { p.close(); }
 });
 

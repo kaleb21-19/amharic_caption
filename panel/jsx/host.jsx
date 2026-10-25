@@ -1870,3 +1870,100 @@ function amh_autoZoom(argsJSON) {
                        zoomed: done, animated: animated, noClip: noClip });
     });
 }
+
+// -- Footage search (1.75) ------------------------------------------------------
+// Every video / audio file of the project (for the panel to listen to once,
+// in the background), at most 2000.
+function amh_projectMedia() {
+    return amhGuard(function () {
+        if (!app || !app.project) { return amhErr("No project is open."); }
+        var out = [], seen = {};
+        var walk = function (item, depth) {
+            if (!item || depth > 20 || out.length >= 2000) { return; }
+            var kids = null;
+            try { kids = item.children; } catch (e) {}
+            if (kids && kids.numItems > 0) {
+                for (var i = 0; i < kids.numItems && out.length < 2000; i++) { walk(kids[i], depth + 1); }
+                return;
+            }
+            if (amhNestedSequence(item)) { return; }
+            var p = amhListenPath(item);
+            if (!p) { return; }
+            var key = amhCleanupKey(p);
+            if (seen[key]) { return; }
+            seen[key] = true;
+            var nm = "";
+            try { nm = String(item.name || ""); } catch (e) {}
+            out.push({ path: p, name: nm });
+        };
+        walk(app.project.rootItem, 0);
+        return amhOk({ media: out });
+    });
+}
+
+// The project item of a file (imported first when the project does not have it).
+function amhFindItemByPath(item, key, depth) {
+    if (!item || depth > 20) { return null; }
+    var kids = null;
+    try { kids = item.children; } catch (e) {}
+    if (kids && kids.numItems > 0) {
+        for (var i = 0; i < kids.numItems; i++) {
+            var got = amhFindItemByPath(kids[i], key, depth + 1);
+            if (got) { return got; }
+        }
+        return null;
+    }
+    var p = amhMediaPath(item);
+    return p && amhCleanupKey(p) === key ? item : null;
+}
+
+// A found moment onto the open sequence at the playhead: seconds [start, end]
+// of the file, on the first video track (from V2 up) whose part there is
+// free - and its audio track too - so nothing already edited is covered.
+function amh_insertFound(argsJSON) {
+    return amhGuard(function () {
+        var a = JSON.parse(argsJSON);
+        if (!app || !app.project) { return amhErr("No project is open."); }
+        var seq = app.project.activeSequence;
+        if (!seq) { return amhErr("No active sequence. Open one first."); }
+        var key = amhCleanupKey(a.path);
+        var item = amhFindItemByPath(app.project.rootItem, key, 0);
+        if (!item) {
+            try { app.project.importFiles([String(a.path)], true, app.project.rootItem, false); } catch (e) {}
+            item = amhFindItemByPath(app.project.rootItem, key, 0);
+        }
+        if (!item) { return amhErr("Premiere could not import " + a.path); }
+        var start = Number(a.start) || 0, end = Number(a.end) || 0;
+        if (!(end > start)) { return amhErr("Nothing to put."); }
+        var at = 0;
+        try { at = Number(seq.getPlayerPosition().seconds) || 0; } catch (e) {}
+        var len = end - start;
+        var free = function (track) {
+            if (!track) { return true; }
+            var cl = track.clips;
+            for (var k = 0; k < cl.numItems; k++) {
+                var s = Number(cl[k].start.seconds), e = Number(cl[k].end.seconds);
+                if (s < at + len - 0.001 && e > at + 0.001) { return false; }
+            }
+            return true;
+        };
+        var vN = seq.videoTracks.numTracks, aN = seq.audioTracks.numTracks;
+        var video = !!a.video;
+        var pick = -1;
+        for (var t = video ? 1 : 0; t < (video ? vN : aN); t++) {
+            var vt = video ? seq.videoTracks[t] : null, at2 = t < aN ? seq.audioTracks[t] : null;
+            if ((video ? free(vt) : true) && free(at2)) { pick = t; break; }
+        }
+        if (pick < 0) { return amhErr("No free track at the playhead. Add a track (or move the playhead), then try again."); }
+        try { item.setInPoint(start, 4); item.setOutPoint(end, 4); } catch (e) {}
+        var placed = false;
+        try {
+            var track = video ? seq.videoTracks[pick] : seq.audioTracks[pick];
+            track.overwriteClip(item, at);
+            placed = true;
+        } catch (e2) {}
+        try { item.clearInPoint(); item.clearOutPoint(); } catch (e3) {}
+        if (!placed) { return amhErr("Premiere did not place the clip."); }
+        return amhOk({ track: (video ? "V" : "A") + (pick + 1), at: at, len: len });
+    });
+}

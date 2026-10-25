@@ -118,6 +118,27 @@
 
   .field { margin-bottom: 7px; }
   .field:last-child { margin-bottom: 0; }
+  /* 1.75 🔎 footage search: closed until its head is clicked */
+  .search-card .card-head { cursor: pointer; margin-bottom: 0; }
+  .search-card .card-head::after { content: '▸'; color: var(--text-secondary); margin-left: 6px; }
+  .search-card.open .card-head { margin-bottom: 7px; }
+  .search-card.open .card-head::after { content: '▾'; }
+  .search-body { display: none; }
+  .search-card.open .search-body { display: block; }
+  .search-q { width: 100%; box-sizing: border-box; height: 30px; padding: 0 9px; border-radius: 7px; border: 1px solid var(--border);
+    background: var(--bg-input, #101613); color: var(--text-primary); font-size: 13px; margin-bottom: 5px; }
+  .search-video { width: 100%; max-height: 160px; border-radius: 6px; background: #000; margin: 4px 0; }
+  .search-results { max-height: 320px; overflow-y: auto; }
+  .search-hit { border-top: 1px solid var(--border); padding: 6px 0; }
+  .search-head { display: flex; gap: 6px; align-items: baseline; font-size: 11px; }
+  .search-head b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; }
+  .search-time { margin-left: auto; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .search-txt { font-size: 12.5px; line-height: 1.5; margin: 3px 0 5px; color: var(--text-secondary); }
+  .search-txt mark { background: rgba(52,199,132,.25); color: var(--text-primary); border-radius: 3px; padding: 0 2px; }
+  .search-acts { display: flex; gap: 6px; }
+  .search-acts .btn { height: 24px; padding: 0 8px; font-size: 11px; width: auto; }
+  .search-tools { display: flex; gap: 6px; margin-top: 6px; }
+  .search-tools .btn { width: auto; height: 26px; font-size: 11px; padding: 0 9px; }
   .field-label { display: block; font-size: var(--font-s); color: var(--text-secondary); margin-bottom: 3px; font-weight: 500; }
 
   /* Segmented control */
@@ -997,6 +1018,25 @@
 
     </div>
 
+    <!-- 1.75: 🔎 Footage search — every word said in the editor's footage -->
+    <div class="card search-card" id="searchCard">
+      <div class="card-head" id="searchHead" role="button" tabindex="0">
+        <span class="card-title" data-i18n="search.title">🔎 Search what was said</span>
+        <span class="card-hint" data-i18n="search.hint">in all your footage</span>
+      </div>
+      <div class="search-body">
+        <input type="text" id="searchQ" class="search-q" data-amh-type autocomplete="off" spellcheck="false"
+               placeholder="Type a word or a sentence…" data-i18n-placeholder="search.ph">
+        <div class="hint" id="searchStatus"></div>
+        <video id="searchVideo" class="search-video" playsinline preload="metadata" style="display:none"></video>
+        <div id="searchResults" class="search-results"></div>
+        <div class="search-tools">
+          <button type="button" id="searchFolderBtn" class="btn btn-neutral" data-i18n="search.folder">📁 Add a folder</button>
+          <button type="button" id="searchPause" class="btn btn-neutral" style="display:none">⏸ Pause listening</button>
+        </div>
+      </div>
+    </div>
+
     <!-- STEP 3: Run -->
     <div class="card">
       <div class="card-head">
@@ -1118,7 +1158,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.74.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.75.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>

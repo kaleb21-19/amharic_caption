@@ -986,6 +986,88 @@ function suggestWords(word, cues, fixes, max, dict) {
   return out.slice(0, max);
 }
 
+// ── 🔎 Footage search (1.75) ──────────────────────────────────────────────────
+// Every word said in the editor's footage, with its time, found by the
+// spelling people actually type: the letters that sound the same are one
+// (ሀ ሐ ኀ, ሰ ሠ, አ ዐ, ጸ ፀ; and ሃ = ሀ, ኣ = አ), punctuation and case do not count.
+const AMH_FOLD_ROWS = { 0x1210: 0x1200, 0x1280: 0x1200, 0x1220: 0x1230, 0x12D0: 0x12A0, 0x1340: 0x1338 };
+function amhFold(text) {
+  let out = '';
+  for (const ch of String(text || '').toLowerCase()) {
+    let c = ch.codePointAt(0);
+    if (c >= 0x1360 && c <= 0x1368) continue;              // ፠ ። ፣ ፤ ፥ ፦ ፧ ፨ (punctuation)
+    if (c >= 0x1200 && c <= 0x137F) {
+      const row = c & ~7, ord = c & 7;
+      const to = AMH_FOLD_ROWS[row];
+      if (to != null) c = to + ord;
+      const base = c & ~7;
+      // the 4th form of the "a" letters sounds like the 1st (ሃ = ሀ, ኣ = አ)
+      if ((base === 0x1200 || base === 0x12A0) && (c & 7) === 3) c = base;
+      out += String.fromCodePoint(c);
+    } else if (/[\p{L}\p{N}]/u.test(ch)) out += ch;
+  }
+  return out;
+}
+// The words of a query (folded), at most 6.
+function searchTerms(query) {
+  return String(query || '').split(/[\s፡።፣፤፥፦፧፨,.!?;:"'()]+/).map(amhFold).filter(Boolean).slice(0, 6);
+}
+// files: [{ path, name, words: [[word, start, end], ...] }]. A hit is where
+// the query's words follow each other; each word may be inside a longer one
+// (ለኢትዮጵያ has ኢትዮጵያ). Exact words rank first. -> [{ path, name, t, end,
+// before, match, after, score }] (best first, at most max).
+function searchFootage(files, query, max) {
+  const terms = searchTerms(query);
+  if (!terms.length) return [];
+  const out = [];
+  (files || []).forEach((f) => {
+    const ws = f.words || [];
+    const folded = f._fold || (f._fold = ws.map((w) => amhFold(w[0])));
+    for (let i = 0; i + terms.length <= ws.length; i++) {
+      let score = 0;
+      for (let k = 0; k < terms.length; k++) {
+        const w = folded[i + k], q = terms[k];
+        if (w === q) score += 3;
+        else if (w.startsWith(q) || w.endsWith(q)) score += 2;
+        else if (q.length >= 2 && w.indexOf(q) >= 0) score += 1;
+        else { score = 0; break; }
+      }
+      if (!score) continue;
+      const j = i + terms.length - 1;
+      out.push({
+        path: f.path, name: f.name || '', t: ws[i][1], end: ws[j][2], score,
+        before: ws.slice(Math.max(0, i - 5), i).map((w) => w[0]).join(' '),
+        match: ws.slice(i, j + 1).map((w) => w[0]).join(' '),
+        after: ws.slice(j + 1, j + 7).map((w) => w[0]).join(' '),
+      });
+    }
+  });
+  out.sort((a, b) => (b.score - a.score) || (a.name < b.name ? -1 : a.name > b.name ? 1 : a.t - b.t));
+  return out.slice(0, max || 200);
+}
+// A little before and after a hit, so the cut does not start mid-breath
+// (seconds of the file, never past its ends).
+function searchClipRange(hit, dur, lead, tail) {
+  const a = Math.max(0, hit.t - (lead == null ? 0.6 : lead));
+  const b = Math.min(dur || Infinity, hit.end + (tail == null ? 2.5 : tail));
+  return { start: Math.round(a * 1000) / 1000, end: Math.round(b * 1000) / 1000 };
+}
+// The word-by-word captions of one listened piece -> [[word, start, end]]
+// (a caption of several words shares its time between them by length).
+function wordsFromCues(cues) {
+  const out = [];
+  (cues || []).forEach((c) => {
+    const text = String(c.text || '').replace(/\[S\d+\]\s*/g, '').replace(/[*~]/g, '').trim();
+    const ws = text.split(/\s+/).filter(Boolean);
+    if (!ws.length) return;
+    if (Array.isArray(c.wt) && c.wt.length === ws.length) { ws.forEach((w, k) => out.push([w, c.wt[k][0], c.wt[k][1]])); return; }
+    const total = ws.reduce((n, w) => n + w.length, 0) || 1;
+    let t = c.start;
+    ws.forEach((w) => { const d = (c.end - c.start) * w.length / total; out.push([w, Math.round(t * 1000) / 1000, Math.round((t + d) * 1000) / 1000]); t += d; });
+  });
+  return out;
+}
+
 // Node (tests) — no-op in the CEP browser where `module` is undefined.
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
@@ -1000,5 +1082,6 @@ if (typeof module !== 'undefined' && module.exports) {
     LICENSE_TOKEN_PUBKEY_PEM, licenseTokenParse, verifyLicenseToken,
     amhType, amhRowOf, styledUpdatePlan,
     editDistance, dictFromText, suggestWords,
+    amhFold, searchTerms, searchFootage, searchClipRange, wordsFromCues,
   };
 }

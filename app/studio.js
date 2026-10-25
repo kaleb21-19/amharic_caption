@@ -42,7 +42,9 @@
   const sendB = btn('st-export st-send', '', '', () => openExport({ focus: editorNow(), run: true }));
   sendB.style.display = 'none';
   const keysB = btn('st-chip st-keysb', '?', '', () => openKeys());
-  [homeB, logo, brandEl, projEl, undoB, savedEl, el('span', 'st-flex'), keysB, chip, langB, exportB, sendB].forEach((x) => top.appendChild(x));
+  // 🔎 1.75: search what was said in all the footage
+  const searchB = btn('st-chip st-searchb', '🔎', '', () => openSearchSheet());
+  [homeB, logo, brandEl, projEl, undoB, savedEl, el('span', 'st-flex'), searchB, keysB, chip, langB, exportB, sendB].forEach((x) => top.appendChild(x));
   review.insertBefore(top, review.firstChild);
 
   // ── text column head ──────────────────────────────────────────────────
@@ -194,7 +196,29 @@
   const sheet = el('div', 'st-sheet');
   sheet.style.display = 'none';
   review.appendChild(sheet);
-  function closeSheet() { sheet.style.display = 'none'; sheet.textContent = ''; }
+  // the panel's 🔎 search card visits the sheet; it goes home before the sheet is emptied
+  let searchHome = null;
+  function closeSheet() {
+    const card = $('searchCard');
+    if (card && searchHome && sheet.contains(card)) { searchHome.parent.insertBefore(card, searchHome.next); card.classList.remove('open'); }
+    sheet.style.display = 'none'; sheet.textContent = '';
+  }
+  function openSearchSheet() {
+    const card = $('searchCard');
+    if (!card) return;
+    closeSheet();
+    searchHome = { parent: card.parentNode, next: card.nextSibling };
+    const box = el('div', 'st-sheet-box st-search');
+    const head = el('div', 'st-sheet-head');
+    head.appendChild(el('b', '', '🔎 ' + tx('የተነገረውን ፈልግ', 'Search what was said')));
+    head.appendChild(el('span', 'st-flex'));
+    head.appendChild(btn('st-ico', '✕', tx('ዝጋ', 'Close'), closeSheet));
+    box.appendChild(head);
+    box.appendChild(card);
+    sheet.appendChild(box);
+    sheet.style.display = '';
+    if (window.__amhOpenSearch) window.__amhOpenSearch();
+  }
   // opts (1.45): { focus: 'capcut' | 'davinci', run } — that editor's card
   // first, marked, and its main action started (the top bar's Send button)
   function openExport(opts) {
@@ -417,6 +441,7 @@
     document.querySelectorAll('[data-i18n="app.title"]').forEach((x) => { x.textContent = NAME; });
     try { document.title = NAME; } catch (e) {}
     homeB.title = tx('መነሻ', 'Home');
+    searchB.title = tx('🔎 በሁሉም ቪዲዮዎችዎ የተነገረውን ፈልግ', '🔎 Search what was said in all your footage');
     undoB.title = tx('መልስ (Ctrl+Z)', 'Undo (Ctrl+Z)');
     savedEl.title = tx('🕘 የቀድሞ ቅጂዎች — ስራዎ በየ5 ደቂቃው ይቀዳል', '🕘 Earlier versions — your work is copied every 5 minutes');
     langB.textContent = AMH_LANG === 'am' ? 'EN' : 'አማ';
