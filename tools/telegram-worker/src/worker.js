@@ -144,6 +144,14 @@ async function signTicket(machineId, runId) {
 // 1.10.7 free minutes: the ticket also says how many seconds of audio the
 // engine may transcribe — "trial2|<mid>|<run_id>|<until>|<seconds>" (its own
 // prefix, so it can never pass as a 1.10.3 ticket or a lease).
+// How far (s) the computer's clock is ahead of ours; null when it did not say.
+// A ticket lives TICKET_SECONDS, so a clock up to an hour ahead still works.
+const CLOCK_AHEAD_MAX = 60 * 60;
+function clockSkew(now) {
+  const n = Number(now);
+  if (now === undefined || now === null || now === '' || !Number.isFinite(n) || n <= 0) return null;
+  return Math.round(n - Date.now() / 1000);
+}
 async function signTicket2(machineId, runId, seconds) {
   const mid = String(machineId).trim().toLowerCase();
   const until = Math.floor(Date.now() / 1000) + TICKET_SECONDS;
@@ -1920,6 +1928,31 @@ async function messagePartner(chatId, code, text) {
   [[{ text: `📋 ${p.code}`, callback_data: `admin:partner:${p.code}` }]]);
 }
 
+// Owner → free-trial user (1.69): ✉️ on the Trial card and on a problem
+// report. Their next messages in the next 3 days come back to the owner.
+const TRIAL_REPLY_SECONDS = 3 * 86400;
+async function messageTrialUser(chatId, mid, text) {
+  const g = isValidMid(mid) ? await trialGrant(mid) : null;
+  if (!g || !g.uid) { await sendText(chatId, '⚠️ No Telegram account is linked to that computer.'); return; }
+  const r = await sendText(g.uid,
+    `📩 <b>ከአማርኛ ካፕሽን ፕሮ ድጋፍ · From Amharic Captions Pro support</b>\n\n${esc(text)}\n\n` +
+    '<i>እዚሁ ይመልሱ — ቡድኑ ያነበዋል። · Reply here — the team reads it.</i>');
+  if (r && r.ok) await kvPut('treply:' + g.uid, mid, TRIAL_REPLY_SECONDS);
+  await sendText(chatId, r && r.ok
+    ? `✅ Sent to <b>${esc(g.name || g.uid)}</b>. Their reply comes here.`
+    : '⚠️ Telegram could not deliver it (they may have blocked the bot).',
+  [[{ text: '👤 Trial card', callback_data: 'admin:tgcard:' + mid }]]);
+}
+async function forwardFromTrialUser(mid, chatId, text, from) {
+  const name = (from && (from.username ? '@' + from.username : from.first_name)) || '';
+  for (const adm of adminUids()) {
+    await sendText(adm,
+      `📨 <b>Reply from ${esc(name || 'a free-trial user')}</b> · <code>${esc(mid)}</code>\n\n${esc(text)}`,
+      [[{ text: '✉️ Reply', callback_data: 'admin:tgmsg:' + mid }, { text: '👤 Trial card', callback_data: 'admin:tgcard:' + mid }]]);
+  }
+  await sendText(chatId, '✅ መልዕክትዎ ለቡድኑ ደርሷል።\n<i>Your message was sent to the team.</i>');
+}
+
 // Partner → owner: a connected partner's free text goes to the owner.
 async function forwardFromPartner(p, chatId, text, username) {
   for (const adm of adminUids()) {
@@ -2349,6 +2382,12 @@ async function handleMessage(msg, env) {
     if (pm && !lower.startsWith('/')) {
       await kvDel('pmsg:await:' + uid);
       await messagePartner(chatId, pm, text);
+      return;
+    }
+    const tm = await kvGet('tmsg:await:' + uid);
+    if (tm && !lower.startsWith('/')) {
+      await kvDel('tmsg:await:' + uid);
+      await messageTrialUser(chatId, tm, text);
       return;
     }
     // "🔍 Find a customer" / "🔁 Move" buttons: the next message is a Machine ID.
@@ -3507,6 +3546,12 @@ async function handleBuyerMessage(msg, uid, chatId, privateChat, text) {
       await forwardFromPartner(asPartner, chatId, text, msg.from && msg.from.username);
       return;
     }
+    // A free-trial user answering the owner's ✉️ message (1.69).
+    const replyMid = privateChat && text ? await kvGet('treply:' + uid) : null;
+    if (replyMid) {
+      await forwardFromTrialUser(replyMid, chatId, text, msg.from);
+      return;
+    }
     // A question in their own words → a real answer.
     const buyerName = (msg.from && msg.from.first_name) || '';
     if (privateChat && (await answerQuestion(uid, chatId, text, false, buyerName))) return;
@@ -4282,6 +4327,7 @@ async function audienceCount(kind) {
 async function cancelBroadcastCompose(uid) {
   await kvDel('bcast:await:' + uid);
   await kvDel('pmsg:await:' + uid);
+  await kvDel('tmsg:await:' + uid);
   await kvDel('move:await:' + uid);
   await kvDel('find:await:' + uid);
   // Runs before EVERY admin command. It must never be able to break them: a
@@ -5034,7 +5080,7 @@ const EVENT_NAMES = new Set([
   'buy_click', 'activate_ok', 'activate_fail', 'trial_link',
   'err_av_blocked', 'err_too_short', 'err_no_speech', 'err_no_clips', 'err_no_clip', 'err_no_media',
   'err_media_unreadable', 'err_no_audio', 'err_disk_full', 'err_engine', 'err_runtime', 'err_license', 'err_other',
-  'err_memory', 'err_engine_hang', 'report_sent', 'feedback_sent',
+  'err_memory', 'err_engine_hang', 'err_clock', 'report_sent', 'feedback_sent',
   // the editor a Studio user says they use (1.38)
   'editor_capcut', 'editor_davinci', 'editor_premiere', 'editor_other',
 ]);
@@ -5042,7 +5088,7 @@ const ERROR_LABELS = {
   err_no_clip: 'no clip selected', err_no_clips: 'no clips in range', err_no_media: 'item has no media file',
   err_media_unreadable: 'media file unreadable', err_no_audio: 'clip has no sound', err_no_speech: 'no speech found', err_too_short: 'clip too short',
   err_engine: 'engine stopped', err_runtime: 'runtime missing', err_av_blocked: 'antivirus / Windows blocked',
-  err_memory: 'out of memory', err_engine_hang: 'engine stopped responding',
+  err_memory: 'out of memory', err_engine_hang: 'engine stopped responding', err_clock: 'computer clock wrong',
   err_disk_full: 'disk full', err_license: 'no license / free captions used up', err_other: 'other',
 };
 
@@ -5606,6 +5652,7 @@ async function adminTrialCard(chatId, messageId, mid) {
         : { text: '⛔ Block', callback_data: 'admin:tgq:tgblk:' + mid },
     ]);
   }
+  if (g.uid) kb.push([{ text: '✉️ Message', callback_data: 'admin:tgmsg:' + mid }]);
   kb.push(back);
   if (messageId) await editText(chatId, messageId, text, kb); else await sendText(chatId, text, kb);
 }
@@ -6229,6 +6276,19 @@ async function handleCallback(cb) {
       await adminTrialAction(chatId, messageId, cbId, fromUid, action, parts[2]);
     }
     else if (action === 'tgcard') { await answerCb(cbId, ''); await adminTrialCard(chatId, messageId, String(parts[2] || '').toLowerCase()); }
+    else if (action === 'tgmsg') {
+      const tmid = String(parts[2] || '').toLowerCase();
+      const tg = isValidMid(tmid) ? await trialGrant(tmid) : null;
+      if (!tg || !tg.uid) {
+        await answerCb(cbId, 'No Telegram account is linked to that computer');
+      } else {
+        await kvPut('tmsg:await:' + fromUid, tmid, 900);
+        await answerCb(cbId, 'Write the message');
+        await sendText(chatId,
+          `✉️ <b>Message to ${esc(tg.name || tg.uid)}</b>\n\n` +
+          'Send me the text now — it goes to them from the bot. <i>Changed your mind? Send /start.</i>');
+      }
+    }
     else if (action === 'tgq') { await answerCb(cbId, ''); await adminTrialConfirm(chatId, messageId, parts[2], String(parts[3] || '').toLowerCase()); }
     else if (action === 'export') await adminExport(chatId, messageId, cbId);
     else if (action === 'broadcast') {
@@ -6708,7 +6768,7 @@ export default {
         `${who}\n` +
         `💻 <code>${esc(mid)}</code> · v${esc(clip(b.v, 12))} · ${esc(clip(b.host, 8))} · ` +
         (b.licensed ? '💰 licensed' : `🎁 ${esc(clip(b.trial, 40)) || 'no license'}`);
-      const kb = g ? [[{ text: '👤 Trial card', callback_data: 'admin:tgcard:' + mid }]] : null;
+      const kb = g ? [[{ text: '✉️ Message', callback_data: 'admin:tgmsg:' + mid }, { text: '👤 Trial card', callback_data: 'admin:tgcard:' + mid }]] : null;
       for (const adm of adminUids()) {
         const r = await sendText(adm, msgText, kb);
         if (!r || !r.ok) await sendText(adm, '💡 Feedback: ' + esc(text) + '\n' + who, kb);
@@ -6747,7 +6807,7 @@ export default {
       let body = (tail ? '\n\n<b>Engine said</b>\n<pre>' + esc(tail.slice(-1400)) + '</pre>' : '') +
         (logTxt ? '\n\n<b>Log (end)</b>\n<pre>' + esc(logTxt.slice(-(3400 - Math.min(tail.length, 1400)))) + '</pre>' : '');
       if (head.length + body.length > 4000) body = body.slice(body.length - (4000 - head.length));
-      const kb = g ? [[{ text: '👤 Trial card', callback_data: 'admin:tgcard:' + mid }]] : null;
+      const kb = g ? [[{ text: '✉️ Message', callback_data: 'admin:tgmsg:' + mid }, { text: '👤 Trial card', callback_data: 'admin:tgcard:' + mid }]] : null;
       for (const adm of adminUids()) {
         const r = await sendText(adm, head + body, kb);
         if (!r || !r.ok) await sendText(adm, head, kb);     // a broken <pre> never hides the report
@@ -6847,6 +6907,14 @@ export default {
       if (body && body.seconds !== undefined) {
         const asked = Math.ceil(Number(body.seconds));
         if (!runId || !(asked >= 1 && asked <= 86400)) return json({ error: 'bad run_id or seconds' }, 400);
+        // 1.69: the engine checks the ticket against the computer's own clock.
+        // A clock far ahead (often a wrong time zone with the hour set by hand)
+        // would reject the ticket as "expired" after the minutes were taken —
+        // say so first and charge nothing.
+        const skew = clockSkew(body && body.now);
+        if (skew !== null && skew > CLOCK_AHEAD_MAX) {
+          return json(Object.assign(await trialMinutesState(mid), { charged: false, reason: 'clock', skew }));
+        }
         const claim = await DB.prepare('INSERT OR IGNORE INTO trial_runs (run_id, machine_id) VALUES (?, ?)').bind(runId, mid).run();
         if (!claim || !claim.meta || claim.meta.changes < 1) {
           const prior = await DB.prepare('SELECT machine_id, result_json FROM trial_runs WHERE run_id = ?').bind(runId).first();

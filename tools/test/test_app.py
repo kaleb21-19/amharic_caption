@@ -140,6 +140,8 @@ def t_index():
     assert st == 200 and boot["token"] == TOKEN and boot["ext"] == os.path.realpath(EXT)
     assert boot["api"] == API and boot["files"] == [os.path.join(REPO, "README.md")]
     assert boot["info"]["platform"] == sys.platform and boot["info"]["tmp"]
+    # the problem report's system line (1.69)
+    assert boot["info"]["totalmem"] > 1e8 and boot["info"]["cpus"] >= 1 and boot["info"]["release"], boot["info"]
     for f in ("node_shim.js", "app_mode.js", "app.css", "studio_core.js", "studio.js", "studio_script.js", "studio_cuts.js", "studio_edit_core.js", "studio_edit.js", "studio_subs.js"):
         assert req("GET", "/__app/" + f, token=False)[0] == 200, f
     assert html.find("/__app/studio_cuts.js") < html.find("/__app/studio_subs.js"), "the live caption style last"

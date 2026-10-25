@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.68.0';
+const APP_VERSION = '1.69.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -401,6 +401,7 @@ function errorStep(raw) {
   if (NO_AUDIO_RE.test(t)) return 'err_no_audio';
   if (t.includes('ffmpeg')) return 'err_media_unreadable';
   if (t.includes('enospc') || t.includes('no space')) return 'err_disk_full';
+  if (t.includes('clock is wrong') || t.includes('trial ticket expired')) return 'err_clock';
   if (t.includes('license required') || t.includes('trial used up') || t.includes('needs internet')) return 'err_license';
   if (t.includes('python failed') || t.includes('worker')) return 'err_engine';
   if (t.includes('runtime')) return 'err_runtime';
@@ -1992,6 +1993,10 @@ async function consumeTrialCredit(runId, seconds) {
   const body = {
     mid: MACHINE_ID, run_id: chargeRunId, hf: hostFingerprint() || undefined,
     seconds: Math.max(1, Math.ceil(Number(seconds) || 1)),
+    // 1.69: this computer's clock, so the server can refuse (and charge
+    // nothing) when it is so far ahead that the engine would call the
+    // ticket "expired".
+    now: Math.floor(Date.now() / 1000),
   };
   let r = await apiPost('/api/trial/use', body);
   if (r && r.pending) {
@@ -2006,7 +2011,7 @@ async function consumeTrialCredit(runId, seconds) {
   }
   return {
     allowed: !!r.charged, charged: !!r.charged, ticket: r.ticket, seconds: r.seconds,
-    remaining: r.seconds_left, run: chargeRunId, reason: r.reason,
+    remaining: r.seconds_left, run: chargeRunId, reason: r.reason, skew: r.skew,
   };
 }
 // A free job that failed or was cancelled gives its minutes back (the server
@@ -3469,6 +3474,7 @@ async function engineAuth(seconds) {
   } else {
     // Free minutes (1.10.7): charged in seconds of this job's audio.
     const r = await consumeTrialCredit(activeRunId, seconds);
+    if (r && r.reason === 'clock') throw new Error('computer clock is wrong (ahead ' + Math.round((r.skew || 0) / 60) + ' min); nothing charged');
     if (!r || !r.allowed) throw new Error(r && r.offline ? 'free caption needs internet' : 'trial used up');
     if (!r.ticket) throw new Error('free caption needs internet');
     reviewTrialCharged = true;
@@ -7731,6 +7737,7 @@ function humanError(raw) {
   if (workerDllError || t.includes('dll load failed')) {
     return 'Your antivirus or an incomplete install blocked part of the transcription engine. Add the extension folder to your antivirus exclusions, then reinstall and restart Premiere.';
   }
+  if (kind === 'err_clock') return clockHelp();
   if (t.includes('trial used up')) {
     return TRIAL_MIN && TRIAL_MIN.status === 'none'
       ? 'Get your free minutes in Telegram first (the button above the license).'
@@ -7769,6 +7776,14 @@ function humanError(raw) {
   return 'Transcription failed.';
 }
 
+// 1.69: a clock far ahead (usually the wrong time zone with the hour set by
+// hand — it looks right) makes the engine reject the free-minutes ticket.
+function clockHelp() {
+  return process.platform === 'darwin'
+    ? 'Your computer’s clock is wrong. Open System Settings → General → Date & Time, turn on “Set time and date automatically” and choose the right time zone (Addis Ababa), then try again.'
+    : 'Your computer’s clock is wrong. Open Settings → Time & language → Date & time, turn on “Set time automatically” and “Set time zone automatically” (or choose (UTC+03:00) Nairobi), press “Sync now”, then try again.';
+}
+
 function failRun(raw) {
   runFailed = true;
   const step = errorStep(raw);
@@ -7778,7 +7793,9 @@ function failRun(raw) {
   setStatus('err', 'failed');
   // progLabel is an aria-live region, so this is announced as well as shown.
   setProgress(0, msg + ' See “Details for support” below.');
-  LAST_FAIL = { raw: String(raw || ''), step: step || '', at: Date.now() };
+  // The Log as it is NOW: opening a review afterwards resets it, and the
+  // report used to go out without the error (1.69).
+  LAST_FAIL = { raw: String(raw || ''), step: step || '', at: Date.now(), log: String((document.getElementById('logBox') || {}).textContent || '').split('\n').slice(-60) };
   showReportOffer(true);
 }
 
@@ -7811,7 +7828,7 @@ function scrubReport(s) {
     .replace(/[A-Z2-9]{4}-[A-Z2-9]{4}\b/g, '[code]');
 }
 function buildReport() {
-  const logLines = String((document.getElementById('logBox') || {}).textContent || '').split('\n').slice(-60);
+  const logLines = (LAST_FAIL && LAST_FAIL.log) || String((document.getElementById('logBox') || {}).textContent || '').split('\n').slice(-60);
   let sys = {};
   try {
     sys = {
@@ -7825,7 +7842,7 @@ function buildReport() {
     licensed: !!LICENSED,
     trial: TRIAL_MIN ? (TRIAL_MIN.status + ' ' + fmtMinSec(TRIAL_MIN.seconds_left) + ' left') : '',
     step: LAST_FAIL ? LAST_FAIL.step : '',
-    error: scrubReport(LAST_FAIL ? LAST_FAIL.raw : '').slice(0, 500),
+    error: scrubReport(LAST_FAIL ? (LAST_FAIL.raw || '(no message)') : '(no failure recorded)').slice(0, 500),
     tail: WORKER_TAIL.slice(-20).map(scrubReport),
     log: logLines.map(scrubReport),
   };
