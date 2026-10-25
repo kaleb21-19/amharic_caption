@@ -491,7 +491,8 @@
         if (anim === 'pop') return '\\fad(120,180)\\pos(' + x + ',' + y + ')\\fscx70\\fscy70\\t(0,180,\\fscx106\\fscy106)\\t(180,300,\\fscx100\\fscy100)';
         return '\\pos(' + x + ',' + y + ')';
       };
-      const line = (style, tags, text) => ev.push('Dialogue: 0,' + assTime(st) + ',' + assTime(en) + ',' + style + ',,0,0,0,,{' + tags + '}' + assText(text));
+      const lay = 2 * Math.max(0, Math.floor(Number(t.row) || 0));      // 🎚 its track (1.68)
+      const line = (style, tags, text) => ev.push('Dialogue: ' + lay + ',' + assTime(st) + ',' + assTime(en) + ',' + style + ',,0,0,0,,{' + tags + '}' + assText(text));
       if (preset === 'lower') {
         // name on a dark box, title under it, an accent bar on the left
         const sub = String(t.sub || '').trim();
@@ -780,7 +781,7 @@
       if (l.kind === 'text') body = assText(l.text);
       else if (l.kind === 'rect') body = rrPath(l.w, l.h, Math.min(l.r || 0, l.w / 2, l.h / 2)) + '{\\p0}';
       else body = 'm ' + l.pts.map((p, i) => (i === 1 ? 'l ' : '') + Math.round((p[0] - l.px0) * 10) / 10 + ' ' + Math.round((p[1] - l.py0) * 10) / 10).join(' ') + '{\\p0}';
-      out.push('Dialogue: 1,' + assTime(s) + ',' + assTime(e) + ',T,,0,0,0,,{' + tags + '}' + body);
+      out.push('Dialogue: ' + (1 + 2 * Math.max(0, Math.floor(Number(t.row) || 0))) + ',' + assTime(s) + ',' + assTime(e) + ',T,,0,0,0,,{' + tags + '}' + body);
     });
     return out;
   }
@@ -1138,6 +1139,18 @@
       ':interpolation=cubic:eval=frame';
   }
 
+  // 🎚 the export's view of the tracks (1.68): hidden / muted tracks are left
+  // out, picture tracks go bottom to top (a higher track covers a lower one)
+  function trackedState(st) {
+    const trk = (st && st.trk) || {};
+    const row = (it) => Math.max(0, Math.floor(Number(it && it.row) || 0));
+    const off = (kind, it) => { const t = (trk[kind] || [])[row(it)] || {}; return !!(t.hide || t.mute); };
+    return Object.assign({}, st, {
+      ovl: (st.ovl || []).filter((o) => !off('ov', o)).map((o, i) => [o, i]).sort((a, b) => row(a[0]) - row(b[0]) || a[1] - b[1]).map((x) => x[0]),
+      txt: (st.txt || []).filter((t) => !off('tx', t)),
+      mus: (st.mus || []).filter((o) => !off('au', o)),
+    });
+  }
   function editGraph(clips, media, fmt, fps, ovl, opts) {
     opts = opts || {};
     fps = fps || 30;
@@ -1261,7 +1274,7 @@
     words, deriveCaptions, syncBack, FORMATS, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
     TFONTS, TPRESETS, assColor, textAnchor, textAss, setFontInfo, fontInfo, textSize, LOUD, MUS_DEFAULT, musicGain,
     PRESETS, presetFor, GPU_ENCODERS, encoderArgs, eta,
-    speedOf: sp, clipLen, SFX, SFX_LEN, SFX_LEAD, sfxEvents, RF_PACE, rfWindow, rfTrack, rfAt, rfPlace, rfExpr, rfOn, TEMPLATES, TPL_GROUPS, HOLIDAYS, TPL_SPEED, tplOf, tplLayers, tplState, tplAss, setMeasure, tplFade: fadeOut, OV_LAYOUTS, OV_ANIMS, OV_MOTION, ovLook, ovBox, ovAnim, ovChain, ovPos, ZOOM_STYLES, ZOOM_SPEED, ZOOM_DEFAULT, zoomEnv, zoomRect, zoomExprs, zoomFilter, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter };
+    speedOf: sp, clipLen, trackedState, SFX, SFX_LEN, SFX_LEAD, sfxEvents, RF_PACE, rfWindow, rfTrack, rfAt, rfPlace, rfExpr, rfOn, TEMPLATES, TPL_GROUPS, HOLIDAYS, TPL_SPEED, tplOf, tplLayers, tplState, tplAss, setMeasure, tplFade: fadeOut, OV_LAYOUTS, OV_ANIMS, OV_MOTION, ovLook, ovBox, ovAnim, ovChain, ovPos, ZOOM_STYLES, ZOOM_SPEED, ZOOM_DEFAULT, zoomEnv, zoomRect, zoomExprs, zoomFilter, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhEdit = api;
 })(typeof window !== 'undefined' ? window : this);

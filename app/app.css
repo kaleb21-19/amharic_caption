@@ -687,3 +687,16 @@ html:not(.amh-simple) .ed-simplenote { display: none; }
 .ms-item:hover { background: #18221e; }
 .ms-name { flex: 1 1 auto; min-width: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ms-dur { font-size: 11px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+/* 🎚 tracks (1.68): headers, and the timeline scrolls when there are many */
+html.amh-editor .ed-lanes { max-height: 300px; overflow-y: auto; overflow-x: hidden; }
+html.amh-editor .ed-cwrap { height: auto; }
+.ed-labels { display: flex; flex-direction: column; }
+.ed-trk { display: flex; align-items: center; gap: 2px; padding-left: 8px; box-sizing: border-box; font-size: 11px; color: var(--text-secondary); flex: 0 0 auto; overflow: hidden; }
+.ed-trk-n { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ed-trk-b { width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--text-secondary); font-size: 11px; cursor: pointer; line-height: 20px; }
+.ed-trk-b:hover { background: #24302b; color: var(--text-primary); }
+.ed-trk-b.on { color: #ffb020; }
+.ed-trk-add { color: var(--accent); font-weight: 700; }
+.ed-canvas .ed-tplcv { z-index: 40; }
+.ed-canvas .ed-tx { z-index: 41; }

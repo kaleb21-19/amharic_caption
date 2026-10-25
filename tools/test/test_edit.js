@@ -455,4 +455,20 @@ test('sound effects: come from zooms, B-roll, templates, transitions; mixed at t
   E.SFX.forEach((n) => { const st2 = require('fs').statSync(require('path').join(dir, n + '.wav')); assert.ok(st2.size > 1000 && st2.size < 200000, n); });
 });
 
+// 🎚 tracks (1.68): hidden / muted tracks leave the export; higher tracks on top
+test('tracks: hide / mute leave the export, picture tracks in order, text tracks as layers', () => {
+  const st = {
+    trk: { ov: [{ hide: true }], tx: [{}, { hide: true }], au: [{ mute: true }] },
+    ovl: [{ id: 'a', row: 2, start: 0 }, { id: 'b', row: 0, start: 0 }, { id: 'c', row: 1, start: 0 }, { id: 'd', start: 0 }],
+    txt: [{ id: 't1', row: 0 }, { id: 't2', row: 1 }], mus: [{ id: 'm1', row: 0 }, { id: 'm2', row: 1 }],
+  };
+  const T = E.trackedState(st);
+  assert.deepStrictEqual(T.ovl.map((o) => o.id), ['c', 'a'], 'V2 hidden (b and d, row 0); V3 then V4');
+  assert.deepStrictEqual(T.txt.map((o) => o.id), ['t1']);
+  assert.deepStrictEqual(T.mus.map((o) => o.id), ['m2'], 'A1 muted');
+  const ass = E.textAss([{ text: 'ሀ', start: 0, in: 0, out: 2, preset: 'plain', row: 3 }, { tpl: 'hook', start: 0, in: 0, out: 2, row: 2 }], 1920, 1080, 5);
+  assert.ok(/Dialogue: 6,/.test(ass) && /Dialogue: 5,/.test(ass) && !/Dialogue: 0,/.test(ass), 'T4 above T3: libass layers by track');
+  assert.deepStrictEqual(E.trackedState({}).ovl, [], 'an old project: nothing changes');
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');
