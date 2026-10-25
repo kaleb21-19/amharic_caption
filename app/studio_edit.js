@@ -3915,6 +3915,8 @@
     if (!id) return;
     SRC = { [id]: (reviewCues || []).map((q) => Object.assign({}, q)) };
     clips = [{ id: newId(), m: id, in: 0, out: Math.round(media[id].dur * 1000) / 1000 }];
+    // a goal chosen on the home (1.76): the edit starts in that frame (TikTok 9:16…)
+    if (window.__amhStartFmt) { fmt = window.__amhStartFmt; window.__amhStartFmt = null; }
     built = true; fitted = false; cur = 0; ET = 0; sel = null;
     reviewCues = E.deriveCaptions(clips, SRC);
     renderReview();

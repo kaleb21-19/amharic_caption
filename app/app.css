@@ -78,10 +78,10 @@ html.amh-studio .card:has(#runBtn) { background: none; border: 0; padding: 0; ma
 html.amh-studio .card:has(#runBtn) > .card-head, html.amh-studio #runBtn { display: none; }
 html.amh-studio .st-dropcard > .card-head { display: none; }
 html.amh-studio .st-dropcard { padding: 0; border: 0; background: none; }
-html.amh-studio .st-dropcard .app-drop { padding: 40px 24px; border-radius: 14px; }
-html.amh-studio .st-dropcard .app-drop-icon { font-size: 34px; }
+html.amh-studio .st-dropcard .app-drop { padding: 22px 24px; border-radius: 14px; }
+html.amh-studio .st-dropcard .app-drop-icon { font-size: 26px; }
 html.amh-studio .st-dropcard .app-drop-title { font-size: 17px; }
-html.amh-studio .st-dropcard .app-drop.has-file { padding: 40px 24px; }
+html.amh-studio .st-dropcard .app-drop.has-file { padding: 22px 24px; }
 html.amh-studio .panel-body { max-width: 1040px; margin: 0 auto; }
 .studio-recent { background: none; border: 0; padding: 0; }
 .st-home-h { font-size: 12px; letter-spacing: .03em; text-transform: uppercase; color: var(--text-secondary); margin: 6px 0 8px; }
@@ -764,3 +764,33 @@ html.amh-editor .ed-cwrap { height: auto; }
 .st-search .search-card { border: 0; background: none; padding: 0; margin: 0; }
 .st-search .search-card .card-head { display: none; }
 .st-search .search-results { max-height: 55vh; }
+/* a smart home (1.76): continue · what to make · new videos on this computer */
+.st-smart { display: grid; grid-template-columns: minmax(280px, 380px) 1fr; gap: 14px; margin-bottom: 12px; }
+.st-smart:not(:has(.st-continue)) { grid-template-columns: 1fr; }
+.st-continue { display: flex; flex-direction: column; text-align: left; padding: 0; border: 1px solid var(--accent); border-radius: 14px; overflow: hidden;
+  background: #121a16; color: var(--text-primary); cursor: pointer; font: inherit; }
+.st-continue:hover { box-shadow: 0 0 0 2px rgba(52,199,132,.35); }
+.st-continue .st-thumb { aspect-ratio: 16 / 7; }
+.st-cinfo { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px 12px; }
+.st-ckick { font-size: 11px; color: var(--accent); text-transform: uppercase; letter-spacing: .04em; }
+.st-cinfo b { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-csub { font-size: var(--font-s); color: var(--text-secondary); }
+.st-cgo { margin-top: 6px; align-self: flex-start; background: var(--accent); color: #062114; font-weight: 700; padding: 6px 14px; border-radius: 8px; }
+.st-goals-box { min-width: 0; }
+.st-goals { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.st-goal { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 12px; border: 1px solid var(--border); border-radius: 12px;
+  background: #141c18; color: var(--text-primary); cursor: pointer; font: inherit; text-align: left; min-height: 92px; }
+.st-goal:hover { border-color: var(--accent); background: #17221d; }
+.st-goal-i { font-size: 22px; line-height: 1; margin-bottom: 4px; }
+.st-goal b { font-size: 14px; }
+.st-goal-s { font-size: 11.5px; color: var(--text-secondary); }
+.st-fresh { margin-bottom: 12px; }
+.st-fresh-h { display: flex; align-items: center; gap: 8px; }
+.st-fresh-h .st-home-h { margin: 0; }
+.st-fresh-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; margin-top: 8px; }
+.st-fresh-item { display: flex; flex-direction: column; text-align: left; padding: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+  background: #121a16; color: var(--text-primary); cursor: pointer; font: inherit; }
+.st-fresh-item:hover { border-color: var(--accent); }
+.st-fresh-item .st-pmeta b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.st-fresh-go { margin: 0 10px 10px; font-size: 12px; color: var(--accent); font-weight: 700; }
+@media (max-width: 760px) { .st-smart { grid-template-columns: 1fr; } }

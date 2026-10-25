@@ -781,8 +781,138 @@
   }
   renderPick();
   if (typeof i18nOnChange === 'function') i18nOnChange(() => setTimeout(renderPick, 0));
+
+  // ── a smart home (1.76) ──────────────────────────────────────────────────
+  // Owner: "we only see the recent projects, nothing else - be smart". On top:
+  // ▶ continue the last project, and "what do you want to make today?" - one
+  // tap sets the captions, the style and the frame for that kind of video,
+  // then asks for it. Under the editor question: the newest videos on this
+  // computer that have no captions yet (Telegram Desktop, Downloads, Videos,
+  // Desktop) - only their names are read, nothing leaves the computer.
+  const smart = el('div', 'st-smart');
+  if (dropCard) dropCard.before(smart);
+  const fresh = el('div', 'card st-fresh');
+  if (dropCard) pickBox.after(fresh);
+  const GOALS = () => [
+    ['tiktok', '📱', tx('ቲክቶክ / ሪልስ', 'TikTok / Reels'), tx('ቁመታዊ 9:16 · ደማቅ ካፕሽን', 'Vertical 9:16 · bold captions'), { cap: 'grouped', group: 2, format: 'v', style: 'boldpop', fmt: '9:16' }],
+    ['youtube', '▶', 'YouTube', tx('16:9 · ግልጽ ካፕሽን', '16:9 · clear captions'), { cap: 'grouped', group: 5, format: 'h', style: 'bold', fmt: '16:9' }],
+    ['podcast', '🎙', tx('ፖድካስት / ቃለ መጠይቅ', 'Podcast / interview'), tx('ተናጋሪዎቹ ይለያሉ', 'Who speaks is marked'), { cap: 'grouped', group: 6, format: 'h', style: 'podcast', fmt: '16:9' }],
+    ['sermon', '⛪', tx('ስብከት / ትምህርት', 'Sermon / lesson'), tx('ረጅም ቪዲዮ · ሳጥን ያለው ጽሑፍ', 'Long video · boxed text'), { cap: 'grouped', group: 7, format: 'h', style: 'subtitle', fmt: '16:9' }],
+    ['song', '🎵', tx('ዘፈን / መዝሙር', 'Song / mezmur'), tx('ቃል በቃል ይበራል', 'Word by word, karaoke'), { cap: 'grouped', group: 4, format: 'h', style: 'karaoke', fmt: null }],
+  ];
+  const homeAgo = (ms) => {
+    const m = Math.max(0, Math.round((Date.now() - ms) / 60000));
+    if (m < 60) return m < 2 ? tx('አሁን', 'just now') : tx('ከ' + m + ' ደቂቃ በፊት', m + ' min ago');
+    const h = Math.round(m / 60);
+    if (h < 24) return tx('ከ' + h + ' ሰዓት በፊት', h + ' h ago');
+    const d = Math.round(h / 24);
+    return d === 1 ? tx('ትናንት', 'yesterday') : tx('ከ' + d + ' ቀን በፊት', d + ' days ago');
+  };
+  function startGoal(g) {
+    const o = g[4];
+    try {
+      if (typeof saveSettings === 'function') saveSettings({ cap: o.cap, group: o.group, format: o.format, style: o.style });
+      if (typeof applySettings === 'function') applySettings();
+      if (typeof renderStyleStrip === 'function') renderStyleStrip();
+    } catch (e) {}
+    window.__amhStartFmt = o.fmt || null;              // the editor opens in this frame
+    let p = null;
+    try { p = APP.call('dialog', ['open', tx('ቪዲዮ ይምረጡ', 'Choose a video')]); } catch (e) {}
+    if (p && window.__amhAppChoose) window.__amhAppChoose(p);
+    else window.__amhStartFmt = null;
+  }
+  function renderSmart(items) {
+    smart.textContent = '';
+    const last = items[0];
+    if (last) {
+      const card = btn('st-continue', '', '', () => openProject(last));
+      const pic = el('div', 'st-thumb');
+      const img = el('img'); img.alt = '';
+      pic.appendChild(img);
+      if (last.duration) pic.appendChild(el('span', 'st-thumb-len', S.fmtClock(last.duration)));
+      card.appendChild(pic);
+      const info = el('div', 'st-cinfo');
+      info.appendChild(el('span', 'st-ckick', tx('ካቆሙበት ይቀጥሉ', 'Pick up where you left off')));
+      info.appendChild(el('b', '', last.name || S.projectFileName(last.video)));
+      info.appendChild(el('span', 'st-csub', last.cues.length + ' ' + tx('ካፕሽኖች', 'captions') + ' · ' + homeAgo(last.at || 0)));
+      info.appendChild(el('span', 'st-cgo', '▶ ' + tx('ቀጥል', 'Continue')));
+      card.appendChild(info);
+      if (fs.existsSync(last.video)) thumbFor(last.video, img); else card.classList.add('missing');
+      smart.appendChild(card);
+    }
+    const box = el('div', 'st-goals-box');
+    box.appendChild(el('div', 'st-home-h', last ? tx('አዲስ ምን መስራት ይፈልጋሉ?', 'What do you want to make next?') : tx('ዛሬ ምን መስራት ይፈልጋሉ?', 'What do you want to make today?')));
+    const row = el('div', 'st-goals');
+    GOALS().forEach((g) => {
+      const b = btn('st-goal', '', g[3], () => startGoal(g));
+      b.appendChild(el('span', 'st-goal-i', g[1]));
+      b.appendChild(el('b', '', g[2]));
+      b.appendChild(el('span', 'st-goal-s', g[3]));
+      row.appendChild(b);
+    });
+    box.appendChild(row);
+    smart.appendChild(box);
+  }
+  // the newest videos on this computer without captions yet
+  const FRESH_EXT = /\.(mp4|mov|m4v|mkv|webm|avi|mts)$/i;
+  const OURS = / \((9x16|16x9|1x1|4x5|YouTube|TikTok[^)]*|Instagram[^)]*|Square|Telegram[^)]*|Master|clean|የጸዳ|[^)]*ቴሌግራም[^)]*)\)( \(\d+\))?\.[a-z0-9]+$/i;
+  function freshVideos() {
+    const home = os.homedir();
+    const places = [[path.join(home, 'Downloads', 'Telegram Desktop'), 'Telegram'], [path.join(home, 'Downloads'), tx('ዳውንሎድ', 'Downloads')],
+      [path.join(home, 'Videos'), tx('ቪዲዮዎች', 'Videos')], [path.join(home, 'Movies'), tx('ቪዲዮዎች', 'Movies')], [path.join(home, 'Desktop'), tx('ዴስክቶፕ', 'Desktop')]];
+    const since = Date.now() - 30 * 86400000;
+    const out = [], seen = {};
+    places.forEach(([dir, label]) => {
+      let names = [];
+      try { names = fs.readdirSync(dir); } catch (e) { return; }
+      names.slice(0, 400).forEach((n) => {
+        if (!FRESH_EXT.test(n) || OURS.test(n) || /^amh(style)?_/.test(n)) return;
+        const f = path.join(dir, n);
+        if (seen[f.toLowerCase()]) return;
+        let st = null;
+        try { st = fs.statSync(f); } catch (e) { return; }
+        if (!st || st.size < 300000 || st.mtimeMs < since) return;
+        if (fs.existsSync(path.join(projDir(), S.projectFileName(f)))) return;
+        seen[f.toLowerCase()] = true;
+        out.push({ path: f, name: n, label, at: st.mtimeMs });
+      });
+    });
+    return out.sort((a, b) => b.at - a.at).slice(0, 6);
+  }
+  function renderFresh() {
+    fresh.textContent = '';
+    let off = false;
+    try { off = !!loadSettings().freshOff; } catch (e) {}
+    const list = off ? [] : freshVideos();
+    fresh.style.display = list.length ? '' : 'none';
+    if (!list.length) return;
+    const head = el('div', 'st-fresh-h');
+    head.appendChild(el('span', 'st-home-h', '🆕 ' + tx('በኮምፒውተርዎ ላይ ያሉ አዲስ ቪዲዮዎች — ገና ካፕሽን የሌላቸው', 'New videos on your computer — no captions yet')));
+    head.appendChild(el('span', 'st-flex'));
+    head.appendChild(btn('st-ico', '✕', tx('አታሳይ', 'Do not show these'), () => { saveSettings({ freshOff: true }); renderFresh(); }));
+    fresh.appendChild(head);
+    const grid = el('div', 'st-fresh-grid');
+    list.forEach((v) => {
+      const b = btn('st-fresh-item', '', v.path, () => { if (window.__amhAppChoose) window.__amhAppChoose(v.path); });
+      const pic = el('div', 'st-thumb');
+      const img = el('img'); img.alt = '';
+      pic.appendChild(img);
+      b.appendChild(pic);
+      const info = el('div', 'st-pmeta');
+      info.appendChild(el('b', '', v.name));
+      info.appendChild(el('span', '', v.label + ' · ' + homeAgo(v.at)));
+      b.appendChild(info);
+      b.appendChild(el('span', 'st-fresh-go', '▶ ' + tx('ካፕሽን ስራ', 'Make captions')));
+      thumbFor(v.path, img);
+      grid.appendChild(b);
+    });
+    fresh.appendChild(grid);
+  }
+
   function renderRecent(note) {
     const items = listProjects();
+    renderSmart(items);
+    renderFresh();
     recent.textContent = '';
     recent.style.display = '';
     if (!items.length) {               // a new user (1.47): how it works, no wizard
@@ -803,10 +933,12 @@
       recent.appendChild(how);
       return;
     }
-    recent.appendChild(el('div', 'st-home-h', tx('የቅርብ ጊዜ ፕሮጀክቶች', 'Recent projects')));
     if (note) recent.appendChild(el('div', 'hint studio-note', note));
+    const more = items.slice(1);
+    if (!more.length) { recent.style.display = note ? '' : 'none'; return; }
+    recent.appendChild(el('div', 'st-home-h', tx('ሌሎች ፕሮጀክቶች', 'Other projects')));
     const grid = el('div', 'studio-grid');
-    items.forEach((p) => {
+    more.forEach((p) => {
       const b = btn('studio-proj', '', '', () => openProject(p));
       const pic = el('div', 'st-thumb');
       const img = el('img');
