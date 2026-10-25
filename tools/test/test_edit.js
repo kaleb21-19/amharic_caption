@@ -542,4 +542,96 @@ test('1.71 export only the marked part: main track, items clipped, music goes on
   assert.strictEqual(E.total(E.rangeState(st, 0, 99).clips), 20, 'the whole edit');
 });
 
+test('1.72 picture: crop / flip / rotate / straighten — the preview puts every point where the export does', () => {
+  const m = { w: 1920, h: 1080, video: true };
+  // the export, step by step (crop -> flip -> transpose -> straighten -> scale -> overlay)
+  function exportPoint(c, W, H, u, v) {
+    const k = E.cropOf(c);
+    let w = m.w * (1 - k.l - k.r), h = m.h * (1 - k.t - k.b);
+    let x = u - m.w * k.l, y = v - m.h * k.t;
+    if (c.flipH) x = w - x;
+    if (c.flipV) y = h - y;
+    const rot = E.rotOf(c);
+    if (rot === 90) { [x, y] = [h - y, x]; [w, h] = [h, w]; }
+    else if (rot === 270) { [x, y] = [y, w - x]; [w, h] = [h, w]; }
+    else if (rot === 180) { x = w - x; y = h - y; }
+    const tl = E.tiltOf(c);
+    if (tl) {
+      const a = tl * Math.PI / 180, s = E.tiltScale(tl, w, h);
+      const X = x - w / 2, Y = y - h / 2;
+      x = w / 2 + s * (X * Math.cos(a) - Y * Math.sin(a));
+      y = h / 2 + s * (X * Math.sin(a) + Y * Math.cos(a));
+    }
+    const p = E.placement(m, c, W, H);
+    return [p.x + x * p.sw / w, p.y + y * p.sh / h];
+  }
+  // the preview: the CSS transform of the whole file
+  function previewPoint(c, W, H, u, v, k) {
+    const p = E.placement(m, c, W, H);
+    const css = E.picCss(m, c, p, k);
+    let x = u * css.width / m.w, y = v * css.height / m.h;
+    if (css.transform) {
+      const [ox, oy] = css.origin.split(' ').map(parseFloat);
+      const mt = /rotate\(([-\d.]+)deg\) scale\(([-\d.]+),([-\d.]+)\)/.exec(css.transform);
+      const a = Number(mt[1]) * Math.PI / 180, sx = Number(mt[2]), sy = Number(mt[3]);
+      const X = (x - ox) * sx, Y = (y - oy) * sy;
+      x = ox + X * Math.cos(a) - Y * Math.sin(a); y = oy + X * Math.sin(a) + Y * Math.cos(a);
+    }
+    return [(css.left + x) / k, (css.top + y) / k];
+  }
+  const cases = [
+    {}, { crop: { l: 0.1, t: 0.2, r: 0.3, b: 0.05 } }, { flipH: true }, { flipV: true, flipH: true }, { rot: 90 }, { rot: 270, flipH: true },
+    { rot: 180, crop: { l: 0.2, r: 0.1 } }, { tilt: 7 }, { tilt: -12, crop: { t: 0.1, b: 0.2 } }, { rot: 90, tilt: 5, flipV: true, crop: { l: 0.05, t: 0.1, r: 0.2, b: 0 } },
+    { rot: 90, scale: 0.6, x: 0.1, y: -0.05, fit: 'contain' },
+  ];
+  // a point well inside the crop (the straightened edges are zoomed past)
+  cases.forEach((c, i) => {
+    [[1080, 1920], [1920, 1080]].forEach(([W, H]) => {
+      const kk = E.cropOf(c);
+      const u = m.w * (kk.l + (1 - kk.l - kk.r) * 0.42), v = m.h * (kk.t + (1 - kk.t - kk.b) * 0.57);
+      const a = exportPoint(c, W, H, u, v), b = previewPoint(c, W, H, u, v, 0.37);
+      assert.ok(Math.abs(a[0] - b[0]) < 1.5 && Math.abs(a[1] - b[1]) < 1.5, 'case ' + i + ' ' + W + 'x' + H + ': export ' + a.map(Math.round) + ' preview ' + b.map(Math.round));
+    });
+  });
+  // the filters ffmpeg gets
+  assert.strictEqual(E.picFilter(m, {}), '');
+  assert.strictEqual(E.picFilter(m, { crop: { l: 0.1, t: 0.2, r: 0.3, b: 0.05 }, flipH: true, rot: 90 }), ',crop=1152:810:192:216,hflip,transpose=1');
+  assert.ok(/rotate=0\.122:ow=iw:oh=ih:c=black,scale=/.test(E.picFilter(m, { tilt: 7 })));
+  // a turned clip fills a tall frame by its new shape
+  assert.deepStrictEqual(E.picDims(m, { rot: 90 }), { w: 1080, h: 1920 });
+  assert.strictEqual(E.placement(m, { rot: 90 }, 1080, 1920).sw, 1080, 'a phone video recorded sideways, turned: fits 9:16 exactly');
+  assert.strictEqual(E.rfOn({ rf: { mode: 'face' }, crop: { l: 0.1 } }), false, 'no face-follow on a cropped clip');
+});
+
+test('1.72 speed ramps: one clip -> pieces at their speeds, back to one in a click', () => {
+  let n = 0; const id = () => 'p' + (++n);
+  const c = { id: 'a', m: 'v', in: 2, out: 10, tr: { type: 'fade', d: 0.5 } };
+  const ps = E.rampPieces(c, 'slowmid', id);
+  assert.strictEqual(ps.length, E.RAMPS.slowmid.length);
+  assert.strictEqual(ps[0].id, 'a', 'the first piece keeps the clip (and its transition)');
+  assert.ok(ps[0].tr && !ps[1].tr);
+  assert.strictEqual(ps[ps.length - 1].out, 10);
+  assert.deepStrictEqual(ps.map((p) => p.speed), E.RAMPS.slowmid);
+  ps.forEach((p, i) => { if (i) assert.strictEqual(p.in, ps[i - 1].out, 'no gap, no overlap'); });
+  assert.ok(E.total(ps) > 8, 'slow in the middle: longer than before');
+  const back = E.unRamp([{ id: 'z', m: 'v', in: 0, out: 1 }].concat(ps), ps[0].ramp.g);
+  assert.deepStrictEqual(back.map((x) => [x.id, x.in, x.out, x.speed]), [['z', 0, 1, undefined], ['a', 2, 10, 1]]);
+  assert.deepStrictEqual(E.rampPieces({ id: 'b', m: 'v', in: 0, out: 0.1 }, 'slowmid', id).length, 1, 'too short to ramp');
+});
+
+test('1.72 crop as seen (turned, flipped) <-> as the file has it', () => {
+  const m = { w: 1920, h: 1080 };
+  const seen = { l: 0.1, t: 0.2, r: 0.3, b: 0.05 };
+  [[0, false, false], [90, false, false], [180, true, false], [270, false, true], [90, true, true]].forEach(([rot, fh, fv]) => {
+    const f = E.cropToFile(seen, rot, fh, fv);
+    assert.deepStrictEqual(E.cropToView(f, rot, fh, fv), seen, 'back and forth ' + rot + fh + fv);
+    // the part kept, as seen, is where the export puts it: same width/height share
+    const c = { crop: f, rot, flipH: fh, flipV: fv };
+    const d = E.picDims(m, c), full = E.picDims(m, { rot });
+    assert.ok(Math.abs(d.w / full.w - (1 - seen.l - seen.r)) < 1e-9 && Math.abs(d.h / full.h - (1 - seen.t - seen.b)) < 1e-9);
+  });
+  // turned 90° clockwise: what is seen on the left was the file's bottom
+  assert.deepStrictEqual(E.cropToFile({ l: 0.25, t: 0, r: 0, b: 0 }, 90, false, false), { l: 0, t: 0, r: 0, b: 0.25 });
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');

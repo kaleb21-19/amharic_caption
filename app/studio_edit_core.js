@@ -373,8 +373,141 @@
   }
   // fill the canvas (cover) — or, for a photo / logo, show it whole
   // (contain) — then the clip's own size and position
+  // ── 🖼 Picture (1.72): crop, rotate 90°, flip, straighten ─────────────────
+  // clip.crop = { l, t, r, b } (share of the picture cut from each side),
+  // clip.rot = 0 | 90 | 180 | 270, clip.tilt = -45..45 (degrees, straighten:
+  // zoomed in just enough that no corner is empty), clip.flipH / clip.flipV.
+  // The export does crop -> flip -> rotate -> straighten (picFilter); the
+  // preview places the same picture with CSS (picCss) — the same numbers.
+  const cropOf = (c) => {
+    const k = (c && c.crop) || {};
+    const f = (x) => Math.max(0, Math.min(0.9, Number(x) || 0));
+    let l = f(k.l), r = f(k.r), t = f(k.t), b = f(k.b);
+    if (l + r > 0.9) r = 0.9 - l;
+    if (t + b > 0.9) b = 0.9 - t;
+    return { l, t, r, b };
+  };
+  const rotOf = (c) => { const v = ((Math.round((Number(c && c.rot) || 0) / 90) * 90) % 360 + 360) % 360; return v; };
+  const tiltOf = (c) => Math.max(-45, Math.min(45, Number(c && c.tilt) || 0));
+  const picOn = (c) => { const k = cropOf(c); return !!(k.l || k.t || k.r || k.b || rotOf(c) || tiltOf(c) || (c && (c.flipH || c.flipV))); };
+  // the picture's size once cropped and turned
+  function picDims(m, c, W, H) {
+    const mw = (m && m.w) || W || 1920, mh = (m && m.h) || H || 1080;
+    const k = cropOf(c);
+    const cw = mw * (1 - k.l - k.r), ch = mh * (1 - k.t - k.b);
+    return rotOf(c) % 180 ? { w: ch, h: cw } : { w: cw, h: ch };
+  }
+  // straighten: how much bigger the picture must be so a turned one still fills it
+  function tiltScale(deg, w, h) {
+    const a = Math.abs(deg) * Math.PI / 180;
+    if (!a) return 1;
+    return Math.cos(a) + Math.max(w / h, h / w) * Math.sin(a);
+  }
+  // the export's filters for one clip (between fps and scale)
+  function picFilter(m, c) {
+    if (!picOn(c)) return '';
+    const mw = m.w || 1920, mh = m.h || 1080;
+    const k = cropOf(c);
+    const out = [];
+    if (k.l || k.t || k.r || k.b) {
+      const ev = (x) => Math.max(2, Math.round(x / 2) * 2);
+      out.push('crop=' + ev(mw * (1 - k.l - k.r)) + ':' + ev(mh * (1 - k.t - k.b)) + ':' + Math.round(mw * k.l) + ':' + Math.round(mh * k.t));
+    }
+    if (c.flipH) out.push('hflip');
+    if (c.flipV) out.push('vflip');
+    const rot = rotOf(c);
+    if (rot === 90) out.push('transpose=1');
+    else if (rot === 270) out.push('transpose=2');
+    else if (rot === 180) out.push('hflip,vflip');
+    const tl = tiltOf(c);
+    if (tl) {
+      const d = picDims(m, c);
+      const s = tiltScale(tl, d.w, d.h);
+      out.push('rotate=' + r3(tl * Math.PI / 180) + ':ow=iw:oh=ih:c=black,scale=trunc(iw*' + r3(s) + '/2)*2:trunc(ih*' + r3(s) + '/2)*2,crop=trunc(iw/' + r3(s) + '/2)*2:trunc(ih/' + r3(s) + '/2)*2');
+    }
+    return out.length ? ',' + out.join(',') : '';
+  }
+  // the preview: the <video> shows the whole file; this places it so the
+  // cropped, flipped, turned picture fills box p = { x, y, sw, sh } exactly.
+  // Returns pixels (k = screen pixels per canvas pixel).
+  function picCss(m, c, p, k) {
+    const mw = (m && m.w) || 1920, mh = (m && m.h) || 1080;
+    const cr = cropOf(c), rot = rotOf(c), tl = tiltOf(c);
+    const turned = rot % 180 !== 0;
+    const dw = (turned ? p.sh : p.sw) * k, dh = (turned ? p.sw : p.sh) * k;     // the crop, before turning
+    const fw = dw / (1 - cr.l - cr.r), fh = dh / (1 - cr.t - cr.b);            // the whole file
+    const ox = cr.l * fw + dw / 2, oy = cr.t * fh + dh / 2;                    // the crop's middle, in the file
+    const bx = (p.x + p.sw / 2) * k, by = (p.y + p.sh / 2) * k;               // the box's middle
+    const s = tl ? tiltScale(tl, p.sw, p.sh) : 1;
+    const ang = rot + tl, fx = c && c.flipH ? -1 : 1, fy = c && c.flipV ? -1 : 1;
+    // what to show: the box, brought back into the file's own (unturned) space
+    const rad = -ang * Math.PI / 180, co = Math.cos(rad), si = Math.sin(rad);
+    const back = (X, Y) => { const u = (X * co - Y * si) / s, v = (X * si + Y * co) / s; return [r3(ox + fx * u), r3(oy + fy * v)]; };
+    const hw = p.sw * k / 2, hh = p.sh * k / 2;
+    const poly = [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]].map(([X, Y]) => back(X, Y));
+    const none = !picOn(c);
+    return {
+      left: r3(bx - ox), top: r3(by - oy), width: r3(fw), height: r3(fh),
+      origin: none ? '' : r3(ox) + 'px ' + r3(oy) + 'px',
+      transform: none ? '' : 'rotate(' + r3(ang) + 'deg) scale(' + r3(fx * s) + ',' + r3(fy * s) + ')',
+      clip: none ? '' : 'polygon(' + poly.map((q) => q[0] + 'px ' + q[1] + 'px').join(',') + ')',
+    };
+  }
+  // the crop as the editor sees it (turned / flipped) <-> as the file has it
+  function cropToFile(d, rot, fh, fv) {
+    let q = { l: d.l, t: d.t, r: d.r, b: d.b };
+    rot = ((rot % 360) + 360) % 360;
+    if (rot === 90) q = { l: d.t, t: d.r, r: d.b, b: d.l };
+    else if (rot === 180) q = { l: d.r, t: d.b, r: d.l, b: d.t };
+    else if (rot === 270) q = { l: d.b, t: d.l, r: d.t, b: d.r };
+    if (fh) q = { l: q.r, t: q.t, r: q.l, b: q.b };
+    if (fv) q = { l: q.l, t: q.b, r: q.r, b: q.t };
+    return q;
+  }
+  function cropToView(f, rot, fh, fv) {
+    let q = { l: f.l, t: f.t, r: f.r, b: f.b };
+    if (fv) q = { l: q.l, t: q.b, r: q.r, b: q.t };
+    if (fh) q = { l: q.r, t: q.t, r: q.l, b: q.b };
+    rot = ((rot % 360) + 360) % 360;
+    if (rot === 90) q = { l: q.b, t: q.l, r: q.t, b: q.r };
+    else if (rot === 180) q = { l: q.r, t: q.b, r: q.l, b: q.t };
+    else if (rot === 270) q = { l: q.t, t: q.r, r: q.b, b: q.l };
+    return q;
+  }
+  // 🎢 speed ramps: a clip becomes a few pieces, each at its own speed — smooth
+  // enough to feel like a curve, no keyframes, and every piece is a normal clip
+  const RAMPS = {
+    slowmid: [1, 0.7, 0.45, 0.3, 0.3, 0.45, 0.7, 1],
+    speedup: [1, 1.3, 1.7, 2.2, 3, 4],
+    slowdown: [3, 2.2, 1.6, 1.2, 0.8, 0.5],
+    montage: [3, 3, 1, 0.6, 1, 3, 3],
+    hero: [1, 1, 0.3, 0.25, 0.3, 1, 1],
+    bullet: [2, 0.25, 0.25, 0.25, 2],
+  };
+  function rampPieces(c, name, idGen) {
+    const R = RAMPS[name];
+    if (!R || !(c.out - c.in > 0.2)) return [c];
+    const step = (c.out - c.in) / R.length;
+    const grp = 'rp' + idGen();
+    return R.map((k, i) => Object.assign({}, c, {
+      id: i ? idGen() : c.id, in: r3(c.in + i * step), out: i === R.length - 1 ? c.out : r3(c.in + (i + 1) * step),
+      speed: k, ramp: { g: grp, name }, tr: i ? null : c.tr,
+    }));
+  }
+  // a ramp back to one clip at normal speed (the pieces of group g)
+  function unRamp(clips, g) {
+    const ps = clips.filter((c) => c.ramp && c.ramp.g === g);
+    if (!ps.length) return clips;
+    const first = ps[0], last = ps[ps.length - 1];
+    const one = Object.assign({}, first, { out: last.out, speed: 1, ramp: null });
+    const out = [];
+    clips.forEach((c) => { if (c === first) out.push(one); else if (!(c.ramp && c.ramp.g === g)) out.push(c); });
+    return out;
+  }
+
   function placement(media, clip, W, H) {
-    const mw = media.w || W, mh = media.h || H;
+    const pd = picOn(clip) ? picDims(media, clip, W, H) : null;
+    const mw = pd ? pd.w : (media.w || W), mh = pd ? pd.h : (media.h || H);
     const fit = clip.fit || (media.image ? 'contain' : 'cover');
     const k = (fit === 'contain' ? Math.min(W / mw, H / mh) : Math.max(W / mw, H / mh)) * (Number(clip.scale) || 1);
     const sw = Math.max(2, Math.round(mw * k / 2) * 2), sh = Math.max(2, Math.round(mh * k / 2) * 2);
@@ -454,7 +587,8 @@
     else if (mode === 'face') { const a = rfAt(c.rfk, s); if (a) { cx = a.cx; cy = a.cy; } }
     return { cx, cy, win };
   }
-  const rfOn = (c) => !!(c && c.rf && c.rf.mode && c.rf.mode !== 'off');
+  // (1.72: a cropped or turned clip is not face-framed — the faces were found in the whole picture)
+  const rfOn = (c) => !!(c && c.rf && c.rf.mode && c.rf.mode !== 'off' && !picOn(c));
   // the picture's place at file second s ({ sw, sh, x, y }), framed
   function rfPlace(m, c, W, H, s) {
     if (!rfOn(c)) return placement(m, c, W, H);
@@ -1263,7 +1397,7 @@
         const p = placement(m, c, W, H);
         const rx = rfOn(c) ? rfExpr(m, c, W, H, tin, holdA, k) : null;      // 📱 framed (1.63)
         const hold = (holdA > 0.001 || holdB > 0.001) ? ',tpad=' + [holdA > 0.001 ? 'start_mode=clone:start_duration=' + holdA : '', holdB > 0.001 ? 'stop_mode=clone:stop_duration=' + holdB : ''].filter(Boolean).join(':') : '';
-        parts.push('[' + m.idx + ':v]trim=start=' + tin + ':end=' + tout + ',setpts=' + (k === 1 ? 'PTS-STARTPTS' : '(PTS-STARTPTS)/' + r3(k)) + ',fps=' + fps + hold + ',scale=' + p.sw + ':' + p.sh + ',setsar=1' + colorFilter(c.col) + '[s' + i + ']');
+        parts.push('[' + m.idx + ':v]trim=start=' + tin + ':end=' + tout + ',setpts=' + (k === 1 ? 'PTS-STARTPTS' : '(PTS-STARTPTS)/' + r3(k)) + ',fps=' + fps + hold + picFilter(m, c) + ',scale=' + p.sw + ':' + p.sh + ',setsar=1' + colorFilter(c.col) + '[s' + i + ']');
         parts.push('color=c=black:s=' + W + 'x' + H + ':r=' + fps + ':d=' + d + '[b' + i + ']');
         parts.push('[b' + i + '][s' + i + ']overlay=' + (rx ? "'" + rx.x + "':'" + rx.y + "'" : p.x + ':' + p.y) + ':shortest=1,format=yuv420p[v' + i + ']');
       } else {
@@ -1362,7 +1496,7 @@
     words, deriveCaptions, syncBack, FORMATS, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
     TFONTS, TPRESETS, assColor, textAnchor, textAss, setFontInfo, fontInfo, textSize, LOUD, MUS_DEFAULT, musicGain,
     PRESETS, presetFor, GPU_ENCODERS, encoderArgs, eta,
-    speedOf: sp, clipLen, trackedState, SFX, SFX_LEN, SFX_LEAD, sfxEvents, RF_PACE, rfWindow, rfTrack, rfAt, rfPlace, rfExpr, rfOn, TEMPLATES, TPL_GROUPS, HOLIDAYS, TPL_SPEED, tplOf, tplLayers, tplState, tplAss, setMeasure, tplFade: fadeOut, OV_LAYOUTS, OV_ANIMS, OV_MOTION, ovLook, ovBox, ovAnim, ovChain, ovPos, ZOOM_STYLES, ZOOM_SPEED, ZOOM_DEFAULT, zoomEnv, zoomRect, zoomExprs, zoomFilter, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter };
+    speedOf: sp, clipLen, cropOf, rotOf, tiltOf, picOn, picDims, tiltScale, picFilter, picCss, cropToFile, cropToView, RAMPS, rampPieces, unRamp, trackedState, SFX, SFX_LEN, SFX_LEAD, sfxEvents, RF_PACE, rfWindow, rfTrack, rfAt, rfPlace, rfExpr, rfOn, TEMPLATES, TPL_GROUPS, HOLIDAYS, TPL_SPEED, tplOf, tplLayers, tplState, tplAss, setMeasure, tplFade: fadeOut, OV_LAYOUTS, OV_ANIMS, OV_MOTION, ovLook, ovBox, ovAnim, ovChain, ovPos, ZOOM_STYLES, ZOOM_SPEED, ZOOM_DEFAULT, zoomEnv, zoomRect, zoomExprs, zoomFilter, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhEdit = api;
 })(typeof window !== 'undefined' ? window : this);

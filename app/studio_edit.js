@@ -52,7 +52,8 @@
   // the video like every item; saved with the project
   let mk = [];             // [{ id, start, in: 0, out: 0 }]
   let io = null;           // { start, in: 0, out: length } or null
-  let SHUTTLE = 1;         // L: 1× → 2× → 4×          // 1.70: more selected items (Shift / Ctrl + click); sel = the last one
+  let SHUTTLE = 1;         // L: 1× → 2× → 4×
+  let cropEdit = null;     // 1.72 ✂ crop on the picture: { id, v: { l, t, r, b } as seen, ratio }          // 1.70: more selected items (Shift / Ctrl + click); sel = the last one
   let built = false;       // the edit exists for the open review
   let nid = 0;
   const newId = () => 'k' + Date.now().toString(36) + (++nid);
@@ -614,8 +615,20 @@
     const { w: W, h: H } = E.canvasSize(fmt);
     const k = stage.clientWidth / W || 0;
     const p = E.rfPlace(m, c, W, H, c.in + Math.max(0, t - c.s) * E.speedOf(c));
-    v.style.left = (p.x * k) + 'px'; v.style.top = (p.y * k) + 'px';
-    v.style.width = (p.sw * k) + 'px'; v.style.height = (p.sh * k) + 'px';
+    applyPic(v, m, c, p, k);
+  }
+  // 🖼 1.72: the element shows the whole file; crop / flip / turn / straighten
+  // are its transform and clip (E.picCss — the export's numbers). Kept on the
+  // element (_pic) so a transition's own effect goes on top of it.
+  function applyPic(e, m, c, p, k) {
+    if (cropEdit && c && cropEdit.id === c.id) { cropPreview(e, m, c, p, k); return; }
+    const css = E.picCss(m, c, p, k);
+    e.style.left = css.left + 'px'; e.style.top = css.top + 'px';
+    e.style.width = css.width + 'px'; e.style.height = css.height + 'px';
+    e._pic = css;
+    e.style.transformOrigin = css.origin;
+    e.style.transform = css.transform;
+    e.style.clipPath = css.clip;
   }
   window.addEventListener('resize', () => { frame(); drawSoon(); });
   // the shipped Amharic fonts, so the text on the canvas is the exported text
@@ -780,10 +793,10 @@
     const m = media[c.m];
     if (!m) return;
     const p = E.rfPlace(m, c, W, H, c.in);
-    e.style.left = (p.x * k) + 'px'; e.style.top = (p.y * k) + 'px';
-    e.style.width = (p.sw * k) + 'px'; e.style.height = (p.sh * k) + 'px';
+    applyPic(e, m, c, p, k);
   }
-  const resetFx = (e) => { e.style.opacity = ''; e.style.clipPath = ''; e.style.transform = ''; e.style.zIndex = ''; };
+  const resetFx = (e) => { e.style.opacity = ''; e.style.clipPath = (e._pic && e._pic.clip) || ''; e.style.transform = (e._pic && e._pic.transform) || ''; e.style.zIndex = ''; };
+  const withPic = (e, fx) => fx + (e._pic && e._pic.transform ? ' ' + e._pic.transform : '');
   function syncTrans(t) {
     const v = V();
     if (!v) return;
@@ -821,10 +834,10 @@
     eB.style.zIndex = 2; eA.style.zIndex = 1;
     if (type === 'fade') eB.style.opacity = prog;
     else if (type === 'fadeblack' || type === 'fadewhite') { eA.style.opacity = prog < 0.5 ? 1 - 2 * prog : 0; eB.style.opacity = prog < 0.5 ? 0 : 2 * prog - 1; }
-    else if (type === 'slideleft') { eA.style.transform = 'translateX(' + (-prog * W) + 'px)'; eB.style.transform = 'translateX(' + ((1 - prog) * W) + 'px)'; }
+    else if (type === 'slideleft') { eA.style.transform = withPic(eA, 'translateX(' + (-prog * W) + 'px)'); eB.style.transform = withPic(eB, 'translateX(' + ((1 - prog) * W) + 'px)'); }
     else if (type === 'wipeleft') eB.style.clipPath = 'inset(0 0 0 ' + ((1 - prog) * 100) + '%)';
     else if (type === 'circleopen') eB.style.clipPath = 'circle(' + (prog * 75) + '% at 50% 50%)';
-    else if (type === 'zoomin') { eA.style.zIndex = 2; eB.style.zIndex = 1; eA.style.transform = 'scale(' + (1 + prog) + ')'; eA.style.opacity = 1 - prog; }
+    else if (type === 'zoomin') { eA.style.zIndex = 2; eB.style.zIndex = 1; eA.style.transform = withPic(eA, 'scale(' + (1 + prog) + ')'); eA.style.opacity = 1 - prog; }
   }
   // ♪ the music: one hidden <audio> per music item, at its time, with its
   // fades and ducked while a caption is on (the export ducks by the voice)
@@ -1372,7 +1385,7 @@
       if (x1 - x0 > 30) {
         ctx.save(); ctx.beginPath(); ctx.rect(x0 + 6, mainTop, x1 - x0 - 12, MAIN); ctx.clip();
         ctx.fillStyle = '#e6f2fa'; ctx.font = '600 11px "Segoe UI", sans-serif';
-        ctx.fillText((media[c.m] ? media[c.m].name : '') + '  ·  ' + S.fmtClock(c.e - c.s, true) + (E.speedOf(c) !== 1 ? '  ·  ' + E.speedOf(c) + '×' : '') + (E.colorOn(c.col) ? '  ·  🎨' : ''), x0 + 7, mainTop + 11);
+        ctx.fillText((c.ramp ? '🎢 ' : '') + (c.revOf ? '⏪ ' : '') + (media[c.m] && media[c.m].made === 'freeze' ? '⏸ ' + tx('የቆመ ፍሬም', 'Frozen frame') : (media[c.m] ? media[c.m].name : '')) + '  ·  ' + S.fmtClock(c.e - c.s, true) + (E.speedOf(c) !== 1 ? '  ·  ' + E.speedOf(c) + '×' : '') + (E.colorOn(c.col) ? '  ·  🎨' : ''), x0 + 7, mainTop + 11);
         ctx.restore();
       }
     });
@@ -2284,6 +2297,7 @@
     clipPane.appendChild(el('div', 'ed-sec', tx('ድምፅ', 'Sound')));
     slider(tx('ድምፅ', 'Volume'), 'volume', 0, 2, 0.01, 1, (v) => Math.round(v * 100) + '%');
     clipPane.lastChild.classList.add('simple-ok');
+    renderPicture(c);
     renderFx(c);
     const row = el('div', 'st-row');
     row.appendChild(btn('st-btn', tx('ወደ መጀመሪያው መልስ', 'Reset'), '', () => change('clip', () => {
@@ -2293,6 +2307,333 @@
     row.appendChild(btn('st-btn', '🗑 ' + tx('ሰርዝ', 'Delete'), '', deleteSel));
     clipPane.appendChild(row);
   }
+
+  // ── 🖼 Picture (1.72): crop, turn, flip, straighten, freeze, reverse, ramps ──
+  const RAMPN = () => ({
+    slowmid: ['🐢', tx('መሃሉ ቀስ', 'Slow-mo middle')], speedup: ['🚀', tx('እየፈጠነ', 'Speed up')], slowdown: ['🛬', tx('እየቀዘቀዘ', 'Slow down')],
+    montage: ['🎞', tx('ሞንታዥ', 'Montage')], hero: ['🦸', tx('የጀግና ቅጽበት', 'Hero moment')], bullet: ['🎯', tx('ቡሌት ታይም', 'Bullet time')],
+  });
+  function renderPicture(c) {
+    const m = media[c.m];
+    if (!m || !m.video) return;
+    const set = (label, props) => change(label, () => { clips = clips.map((x) => (x.id === c.id ? Object.assign({}, x, props) : x)); });
+    clipPane.appendChild(el('div', 'ed-sec', '🖼 ' + tx('ምስል', 'Picture')));
+    const r1 = el('div', 'ed-pic simple-ok');
+    const k = E.cropOf(c);
+    const cropped = k.l || k.t || k.r || k.b;
+    r1.appendChild(btn('st-btn' + (cropped ? ' on' : ''), '✂ ' + tx('ቆርጠህ አውጣ', 'Crop'), tx('በምስሉ ላይ ጠርዞቹን ይጎትቱ', 'Drag the edges on the picture'), () => startCrop(c.id)));
+    r1.appendChild(btn('st-btn', '⟲', tx('90° ወደ ግራ አዙር', 'Turn 90° left'), () => set('turn', { rot: (E.rotOf(c) + 270) % 360 })));
+    r1.appendChild(btn('st-btn', '⟳', tx('90° ወደ ቀኝ አዙር', 'Turn 90° right'), () => set('turn', { rot: (E.rotOf(c) + 90) % 360 })));
+    r1.appendChild(btn('st-btn' + (c.flipH ? ' on' : ''), '⇋', tx('በአግድም ገልብጥ (መስታወት)', 'Flip left-right (mirror)'), () => set('flip', { flipH: !c.flipH })));
+    r1.appendChild(btn('st-btn' + (c.flipV ? ' on' : ''), '⇵', tx('ከላይ ወደ ታች ገልብጥ', 'Flip upside down'), () => set('flip', { flipV: !c.flipV })));
+    clipPane.appendChild(r1);
+    // straighten: a slider (whole degrees), zoomed in so no corner is empty
+    const row = el('div', 'ed-row');
+    row.appendChild(el('span', 'ed-lab', tx('አቅና', 'Straighten')));
+    const r = el('input'); r.type = 'range'; r.min = -45; r.max = 45; r.step = 0.5; r.value = E.tiltOf(c);
+    const val = el('span', 'ed-val', E.tiltOf(c) + '°');
+    let started = false;
+    r.addEventListener('input', () => {
+      if (!started) { pushReviewUndo('straighten'); started = true; }
+      clips = clips.map((x) => (x.id === c.id ? Object.assign({}, x, { tilt: Number(r.value) }) : x));
+      val.textContent = r.value + '°';
+      frame();
+    });
+    r.addEventListener('change', () => { started = false; ST.saveSoon(); drawSoon(); });
+    r.addEventListener('dblclick', () => set('straighten', { tilt: 0 }));
+    row.appendChild(r); row.appendChild(val);
+    clipPane.appendChild(row);
+    if (E.picOn(c)) clipPane.appendChild(btn('st-link', '↺ ' + tx('ምስሉን ወደ መጀመሪያው መልስ', 'Put the picture back'), '', () => set('picture', { crop: null, rot: 0, tilt: 0, flipH: false, flipV: false })));
+    // ⏸ freeze · ⏪ reverse
+    const r2 = el('div', 'ed-pic simple-ok');
+    const fz = el('span', 'st-seg');
+    [1, 2, 3, 5].forEach((d) => fz.appendChild(btn('', d + ' ' + tx('ሰ', 's'), tx('በማጫወቻው ቦታ ያለውን ፍሬም ለ ' + d + ' ሰከንድ አቁም', 'Hold the frame at the playhead for ' + d + ' s'), () => freezeFrame(c.id, d))));
+    r2.appendChild(el('span', 'ed-lab2', '⏸ ' + tx('ፍሬም አቁም', 'Freeze')));
+    r2.appendChild(fz);
+    r2.appendChild(btn('st-btn' + (c.revOf ? ' on' : ''), '⏪ ' + (c.revOf ? tx('ወደ ቀጥታ', 'Play forward') : tx('ወደኋላ', 'Reverse')), tx('ክሊፑን ወደኋላ አጫውት', 'Play the clip backwards'), () => reverseClip(c.id)));
+    clipPane.appendChild(r2);
+    // 🎢 speed ramps
+    clipPane.appendChild(el('div', 'ed-sec', '🎢 ' + tx('የፍጥነት ኩርባ', 'Speed ramp')));
+    const rg = el('div', 'ed-ramps simple-ok');
+    const N = RAMPN();
+    Object.keys(E.RAMPS).forEach((id) => {
+      const b = btn('ed-ramp' + (c.ramp && c.ramp.name === id ? ' on' : ''), '', N[id][1], () => rampClip(c.id, id));
+      b.appendChild(el('span', 'ed-ramp-i', N[id][0]));
+      b.appendChild(rampSvg(E.RAMPS[id]));
+      b.appendChild(el('span', 'ed-ramp-n', N[id][1]));
+      rg.appendChild(b);
+    });
+    clipPane.appendChild(rg);
+    if (c.ramp) clipPane.appendChild(btn('st-link', '↺ ' + tx('መደበኛ ፍጥነት', 'Normal speed'), '', () => change('speed', () => { const old = clips; clips = E.unRamp(clips, c.ramp.g); follow(old); })));
+  }
+  // a little drawing of the curve (speed over time)
+  function rampSvg(R) {
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 60 24'); svg.setAttribute('class', 'ed-ramp-svg');
+    const y = (k) => 22 - (Math.log2(k) + 2) / 4 * 20;
+    const pts = R.map((k, i) => [(i + 0.5) / R.length * 60, y(k)]);
+    const path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', 'M0 ' + pts[0][1] + ' ' + pts.map((q) => 'L' + q[0].toFixed(1) + ' ' + q[1].toFixed(1)).join(' ') + ' L60 ' + pts[pts.length - 1][1]);
+    svg.appendChild(path);
+    return svg;
+  }
+  function rampClip(id, name) {
+    pause();
+    change('speed ramp', () => {
+      const old = clips;
+      let c = clips.find((x) => x.id === id);
+      if (c && c.ramp) { clips = E.unRamp(clips, c.ramp.g); c = clips.find((x) => x.id === id); }
+      if (!c) return;
+      clips = [].concat.apply([], clips.map((x) => (x.id === id ? E.rampPieces(x, name, newId) : [x])));
+      follow(old);
+    });
+    const lc = L().find((x) => x.id === id);
+    if (lc) seek(lc.s);
+  }
+  // a made clip (freeze / reverse): kept with the projects, made once
+  const madeDir = () => path.join(ST.projDir(), 'made');
+  function runMake(args, t0) {
+    return new Promise((resolve, reject) => {
+      execFile(FFMPEG, args, { timeout: 30 * 60 * 1000 }, (err) => { if (err) reject(err); else resolve(); });
+      void t0;
+    });
+  }
+  // ⏸ hold the frame under the playhead for d seconds (a short clip of that frame)
+  async function freezeFrame(id, d) {
+    pause();
+    const c = clips.find((x) => x.id === id);
+    const lc = L().find((x) => x.id === id);
+    if (!c || !lc) return;
+    let t = time();
+    if (t < lc.s || t > lc.e) t = lc.s;
+    const m = media[c.m];
+    const src = Math.min(c.out - 0.04, c.in + (t - lc.s) * E.speedOf(c));
+    if (OFFLINE[c.m]) { hint.textContent = tx('ፋይሉ የለም', 'The file is missing'); return; }
+    hint.textContent = '⏳ ' + tx('ፍሬሙ እየተሰራ ነው…', 'Making the frame…');
+    try {
+      if (!fs.existsSync(madeDir())) fs.mkdirSync(madeDir(), { recursive: true });
+      const key = crypto.createHash('sha1').update(m.path + '|' + src.toFixed(3) + '|' + d).digest('hex').slice(0, 12);
+      const png = path.join(os.tmpdir(), 'amh_fz_' + key + '.png');
+      const out = path.join(madeDir(), 'freeze_' + key + '.mp4');
+      if (!fs.existsSync(out)) {
+        await runMake(['-v', 'error', '-y', '-ss', src.toFixed(3), '-i', m.path, '-frames:v', '1', png]);
+        await runMake(['-v', 'error', '-y', '-loop', '1', '-framerate', '30', '-i', png, '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo',
+          '-t', String(d), '-c:v', 'libx264', '-preset', 'medium', '-crf', '14', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', out]);
+        try { fs.unlinkSync(png); } catch (e) {}
+      }
+      const mid = await addMedia(out);
+      if (!mid) throw new Error('no clip');
+      media[mid].made = 'freeze';
+      const fresh = newId();
+      change('freeze frame', () => {
+        const old = clips;
+        const look = { scale: c.scale, x: c.x, y: c.y, col: c.col, crop: c.crop, rot: c.rot, tilt: c.tilt, flipH: c.flipH, flipV: c.flipV, fit: c.fit };
+        clips = E.insertClips(clips, t, [Object.assign({ id: fresh, m: mid, in: 0, out: Math.round(Math.min(d, media[mid].dur || d) * 1000) / 1000, volume: 0 }, look)], newId);
+        follow(old, [fresh]);
+      });
+      sel = fresh; picks = [];
+      hint.textContent = '⏸ ' + tx('ፍሬሙ ቆሟል — ', 'Frame held — ') + d + ' ' + tx('ሰከንድ', 's');
+      setTimeout(() => { if (/⏸/.test(hint.textContent)) hint.textContent = ''; }, 2500);
+      renderInspector(); seek(t + 0.01);
+    } catch (e) { hint.textContent = '⚠ ' + tx('ፍሬሙን ማቆም አልተቻለም', 'Could not hold the frame'); }
+  }
+  // ⏪ backwards: the clip's part made into a reversed copy (5 s pieces, so a
+  // long clip never needs all its frames in memory); again = forward again
+  async function reverseClip(id) {
+    pause();
+    const c = clips.find((x) => x.id === id);
+    if (!c) return;
+    if (c.revOf) { change('reverse', () => { clips = clips.map((x) => (x.id === id ? Object.assign({}, x, c.revOf, { revOf: null }) : x)); }); renderInspector(); return; }
+    const m = media[c.m];
+    const len = c.out - c.in;
+    if (len > 120) { hint.textContent = tx('ወደኋላ እስከ 2 ደቂቃ ብቻ — መጀመሪያ ይቁረጡት (S)', 'Reverse works up to 2 minutes — split it first (S)'); return; }
+    try {
+      if (!fs.existsSync(madeDir())) fs.mkdirSync(madeDir(), { recursive: true });
+      const key = crypto.createHash('sha1').update(m.path + '|' + c.in.toFixed(3) + '|' + c.out.toFixed(3)).digest('hex').slice(0, 12);
+      const out = path.join(madeDir(), 'reverse_' + key + '.mp4');
+      if (!fs.existsSync(out)) {
+        const parts = [];
+        const n = Math.ceil(len / 5);
+        for (let i = 0; i < n; i++) {
+          hint.textContent = '⏳ ' + tx('ወደኋላ እየተሰራ ነው… ', 'Reversing… ') + Math.round(i / n * 100) + '%';
+          const a = c.in + i * 5, dd = Math.min(5, c.out - a);
+          const pp = path.join(os.tmpdir(), 'amh_rev_' + key + '_' + i + '.mp4');
+          const audio = m.audio ? ['-af', 'areverse', '-c:a', 'aac', '-b:a', '192k'] : ['-an'];
+          await runMake(['-v', 'error', '-y', '-ss', a.toFixed(3), '-t', dd.toFixed(3), '-i', m.path, '-vf', 'reverse'].concat(audio, ['-c:v', 'libx264', '-preset', 'medium', '-crf', '15', '-pix_fmt', 'yuv420p', pp]));
+          parts.push(pp);
+        }
+        const list = path.join(os.tmpdir(), 'amh_rev_' + key + '.txt');
+        fs.writeFileSync(list, parts.slice().reverse().map((x) => "file '" + x.replace(/\\/g, '/').replace(/'/g, "'\\''") + "'").join('\n'), { encoding: 'utf8' });
+        await runMake(['-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', out]);
+        parts.concat([list]).forEach((x) => { try { fs.unlinkSync(x); } catch (e) {} });
+      }
+      const mid = await addMedia(out);
+      if (!mid) throw new Error('no clip');
+      media[mid].made = 'reverse';
+      change('reverse', () => {
+        clips = clips.map((x) => (x.id === id ? Object.assign({}, x, { m: mid, in: 0, out: Math.round(Math.min(len, media[mid].dur || len) * 1000) / 1000, revOf: { m: c.m, in: c.in, out: c.out } }) : x));
+      });
+      hint.textContent = '⏪ ' + tx('ወደኋላ ይጫወታል', 'Plays backwards');
+      setTimeout(() => { if (/⏪/.test(hint.textContent)) hint.textContent = ''; }, 2500);
+      renderInspector();
+      const lc = L().find((x) => x.id === id);
+      if (lc) seek(lc.s);
+    } catch (e) { hint.textContent = '⚠ ' + tx('ወደኋላ ማድረግ አልተቻለም', 'Could not reverse it'); }
+  }
+
+  // ── ✂ crop on the picture ──────────────────────────────────────────────
+  // The whole picture is shown (as turned / flipped); a frame with 8 handles
+  // and thirds lines is dragged; a ratio chip locks its shape. ✓ keeps it.
+  let cropLayer = null, cropBar = null;
+  const RATIOS = () => [['free', tx('ነጻ', 'Free')], ['frame', tx('ፍሬሙ', 'Frame') + ' ' + fmt], ['orig', tx('የመጀመሪያው', 'Original')], ['16:9', '16:9'], ['9:16', '9:16'], ['1:1', '1:1'], ['4:5', '4:5']];
+  function cropFull(c) { return Object.assign({}, c, { crop: null, tilt: 0, fit: 'contain', scale: 1, x: 0, y: 0 }); }
+  function startCrop(id) {
+    const c = clips.find((x) => x.id === id);
+    const lc = L().find((x) => x.id === id);
+    if (!c || !lc) return;
+    pause();
+    cropEdit = { id, v: E.cropToView(E.cropOf(c), E.rotOf(c), !!c.flipH, !!c.flipV), ratio: 'free' };
+    if (!cropLayer) {
+      cropLayer = el('div', 'ed-crop');
+      const box = el('div', 'ed-crop-box');
+      ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].forEach((h) => { const d = el('div', 'ed-crop-h ed-crop-' + h); d.dataset.h = h; box.appendChild(d); });
+      box.appendChild(el('div', 'ed-crop-grid'));
+      cropLayer.appendChild(box);
+      stage.appendChild(cropLayer);
+      cropLayer.addEventListener('mousedown', cropDown);
+      cropBar = el('div', 'ed-cropbar');
+      if (pv && wrapEl && wrapEl.parentNode === pv) pv.insertBefore(cropBar, wrapEl); else if (pv) pv.appendChild(cropBar);
+    }
+    paintCropBar();
+    cropLayer.style.display = ''; cropBar.style.display = '';
+    const t = time();
+    if (t < lc.s || t >= lc.e) seek(lc.s + Math.min(0.5, (lc.e - lc.s) / 2)); else frame();
+  }
+  function paintCropBar() {
+    cropBar.textContent = '';
+    cropBar.appendChild(el('b', '', '✂ ' + tx('ቆርጠህ አውጣ', 'Crop')));
+    const seg = el('span', 'st-seg');
+    RATIOS().forEach(([id, name]) => seg.appendChild(btn(cropEdit.ratio === id ? 'on' : '', name, '', () => { cropEdit.ratio = id; if (id !== 'free') fitRatio(); paintCropBar(); frame(); })));
+    cropBar.appendChild(seg);
+    cropBar.appendChild(btn('st-btn', '↺ ' + tx('ሁሉም', 'All'), tx('መቁረጡን አጥፋ', 'No crop'), () => { cropEdit.v = { l: 0, t: 0, r: 0, b: 0 }; cropEdit.ratio = 'free'; paintCropBar(); frame(); }));
+    cropBar.appendChild(btn('st-btn', tx('ተው', 'Cancel'), 'Esc', () => endCrop(false)));
+    cropBar.appendChild(btn('st-btn primary', '✓ ' + tx('ጨርስ', 'Done'), 'Enter', () => endCrop(true)));
+  }
+  function endCrop(keep) {
+    if (!cropEdit) return;
+    const ce = cropEdit;
+    cropEdit = null;
+    if (cropLayer) { cropLayer.style.display = 'none'; cropBar.style.display = 'none'; }
+    if (keep) {
+      const c = clips.find((x) => x.id === ce.id);
+      if (c) {
+        const f = E.cropToFile(ce.v, E.rotOf(c), !!c.flipH, !!c.flipV);
+        const none = !(f.l > 0.001 || f.t > 0.001 || f.r > 0.001 || f.b > 0.001);
+        const r4 = (x) => Math.round(x * 10000) / 10000;
+        change('crop', () => { clips = clips.map((x) => (x.id === ce.id ? Object.assign({}, x, { crop: none ? null : { l: r4(f.l), t: r4(f.t), r: r4(f.r), b: r4(f.b) } }) : x)); });
+      }
+    }
+    frame(); renderInspector();
+  }
+  // the box's size in screen pixels (the whole picture, as shown while cropping)
+  function cropBoxPx() {
+    const c = clips.find((x) => x.id === cropEdit.id);
+    const m = c && media[c.m];
+    const { w: W, h: H } = E.canvasSize(fmt);
+    const k = stage.clientWidth / W || 0;
+    const p = E.placement(m || {}, cropFull(c), W, H);
+    return { p, k, c, m };
+  }
+  // a shape chip: the biggest box of that shape, in the middle of the current one
+  function fitRatio() {
+    const { p, c, m } = cropBoxPx();
+    const v = cropEdit.v;
+    const want = ratioOf(cropEdit.ratio, c, m);
+    if (!want) return;
+    const cw = p.sw * (1 - v.l - v.r), ch = p.sh * (1 - v.t - v.b);
+    let w = cw, h = cw / want;
+    if (h > ch) { h = ch; w = ch * want; }
+    if (w < 8 || h < 8) { w = p.sw; h = p.sw / want; if (h > p.sh) { h = p.sh; w = p.sh * want; } }
+    const cx = p.sw * v.l + cw / 2, cy = p.sh * v.t + ch / 2;
+    let x0 = Math.max(0, Math.min(p.sw - w, cx - w / 2)), y0 = Math.max(0, Math.min(p.sh - h, cy - h / 2));
+    cropEdit.v = { l: x0 / p.sw, t: y0 / p.sh, r: 1 - (x0 + w) / p.sw, b: 1 - (y0 + h) / p.sh };
+  }
+  function ratioOf(id, c, m) {
+    if (id === 'free') return 0;
+    if (id === 'frame') { const s = E.canvasSize(fmt); return s.w / s.h; }
+    if (id === 'orig') { const d = E.picDims(m, Object.assign({}, c, { crop: null })); return d.w / d.h; }
+    const q = id.split(':').map(Number);
+    return q[0] / q[1];
+  }
+  function cropPreview(e, m, c, p0, k) {
+    void p0;
+    const { w: W, h: H } = E.canvasSize(fmt);
+    const cf = cropFull(c);
+    const p = E.placement(m, cf, W, H);
+    const css = E.picCss(m, cf, p, k);
+    e.style.left = css.left + 'px'; e.style.top = css.top + 'px';
+    e.style.width = css.width + 'px'; e.style.height = css.height + 'px';
+    e._pic = css;
+    e.style.transformOrigin = css.origin; e.style.transform = css.transform; e.style.clipPath = css.clip;
+    if (!cropLayer) return;
+    cropLayer.style.left = p.x * k + 'px'; cropLayer.style.top = p.y * k + 'px';
+    cropLayer.style.width = p.sw * k + 'px'; cropLayer.style.height = p.sh * k + 'px';
+    const v = cropEdit.v, box = cropLayer.firstChild;
+    box.style.left = v.l * 100 + '%'; box.style.top = v.t * 100 + '%';
+    box.style.right = v.r * 100 + '%'; box.style.bottom = v.b * 100 + '%';
+  }
+  let cropDrag = null;
+  function cropDown(e) {
+    if (!cropEdit || e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    const h = e.target.dataset && e.target.dataset.h ? e.target.dataset.h : (e.target.closest('.ed-crop-box') ? 'move' : null);
+    if (!h) return;
+    const r = cropLayer.getBoundingClientRect();
+    cropDrag = { h, x0: e.clientX, y0: e.clientY, w: r.width, h0: r.height, v: Object.assign({}, cropEdit.v) };
+  }
+  document.addEventListener('mousemove', (e) => {
+    if (!cropDrag || !cropEdit) return;
+    const d = cropDrag, v0 = d.v;
+    const dx = (e.clientX - d.x0) / d.w, dy = (e.clientY - d.y0) / d.h0;
+    let x0 = v0.l, y0 = v0.t, x1 = 1 - v0.r, y1 = 1 - v0.b;
+    const MINF = 0.06;
+    if (d.h === 'move') {
+      const w = x1 - x0, h = y1 - y0;
+      x0 = Math.max(0, Math.min(1 - w, x0 + dx)); y0 = Math.max(0, Math.min(1 - h, y0 + dy)); x1 = x0 + w; y1 = y0 + h;
+    } else {
+      if (/w/.test(d.h)) x0 = Math.max(0, Math.min(x1 - MINF, x0 + dx));
+      if (/e/.test(d.h)) x1 = Math.min(1, Math.max(x0 + MINF, x1 + dx));
+      if (/n/.test(d.h)) y0 = Math.max(0, Math.min(y1 - MINF, y0 + dy));
+      if (/s/.test(d.h)) y1 = Math.min(1, Math.max(y0 + MINF, y1 + dy));
+      const { p, c, m } = cropBoxPx();
+      const want = ratioOf(cropEdit.ratio, c, m);
+      if (want) {
+        // keep the shape: the side being dragged leads, the other follows
+        const pw = p.sw, ph = p.sh;
+        if (d.h === 'n' || d.h === 's') {
+          const h = (y1 - y0) * ph, w = Math.min(pw, h * want) / pw, cx = (x0 + x1) / 2;
+          x0 = Math.max(0, Math.min(1 - w, cx - w / 2)); x1 = x0 + w;
+          if (w * pw < h * want - 0.5) { const hh = w * pw / want / ph; if (d.h === 'n') y0 = y1 - hh; else y1 = y0 + hh; }
+        } else {
+          const w = (x1 - x0) * pw;
+          let hh = w / want / ph;
+          if (/n/.test(d.h)) { y0 = Math.max(0, y1 - hh); } else if (/s/.test(d.h)) { y1 = Math.min(1, y0 + hh); } else { const cy = (y0 + y1) / 2; y0 = Math.max(0, cy - hh / 2); y1 = Math.min(1, y0 + hh); }
+          hh = y1 - y0;
+          const ww = hh * ph * want / pw;
+          if (/w/.test(d.h)) x0 = x1 - ww; else x1 = x0 + ww;
+        }
+      }
+    }
+    cropEdit.v = { l: x0, t: y0, r: 1 - x1, b: 1 - y1 };
+    frame();
+  });
+  document.addEventListener('mouseup', () => { cropDrag = null; });
+  document.addEventListener('keydown', (e) => {
+    if (!cropEdit) return;
+    if (e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); endCrop(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); endCrop(false); }
+  }, true);
 
   // speed, colour, the transition into this clip (1.24.0)
   const SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3];
@@ -3631,5 +3972,5 @@
     queueExports, stopExport, clearDone, detectGpu, gpuName: (e) => GPU_NAMES[e] || '', queue: () => QUEUE, onQueue: (f) => qWatch.push(f),
     setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } });
   window.__amhEditor = { renderJob, snapshot, open, copySel, paste, duplicate, togglePick, selected, state: () => ({ clips, ovl, txt, mus, snd, zm, media, SRC, fmt, sel, built }), addOverlay, addText, addZoom, autoZooms, addBroll, brollPicker, findFaces, followFaces, frameClips, useSoundFolder, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, moveRange, total, redo,
-    select: (id) => { sel = id; picks = []; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, guide: () => maybeGuide(true), queueExports, queue: () => QUEUE, markedPart, toggleMarker, markIO, clearIO, setShuttle, markers: () => mk, addToMedia, findFile, missingFiles, checkFiles, render, exportVideo, frame, setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } };
+    select: (id) => { sel = id; picks = []; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, startCrop, endCrop, cropState: () => cropEdit, setCropView: (v) => { if (cropEdit) { cropEdit.v = v; frame(); } }, freezeFrame, reverseClip, rampClip, guide: () => maybeGuide(true), queueExports, queue: () => QUEUE, markedPart, toggleMarker, markIO, clearIO, setShuttle, markers: () => mk, addToMedia, findFile, missingFiles, checkFiles, render, exportVideo, frame, setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } };
 })();
