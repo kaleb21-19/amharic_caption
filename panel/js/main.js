@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.72.0';
+const APP_VERSION = '1.73.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -5800,23 +5800,27 @@ const STYLE_LIST = ['plain', 'glide', 'spotlight', 'bounce', 'karaoke', 'fill', 
 // 1.66: caption templates - professional looks that the editor can change
 // (the engine has the full look: amh_styles.TEMPLATES).
 const TEMPLATE_LIST = ['modern', 'boldpop', 'creator', 'comic', 'gradient', 'neonglow', 'glass',
-  'subtitle', 'arch', 'editorial', 'chips', 'paperink', 'story', 'duo'];
+  'subtitle', 'arch', 'editorial', 'chips', 'paperink', 'story', 'duo',
+  // 1.73 kinetic pack (our own Reels-emphasis and kinetic-typography looks)
+  'reels', 'reelsgold', 'kinetic', 'kineticpop', 'bouncy', 'flicker', 'snap'];
 const TEMPLATE_NAMES = {
   modern: 'Modern', boldpop: 'Bold Pop', creator: 'Creator', comic: 'Comic', gradient: 'Gradient',
   neonglow: 'Neon Glow', glass: 'Glass Box', subtitle: 'Subtitle', arch: 'Arch',
   editorial: 'Editorial', chips: 'Chips', paperink: 'Paper', story: 'Story', duo: 'Two Line',
+  reels: 'Reels', reelsgold: 'Reels Gold', kinetic: 'Kinetic', kineticpop: 'Kinetic Pop', bouncy: 'Bouncy', flicker: 'Flicker', snap: 'Snap',
 };
 // the font each template comes with (the editor's font choice starts there)
 const TEMPLATE_FONTS = {
   modern: 'yebse', boldpop: 'yebse', creator: 'yebse', comic: 'washra', gradient: 'sans',
   neonglow: 'sans', glass: 'sans', subtitle: 'sans', arch: 'yebse', editorial: 'serif',
   chips: 'sans', paperink: 'serif', story: 'jiret', duo: 'yebse',
+  reels: 'yebse', reelsgold: 'yebse', kinetic: 'yebse', kineticpop: 'washra', bouncy: 'yebse', flicker: 'sans', snap: 'yebse',
 };
 // every look the editor can pick (the old styles and the templates)
 const LOOK_LIST = STYLE_LIST.concat(TEMPLATE_LIST);
 const isTemplate = (id) => TEMPLATE_LIST.indexOf(id) >= 0;
 // the newest looks get a small NEW mark on their button
-const STYLE_NEW = [];   // 1.49: none "new" now
+const STYLE_NEW = ['reels', 'reelsgold', 'kinetic', 'kineticpop', 'bouncy', 'flicker', 'snap'];   // 1.73
 const STYLE_NAMES = {
   plain: 'Plain', glide: 'Glide', spotlight: 'Spotlight', bounce: 'Bounce', karaoke: 'Karaoke', fill: 'Fill', highlight: 'Highlight', bold: 'Bold', podcast: 'Podcast',
   reveal: 'Reveal', typewriter: 'Typewriter', pop: 'Pop', word: 'Word', impact: 'Impact', neon: 'Neon',
@@ -6266,7 +6270,9 @@ const STYLE_WORDS = [0, 1, 2, 3, 4, 5];
 const STYLE_ANIMS = [['auto', 'Auto'], ['none', 'None'], ['fade', 'Fade'], ['slide', '↑ Slide'], ['drop', '↓ Slide'],
   ['pop', 'Pop'], ['zoom', 'Zoom'], ['blur', 'Blur'],
   // 1.40 animation pack
-  ['typewriter', '⌨ Typing'], ['wave', '〰 Wave'], ['slidecolor', '↑ Slide + colour'], ['shake', 'Shake'], ['glow', '✨ Glow'], ['blurzoom', 'Blur zoom']];
+  ['typewriter', '⌨ Typing'], ['wave', '〰 Wave'], ['slidecolor', '↑ Slide + colour'], ['shake', 'Shake'], ['glow', '✨ Glow'], ['blurzoom', 'Blur zoom'],
+  // 1.73 motion pack
+  ['bounce', '⤵ Bounce'], ['flicker', '💡 Flicker'], ['snap', '⚡ Snap'], ['rampup', '⇡ Ramp up'], ['fadeup', '☁ Fade up']];
 const STYLE_FONTS = [['sans', 'Modern'], ['menbere', 'Rounded'], ['serif', 'Classic'], ['abyssinica', 'Traditional'],
   // 1.28.0
   ['yebse', 'Heavy'], ['washra', 'Bold'], ['agbalumo', 'Playful'], ['tint', 'Brush'], ['fantuwua', 'Handwritten'],

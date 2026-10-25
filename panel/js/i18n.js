@@ -348,6 +348,8 @@ const AM_TEXT = {
   'Shake': 'መንቀጥቀጥ',
   '✨ Glow': '✨ ብርሃን',
   'Blur zoom': 'ደብዝዞ ማጉላት',
+  // 1.73 motion pack
+  '⤵ Bounce': '⤵ መንጠር', '💡 Flicker': '💡 ብልጭ ድርግም', '⚡ Snap': '⚡ ፈጣን', '⇡ Ramp up': '⇡ እያደገ', '☁ Fade up': '☁ ቀስ ብሎ መውጣት',
   'Or drag the caption up or down in the video.': 'ወይም ካፕሽኑን በቪዲዮው ውስጥ ወደ ላይ ወይም ወደ ታች ይጎትቱት።',
   'Bold': 'ደማቅ',
   'Playful': 'ተጫዋች',
