@@ -100,6 +100,71 @@
     return rest.slice(0, at).concat(moving, rest.slice(at));
   }
 
+  // put clips into the main track at edit time t (paste / duplicate, 1.70)
+  function insertClips(clips, t, add, idGen) {
+    const out = splitAt(clips, t, idGen());
+    const L = layout(out);
+    let at = L.findIndex((c) => c.s >= t - 1e-3);
+    if (at < 0) at = out.length;
+    return out.slice(0, at).concat(add, out.slice(at));
+  }
+
+  // ── items follow the video (1.70) ────────────────────────────────────────
+  // A zoom, B-roll, text or sound sits on a moment of the VIDEO (a word), not
+  // on a clock time. When the main track changes (a cut, a deleted clip, a
+  // sentence moved, a trim, a speed), each item goes where its moment went.
+  // keptSegs: the old edit's pieces that still exist, and where they are now.
+  // skip: ids of clips that were just pasted in (never where old words went)
+  function keptSegs(oldC, newC, skip) {
+    const Lo = layout(oldC), Ln = layout(newC), segs = [];
+    Lo.forEach((p) => {
+      Ln.forEach((q) => {
+        if (q.m !== p.m || (skip && skip.indexOf(q.id) >= 0)) return;
+        const a = Math.max(p.in, q.in), b = Math.min(p.out, q.out);
+        if (b - a < 1e-3) return;
+        segs.push({ a: p.s + (a - p.in) / sp(p), b: p.s + (b - p.in) / sp(p), src: a, p, q, same: p.id === q.id });
+      });
+    });
+    return segs.sort((x, y) => x.a - y.a);
+  }
+  // old edit time t -> { t: new edit time, kept: still in the edit }; a cut
+  // moment lands where the cut is now (the next moment that is still there)
+  function mapRaw(segs, t, newTotal) {
+    const here = segs.filter((s) => t >= s.a - 1e-4 && t <= s.b + 1e-4);
+    if (here.length) {
+      const at = (s) => s.q.s + (s.src + (Math.min(s.b, Math.max(s.a, t)) - s.a) * sp(s.p) - s.q.in) / sp(s.q);
+      // the same file twice (a copied clip): its own piece, else the nearest
+      here.sort((x, y) => (y.same - x.same) || (Math.abs(at(x) - t) - Math.abs(at(y) - t)));
+      // k: new seconds per old second there (a clip made faster or slower)
+      return { t: at(here[0]), kept: true, k: sp(here[0].p) / sp(here[0].q) };
+    }
+    const next = segs.find((s) => s.a > t);
+    return { t: next ? next.q.s + (next.src - next.q.in) / sp(next.q) : newTotal, kept: false };
+  }
+  const mapTime = (segs, t, newTotal) => { const r = mapRaw(segs, t, newTotal); return Object.assign(r, { t: r3(r.t) }); };
+  // the items of one track after the main track changed from oldC to newC.
+  // keepAll (music): never removed or shortened, only moved.
+  function followClips(oldC, newC, items, keepAll, skip) {
+    if (!items || !items.length || JSON.stringify(oldC) === JSON.stringify(newC)) return items;
+    const segs = keptSegs(oldC, newC, skip), T = total(newC);
+    const out = [];
+    items.forEach((o) => {
+      const s = Number(o.start) || 0, len = ovLen(o), e = s + len;
+      const ms = mapRaw(segs, s, T);
+      const alive = segs.some((g) => g.b > s + 1e-3 && g.a < e - 1e-3);
+      if (!alive && !keepAll && s < total(oldC)) return;      // its words were cut: it goes too
+      const me = mapRaw(segs, Math.max(s, e - 1e-3), T);
+      const ne = me.kept ? me.t + 1e-3 * me.k : me.t;        // a cut end is exact already
+      let nl = len;
+      // a cut inside it makes it shorter; a move or a slower clip never longer
+      if (!keepAll && ne > ms.t + 0.05 && ne - ms.t < len - 1e-3) nl = r3(ne - ms.t);
+      const ns = r3(Math.max(0, Math.min(ms.t, Math.max(0, T - Math.min(nl, MIN)))));
+      if (Math.abs(ns - s) < 1e-4 && Math.abs(nl - len) < 1e-4) { out.push(o); return; }
+      out.push(Object.assign({}, o, { start: ns, out: r3((Number(o.in) || 0) + nl) }));
+    });
+    return out;
+  }
+
   // ── captions follow the edit ─────────────────────────────────────────────
   // the words of one caption with times (exact when the engine gave them,
   // else shared by letters) — same rule as the panel's core cleanupWords
@@ -1270,7 +1335,7 @@
     return { graph: parts.join(';'), w: W, h: H, duration: total(clips) };
   }
 
-  const api = { MIN, layout, total, locate, sourceToEdit, splitAt, removeClip, trimClip, moveClip, dropIndex, cutRange, moveRange,
+  const api = { MIN, layout, total, locate, sourceToEdit, splitAt, removeClip, trimClip, moveClip, dropIndex, cutRange, moveRange, insertClips, keptSegs, mapTime, followClips,
     words, deriveCaptions, syncBack, FORMATS, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
     TFONTS, TPRESETS, assColor, textAnchor, textAss, setFontInfo, fontInfo, textSize, LOUD, MUS_DEFAULT, musicGain,
     PRESETS, presetFor, GPU_ENCODERS, encoderArgs, eta,

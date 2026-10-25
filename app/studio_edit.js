@@ -44,6 +44,7 @@
   let SRC = {};            // the captions of each file, in that file's time
   let fmt = '16:9';
   let sel = null;          // the selected clip's id
+  let picks = [];          // 1.70: more selected items (Shift / Ctrl + click); sel = the last one
   let built = false;       // the edit exists for the open review
   let nid = 0;
   const newId = () => 'k' + Date.now().toString(36) + (++nid);
@@ -60,9 +61,10 @@
         const d = t.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
         const vm = t.match(/Stream[^\n]*Video:[^\n]*?\s(\d{2,5})x(\d{2,5})/);
         if (IMAGE.test(p)) { resolve({ dur: 0, image: true, w: vm ? Number(vm[1]) : 0, h: vm ? Number(vm[2]) : 0, video: !!vm, audio: false }); return; }
+        const vc = t.match(/Stream[^\n]*Video:\s*(\w+)/), ac = t.match(/Stream[^\n]*Audio:\s*(\w+)/);
         resolve({ dur: d ? Number(d[1]) * 3600 + Number(d[2]) * 60 + Number(d[3]) : 0,
           w: vm ? Number(vm[1]) : 0, h: vm ? Number(vm[2]) : 0, video: !!vm && !/attached pic/.test(t.slice(t.indexOf(vm[0]), t.indexOf(vm[0]) + 300)),
-          audio: /Stream[^\n]*Audio:/.test(t) });
+          audio: /Stream[^\n]*Audio:/.test(t), vc: vc ? vc[1].toLowerCase() : '', ac: ac ? ac[1].toLowerCase() : '' });
       });
     });
   }
@@ -98,8 +100,58 @@
     const id = opts.id || ('m' + (Object.keys(media).length + 1) + '_' + Date.now().toString(36));
     media[id] = Object.assign({ id, path: p, name: path.basename(p) }, info);
     loadPeaks(id);
+    previewCopy(id);
     renderMedia();
     return id;
+  }
+
+  // ── preview copies (1.70) ──────────────────────────────────────────────
+  // A file the window cannot play (iPhone HEVC, ProRes, WMA, AC-3…) gets a
+  // small H.264 / AAC copy in the temp folder, made once in the background,
+  // for the PREVIEW only: the export always reads the original file. The same
+  // name as the review's own copy (app_mode.js), so it is never made twice.
+  const PLAYS_V = /^(h264|vp8|vp9|av1)$/;
+  const PLAYS_A = /^(aac|mp3|opus|vorbis|flac|alac|pcm_\w+)$/;
+  function needsCopy(m) {
+    if (!m || m.image) return false;
+    if (m.video) return !!m.vc && !PLAYS_V.test(m.vc);
+    return !!m.audio && !!m.ac && !PLAYS_A.test(m.ac);
+  }
+  const copyPath = (m) => path.join(os.tmpdir(), 'amh_preview_' + crypto.createHash('sha1').update(m.path).digest('hex').slice(0, 12) + (m.video ? '.mp4' : '.m4a'));
+  const copying = {};
+  function previewCopy(id) {
+    const m = media[id];
+    if (!m || m.image) return;
+    // a project from before 1.70 does not know its codecs yet: look once
+    if (m.vc === undefined && m.ac === undefined) {
+      probe(m.path).then((info) => { if (media[id] === m) { m.vc = info.vc; m.ac = info.ac; previewCopy(id); } });
+      return;
+    }
+    if (!needsCopy(m) || copying[id]) return;
+    const out = copyPath(m);
+    if (fs.existsSync(out)) { useCopy(id, out); return; }
+    copying[id] = true;
+    log('⏳ ' + tx('ለቅድመ እይታ የሚጫወት ቅጂ በማዘጋጀት ላይ፦ ', 'Making a copy the preview can play: ') + m.name);
+    const args = m.video
+      ? ['-v', 'error', '-y', '-i', m.path, '-vf', 'scale=-2:540', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', out]
+      : ['-v', 'error', '-y', '-i', m.path, '-vn', '-c:a', 'aac', '-b:a', '160k', out];
+    execFile(FFMPEG, args, { timeout: 30 * 60 * 1000 }, (err) => {
+      copying[id] = false;
+      if (!err && fs.existsSync(out)) useCopy(id, out);
+      else log(tx('ይህ ፋይል በቅድመ እይታ ላይታይ ይችላል — ኤክስፖርቱ ግን ይሰራል፦ ', 'This file may not show in the preview — the export still works: ') + m.name);
+    });
+  }
+  // the copy is ready: every player showing that file switches to it
+  function useCopy(id, out) {
+    const m = media[id];
+    if (!m) return;
+    m.pv = out;
+    delete urls[id];
+    const v = V();
+    if (v && v.dataset.m === id) { v.dataset.m = ''; v.removeAttribute('src'); }
+    document.querySelectorAll('video, audio').forEach((x) => { if (x !== v && x.dataset && x.dataset.m === id) { x.dataset.m = ''; x.src = urlOf(id); } });
+    ovl.forEach((o) => { if (o.m === id && OVEL[o.id]) { OVEL[o.id].remove(); delete OVEL[o.id]; } });
+    if (built) seek(time());
   }
 
   // ── the edit and the captions ──────────────────────────────────────────
@@ -120,7 +172,16 @@
     // keep the selection while it still exists: a text, an overlay or music
     // too (their own settings buttons used to unselect them - 1.29.0)
     if (sel && !findItem(sel)) sel = null;
+    picks = picks.filter((id) => id !== sel && findItem(id));
     after();
+  }
+  // 1.70: the zooms, B-roll, texts and sounds follow their moment of the video
+  // when the main track changed from `old` (a cut, a delete, a move, a trim)
+  function follow(old, skip) {
+    ovl = E.followClips(old, clips, ovl, false, skip);
+    txt = E.followClips(old, clips, txt, false, skip);
+    zm = E.followClips(old, clips, zm, false, skip);
+    mus = E.followClips(old, clips, mus, true, skip);
   }
   function after() { frame(); renderInspector(); if (typeof renderSound === 'function') renderSound(); drawSoon(); ST.saveSoon(); }
 
@@ -133,6 +194,7 @@
   function restore(json) {
     const o = JSON.parse(json);
     clips = o.clips; ovl = o.ovl || []; txt = o.txt || []; mus = o.mus || []; snd = o.snd || { clean: false, loud: 'off' }; zm = o.zm || []; trk = o.trk || { tx: [], ov: [], au: [] }; fmt = o.fmt; SRC = o.SRC;
+    picks = [];
     Object.keys(o.media || {}).forEach((k) => { if (!media[k]) { media[k] = o.media[k]; loadPeaks(k); } });
   }
   window.pushReviewUndo = function (what) {
@@ -177,7 +239,15 @@
   let ET = 0;                  // edit time while not playing
   let playing = false;
   const urls = {};
-  function urlOf(id) { if (!urls[id]) urls[id] = APP.call('media', [media[id].path]); return urls[id]; }
+  function urlOf(id) {
+    if (!urls[id]) {
+      const m = media[id];
+      let pv = null;
+      try { pv = m.pv && fs.existsSync(m.pv) ? m.pv : null; } catch (e) {}
+      urls[id] = APP.call('media', [pv || m.path]);
+    }
+    return urls[id];
+  }
   function ensureSrc(id) {
     const v = V();
     return new Promise((resolve) => {
@@ -617,6 +687,7 @@
   const tbar = el('div', 'ed-tbar');
   const bSplit = btn('ed-tool', '', '', () => splitHere());
   const bDel = btn('ed-tool', '', '', () => deleteSel());
+  const bDup = btn('ed-tool', '', '', () => duplicate());
   const bUndo = btn('ed-tool', '↶', '', () => undoReview());
   const bRedo = btn('ed-tool', '↷', '', () => redo());
   const zOut = btn('tl-btn', '−', '', () => { view = S.zoomAt(view, 0.625, S.timeToX(time(), view), total(), width()); drawSoon(); });
@@ -662,7 +733,7 @@
   pmenu.style.display = 'none';
   const pdrop = el('span', 'ed-tdrop');
   pdrop.appendChild(bPro); pdrop.appendChild(pmenu);
-  [pdrop, bSplit, bDel, bTrans, bZoom, tdrop, bUndo, bRedo, hint, el('span', 'st-flex'), modeSw, zOut, zIn, zFit].forEach((x) => tbar.appendChild(x));
+  [pdrop, bSplit, bDel, bDup, bTrans, bZoom, tdrop, bUndo, bRedo, hint, el('span', 'st-flex'), modeSw, zOut, zIn, zFit].forEach((x) => tbar.appendChild(x));
   document.addEventListener('mousedown', (e) => { if (pmenu.style.display !== 'none' && !pdrop.contains(e.target)) pmenu.style.display = 'none'; });
   document.addEventListener('mousedown', (e) => { if (tmenu.style.display !== 'none' && !tdrop.contains(e.target)) tmenu.style.display = 'none'; });
   // ✨ Make it pro (1.59, owner's friend: "no keyframes, a junior editor does a
@@ -720,7 +791,9 @@
     let nz = 0;
     const list = cut ? P.ranges.slice().sort((a, b) => b.start - a.start) : [];
     change('make it pro', () => {
+      const old = clips;
       list.forEach((r) => { clips = E.cutRange(clips, r.start, r.end, newId); });
+      follow(old);
       if (clean || loud || sfxOn) snd = Object.assign({}, snd, clean ? { clean: true } : {}, loud ? { loud: 'web' } : {}, sfxOn ? { sfx: true } : {});
       if (zoomOn) nz = autoZooms(cut ? P.ranges : []);
     });
@@ -1066,7 +1139,7 @@
     LL.forEach((c) => {
       const x0 = S.timeToX(c.s, view), x1 = S.timeToX(c.e, view);
       if (x1 < 0 || x0 > w) return;
-      const isSel = c.id === sel;
+      const isSel = isPicked(c.id);
       ctx.fillStyle = isSel ? '#2a5f86' : '#1f4b6b';
       ctx.fillRect(x0 + 1, mainTop, Math.max(2, x1 - x0 - 2), MAIN);
       const p = PEAKS[c.m];
@@ -1100,7 +1173,7 @@
       if (!d) return;
       const xc = S.timeToX(c.s, view), hw = Math.max(5, d / 2 * view.pps);
       if (xc + hw < 0 || xc - hw > w) return;
-      ctx.fillStyle = c.id === sel ? 'rgba(255,214,10,.35)' : 'rgba(255,255,255,.22)';
+      ctx.fillStyle = isPicked(c.id) ? 'rgba(255,214,10,.35)' : 'rgba(255,255,255,.22)';
       ctx.beginPath(); ctx.moveTo(xc - hw, mainTop + 14); ctx.lineTo(xc + hw, mainTop + MAIN); ctx.lineTo(xc + hw, mainTop + 14); ctx.lineTo(xc - hw, mainTop + MAIN); ctx.closePath(); ctx.fill();
       ctx.strokeStyle = 'rgba(255,255,255,.75)'; ctx.lineWidth = 1;
       ctx.strokeRect(xc - hw + 0.5, mainTop + 14.5, hw * 2 - 1, MAIN - 15);
@@ -1111,7 +1184,7 @@
       if (x1 < 0 || x0 > w) return;
       const txTop = txY(rowOf(it));
       ctx.globalAlpha = rowHidden('tx', rowOf(it)) ? 0.35 : 1;
-      const isSel = it.id === sel;
+      const isSel = isPicked(it.id);
       ctx.fillStyle = isSel ? '#8a6428' : '#6b4b1f';
       ctx.fillRect(x0 + 1, txTop, Math.max(2, x1 - x0 - 2), TXT);
       ctx.strokeStyle = isSel ? '#ffffff' : '#c08a3d';
@@ -1130,7 +1203,7 @@
     zm.forEach((o) => {
       const x0 = S.timeToX(o.start, view), x1 = S.timeToX(o.start + E.ovLen(o), view);
       if (x1 < 0 || x0 > w) return;
-      const isSel = o.id === sel;
+      const isSel = isPicked(o.id);
       ctx.fillStyle = isSel ? '#1f7a8c' : '#155766';
       ctx.fillRect(x0 + 1, zmTop, Math.max(2, x1 - x0 - 2), ZM);
       ctx.strokeStyle = isSel ? '#ffffff' : '#3fb6cc';
@@ -1148,7 +1221,7 @@
     ovl.forEach((o) => {
       const x0 = S.timeToX(o.start, view), x1 = S.timeToX(E.ovEnd(o), view);
       if (x1 < 0 || x0 > w) return;
-      const isSel = o.id === sel, m = media[o.m];
+      const isSel = isPicked(o.id), m = media[o.m];
       const y0 = ovY(rowOf(o)), hh = OVL;
       ctx.globalAlpha = rowHidden('ov', rowOf(o)) ? 0.35 : 1;
       ctx.fillStyle = isSel ? '#6a52a0' : '#4b3a6b';
@@ -1169,7 +1242,7 @@
     mus.forEach((o) => {
       const x0 = S.timeToX(o.start, view), x1 = S.timeToX(Math.min(E.ovEnd(o), total()), view);
       if (x1 < 0 || x0 > w) return;
-      const isSel = o.id === sel, m = media[o.m];
+      const isSel = isPicked(o.id), m = media[o.m];
       const musTop = muY(rowOf(o));
       ctx.globalAlpha = rowHidden('au', rowOf(o)) ? 0.35 : 1;
       ctx.fillStyle = isSel ? '#2f7a5a' : '#1f5a42';
@@ -1311,6 +1384,11 @@
     const p = xy(e);
     const hit = hitAt(p);
     if (playing) pause();
+    if (hit && hit.id && (hit.lane === 'ov' || hit.lane === 'tx' || hit.lane === 'mu' || hit.lane === 'zm' || hit.lane === 'main') && (e.shiftKey || e.ctrlKey || e.metaKey)) {
+      togglePick(hit.id);
+      return;
+    }
+    if (hit && hit.id && hit.lane !== 'cap' && !isPicked(hit.id)) picks = [];
     if (hit && (hit.lane === 'ov' || hit.lane === 'tx' || hit.lane === 'mu' || hit.lane === 'zm')) {
       const isTx = hit.lane === 'tx' || hit.lane === 'zm';          // no media length to keep to
       const arr = hit.lane === 'zm' ? 'zm' : (hit.lane === 'tx' ? 'txt' : (hit.lane === 'mu' ? 'mus' : 'ovl'));
@@ -1318,7 +1396,9 @@
       if (sel !== hit.id) { sel = hit.id; renderInspector(); ST.showTab('clip'); }
       pushReviewUndo(hit.edge === 'body' ? 'move' : 'trim');
       drag = { kind: 'ov', arr, id: hit.id, edge: hit.edge, x0: p.x, start0: o.start, end0: E.ovEnd(o),
-        len: !isTx && media[o.m] && !media[o.m].image ? media[o.m].dur : null };
+        len: !isTx && media[o.m] && !media[o.m].image ? media[o.m].dur : null,
+        // the other selected items move with it (never the main track's clips)
+        group: hit.edge === 'body' ? selected().filter((x) => x.id !== hit.id && x.arr !== 'clips').map((x) => ({ arr: x.arr, id: x.id, start0: findItem(x.id).start })) : [] };
       if (hit.edge === 'body') seek(S.xToTime(p.x, view));
     } else if (hit && hit.lane === 'main') {
       const c = clips.find((x) => x.id === hit.id);
@@ -1326,7 +1406,7 @@
       if (hit.edge !== 'body') {
         pushReviewUndo('trim');
         syncSrc();
-        drag = { kind: 'trim', id: hit.id, edge: hit.edge, x0: p.x, in0: c.in, out0: c.out, len: media[c.m] ? media[c.m].dur : Infinity };
+        drag = { kind: 'trim', id: hit.id, edge: hit.edge, x0: p.x, in0: c.in, out0: c.out, len: media[c.m] ? media[c.m].dur : Infinity, clips0: clips };
       } else {
         drag = { kind: 'move', id: hit.id, x0: p.x, moved: false, dropT: 0 };
         seek(S.xToTime(p.x, view));
@@ -1335,7 +1415,7 @@
       if (hit.edge !== 'body') { pushReviewUndo('timing'); drag = { kind: 'cap', i: hit.i, edge: hit.edge }; }
       else { seek(reviewCues[hit.i].start + 0.01); if (typeof focusReviewCue === 'function') focusReviewCue(hit.i, 0); }
     } else {
-      sel = null; renderInspector();
+      sel = null; picks = []; renderInspector();
       drag = { kind: 'seek' };
       seek(S.xToTime(p.x, view));
     }
@@ -1363,8 +1443,10 @@
           const snaps = [0, time()].concat(L().map((c) => c.s), L().map((c) => c.e));
           const near = snaps.find((x) => Math.abs((x - st) * view.pps) < 8);
           if (near != null) st = near;
+          if (drag.group.length) st = Math.max(st, drag.start0 - Math.min.apply(null, drag.group.map((g) => g.start0)));
           if (drag.arr === 'zm') zm = E.ovMove(zm, drag.id, st);
           else if (drag.arr === 'txt') txt = E.ovMove(txt, drag.id, st); else if (drag.arr === 'mus') mus = E.ovMove(mus, drag.id, st); else ovl = E.ovMove(ovl, drag.id, st);
+          drag.group.forEach((g) => setList(g.arr, E.ovMove(listOf(g.arr), g.id, g.start0 + st - drag.start0)));
         } else if (drag.arr === 'zm') {
           zm = E.ovTrim(zm, drag.id, drag.edge, (drag.edge === 'in' ? drag.start0 : drag.end0) + d, null).map((x) => (x.id === drag.id ? Object.assign({}, x, { in: 0, out: Math.max(0.3, Math.round((x.out - x.in) * 1000) / 1000) }) : x));
         } else if (drag.arr === 'txt') {
@@ -1405,12 +1487,12 @@
     if (!drag) return;
     const d = drag;
     drag = null;
-    if (d.kind === 'trim') { derive(); after(); }
+    if (d.kind === 'trim') { if (d.clips0) follow(d.clips0); derive(); after(); }
     else if (d.kind === 'ov') { after(); }
     else if (d.kind === 'cap') { renderReview(); ST.saveSoon(); }
     else if (d.kind === 'move' && d.moved && d.idx != null) {
       const from = clips.findIndex((c) => c.id === d.id);
-      if (d.idx !== from) change('move', () => { clips = E.moveClip(clips, d.id, d.idx); });
+      if (d.idx !== from) change('move', () => { const old = clips; clips = E.moveClip(clips, d.id, d.idx); follow(old); });
     }
     drawSoon();
   });
@@ -1422,6 +1504,103 @@
     drawSoon();
   }, { passive: false });
 
+  // ── several selected · copy / paste / duplicate (1.70) ──────────────────
+  const listOf = (arr) => ({ clips, ovl, txt, mus, zm })[arr];
+  function setList(arr, v) {
+    if (arr === 'clips') clips = v; else if (arr === 'ovl') ovl = v; else if (arr === 'txt') txt = v; else if (arr === 'mus') mus = v; else if (arr === 'zm') zm = v;
+  }
+  const arrOf = (id) => ['clips', 'ovl', 'txt', 'mus', 'zm'].find((a) => listOf(a).some((o) => o.id === id)) || null;
+  function isPicked(id) { return !!id && (id === sel || picks.indexOf(id) >= 0); }
+  // what is selected, in timeline order: [{ id, arr }]
+  function selected() {
+    const ids = [sel].concat(picks).filter((x, i, a) => x && a.indexOf(x) === i);
+    return ids.map((id) => ({ id, arr: arrOf(id) })).filter((x) => x.arr);
+  }
+  function togglePick(id) {
+    if (isPicked(id)) {
+      picks = picks.filter((x) => x !== id);
+      if (sel === id) sel = picks.pop() || null;
+    } else {
+      if (sel) picks.push(sel);
+      sel = id;
+    }
+    renderInspector(); drawSoon(); sayPicked();
+  }
+  function sayPicked() {
+    const n = selected().length;
+    hint.textContent = n > 1 ? '☑ ' + n + ' ' + tx('ተመርጠዋል', 'selected') : '';
+    hint.title = n > 1 ? tx('አብረው ይጎትቱ · Delete · Ctrl+C · Ctrl+D', 'Drag them together · Delete · Ctrl+C · Ctrl+D') : '';
+  }
+  function deleteMany(list) {
+    const items = list.filter((x) => x.arr !== 'clips'), cl = list.filter((x) => x.arr === 'clips').map((x) => x.id);
+    const keep = clips.filter((c) => cl.indexOf(c.id) < 0);
+    change('delete', () => {
+      items.forEach((x) => setList(x.arr, listOf(x.arr).filter((o) => o.id !== x.id)));
+      if (cl.length && keep.length) { const old = clips; clips = keep; follow(old); }
+    });
+    if (cl.length && !keep.length) { hint.textContent = tx('የመጨረሻው ክሊፕ ሊሰረዝ አይችልም', 'The last clip cannot be removed'); setTimeout(() => { hint.textContent = ''; }, 2500); }
+    sel = null; picks = [];
+    seek(Math.min(time(), total()));
+  }
+  let CLIP = null;     // what Ctrl+C copied: { clips: [...], items: [{ arr, o }] }
+  function copySel() {
+    const list = selected();
+    if (!list.length) return false;
+    const LL = L();
+    CLIP = {
+      clips: LL.filter((c) => list.some((x) => x.id === c.id)).map((c) => clips.find((x) => x.id === c.id)),
+      items: list.filter((x) => x.arr !== 'clips').map((x) => ({ arr: x.arr, o: findItem(x.id) })).sort((a, b) => a.o.start - b.o.start),
+    };
+    hint.textContent = '⧉ ' + tx('ተቀድቷል — Ctrl+V በማጫወቻው ቦታ', 'Copied — Ctrl+V at the playhead');
+    setTimeout(() => { if (/Ctrl\+V/.test(hint.textContent)) hint.textContent = ''; }, 2500);
+    return true;
+  }
+  // put CLIP in: its clips at tClips (into the main track), its items from tItems
+  function pasteAt(data, tClips, tItems, label) {
+    if (!data || (!data.clips.length && !data.items.length)) return;
+    const fresh = [];
+    change(label || 'paste', () => {
+      if (data.clips.length) {
+        const add = data.clips.map((c) => { const id = newId(); fresh.push(id); return Object.assign(JSON.parse(JSON.stringify(c)), { id }); });
+        const old = clips;
+        clips = E.insertClips(clips, Math.max(0, Math.min(tClips, total())), add, newId);
+        follow(old, fresh);
+      }
+      if (data.items.length) {
+        const t0 = data.items[0].o.start;
+        data.items.forEach((x) => {
+          const id = newId();
+          fresh.push(id);
+          // never past the end of the video (where it would never be seen)
+          const at = Math.min(tItems + x.o.start - t0, total() - Math.min(E.ovLen(x.o), total()));
+          const o = Object.assign(JSON.parse(JSON.stringify(x.o)), { id, start: Math.round(Math.max(0, at) * 1000) / 1000 });
+          setList(x.arr, listOf(x.arr).concat([o]));
+        });
+      }
+    });
+    sel = fresh[fresh.length - 1] || sel;
+    picks = fresh.slice(0, -1);
+    after(); sayPicked();
+  }
+  function paste() {
+    if (!CLIP) { hint.textContent = tx('መጀመሪያ ይቅዱ (Ctrl+C)', 'Copy something first (Ctrl+C)'); setTimeout(() => { hint.textContent = ''; }, 2000); return; }
+    pasteAt(CLIP, time(), time(), 'paste');
+  }
+  // ⧉ a copy right after the selection (a clip: after that clip)
+  function duplicate() {
+    const list = selected();
+    if (!list.length) { hint.textContent = tx('መጀመሪያ ይምረጡ', 'Select something first'); setTimeout(() => { hint.textContent = ''; }, 2000); return; }
+    const keep = CLIP;
+    copySel();
+    const data = CLIP;
+    CLIP = keep;
+    const LL = L();
+    const clipEnd = Math.max.apply(null, [0].concat(LL.filter((c) => data.clips.some((x) => x.id === c.id)).map((c) => c.e)));
+    const itemEnd = Math.max.apply(null, [0].concat(data.items.map((x) => x.o.start + E.ovLen(x.o))));
+    pasteAt(data, clipEnd, itemEnd, 'duplicate');
+  }
+  function cutSel() { if (copySel()) deleteMany(selected()); }
+
   function splitHere() {
     const t = time();
     const loc = E.locate(clips, t);
@@ -1431,6 +1610,7 @@
     after();
   }
   function deleteSel() {
+    if (picks.length) { deleteMany(selected()); return; }
     if (sel && zm.some((o) => o.id === sel)) {
       const zid = sel;
       change('delete zoom', () => { zm = zm.filter((o) => o.id !== zid); });
@@ -1454,20 +1634,20 @@
     if (!sel) { hint.textContent = tx('መጀመሪያ ክሊፕ ይምረጡ', 'Select a clip first'); setTimeout(() => { hint.textContent = ''; }, 2000); return; }
     if (clips.length <= 1) { hint.textContent = tx('የመጨረሻው ክሊፕ ሊሰረዝ አይችልም', 'The last clip cannot be removed'); setTimeout(() => { hint.textContent = ''; }, 2500); return; }
     const id = sel;
-    change('delete', () => { clips = E.removeClip(clips, id); });
+    change('delete', () => { const old = clips; clips = E.removeClip(clips, id); follow(old); });
     sel = null;
     seek(Math.min(time(), total()));
   }
   // ✂ Clean up "cut them": ranges of the edit out of the main track, one step
   // 1.34: a sentence dragged in the Script view
   function moveRange(a, b, t) {
-    change('move', () => { clips = E.moveRange(clips, a, b, t, newId); });
+    change('move', () => { const old = clips; clips = E.moveRange(clips, a, b, t, newId); follow(old); });
     seek(Math.min(time(), total()));
   }
   function cutRanges(ranges) {
     const list = (ranges || []).slice().sort((a, b) => b.start - a.start);   // last first: earlier times stay valid
     if (!list.length) return;
-    change('clean up', () => { list.forEach((r) => { clips = E.cutRange(clips, r.start, r.end, newId); }); });
+    change('clean up', () => { const old = clips; list.forEach((r) => { clips = E.cutRange(clips, r.start, r.end, newId); }); follow(old); });
     seek(Math.min(time(), total()));
   }
 
@@ -1480,6 +1660,13 @@
     if (mod && !e.altKey && (k.toLowerCase() === 'y' || (k.toLowerCase() === 'z' && e.shiftKey))) {
       if (typing(document.activeElement)) return;
       e.preventDefault(); redo(); return;
+    }
+    if (mod && !e.altKey && !e.shiftKey && !typing(document.activeElement) && !String(window.getSelection ? window.getSelection() : '')) {
+      const c = k.toLowerCase();
+      if (c === 'c' && copySel()) { e.preventDefault(); return; }
+      if (c === 'x' && selected().length) { e.preventDefault(); cutSel(); return; }
+      if (c === 'v' && CLIP) { e.preventDefault(); paste(); return; }
+      if (c === 'd') { e.preventDefault(); duplicate(); return; }
     }
     if (typing(document.activeElement) || mod || e.altKey) return;
     let used = true;
@@ -1836,7 +2023,7 @@
     // ⏩ speed
     clipPane.appendChild(el('div', 'ed-sec pro-only', '⏩ ' + tx('ፍጥነት', 'Speed')));
     const srow = el('div', 'st-seg ed-speeds pro-only');
-    SPEEDS.forEach((k) => srow.appendChild(btn(E.speedOf(c) === k ? 'on' : '', k + '×', '', () => change('speed', () => { set({ speed: k }); }))));
+    SPEEDS.forEach((k) => srow.appendChild(btn(E.speedOf(c) === k ? 'on' : '', k + '×', '', () => change('speed', () => { const old = clips; set({ speed: k }); follow(old); }))));
     clipPane.appendChild(srow);
     if (E.speedOf(c) !== 1) clipPane.appendChild(el('div', 'st-note', tx('ድምፁ የራሱን ቅላጼ ይይዛል፤ ካፕሽኖቹ ከቃላቱ ጋር ይሄዳሉ።', 'The voice keeps its pitch; the captions stay on their words.')));
     // 🎨 colour
@@ -3021,7 +3208,9 @@
     bSplit.textContent = '✂ ' + tx('ቁረጥ', 'Split');
     bSplit.title = tx('በማጫወቻው ቦታ ቁረጥ (S)', 'Split at the playhead (S)');
     bDel.textContent = '🗑 ' + tx('ሰርዝ', 'Delete');
-    bDel.title = tx('የተመረጠውን ክሊፕ ሰርዝ (Delete)', 'Remove the selected clip (Delete)');
+    bDel.title = tx('የተመረጠውን ሰርዝ (Delete)', 'Remove what is selected (Delete)');
+    bDup.textContent = '⧉ ' + tx('ድገም', 'Duplicate');
+    bDup.title = tx('ቅጂ ከተመረጠው በኋላ (Ctrl+D) · ቅዳ Ctrl+C · ለጥፍ Ctrl+V · ብዙ ለመምረጥ Shift + ጠቅ', 'A copy right after it (Ctrl+D) · Copy Ctrl+C · Paste Ctrl+V · Shift + click to select several');
     bTrans.textContent = '⧓ ' + tx('ሽግግር', 'Transition');
     bZoom.textContent = '🔍 ' + tx('ዙም', 'Zoom');
     bZoom.title = tx('በማጫወቻው ቦታ ለስላሳ ዙም — ስታይሉን በ⚙ ይምረጡ', 'A smooth zoom at the playhead — choose its style in ⚙');
@@ -3071,6 +3260,7 @@
     if (ed && Array.isArray(ed.clips) && ed.clips.length && ed.media) {
       media = ed.media; clips = ed.clips; ovl = ed.ovl || []; txt = ed.txt || []; mus = ed.mus || []; snd = ed.snd || { clean: false, loud: 'off' }; zm = ed.zm || []; trk = ed.trk || { tx: [], ov: [], au: [] }; fmt = ed.fmt || '16:9'; SRC = ed.S || {};
       Object.keys(media).forEach(loadPeaks);
+      Object.keys(media).forEach(previewCopy);
       built = true; fitted = false; cur = 0; ET = 0; sel = null;
       reviewCues = E.deriveCaptions(clips, SRC);
       renderReview();
@@ -3098,6 +3288,6 @@
   ST.attachEditor({ draw, drawSoon, seek, duration: total, peaks: editPeaks, open, shown, saveState, loadState, exportVideo, format: () => fmt,
     queueExports, stopExport, clearDone, detectGpu, gpuName: (e) => GPU_NAMES[e] || '', queue: () => QUEUE, onQueue: (f) => qWatch.push(f),
     setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } });
-  window.__amhEditor = { renderJob, snapshot, state: () => ({ clips, ovl, txt, mus, snd, zm, media, SRC, fmt, sel, built }), addOverlay, addText, addZoom, autoZooms, addBroll, brollPicker, findFaces, followFaces, frameClips, useSoundFolder, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, moveRange, total, redo,
-    select: (id) => { sel = id; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, render, exportVideo, frame, setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } };
+  window.__amhEditor = { renderJob, snapshot, open, copySel, paste, duplicate, togglePick, selected, state: () => ({ clips, ovl, txt, mus, snd, zm, media, SRC, fmt, sel, built }), addOverlay, addText, addZoom, autoZooms, addBroll, brollPicker, findFaces, followFaces, frameClips, useSoundFolder, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, moveRange, total, redo,
+    select: (id) => { sel = id; picks = []; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, render, exportVideo, frame, setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } };
 })();

@@ -348,8 +348,8 @@ html.amh-editor #review .ed-tl { padding: 0; }
 .ed-tool { height: 28px; padding: 0 11px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-card); color: var(--text-primary); font-size: var(--font-s); cursor: pointer; }
 .ed-tool:hover { border-color: var(--accent); }
 .ed-tool:disabled { opacity: .4; cursor: default; }
-.ed-hint { color: var(--warn); font-size: var(--font-s); margin-left: 6px; }
-.ed-lanes { display: grid; grid-template-columns: 92px minmax(0, 1fr); }
+.ed-hint { color: var(--warn); font-size: var(--font-s); margin-left: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 40%; }
+.ed-lanes { display: grid; grid-template-columns: 108px minmax(0, 1fr); }
 .ed-labels { border-right: 1px solid var(--border); font-size: 12px; color: var(--text-secondary); }
 .ed-lh { height: 24px; }
 .ed-lcap { height: 36px; display: flex; align-items: center; padding-left: 10px; }
@@ -693,8 +693,8 @@ html.amh-editor .ed-lanes { max-height: 300px; overflow-y: auto; overflow-x: hid
 html.amh-editor .ed-cwrap { height: auto; }
 .ed-labels { display: flex; flex-direction: column; }
 .ed-trk { display: flex; align-items: center; gap: 2px; padding-left: 8px; box-sizing: border-box; font-size: 11px; color: var(--text-secondary); flex: 0 0 auto; overflow: hidden; }
-.ed-trk-n { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ed-trk-b { width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--text-secondary); font-size: 11px; cursor: pointer; line-height: 20px; }
+.ed-trk-n { flex: 1 1 auto; min-width: 2.4em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ed-trk-b { width: 18px; height: 20px; flex: 0 0 auto; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--text-secondary); font-size: 11px; cursor: pointer; line-height: 20px; }
 .ed-trk-b:hover { background: #24302b; color: var(--text-primary); }
 .ed-trk-b.on { color: #ffb020; }
 .ed-trk-add { color: var(--accent); font-weight: 700; }
