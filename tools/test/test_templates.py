@@ -18,6 +18,12 @@ REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, REPO)
 import amh_styles as A  # noqa: E402
 
+# the messages hold Amharic: a Windows console (cp1252) cannot print it
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 fails = 0
 
 
