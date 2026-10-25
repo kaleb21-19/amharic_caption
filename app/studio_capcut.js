@@ -276,6 +276,7 @@
       return;
     }
     out.appendChild(el('div', 'st-ok', '✓ ' + built.placed + ' ' + tx('ካፕሽኖች ወደ «' + p.name + '» ተጨመሩ — CapCutን ይክፈቱ።', 'captions added to «' + p.name + '» — open CapCut.')));
+    if (window.__amhMarkDone) window.__amhMarkDone('capcut');
     if (built.skipped) out.appendChild(el('div', 'st-sub', built.skipped + ' ' + tx('ካፕሽኖች ቪዲዮው በፕሮጀክቱ ውስጥ በሌለበት ክፍል ስለሆኑ አልተጨመሩም።', 'captions are in parts of the video that are not in the project, so they were left out.')));
     fixesNote(r, out);
     out.appendChild(el('div', 'st-sub', tx('እያንዳንዱ ካፕሽን በCapCut ውስጥ እንደሚታረም ጽሑፍ ነው። እንቅስቃሴ (animation) በCapCut ውስጥ ለሁሉም በአንድ ጊዜ መጨመር ይቻላል።',
@@ -323,6 +324,7 @@
     if (!built.placed) { say(tx('በፕሮጀክቱ ውስጥ ካፕሽን የሚገባበት ቦታ አልተገኘም።', 'No place for captions was found in the project.'), 'st-warn'); return; }
     out.textContent = '';
     say('✓ ' + built.placed + ' ' + tx('ካፕሽኖች ወደ «' + p.name + '» ገብተዋል — CapCutን ይክፈቱ።', 'captions are in «' + p.name + '» — open CapCut.'), 'st-ok');
+    if (window.__amhMarkDone) window.__amhMarkDone('capcut');
     if (missing.length) say(tx(missing.length + ' ቪዲዮ(ዎች) በዚህ ኮምፒውተር ላይ አልተገኙም፦ ', missing.length + ' video(s) not found on this PC: ') + missing.map((v) => path.basename(v)).join(', '));
     fixesNote(r, out);
     say(tx('በCapCut ውስጥ ቪዲዮውን ቢቆርጡ፣ እዚህ "አዘምን" ይጫኑ — በሰከንዶች ይስተካከላል።', 'Cut the video again in CapCut? Press "Update" here — it is redone in seconds.'));

@@ -78,6 +78,7 @@
     }
     wait.remove();
     say('✓ ' + data.cues + ' ' + tx('ካፕሽኖች ለDaVinci ተዘጋጅተዋል።', 'captions are ready for DaVinci.'), 'st-ok');
+    if (window.__amhMarkDone) window.__amhMarkDone('davinci');
     const ol = el('ol', 'st-steps');
     [tx('DaVinciን ከፍተው ማንኛውንም Project ይክፈቱ (ወይም New Project) — ቪዲዮው Timeline ላይ ከሌለ ስክሪፕቱ ራሱ ያስገባዋል።',
         'Open DaVinci and open any project (or New Project) — if the video is not on a timeline yet, the script brings it in by itself.'),

@@ -571,11 +571,14 @@
   const projDir = () => path.join(typeof USER_CAPTIONS_DIR !== 'undefined' ? USER_CAPTIONS_DIR : path.join(os.homedir(), 'Documents', 'AmharicCaptions'), 'Studio');
   const chosenVideo = () => (window.__amhAppChosen && window.__amhAppChosen()) || null;
   let lastSaved = '';
+  // 1.76: what was last made from the open project (the library shows it) and its own name
+  let projDone = null, projTitle = '';
+  window.__amhMarkDone = (kind) => { projDone = { kind, at: Date.now() }; try { saveProject(true); } catch (e) {} };
   function currentProject() {
     const c = chosenVideo();
     if (!c || typeof reviewCues === 'undefined' || !reviewCues.length) return null;
     const ed = editor ? editor.saveState() : null;
-    return S.makeProject({ video: c.path, name: c.name, duration: dur(), edit: ed, style: typeof STYLE !== 'undefined' ? STYLE : 'plain',
+    return S.makeProject({ video: c.path, name: c.name, title: projTitle, done: projDone, duration: dur(), edit: ed, style: typeof STYLE !== 'undefined' ? STYLE : 'plain',
       styleOpts: typeof styleOpts === 'function' && typeof STYLE !== 'undefined' ? styleOpts(STYLE) : null, cues: reviewCues,
       group: groupUnknown || typeof CAP === 'undefined' ? null : { n: CAP === 'words' ? 1 : GROUP_SIZE, fmt: FORMAT },
       cleanup: window.__amhCuts ? window.__amhCuts.save() : null });
@@ -701,6 +704,17 @@
       return p;
     }), 8);
   }
+  function listAllProjects() {
+    let names = [];
+    try { names = fs.readdirSync(projDir()).filter((n) => /\.amhproj$/.test(n)); } catch (e) { return []; }
+    const out = [];
+    names.forEach((n) => {
+      let p = null;
+      try { p = S.parseProject(fs.readFileSync(path.join(projDir(), n), 'utf8')); } catch (e) {}
+      if (p) { p._file = n; out.push(p); }
+    });
+    return out;
+  }
   async function openProject(p) {
     if (!p) return false;
     if (!fs.existsSync(p.video)) {
@@ -708,6 +722,7 @@
       return false;
     }
     if (window.__amhAppChoose) window.__amhAppChoose(p.video, true);
+    projDone = p.done || null; projTitle = p.title || '';
     if (p.style && typeof STYLE_LIST !== 'undefined' && STYLE_LIST.indexOf(p.style) >= 0) { STYLE = p.style; saveSettings({ style: p.style }); }
     // this project's own look (size, height, colours…): another project may
     // have changed the same style since (1.33)
@@ -781,138 +796,143 @@
   }
   renderPick();
   if (typeof i18nOnChange === 'function') i18nOnChange(() => setTimeout(renderPick, 0));
-
-  // ── a smart home (1.76) ──────────────────────────────────────────────────
-  // Owner: "we only see the recent projects, nothing else - be smart". On top:
-  // ▶ continue the last project, and "what do you want to make today?" - one
-  // tap sets the captions, the style and the frame for that kind of video,
-  // then asks for it. Under the editor question: the newest videos on this
-  // computer that have no captions yet (Telegram Desktop, Downloads, Videos,
-  // Desktop) - only their names are read, nothing leaves the computer.
-  const smart = el('div', 'st-smart');
-  if (dropCard) dropCard.before(smart);
-  const fresh = el('div', 'card st-fresh');
-  if (dropCard) pickBox.after(fresh);
-  const GOALS = () => [
-    ['tiktok', '📱', tx('ቲክቶክ / ሪልስ', 'TikTok / Reels'), tx('ቁመታዊ 9:16 · ደማቅ ካፕሽን', 'Vertical 9:16 · bold captions'), { cap: 'grouped', group: 2, format: 'v', style: 'boldpop', fmt: '9:16' }],
-    ['youtube', '▶', 'YouTube', tx('16:9 · ግልጽ ካፕሽን', '16:9 · clear captions'), { cap: 'grouped', group: 5, format: 'h', style: 'bold', fmt: '16:9' }],
-    ['podcast', '🎙', tx('ፖድካስት / ቃለ መጠይቅ', 'Podcast / interview'), tx('ተናጋሪዎቹ ይለያሉ', 'Who speaks is marked'), { cap: 'grouped', group: 6, format: 'h', style: 'podcast', fmt: '16:9' }],
-    ['sermon', '⛪', tx('ስብከት / ትምህርት', 'Sermon / lesson'), tx('ረጅም ቪዲዮ · ሳጥን ያለው ጽሑፍ', 'Long video · boxed text'), { cap: 'grouped', group: 7, format: 'h', style: 'subtitle', fmt: '16:9' }],
-    ['song', '🎵', tx('ዘፈን / መዝሙር', 'Song / mezmur'), tx('ቃል በቃል ይበራል', 'Word by word, karaoke'), { cap: 'grouped', group: 4, format: 'h', style: 'karaoke', fmt: null }],
-  ];
-  const homeAgo = (ms) => {
+  // ── the project library (1.76) ──────────────────────────────────────────
+  // Owner: "we only see the recent - nothing else". The home showed the 8
+  // newest projects; older ones could not be found. Now: every project,
+  // found by its name or by a word said in it, newest first in groups,
+  // with what was made from it, and rename / show in folder / delete (↶).
+  const LIB = { q: '', sort: 'new', shown: 48 };
+  const libAgo = (ms) => {
     const m = Math.max(0, Math.round((Date.now() - ms) / 60000));
     if (m < 60) return m < 2 ? tx('አሁን', 'just now') : tx('ከ' + m + ' ደቂቃ በፊት', m + ' min ago');
     const h = Math.round(m / 60);
     if (h < 24) return tx('ከ' + h + ' ሰዓት በፊት', h + ' h ago');
     const d = Math.round(h / 24);
-    return d === 1 ? tx('ትናንት', 'yesterday') : tx('ከ' + d + ' ቀን በፊት', d + ' days ago');
+    return d === 1 ? tx('ትናንት', 'yesterday') : d < 30 ? tx('ከ' + d + ' ቀን በፊት', d + ' days ago') : new Date(ms).toLocaleDateString();
   };
-  function startGoal(g) {
-    const o = g[4];
+  const GROUP_NAMES = () => ({ today: tx('ዛሬ', 'Today'), week: tx('በዚህ ሳምንት', 'This week'), month: tx('በዚህ ወር', 'This month'), older: tx('የቆዩ', 'Older') });
+  const DONE_NAMES = () => ({ srt: tx('SRT ተቀምጧል', 'SRT saved'), video: tx('ቪዲዮ ተሰርቷል', 'Video made'), capcut: tx('ወደ CapCut ተልኳል', 'Sent to CapCut'), davinci: tx('ወደ DaVinci ተልኳል', 'Sent to DaVinci') });
+  const libFold = (t) => (typeof amhFold === 'function' ? amhFold(t) : String(t || '').toLowerCase().replace(/\s+/g, ''));
+  let libBody = null, libUndo = null;
+  function libRead(file) { return JSON.parse(fs.readFileSync(path.join(projDir(), file), 'utf8')); }
+  function libWrite(file, obj) { writeSafe(path.join(projDir(), file), JSON.stringify(obj)); }
+  function libRename(p, nameEl) {
+    const inp = el('input', 'st-lib-rename');
+    inp.value = p.title || p.name || '';
+    inp.setAttribute('data-amh-type', '1');
+    nameEl.replaceWith(inp);
+    inp.focus(); inp.select();
+    let done = false;
+    const save = (keep) => {
+      if (done) return;
+      done = true;
+      const v = inp.value.trim();
+      if (keep && v && v !== (p.title || p.name)) {
+        try { const o = libRead(p._file); o.title = v; libWrite(p._file, o); } catch (e) {}
+      }
+      renderRecent();
+    };
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save(true); } else if (e.key === 'Escape') { e.preventDefault(); save(false); } });
+    inp.addEventListener('blur', () => save(true));
+    inp.addEventListener('click', (e) => e.stopPropagation());
+  }
+  // a project goes to Studio/.trash (never erased); ↶ brings it back
+  function libDelete(p) {
+    const trash = path.join(projDir(), '.trash');
     try {
-      if (typeof saveSettings === 'function') saveSettings({ cap: o.cap, group: o.group, format: o.format, style: o.style });
-      if (typeof applySettings === 'function') applySettings();
-      if (typeof renderStyleStrip === 'function') renderStyleStrip();
+      if (!fs.existsSync(trash)) fs.mkdirSync(trash, { recursive: true });
+      fs.renameSync(path.join(projDir(), p._file), path.join(trash, p._file));
+    } catch (e) { return; }
+    libUndo = { file: p._file, name: p.title || p.name, t: Date.now() };
+    renderRecent();
+    setTimeout(() => { if (libUndo && Date.now() - libUndo.t >= 9000) { libUndo = null; renderRecent(); } }, 9200);
+  }
+  function libRestore() {
+    if (!libUndo) return;
+    try { fs.renameSync(path.join(projDir(), '.trash', libUndo.file), path.join(projDir(), libUndo.file)); } catch (e) {}
+    libUndo = null;
+    renderRecent();
+  }
+  // the video was moved: point the project at its new place
+  function libRelink(p) {
+    let np = null;
+    try { np = APP.call('dialog', ['open', tx('ቪዲዮውን ይፈልጉ፦ ', 'Find the video: ') + (p.name || '')]); } catch (e) {}
+    if (!np) return;
+    try {
+      const o = libRead(p._file);
+      o.video = np;
+      const nf = S.projectFileName(np);
+      libWrite(nf, o);
+      if (nf !== p._file) fs.unlinkSync(path.join(projDir(), p._file));
     } catch (e) {}
-    window.__amhStartFmt = o.fmt || null;              // the editor opens in this frame
-    let p = null;
-    try { p = APP.call('dialog', ['open', tx('ቪዲዮ ይምረጡ', 'Choose a video')]); } catch (e) {}
-    if (p && window.__amhAppChoose) window.__amhAppChoose(p);
-    else window.__amhStartFmt = null;
+    renderRecent();
   }
-  function renderSmart(items) {
-    smart.textContent = '';
-    const last = items[0];
-    if (last) {
-      const card = btn('st-continue', '', '', () => openProject(last));
-      const pic = el('div', 'st-thumb');
-      const img = el('img'); img.alt = '';
-      pic.appendChild(img);
-      if (last.duration) pic.appendChild(el('span', 'st-thumb-len', S.fmtClock(last.duration)));
-      card.appendChild(pic);
-      const info = el('div', 'st-cinfo');
-      info.appendChild(el('span', 'st-ckick', tx('ካቆሙበት ይቀጥሉ', 'Pick up where you left off')));
-      info.appendChild(el('b', '', last.name || S.projectFileName(last.video)));
-      info.appendChild(el('span', 'st-csub', last.cues.length + ' ' + tx('ካፕሽኖች', 'captions') + ' · ' + homeAgo(last.at || 0)));
-      info.appendChild(el('span', 'st-cgo', '▶ ' + tx('ቀጥል', 'Continue')));
-      card.appendChild(info);
-      if (fs.existsSync(last.video)) thumbFor(last.video, img); else card.classList.add('missing');
-      smart.appendChild(card);
+  function libMenu(p, card, nameEl, anchor) {
+    document.querySelectorAll('.st-lib-menu').forEach((m) => m.remove());
+    const m = el('div', 'st-lib-menu');
+    const item = (t, fn) => { const b = btn('st-lib-mi', t, '', (e) => { if (e && e.stopPropagation) e.stopPropagation(); m.remove(); fn(); }); m.appendChild(b); };
+    item('✎ ' + tx('ስም ቀይር', 'Rename'), () => libRename(p, nameEl));
+    if (fs.existsSync(p.video)) item('📂 ' + tx('ቪዲዮውን በአቃፊው አሳይ', 'Show the video in its folder'), () => { try { APP.call('reveal', [p.video]); } catch (e) {} });
+    item('🗑 ' + tx('አጥፋ', 'Delete'), () => libDelete(p));
+    card.appendChild(m);
+    const off = (e) => { if (!m.contains(e.target) && e.target !== anchor) { m.remove(); document.removeEventListener('mousedown', off, true); } };
+    setTimeout(() => document.addEventListener('mousedown', off, true), 0);
+  }
+  function libCard(p) {
+    const missing = !fs.existsSync(p.video);
+    const card = btn('studio-proj st-lib-card' + (missing ? ' missing' : ''), '', '', () => { if (!missing) openProject(p); });
+    const pic = el('div', 'st-thumb');
+    const img = el('img'); img.alt = '';
+    pic.appendChild(img);
+    if (p.duration) pic.appendChild(el('span', 'st-thumb-len', S.fmtClock(p.duration)));
+    if (p.done && DONE_NAMES()[p.done.kind]) pic.appendChild(el('span', 'st-thumb-tag', '✓ ' + DONE_NAMES()[p.done.kind]));
+    card.appendChild(pic);
+    const info = el('div', 'st-pmeta');
+    const nameEl = el('b', '', p.title || p.name || S.projectFileName(p.video));
+    info.appendChild(nameEl);
+    info.appendChild(el('span', '', p.cues.length + ' ' + tx('ካፕሽኖች', 'captions') + ' · ' + libAgo(p.at || 0)));
+    if (p._hit && p._hit.by === 'words') {
+      const q = el('span', 'st-lib-hit', '“' + p._hit.text.slice(0, 90) + '”');
+      info.appendChild(q);
     }
-    const box = el('div', 'st-goals-box');
-    box.appendChild(el('div', 'st-home-h', last ? tx('አዲስ ምን መስራት ይፈልጋሉ?', 'What do you want to make next?') : tx('ዛሬ ምን መስራት ይፈልጋሉ?', 'What do you want to make today?')));
-    const row = el('div', 'st-goals');
-    GOALS().forEach((g) => {
-      const b = btn('st-goal', '', g[3], () => startGoal(g));
-      b.appendChild(el('span', 'st-goal-i', g[1]));
-      b.appendChild(el('b', '', g[2]));
-      b.appendChild(el('span', 'st-goal-s', g[3]));
-      row.appendChild(b);
-    });
-    box.appendChild(row);
-    smart.appendChild(box);
+    if (missing) {
+      const w = el('span', 'st-lib-missing', '⚠ ' + tx('ቪዲዮው ተንቀሳቅሷል ወይም ተሰርዟል', 'The video was moved or deleted') + ' · ');
+      w.appendChild(btn('st-link', '📂 ' + tx('ፈልግ', 'Find it'), '', (e) => { if (e && e.stopPropagation) e.stopPropagation(); libRelink(p); }));
+      info.appendChild(w);
+    }
+    card.appendChild(info);
+    const more = btn('st-lib-more', '⋯', tx('ተጨማሪ', 'More'), (e) => { if (e && e.stopPropagation) e.stopPropagation(); libMenu(p, card, nameEl, more); });
+    card.appendChild(more);
+    if (!missing) thumbFor(p.video, img);
+    return card;
   }
-  // the newest videos on this computer without captions yet
-  const FRESH_EXT = /\.(mp4|mov|m4v|mkv|webm|avi|mts)$/i;
-  const OURS = / \((9x16|16x9|1x1|4x5|YouTube|TikTok[^)]*|Instagram[^)]*|Square|Telegram[^)]*|Master|clean|የጸዳ|[^)]*ቴሌግራም[^)]*)\)( \(\d+\))?\.[a-z0-9]+$/i;
-  function freshVideos() {
-    const home = os.homedir();
-    const places = [[path.join(home, 'Downloads', 'Telegram Desktop'), 'Telegram'], [path.join(home, 'Downloads'), tx('ዳውንሎድ', 'Downloads')],
-      [path.join(home, 'Videos'), tx('ቪዲዮዎች', 'Videos')], [path.join(home, 'Movies'), tx('ቪዲዮዎች', 'Movies')], [path.join(home, 'Desktop'), tx('ዴስክቶፕ', 'Desktop')]];
-    const since = Date.now() - 30 * 86400000;
-    const out = [], seen = {};
-    places.forEach(([dir, label]) => {
-      let names = [];
-      try { names = fs.readdirSync(dir); } catch (e) { return; }
-      names.slice(0, 400).forEach((n) => {
-        if (!FRESH_EXT.test(n) || OURS.test(n) || /^amh(style)?_/.test(n)) return;
-        const f = path.join(dir, n);
-        if (seen[f.toLowerCase()]) return;
-        let st = null;
-        try { st = fs.statSync(f); } catch (e) { return; }
-        if (!st || st.size < 300000 || st.mtimeMs < since) return;
-        if (fs.existsSync(path.join(projDir(), S.projectFileName(f)))) return;
-        seen[f.toLowerCase()] = true;
-        out.push({ path: f, name: n, label, at: st.mtimeMs });
-      });
+  function renderLibBody(all) {
+    if (!libBody) return;
+    libBody.textContent = '';
+    if (libUndo) {
+      const u = el('div', 'st-lib-undo', '🗑 ' + tx('ተሰርዟል፦ ', 'Deleted: ') + libUndo.name + ' · ');
+      u.appendChild(btn('st-link', '↶ ' + tx('መልስ', 'Undo'), '', libRestore));
+      libBody.appendChild(u);
+    }
+    const list = S.libraryList(all, LIB.q, LIB.sort, libFold);
+    if (!list.length) { libBody.appendChild(el('div', 'st-note', tx('ምንም አልተገኘም።', 'Nothing found.'))); return; }
+    const groups = LIB.sort === 'new' && !LIB.q ? S.libraryGroups(list) : [{ key: '', items: list }];
+    let left = LIB.shown;
+    groups.forEach((g) => {
+      if (left <= 0) return;
+      if (g.key) libBody.appendChild(el('div', 'st-lib-group', GROUP_NAMES()[g.key] + ' · ' + g.items.length));
+      const grid = el('div', 'studio-grid');
+      g.items.slice(0, left).forEach((p) => grid.appendChild(libCard(p)));
+      left -= g.items.length;
+      libBody.appendChild(grid);
     });
-    return out.sort((a, b) => b.at - a.at).slice(0, 6);
-  }
-  function renderFresh() {
-    fresh.textContent = '';
-    let off = false;
-    try { off = !!loadSettings().freshOff; } catch (e) {}
-    const list = off ? [] : freshVideos();
-    fresh.style.display = list.length ? '' : 'none';
-    if (!list.length) return;
-    const head = el('div', 'st-fresh-h');
-    head.appendChild(el('span', 'st-home-h', '🆕 ' + tx('በኮምፒውተርዎ ላይ ያሉ አዲስ ቪዲዮዎች — ገና ካፕሽን የሌላቸው', 'New videos on your computer — no captions yet')));
-    head.appendChild(el('span', 'st-flex'));
-    head.appendChild(btn('st-ico', '✕', tx('አታሳይ', 'Do not show these'), () => { saveSettings({ freshOff: true }); renderFresh(); }));
-    fresh.appendChild(head);
-    const grid = el('div', 'st-fresh-grid');
-    list.forEach((v) => {
-      const b = btn('st-fresh-item', '', v.path, () => { if (window.__amhAppChoose) window.__amhAppChoose(v.path); });
-      const pic = el('div', 'st-thumb');
-      const img = el('img'); img.alt = '';
-      pic.appendChild(img);
-      b.appendChild(pic);
-      const info = el('div', 'st-pmeta');
-      info.appendChild(el('b', '', v.name));
-      info.appendChild(el('span', '', v.label + ' · ' + homeAgo(v.at)));
-      b.appendChild(info);
-      b.appendChild(el('span', 'st-fresh-go', '▶ ' + tx('ካፕሽን ስራ', 'Make captions')));
-      thumbFor(v.path, img);
-      grid.appendChild(b);
-    });
-    fresh.appendChild(grid);
+    if (list.length > LIB.shown) {
+      libBody.appendChild(btn('st-btn st-lib-moreall', tx('ተጨማሪ አሳይ', 'Show more') + ' (' + (list.length - LIB.shown) + ')', '', () => { LIB.shown += 48; renderLibBody(all); }));
+    }
   }
 
   function renderRecent(note) {
     const items = listProjects();
-    renderSmart(items);
-    renderFresh();
     recent.textContent = '';
     recent.style.display = '';
     if (!items.length) {               // a new user (1.47): how it works, no wizard
@@ -933,31 +953,28 @@
       recent.appendChild(how);
       return;
     }
-    if (note) recent.appendChild(el('div', 'hint studio-note', note));
-    const more = items.slice(1);
-    if (!more.length) { recent.style.display = note ? '' : 'none'; return; }
-    recent.appendChild(el('div', 'st-home-h', tx('ሌሎች ፕሮጀክቶች', 'Other projects')));
-    const grid = el('div', 'studio-grid');
-    more.forEach((p) => {
-      const b = btn('studio-proj', '', '', () => openProject(p));
-      const pic = el('div', 'st-thumb');
-      const img = el('img');
-      img.alt = '';
-      pic.appendChild(img);
-      if (p.duration) pic.appendChild(el('span', 'st-thumb-len', S.fmtClock(p.duration)));
-      b.appendChild(pic);
-      const info = el('div', 'st-pmeta');
-      info.appendChild(el('b', '', p.name || S.projectFileName(p.video)));
-      const d = new Date(p.at || 0);
-      const meta = el('span', '', p.cues.length + ' ' + tx('ካፕሽኖች', 'captions') + ' · ' +
-        d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-      info.appendChild(meta);
-      b.appendChild(info);
-      if (!fs.existsSync(p.video)) { b.classList.add('missing'); meta.textContent += ' · ' + tx('ቪዲዮው የለም', 'video missing'); }
-      else thumbFor(p.video, img);
-      grid.appendChild(b);
+    const all = listAllProjects();
+    const head = el('div', 'st-lib-head');
+    head.appendChild(el('span', 'st-home-h', tx('ፕሮጀክቶችዎ', 'Your projects') + ' · ' + all.length));
+    head.appendChild(el('span', 'st-flex'));
+    const q = el('input', 'st-lib-q');
+    q.type = 'text'; q.value = LIB.q;
+    q.setAttribute('data-amh-type', '1');
+    q.placeholder = '🔎 ' + tx('በስም ወይም በተነገረ ቃል ፈልግ…', 'Search by name or by a word said…');
+    let qt = 0;
+    q.addEventListener('input', () => { clearTimeout(qt); qt = setTimeout(() => { LIB.q = q.value; LIB.shown = 48; renderLibBody(all); }, 160); });
+    head.appendChild(q);
+    const sort = el('select', 'st-lib-sort');
+    [['new', tx('አዲሶቹ መጀመሪያ', 'Newest first')], ['old', tx('የቆዩት መጀመሪያ', 'Oldest first')], ['name', tx('በስም', 'By name')]].forEach(([v, t]) => {
+      const o = el('option', '', t); o.value = v; if (v === LIB.sort) o.selected = true; sort.appendChild(o);
     });
-    recent.appendChild(grid);
+    sort.addEventListener('change', () => { LIB.sort = sort.value; renderLibBody(all); });
+    head.appendChild(sort);
+    recent.appendChild(head);
+    if (note) recent.appendChild(el('div', 'hint studio-note', note));
+    libBody = el('div', 'st-lib');
+    recent.appendChild(libBody);
+    renderLibBody(all);
   }
 
   // a frame of each video for the home's cards (1.45): made once with ffmpeg,
@@ -991,6 +1008,7 @@
     if (!c || running || reviewOpen) return;
     const p = projectFor(c.path);
     if (p && p.cues.length) { openProject(p); return; }
+    projDone = null; projTitle = '';
     startTranscribe();
   };
   function startTranscribe() {

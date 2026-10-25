@@ -78,10 +78,10 @@ html.amh-studio .card:has(#runBtn) { background: none; border: 0; padding: 0; ma
 html.amh-studio .card:has(#runBtn) > .card-head, html.amh-studio #runBtn { display: none; }
 html.amh-studio .st-dropcard > .card-head { display: none; }
 html.amh-studio .st-dropcard { padding: 0; border: 0; background: none; }
-html.amh-studio .st-dropcard .app-drop { padding: 22px 24px; border-radius: 14px; }
-html.amh-studio .st-dropcard .app-drop-icon { font-size: 26px; }
+html.amh-studio .st-dropcard .app-drop { padding: 40px 24px; border-radius: 14px; }
+html.amh-studio .st-dropcard .app-drop-icon { font-size: 34px; }
 html.amh-studio .st-dropcard .app-drop-title { font-size: 17px; }
-html.amh-studio .st-dropcard .app-drop.has-file { padding: 22px 24px; }
+html.amh-studio .st-dropcard .app-drop.has-file { padding: 40px 24px; }
 html.amh-studio .panel-body { max-width: 1040px; margin: 0 auto; }
 .studio-recent { background: none; border: 0; padding: 0; }
 .st-home-h { font-size: 12px; letter-spacing: .03em; text-transform: uppercase; color: var(--text-secondary); margin: 6px 0 8px; }
@@ -764,33 +764,24 @@ html.amh-editor .ed-cwrap { height: auto; }
 .st-search .search-card { border: 0; background: none; padding: 0; margin: 0; }
 .st-search .search-card .card-head { display: none; }
 .st-search .search-results { max-height: 55vh; }
-/* a smart home (1.76): continue · what to make · new videos on this computer */
-.st-smart { display: grid; grid-template-columns: minmax(280px, 380px) 1fr; gap: 14px; margin-bottom: 12px; }
-.st-smart:not(:has(.st-continue)) { grid-template-columns: 1fr; }
-.st-continue { display: flex; flex-direction: column; text-align: left; padding: 0; border: 1px solid var(--accent); border-radius: 14px; overflow: hidden;
-  background: #121a16; color: var(--text-primary); cursor: pointer; font: inherit; }
-.st-continue:hover { box-shadow: 0 0 0 2px rgba(52,199,132,.35); }
-.st-continue .st-thumb { aspect-ratio: 16 / 7; }
-.st-cinfo { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px 12px; }
-.st-ckick { font-size: 11px; color: var(--accent); text-transform: uppercase; letter-spacing: .04em; }
-.st-cinfo b { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.st-csub { font-size: var(--font-s); color: var(--text-secondary); }
-.st-cgo { margin-top: 6px; align-self: flex-start; background: var(--accent); color: #062114; font-weight: 700; padding: 6px 14px; border-radius: 8px; }
-.st-goals-box { min-width: 0; }
-.st-goals { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
-.st-goal { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 12px; border: 1px solid var(--border); border-radius: 12px;
-  background: #141c18; color: var(--text-primary); cursor: pointer; font: inherit; text-align: left; min-height: 92px; }
-.st-goal:hover { border-color: var(--accent); background: #17221d; }
-.st-goal-i { font-size: 22px; line-height: 1; margin-bottom: 4px; }
-.st-goal b { font-size: 14px; }
-.st-goal-s { font-size: 11.5px; color: var(--text-secondary); }
-.st-fresh { margin-bottom: 12px; }
-.st-fresh-h { display: flex; align-items: center; gap: 8px; }
-.st-fresh-h .st-home-h { margin: 0; }
-.st-fresh-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; margin-top: 8px; }
-.st-fresh-item { display: flex; flex-direction: column; text-align: left; padding: 0; border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
-  background: #121a16; color: var(--text-primary); cursor: pointer; font: inherit; }
-.st-fresh-item:hover { border-color: var(--accent); }
-.st-fresh-item .st-pmeta b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
-.st-fresh-go { margin: 0 10px 10px; font-size: 12px; color: var(--accent); font-weight: 700; }
-@media (max-width: 760px) { .st-smart { grid-template-columns: 1fr; } }
+/* the project library (1.76): every project, search, groups, ⋯ menu */
+html.amh-studio .st-pick { display: none; }
+.st-lib-head { display: flex; align-items: center; gap: 10px; margin: 4px 0 6px; flex-wrap: wrap; }
+.st-lib-head .st-home-h { margin: 0; }
+.st-lib-q { flex: 0 1 340px; min-width: 200px; height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--border); background: #101613; color: var(--text-primary); font: inherit; }
+.st-lib-q:focus { border-color: var(--accent); outline: none; }
+.st-lib-sort { width: auto !important; flex: 0 0 auto; height: 32px; border-radius: 8px; border: 1px solid var(--border); background: #101613; color: var(--text-primary); padding: 0 8px; font: inherit; }
+.st-lib-group { font-size: 12px; font-weight: 700; color: var(--text-secondary); margin: 14px 0 8px; }
+.st-lib-card { position: relative; }
+.st-lib-more { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border-radius: 8px; border: 0; background: rgba(6, 12, 9, .78); color: #fff;
+  font-size: 16px; line-height: 1; cursor: pointer; opacity: 0; transition: opacity .15s; }
+.st-lib-card:hover .st-lib-more, .st-lib-more:focus { opacity: 1; }
+.st-lib-menu { position: absolute; top: 38px; right: 6px; z-index: 30; display: flex; flex-direction: column; min-width: 210px; padding: 4px;
+  background: #17211d; border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 26px rgba(0, 0, 0, .5); }
+.st-lib-mi { text-align: left; padding: 8px 10px; border: 0; border-radius: 7px; background: none; color: var(--text-primary); font: inherit; cursor: pointer; }
+.st-lib-mi:hover { background: #22302a; }
+.st-lib-hit { color: var(--accent); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-lib-missing { color: #ffb020; font-size: 12px; }
+.st-lib-rename { width: 100%; box-sizing: border-box; height: 28px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--accent); background: #0f1512; color: var(--text-primary); font: inherit; font-weight: 700; }
+.st-lib-undo { padding: 8px 12px; border-radius: 10px; background: #1d2a24; margin: 6px 0; font-size: var(--font-s); }
+.st-lib-moreall { margin: 14px auto 0; display: block; }
