@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.73.0';
+const APP_VERSION = '1.74.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3314,13 +3314,18 @@ function cacheLookup(key) {
   if (Array.isArray(c.doubts) && c.doubts.length === cues.length) {
     cues = cues.map((q, i) => (c.doubts[i] && c.doubts[i].length ? Object.assign({}, q, { doubt: c.doubts[i] }) : q));
   }
+  // 1.74: the exact word times too (without them ✂ cut by an estimate)
+  if (Array.isArray(c.wts) && c.wts.length === cues.length) {
+    cues = cues.map((q, i) => (Array.isArray(c.wts[i]) && c.wts[i].length ? Object.assign({}, q, { wt: c.wts[i] }) : q));
+  }
   return { srt: c.srt, cues, transcript: c.transcript || '' };
 }
 
 async function cacheStore(key, srt, transcript, cues) {
   const doubts = (cues || []).map((c) => (c && c.doubt) || []);
+  const wts = (cues || []).map((c) => (c && Array.isArray(c.wt) ? c.wt : []));
   cacheLoad()[key] = Object.assign({ srt, transcript, at: Date.now() },
-    doubts.some((d) => d.length) ? { doubts } : {});
+    doubts.some((d) => d.length) ? { doubts } : {}, wts.some((w) => w.length) ? { wts } : {});
   // Per-clip caching means one entry per clip (plus whole-file entries), so
   // keep a generous bound and drop the oldest beyond it.
   const CAP_N = 200;
@@ -5200,6 +5205,8 @@ async function applyCleanup() {
     renderCleanupPanel();
     return r;
   };
+  log('✂ ' + cuts.length + ' cut(s) in: ' + PREVIEW_MEDIA.map((m) => path.basename(m.path) + ' ' + fmtClipTime(m.from) + '–' + fmtClipTime(m.to)).join('; '));
+  log('  first: ' + cuts.slice(0, 3).map((c) => fmtClipTime(c.start) + '–' + fmtClipTime(c.end)).join(', ') + (cuts.length > 3 ? ' …' : ''));
   const p = await evalScript('amh_cleanupPrepare(' + escJson(JSON.stringify({ cuts: cuts.map((c) => [c.start, c.end]), media })) + ')', 120000);
   if (!p || !p.ok) return fail(p);
   const list = p.list || [];
@@ -7928,6 +7935,8 @@ async function runSelectedClip() {
   setPreviewMedia([{ path: c.sourcePath, offset: c.sourceIn - c.timelineStart, from: c.timelineStart,
     to: c.timelineStart + c.duration }]);
   log('✓ Clip: ' + c.name + (c.via ? ('  [' + c.via + ']') : ''));
+  log('  on the timeline ' + fmtClipTime(c.timelineStart) + '–' + fmtClipTime(c.timelineStart + c.duration) +
+    (c.sourceIn > 0.05 ? ' (from ' + fmtClipTime(c.sourceIn) + ' of the file)' : ''));
   log('Listening to ' + c.duration.toFixed(1) + 's of audio…');
 
   if (c.duration <= 0) { log('ERROR: Selected clip has zero duration.'); return; }
