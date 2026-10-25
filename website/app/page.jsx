@@ -4,7 +4,7 @@ import BuySafely from "@/components/BuySafely";
 import PanelMock from "@/components/PanelMock";
 import Tx from "@/components/Tx";
 import {
-  BOT_URL, ACCT_NAME, PRICE, PRICE_AM, PRICE_NUM, PRICE_OLD_NUM,
+  BOT_URL, ACCT_NAME, PRICE, PRICE_AM, PRICE_NUM, PRICE_OLD_NUM, PRICE_M1_NUM, PRICE_M2_NUM,
 } from "@/lib/site";
 
 const steps = [
@@ -224,6 +224,14 @@ export const metadata = {
 export default function HomePage() {
   const priceLbl = Number(PRICE_NUM).toLocaleString("en-US");
   const oldLbl = Number(PRICE_OLD_NUM).toLocaleString("en-US");
+  const num = (n) => Number(n).toLocaleString("en-US");
+  // The three plans, each as big and clear as the others (owner, 2026-10-25:
+  // "500 and 900 as clear and bold as 2,500").
+  const plans = [
+    { n: num(PRICE_M1_NUM), am: "1 ወር", en: "1 month", subAm: "30 ቀን", subEn: "30 days" },
+    { n: num(PRICE_M2_NUM), am: "2 ወር", en: "2 months", subAm: "60 ቀን", subEn: "60 days" },
+    { n: priceLbl, am: "ለዘለቄታው", en: "Forever", subAm: "አንድ ጊዜ ብቻ", subEn: "pay once", best: true },
+  ];
 
   // Search engines get the English FAQ; the Amharic copy is on the page itself.
   const faqLd = {
@@ -268,7 +276,7 @@ export default function HomePage() {
 
               <div className="hero-cta cta-row">
                 <a className="btn btn-primary btn-lg" href={BOT_URL} target="_blank" rel="noopener">
-                  <Tx am={`ቁልፍ ያግኙ — ${PRICE_AM}`} en={`Get your key — ${PRICE}`} />
+                  <Tx am="ቁልፍ ያግኙ — ከ500 ብር ጀምሮ" en="Get your key — from ETB 500" />
                 </a>
                 <Link className="btn btn-ghost btn-lg" href="/install/">
                   <Tx am="የመጫኛ መመሪያ" en="Install guide" />
@@ -276,11 +284,16 @@ export default function HomePage() {
               </div>
 
               <p className="hero-note">
-                <Tx
-                  am="መጀመሪያ 30 ደቂቃ በነጻ ይሞክሩ · 1 ወር 500 ብር · 2 ወር 900 ብር · ወይም አንድ ጊዜ ለዘለቄታው 2,500 ብር"
-                  en="Try 30 minutes free first · 1 month ETB 500 · 2 months ETB 900 · Or pay once, forever ETB 2,500"
-                />
+                <Tx am="መጀመሪያ 30 ደቂቃ በነጻ ይሞክሩ፤ ከዚያ፦" en="Try 30 minutes free first, then:" />
               </p>
+              <ul className="hero-plans">
+                {plans.map((pl) => (
+                  <li key={pl.en} className={pl.best ? "is-best" : undefined}>
+                    <span className="hp-term"><Tx am={pl.am} en={pl.en} /></span>
+                    <span className="hp-price"><Tx am={`${pl.n} ብር`} en={`ETB ${pl.n}`} /></span>
+                  </li>
+                ))}
+              </ul>
             </div>
 
             {/* Deliberately NOT wrapped in Reveal: this is the hero visual and
@@ -308,7 +321,7 @@ export default function HomePage() {
             </li>
             <li>
               <strong><Tx am="ለዘለቄታው አንድ ጊዜ" en="Pay once, forever" /></strong>
-              <span><Tx am="ወይም በወር 500 ብር ይጀምሩ" en="or start at ETB 500 a month" /></span>
+              <span><Tx am={<><b>500</b> · <b>900</b> · <b>2,500</b> ብር</>} en={<>ETB <b>500</b> · <b>900</b> · <b>2,500</b></>} /></span>
             </li>
           </ul>
         </div>
@@ -460,11 +473,22 @@ export default function HomePage() {
 
           <Reveal delay={80}>
             <div className="price-card">
-              <span className="price-badge"><Tx am="ዘላቂ ፈቃድ · ለአንድ ኮምፒውተር" en="Lifetime license · 1 computer" /></span>
-              <div className="price">
-                <span className="price-old"><Tx am={`${oldLbl} ብር`} en={`ETB ${oldLbl}`} /></span>
-                <span className="price-cur"><Tx am="ብር" en="ETB" /></span>
-                <span className="price-now">{priceLbl}</span>
+              <span className="price-badge"><Tx am="ለአንድ ኮምፒውተር · ሁሉም ባህሪያት በሶስቱም" en="1 computer · every feature in all three" /></span>
+              <div className="plans">
+                {plans.map((pl) => (
+                  <div key={pl.en} className={pl.best ? "plan is-best" : "plan"}>
+                    {pl.best && <span className="plan-flag"><Tx am="ምርጥ ዋጋ" en="Best value" /></span>}
+                    <span className="plan-term"><Tx am={pl.am} en={pl.en} /></span>
+                    <span className="plan-price">
+                      <span className="price-now">{pl.n}</span>
+                      <span className="price-cur"><Tx am="ብር" en="ETB" /></span>
+                    </span>
+                    <span className="plan-sub">
+                      {pl.best && <span className="price-old"><Tx am={`${oldLbl} ብር`} en={`ETB ${oldLbl}`} /></span>}{" "}
+                      <Tx am={pl.subAm} en={pl.subEn} />
+                    </span>
+                  </div>
+                ))}
               </div>
 
               <ul className="price-features">
@@ -479,8 +503,8 @@ export default function HomePage() {
 
               <p className="price-plans" style={{ margin: "14px 0 16px", lineHeight: 1.6, fontSize: "0.95em" }}>
                 <Tx
-                  am={<>አማራጮች፦ <strong>1 ወር 500 ብር</strong> · <strong>2 ወር 900 ብር</strong> · <strong>ለዘለቄታው 2,500 ብር</strong>። በወር ይጀምሩ፣ በኋላ ለዘለቄታው ሲገዙ የከፈሉት ይቀነሳል።</>}
-                  en={<>Options: <strong>1 month ETB 500</strong> · <strong>2 months ETB 900</strong> · <strong>Forever ETB 2,500</strong>. Start monthly, go Forever later and what you paid is deducted.</>}
+                  am="በወር ይጀምሩ፣ በኋላ ለዘለቄታው ሲገዙ የከፈሉት ይቀነሳል።"
+                  en="Start monthly, go Forever later and what you paid is deducted."
                 />
               </p>
 

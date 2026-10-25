@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Tx from "@/components/Tx";
-import { BOT_URL, PRICE, PRICE_AM } from "@/lib/site";
+import { BOT_URL } from "@/lib/site";
 
 // Sticky buy bar, phones only.
 //
@@ -34,8 +34,8 @@ export default function MobileBuyBar() {
     <div className={show ? "buybar is-up" : "buybar"} aria-hidden={!show}>
       <div className="buybar-inner">
         <div className="buybar-text">
-          <strong><Tx am={PRICE_AM} en={PRICE} /></strong>
-          <span><Tx am="ወይም በወር 500 ብር · 30 ደቂቃ በነጻ" en="or ETB 500 a month · 30 min free" /></span>
+          <strong><Tx am="500 · 900 · 2,500 ብር" en="ETB 500 · 900 · 2,500" /></strong>
+          <span><Tx am="1 ወር · 2 ወር · ለዘለቄታው · 30 ደቂቃ በነጻ" en="1 month · 2 months · forever · 30 min free" /></span>
         </div>
         <a
           className="btn btn-primary"
