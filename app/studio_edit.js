@@ -37,6 +37,7 @@
   let clips = [];          // the main track
   let ovl = [];            // the overlay track (1.21.0): B-roll, photos, logos
   let txt = [];            // the text track (1.22.0): titles, lower thirds, text on a box
+  let trk = { tx: [], ov: [], au: [] };   // 🎚 the tracks' hide / mute / lock (1.68)
   let zm = [];             // 🔍 zooms on the main picture (1.60): { id, start, in: 0, out, style, amt, speed, fx, fy }
   let mus = [];            // the music track (1.23.0)
   let snd = { clean: false, loud: 'off' };   // clean voice, loudness (1.23.0)
@@ -106,6 +107,7 @@
   // captions; before the edit changes, what the editor changed goes back.
   function syncSrc() { if (built && typeof reviewCues !== 'undefined') SRC = E.syncBack(clips, SRC, reviewCues); }
   function derive() {
+    packAll();
     reviewCues = E.deriveCaptions(clips, SRC);
     if (typeof renderReview === 'function') renderReview();
     if (typeof schedulePreview === 'function') schedulePreview();
@@ -127,10 +129,10 @@
   const origUndo = window.undoReview;
   const REDO = [];
   let redoing = false;
-  const snap = () => JSON.stringify({ clips, ovl, txt, mus, snd, zm, fmt, media, SRC: built ? E.syncBack(clips, SRC, reviewCues) : SRC });
+  const snap = () => JSON.stringify({ clips, ovl, txt, mus, snd, zm, trk, fmt, media, SRC: built ? E.syncBack(clips, SRC, reviewCues) : SRC });
   function restore(json) {
     const o = JSON.parse(json);
-    clips = o.clips; ovl = o.ovl || []; txt = o.txt || []; mus = o.mus || []; snd = o.snd || { clean: false, loud: 'off' }; zm = o.zm || []; fmt = o.fmt; SRC = o.SRC;
+    clips = o.clips; ovl = o.ovl || []; txt = o.txt || []; mus = o.mus || []; snd = o.snd || { clean: false, loud: 'off' }; zm = o.zm || []; trk = o.trk || { tx: [], ov: [], au: [] }; fmt = o.fmt; SRC = o.SRC;
     Object.keys(o.media || {}).forEach((k) => { if (!media[k]) { media[k] = o.media[k]; loadPeaks(k); } });
   }
   window.pushReviewUndo = function (what) {
@@ -372,7 +374,7 @@
     const on = {};
     txt.forEach((it) => {
       if (it.tpl) return;                    // 🇪🇹 templates are drawn on the canvas (syncTemplates)
-      const vis = t >= it.start && t < it.start + E.ovLen(it) && t < total();
+      const vis = t >= it.start && t < it.start + E.ovLen(it) && t < total() && !rowHidden('tx', rowOf(it));
       let e = TXEL[it.id];
       if (!vis) { if (e) e.style.display = 'none'; return; }
       on[it.id] = 1;
@@ -454,9 +456,10 @@
     const k = stage.clientWidth / W || 0;
     const on = {};
     E.ovAt(ovl, t).forEach((o) => {
-      if (t >= total()) return;
+      if (t >= total() || rowHidden('ov', rowOf(o))) return;
       const box = ovEl(o);
       if (!box) return;
+      box.style.zIndex = String(1 + rowOf(o));
       on[o.id] = 1;
       const m = media[o.m];
       const L = E.ovLook(o);
@@ -557,7 +560,7 @@
       if (!m) return;
       let a = MUEL[o.id];
       if (!a || a.dataset.m !== o.m) { if (a) a.remove(); a = document.createElement('audio'); a.preload = 'auto'; a.dataset.m = o.m; a.src = urlOf(o.m); document.body.appendChild(a); MUEL[o.id] = a; }
-      const g = E.musicGain(o, t, total(), sp);
+      const g = rowHidden('au', rowOf(o)) ? 0 : E.musicGain(o, t, total(), sp);
       const want = o.in + (t - o.start);
       if (!playing || g <= 0 && (t < o.start || t >= E.ovEnd(o))) { if (!a.paused) a.pause(); return; }
       a.volume = Math.max(0, Math.min(1, g));
@@ -917,27 +920,60 @@
   tl.appendChild(tbar); tl.appendChild(lanes);
   review.appendChild(tl);
   const ctx = canvas.getContext ? canvas.getContext('2d') : null;
-  const RULER = 20, CAP = 28, TXT = 26, OVL = 34, ZM = 18, MAIN = 48, MUS = 30, GAP = 6;
-  const capTop = RULER + 4, txTop = capTop + CAP + GAP, ovTop = txTop + TXT + GAP, zmTop = ovTop + OVL + GAP, mainTop = zmTop + ZM + GAP, musTop = mainTop + MAIN + GAP;
+  // 🎚 tracks (1.68): as many text (T1, T2…), picture (V2, V3… over V1, the
+  // main track) and sound (A1, A2…) tracks as the edit needs. An item's track
+  // is its `row` (0 = T1 / V2 / A1); a higher track is drawn above a lower one
+  // (in the picture too). trk = { tx, ov, au: [{ hide | mute, lock }] }.
+  const RULER = 20, CAP = 28, TXT = 26, OVL = 28, ZM = 18, MAIN = 48, MUS = 28, GAP = 6, RG = 3;
+  let capTop = 0, txTop = 0, ovTop = 0, zmTop = 0, mainTop = 0, musTop = 0, LH = 240, NT = 1, NO = 1, NA = 1;
+  const rowOf = (it) => Math.max(0, Math.floor(Number(it && it.row) || 0));
+  const KIND_LIST = { tx: () => txt, ov: () => ovl, au: () => mus };
+  const tkOf = (kind, r) => ((trk[kind] || [])[r]) || {};
+  const rowHidden = (kind, r) => !!(tkOf(kind, r).hide || tkOf(kind, r).mute);
+  const rowLocked = (kind, r) => !!tkOf(kind, r).lock;
+  function relayout() {
+    const n = (kind) => Math.max(1, (trk[kind] || []).length, KIND_LIST[kind]().reduce((m, it) => Math.max(m, rowOf(it) + 1), 0));
+    NT = n('tx'); NO = n('ov'); NA = n('au');
+    capTop = RULER + 4;
+    txTop = capTop + CAP + GAP;
+    ovTop = txTop + NT * (TXT + RG) - RG + GAP;
+    zmTop = ovTop + NO * (OVL + RG) - RG + GAP;
+    mainTop = zmTop + ZM + GAP;
+    musTop = mainTop + MAIN + GAP;
+    LH = musTop + NA * (MUS + RG) - RG + 8;
+  }
+  const txY = (r) => txTop + (NT - 1 - r) * (TXT + RG);
+  const ovY = (r) => ovTop + (NO - 1 - r) * (OVL + RG);
+  const muY = (r) => musTop + r * (MUS + RG);
+  // which track a height is on: { kind, row } (or null between tracks)
+  function laneAt(y) {
+    for (let r = 0; r < NT; r++) if (y >= txY(r) && y <= txY(r) + TXT) return { kind: 'tx', row: r };
+    for (let r = 0; r < NO; r++) if (y >= ovY(r) && y <= ovY(r) + OVL) return { kind: 'ov', row: r };
+    for (let r = 0; r < NA; r++) if (y >= muY(r) && y <= muY(r) + MUS) return { kind: 'au', row: r };
+    return null;
+  }
+  // every item on a track; one on top of another goes to the next free track
+  function packRows(list, kind) {
+    const placed = [];
+    const free = (it, r) => !placed.some((o) => rowOf(o) === r && it.start < E.ovEnd(o) - 1e-6 && o.start < E.ovEnd(it) - 1e-6);
+    list.slice().sort((a, b) => a.start - b.start).forEach((it) => {
+      let r = it.row == null ? -1 : rowOf(it);
+      if (r < 0 || !free(it, r) || rowLocked(kind, r) && it.row == null) {
+        r = 0;
+        while (!free(it, r) || (rowLocked(kind, r) && it.row !== r)) r++;
+      }
+      it.row = r;
+      placed.push(it);
+    });
+  }
+  function packAll() { packRows(txt, 'tx'); packRows(ovl, 'ov'); packRows(mus, 'au'); }
+  relayout();
   let view = { start: 0, pps: 50 };
   let fitted = false;
   const width = () => Math.max(50, cwrap.clientWidth || 600);
   let drag = null, hover = null;
   let pending = 0;
   function drawSoon() { if (!pending) pending = requestAnimationFrame(() => { pending = 0; draw(); }); }
-  // overlapping overlays get their own row inside the overlay lane (up to 3)
-  function ovRows() {
-    const ends = [];
-    const row = {};
-    ovl.slice().sort((a, b) => a.start - b.start).forEach((o) => {
-      let r = ends.findIndex((e) => e <= o.start + 1e-6);
-      if (r < 0) { r = Math.min(ends.length, 2); }
-      ends[r] = Math.max(ends[r] || 0, E.ovEnd(o));
-      row[o.id] = r;
-    });
-    const n = Math.max(1, Math.min(3, ends.length));
-    return { row, n, h: OVL / n };
-  }
   function tick(follow) {
     const t = time();
     syncSfx(t);
@@ -953,9 +989,58 @@
     if (follow) view = S.follow(view, t, total(), width());
     draw();
   }
+  // the track headers: name, 👁 hide / 🔇 mute, 🔒 lock, ＋ a track, ✕ an empty one
+  let labelSig = '';
+  function setTrk(kind, r, props) {
+    const a = (trk[kind] || []).slice();
+    while (a.length <= r) a.push({});
+    a[r] = Object.assign({}, a[r], props);
+    change('track', () => { trk = Object.assign({}, trk, { [kind]: a }); });
+  }
+  function renderLabels() {
+    const sig = [NT, NO, NA, JSON.stringify(trk), typeof AMH_LANG !== 'undefined' ? AMH_LANG : ''].join('|');
+    if (sig === labelSig) return;
+    labelSig = sig;
+    labels.textContent = '';
+    const lab = (h, kind, r, name, extra) => {
+      const d = el('div', 'ed-trk');
+      d.style.height = h + 'px';
+      d.appendChild(el('span', 'ed-trk-n', name));
+      if (kind) {
+        const hid = rowHidden(kind, r), lk = rowLocked(kind, r);
+        const eye = btn('ed-trk-b' + (hid ? ' on' : ''), kind === 'au' ? (hid ? '🔇' : '🔊') : (hid ? '⊘' : '👁'), kind === 'au' ? tx('ድምፅ አጥፋ / አብራ', 'Mute / unmute') : tx('ደብቅ / አሳይ', 'Hide / show'),
+          () => setTrk(kind, r, kind === 'au' ? { mute: !hid } : { hide: !hid }));
+        const lock = btn('ed-trk-b' + (lk ? ' on' : ''), lk ? '🔒' : '🔓', tx('ቆልፍ / ክፈት', 'Lock / unlock'), () => setTrk(kind, r, { lock: !lk }));
+        d.appendChild(eye); d.appendChild(lock);
+        const empty = !KIND_LIST[kind]().some((it) => rowOf(it) === r);
+        const n = kind === 'tx' ? NT : kind === 'ov' ? NO : NA;
+        if (empty && r === n - 1 && r > 0) d.appendChild(btn('ed-trk-b', '✕', tx('ባዶውን ትራክ አስወግድ', 'Remove this empty track'), () => {
+          change('track', () => { trk = Object.assign({}, trk, { [kind]: (trk[kind] || []).slice(0, r) }); });
+        }));
+      }
+      if (extra) d.appendChild(extra);
+      labels.appendChild(d);
+    };
+    const add = (kind) => btn('ed-trk-b ed-trk-add', '＋', tx('ትራክ ጨምር', 'Add a track'), () => {
+      const n = kind === 'tx' ? NT : kind === 'ov' ? NO : NA;
+      const a = (trk[kind] || []).slice();
+      while (a.length < n + 1) a.push({});
+      change('track', () => { trk = Object.assign({}, trk, { [kind]: a }); });
+    });
+    lab(RULER + 4, null, 0, '');
+    lab(CAP + GAP, null, 0, '💬 ' + tx('ካፕሽን', 'Captions'));
+    for (let r = NT - 1; r >= 0; r--) lab(TXT + (r === 0 ? GAP : RG), 'tx', r, 'T' + (r + 1), r === NT - 1 ? add('tx') : null);
+    for (let r = NO - 1; r >= 0; r--) lab(OVL + (r === 0 ? GAP : RG), 'ov', r, 'V' + (r + 2), r === NO - 1 ? add('ov') : null);
+    lab(ZM + GAP, null, 0, '🔍 ' + tx('ዙም', 'Zoom'));
+    lab(MAIN + GAP, null, 0, '🎬 V1 ' + tx('ዋና', 'Main'));
+    for (let r = 0; r < NA; r++) lab(MUS + RG, 'au', r, '♪ A' + (r + 1), r === NA - 1 ? add('au') : null);
+  }
   function draw() {
     if (!ctx || !review.classList.contains('show')) return;
-    const w = width(), h = cwrap.clientHeight || 120, dpr = window.devicePixelRatio || 1;
+    relayout();
+    renderLabels();
+    if (cwrap.style.height !== LH + 'px') cwrap.style.height = LH + 'px';
+    const w = width(), h = LH, dpr = window.devicePixelRatio || 1;
     if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
       canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
       canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
@@ -965,6 +1050,11 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = '#0f1513'; ctx.fillRect(0, 0, w, h);
+    // each track's own band
+    ctx.fillStyle = '#121a17';
+    for (let r = 0; r < NT; r++) ctx.fillRect(0, txY(r), w, TXT);
+    for (let r = 0; r < NO; r++) ctx.fillRect(0, ovY(r), w, OVL);
+    for (let r = 0; r < NA; r++) ctx.fillRect(0, muY(r), w, MUS);
     ctx.fillStyle = '#141c19'; ctx.fillRect(0, 0, w, RULER);
     ctx.font = '10px "Segoe UI", sans-serif'; ctx.textBaseline = 'middle';
     S.ticks(view, w).forEach((k) => {
@@ -1019,6 +1109,8 @@
     txt.forEach((it) => {
       const x0 = S.timeToX(it.start, view), x1 = S.timeToX(it.start + E.ovLen(it), view);
       if (x1 < 0 || x0 > w) return;
+      const txTop = txY(rowOf(it));
+      ctx.globalAlpha = rowHidden('tx', rowOf(it)) ? 0.35 : 1;
       const isSel = it.id === sel;
       ctx.fillStyle = isSel ? '#8a6428' : '#6b4b1f';
       ctx.fillRect(x0 + 1, txTop, Math.max(2, x1 - x0 - 2), TXT);
@@ -1032,6 +1124,7 @@
         ctx.fillText('T  ' + String(it.text || '').replace(/\n/g, ' '), x0 + 6, txTop + TXT / 2);
         ctx.restore();
       }
+      ctx.globalAlpha = 1;
     });
     // 🔍 zooms
     zm.forEach((o) => {
@@ -1052,12 +1145,12 @@
       }
     });
     // 🎞 overlays
-    const R = ovRows();
     ovl.forEach((o) => {
       const x0 = S.timeToX(o.start, view), x1 = S.timeToX(E.ovEnd(o), view);
       if (x1 < 0 || x0 > w) return;
       const isSel = o.id === sel, m = media[o.m];
-      const y0 = ovTop + R.row[o.id] * R.h, hh = R.h - (R.n > 1 ? 1 : 0);
+      const y0 = ovY(rowOf(o)), hh = OVL;
+      ctx.globalAlpha = rowHidden('ov', rowOf(o)) ? 0.35 : 1;
       ctx.fillStyle = isSel ? '#6a52a0' : '#4b3a6b';
       ctx.fillRect(x0 + 1, y0, Math.max(2, x1 - x0 - 2), hh);
       ctx.strokeStyle = isSel ? '#ffffff' : '#8b6fc0';
@@ -1066,16 +1159,19 @@
       if (hover && hover.lane === 'ov' && hover.id === o.id && hover.edge !== 'body') { ctx.fillStyle = '#fff'; ctx.fillRect(hover.edge === 'in' ? x0 + 1 : x1 - 4, y0, 3, hh); }
       if (x1 - x0 > 24) {
         ctx.save(); ctx.beginPath(); ctx.rect(x0 + 5, y0, x1 - x0 - 10, hh); ctx.clip();
-        ctx.fillStyle = '#f0e8ff'; ctx.font = '600 ' + (R.n > 1 ? 10 : 11) + 'px "Segoe UI", sans-serif';
+        ctx.fillStyle = '#f0e8ff'; ctx.font = '600 11px "Segoe UI", sans-serif';
         ctx.fillText((m && m.image ? '🖼 ' : '🎞 ') + (m ? m.name : ''), x0 + 6, y0 + hh / 2);
         ctx.restore();
       }
+      ctx.globalAlpha = 1;
     });
     // ♪ music: its wave, its fades, how far it ducks
     mus.forEach((o) => {
       const x0 = S.timeToX(o.start, view), x1 = S.timeToX(Math.min(E.ovEnd(o), total()), view);
       if (x1 < 0 || x0 > w) return;
       const isSel = o.id === sel, m = media[o.m];
+      const musTop = muY(rowOf(o));
+      ctx.globalAlpha = rowHidden('au', rowOf(o)) ? 0.35 : 1;
       ctx.fillStyle = isSel ? '#2f7a5a' : '#1f5a42';
       ctx.fillRect(x0 + 1, musTop, Math.max(2, x1 - x0 - 2), MUS);
       const p = PEAKS[o.m];
@@ -1101,6 +1197,7 @@
         ctx.fillText('♪ ' + (m ? m.name : '') + ((o.duck == null ? E.MUS_DEFAULT.duck : o.duck) > 0 ? '  ·  ⤵ ' + tx('ይቀንሳል', 'ducks') : ''), x0 + 6, musTop + MUS / 2);
         ctx.restore();
       }
+      ctx.globalAlpha = 1;
     });
     if (drag && drag.kind === 'move' && drag.moved) {
       const x = S.timeToX(drag.dropT, view);
@@ -1154,9 +1251,13 @@
       }
       return null;
     }
-    if (p.y >= txTop && p.y <= txTop + TXT) {
+    relayout();
+    const LN = laneAt(p.y);
+    if (LN && LN.kind === 'tx') {
+      if (rowLocked('tx', LN.row)) return null;
       for (let k = txt.length - 1; k >= 0; k--) {
         const it = txt[k];
+        if (rowOf(it) !== LN.row) continue;
         const x0 = S.timeToX(it.start, view), x1 = S.timeToX(it.start + E.ovLen(it), view);
         if (Math.abs(p.x - x0) <= 6 && p.x >= x0 - 2) return { lane: 'tx', id: it.id, edge: 'in' };
         if (Math.abs(p.x - x1) <= 6 && p.x <= x1 + 2) return { lane: 'tx', id: it.id, edge: 'out' };
@@ -1164,12 +1265,11 @@
       }
       return null;
     }
-    if (p.y >= ovTop && p.y <= ovTop + OVL) {
-      const R = ovRows();
-      const r = Math.min(R.n - 1, Math.floor((p.y - ovTop) / R.h));
+    if (LN && LN.kind === 'ov') {
+      if (rowLocked('ov', LN.row)) return null;
       for (let k = ovl.length - 1; k >= 0; k--) {
         const o = ovl[k];
-        if (R.row[o.id] !== r) continue;
+        if (rowOf(o) !== LN.row) continue;
         const x0 = S.timeToX(o.start, view), x1 = S.timeToX(E.ovEnd(o), view);
         if (Math.abs(p.x - x0) <= 6 && p.x >= x0 - 2) return { lane: 'ov', id: o.id, edge: 'in' };
         if (Math.abs(p.x - x1) <= 6 && p.x <= x1 + 2) return { lane: 'ov', id: o.id, edge: 'out' };
@@ -1177,9 +1277,11 @@
       }
       return null;
     }
-    if (p.y >= musTop && p.y <= musTop + MUS) {
+    if (LN && LN.kind === 'au') {
+      if (rowLocked('au', LN.row)) return null;
       for (let k = mus.length - 1; k >= 0; k--) {
         const o = mus[k];
+        if (rowOf(o) !== LN.row) continue;
         const x0 = S.timeToX(o.start, view), x1 = S.timeToX(Math.min(E.ovEnd(o), total()), view);
         if (Math.abs(p.x - x0) <= 6 && p.x >= x0 - 2) return { lane: 'mu', id: o.id, edge: 'in' };
         if (Math.abs(p.x - x1) <= 6 && p.x <= x1 + 2) return { lane: 'mu', id: o.id, edge: 'out' };
@@ -1247,6 +1349,14 @@
       if (drag.kind === 'cap') { setTimingEdge(drag.i, drag.edge, S.xToTime(p.x, view)); drawSoon(); return; }
       if (drag.kind === 'ov') {
         const d = (p.x - drag.x0) / view.pps;
+        if (drag.edge === 'body' && drag.arr !== 'zm') {
+          const kind = drag.arr === 'txt' ? 'tx' : drag.arr === 'mus' ? 'au' : 'ov';
+          const LN2 = laneAt(p.y);
+          const list = drag.arr === 'txt' ? txt : drag.arr === 'mus' ? mus : ovl;
+          const me = list.find((x) => x.id === drag.id);
+          if (LN2 && LN2.kind === kind && me && LN2.row !== rowOf(me) && !rowLocked(kind, LN2.row)
+            && !list.some((o) => o !== me && rowOf(o) === LN2.row && me.start < E.ovEnd(o) - 1e-6 && o.start < E.ovEnd(me) - 1e-6)) me.row = LN2.row;
+        }
         if (drag.edge === 'body') {
           // snaps to the playhead and the main clips' edges (8 px)
           let st = drag.start0 + d;
@@ -2072,7 +2182,7 @@
     if (!playing || !snd.sfx) { sfxLastT = t; return; }
     if (t < sfxLastT || t - sfxLastT > 0.5) { sfxLastT = t; return; }        // a seek: nothing plays
     const vol = snd.sfxVol == null ? 0.7 : Number(snd.sfxVol);
-    E.sfxEvents({ snd, clips, ovl, txt, zm }, total()).forEach((ev) => {
+    E.sfxEvents({ snd, clips, ovl: ovl.filter((o) => !rowHidden('ov', rowOf(o))), txt: txt.filter((x) => !rowHidden('tx', rowOf(x))), zm }, total()).forEach((ev) => {
       const at = sfxAt(ev);                    // 📁 the editor's own sound, at its loudest moment
       if (at.t > sfxLastT && at.t <= t) playFile(at.file, vol * ev.vol);
     });
@@ -2408,8 +2518,8 @@
     c2.clearRect(0, 0, tcv.width, tcv.height);
     Object.keys(TPLBOX).forEach((id) => { delete TPLBOX[id]; });
     const k = (sw / W) * dpr;
-    txt.forEach((it) => {
-      if (!it.tpl || t < it.start || t >= it.start + E.ovLen(it) || t >= total()) return;
+    txt.slice().sort((a, b) => rowOf(a) - rowOf(b)).forEach((it) => {
+      if (!it.tpl || t < it.start || t >= it.start + E.ovLen(it) || t >= total() || rowHidden('tx', rowOf(it))) return;
       drawTpl(c2, it, t - it.start, k, W, H, TPLBOX);
       const b = TPLBOX[it.id];
       if (b && it.id === sel) {
@@ -2732,7 +2842,7 @@
   // ── export (1.25.0): jobs, the graphics card, the queue ────────────────
   // A job is a snapshot of the edit + where it goes; the captions (when a
   // style is chosen) are drawn in the SAME render as the edit (one encode).
-  const snapshot = () => JSON.parse(JSON.stringify({ clips, ovl, txt, mus, snd, zm, media, fmt }));
+  const snapshot = () => JSON.parse(JSON.stringify({ clips, ovl, txt, mus, snd, zm, trk, media, fmt }));
   let GPU = null;                                  // promise -> encoder name or null
   function detectGpu() {
     if (GPU) return GPU;
@@ -2767,7 +2877,7 @@
   // job: { state, fmt, res, q, enc, caps: styled-caption args or null }
   async function renderJob(job, out, onProgress, ctl) {
     ctl = ctl || {};
-    const st = job.state;
+    const st = E.trackedState(job.state);
     const f = job.fmt || st.fmt;
     const tot = E.total(st.clips);
     const used = [];
@@ -2919,17 +3029,11 @@
     bUndo.title = tx('መልስ (Ctrl+Z)', 'Undo (Ctrl+Z)');
     bRedo.title = tx('እንደገና (Ctrl+Shift+Z)', 'Redo (Ctrl+Shift+Z)');
     bPlay.title = tx('አጫውት / አቁም (Space)', 'Play / pause (Space)');
-    labels.innerHTML = '';
-    labels.appendChild(el('div', 'ed-lh', ''));
-    labels.appendChild(el('div', 'ed-lcap', '💬 ' + tx('ካፕሽን', 'Captions')));
-    labels.appendChild(el('div', 'ed-ltx', 'T ' + tx('ጽሑፍ', 'Text')));
-    labels.appendChild(el('div', 'ed-lov', '🎞 ' + tx('ተደራቢ', 'Overlay')));
-    labels.appendChild(el('div', 'ed-lzm', '🔍 ' + tx('ዙም', 'Zoom')));
+    labelSig = '';
+    renderLabels();
     bText.textContent = '＋ T ' + tx('ጽሑፍ እና ቴምፕሌቶች', 'Text & templates');
     bText.title = tx('ርዕሶች፣ የስም ጽሑፍ፣ ሰብስክራይብ፣ በዓላት… ተንቀሳቃሽ ቴምፕሌቶች', 'Titles, lower thirds, subscribe, holidays… animated templates');
     renderModeSw();
-    labels.appendChild(el('div', 'ed-lmain', '🎬 ' + tx('ዋና', 'Main')));
-    labels.appendChild(el('div', 'ed-lmus', '♪ ' + tx('ሙዚቃ', 'Music')));
     renderSound();
     renderInspector();
     if (review.classList.contains('ed-mediamode')) renderMedia();
@@ -2960,26 +3064,26 @@
   function saveState() {
     if (!built) return null;
     syncSrc();
-    return { v: 1, fmt, clips, ovl, txt, mus, snd, zm, media, S: SRC };
+    return { v: 1, fmt, clips, ovl, txt, mus, snd, zm, trk, media, S: SRC };
   }
   function loadState(ed, cues) {
     opening = null;
     if (ed && Array.isArray(ed.clips) && ed.clips.length && ed.media) {
-      media = ed.media; clips = ed.clips; ovl = ed.ovl || []; txt = ed.txt || []; mus = ed.mus || []; snd = ed.snd || { clean: false, loud: 'off' }; zm = ed.zm || []; fmt = ed.fmt || '16:9'; SRC = ed.S || {};
+      media = ed.media; clips = ed.clips; ovl = ed.ovl || []; txt = ed.txt || []; mus = ed.mus || []; snd = ed.snd || { clean: false, loud: 'off' }; zm = ed.zm || []; trk = ed.trk || { tx: [], ov: [], au: [] }; fmt = ed.fmt || '16:9'; SRC = ed.S || {};
       Object.keys(media).forEach(loadPeaks);
       built = true; fitted = false; cur = 0; ET = 0; sel = null;
       reviewCues = E.deriveCaptions(clips, SRC);
       renderReview();
       seek(0); after(); renderMedia(); syncUndo();
     } else {
-      built = false; media = {}; clips = []; ovl = []; txt = []; mus = []; snd = { clean: false, loud: 'off' }; zm = []; SRC = {};
+      built = false; media = {}; clips = []; ovl = []; txt = []; mus = []; snd = { clean: false, loud: 'off' }; zm = []; trk = { tx: [], ov: [], au: [] }; SRC = {};
       void cues;
       open();
     }
   }
   function reset() {
     pause();
-    built = false; media = {}; clips = []; ovl = []; txt = []; mus = []; snd = { clean: false, loud: 'off' }; zm = []; SRC = {}; sel = null; fitted = false; REDO.length = 0; opening = null;
+    built = false; media = {}; clips = []; ovl = []; txt = []; mus = []; snd = { clean: false, loud: 'off' }; zm = []; trk = { tx: [], ov: [], au: [] }; SRC = {}; sel = null; fitted = false; REDO.length = 0; opening = null;
     Object.keys(TXEL).forEach((id) => { TXEL[id].remove(); delete TXEL[id]; });
     Object.keys(OVEL).forEach((id) => { OVEL[id].remove(); delete OVEL[id]; });
     Object.keys(MUEL).forEach((id) => { MUEL[id].pause(); MUEL[id].remove(); delete MUEL[id]; });
