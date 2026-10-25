@@ -28,6 +28,8 @@ new; merge duplicates; keep < 80 lines.
 - ffmpeg cannot decode animated WebP -> for frame checks render previews as GIF (`A._has_encoder = lambda f, n: False`).
 
 ## Product behaviour
+- "license required: Trial ticket expired" right after "Free trial: … for this job" = the customer's clock is 2+ hours AHEAD (usually a wrong Windows time zone with the hour set by hand, so it looks right). The engine checks the 2-hour ticket against the local clock. Since 1.69 the panel sends `now` and the server refuses with `reason: 'clock'` before charging; never loosen the engine check (old tickets would work again).
+- The Studio app's `os` is `app/node_shim.js`, fed by `amh_app.env_info()` -> a Node `os` function the panel starts using must be added there too (1.69: reports came as "RAM GB · CPU").
 - The panel always works in a FRESH temporary .srt (`amh_captions_<Date.now()>.srt`, same for `amh_sequence_`/`amh_file_`) -> never key anything that must survive a run (client links, caches) on that path; use the clip / video / sequence name.
 - After cutting, Premiere's selection also holds titles / captions / nested sequences (no media file) -> pick the first selected clip that HAS a media path (host.jsx findSelected).
 - A video file with no audio stream but the voice on A1 -> host sends `audioAlt` (audio clip under the same timeline range); runSelectedClip retries with it on the no-audio error (extraction runs BEFORE the trial charge, so the failed try costs nothing).

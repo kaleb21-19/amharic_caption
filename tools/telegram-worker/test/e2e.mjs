@@ -3254,6 +3254,44 @@ console.log('\n:: 1.10.7 free minutes via Telegram');
   assert.equal((await use(MID, 'run-min-000005', 30)).reason, 'blocked', 'blocked: no more free captions');
   await cb(env, { id: Number(ADMIN_ID) }, 'admin:tgunb:' + MID);
   assert.equal((await use(MID, 'run-min-000006', 30)).charged, true, 'unblocked');
+
+  // 1.69: a computer clock 3 hours ahead (wrong time zone) would make the
+  // engine call the ticket "expired" — refused first, nothing charged
+  const useAt = async (mid, run, seconds, now) => (await api(env, '/api/trial/use', { method: 'POST', body: { mid, run_id: run, seconds, now }, headers: IP })).json();
+  const leftBefore = (await state(MID)).seconds_left;
+  j = await useAt(MID, 'run-clock-000001', 60, Math.floor(Date.now() / 1000) + 3 * 3600);
+  assert.equal(j.charged, false);
+  assert.equal(j.reason, 'clock');
+  assert.ok(j.skew > 3 * 3600 - 60 && j.skew < 3 * 3600 + 60, 'how far ahead: ' + j.skew);
+  assert.equal(j.ticket, undefined);
+  assert.equal((await state(MID)).seconds_left, leftBefore, 'nothing charged');
+  assert.equal(row(env, 'SELECT 1 AS x FROM trial_runs WHERE run_id=?', 'run-clock-000001'), null, 'the run is not used up');
+  j = await useAt(MID, 'run-clock-000001', 60, Math.floor(Date.now() / 1000) + 20 * 60);
+  assert.equal(j.charged, true, 'a little ahead (or the clock fixed) still works');
+  j = await useAt(MID, 'run-clock-000002', 60, Math.floor(Date.now() / 1000) - 6 * 3600);
+  assert.equal(j.charged, true, 'behind never breaks the ticket');
+  ok('free minutes: a computer clock hours ahead is refused before charging (reason clock), a little ahead or behind is fine');
+
+  // 1.69: ✉️ Message on the Trial card — the bot writes to them, their
+  // answer comes back to the owner with ✉️ Reply
+  n = OUTBOUND.length;
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:tgcard:' + MID);
+  assert.ok(JSON.stringify(OUTBOUND.slice(n).map((x) => x.body.reply_markup)).includes('admin:tgmsg:' + MID), '✉️ Message on the card');
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:tgmsg:' + MID);
+  n = OUTBOUND.length;
+  await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: 'Please fix your clock <b>' }));
+  assert.ok(said(n, U1).includes('From Amharic Captions Pro support') && said(n, U1).includes('Please fix your clock &lt;b&gt;'), 'they get it, escaped');
+  assert.ok(said(n, ADMIN_ID).includes('✅ Sent to'), 'owner told');
+  n = OUTBOUND.length;
+  await post(env, msg(U1, { id: U1, username: 'tester1' }, { text: 'Thanks, it works now' }));
+  const back = OUTBOUND.slice(n).find((x) => String(x.body.chat_id) === String(ADMIN_ID) && /Reply from @tester1/.test(x.body.text || ''));
+  assert.ok(back && back.body.text.includes('Thanks, it works now') && JSON.stringify(back.body.reply_markup).includes('admin:tgmsg:' + MID), 'their answer reaches the owner, with ✉️ Reply');
+  assert.ok(said(n, U1).includes('Your message was sent to the team'));
+  // someone the owner never wrote to: not forwarded
+  n = OUTBOUND.length;
+  await post(env, msg(U2, { id: U2 }, { text: 'random words here' }));
+  assert.ok(!OUTBOUND.slice(n).some((x) => String(x.body.chat_id) === String(ADMIN_ID) && /Reply from/.test(x.body.text || '')), 'only replies are forwarded');
+  ok('free minutes: ✉️ Message to a free-trial user from the card; their reply comes back to the owner');
   await cb(env, { id: Number(ADMIN_ID) }, 'admin:tmin:5');
   assert.equal((await state('0000111122223333')).minutes, 25, 'owner changes the free minutes');
   await cb(env, { id: Number(ADMIN_ID) }, 'admin:ttoggle');

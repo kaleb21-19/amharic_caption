@@ -238,7 +238,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.68.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.69.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -2640,6 +2640,41 @@ await t('10f2. a failed run: error types, and "Send problem report" (scrubbed, o
     // a new run hides it again
     p.evalVm('setBusy(true); setBusy(false);');
     assert.strictEqual(p.els('reportBox').style.display, 'none');
+
+    // 1.69: the Log reset after the failure (a review opened) — the report
+    // still carries the failure's Log; a failure with no text says so
+    p.evalVm('clearLog(); log("before"); failRun(""); clearLog(); log("Review your captions below");');
+    p.els('reportBtn').fire('click');
+    await flush(10);
+    assert.strictEqual(sent.length, 2);
+    assert.strictEqual(sent[1].error, '(no message)', 'never a blank error');
+    assert.ok(sent[1].log.includes('before') && !sent[1].log.some((l) => /Review your captions/.test(l)), 'the Log of the failure, not the one after it');
+  } finally { p.close(); }
+});
+
+await t('10f2b. computer clock far ahead (wrong time zone): plain help, nothing charged', async () => {
+  const uses = [];
+  const base = trialServer();
+  const p = loadPanel({ fetch: async (url, init) => {
+    if (String(url).includes('/api/trial/use')) {
+      uses.push(JSON.parse(init.body));
+      return { ok: true, json: async () => minutesState(1200, { status: 'active', charged: false, reason: 'clock', skew: 10800 }) };
+    }
+    return base(url, init);
+  } });
+  try {
+    await flush(10);
+    const before = Math.floor(Date.now() / 1000);
+    const err = await p.evalVm('LICENSED = false; activeRunId = "run-clock-0001"; ENGINE_AUTH = null; engineAuth(80).then(() => "", (e) => e.message)');
+    assert.ok(uses.length === 1 && Math.abs(uses[0].now - before) < 5, 'the panel sends its clock');
+    assert.ok(/clock is wrong/.test(err) && /nothing charged/.test(err), err);
+    assert.strictEqual(p.evalVm('errorStep(' + JSON.stringify(err) + ')'), 'err_clock');
+    assert.ok(/clock is wrong.*Set time automatically/.test(p.evalVm('humanError(' + JSON.stringify(err) + ')')), 'how to fix it');
+    // an older server: the engine's own refusal gets the same help
+    const old = 'Python failed: Command failed ... license required: Trial ticket expired';
+    assert.strictEqual(p.evalVm('errorStep(' + JSON.stringify(old) + ')'), 'err_clock');
+    assert.ok(/clock is wrong/.test(p.evalVm('humanError(' + JSON.stringify(old) + ')')));
+    assert.strictEqual(p.evalVm('TRIAL_CHARGED_RUN'), null, 'nothing to give back');
   } finally { p.close(); }
 });
 

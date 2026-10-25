@@ -157,6 +157,11 @@
     hostname: () => INFO.hostname,
     platform: () => INFO.platform,
     userInfo: () => ({ username: INFO.username, homedir: INFO.home }),
+    // the problem report's system line (1.69); free memory is from the start
+    release: () => INFO.release || '',
+    totalmem: () => Number(INFO.totalmem) || 0,
+    freemem: () => Number(INFO.freemem) || 0,
+    cpus: () => new Array(Number(INFO.cpus) || 0).fill({}),
     EOL: IS_WIN ? '\r\n' : '\n',
   };
   window.process = { env: Object.assign({}, INFO.env || {}), platform: INFO.platform,

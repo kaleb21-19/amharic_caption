@@ -81,7 +81,8 @@ function load(platform, opts) {
     __AMH_APP__: { token: 'TOK', ext: platform === 'win32' ? 'C:\\Ext\\com.amharic.captions' : '/Users/me/ext',
       api: 'https://api.example', files: [],
       info: { platform, arch: 'x64', pid: 7, env: { AMH_A: '1' }, home: platform === 'win32' ? 'C:\\Users\\me' : '/Users/me',
-        tmp: platform === 'win32' ? 'C:\\Users\\me\\AppData\\Local\\Temp' : '/tmp', hostname: 'pc', username: 'me' } },
+        tmp: platform === 'win32' ? 'C:\\Users\\me\\AppData\\Local\\Temp' : '/tmp', hostname: 'pc', username: 'me',
+        release: '10.0.26200', totalmem: 17e9, freemem: 5.6e9, cpus: 16 } },
     crypto: nodeCrypto.webcrypto,
     matchMedia: () => ({ matches: false }),
     __amhPollGiveUpMs: opts.giveUpMs,
@@ -137,6 +138,11 @@ function load(platform, opts) {
     assert.strictEqual(os.tmpdir(), 'C:\\Users\\me\\AppData\\Local\\Temp');
     assert.strictEqual(os.homedir(), 'C:\\Users\\me');
     assert.strictEqual(os.userInfo().username, 'me');
+    // the problem report's system line (1.69: it came as "RAM GB · CPU")
+    assert.strictEqual(os.release(), '10.0.26200');
+    assert.strictEqual(os.totalmem(), 17e9);
+    assert.strictEqual(os.freemem(), 5.6e9);
+    assert.strictEqual(os.cpus().length, 16);
     assert.strictEqual(win.process.platform, 'win32');
     assert.strictEqual(win.process.env.AMH_A, '1');
     const h = win.require('crypto').createHash('sha1');

@@ -274,6 +274,11 @@ const AM_TEXT = {
     'ይህ የሚዲያ ፋይል የለውም — መደበኛ ቪዲዮ ወይም የድምፅ ክሊፕ ይሞክሩ።',
   'Could not read that media file.': 'የሚዲያ ፋይሉን ማንበብ አልተቻለም።',
   'Your disk is full.': 'የኮምፒውተርዎ ዲስክ ሞልቷል።',
+  // 1.69: the computer's clock is ahead (wrong time zone)
+  'Your computer’s clock is wrong. Open Settings → Time & language → Date & time, turn on “Set time automatically” and “Set time zone automatically” (or choose (UTC+03:00) Nairobi), press “Sync now”, then try again.':
+    'የኮምፒውተርዎ ሰዓት ትክክል አይደለም (የሰዓት ዞኑ የተሳሳተ ነው)። Settings → Time & language → Date & time ይክፈቱ፣ «Set time automatically» እና «Set time zone automatically» ያብሩ (ወይም (UTC+03:00) Nairobi ይምረጡ)፣ «Sync now» ይጫኑ፣ ከዚያ እንደገና ይሞክሩ።',
+  'Your computer’s clock is wrong. Open System Settings → General → Date & Time, turn on “Set time and date automatically” and choose the right time zone (Addis Ababa), then try again.':
+    'የኮምፒውተርዎ ሰዓት ትክክል አይደለም (የሰዓት ዞኑ የተሳሳተ ነው)። System Settings → General → Date & Time ይክፈቱ፣ «Set time and date automatically» ያብሩና ትክክለኛውን የሰዓት ዞን (Addis Ababa) ይምረጡ፣ ከዚያ እንደገና ይሞክሩ።',
   'The transcription engine stopped unexpectedly.': 'የትራንስክሪፕሽን ሞተሩ ሳይታሰብ ቆሟል። እንደገና ይሞክሩ።',
   'The transcription runtime is missing or incomplete.': 'የትራንስክሪፕሽን ሞተሩ የለም ወይም ያልተሟላ ነው። እንደገና ይጫኑ።',
   'Your antivirus or an incomplete install blocked part of the transcription engine. Add the extension folder to your antivirus exclusions, then reinstall and restart Premiere.':
