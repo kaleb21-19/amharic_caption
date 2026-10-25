@@ -412,7 +412,11 @@
   let raf = 0;
   // the Studio editor plays an edit of several clips: its time, not the file's
   const nowT = () => (window.__amhEditTime ? window.__amhEditTime() : video.currentTime);
-  const tick = () => { showAt(nowT(), true); raf = video.paused ? 0 : requestAnimationFrame(tick); };
+  // (1.71: the editor plays through two players that take turns — its own
+  // "playing" decides, not this element's)
+  const playingNow = () => (window.__amhEditPlaying ? window.__amhEditPlaying() : !video.paused);
+  const tick = () => { showAt(nowT(), true); raf = playingNow() ? requestAnimationFrame(tick) : 0; };
+  window.__amhPreviewTick = () => { if (!raf) raf = requestAnimationFrame(tick); };
   video.addEventListener('play', () => { if (!raf) raf = requestAnimationFrame(tick); });
   // timeupdate keeps going where animation frames are throttled (window in
   // the background); frames make it smooth for one-word karaoke captions.

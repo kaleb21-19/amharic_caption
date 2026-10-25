@@ -125,4 +125,21 @@ test('check words: suggestions from memory, then look-alike words of this video'
   assert.strictEqual(S.checkSuggest('ሰላሞ', cues, { 'ሰላሞ': 'a', }, 1).length, 1, 'at most max');
 });
 
+test('1.71 earlier versions: names by time, the newest 10 kept, a broken project falls back', () => {
+  const t = new Date(2026, 9, 25, 14, 5, 9).getTime();
+  assert.strictEqual(S.versionName(t), '20261025-140509.amhproj');
+  assert.strictEqual(S.versionTime('20261025-140509.amhproj'), t);
+  assert.strictEqual(S.versionTime('demo __x.amhproj'), null, 'only version files');
+  const names = [];
+  for (let i = 0; i < 13; i++) names.push(S.versionName(t + i * 60000));
+  names.push('notes.txt');
+  assert.strictEqual(S.versionsSorted(names)[0], S.versionName(t + 12 * 60000), 'newest first');
+  assert.deepStrictEqual(S.versionsToDrop(names), [S.versionName(t + 2 * 60000), S.versionName(t + 60000), S.versionName(t)], 'the 3 oldest go');
+  assert.strictEqual(S.VERSIONS_KEEP, 10);
+  const good = JSON.stringify(S.makeProject({ video: 'C:/v/a.mp4', cues: [{ start: 0, end: 1, text: 'ሰላም' }] }));
+  const cut = good.slice(0, good.length / 2);           // a save cut off by a power failure
+  assert.deepStrictEqual(S.firstProject([cut, null, good]).i, 2, 'the first readable one');
+  assert.strictEqual(S.firstProject([cut, '']), null);
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');

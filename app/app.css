@@ -115,7 +115,12 @@ html.amh-studio #review .memory-panel { position: fixed; left: 14px; top: 100px 
 .st-logo { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); color: #06110c; display: flex; align-items: center; justify-content: center; font-weight: 800; }
 .st-name { font-weight: 700; white-space: nowrap; }
 .st-proj { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 28vw; }
-.st-saved { color: var(--ok); font-size: var(--font-s); white-space: nowrap; }
+.st-saved { color: var(--ok); font-size: var(--font-s); white-space: nowrap; background: none; border: 0; padding: 2px 6px; border-radius: 6px; cursor: pointer; font-family: inherit; }
+.st-saved:hover { background: #1c2622; }
+.st-vers { max-width: 460px; }
+.st-vrow { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-top: 1px solid var(--border); }
+.st-vtime { font-weight: 700; font-variant-numeric: tabular-nums; }
+.st-vago { color: var(--text-secondary); font-size: var(--font-s); }
 .st-flex { flex: 1 1 auto; }
 .st-ico { min-width: 30px; height: 30px; padding: 0 6px; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--text-secondary); font-size: 15px; cursor: pointer; }
 .st-ico:hover, .st-ico:focus-visible { color: var(--text-primary); background: #1b2521; border-color: var(--border); outline: none; }
@@ -335,8 +340,21 @@ html.amh-editor .app-video-wrap { background: #070908; }
 .ed-canvas { position: relative; overflow: hidden; background: #000; border-radius: 4px; box-shadow: 0 0 0 1px #24302b; cursor: move; }
 .ed-canvas video { position: absolute; max-width: none; max-height: none; object-fit: fill; }
 .ed-canvas.sel { box-shadow: 0 0 0 2px var(--accent); }
+.ed-fmt .ed-safeb { border-left: 1px solid var(--border); padding: 0 10px; }
+.ed-fmt .ed-safeb.on { background: #2a2440; color: #fff; }
+.ed-safe { position: absolute; inset: 0; pointer-events: none; z-index: 45; }
+.ed-safe > div { position: absolute; background: rgba(255, 92, 92, .16); border: 1px dashed rgba(255, 140, 140, .7); display: flex; align-items: center; justify-content: center; }
+.ed-safe span { color: #ffd6d6; font-size: 10px; font-weight: 600; text-shadow: 0 1px 2px #000; padding: 2px 4px; text-align: center; }
+.ed-safe-top { left: 0; right: 0; top: 0; height: 9%; }
+.ed-safe-right { right: 0; width: 15%; top: 38%; bottom: 20%; writing-mode: vertical-rl; }
+.ed-safe-bottom { left: 0; right: 0; bottom: 0; height: 20%; }
 html.amh-editor .ed-canvas .app-cap { bottom: 12%; }
 .ed-transport { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; padding: 0 4px; }
+.ed-meter { position: relative; width: 120px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #1d2a24 0 85%, #3a2f1a 85% 98.3%, #3a1d1d 98.3%); overflow: hidden; flex: 0 0 auto; }
+.ed-meter-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: #34c784; transition: width 60ms linear; }
+.ed-meter-bar.yel { background: #f2c94c; }
+.ed-meter-bar.red { background: #ff5a5a; }
+.ed-meter-hold { position: absolute; top: 0; bottom: 0; width: 2px; left: 0; background: #fff; opacity: .8; }
 .ed-tbtn { width: 30px; height: 30px; border: 0; border-radius: 8px; background: none; color: var(--text-secondary); font-size: 14px; cursor: pointer; }
 .ed-tbtn:hover { color: var(--text-primary); background: #1b2521; }
 .ed-play { width: 38px; height: 38px; border: 0; border-radius: 50%; background: var(--accent); color: #06110c; font-size: 15px; cursor: pointer; }
@@ -363,6 +381,8 @@ html.amh-studio #review.ed-mediamode .st-script, html.amh-studio #review.ed-medi
 .ed-mhead { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
 .ed-mgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
 .ed-mitem { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: #16201c; padding-bottom: 8px; }
+.ed-mitem.offline { border-color: #d64545; }
+.ed-mitem.fresh { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(52,199,132,.35); }
 .ed-mthumb { position: relative; height: 70px; display: flex; align-items: center; justify-content: center; font-size: 24px;
   background: linear-gradient(135deg, #24455b, #1b322b); }
 .ed-mthumb b { position: absolute; right: 6px; bottom: 5px; font-size: 10px; background: rgba(0,0,0,.6); padding: 1px 5px; border-radius: 4px; }
@@ -465,6 +485,10 @@ html.amh-editor .ed-cwrap { height: 222px; }
 .st-pnote { margin: 4px 0; }
 .st-gpu { margin: 6px 0; }
 .st-check { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+.st-expopts { display: flex; align-items: center; gap: 12px; margin: 6px 0; }
+.st-expopts .st-check { margin: 0; }
+.st-sel { height: 28px; border-radius: 6px; border: 1px solid var(--border); background: #16201c; color: var(--text-primary); padding: 0 6px; font: inherit; }
+.st-partchk { margin: 6px 0; color: #9fd0ff; }
 .st-queue { margin-top: 8px; }
 .st-qrow { border-top: 1px solid var(--border); padding: 8px 0 4px; }
 .st-qtop { display: flex; align-items: center; gap: 8px; }
@@ -700,3 +724,14 @@ html.amh-editor .ed-cwrap { height: auto; }
 .ed-trk-add { color: var(--accent); font-weight: 700; }
 .ed-canvas .ed-tplcv { z-index: 40; }
 .ed-canvas .ed-tx { z-index: 41; }
+/* 👋 the first-time guide (1.71) */
+.ed-guide { position: fixed; right: 24px; bottom: 24px; z-index: 60; width: 360px; max-width: calc(100% - 32px); background: #17211d; border: 1px solid var(--accent); border-radius: 14px; padding: 14px 14px 12px; box-shadow: 0 10px 40px rgba(0, 0, 0, .55); }
+.ed-guide-h { display: flex; align-items: center; margin-bottom: 8px; font-size: 15px; }
+.ed-guide-s { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); }
+.ed-guide-n { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: #062114; font-weight: 800; display: flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+.ed-guide-t { flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ed-guide-t span { color: var(--text-secondary); font-size: var(--font-s); }
+.ed-guide-f { color: var(--text-secondary); font-size: var(--font-s); margin: 8px 0 10px; }
+.ed-guide .st-btn.primary { width: 100%; }
+.ed-pulse { animation: edPulse 0.85s ease-in-out 3; position: relative; z-index: 61; }
+@keyframes edPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(52, 199, 132, 0); } 50% { box-shadow: 0 0 0 6px rgba(52, 199, 132, .75); } }

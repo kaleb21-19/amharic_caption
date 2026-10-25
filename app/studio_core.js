@@ -111,6 +111,33 @@
   function recentProjects(list, n) {
     return (list || []).filter(Boolean).sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, n || 12);
   }
+  // ── earlier versions (1.71) ─────────────────────────────────────────────
+  // Every few minutes of work the project is also copied to
+  // versions/<project>/<YYYYMMDD-HHMMSS>.amhproj; the newest VERSIONS_KEEP stay.
+  const VERSIONS_KEEP = 10;
+  const VERSION_EVERY = 5 * 60 * 1000;
+  const pad2 = (n) => String(n).padStart(2, '0');
+  function versionName(ms) {
+    const d = new Date(ms);
+    return d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate()) + '-' + pad2(d.getHours()) + pad2(d.getMinutes()) + pad2(d.getSeconds()) + '.amhproj';
+  }
+  // the time a version file was made (local), or null for any other file
+  function versionTime(name) {
+    const m = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})\.amhproj$/.exec(String(name || ''));
+    return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime() : null;
+  }
+  // newest first; the ones past `keep` are to be deleted
+  function versionsSorted(names) {
+    return (names || []).filter((n) => versionTime(n) != null).sort().reverse();
+  }
+  function versionsToDrop(names, keep) {
+    return versionsSorted(names).slice(keep == null ? VERSIONS_KEEP : keep);
+  }
+  // the first readable of several texts (the project, its .tmp, its versions)
+  function firstProject(texts) {
+    for (let i = 0; i < (texts || []).length; i++) { const p = texts[i] == null ? null : parseProject(texts[i]); if (p) return { p, i }; }
+    return null;
+  }
 
   // ── the Script view (1.18.1) ──────────────────────────────────────────────
   // Words (from core cleanupWords: { w, s, e, cue, k }) as paragraphs: a new
@@ -206,7 +233,7 @@
   const checkSuggest = (word, cues, fixes, max, dict) => CORE.suggestWords(word, cues, fixes, max, dict);
 
   const api = { MAX_PPS, minPps, clampView, fitView, timeToX, xToTime, zoomAt, follow, hitCaption, ticks, fmtClock,
-    projectId, projectFileName, makeProject, parseProject, recentProjects, scriptParagraphs, wordRanges, wordAt, selectionByCaption,
+    projectId, projectFileName, makeProject, parseProject, recentProjects, VERSIONS_KEEP, VERSION_EVERY, versionName, versionTime, versionsSorted, versionsToDrop, firstProject, scriptParagraphs, wordRanges, wordAt, selectionByCaption,
     keepRanges, cutFilter, keptLength, editDistance, checkSuggest };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhStudio = api;

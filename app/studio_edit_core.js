@@ -100,6 +100,29 @@
     return rest.slice(0, at).concat(moving, rest.slice(at));
   }
 
+  // only the part [a, b] of an edit (1.71: export the marked part): the main
+  // track cut to it, every item clipped to it and moved to start at 0 — a
+  // song or B-roll that began before `a` goes on from where it was at `a`
+  function rangeState(st, a, b) {
+    const T = total(st.clips);
+    a = Math.max(0, Math.min(T, Number(a) || 0));
+    b = Math.max(a, Math.min(T, b == null ? T : Number(b)));
+    if (b - a < MIN) return st;
+    let c = st.clips;
+    let n = 0;
+    const id = () => 'rg' + (++n);
+    if (b < T - 1e-3) c = cutRange(c, b, T, id);
+    if (a > 1e-3) c = cutRange(c, 0, a, id);
+    const clip = (list) => (list || []).map((o) => {
+      const s = Number(o.start) || 0, e = s + ovLen(o);
+      if (e <= a + 1e-3 || s >= b - 1e-3) return null;
+      const ns = Math.max(s, a), ne = Math.min(e, b);
+      const i0 = (Number(o.in) || 0) + (ns - s);
+      return Object.assign({}, o, { start: r3(ns - a), in: r3(i0), out: r3(i0 + ne - ns) });
+    }).filter(Boolean);
+    return Object.assign({}, st, { clips: c, ovl: clip(st.ovl), txt: clip(st.txt), mus: clip(st.mus), zm: clip(st.zm) });
+  }
+
   // put clips into the main track at edit time t (paste / duplicate, 1.70)
   function insertClips(clips, t, add, idGen) {
     const out = splitAt(clips, t, idGen());
@@ -1335,7 +1358,7 @@
     return { graph: parts.join(';'), w: W, h: H, duration: total(clips) };
   }
 
-  const api = { MIN, layout, total, locate, sourceToEdit, splitAt, removeClip, trimClip, moveClip, dropIndex, cutRange, moveRange, insertClips, keptSegs, mapTime, followClips,
+  const api = { MIN, layout, total, locate, sourceToEdit, splitAt, removeClip, trimClip, moveClip, dropIndex, cutRange, moveRange, rangeState, insertClips, keptSegs, mapTime, followClips,
     words, deriveCaptions, syncBack, FORMATS, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
     TFONTS, TPRESETS, assColor, textAnchor, textAss, setFontInfo, fontInfo, textSize, LOUD, MUS_DEFAULT, musicGain,
     PRESETS, presetFor, GPU_ENCODERS, encoderArgs, eta,

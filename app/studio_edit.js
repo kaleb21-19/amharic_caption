@@ -40,11 +40,19 @@
   let trk = { tx: [], ov: [], au: [] };   // 🎚 the tracks' hide / mute / lock (1.68)
   let zm = [];             // 🔍 zooms on the main picture (1.60): { id, start, in: 0, out, style, amt, speed, fx, fy }
   let mus = [];            // the music track (1.23.0)
-  let snd = { clean: false, loud: 'off' };   // clean voice, loudness (1.23.0)
+  // clean voice, loudness (1.23.0); 1.71: a new edit is as loud as TikTok /
+  // YouTube (-14 LUFS) — a saved project keeps what it had
+  const SND_NEW = () => ({ clean: false, loud: 'web' });
+  let snd = SND_NEW();
   let SRC = {};            // the captions of each file, in that file's time
   let fmt = '16:9';
   let sel = null;          // the selected clip's id
-  let picks = [];          // 1.70: more selected items (Shift / Ctrl + click); sel = the last one
+  let picks = [];
+  // 1.71: 🔖 markers (M) and the marked part (I / O) — edit times that follow
+  // the video like every item; saved with the project
+  let mk = [];             // [{ id, start, in: 0, out: 0 }]
+  let io = null;           // { start, in: 0, out: length } or null
+  let SHUTTLE = 1;         // L: 1× → 2× → 4×          // 1.70: more selected items (Shift / Ctrl + click); sel = the last one
   let built = false;       // the edit exists for the open review
   let nid = 0;
   const newId = () => 'k' + Date.now().toString(36) + (++nid);
@@ -141,15 +149,75 @@
       else log(tx('ይህ ፋይል በቅድመ እይታ ላይታይ ይችላል — ኤክስፖርቱ ግን ይሰራል፦ ', 'This file may not show in the preview — the export still works: ') + m.name);
     });
   }
+  // ── 📂 files that were moved or renamed (1.71) ──────────────────────────
+  // Shown red on the timeline and in Media with "📂 Find"; the export names
+  // them instead of failing with ffmpeg's English. Finding one also finds
+  // the others that are in that same new folder.
+  const OFFLINE = {};
+  function checkFiles() {
+    Object.keys(media).forEach((id) => {
+      let ok = true;
+      try { ok = fs.existsSync(media[id].path); } catch (e) {}
+      if (ok) delete OFFLINE[id]; else OFFLINE[id] = true;
+    });
+    return Object.keys(OFFLINE).length;
+  }
+  const usedIn = (st) => {
+    const ids = [];
+    (st.clips || []).concat(st.ovl || [], st.mus || []).forEach((c) => { if (c.m && ids.indexOf(c.m) < 0) ids.push(c.m); });
+    return ids;
+  };
+  // the files this edit uses that are not there
+  function missingFiles(st) {
+    st = st || { clips, ovl, mus, media };
+    return usedIn(st).filter((id) => { const m = st.media[id]; if (!m) return false; try { return !fs.existsSync(m.path); } catch (e) { return true; } }).map((id) => st.media[id]);
+  }
+  function offMark(x0, x1, top, h, id) {
+    if (!OFFLINE[id]) return;
+    ctx.fillStyle = 'rgba(200,40,40,.55)';
+    ctx.fillRect(x0 + 1, top, Math.max(2, x1 - x0 - 2), h);
+    if (x1 - x0 > 40) { ctx.fillStyle = '#fff'; ctx.font = '700 11px "Segoe UI", sans-serif'; ctx.fillText('⚠ ' + tx('ፋይሉ የለም', 'File missing'), x0 + 6, top + h - 5); }
+  }
+  async function findFile(id) {
+    const m = media[id];
+    if (!m) return false;
+    let p = null;
+    try { p = APP.call('dialog', ['open', tx('ፋይሉን ይፈልጉ፦ ', 'Find the file: ') + m.name]); } catch (e) {}
+    if (!p) return false;
+    const info = await probe(p);
+    if (!info.dur && !(info.image && info.w)) { log(tx('ይህ ፋይል ሊከፈት አልቻለም፦ ', 'This file could not be opened: ') + path.basename(p)); return false; }
+    const back = [id];
+    media[id] = Object.assign({}, m, info, { path: p, name: path.basename(p), pv: null });
+    const dir = path.dirname(p);
+    Object.keys(media).forEach((k) => {
+      if (k === id || !OFFLINE[k]) return;
+      const q = path.join(dir, path.basename(media[k].path));
+      try { if (fs.existsSync(q)) { media[k] = Object.assign({}, media[k], { path: q, pv: null }); back.push(k); } } catch (e) {}
+    });
+    back.forEach((k) => { delete urls[k]; delete OFFLINE[k]; loadPeaks(k); previewCopy(k); });
+    if (vT && back.indexOf(vT.dataset.m) >= 0) resetTwin();
+    const v = V();
+    if (v && back.indexOf(v.dataset.m) >= 0) { v.dataset.m = ''; v.removeAttribute('src'); }
+    ovl.forEach((o) => { if (back.indexOf(o.m) >= 0 && OVEL[o.id]) { OVEL[o.id].remove(); delete OVEL[o.id]; } });
+    checkFiles();
+    log('📂 ' + tx('ተገኘ፦ ', 'Found: ') + back.map((k) => media[k].name).join(', '));
+    renderMedia(); drawSoon(); ST.saveSoon();
+    if (built) seek(time());
+    return true;
+  }
+  // the window got focus again (the editor may have moved a file back)
+  window.addEventListener('focus', () => { if (built) { const n = Object.keys(OFFLINE).length; if (checkFiles() !== n) { renderMedia(); drawSoon(); } } });
+
   // the copy is ready: every player showing that file switches to it
   function useCopy(id, out) {
     const m = media[id];
     if (!m) return;
     m.pv = out;
     delete urls[id];
+    if (vT && vT.dataset.m === id) resetTwin();
     const v = V();
     if (v && v.dataset.m === id) { v.dataset.m = ''; v.removeAttribute('src'); }
-    document.querySelectorAll('video, audio').forEach((x) => { if (x !== v && x.dataset && x.dataset.m === id) { x.dataset.m = ''; x.src = urlOf(id); } });
+    document.querySelectorAll('video, audio').forEach((x) => { if (x !== v && x.dataset && x.dataset.m === id) { x.dataset.m = ''; srcOf(x, id); } });
     ovl.forEach((o) => { if (o.m === id && OVEL[o.id]) { OVEL[o.id].remove(); delete OVEL[o.id]; } });
     if (built) seek(time());
   }
@@ -182,6 +250,8 @@
     txt = E.followClips(old, clips, txt, false, skip);
     zm = E.followClips(old, clips, zm, false, skip);
     mus = E.followClips(old, clips, mus, true, skip);
+    mk = E.followClips(old, clips, mk, true, skip);
+    if (io) { const r = E.followClips(old, clips, [io], false, skip); io = r.length ? r[0] : null; }
   }
   function after() { frame(); renderInspector(); if (typeof renderSound === 'function') renderSound(); drawSoon(); ST.saveSoon(); }
 
@@ -190,11 +260,11 @@
   const origUndo = window.undoReview;
   const REDO = [];
   let redoing = false;
-  const snap = () => JSON.stringify({ clips, ovl, txt, mus, snd, zm, trk, fmt, media, SRC: built ? E.syncBack(clips, SRC, reviewCues) : SRC });
+  const snap = () => JSON.stringify({ clips, ovl, txt, mus, snd, zm, trk, mk, io, fmt, media, SRC: built ? E.syncBack(clips, SRC, reviewCues) : SRC });
   function restore(json) {
     const o = JSON.parse(json);
     clips = o.clips; ovl = o.ovl || []; txt = o.txt || []; mus = o.mus || []; snd = o.snd || { clean: false, loud: 'off' }; zm = o.zm || []; trk = o.trk || { tx: [], ov: [], au: [] }; fmt = o.fmt; SRC = o.SRC;
-    picks = [];
+    picks = []; mk = o.mk || []; io = o.io || null;
     Object.keys(o.media || {}).forEach((k) => { if (!media[k]) { media[k] = o.media[k]; loadPeaks(k); } });
   }
   window.pushReviewUndo = function (what) {
@@ -244,19 +314,26 @@
       const m = media[id];
       let pv = null;
       try { pv = m.pv && fs.existsSync(m.pv) ? m.pv : null; } catch (e) {}
-      urls[id] = APP.call('media', [pv || m.path]);
+      // a moved / deleted file (1.71): nothing to show, the preview goes on
+      try { urls[id] = APP.call('media', [pv || m.path]); } catch (e) { OFFLINE[id] = true; return ''; }
     }
     return urls[id];
+  }
+  // a player gets its file — or nothing at all when the file is missing (an
+  // empty address would load the page itself and raise error handlers)
+  function srcOf(x, id) {
+    const u = urlOf(id);
+    if (u) x.src = u; else x.removeAttribute('src');
   }
   function ensureSrc(id) {
     const v = V();
     return new Promise((resolve) => {
-      if (!v || !media[id]) { resolve(false); return; }
+      if (!v || !media[id] || !urlOf(id)) { resolve(false); return; }
       if (v.dataset.m === id && v.getAttribute('src')) { resolve(true); return; }
       v.dataset.m = id;
       const done = () => { v.removeEventListener('loadedmetadata', done); resolve(true); };
       v.addEventListener('loadedmetadata', done);
-      v.src = urlOf(id);
+      srcOf(v, id);
       setTimeout(done, 4000);
     });
   }
@@ -276,20 +353,120 @@
     if (!loc) { drawSoon(); return; }
     cur = loc.i;
     await ensureSrc(loc.clip.m);
-    try { V().currentTime = loc.src; V().playbackRate = E.speedOf(loc.clip); } catch (e) {}
+    try { V().currentTime = loc.src; V().playbackRate = E.speedOf(loc.clip) * SHUTTLE; } catch (e) {}
     frame(); tick(false);
   }
+  // ── ▶ smooth cuts (1.71): a twin player ─────────────────────────────────
+  // One player has to jump at every cut (~0.2 s frozen). A second player
+  // waits behind it, already at the next clip's first frame; at the cut they
+  // swap — the ready one takes the name appVideo, so the rest of the Studio
+  // (Script, Clean up, captions) follows it. Not ready in time: the old jump.
+  let vT = null;
+  function twin() {
+    if (vT) return vT;
+    const v = V();
+    if (!v || !v.parentNode) return null;
+    vT = document.createElement('video');
+    vT.className = v.className;
+    vT.playsInline = true; vT.preload = 'auto'; vT.muted = true;
+    vT.style.cssText = v.style.cssText;
+    vT.style.visibility = 'hidden'; vT.style.pointerEvents = 'none';
+    v.parentNode.insertBefore(vT, v);
+    meterOn(vT);
+    return vT;
+  }
+  function resetTwin() { if (vT) { vT.pause(); vT.removeAttribute('src'); vT.dataset.m = ''; vT.dataset.prep = ''; vT.dataset.ready = ''; } }
+  // the twin, paused and decoded at clip n's first frame
+  function prep(n) {
+    const t = twin();
+    if (!t || !n || t.dataset.prep === n.id) return;
+    const u = urlOf(n.m);
+    if (!u) return;
+    t.dataset.prep = n.id; t.dataset.ready = '';
+    if (t.dataset.m !== n.m) { t.dataset.m = n.m; t.src = u; }
+    const go = () => {
+      if (t.dataset.prep !== n.id) return;
+      t.addEventListener('seeked', () => { if (t.dataset.prep === n.id) t.dataset.ready = '1'; }, { once: true });
+      try { t.currentTime = n.in; } catch (e) {}
+    };
+    if (t.readyState >= 1) go(); else t.addEventListener('loadedmetadata', go, { once: true });
+  }
+  // at the cut: the ready twin plays on, the old player waits behind
+  function handover(n) {
+    const t = vT, v = V();
+    if (!t || !v || t.dataset.prep !== n.id || t.dataset.ready !== '1' || Math.abs(t.currentTime - n.in) > 0.1) return false;
+    t.playbackRate = E.speedOf(n) * SHUTTLE;
+    t.volume = v.volume; t.muted = v.muted;
+    t.style.cssText = v.style.cssText;
+    const p = t.play();
+    if (p && p.catch) p.catch(() => {});
+    v.pause(); v.muted = true;
+    const name = v.id;
+    v.removeAttribute('id'); t.id = name;
+    v.style.visibility = 'hidden'; v.style.pointerEvents = 'none'; t.style.pointerEvents = '';
+    v.parentNode.insertBefore(t, v.nextSibling);                 // the playing one in front (vB stays on top)
+    v.dataset.prep = ''; v.dataset.ready = '';
+    vT = v;
+    return true;
+  }
+  window.__amhEditPlaying = () => playing;
+  // ── 🔊 level meter (1.71) ───────────────────────────────────────────────
+  // The preview's sound (the main video and the music) through an analyser:
+  // green, yellow near the top, red = too loud (it would crackle). Switched on
+  // by ▶ (a click), never before; if the browser refuses, sound plays as before.
+  let AC = null, AN = null;
+  let meterEl = null, meterBar = null, meterHold = null;     // made with the transport bar
+  const ABUF = new Float32Array(2048);
+  function meterOn(x) {
+    if (!AC || !x || x._amhSrc) return;
+    try { x._amhSrc = AC.createMediaElementSource(x); x._amhSrc.connect(AN); } catch (e) {}
+  }
+  function meterStart() {
+    if (!AC) {
+      try {
+        AC = new (window.AudioContext || window.webkitAudioContext)();
+        AN = AC.createAnalyser(); AN.fftSize = 2048; AN.connect(AC.destination);
+      } catch (e) { AC = null; return; }
+    }
+    if (AC.state === 'suspended') AC.resume().catch(() => {});
+    meterOn(V()); meterOn(vT);
+    Object.keys(MUEL).forEach((k) => meterOn(MUEL[k]));
+  }
+  let peakHold = -60, peakAt = 0;
+  function meterTick() {
+    if (!AN || !meterBar) return;
+    AN.getFloatTimeDomainData(ABUF);
+    let pk = 0;
+    for (let i = 0; i < ABUF.length; i++) { const a = Math.abs(ABUF[i]); if (a > pk) pk = a; }
+    const db = pk > 0 ? Math.max(-60, 20 * Math.log10(pk)) : -60;
+    const now = performance.now();
+    if (db >= peakHold || now - peakAt > 1200) { peakHold = db; peakAt = now; }
+    meterBar.style.width = Math.round((db + 60) / 60 * 100) + '%';
+    meterBar.className = 'ed-meter-bar' + (db > -1 ? ' red' : db > -9 ? ' yel' : '');
+    meterHold.style.left = Math.round((peakHold + 60) / 60 * 100) + '%';
+    meterEl.title = tx('የድምፅ መጠን (ቅድመ እይታ)፦ ', 'Sound level (preview): ') + Math.round(db) + ' dB · ' +
+      tx('ቀይ = በጣም ይጮሃል። ኤክስፖርቱ ወደ −14 LUFS ይስተካከላል።', 'red = too loud. The export is set to −14 LUFS.');
+  }
+  function meterIdle() { if (meterBar) { meterBar.style.width = '0%'; meterHold.style.left = '0%'; peakHold = -60; } }
   async function play() {
     if (!clips.length) return;
     let t = time();
     if (t >= total() - 0.05) t = 0;
     await seek(t);
     playing = true;
+    meterStart();
     try { await V().play(); } catch (e) {}
     syncPlay();
+    if (window.__amhPreviewTick) window.__amhPreviewTick();
     requestAnimationFrame(loop);
   }
-  function pause() { if (playing) ET = time(); playing = false; const v = V(); if (v) v.pause(); syncPlay(); tick(false); syncMusic(time()); }
+  function setShuttle(k) {
+    SHUTTLE = k;
+    const c = L()[cur];
+    try { V().playbackRate = (c ? E.speedOf(c) : 1) * k; } catch (e) {}
+    hint.textContent = k > 1 ? '⏩ ' + k + '×' : '';
+  }
+  function pause() { if (SHUTTLE !== 1) setShuttle(1); if (playing) ET = time(); playing = false; const v = V(); if (v) v.pause(); syncPlay(); tick(false); syncMusic(time()); meterIdle(); }
   function toggle() { if (playing) pause(); else play(); }
   function loop() {
     if (!playing) return;
@@ -297,16 +474,21 @@
     const LL = L();
     const c = LL[cur];
     if (!c || !v) { pause(); return; }
+    const n0 = LL[cur + 1];
+    // the next clip needs a jump: get the twin ready a second before the cut
+    if (n0 && (n0.m !== c.m || Math.abs(n0.in - c.out) > 0.06) && (c.out - v.currentTime) / E.speedOf(c) < 1.2) prep(n0);
     if (v.currentTime >= c.out - 0.03 || v.ended) {
       const n = LL[cur + 1];
       if (!n) { pause(); ET = total(); tick(false); return; }
       cur += 1;
-      if (v.dataset.m !== n.m) { ensureSrc(n.m).then(() => { try { v.currentTime = n.in; v.playbackRate = E.speedOf(n); } catch (e) {} if (playing) v.play().catch(() => {}); }); }
+      if (handover(n)) { frame(); tick(true); requestAnimationFrame(loop); return; }
+      if (v.dataset.m !== n.m) { ensureSrc(n.m).then(() => { try { v.currentTime = n.in; v.playbackRate = E.speedOf(n) * SHUTTLE; } catch (e) {} if (playing) v.play().catch(() => {}); }); }
       else if (Math.abs(v.currentTime - n.in) > 0.06) { try { v.currentTime = n.in; } catch (e) {} }
-      try { v.playbackRate = E.speedOf(n); } catch (e) {}
+      try { v.playbackRate = E.speedOf(n) * SHUTTLE; } catch (e) {}
       frame();
     }
     tick(true);
+    meterTick();
     requestAnimationFrame(loop);
   }
   // the rest of the Studio reads and moves the edit's time through these
@@ -354,6 +536,26 @@
     b.dataset.f = f;
     fmtBar.appendChild(b);
   });
+  // 📱 where TikTok / Reels / Shorts put their buttons and texts (9:16 and 4:5):
+  // keep faces and titles out of the shaded parts
+  let safeOn = false;
+  try { safeOn = localStorage.getItem('amh_safe') === '1'; } catch (e) {}
+  const safeEl = el('div', 'ed-safe');
+  function syncSafe() {
+    const show = safeOn && (fmt === '9:16' || fmt === '4:5');
+    safeEl.style.display = show ? '' : 'none';
+    if (bSafe) { bSafe.classList.toggle('on', safeOn); bSafe.style.display = fmt === '9:16' || fmt === '4:5' ? '' : 'none'; }
+  }
+  function buildSafe() {
+    safeEl.textContent = '';
+    [['top', tx('ፍለጋ · ተከታዮች', 'search · following')], ['right', tx('❤ 💬 ↗ ቁልፎች', '❤ 💬 ↗ buttons')], ['bottom', tx('ስም · መግለጫ · ሙዚቃ', 'name · caption · music')]]
+      .forEach(([k, label]) => { const z = el('div', 'ed-safe-' + k); z.appendChild(el('span', '', label)); safeEl.appendChild(z); });
+  }
+  let bSafe = null;
+  bSafe = btn('ed-safeb', '📱', '', () => { safeOn = !safeOn; try { localStorage.setItem('amh_safe', safeOn ? '1' : '0'); } catch (e) {} syncSafe(); });
+  fmtBar.appendChild(bSafe);
+  buildSafe();
+  stage.appendChild(safeEl);
   if (pv) pv.insertBefore(fmtBar, pv.firstChild);
   const transport = el('div', 'ed-transport');
   const bStart = btn('ed-tbtn', '⏮', '', () => seek(0));
@@ -361,7 +563,11 @@
   const bEnd = btn('ed-tbtn', '⏭', '', () => seek(total()));
   const tTime = el('span', 'ed-time', '0:00.0 / 0:00');
   const bFull = btn('ed-tbtn', '⛶', '', () => { try { stage.requestFullscreen(); } catch (e) {} });
-  [bStart, bPlay, bEnd, tTime, el('span', 'st-flex'), bFull].forEach((x) => transport.appendChild(x));
+  meterEl = el('div', 'ed-meter');
+  meterBar = el('div', 'ed-meter-bar');
+  meterHold = el('div', 'ed-meter-hold');
+  meterEl.appendChild(meterBar); meterEl.appendChild(meterHold);
+  [bStart, bPlay, bEnd, tTime, el('span', 'st-flex'), meterEl, bFull].forEach((x) => transport.appendChild(x));
   if (pv) pv.appendChild(transport);
   function syncPlay() { bPlay.textContent = playing ? '⏸' : '▶'; }
   // the canvas fits the space; the picture is placed exactly as the export will place it
@@ -372,7 +578,8 @@
     const k = Math.min(aw / W, ah / H);
     stage.style.width = Math.round(W * k) + 'px';
     stage.style.height = Math.round(H * k) + 'px';
-    fmtBar.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.f === fmt));
+    fmtBar.querySelectorAll('button[data-f]').forEach((b) => b.classList.toggle('on', b.dataset.f === fmt));
+    syncSafe();
     const c = L()[cur] || L()[0];
     const v = V();
     if (!v) return;
@@ -498,7 +705,7 @@
         const e = document.createElement(m.image ? 'img' : 'video');
         e.className = cls;
         if (!m.image) { e.muted = true; e.playsInline = true; e.preload = 'auto'; }
-        e.src = urlOf(o.m);
+        srcOf(e, o.m);
         e.draggable = false;
         return e;
       };
@@ -518,7 +725,7 @@
     const want = o.in + (t - o.start);
     e.muted = !sound;
     if (sound) e.volume = Math.min(1, Number(o.volume));
-    if (playing) { if (e.paused) { try { e.currentTime = want; } catch (x) {} e.play().catch(() => {}); } else if (Math.abs(e.currentTime - want) > 0.25) { try { e.currentTime = want; } catch (x) {} } }
+    if (playing) { if (e.playbackRate !== SHUTTLE) e.playbackRate = SHUTTLE; if (e.paused) { try { e.currentTime = want; } catch (x) {} e.play().catch(() => {}); } else if (Math.abs(e.currentTime - want) > 0.25 * SHUTTLE) { try { e.currentTime = want; } catch (x) {} } }
     else { if (!e.paused) e.pause(); if (Math.abs(e.currentTime - want) > 0.04) { try { e.currentTime = want; } catch (x) {} } }
   }
   function syncOverlays(t) {
@@ -598,12 +805,12 @@
     const om = media[oc.m];
     if (!om) return;
     const want = showB ? Math.max(0, B.in - (cut - t) * E.speedOf(B)) : Math.min(om.dur || Infinity, A.out + (t - cut) * E.speedOf(A));
-    if (vB.dataset.m !== oc.m) { vB.dataset.m = oc.m; vB.src = urlOf(oc.m); }
+    if (vB.dataset.m !== oc.m) { vB.dataset.m = oc.m; srcOf(vB, oc.m); }
     vB.style.display = '';
     vB.style.visibility = om.video ? '' : 'hidden';
     placeEl(vB, oc);
     colorTo(vB, 'B', oc.col);
-    try { vB.playbackRate = E.speedOf(oc); } catch (x) {}
+    try { vB.playbackRate = E.speedOf(oc) * SHUTTLE; } catch (x) {}
     if (playing) { if (vB.paused) { try { vB.currentTime = want; } catch (x) {} vB.play().catch(() => {}); } else if (Math.abs(vB.currentTime - want) > 0.15) { try { vB.currentTime = want; } catch (x) {} } }
     else { if (!vB.paused) vB.pause(); if (Math.abs(vB.currentTime - want) > 0.03) { try { vB.currentTime = want; } catch (x) {} } }
     const eA = showB ? v : vB, eB = showB ? vB : v;      // outgoing, incoming
@@ -629,13 +836,14 @@
       const m = media[o.m];
       if (!m) return;
       let a = MUEL[o.id];
-      if (!a || a.dataset.m !== o.m) { if (a) a.remove(); a = document.createElement('audio'); a.preload = 'auto'; a.dataset.m = o.m; a.src = urlOf(o.m); document.body.appendChild(a); MUEL[o.id] = a; }
+      if (!a || a.dataset.m !== o.m) { if (a) a.remove(); a = document.createElement('audio'); a.preload = 'auto'; a.dataset.m = o.m; srcOf(a, o.m); document.body.appendChild(a); MUEL[o.id] = a; meterOn(a); }
       const g = rowHidden('au', rowOf(o)) ? 0 : E.musicGain(o, t, total(), sp);
       const want = o.in + (t - o.start);
       if (!playing || g <= 0 && (t < o.start || t >= E.ovEnd(o))) { if (!a.paused) a.pause(); return; }
       a.volume = Math.max(0, Math.min(1, g));
+      if (a.playbackRate !== SHUTTLE) a.playbackRate = SHUTTLE;
       if (a.paused) { try { a.currentTime = want; } catch (x) {} a.play().catch(() => {}); }
-      else if (Math.abs(a.currentTime - want) > 0.3) { try { a.currentTime = want; } catch (x) {} }
+      else if (Math.abs(a.currentTime - want) > 0.3 * SHUTTLE) { try { a.currentTime = want; } catch (x) {} }
     });
     Object.keys(MUEL).forEach((id) => { if (!mus.some((o) => o.id === id)) { MUEL[id].pause(); MUEL[id].remove(); delete MUEL[id]; } });
   }
@@ -1158,6 +1366,7 @@
       ctx.strokeStyle = isSel ? '#ffffff' : '#3d7fb0';
       ctx.lineWidth = isSel ? 2 : 1;
       ctx.strokeRect(x0 + 1.5, mainTop + 0.5, Math.max(2, x1 - x0 - 3), MAIN - 1);
+      offMark(x0, x1, mainTop, MAIN, c.m);
       const edgeHot = hover && hover.lane === 'main' && hover.id === c.id && hover.edge !== 'body';
       if (edgeHot) { ctx.fillStyle = '#ffffff'; ctx.fillRect(hover.edge === 'in' ? x0 + 1 : x1 - 4, mainTop, 3, MAIN); }
       if (x1 - x0 > 30) {
@@ -1229,6 +1438,7 @@
       ctx.strokeStyle = isSel ? '#ffffff' : '#8b6fc0';
       ctx.lineWidth = isSel ? 2 : 1;
       ctx.strokeRect(x0 + 1.5, y0 + 0.5, Math.max(2, x1 - x0 - 3), hh - 1);
+      offMark(x0, x1, y0, hh, o.m);
       if (hover && hover.lane === 'ov' && hover.id === o.id && hover.edge !== 'body') { ctx.fillStyle = '#fff'; ctx.fillRect(hover.edge === 'in' ? x0 + 1 : x1 - 4, y0, 3, hh); }
       if (x1 - x0 > 24) {
         ctx.save(); ctx.beginPath(); ctx.rect(x0 + 5, y0, x1 - x0 - 10, hh); ctx.clip();
@@ -1263,6 +1473,7 @@
       ctx.strokeStyle = isSel ? '#ffffff' : '#4fbf8a';
       ctx.lineWidth = isSel ? 2 : 1;
       ctx.strokeRect(x0 + 1.5, musTop + 0.5, Math.max(2, x1 - x0 - 3), MUS - 1);
+      offMark(x0, x1, musTop, MUS, o.m);
       if (hover && hover.lane === 'mu' && hover.id === o.id && hover.edge !== 'body') { ctx.fillStyle = '#fff'; ctx.fillRect(hover.edge === 'in' ? x0 + 1 : x1 - 4, musTop, 3, MUS); }
       if (x1 - x0 > 24) {
         ctx.save(); ctx.beginPath(); ctx.rect(x0 + 5, musTop, x1 - x0 - 10, MUS); ctx.clip();
@@ -1308,6 +1519,20 @@
         ctx.beginPath(); ctx.moveTo(x0, RULER - 9); ctx.lineTo(x0 + 5, RULER - 6); ctx.lineTo(x0, RULER - 3); ctx.closePath(); ctx.fill();
       });
     }
+    // the marked part (I / O): shaded on the ruler, thin lines down the lanes
+    if (io) {
+      const xa = S.timeToX(io.start, view), xb = S.timeToX(io.start + E.ovLen(io), view);
+      ctx.fillStyle = 'rgba(80,170,255,.28)'; ctx.fillRect(xa, 0, xb - xa, RULER);
+      ctx.fillStyle = 'rgba(80,170,255,.9)'; ctx.fillRect(Math.round(xa), 0, 2, h); ctx.fillRect(Math.round(xb) - 2, 0, 2, h);
+    }
+    // 🔖 markers
+    mk.forEach((m) => {
+      const x = S.timeToX(m.start, view);
+      if (x < -6 || x > w + 6) return;
+      ctx.fillStyle = '#4fd1c5';
+      ctx.beginPath(); ctx.moveTo(x - 5, 0); ctx.lineTo(x + 5, 0); ctx.lineTo(x + 5, 8); ctx.lineTo(x, 13); ctx.lineTo(x - 5, 8); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(79,209,197,.35)'; ctx.fillRect(Math.round(x), 13, 1, h - 13);
+    });
     const px = S.timeToX(t, view);
     ctx.fillStyle = '#ff5c5c'; ctx.fillRect(Math.round(px) - 1, 0, 2, h);
     ctx.beginPath(); ctx.moveTo(px - 6, 0); ctx.lineTo(px + 6, 0); ctx.lineTo(px, 8); ctx.closePath(); ctx.fill();
@@ -1504,6 +1729,33 @@
     drawSoon();
   }, { passive: false });
 
+  // ── 🔖 markers and the marked part (1.71) ──────────────────────────────
+  function toggleMarker() {
+    const t = time();
+    const near = mk.find((m) => Math.abs(m.start - t) * view.pps < 6);
+    change('marker', () => {
+      mk = near ? mk.filter((m) => m !== near) : mk.concat([{ id: newId(), start: Math.round(t * 1000) / 1000, in: 0, out: 0 }]).sort((a, b) => a.start - b.start);
+    });
+  }
+  function nextMarker(dir) {
+    const t = time();
+    const list = mk.map((m) => m.start).concat(io ? [io.start, io.start + E.ovLen(io)] : []).sort((a, b) => a - b);
+    const to = dir > 0 ? list.find((x) => x > t + 0.02) : list.slice().reverse().find((x) => x < t - 0.02);
+    if (to != null) seek(to);
+  }
+  // I = the part starts here, O = it ends here (the other end kept when it can be)
+  function markIO(which) {
+    const t = Math.round(time() * 1000) / 1000;
+    const a0 = io ? io.start : 0, b0 = io ? io.start + E.ovLen(io) : total();
+    let a = which === 'i' ? t : a0, b = which === 'o' ? t : b0;
+    if (b - a < E.MIN) { if (which === 'i') b = total(); else a = 0; }
+    if (b - a < E.MIN) return;
+    change('mark', () => { io = { start: a, in: 0, out: Math.round((b - a) * 1000) / 1000 }; });
+  }
+  function clearIO() { if (io) change('mark', () => { io = null; }); }
+  // the marked part for the export: { a, b } or null
+  function markedPart() { return io && E.ovLen(io) >= E.MIN ? { a: io.start, b: Math.min(total(), io.start + E.ovLen(io)) } : null; }
+
   // ── several selected · copy / paste / duplicate (1.70) ──────────────────
   const listOf = (arr) => ({ clips, ovl, txt, mus, zm })[arr];
   function setList(arr, v) {
@@ -1670,13 +1922,22 @@
       if (c === 'v' && CLIP) { e.preventDefault(); paste(); return; }
       if (c === 'd') { e.preventDefault(); duplicate(); return; }
     }
+    if (e.altKey && !mod && String(k).toLowerCase() === 'x' && !typing(document.activeElement)) { e.preventDefault(); clearIO(); return; }
     if (typing(document.activeElement) || mod || e.altKey) return;
     let used = true;
-    if (k === ' ' || k === 'k' || k === 'K') toggle();
+    if (k === ' ') toggle();
+    // J / K / L like Premiere: L plays, again 2×, again 4×; K stops; J goes back
+    else if (k === 'k' || k === 'K') pause();
+    else if (k === 'l' || k === 'L') {
+      if (e.shiftKey) seek(time() + 5);
+      else if (!playing) { setShuttle(1); play(); } else setShuttle(Math.min(4, SHUTTLE * 2));
+    }
+    else if (k === 'm' || k === 'M') { if (e.shiftKey) nextMarker(1); else toggleMarker(); }
+    else if (k === 'i' || k === 'I') markIO('i');
+    else if (k === 'o' || k === 'O') markIO('o');
     else if (k === 's' || k === 'S') splitHere();
     else if (k === 'Delete' || k === 'Backspace') deleteSel();
     else if (k === 'j' || k === 'J') seek(time() - (e.shiftKey ? 5 : 1));
-    else if (k === 'l' || k === 'L') seek(time() + (e.shiftKey ? 5 : 1));
     else if (k === 'ArrowLeft') seek(time() - (e.shiftKey ? 1 : 1 / 30));
     else if (k === 'ArrowRight') seek(time() + (e.shiftKey ? 1 : 1 / 30));
     else if (k === 'Home') seek(0);
@@ -1702,7 +1963,7 @@
   async function importMedia() {
     let p = null;
     try { p = APP.call('dialog', ['open', tx('ቪዲዮ ወይም ድምፅ ይምረጡ', 'Choose a video or sound')]); } catch (e) {}
-    if (p) await addAndPlace(p);
+    if (p) await addToMedia(p);
   }
   // above the main video, from the playhead: B-roll up to 5 s (silent), a photo 5 s
   function addOverlay(id) {
@@ -1722,6 +1983,20 @@
     const mid = newId();
     change('add music', () => { mus = mus.concat([{ id: mid, m: id, in: 0, out: Math.round(len * 1000) / 1000, start: Math.round(at * 1000) / 1000 }]); });
     sel = mid; after(); ST.showTab('clip');
+  }
+  // 1.71: an imported or dropped file goes to 📁 Media first (like CapCut and
+  // Premiere) — the editor chooses where: ＋ Main, ＋ Overlay, ♪ Music, or
+  // drag it onto a word. (It used to be glued to the end of the main video.)
+  async function addToMedia(p) {
+    const id = await addMedia(p);
+    if (!id) return null;
+    setLeft(true);
+    hint.textContent = '📁 ' + tx('ወደ ሚዲያ ገብቷል — ＋ ዋና፣ ＋ ተደራቢ ወይም ወደ ቃል ይጎትቱ', 'Added to Media — ＋ Main, ＋ Overlay, or drag it onto a word');
+    setTimeout(() => { if (/Media|ሚዲያ/.test(hint.textContent)) hint.textContent = ''; }, 4000);
+    const it = mediaPane.querySelectorAll('.ed-mitem');
+    const last = it[it.length - 1];
+    if (last) { last.classList.add('fresh'); try { last.scrollIntoView({ block: 'nearest' }); } catch (e) {} }
+    return id;
   }
   async function addAndPlace(p) {
     const id = await addMedia(p);
@@ -1749,10 +2024,15 @@
         it.addEventListener('dragstart', (e) => { try { e.dataTransfer.setData('text/amh-media', id); e.dataTransfer.effectAllowed = 'copy'; } catch (x) {} });
       }
       const th = el('div', 'ed-mthumb', m.image ? '' : (m.video ? '🎬' : '♪'));
-      if (m.image) { const im = el('img'); im.src = urlOf(id); th.appendChild(im); }
+      if (m.image) { const im = el('img'); srcOf(im, id); th.appendChild(im); }
       th.appendChild(el('b', '', m.image ? '🖼' : S.fmtClock(m.dur)));
       it.appendChild(th);
       it.appendChild(el('div', 'ed-mname', m.name));
+      if (OFFLINE[id]) {
+        it.classList.add('offline');
+        it.appendChild(el('div', 'ed-mcap err', '⚠ ' + tx('ፋይሉ ተንቀሳቅሷል ወይም ተሰርዟል', 'The file was moved or deleted')));
+        it.appendChild(btn('st-btn primary ed-mcapbtn', '📂 ' + tx('ፋይሉን ፈልግ', 'Find the file'), m.path, () => findFile(id)));
+      }
       const used = clips.filter((c) => c.m === id).length + ovl.filter((o) => o.m === id).length + mus.filter((o) => o.m === id).length;
       const caps = (SRC[id] || []).length;
       it.appendChild(el('div', 'ed-mmeta', (caps ? '✓ ' + tx('ካፕሽን አለው', 'captions') : tx('ካፕሽን የለውም', 'no captions')) + (used ? ' · ' + used + '× ' + tx('በጊዜ መስመሩ', 'on timeline') : '')));
@@ -1811,7 +2091,7 @@
   const origDropped = window.__amhDropped;
   window.__amhDropped = (paths) => {
     if (typeof reviewOpen !== 'undefined' && reviewOpen && built) {
-      (paths || []).reduce((pr, p) => pr.then(() => addAndPlace(p)), Promise.resolve());
+      (paths || []).reduce((pr, p) => pr.then(() => addToMedia(p)), Promise.resolve());
       return;
     }
     if (origDropped) origDropped(paths);
@@ -2183,7 +2463,7 @@
           addBroll(id, r.s, Math.max(r.e, r.s + 0.6));
         });
         const th = el('span', 'br-pick-th');
-        if (m.image) { const im = el('img'); im.src = urlOf(id); th.appendChild(im); } else th.textContent = '🎬';
+        if (m.image) { const im = el('img'); srcOf(im, id); th.appendChild(im); } else th.textContent = '🎬';
         b.appendChild(th);
         b.appendChild(el('span', 'br-pick-n', m.name));
         grid.appendChild(b);
@@ -3066,6 +3346,19 @@
   // job: { state, fmt, res, q, enc, caps: styled-caption args or null }
   async function renderJob(job, out, onProgress, ctl) {
     ctl = ctl || {};
+    // only the marked part: the edit cut to it, its captions moved with it
+    if (job.part) {
+      const { a, b } = job.part;
+      job = Object.assign({}, job, { state: Object.assign({}, job.state, E.rangeState(job.state, a, b)), part: null });
+      if (job.caps) job.caps = Object.assign({}, job.caps, { cues: job.caps.cues.filter((q) => q[2] > a && q[1] < b).map((q) => [q[0], Math.max(0, q[1] - a), Math.min(b, q[2]) - a]) });
+    }
+    const FPS = [24, 25, 30, 50, 60].indexOf(Number(job.fps)) >= 0 ? Number(job.fps) : 30;
+    const lost = missingFiles(job.state);
+    if (lost.length) {
+      checkFiles(); renderMedia(); drawSoon();
+      throw new Error(tx('እነዚህ ፋይሎች አልተገኙም፦ ', 'These files are missing: ') + lost.map((m) => m.name).join(', ') +
+        tx(' — በ📁 ሚዲያ ውስጥ «📂 ፋይሉን ፈልግ» ይጫኑ።', ' — press "📂 Find the file" in 📁 Media.'));
+    }
     const st = E.trackedState(job.state);
     const f = job.fmt || st.fmt;
     const tot = E.total(st.clips);
@@ -3092,17 +3385,17 @@
       }
       if (job.caps && typeof renderStyled === 'function') {
         folder();
-        await renderStyled(Object.assign({}, job.caps, { mode: 'script', width: W, height: H, fps: 30, duration: tot, out: path.join(cwd, 'c.ass') }));
+        await renderStyled(Object.assign({}, job.caps, { mode: 'script', width: W, height: H, fps: FPS, duration: tot, out: path.join(cwd, 'c.ass') }));
         made.push(path.join(cwd, 'c.ass')); ass.push('c.ass');
       }
       const sv = st.snd && st.snd.sfxVol != null ? Number(st.snd.sfxVol) : 0.7;
       const sfx = E.sfxEvents(st, tot).map((x) => Object.assign({}, x, sfxAt(x))).filter((x) => fs.existsSync(x.file))
         .map((x, k) => ({ idx: used.length + k, t: x.t, vol: sv * x.vol, file: x.file }));
-      const g = E.editGraph(st.clips, info, f, 30, st.ovl || [], { ass: ass.length ? ass : null, res: job.res, mus: st.mus, snd: st.snd, zm: st.zm || [], sfx });
+      const g = E.editGraph(st.clips, info, f, FPS, st.ovl || [], { ass: ass.length ? ass : null, res: job.res, mus: st.mus, snd: st.snd, zm: st.zm || [], sfx });
       let gfile = null;
       const args = (enc) => {
         const a = ['-v', 'error', '-y'];
-        used.forEach((id) => { if (st.media[id].image) a.push('-loop', '1', '-framerate', '30'); a.push('-i', st.media[id].path); });
+        used.forEach((id) => { if (st.media[id].image) a.push('-loop', '1', '-framerate', String(FPS)); a.push('-i', st.media[id].path); });
         sfx.forEach((x) => a.push('-i', x.file));
         if (g.graph.length > 6000) {
           if (!gfile) { gfile = path.join(os.tmpdir(), 'amh_edit_' + Date.now() + '_' + nid + '.txt'); fs.writeFileSync(gfile, g.graph, { encoding: 'utf8' }); made.push(gfile); }
@@ -3155,19 +3448,25 @@
     return p2;
   }
   // ids: preset ids; styled: draw the captions; useGpu: the graphics card if found
-  async function queueExports(ids, styled, useGpu, names) {
+  // opts (1.71): { fps: 24|25|30|50|60, k4: 4K, part: only the marked part }
+  async function queueExports(ids, styled, useGpu, names, opts) {
+    opts = opts || {};
     const X = window.__amhAppExport;
     const c = window.__amhAppChosen && window.__amhAppChosen();
     const dir = c ? path.dirname(c.path) : os.tmpdir();
     const enc = useGpu ? ((await detectGpu()) || 'libx264') : 'libx264';
     const state = snapshot();
     const caps = styled ? capsNow() : null;
+    const part = opts.part ? markedPart() : null;
+    const tag = part ? ' (' + S.fmtClock(part.a) + '-' + S.fmtClock(part.b) + ')' : '';
     (ids || []).forEach((id) => {
       const P = E.PRESETS[id];
       if (!P) return;
       const label = (names && names[id]) || id;
-      QUEUE.push({ id: newId(), label, preset: id, out: freePath(dir, X.baseName() + ' (' + FILE_TAGS[id] + ')'),
-        status: 'wait', p: 0, eta: null, enc, job: { state, fmt: P.fmt || state.fmt, res: P.res, q: P.q, enc, caps } });
+      const res = opts.k4 && P.q !== 'small' ? 2160 : P.res;
+      QUEUE.push({ id: newId(), label: label + (opts.k4 && res === 2160 ? ' · 4K' : '') + (opts.fps && opts.fps !== 30 ? ' · ' + opts.fps + 'fps' : '') + tag, preset: id,
+        out: freePath(dir, (X.baseName() + ' (' + FILE_TAGS[id] + ')' + (res === 2160 ? ' 4K' : '') + tag).replace(/[\\/:*?"<>|]/g, '.')),
+        status: 'wait', p: 0, eta: null, enc, job: { state, fmt: P.fmt || state.fmt, res, q: P.q, enc, caps, fps: opts.fps || 30, part } });
     });
     qChanged();
     runQueue();
@@ -3211,6 +3510,7 @@
     bSplit.title = tx('በማጫወቻው ቦታ ቁረጥ (S)', 'Split at the playhead (S)');
     bDel.textContent = '🗑 ' + tx('ሰርዝ', 'Delete');
     bDel.title = tx('የተመረጠውን ሰርዝ (Delete)', 'Remove what is selected (Delete)');
+    bSafe.title = tx('📱 የቲክቶክ / ሪልስ / ሾርትስ ቁልፎችና ጽሑፎች የሚሸፍኑት ቦታ — ፊትና ርዕስ ከዚያ ውጭ ያድርጉ', '📱 Where TikTok / Reels / Shorts buttons and texts cover the video — keep faces and titles outside');
     bDup.textContent = '⧉ ' + tx('ድገም', 'Duplicate');
     bDup.title = tx('ቅጂ ከተመረጠው በኋላ (Ctrl+D) · ቅዳ Ctrl+C · ለጥፍ Ctrl+V · ብዙ ለመምረጥ Shift + ጠቅ', 'A copy right after it (Ctrl+D) · Copy Ctrl+C · Paste Ctrl+V · Shift + click to select several');
     bTrans.textContent = '⧓ ' + tx('ሽግግር', 'Transition');
@@ -3251,45 +3551,85 @@
     renderReview();
     await seek(0);
     after(); renderMedia(); syncUndo();
+    setTimeout(() => maybeGuide(false), 600);
   }
   function saveState() {
     if (!built) return null;
     syncSrc();
-    return { v: 1, fmt, clips, ovl, txt, mus, snd, zm, trk, media, S: SRC };
+    return { v: 1, fmt, clips, ovl, txt, mus, snd, zm, trk, mk, io, media, S: SRC };
   }
   function loadState(ed, cues) {
     opening = null;
     if (ed && Array.isArray(ed.clips) && ed.clips.length && ed.media) {
-      media = ed.media; clips = ed.clips; ovl = ed.ovl || []; txt = ed.txt || []; mus = ed.mus || []; snd = ed.snd || { clean: false, loud: 'off' }; zm = ed.zm || []; trk = ed.trk || { tx: [], ov: [], au: [] }; fmt = ed.fmt || '16:9'; SRC = ed.S || {};
+      media = ed.media; clips = ed.clips; ovl = ed.ovl || []; txt = ed.txt || []; mus = ed.mus || []; snd = ed.snd || { clean: false, loud: 'off' }; zm = ed.zm || []; trk = ed.trk || { tx: [], ov: [], au: [] }; fmt = ed.fmt || '16:9'; SRC = ed.S || {}; mk = ed.mk || []; io = ed.io || null;
       Object.keys(media).forEach(loadPeaks);
       Object.keys(media).forEach(previewCopy);
+      checkFiles();
       built = true; fitted = false; cur = 0; ET = 0; sel = null;
       reviewCues = E.deriveCaptions(clips, SRC);
       renderReview();
       seek(0); after(); renderMedia(); syncUndo();
+      setTimeout(() => maybeGuide(false), 600);
     } else {
-      built = false; media = {}; clips = []; ovl = []; txt = []; mus = []; snd = { clean: false, loud: 'off' }; zm = []; trk = { tx: [], ov: [], au: [] }; SRC = {};
+      built = false; media = {}; clips = []; ovl = []; txt = []; mus = []; snd = SND_NEW(); zm = []; trk = { tx: [], ov: [], au: [] }; SRC = {}; mk = []; io = null;
       void cues;
       open();
     }
   }
   function reset() {
     pause();
-    built = false; media = {}; clips = []; ovl = []; txt = []; mus = []; snd = { clean: false, loud: 'off' }; zm = []; trk = { tx: [], ov: [], au: [] }; SRC = {}; sel = null; fitted = false; REDO.length = 0; opening = null;
+    built = false; media = {}; clips = []; ovl = []; txt = []; mus = []; snd = SND_NEW(); zm = []; trk = { tx: [], ov: [], au: [] }; SRC = {}; mk = []; io = null; sel = null; fitted = false; REDO.length = 0; opening = null;
     Object.keys(TXEL).forEach((id) => { TXEL[id].remove(); delete TXEL[id]; });
     Object.keys(OVEL).forEach((id) => { OVEL[id].remove(); delete OVEL[id]; });
     Object.keys(MUEL).forEach((id) => { MUEL[id].pause(); MUEL[id].remove(); delete MUEL[id]; });
     const v = V(); if (v) delete v.dataset.m;
     setLeft(false);
+    if (guideEl) { guideEl.remove(); guideEl = null; }
   }
   new MutationObserver(() => { if (!review.classList.contains('show')) reset(); }).observe(review, { attributes: true, attributeFilter: ['class'] });
+
+  // ── 👋 the first time (1.71): three steps, once ─────────────────────────
+  // A new editor sees what to press: ✨ Make it pro → 🎨 a caption style →
+  // ⬆ Export. Each "Show me" lights the button up; "Got it" never again.
+  const GUIDE_KEY = 'amh_guide_done';
+  let guideEl = null;
+  function pulse(x) { if (!x) return; x.classList.remove('ed-pulse'); void x.offsetWidth; x.classList.add('ed-pulse'); setTimeout(() => x.classList.remove('ed-pulse'), 2600); }
+  function closeGuide() { if (guideEl) { guideEl.remove(); guideEl = null; } try { localStorage.setItem(GUIDE_KEY, '1'); } catch (e) {} }
+  function maybeGuide(force) {
+    let done = false;
+    try { done = localStorage.getItem(GUIDE_KEY) === '1'; } catch (e) {}
+    if ((done && !force) || guideEl || !built) return;
+    guideEl = el('div', 'ed-guide');
+    const head = el('div', 'ed-guide-h');
+    head.appendChild(el('b', '', '👋 ' + tx('እንኳን ደህና መጡ — 3 ቀላል ደረጃዎች', 'Welcome — 3 easy steps')));
+    head.appendChild(el('span', 'st-flex'));
+    head.appendChild(btn('st-ico', '✕', tx('ዝጋ', 'Close'), closeGuide));
+    guideEl.appendChild(head);
+    const step = (n, text, sub, go) => {
+      const r = el('div', 'ed-guide-s');
+      r.appendChild(el('span', 'ed-guide-n', String(n)));
+      const t = el('div', 'ed-guide-t');
+      t.appendChild(el('b', '', text));
+      t.appendChild(el('span', '', sub));
+      r.appendChild(t);
+      r.appendChild(btn('st-btn', tx('አሳየኝ', 'Show me'), '', go));
+      guideEl.appendChild(r);
+    };
+    step(1, '✨ ' + tx('ፕሮ አድርግ', 'Make it pro'), tx('ዝምታዎችን ይቆርጣል፣ ድምፁን ያጸዳል፣ ዙም ይጨምራል — በአንድ ጠቅታ', 'Cuts the pauses, cleans the voice, adds zooms — one click'), () => pulse(bPro));
+    step(2, '🎨 ' + tx('የካፕሽን ስታይል', 'A caption style'), tx('በቀኝ በኩል አንዱን ይምረጡ — ወዲያው በቪዲዮው ላይ ይታያል', 'Pick one on the right — it shows on the video at once'), () => { ST.showTab('style'); pulse(document.querySelector('.st-tabs, .st-tab')); });
+    step(3, '⬆ ' + tx('ይላኩ', 'Export'), tx('ቲክቶክ፣ ዩቲዩብ፣ ቴሌግራም… ቪዲዮው ዝግጁ ነው', 'TikTok, YouTube, Telegram… your video is ready'), () => pulse(document.querySelector('.st-export')));
+    guideEl.appendChild(el('div', 'ed-guide-f', tx('ጠቃሚ፦ በግራ በኩል ያለውን ጽሑፍ በመሰረዝ ቪዲዮውን ያርሙ · ? = አቋራጮች', 'Tip: edit the video by deleting words in the text on the left · ? = shortcuts')));
+    const ok = btn('st-btn primary', tx('ገባኝ', 'Got it'), '', closeGuide);
+    guideEl.appendChild(ok);
+    review.appendChild(guideEl);
+  }
   const shown = () => { const c = window.__amhAppChosen && window.__amhAppChosen(); if (c && !Object.keys(media).length) addMedia(c.path, { id: 'm1' }).then(() => { const v = V(); if (v) v.dataset.m = 'm1'; frame(); }); };
 
   relabel();
   loadFonts();
-  ST.attachEditor({ draw, drawSoon, seek, duration: total, peaks: editPeaks, open, shown, saveState, loadState, exportVideo, format: () => fmt,
+  ST.attachEditor({ draw, drawSoon, seek, duration: total, peaks: editPeaks, open, shown, saveState, loadState, exportVideo, markedPart, format: () => fmt,
     queueExports, stopExport, clearDone, detectGpu, gpuName: (e) => GPU_NAMES[e] || '', queue: () => QUEUE, onQueue: (f) => qWatch.push(f),
     setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } });
   window.__amhEditor = { renderJob, snapshot, open, copySel, paste, duplicate, togglePick, selected, state: () => ({ clips, ovl, txt, mus, snd, zm, media, SRC, fmt, sel, built }), addOverlay, addText, addZoom, autoZooms, addBroll, brollPicker, findFaces, followFaces, frameClips, useSoundFolder, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, moveRange, total, redo,
-    select: (id) => { sel = id; picks = []; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, render, exportVideo, frame, setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } };
+    select: (id) => { sel = id; picks = []; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, guide: () => maybeGuide(true), queueExports, queue: () => QUEUE, markedPart, toggleMarker, markIO, clearIO, setShuttle, markers: () => mk, addToMedia, findFile, missingFiles, checkFiles, render, exportVideo, frame, setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } };
 })();
