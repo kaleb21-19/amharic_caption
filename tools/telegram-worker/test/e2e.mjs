@@ -3977,6 +3977,104 @@ console.log('\n:: 1.10.12 feedback from the program');
   ok('feedback: the owner gets the message (escaped), who sent it (tap to reply), trial card button; limited');
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: 1.77 the first video without Telegram');
+{
+  const { env } = fresh();
+  const IP = { 'CF-Connecting-IP': '196.188.70.1' };
+  const req = async (body, ip = IP) => (await api(env, '/api/trial/request', { method: 'POST', body, headers: ip })).json();
+  const state = async (mid) => (await api(env, '/api/trial?v=2&mid=' + mid, { headers: IP })).json();
+  const use = async (mid, run, seconds) => (await api(env, '/api/trial/use', { method: 'POST', body: { mid, run_id: run, seconds }, headers: IP })).json();
+  const said = (from, uid) => OUTBOUND.slice(from).filter((x) => x.method === 'sendMessage' && String(x.body.chat_id) === String(uid)).map((x) => x.body.text || '').join('\n');
+  const MID = '77aa77aa77aa77aa';
+  const HF = '7a7a7a7a';
+  const U = 977000001;
+
+  // an older panel (no "starter") still gets only the Telegram link
+  let j = await req({ mid: '77bb77bb77bb77bb', hf: '7b7b7b7b' });
+  assert.equal(j.status, 'none');
+  assert.ok(j.link, 'old panels: link only');
+  // a 1.77 panel: the first 5 minutes right away, and a link for the rest
+  j = await req({ mid: MID, hf: HF, starter: true });
+  assert.equal(j.status, 'active', 'active without Telegram');
+  assert.equal(j.started, true);
+  assert.equal(j.starter, true);
+  assert.equal(j.seconds_left, 300, 'default: the first 5 minutes');
+  assert.ok(/start=t_/.test(j.link), 'a link for the rest');
+  const g0 = row(env, 'SELECT uid, hf, expires_at FROM trial_grants WHERE machine_id=?', MID);
+  assert.equal(g0.uid, 'pc:' + MID);
+  assert.ok(g0.expires_at, 'the same free week');
+  // it works like any free minutes; nothing is sent to a non-chat
+  let n = OUTBOUND.length;
+  j = await use(MID, 'run-start-000001', 400);
+  assert.equal(j.charged, true);
+  assert.equal(j.seconds, 300, 'a long video: the first 5 minutes');
+  assert.equal(j.seconds_left, 0);
+  assert.ok(!OUTBOUND.slice(n).some((x) => String(x.body.chat_id).startsWith('pc:')), 'no message to a computer-only trial');
+  assert.equal((await use(MID, 'run-start-000002', 30)).reason, 'minutes_used');
+  // asked again: the state and a fresh link, never a second start
+  j = await req({ mid: MID, hf: HF, starter: true });
+  assert.equal(j.seconds_left, 0);
+  assert.equal(j.started, undefined, 'no second start');
+  assert.ok(/start=t_/.test(j.link), 'still a link for the rest');
+  // the same computer under a new Machine ID: no new start
+  j = await req({ mid: '77cc77cc77cc77cc', hf: HF, starter: true });
+  assert.equal(j.status, 'none', 'one start per computer');
+  // no fingerprint: no start
+  j = await req({ mid: '77dd77dd77dd77dd', starter: true });
+  assert.equal(j.status, 'none', 'no fingerprint, no start');
+  ok('first minutes: a new computer gets 5 min without Telegram (1.77 panels with a fingerprint), once per computer, link for the rest');
+
+  // START in the bot: the account is linked, the total becomes the full 20 minutes
+  j = await req({ mid: MID, hf: HF, starter: true });
+  n = OUTBOUND.length;
+  await post(env, msg(U, { id: U, username: 'starter1' }, { text: '/start t_' + j.nonce }));
+  assert.ok(said(n, U).includes('Your free minutes were added — 15:00 left'), said(n, U));
+  j = await state(MID);
+  assert.equal(j.status, 'active');
+  assert.equal(j.starter, undefined, 'linked to Telegram now');
+  assert.equal(j.seconds_left, 900, '20 in all: 5 used, 15 left');
+  assert.equal(row(env, 'SELECT uid FROM trial_grants WHERE machine_id=?', MID).uid, String(U));
+  assert.equal((await use(MID, 'run-start-000003', 60)).charged, true);
+  // an account that already had free minutes cannot top up another computer
+  const MID2 = '77ee77ee77ee77ee';
+  await req({ mid: MID2, hf: '7e7e7e7e', starter: true }, { 'CF-Connecting-IP': '196.188.70.2' });
+  j = await req({ mid: MID2, hf: '7e7e7e7e', starter: true }, { 'CF-Connecting-IP': '196.188.70.2' });
+  n = OUTBOUND.length;
+  await post(env, msg(U, { id: U }, { text: '/start t_' + j.nonce }));
+  assert.ok(said(n, U).includes('This Telegram account already had its free minutes'));
+  assert.equal((await state(MID2)).seconds_left, 300, 'keeps only its first minutes');
+  ok('first minutes: START in the bot links the account and tops up to the full free minutes; one account, one top-up');
+
+  // the owner sees computer-only trials and sets the minutes (0 = Telegram first)
+  n = OUTBOUND.length;
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:trials');
+  let scr = OUTBOUND.slice(n).filter((x) => /Free trial — /.test(String(x.body.text || ''))).pop();
+  assert.ok(scr.body.text.includes('no Telegram yet') && scr.body.text.includes('first 5 of them on the computer'), scr.body.text);
+  assert.ok(JSON.stringify(scr.body.reply_markup).includes('admin:tstart:1'), 'the setting');
+  n = OUTBOUND.length;
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:tgcard:' + MID2);
+  const card = OUTBOUND.slice(n).filter((x) => /Free jobs:/.test(String(x.body.text || ''))).pop();
+  assert.ok(card && card.body.text.includes('no Telegram yet') && !JSON.stringify(card.body.reply_markup).includes('tgmsg'), 'no Message button');
+  for (let i = 0; i < 6; i++) await cb(env, { id: Number(ADMIN_ID) }, 'admin:tstart:-1');
+  j = await req({ mid: '77ff77ff77ff77ff', hf: '7f7f7f7f', starter: true }, { 'CF-Connecting-IP': '196.188.70.3' });
+  assert.equal(j.status, 'none', 'off: Telegram first, as before');
+  await cb(env, { id: 955500001 }, 'admin:tstart:3');
+  assert.equal(row(env, "SELECT value FROM settings WHERE key='trial_starter_minutes'").value, '0', 'admins only');
+  ok('first minutes: the owner sees 🖥 computer-only trials (no Message button) and sets the minutes; 0 = Telegram first');
+
+  // /funnel: why the free-minutes step stopped someone
+  const ev = (e, ip) => api(env, '/api/event', { method: 'POST', body: { e, h: 'APP', os: 'win', v: '1.77.0' }, headers: { 'CF-Connecting-IP': ip }, cf: { country: 'ET' } });
+  await ev('blocked_trial', '196.188.71.1'); await ev('gate_used', '196.188.71.1');
+  await ev('trial_starter', '196.188.71.2'); await ev('trial_starter', '196.188.71.3'); await ev('trial_more', '196.188.71.2');
+  n = OUTBOUND.length;
+  await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: '/funnel' }));
+  const f = OUTBOUND.slice(n).map((x) => String(x.body.text || '')).join('\n');
+  assert.ok(f.includes('free minutes, why: used up 1'), f);
+  assert.ok(f.includes('Got the first minutes without Telegram: <b>2</b>') && f.includes('“more in Telegram”: 1'), f);
+  ok('/funnel: the free-minutes stop split by reason; first minutes without Telegram counted');
+}
+
 // Across EVERY scenario: nothing may be silently refused by Telegram (a refused
 // call is a screen the user never sees). Only the recovered photo→file case.
 {

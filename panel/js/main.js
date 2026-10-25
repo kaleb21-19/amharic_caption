@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.76.0';
+const APP_VERSION = '1.77.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -2140,7 +2140,21 @@ function setTrialState(data) {
     status: data.status, minutes: data.minutes || 20,
     seconds_left: data.seconds_left || 0, seconds_total: data.seconds_total || 0,
     expires: /^\d{4}-\d{2}-\d{2}$/.test(String(data.expires || '')) ? data.expires : '',
+    starter: !!data.starter,
   };
+}
+// 1.77: the first minutes were given on this computer, before Telegram; the
+// bot adds the rest. How many more the bot gives:
+function trialMoreMinutes() {
+  if (!TRIAL_MIN || !TRIAL_MIN.starter) return 0;
+  return Math.max(1, trialMinutes() - Math.round((TRIAL_MIN.seconds_total || 0) / 60));
+}
+// Why the free-minutes step stopped a job, for the anonymous step counts.
+function gateReason(st) {
+  if (!st) return 'offline';
+  if (st === 'none' || st === 'pending' || st === 'expired') return st;
+  if (st === 'blocked' || st === 'refused') return 'blocked';
+  return 'used';
 }
 // Free captions are counted per computer too: the fingerprint goes along.
 function trialHostParam() {
@@ -2216,6 +2230,16 @@ function renderTrialGate() {
     const msg = TRIAL_WAIT ? 'Waiting for Telegram… press START there. Your captions start by themselves.' : '';
     if (wait) { wait.textContent = msg ? L(msg) : ''; wait.style.display = msg ? '' : 'none'; }
     set('trialGateKey', 'Free, no payment. Already have a license key? Enter it below.');
+  } else if (kind === 'more') {
+    const more = trialMoreMinutes();
+    set('trialGateTitle', '🎁 Get ' + more + ' more free minutes');
+    lines(['Your first free minutes on this computer are used.',
+           'Tap the button below — our Telegram bot opens — and press START.',
+           'Come back here — your captions start by themselves.']);
+    if (btn) { btn.style.display = ''; btn.textContent = L('🎁 Get ' + more + ' more free minutes — 1 tap'); }
+    const msg = TRIAL_WAIT ? 'Waiting for Telegram… press START there. Your captions start by themselves.' : '';
+    if (wait) { wait.textContent = msg ? L(msg) : ''; wait.style.display = msg ? '' : 'none'; }
+    set('trialGateKey', 'Free, no payment. Already have a license key? Enter it below.');
   } else if (kind === 'pending') {
     set('trialGateTitle', '⏳ Your free minutes are being checked');
     lines(['We check a few requests by hand. You will get a message in Telegram.',
@@ -2257,8 +2281,23 @@ function resumeAfterTrial() {
 // runFile()): licensed, or free minutes left. Otherwise say what to do.
 function assertCanRun(resume) {
   if (LICENSED || trialRemaining() > 0) { hideTrialGate(); return true; }
-  track('blocked_trial');
   const st = TRIAL_MIN ? TRIAL_MIN.status : null;
+  // 1.77: 51 of 137 people who pressed Make captions in 30 days stopped here
+  // ("Telegram first"). A new computer now gets its first minutes right
+  // here and the job starts; Telegram is for the rest.
+  if (st === 'none' && !STARTER_ASKED) {
+    STARTER_ASKED = true;
+    askStarterMinutes(resume);
+    return false;
+  }
+  track('blocked_trial');
+  track('gate_' + gateReason(st));
+  const more = trialMoreMinutes();
+  if (more && st !== 'blocked' && st !== 'refused') {
+    showTrialGate('more', resume);
+    log('Your first free minutes are used — get ' + more + ' more free minutes in Telegram (the button under Generate).');
+    return false;
+  }
   if (st === 'none') showTrialGate('none', resume);
   else if (st === 'pending') showTrialGate('pending', null);
   else if (!st) showTrialGate('offline', resume);
@@ -2276,6 +2315,24 @@ function assertCanRun(resume) {
     log('Buy a license (below) to keep making captions.');
   }
   return false;
+}
+// 1.77: the first free minutes on this computer, without Telegram (the
+// server gives them once per computer). Then the job that was asked for
+// starts; when the server says no, the usual Telegram card.
+let STARTER_ASKED = false;
+async function askStarterMinutes(resume) {
+  const r = await apiPost('/api/trial/request', { mid: MACHINE_ID, hf: hostFingerprint() || undefined, starter: true });
+  if (r && r.mode === 'minutes') setTrialState(r);
+  else STARTER_ASKED = false;           // no answer: ask again next time
+  updateLicenseUI();
+  if (trialRemaining() > 0) {
+    if (r.started) track('trial_starter');
+    log('🎁 ' + fmtMinSec(trialRemaining()) + ' free minutes on this computer — your captions start now.');
+    if (resume && !runInProgress && !runStartInProgress) resume();
+    return;
+  }
+  if (!assertCanRun(resume)) return;
+  if (resume) resume();
 }
 function newRunId() {
   try {
@@ -2339,8 +2396,10 @@ function openExternal(url) {
 }
 async function startFreeMinutes() {
   track('trial_link');
+  if (TRIAL_MIN && TRIAL_MIN.starter) track('trial_more');
   const status = document.getElementById('freeMinWait');
-  const r = await apiPost('/api/trial/request', { mid: MACHINE_ID, hf: hostFingerprint() || undefined });
+  const r = await apiPost('/api/trial/request', { mid: MACHINE_ID, hf: hostFingerprint() || undefined, starter: true });
+  if (r && r.started) track('trial_starter');
   if (!r || r.mode !== 'minutes') {
     if (status) { status.textContent = L('Cannot reach the server — check the internet and try again.'); status.style.display = ''; }
     return;
@@ -2361,7 +2420,7 @@ function startTrialPoll() {
       return;
     }
     await refreshTrialFromServer();
-    if (TRIAL_MIN && TRIAL_MIN.status !== 'none') {
+    if (TRIAL_MIN && TRIAL_MIN.status !== 'none' && !TRIAL_MIN.starter) {
       clearInterval(TRIAL_POLL); TRIAL_POLL = null; TRIAL_WAIT = 0;
       updateLicenseUI();
       if (TRIAL_MIN.status === 'active') {
@@ -2378,9 +2437,11 @@ function renderFreeMinBox() {
   const box = document.getElementById('freeMinBox');
   if (!box) return;
   const st = !LICENSED && TRIAL_MIN ? TRIAL_MIN.status : null;
-  box.style.display = (st === 'none' || st === 'pending') && !TRIAL_GATE ? '' : 'none';
+  const more = !LICENSED && st !== 'blocked' && st !== 'refused' ? trialMoreMinutes() : 0;
+  box.style.display = (st === 'none' || st === 'pending' || more) && !TRIAL_GATE ? '' : 'none';
   const title = document.getElementById('freeMinTitle');
   if (title) title.textContent = L('Try ' + trialMinutes() + ' minutes free');
+  if (title && more) title.textContent = L('Get ' + more + ' more free minutes');
   const btn = document.getElementById('freeMinBtn');
   const wait = document.getElementById('freeMinWait');
   if (btn) btn.style.display = st === 'pending' ? 'none' : '';
@@ -2463,7 +2524,7 @@ function updateLicenseUI() {
         licStatus.style.display = '';
       }
       if (runBtn) runBtn.disabled = false;
-    } else if (!st || st === 'none' || st === 'pending') {
+    } else if (!st || st === 'none' || st === 'pending' || trialMoreMinutes()) {
       // No free minutes yet (or the server not reached): the free-minutes box
       // above says what to do; Generate explains it too.
       if (banner) banner.style.display = 'none';
@@ -4651,6 +4712,7 @@ function closeReview(keepArtifact) {
 // never see it; it never covers the review.
 const SUPPORT_GROUP_URL = 'https://t.me/+L-bMfmIRyEo3MDg0';
 let TRIAL_CARD_DUE = null;   // { remaining } set when a free caption was charged
+let TRIAL_CARD_MORE = 0;     // 1.77: the card's main button gets more free minutes
 
 function showTrialCardIfDue() {
   const due = TRIAL_CARD_DUE;
@@ -4660,9 +4722,18 @@ function showTrialCardIfDue() {
   if (!card) return;
   const last = !(due.remaining > 0);
   const cut = !!due.cut;
+  // 1.77: the first minutes on this computer: the bot gives more for free
+  const more = !(due.remaining > 0) || cut ? trialMoreMinutes() : 0;
   card.classList.toggle('tc-left', !last && !cut);
-  card.classList.toggle('tc-last', last && !cut);
-  card.classList.toggle('tc-cut', cut);
+  card.classList.toggle('tc-last', last && !cut && !more);
+  card.classList.toggle('tc-cut', cut && !more);
+  card.classList.toggle('tc-more', !!more);
+  TRIAL_CARD_MORE = more;
+  const mt = $('tcMoreTitle');
+  if (mt && more) mt.textContent = L('Liked it? Get ' + more + ' more free minutes');
+  const mx = $('tcMoreText');
+  if (mx && more) mx.textContent = L((cut ? 'Your free minutes covered the first ' + fmtMinSec(due.cut) + ' of this video. ' : '') +
+    'One tap in our Telegram bot, press START, and come back — it continues by itself.');
   const lt = $('tcLeftText');
   if (lt) lt.textContent = L('You have ' + fmtMinSec(due.remaining) + ' free minutes left.');
   const ct = $('tcCutText');
@@ -4671,6 +4742,8 @@ function showTrialCardIfDue() {
   // The main action first: the group while a free caption is left, Buy after.
   $('tcGroup').className = 'btn ' + (buyFirst ? 'btn-neutral' : 'btn-primary');
   $('tcBuy').className = 'btn ' + (buyFirst ? 'btn-primary' : 'btn-neutral');
+  const tm = $('tcMore');
+  if (tm && more) tm.textContent = L('🎁 Get ' + more + ' more free minutes — 1 tap');
   card.classList.add('show');
   log(cut ? 'Free minutes covered part of this video — showing the next-step card (buy).'
     : last ? 'Free trial finished — showing the next-step card (buy / group).'
@@ -4688,6 +4761,8 @@ function initTrialCard() {
   const g = $('tcGroup'); if (g) g.addEventListener('click', () => { open(SUPPORT_GROUP_URL); hideTrialCard(); });
   const b = $('tcBuy');
   if (b) b.addEventListener('click', () => { hideTrialCard(); const buy = $('buyBtn'); if (buy) buy.click(); });
+  const mo = $('tcMore');
+  if (mo) mo.addEventListener('click', () => { hideTrialCard(); if (TRIAL_CARD_MORE) startFreeMinutes(); });
   const l = $('tcLater'); if (l) l.addEventListener('click', hideTrialCard);
 }
 

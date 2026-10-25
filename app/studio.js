@@ -573,7 +573,13 @@
   let lastSaved = '';
   // 1.76: what was last made from the open project (the library shows it) and its own name
   let projDone = null, projTitle = '';
-  window.__amhMarkDone = (kind) => { projDone = { kind, at: Date.now() }; try { saveProject(true); } catch (e) {} };
+  window.__amhMarkDone = (kind) => {
+    projDone = { kind, at: Date.now() };
+    try { saveProject(true); } catch (e) {}
+    // 1.77: /funnel "Placed / saved" counted only the .srt; CapCut, DaVinci
+    // and the finished video are the captions going out too.
+    if (kind !== 'srt' && typeof track === 'function') track('placed');
+  };
   function currentProject() {
     const c = chosenVideo();
     if (!c || typeof reviewCues === 'undefined' || !reviewCues.length) return null;
