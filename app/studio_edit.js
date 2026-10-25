@@ -1655,6 +1655,8 @@
   const typing = (x) => !!x && (/^(TEXTAREA|INPUT|SELECT)$/.test(x.tagName) || x.isContentEditable);
   document.addEventListener('keydown', (e) => {
     if (!review.classList.contains('show') || !built) return;
+    // the Script view already used it (Ctrl+D there = cut the picked words)
+    if (e.defaultPrevented) return;
     const mod = e.ctrlKey || e.metaKey;
     const k = String(e.key || '');
     if (mod && !e.altKey && (k.toLowerCase() === 'y' || (k.toLowerCase() === 'z' && e.shiftKey))) {
