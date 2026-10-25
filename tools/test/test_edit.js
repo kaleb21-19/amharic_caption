@@ -442,6 +442,8 @@ test('sound effects: come from zooms, B-roll, templates, transitions; mixed at t
   const ev = E.sfxEvents(st).map((x) => x.name + '@' + x.t);
   assert.deepStrictEqual(ev, ['pop@1', 'swish@1.94', 'click@2.2', 'whoosh@4.82', 'whoosh@5.82', 'swish@9.94', 'riser@10.8', 'ding@17'], JSON.stringify(ev));
   assert.deepStrictEqual(E.sfxEvents(Object.assign({}, st, { snd: {} })), [], 'off: none');
+  // 1.67: the editor needs each sound's lead to place the editor's own files (it crashed the export when missing)
+  E.SFX.forEach((n) => assert.ok(typeof E.SFX_LEAD[n] === 'number' && E.SFX_LEN[n] > 0, n));
   assert.ok(!ev.some((x) => /^boom/.test(x)), "an item's 'none' wins");
   // the export: the sounds are inputs, delayed to their times, in the final mix
   const media = { v: { idx: 0, video: true, audio: true, w: 1920, h: 1080, dur: 20 } };

@@ -2072,7 +2072,10 @@
     if (!playing || !snd.sfx) { sfxLastT = t; return; }
     if (t < sfxLastT || t - sfxLastT > 0.5) { sfxLastT = t; return; }        // a seek: nothing plays
     const vol = snd.sfxVol == null ? 0.7 : Number(snd.sfxVol);
-    E.sfxEvents({ snd, clips, ovl, txt, zm }, total()).forEach((ev) => { if (ev.t > sfxLastT && ev.t <= t) sfxPlay(ev.name, vol * ev.vol); });
+    E.sfxEvents({ snd, clips, ovl, txt, zm }, total()).forEach((ev) => {
+      const at = sfxAt(ev);                    // 📁 the editor's own sound, at its loudest moment
+      if (at.t > sfxLastT && at.t <= t) playFile(at.file, vol * ev.vol);
+    });
     sfxLastT = t;
   }
   // ⚙: an item's own sound (Auto = the Studio's choice for it)
@@ -2084,6 +2087,187 @@
       row.appendChild(btn('br-chip' + ((cur || 'auto') === v ? ' on' : ''), t, '', () => { if (E.SFX.indexOf(v) >= 0) sfxPlay(v, 0.8); onPick(v); }));
     });
     clipPane.appendChild(row);
+  }
+  // ── 📁 My sounds (1.67): the editor's own sound folder ──────────────────
+  // The Studio's sounds are made by tools/make_sfx.py; an editor who has
+  // better ones (bought, or free for their own videos) points the Studio at
+  // their folder. Each sound slot gets a file by its name (Deep Woosh ->
+  // whoosh, bang / blast -> boom…), the loudest moment of each file is found
+  // so it lands on the zoom / title, and any file can be dropped at the
+  // playhead. Their files stay on this computer: nothing is copied or sent.
+  const SFX_KEYS = {
+    whoosh: /w+h?oo+sh|swoosh|air|wind/i, swish: /swish|swoosh|slice|swipe|fast|party/i, boom: /boom|bang|blast|impact|explosion|hits?/i,
+    pop: /pop/i, click: /click|tap|button|\bui\b|ui\d|mouse/i, ding: /ding|ping|bell|success|bonus|glock|notification/i,
+    riser: /riser|rise|build/i, tick: /typ|keyboard|tick|clock/i,
+  };
+  const AUDIO_EXT = /\.(mp3|wav|m4a|aac|ogg|flac|wma)$/i;
+  function myLib() { try { return loadSettings().sfxLib || {}; } catch (e) { return {}; } }
+  function saveLib(lib) { try { saveSettings({ sfxLib: lib }); } catch (e) {} }
+  // every audio file under the folder (two levels down), with its length
+  function scanSounds(dir) {
+    const out = [];
+    const walk = (d, depth) => {
+      let names = [];
+      try { names = fs.readdirSync(d); } catch (e) { return; }
+      names.forEach((n) => {
+        const p = path.join(d, n);
+        let st = null;
+        try { st = fs.statSync(p); } catch (e) { return; }
+        if (st && st.isDirectory && st.isDirectory()) { if (depth < 2 && !/preview/i.test(n)) walk(p, depth + 1); return; }
+        if (AUDIO_EXT.test(n)) out.push({ file: p, name: n.replace(/\.[^.]+$/, '') });
+      });
+    };
+    walk(dir, 0);
+    return out;
+  }
+  // where a sound is loudest (s) and how long it is, from ffmpeg's levels
+  function soundShape(file) {
+    return new Promise((resolve) => {
+      let txt = '';
+      let p;
+      try {
+        p = spawn(FFMPEG, ['-hide_banner', '-nostats', '-i', file, '-af', 'aresample=8000,asetnsamples=n=160,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.Peak_level:file=-', '-f', 'null', '-']);
+      } catch (e) { resolve(null); return; }
+      p.stdout.on('data', (d) => { txt += String(d); });
+      p.on('close', () => {
+        let best = -1e9, at = 0, t = 0, end = 0;
+        txt.split('\n').forEach((line) => {
+          const m = /pts_time:([\d.]+)/.exec(line);
+          if (m) { t = Number(m[1]); end = t; return; }
+          const v = /Peak_level=(-?[\d.]+|-inf)/.exec(line);
+          if (v && v[1] !== '-inf' && Number(v[1]) > best + 0.5) { best = Number(v[1]); at = t; }
+        });
+        resolve(end > 0 ? { peak: Math.round(at * 1000) / 1000, dur: Math.round((end + 0.02) * 1000) / 1000 } : null);
+      });
+    });
+  }
+  // the folder chosen: scan it, give each slot the best-named short file
+  async function chooseSoundFolder(onStep) {
+    let dir = '';
+    try { const r = window.cep.fs.showOpenDialog(false, true, tx('የድምፅ ውጤቶች አቃፊ', 'Your sound effects folder')); dir = (r && r.data && r.data[0]) || ''; } catch (e) {}
+    if (!dir) return null;
+    return useSoundFolder(dir, onStep);
+  }
+  async function useSoundFolder(dir, onStep) {
+    const files = scanSounds(dir);
+    const lib = { dir, files: [], map: {} };
+    // four at a time (a folder of 200 sounds in about half a minute)
+    let next = 0, done = 0;
+    const shapes = new Array(files.length);
+    const worker = async () => {
+      while (next < files.length) {
+        const i = next++;
+        shapes[i] = await soundShape(files[i].file);
+        if (onStep) onStep(++done, files.length);
+      }
+    };
+    await Promise.all([worker(), worker(), worker(), worker()]);
+    files.forEach((f, i) => { const sh = shapes[i]; if (sh && sh.dur > 0.03) lib.files.push(Object.assign({}, f, sh)); });
+    E.SFX.forEach((slot) => {
+      const ok = lib.files.filter((f) => SFX_KEYS[slot].test(f.name) && f.dur <= (slot === 'riser' || slot === 'tick' ? 8 : 4));
+      // the slot's own word first ("Boom…" before "Bang…"), then the cleanest (shortest) name
+      const own = (f) => (new RegExp(slot === 'whoosh' ? 'w+h?oo+sh' : slot, 'i').test(f.name) ? 0 : 1);
+      ok.sort((a, b) => own(a) - own(b) || a.name.length - b.name.length);
+      if (ok.length) lib.map[slot] = { file: ok[0].file, peak: ok[0].peak };
+    });
+    saveLib(lib);
+    return lib;
+  }
+  // a slot's sound now: the editor's file (when it is there) or ours
+  function sfxSource(name) {
+    const m = myLib().map || {};
+    const own = m[name];
+    if (own && own.file) { try { if (fs.existsSync(own.file)) return { file: own.file, peak: Number(own.peak) || 0, own: true }; } catch (e) {} }
+    return { file: sfxFile(name), peak: 0, own: false };
+  }
+  const OWNURL = {};
+  const fileUrlOf = (f) => { if (!OWNURL[f]) { try { OWNURL[f] = APP.call('media', [f]); } catch (e) { OWNURL[f] = ''; } } return OWNURL[f]; };
+  function playFile(f, vol) {
+    const u = fileUrlOf(f);
+    if (!u) return;
+    try { const a = new Audio(u); a.volume = Math.max(0, Math.min(1, vol)); a.play().catch(() => {}); } catch (e) {}
+  }
+  // an event's real start: our sounds lead by SFX_LEAD; the editor's by their loudest moment
+  function sfxAt(ev) {
+    const src = sfxSource(ev.name);
+    const t = src.own ? Math.max(0, ev.t - (E.SFX_LEAD[ev.name] || 0) - src.peak) : ev.t;
+    return { t, file: src.file };
+  }
+  // 📚 a sound from the library at the playhead: it goes on the ♪ track (drag it there)
+  async function soundAtPlayhead(f) {
+    const id = await addMedia(f.file);
+    if (!id) return;
+    const at = Math.max(0, Math.min(time() - (f.peak || 0), total() - 0.1));
+    const len = Math.min(media[id].dur || f.dur || 1, total() - at);
+    const mid = newId();
+    change('add sound', () => { mus = mus.concat([{ id: mid, m: id, in: 0, out: Math.round(len * 1000) / 1000, start: Math.round(at * 1000) / 1000, volume: 0.8, fadeIn: 0, fadeOut: 0, duck: 0 }]); });
+    drawSoon();
+  }
+  function renderMySounds() {
+    const lib = myLib();
+    soundPane.appendChild(el('div', 'ed-sec', '📁 ' + tx('የኔ ድምፆች', 'My sounds')));
+    const head = el('div', 'st-row');
+    const pick = btn('st-btn', lib.dir ? '📁 ' + tx('ሌላ አቃፊ', 'Another folder') : '📁 ' + tx('የድምፅ አቃፊዬን ምረጥ', 'Choose my sound folder'), '', async () => {
+      const r = await chooseSoundFolder((i, n) => { pick.textContent = '⏳ ' + (i + 1) + ' / ' + n; });
+      if (r) log('📁 ' + tx('ድምፆች ተገኝተዋል፦ ', 'Sounds found: ') + r.files.length);
+      renderSound();
+    });
+    head.appendChild(pick);
+    if (lib.dir) {
+      head.appendChild(btn('st-btn', '↻ ' + tx('እንደገና ቃኝ', 'Scan again'), '', async () => { await useSoundFolder(lib.dir); renderSound(); }));
+      head.appendChild(btn('st-btn', tx('የስቱዲዮውን ድምፆች ተጠቀም', 'Use the Studio\'s sounds'), '', () => { saveLib({}); renderSound(); }));
+    }
+    soundPane.appendChild(head);
+    if (!lib.dir) {
+      soundPane.appendChild(el('div', 'st-note', tx('የራስዎ የድምፅ ውጤቶች አሉ? አቃፊውን ይምረጡ — ስቱዲዮው በስማቸው ያስተካክላቸዋል (Woosh → ዉሽ፣ Boom → ቡም…)። ፋይሎቹ በዚህ ኮምፒውተር ብቻ ይቆያሉ።',
+        'Have your own sound effects? Choose their folder — the Studio matches them by name (Woosh → whoosh, Boom → boom…). The files stay on this computer.')));
+      return;
+    }
+    soundPane.appendChild(el('div', 'st-note', lib.dir + ' · ' + (lib.files || []).length + ' ' + tx('ድምፆች', 'sounds')));
+    // each slot: which file plays (▶ to hear; "Studio" = ours)
+    const N = SFXNAME();
+    E.SFX.forEach((slot) => {
+      const row = el('div', 'ed-row ms-row simple-ok');
+      row.appendChild(el('span', 'ed-lab', N[slot]));
+      const sel2 = el('select', 'ms-sel');
+      const cur = (lib.map || {})[slot];
+      const opt = (v, t) => { const o = el('option', '', t); o.value = v; if ((cur ? cur.file : '') === v) o.selected = true; sel2.appendChild(o); };
+      opt('', '★ ' + tx('የስቱዲዮው', 'Studio\'s'));
+      const files = (lib.files || []).slice().sort((a, b) => (SFX_KEYS[slot].test(b.name) - SFX_KEYS[slot].test(a.name)) || a.name.localeCompare(b.name));
+      files.forEach((f) => opt(f.file, (SFX_KEYS[slot].test(f.name) ? '● ' : '') + f.name + ' · ' + f.dur.toFixed(1) + 's'));
+      sel2.addEventListener('change', () => {
+        const L2 = myLib();
+        L2.map = L2.map || {};
+        const f = (L2.files || []).find((x) => x.file === sel2.value);
+        if (f) L2.map[slot] = { file: f.file, peak: f.peak }; else delete L2.map[slot];
+        saveLib(L2);
+        const s2 = sfxSource(slot);
+        if (s2.own) playFile(s2.file, 0.8); else sfxPlay(slot, 0.8);
+      });
+      row.appendChild(sel2);
+      row.appendChild(btn('br-chip', '▶', tx('ያዳምጡ', 'Listen'), () => { const s2 = sfxSource(slot); if (s2.own) playFile(s2.file, 0.8); else sfxPlay(slot, 0.8); }));
+      soundPane.appendChild(row);
+    });
+    // 📚 the whole library: hear it, put it at the playhead
+    soundPane.appendChild(el('div', 'ed-sec', '📚 ' + tx('የድምፅ ቤተ-መጽሐፍት', 'Sound library') + ' · ' + tx('በማጫወቻው ቦታ ያስገቡ', 'add at the playhead')));
+    const q = el('input', 'ed-in ms-q');
+    q.placeholder = tx('ፈልግ… (cash, camera, laugh)', 'Search… (cash, camera, laugh)');
+    const list = el('div', 'ms-list');
+    const fill = () => {
+      list.textContent = '';
+      (lib.files || []).filter((f) => !q.value || f.name.toLowerCase().indexOf(q.value.toLowerCase()) >= 0).slice(0, 120).forEach((f) => {
+        const r = el('div', 'ms-item');
+        r.appendChild(btn('br-chip', '▶', tx('ያዳምጡ', 'Listen'), () => playFile(f.file, 0.8)));
+        r.appendChild(el('span', 'ms-name', f.name));
+        r.appendChild(el('span', 'ms-dur', f.dur.toFixed(1) + 's'));
+        r.appendChild(btn('br-chip', '＋', tx('በማጫወቻው ቦታ ጨምር', 'Add at the playhead'), () => soundAtPlayhead(f)));
+        list.appendChild(r);
+      });
+    };
+    q.addEventListener('input', fill);
+    fill();
+    soundPane.appendChild(q);
+    soundPane.appendChild(list);
   }
   function renderSound() {
     soundPane.textContent = '';
@@ -2124,8 +2308,9 @@
     }
     const tryRow = el('div', 'br-chips');
     const N = SFXNAME();
-    E.SFX.forEach((k) => tryRow.appendChild(btn('br-chip', '▶ ' + N[k], tx('ያዳምጡ', 'Listen'), () => sfxPlay(k, 0.8))));
+    E.SFX.forEach((k) => tryRow.appendChild(btn('br-chip', '▶ ' + N[k], tx('ያዳምጡ', 'Listen'), () => { const s2 = sfxSource(k); if (s2.own) playFile(s2.file, 0.8); else sfxPlay(k, 0.8); })));
     soundPane.appendChild(tryRow);
+    renderMySounds();
     soundPane.appendChild(el('div', 'ed-sec', '♪ ' + tx('ሙዚቃ', 'Music')));
     if (!mus.length) {
       soundPane.appendChild(el('div', 'st-note', tx('ሙዚቃ ፋይል (mp3፣ wav፣ m4a) ወደ መስኮቱ ይጎትቱ ወይም ከ📁 ሚዲያ ያስገቡ — ከዋናው መስመር በታች ይገባል።', 'Drop a music file (mp3, wav, m4a) onto the window or import it in 📁 Media — it goes under the main track.')));
@@ -2612,7 +2797,8 @@
         made.push(path.join(cwd, 'c.ass')); ass.push('c.ass');
       }
       const sv = st.snd && st.snd.sfxVol != null ? Number(st.snd.sfxVol) : 0.7;
-      const sfx = E.sfxEvents(st, tot).filter((x) => fs.existsSync(sfxFile(x.name))).map((x, k) => ({ idx: used.length + k, t: x.t, vol: sv * x.vol, file: sfxFile(x.name) }));
+      const sfx = E.sfxEvents(st, tot).map((x) => Object.assign({}, x, sfxAt(x))).filter((x) => fs.existsSync(x.file))
+        .map((x, k) => ({ idx: used.length + k, t: x.t, vol: sv * x.vol, file: x.file }));
       const g = E.editGraph(st.clips, info, f, 30, st.ovl || [], { ass: ass.length ? ass : null, res: job.res, mus: st.mus, snd: st.snd, zm: st.zm || [], sfx });
       let gfile = null;
       const args = (enc) => {
@@ -2808,6 +2994,6 @@
   ST.attachEditor({ draw, drawSoon, seek, duration: total, peaks: editPeaks, open, shown, saveState, loadState, exportVideo, format: () => fmt,
     queueExports, stopExport, clearDone, detectGpu, gpuName: (e) => GPU_NAMES[e] || '', queue: () => QUEUE, onQueue: (f) => qWatch.push(f),
     setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } });
-  window.__amhEditor = { renderJob, snapshot, state: () => ({ clips, ovl, txt, mus, snd, zm, media, SRC, fmt, sel, built }), addOverlay, addText, addZoom, autoZooms, addBroll, brollPicker, findFaces, followFaces, frameClips, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, moveRange, total, redo,
+  window.__amhEditor = { renderJob, snapshot, state: () => ({ clips, ovl, txt, mus, snd, zm, media, SRC, fmt, sel, built }), addOverlay, addText, addZoom, autoZooms, addBroll, brollPicker, findFaces, followFaces, frameClips, useSoundFolder, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, moveRange, total, redo,
     select: (id) => { sel = id; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, render, exportVideo, frame, setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } };
 })();

@@ -678,3 +678,12 @@ html.amh-editor .ed-cwrap { height: 246px; }
 .ed-mode button { height: 28px; padding: 0 12px; font-size: 12px; }
 html.amh-simple .ed-row:not(.simple-ok), html.amh-simple .pro-only { display: none !important; }
 html:not(.amh-simple) .ed-simplenote { display: none; }
+
+/* 📁 My sounds (1.67) */
+.ms-row .ms-sel { flex: 1 1 auto; min-width: 0; height: 28px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-card); color: var(--text-primary); font-family: inherit; font-size: 12px; }
+.ms-q { margin: 4px 0 6px; }
+.ms-list { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
+.ms-item { display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: 7px; }
+.ms-item:hover { background: #18221e; }
+.ms-name { flex: 1 1 auto; min-width: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ms-dur { font-size: 11px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
