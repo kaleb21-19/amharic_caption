@@ -4077,6 +4077,23 @@ console.log('\n:: 1.77 the first video without Telegram');
   assert.ok(f.includes('free minutes, why: used up 1'), f);
   assert.ok(f.includes('Got the first minutes without Telegram: <b>2</b>') && f.includes('“more in Telegram”: 1'), f);
   ok('/funnel: the free-minutes stop split by reason; first minutes without Telegram counted');
+
+  // 1.78: new computers, new captions (not reopened projects), VPN users counted as Ethiopia
+  const ev2 = (e, ip, cc, tz) => api(env, '/api/event', { method: 'POST', body: { e, h: 'APP', os: 'win', v: '1.78.0', tz }, headers: { 'CF-Connecting-IP': ip }, cf: { country: cc } });
+  await ev2('open', '196.188.72.1', 'ET', 180); await ev2('first_open', '196.188.72.1', 'ET', 180);
+  await ev2('open', '45.12.0.1', 'DE', 180); await ev2('first_open', '45.12.0.1', 'DE', 180);   // VPN
+  await ev2('open', '20.1.2.3', 'US', 0);                                                        // a test machine
+  await ev2('cap_new', '196.188.72.1', 'ET', 180);
+  await ev2('run_ok', '196.188.72.1', 'ET', 180); await ev2('run_ok', '196.188.72.2', 'ET', 180);
+  assert.equal(row(env, "SELECT SUM(n) AS n FROM events_daily WHERE cc='E3'").n, 2, 'Ethiopian time abroad stored apart');
+  n = OUTBOUND.length;
+  await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { text: '/funnel' }));
+  const f2 = OUTBOUND.slice(n).map((x) => String(x.body.text || '')).join('\n');
+  assert.ok(f2.includes('incl. 1 on a VPN'), f2);
+  assert.ok(f2.includes('New computers (first time ever): <b>2</b>'), f2);
+  assert.ok(f2.includes('New captions made: <b>1</b>') && f2.includes('Caption editor opened (new + old projects): 2'), f2);
+  assert.ok(f2.includes('opened 1.'), 'only the UTC machine abroad: ' + f2);
+  ok('/funnel 1.78: new computers, new captions apart from reopened projects, VPN users (Ethiopian time) counted with Ethiopia');
 }
 
 // Across EVERY scenario: nothing may be silently refused by Telegram (a refused

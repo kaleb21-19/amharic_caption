@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.77.2';
+const APP_VERSION = '1.78.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -367,7 +367,9 @@ function track(step) {
     const key = 'amh.ev.' + step;
     if (localStorage.getItem(key) === day) return;
     localStorage.setItem(key, day);
-    const p = apiPost('/api/event', { e: step, h: TRACK_HOST, os: TRACK_OS, v: APP_VERSION });
+    // tz (1.78): minutes ahead of UTC. Ethiopia is +180; many Ethiopian
+    // editors use a VPN, so the address alone counted them as "abroad".
+    const p = apiPost('/api/event', { e: step, h: TRACK_HOST, os: TRACK_OS, v: APP_VERSION, tz: -new Date().getTimezoneOffset() });
     if (p && typeof p.catch === 'function') p.catch(() => {});
   } catch (e) {}
 }
@@ -408,7 +410,17 @@ function errorStep(raw) {
   if (t.includes('cancel')) return '';
   return 'err_other';
 }
-setTimeout(() => track('open'), 1200);
+// 1.78: a computer's first time ever — nothing of ours in its storage yet
+// (the daily ping and the "open" step are written within 2 s of every open,
+// so an update never looks new). "Opened" mixes new and returning people.
+const FIRST_OPEN = (() => {
+  try {
+    if (localStorage.getItem(PING_KEY) || localStorage.getItem('amh.ev.open') || localStorage.getItem('amh.firstOpen')) return false;
+    localStorage.setItem('amh.firstOpen', String(Date.now()));
+    return true;
+  } catch (e) { return false; }
+})();
+setTimeout(() => { if (FIRST_OPEN) track('first_open'); track('open'); }, 1200);
 
 // ── What's new (once per release) ───────────────────────────────────────────
 // One entry per release: what an editor who updates actually gets. This list is
@@ -4674,6 +4686,7 @@ function finishLiveReview(finalCues, ok) {
 
 // After a run: finish the live review, or open the review as before.
 async function showRunResult(outSrt, label, r, projectId) {
+  track('cap_new');      // 1.78: a run finished (run_ok also counts reopened projects)
   if (LIVE_OPENING) { try { await LIVE_OPENING; } catch (e) {} }
   if (REVIEW_LIVE && reviewOpen) {
     if (REVIEW) { REVIEW.outSrt = outSrt; if (projectId) REVIEW.projectKey = projectKey(projectId); }
@@ -8475,6 +8488,7 @@ async function runWorkArea() {
     if (all.length === 0) log('No speech detected in these clips — nothing to place.');
     log('Done — ' + all.length + ' captions written (' +
         items.length + ' clip(s) cached).');
+    track('cap_new');
     await openReview(outSrt, 'sequence', 0, { projectId: info.sequence });
     return;
   }
