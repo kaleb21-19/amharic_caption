@@ -676,8 +676,72 @@ code {
 .note-box p { font-size: var(--t-sm); color: var(--ink-dim); }
 
 /* ---------------------------------------------------------------- pricing */
+/* Three plans side by side, the same size: 500, 900 and 2,500 equally clear. */
+.plans {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--s-3);
+  margin-bottom: var(--s-5);
+}
+.plan {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 18px 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--radius-lg, 14px);
+  background: rgba(255, 255, 255, 0.02);
+}
+.plan.is-best { border: 2px solid var(--brand); background: rgba(61, 220, 138, 0.07); }
+.plan-flag {
+  position: absolute;
+  top: -11px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--brand);
+  color: #04130b;
+  font-size: var(--t-xs);
+  font-weight: 800;
+  white-space: nowrap;
+}
+.plan-term { font-size: 1.05rem; font-weight: 800; color: var(--ink); }
+.plan-price { display: flex; align-items: baseline; gap: 5px; }
+.plan .price-now { font-size: clamp(2rem, 1.5rem + 2vw, 2.9rem); }
+.plan .price-cur { font-size: 1rem; color: var(--ink-dim); }
+.plan-sub { font-size: var(--t-xs); color: var(--muted); }
+.plan .price-old { display: block; font-size: var(--t-xs); }
+@media (max-width: 460px) {
+  .plans { gap: var(--s-2); }
+  .plan { padding: 16px 4px 12px; }
+  .plan .price-now { font-size: 1.75rem; }
+  .plan-term { font-size: 0.95rem; }
+}
+/* The same three under the hero button. */
+.hero-plans {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.hero-plans li {
+  display: flex;
+  flex-direction: column;
+  min-width: 104px;
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.hero-plans li.is-best { border-color: var(--brand); }
+.hp-term { font-size: var(--t-xs); font-weight: 700; color: var(--ink-dim); }
+.hp-price { font-size: 1.35rem; font-weight: 800; color: var(--ink); font-variant-numeric: lining-nums tabular-nums; }
+.strip-list b { color: var(--ink); font-weight: 800; }
 .price-card {
-  max-width: 520px;
+  max-width: 620px;
   margin-inline: auto;
   padding: clamp(24px, 4vw, 40px);
   border: 1px solid var(--brand-line);
