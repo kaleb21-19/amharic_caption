@@ -238,7 +238,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.77.1');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.77.2');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1161,6 +1161,17 @@ await t('4g. 1.77.1 a new computer: the box says "press Make captions", not "Tel
     p.evalVm('setTrialState({ mode: "minutes", status: "none", minutes: 30, seconds_total: 0, seconds_left: 0 }); updateLicenseUI();');
     assert.ok(!p.els('freeMinBox').classList.contains('fm-first'));
     assert.strictEqual(p.els('freeMinTitle').textContent, 'Try 30 minutes free');
+  } finally { p.close(); }
+});
+
+await t('4h. 1.77.2 the worker exited while the free minutes were checked: a transport error (fallback), not "stdin of null"', async () => {
+  const p = loadPanel({});
+  try {
+    await flush(5);
+    const msg = await p.evalVm('warmChild = null; warmSend({ wav: "x.wav" }).then(() => "resolved", (e) => e.message)');
+    assert.strictEqual(msg, 'worker exited');
+    assert.strictEqual(p.evalVm('WARM_TRANSPORT_ERRS.has("worker exited")'), true, 'the caller falls back to the one-shot engine');
+    assert.strictEqual(p.evalVm('warmPending.size'), 0, 'nothing left pending');
   } finally { p.close(); }
 });
 
