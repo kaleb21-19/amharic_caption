@@ -5082,6 +5082,8 @@ const EVENT_NAMES = new Set([
   'run_click', 'blocked_model', 'blocked_trial', 'blocked_runtime', 'run_ok', 'placed',
   'buy_click', 'activate_ok', 'activate_fail', 'trial_link',
   // 1.77: the free-minutes step, by reason, and the first minutes on the computer
+  // 1.78: a computer's first time ever; a finished run (not a reopened project)
+  'first_open', 'cap_new',
   'trial_starter', 'trial_more', 'gate_none', 'gate_used', 'gate_expired', 'gate_pending', 'gate_offline', 'gate_blocked',
   'err_av_blocked', 'err_too_short', 'err_no_speech', 'err_no_clips', 'err_no_clip', 'err_no_media',
   'err_media_unreadable', 'err_no_audio', 'err_disk_full', 'err_engine', 'err_runtime', 'err_license', 'err_other',
@@ -5098,16 +5100,19 @@ const ERROR_LABELS = {
 };
 
 async function usageCounts(days, cc) {
-  const where = "day >= date('now', ?) " + (cc ? 'AND cc = ?' : "AND cc != 'ET'");
-  const binds = cc ? ['-' + (days - 1) + ' days', cc] : ['-' + (days - 1) + ' days'];
+  // Ethiopia = the address (ET) or Ethiopian time behind a VPN (E3, 1.78)
+  const where = "day >= date('now', ?) " + (cc ? "AND cc IN ('ET', 'E3')" : "AND cc NOT IN ('ET', 'E3')");
+  const binds = ['-' + (days - 1) + ' days'];
   const { results } = await DB.prepare(
-    `SELECT e, host, SUM(n) AS n FROM events_daily WHERE ${where} GROUP BY e, host`).bind(...binds).all();
+    `SELECT e, host, cc, SUM(n) AS n FROM events_daily WHERE ${where} GROUP BY e, host, cc`).bind(...binds).all();
   const by = {}, hosts = {};
+  let vpn = 0;
   for (const r of results || []) {
     by[r.e] = (by[r.e] || 0) + r.n;
     if (r.e === 'open') hosts[r.host] = (hosts[r.host] || 0) + r.n;
+    if (r.e === 'open' && r.cc === 'E3') vpn += r.n;
   }
-  return { by, hosts };
+  return { by, hosts, vpn };
 }
 
 async function adminUsage(chatId, messageId, days = 7) {
@@ -5139,6 +5144,8 @@ async function adminUsage(chatId, messageId, days = 7) {
     `🧭 <b>In the program — last ${days} days</b> · Ethiopia\n` +
     '<i>Each computer counts once per day per step.</i>\n\n' +
     `💻 Opened: <b>${c('open')}</b>${hostLine}\n` +
+    (et.vpn ? `   <i>incl. ${et.vpn} on a VPN (Ethiopian time, address abroad)</i>\n` : '') +
+    (c('first_open') ? `🆕 New computers (first time ever): <b>${c('first_open')}</b>\n` : '') +
     (eds.length ? `🎬 Their editor: ${eds.join(' · ')}\n` : '') +
     (c('model_needed')
       ? `📦 Needed the model download: ${c('model_needed')}\n` +
@@ -5154,7 +5161,10 @@ async function adminUsage(chatId, messageId, days = 7) {
     (c('trial_starter') ? `🖥 Got the first minutes without Telegram: <b>${c('trial_starter')}</b>` +
       (c('trial_more') ? ` · then pressed “more in Telegram”: ${c('trial_more')}` : '') + '\n' : '') +
     (errs.length ? '❌ Errors:\n' + errs.join('\n') + '\n' : '') +
-    `✅ Captions made: <b>${c('run_ok')}</b> (${pct(c('run_click'), c('run_ok'))} of pressed)\n` +
+    (c('cap_new')
+      ? `✅ New captions made: <b>${c('cap_new')}</b> (${pct(c('run_click'), c('cap_new'))} of pressed)\n` +
+        `📂 Caption editor opened (new + old projects): ${c('run_ok')}\n`
+      : `✅ Captions made: <b>${c('run_ok')}</b> (${pct(c('run_click'), c('run_ok'))} of pressed)\n`) +
     `🎬 Placed / saved: ${c('placed')}\n` +
     `🎁 Pressed “Try free”: ${c('trial_link')}\n` +
     (c('report_sent') ? `📨 Problem reports sent: ${c('report_sent')}\n` : '') +
@@ -6788,7 +6798,11 @@ export default {
       // A panel sends each step at most once a day; this only stops a loop or
       // a flood from inflating the counts.
       if (await rateLimited('rl:ip:' + clientIp() + ':ev:' + e, 20)) return json({ ok: true, dropped: true });
-      const cc = /^[A-Z]{2}$/.test(String((request.cf && request.cf.country) || '')) ? request.cf.country : '??';
+      let cc = /^[A-Z]{2}$/.test(String((request.cf && request.cf.country) || '')) ? request.cf.country : '??';
+      // 1.78: Ethiopian time (UTC+3) from an address abroad is almost always
+      // an Ethiopian editor on a VPN (Telegram is often blocked). Kept apart
+      // as 'E3' and counted with Ethiopia; test machines run on UTC.
+      if (cc !== 'ET' && Number(b && b.tz) === 180) cc = 'E3';
       try {
         await DB.prepare(
           `INSERT INTO events_daily (day, e, host, os, v, cc, n) VALUES (date('now'), ?, ?, ?, ?, ?, 1)

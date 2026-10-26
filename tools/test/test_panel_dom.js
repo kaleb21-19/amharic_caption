@@ -238,7 +238,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.77.2');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.78.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -2889,7 +2889,8 @@ await t('10d. anonymous step counts: once a day per step, nothing personal, erro
     assert.ok(steps.includes('open'), 'opened is reported: ' + steps);
     assert.strictEqual(steps.filter((x) => x === 'run_click').length, 1, 'each step once a day');
     const body = sent.find((x) => x.e === 'run_click');
-    assert.deepStrictEqual(Object.keys(body).sort(), ['e', 'h', 'os', 'v'], 'only step, app, OS, version — no Machine ID');
+    assert.deepStrictEqual(Object.keys(body).sort(), ['e', 'h', 'os', 'tz', 'v'], 'only step, app, OS, version, time zone — no Machine ID');
+    assert.ok(Number.isInteger(body.tz) && Math.abs(body.tz) <= 840, 'time zone: minutes ahead of UTC only');
     assert.strictEqual(body.v, p.evalVm('APP_VERSION'));
     const cases = [
       ['No selected clip.', 'err_no_clip'], ['ffmpeg failed: x', 'err_media_unreadable'],
