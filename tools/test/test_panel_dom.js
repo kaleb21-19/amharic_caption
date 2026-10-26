@@ -238,7 +238,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.78.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.79.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -3275,7 +3275,7 @@ await t('15. lite package: model missing -> download card; Generate starts the d
       assert.strictEqual(p.els('statusText').textContent, 'model needed');
       assert.strictEqual(p.els('runBtn').disabled, false, 'Generate stays pressable (it explains and starts the download)');
       assert.strictEqual(p.els('modelCard').style.display, 'block', 'download card shown');
-      has(p.els('modelBtn').textContent, 'Download the Amharic model (0 MB)');
+      has(p.els('modelBtn').textContent, 'Download now — 0 MB, one time only');
       assert.strictEqual(p.evalVm('MODEL_DIR'), path.join(home, man.id), 'download target is the shared folder');
 
       // Generate with the model missing: the download starts by itself and the
