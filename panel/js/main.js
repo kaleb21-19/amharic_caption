@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.77.1';
+const APP_VERSION = '1.77.2';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3455,6 +3455,12 @@ function warmOnLine(line) {
 }
 
 function warmSend(req) {
+  // 1.77.2: the worker can exit while the free minutes are being checked
+  // (the await between warmStart() and here). Writing to it then threw
+  // "Cannot read property 'stdin' of null" and the job failed (problem
+  // report, Premiere, 33 clips). A gone worker is a transport error: the
+  // caller falls back to the one-shot engine.
+  if (!warmChild || !warmChild.stdin || warmChild.killed) return Promise.reject(new Error('worker exited'));
   req.id = ++warmSeq;
   return new Promise((resolve, reject) => {
     const p = { resolve, reject, onProgress: req.onProgress, timer: null };
