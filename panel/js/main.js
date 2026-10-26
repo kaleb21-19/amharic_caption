@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.78.0';
+const APP_VERSION = '1.79.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -8773,7 +8773,7 @@ function setModelUi(state, done) {
   const total = MODEL_TOTAL_BYTES || 1;
   if (bar && typeof done === 'number') bar.style.width = Math.min(100, (100 * done) / total).toFixed(1) + '%';
   if (state === 'idle') {
-    btn.textContent = L('⬇ Download the Amharic model (' + mb(MODEL_TOTAL_BYTES) + ' MB)');
+    btn.textContent = L('⬇ Download now — ' + mb(MODEL_TOTAL_BYTES) + ' MB, one time only');
     btn.disabled = false;
     if (label) label.textContent = L('Wi-Fi is best. Pause any time — it continues exactly where it stopped, nothing is lost.');
   } else if (state === 'running') {

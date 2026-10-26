@@ -60,9 +60,10 @@ const AM_STATIC = {
   'zoom.title':       'በ★ ቃላት፣ በቁጥሮችና በብር ላይ ቪዲዮውን ያቀርባል (ዙም)',
   'clean.title':      'ረጅም ዝምታዎችን፣ የተደገሙ አባባሎችንና የማመንታት ድምፆችን ይቆርጣል',
 
-  'model.title':      'የአማርኛ ሞዴል',
+  'model.title':      'መጀመሪያ፦ የአማርኛ ሞዴሉን ያውርዱ',
   'model.hint':       'አንድ ጊዜ ብቻ የሚወርድ',
-  'model.body':       'የአማርኛ ድምፅ ሞዴሉ <b>አንድ ጊዜ ብቻ</b> ወርዶ በዚህ ኮምፒውተር ይቀመጣል፣ ስለዚህ ቀጣይ ማሻሻያዎች ትንሽ ይሆናሉ። ኢንተርኔት ቢቋረጥ ካቆመበት ይቀጥላል።',
+  'model.must':       'ያለ እሱ ካፕሽን መስራት አይቻልም።',
+  'model.body':       '<b>አንድ ጊዜ ብቻ</b> ያውርዱት — ከዚያ በኋላ ካፕሽን በዚህ ኮምፒውተር ያለ ኢንተርኔት ለዘለቄታው ይሰራል። ኢንተርኔት ቢቋረጥ ካቆመበት ይቀጥላል።',
 
   'src.title':        'ምንጭ',
   'src.hint':         'ምን ላይ ካፕሽን ይሰራ',
@@ -654,6 +655,7 @@ const AM_PATTERNS = [
     return T(inner) + ' ዝርዝሩ ከታች «ለድጋፍ ዝርዝር መረጃ» ውስጥ አለ።';
   }],
   [/^⬇ Download the Amharic model \((\d+) MB\)$/, '⬇ የአማርኛ ሞዴሉን አውርድ ($1 MB)'],
+  [/^⬇ Download now — (\d+) MB, one time only$/, '⬇ አሁን አውርድ — $1 MB፣ አንድ ጊዜ ብቻ'],
   [/^Downloading… (\d+) \/ (\d+) MB$/, 'በማውረድ ላይ… $1 / $2 MB'],
   [/^Paused at (\d+) \/ (\d+) MB$/, 'ቆሟል፦ $1 / $2 MB'],
   [/^Captions will render in (.+)\. For the clearest Amharic, install "Abyssinica SIL" for free\.$/,

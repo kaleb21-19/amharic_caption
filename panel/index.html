@@ -956,12 +956,15 @@
     <!-- Lite packages: one-time model download (hidden when the model exists) -->
     <div class="card" id="modelCard" style="display:none;border-color:var(--warn);">
       <div class="card-head">
-        <span class="card-title" data-i18n="model.title">Amharic model</span>
+        <span class="card-title" data-i18n="model.title">First step: download the Amharic model</span>
         <span class="card-hint" data-i18n="model.hint">one-time download</span>
       </div>
-      <div class="hint" style="margin-bottom:8px;" data-i18n-html="model.body">
-        The Amharic speech model is downloaded <b>once</b> and kept on this computer,
-        so later updates stay small. If the connection drops, it continues where it stopped.
+      <!-- 1.79: 8 of 29 computers that needed the model never started it.
+           Say plainly that nothing works without it, and that it is once. -->
+      <div style="margin:2px 0 6px;font-size:15px;font-weight:800;color:var(--warn);" data-i18n="model.must">Without it, captions cannot be made.</div>
+      <div class="hint" style="margin-bottom:8px;font-size:12.5px;" data-i18n-html="model.body">
+        Download it <b>once</b> — after that, captions work on this computer with no internet, forever.
+        If the connection drops, it continues where it stopped.
       </div>
       <button id="modelBtn" class="btn btn-primary">⬇ Download the Amharic model</button>
       <div class="progress-wrap">
@@ -1168,7 +1171,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.78.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.79.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
