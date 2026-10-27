@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.79.0';
+const APP_VERSION = '1.80.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -430,6 +430,19 @@ setTimeout(() => { if (FIRST_OPEN) track('first_open'); track('open'); }, 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.80.0': {
+    banner: {
+      am: '🔄 ከአሁን ጀምሮ ማሻሻያ በአንድ ንክኪ — ዳግም ማውረድና መጫን የለም። በተጨማሪ፦ የመጀመሪያው ቪዲዮ በነጻ፣ ሁሉም ፕሮጀክቶች በስቱዲዮ፣ የአማርኛ ቪዲዮ ፍለጋ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '🔄 From now on, updates take one tap — no more downloading and installing. Also: your first video free, every project in the Studio, Amharic footage search — your license stays the same.',
+    },
+    items: [
+      { am: 'አዲስ ስሪት ሲወጣ «🔄 አሁን አሻሽል»ን ይጫኑ — ትንሽ ፋይል ብቻ ይወርዳል፣ ከዚያ ፕሮግራሙን ዘግተው ይክፈቱ', en: 'When a new version is out, press "🔄 Update now" — only a small file downloads, then close and reopen the program' },
+      { am: 'ማሻሻያው በአገልጋያችን የተፈረመ ብቻ ይጫናል፤ የሆነ ነገር ቢበላሽ የቀድሞው ስሪት እንዳለ ይቆያል', en: 'Only an update signed by our server is installed; if anything goes wrong, your current version stays as it is' },
+      { am: 'አዲስ ኮምፒውተር፦ የመጀመሪያዎቹ ደቂቃዎች ያለ ቴሌግራም — «ካፕሽን ፍጠር»ን ብቻ ይጫኑ', en: 'New computer: the first minutes without Telegram — just press Make captions' },
+      { am: 'ስቱዲዮ፦ ሁሉም ፕሮጀክቶች፣ በስም ወይም በተነገረ ቃል ፍለጋ፣ ስም መቀየር፣ ማጥፋት ከመልስ ጋር', en: 'Studio: every project, search by name or by a word said, rename, delete with undo' },
+      { am: 'የተነገረውን ፈልግ፦ አንድ ቃል የተነገረበትን ቦታ በሁሉም ቪዲዮዎች ያግኙ', en: 'Footage search: find every place a word was said, across all your videos' },
+    ],
+  },
   '1.66.0': {
     banner: {
       am: '✨ 14 አዳዲስ የካፕሽን ቅርጾሮች — ብሩት ፖፕ፣ ግራዲየንት፣ ኒዮን ግሎ፣ መስተዋት ዳሳች፣ ሁለት መስመር እና ተመሳሳይ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -989,7 +1002,131 @@ function renderUpdateBanner() {
       (news ? ' ' + wnText(news) : '');
   }
   const go = document.getElementById('updateGo');
-  if (go) go.style.display = newer ? '' : 'none';   // nothing to open when up to date
+  const now = document.getElementById('updateNow');
+  const oneTap = newer && !!updateOffered(latest);
+  if (UPDATE_RUN) {                      // updating, updated, or failed: say so
+    banner.style.display = 'flex';
+    if (txt) txt.textContent = UPDATE_RUN.text;
+    if (now) now.style.display = UPDATE_RUN.state === 'failed' ? '' : 'none';
+    if (now && UPDATE_RUN.state === 'failed') now.textContent = L('↻ Try again');
+    if (go) go.style.display = UPDATE_RUN.state === 'failed' || UPDATE_RUN.state === 'full' ? '' : 'none';
+    return;
+  }
+  if (now) {
+    now.style.display = oneTap ? '' : 'none';
+    now.textContent = L('🔄 Update now');
+  }
+  if (go) go.style.display = newer && !oneTap ? '' : 'none';   // nothing to open when up to date
+}
+
+// ── One-tap update (1.80) ───────────────────────────────────────────────────
+// 88% of the opens in Ethiopia (7 days) ran a version older than the last
+// fixes: updating meant the website, a 110 MB zip and the installer again.
+// Now "Update now" fetches the release's small update package (the program's
+// own files, ~15 MB, never Python / ffmpeg / the model) and amh_update.py puts
+// it in place. Only a package whose SHA-256 is SIGNED by our server (the
+// license key pair: the public half ships in core.js) is installed;
+// amh_update.py checks the download against that SHA-256, refuses any path
+// outside the program, and puts every file back if something fails. A package
+// built on another Python / ffmpeg ("runtime") needs the full installer: the
+// website button comes back.
+let UPDATE_PUBKEY_PEM = LICENSE_TOKEN_PUBKEY_PEM;     // tests use their own key pair
+const UPDATE_URL_PREFIX = 'https://github.com/kaleb21-19/amharic_caption/releases/download/';
+let UPDATE_RUN = null;          // { state: 'running' | 'done' | 'failed' | 'full', text }
+function updateOffered(latest) {
+  if (!latest || !latest.update || typeof latest.update !== 'object') return false;
+  // only an installed program updates itself (never a developer's runtime)
+  if (!RUNTIME || RUNTIME === DEV_RUNTIME || path.resolve(RUNTIME) !== path.resolve(path.join(EXT_DIR, 'runtime'))) return false;
+  return fs.existsSync(runtimePath('amh_update.py'));
+}
+function updatePackageFor(latest, target) {
+  const u = latest && latest.update && latest.update[target];
+  if (!u || typeof u !== 'object') return null;
+  if (typeof u.url !== 'string' || u.url.indexOf(UPDATE_URL_PREFIX) !== 0) return null;
+  if (!/^[0-9a-f]{64}$/.test(String(u.sha256)) || !/^[0-9a-f]{128}$/.test(String(u.sig))) return null;
+  if (!Number.isInteger(u.size) || u.size <= 0 || u.size > 300 * 1024 * 1024) return null;
+  return { version: latest.version, target, url: u.url, sha256: u.sha256, size: u.size, sig: u.sig };
+}
+async function updateSignatureOk(u) {
+  try {
+    const subtle = globalThis.crypto && globalThis.crypto.subtle;
+    if (!subtle) return false;
+    const key = await subtle.importKey('spki', pemToBytes(UPDATE_PUBKEY_PEM), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+    const msg = new TextEncoder().encode('update|' + u.version + '|' + u.target + '|' + u.sha256 + '|' + u.size);
+    return await subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, hexToBytes(u.sig), msg);
+  } catch (e) { return false; }
+}
+// One run of amh_update.py: resolves with the JSON line it ends with.
+function runUpdater(args, onLine) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(PYTHON, ['-E', '-s', runtimePath('amh_update.py')].concat(args), { env: AMH_ENV, windowsHide: true });
+    } catch (e) { resolve({ ok: false, error: 'could not start the updater' }); return; }
+    let out = '';
+    let last = null;
+    child.stdout.on('data', (buf) => {
+      out += buf.toString('utf8');
+      let nl;
+      while ((nl = out.indexOf('\n')) >= 0) {
+        const line = out.slice(0, nl).trim();
+        out = out.slice(nl + 1);
+        if (line.charAt(0) === '{') { try { last = JSON.parse(line); } catch (e) {} } else if (line && onLine) onLine(line);
+      }
+    });
+    child.stderr.on('data', () => {});
+    child.on('error', () => resolve({ ok: false, error: 'could not start the updater' }));
+    child.on('close', () => {
+      const rest = out.trim();
+      if (!last && rest.charAt(0) === '{') { try { last = JSON.parse(rest); } catch (e) {} }
+      if (!last && rest && onLine) onLine(rest);
+      resolve(last || { ok: false, error: 'the updater stopped' });
+    });
+  });
+}
+function setUpdateRun(state, text) {
+  UPDATE_RUN = state ? { state, text } : null;
+  renderUpdateBanner();
+}
+async function updateNow() {
+  if (UPDATE_RUN && UPDATE_RUN.state === 'running') return;
+  const latest = readJson(UPDATE_LATEST_KEY);
+  if (!updateOffered(latest)) { openDownloadPage(); return; }
+  setUpdateRun('running', L('Getting the update ready…'));
+  track('update_start');
+  let target = '';
+  await runUpdater(['target'], (line) => { if (/^(win|mac)-/.test(line)) target = line; });
+  const u = updatePackageFor(latest, target);
+  if (!u || !(await updateSignatureOk(u))) {
+    // nothing we can trust for this computer: the website, as before
+    track('update_fail');
+    setUpdateRun('full', L('Version ' + latest.version + ' needs the full download.'));
+    return;
+  }
+  // the engine must not hold any program file while files are replaced
+  try { if (warmChild && !warmChild.killed) warmChild.kill(); } catch (e) {}
+  warmChild = null; warmReady = false;
+  const mbs = (n) => (n / 1048576).toFixed(1);
+  const r = await runUpdater(['apply', '--url', u.url, '--sha256', u.sha256, '--size', String(u.size),
+    '--ext', EXT_DIR, '--version', u.version], (line) => {
+    const m = /^\[up\] (\d+) (\d+)$/.exec(line);
+    if (m) setUpdateRun('running', L('Downloading the update… ' + mbs(Number(m[1])) + ' / ' + mbs(u.size) + ' MB'));
+  });
+  if (r && r.ok) {
+    track('update_ok');
+    log('✓ Updated to ' + u.version + ' (' + r.changed + ' files).');
+    setUpdateRun('done', IS_APP_MODE()
+      ? L('✓ Updated to ' + u.version + '. Close the Studio and open it again.')
+      : L('✓ Updated to ' + u.version + '. Close ' + (IS_AE ? 'After Effects' : 'Premiere Pro') + ' and open it again.'));
+    return;
+  }
+  track('update_fail');
+  log('Update failed: ' + ((r && r.error) || 'unknown') + ' — nothing was changed.');
+  if (r && (r.error === 'runtime' || r.error === 'target')) {
+    setUpdateRun('full', L('Version ' + u.version + ' needs the full download.'));
+  } else {
+    setUpdateRun('failed', L('The update could not finish — nothing was changed. Check the internet and try again.'));
+  }
 }
 
 // `force` = the footer's "Check for updates": ignore the once-a-day memory.
@@ -1005,8 +1142,9 @@ async function checkForUpdate(force) {
       fresh = true;
       const url = (typeof data.url === 'string' && data.url.indexOf(UPDATE_SITE) === 0)
         ? data.url : UPDATE_PAGE;
+      const update = (data.update && typeof data.update === 'object') ? data.update : undefined;
       try {
-        localStorage.setItem(UPDATE_LATEST_KEY, JSON.stringify({ version: data.version, url }));
+        localStorage.setItem(UPDATE_LATEST_KEY, JSON.stringify({ version: data.version, url, update }));
         localStorage.setItem(UPDATE_CHECKED_KEY, String(now));
       } catch (e) {}
     }
@@ -1078,6 +1216,8 @@ function initUpdateBanner() {
   const later = document.getElementById('updateLater');
   const check = document.getElementById('updateCheck');
   if (go) go.addEventListener('click', (e) => { e.preventDefault(); openDownloadPage(); });
+  const now = document.getElementById('updateNow');
+  if (now) now.addEventListener('click', (e) => { if (e && e.preventDefault) e.preventDefault(); updateNow(); });
   if (check) check.addEventListener('click', (e) => { e.preventDefault(); onUpdateCheck(); });
   initFootMenu();
   const recent = document.getElementById('recentLink');

@@ -37,6 +37,7 @@ def suites(area):
         "styles": [("styles", py + ["tools/test/test_styles.py"], ROOT),
                    ("templates", py + ["tools/test/test_templates.py"], ROOT)],
         "texts": [("trial texts", py + ["tools/test/test_trial_texts.py"], ROOT)],
+        "update": [("one-tap update", py + ["tools/test/test_update.py"], ROOT)],
         "engine": [("word times", engine_py + ["tools/test/test_word_times.py"], ROOT)],
         "app": [("app", py + ["tools/test/test_app.py"], ROOT), ("app shim", node + ["tools/test/test_app_shim.js"], ROOT),
                 ("studio", node + ["tools/test/test_studio.js"], ROOT), ("capcut", node + ["tools/test/test_capcut.js"], ROOT), ("davinci", node + ["tools/test/test_davinci.js"], ROOT),
@@ -45,7 +46,7 @@ def suites(area):
         "versions": [("versions", ["bash", "tools/check_versions.sh"], ROOT)],
     }
     if area == "all":
-        return [s for k in ("versions", "panel", "host", "styles", "texts", "engine", "app", "bot") for s in table[k]]
+        return [s for k in ("versions", "panel", "host", "styles", "texts", "update", "engine", "app", "bot") for s in table[k]]
     if area not in table:
         sys.exit("area must be one of: %s, all" % ", ".join(table))
     return table[area]

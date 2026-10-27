@@ -165,6 +165,44 @@ async function signTicket2(machineId, runId, seconds) {
   return 't2.' + mid + '.' + runId + '.' + until + '.' + secs + '.' + sigHex;
 }
 
+// 1.80 one-tap update: the program installs a release's update package only
+// when this signature over "update|<version>|<target>|<sha256>|<size>" checks
+// out with the public key it already ships (the license key pair). The
+// package's SHA-256 comes from the release's own .sha256 asset.
+const UPDATE_TARGETS = ['win-x64', 'mac-arm64', 'mac-x64'];
+const UPDATE_URL_PREFIX = 'https://github.com/kaleb21-19/amharic_caption/releases/download/';
+async function signUpdate(version, target, sha256, size) {
+  const der = pemToDer(SIGN_KEY);
+  if (!der) throw new Error('AMH_LICENSE_SIGNING_KEY not set');
+  const key = await crypto.subtle.importKey('pkcs8', der, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+  const msg = new TextEncoder().encode('update|' + version + '|' + target + '|' + sha256 + '|' + size);
+  const raw = new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, msg));
+  return [...raw].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+async function releaseUpdates(rel, version) {
+  const assets = Array.isArray(rel && rel.assets) ? rel.assets : [];
+  const out = {};
+  for (const t of UPDATE_TARGETS) {
+    const name = 'amharic-captions-update-' + t + '.zip';
+    const zip = assets.find((a) => a && a.name === name);
+    const sum = assets.find((a) => a && a.name === name + '.sha256');
+    if (!zip || !sum || !Number.isInteger(zip.size) || zip.size <= 0) continue;
+    const url = String(zip.browser_download_url || '');
+    const sumUrl = String(sum.browser_download_url || '');
+    if (!url.startsWith(UPDATE_URL_PREFIX) || !sumUrl.startsWith(UPDATE_URL_PREFIX)) continue;
+    try {
+      const res = await fetch(sumUrl, { headers: { 'User-Agent': 'amharic-captions-worker' } });
+      if (!res.ok) continue;
+      const m = /\b([0-9a-f]{64})\b/.exec(String(await res.text()).toLowerCase());
+      if (!m) continue;
+      out[t] = { url, sha256: m[1], size: zip.size, sig: await signUpdate(version, t, m[1], zip.size) };
+    } catch (e) {
+      log('warn', 'update_package_failed', { t, err: String((e && e.message) || e) });
+    }
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 async function licenseServicesReady() {
   if (!SECRET || !SIGN_KEY) return false;
   try {
@@ -5084,6 +5122,8 @@ const EVENT_NAMES = new Set([
   // 1.77: the free-minutes step, by reason, and the first minutes on the computer
   // 1.78: a computer's first time ever; a finished run (not a reopened project)
   'first_open', 'cap_new',
+  // 1.80: one-tap update
+  'update_start', 'update_ok', 'update_fail',
   'trial_starter', 'trial_more', 'gate_none', 'gate_used', 'gate_expired', 'gate_pending', 'gate_offline', 'gate_blocked',
   'err_av_blocked', 'err_too_short', 'err_no_speech', 'err_no_clips', 'err_no_clip', 'err_no_media',
   'err_media_unreadable', 'err_no_audio', 'err_disk_full', 'err_engine', 'err_runtime', 'err_license', 'err_other',
@@ -5167,6 +5207,7 @@ async function adminUsage(chatId, messageId, days = 7) {
       : `✅ Captions made: <b>${c('run_ok')}</b> (${pct(c('run_click'), c('run_ok'))} of pressed)\n`) +
     `🎬 Placed / saved: ${c('placed')}\n` +
     `🎁 Pressed “Try free”: ${c('trial_link')}\n` +
+    (c('update_start') ? `🔄 One-tap updates: ${c('update_start')} · ✅ ${c('update_ok')} · ❌ ${c('update_fail')}\n` : '') +
     (c('report_sent') ? `📨 Problem reports sent: ${c('report_sent')}\n` : '') +
     (c('feedback_sent') ? `💡 Feedback sent: ${c('feedback_sent')}\n` : '') +
     `💳 Pressed Buy: ${c('buy_click')} · 🔑 Activated: ${c('activate_ok')}` +
@@ -6592,7 +6633,11 @@ async function latestRelease() {
       if (res.ok) {
         const rel = await res.json();
         const v = String((rel && rel.tag_name) || '').replace(/^v/, '');
-        if (/^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(v)) out = { version: v, url: SITE_URL + '/install/' };
+        if (/^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(v)) {
+          out = { version: v, url: SITE_URL + '/install/' };
+          const update = await releaseUpdates(rel, v);
+          if (update) out.update = update;
+        }
       }
     } catch (e) {
       log('warn', 'latest_release_fetch_failed', { err: String((e && e.message) || e) });

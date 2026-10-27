@@ -205,9 +205,13 @@ const JOB_PAGES = {};
 const JOB_POSTS = {};
 const JOB_FETCHES = [];
 // fake api.github.com releases/latest (update-available notice)
-const GH = { calls: 0, status: 200, body: { tag_name: 'v1.8.0' } };
+const GH = { calls: 0, status: 200, body: { tag_name: 'v1.8.0' }, files: {} };
 globalThis.fetch = async (url, init = {}) => {
   url = String(url);
+  if (url.startsWith('https://github.com/kaleb21-19/amharic_caption/releases/download/')) {
+    const f = GH.files[url];
+    return { ok: f !== undefined, status: f !== undefined ? 200 : 404, text: async () => f || '' };
+  }
   if (url.startsWith('https://api.github.com/')) {
     GH.calls++;
     return { ok: GH.status === 200, status: GH.status, json: async () => GH.body };
@@ -1212,6 +1216,38 @@ console.log('\n:: scenario 9 — extension API: trial, rate limits, API key togg
     GH.body = { tag_name: 'v1.8.0' };
   }
   ok('/api/latest: cached once for everyone, survives GitHub outages, only clean versions');
+
+  // 1.80 one-tap update: each platform's update package, its SHA-256 from the
+  // release, signed so the program can trust it
+  {
+    const envW = fresh();
+    const D = 'https://github.com/kaleb21-19/amharic_caption/releases/download/v1.80.0/';
+    const SHA = 'ab'.repeat(32);
+    GH.status = 200;
+    GH.body = { tag_name: 'v1.80.0', assets: [
+      { name: 'amharic-captions-update-win-x64.zip', size: 14000000, browser_download_url: D + 'amharic-captions-update-win-x64.zip' },
+      { name: 'amharic-captions-update-win-x64.zip.sha256', size: 100, browser_download_url: D + 'amharic-captions-update-win-x64.zip.sha256' },
+      { name: 'amharic-captions-update-mac-arm64.zip', size: 15000000, browser_download_url: D + 'amharic-captions-update-mac-arm64.zip' },
+      // mac-arm64 has no .sha256 → left out; mac-x64 points elsewhere → left out
+      { name: 'amharic-captions-update-mac-x64.zip', size: 1, browser_download_url: 'https://evil.example/x.zip' },
+      { name: 'amharic-captions-update-mac-x64.zip.sha256', size: 1, browser_download_url: 'https://evil.example/x.zip.sha256' },
+    ] };
+    GH.files = { [D + 'amharic-captions-update-win-x64.zip.sha256']: SHA + '  amharic-captions-update-win-x64.zip\n' };
+    const uj = await (await api(envW.env, '/api/latest', { headers: { 'CF-Connecting-IP': '203.0.113.96' } })).json();
+    assert.equal(uj.version, '1.80.0');
+    assert.deepEqual(Object.keys(uj.update), ['win-x64'], 'only complete packages from our own release');
+    const w = uj.update['win-x64'];
+    assert.equal(w.url, D + 'amharic-captions-update-win-x64.zip');
+    assert.equal(w.sha256, SHA);
+    assert.equal(w.size, 14000000);
+    assert.ok(cryptoVerify('sha256', Buffer.from('update|1.80.0|win-x64|' + SHA + '|14000000'),
+      { key: createPublicKey(SIGNING_KEY), dsaEncoding: 'ieee-p1363' }, Buffer.from(w.sig, 'hex')), 'signed with the license key');
+    assert.ok(!cryptoVerify('sha256', Buffer.from('update|1.80.0|win-x64|' + 'cd'.repeat(32) + '|14000000'),
+      { key: createPublicKey(SIGNING_KEY), dsaEncoding: 'ieee-p1363' }, Buffer.from(w.sig, 'hex')), 'another file does not pass');
+    GH.body = { tag_name: 'v1.8.0' };
+    GH.files = {};
+  }
+  ok('/api/latest 1.80: each platform\'s update package with its SHA-256, signed; incomplete or foreign packages left out');
 
   // CORS lock: whitelisted origins echoed, anything else gets no allow header
   const envL = fresh({ AMH_ALLOWED_ORIGIN: 'file://,null' });

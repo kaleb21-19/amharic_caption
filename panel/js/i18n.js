@@ -429,6 +429,10 @@ const AM_TEXT = {
   'Your first free minutes on this computer are used.': 'በዚህ ኮምፒውተር ላይ የመጀመሪያዎቹ ነጻ ደቂቃዎች ተጠቅመዋል።',
   'Tap the button below — our Telegram bot opens — and press START.': 'ከታች ያለውን ቁልፍ ይንኩ — የቴሌግራም ቦታችን ይከፈታል — START ይጫኑ።',
   'One tap in our Telegram bot, press START, and come back — it continues by itself.': 'በቴሌግራም ቦታችን አንድ ንክኪ፣ START ይጫኑ፣ ይመለሱ — በራሱ ይቀጥላል።',
+  '🔄 Update now': '🔄 አሁን አሻሽል',
+  '↻ Try again': '↻ እንደገና ሞክር',
+  'Getting the update ready…': 'ማሻሻያውን በማዘጋጀት ላይ…',
+  'The update could not finish — nothing was changed. Check the internet and try again.': 'ማሻሻያው መጨረስ አልቻለም — ምንም አልተቀየረም። ኢንተርኔቱን አረጋግጠው እንደገና ይሞክሩ።',
   'Waiting for Telegram… press START there. Your captions start by themselves.': 'ቴሌግራምን በመጠበቅ ላይ… እዚያ START ይጫኑ። ካፕሽኑ በራሱ ይጀምራል።',
   'Free, no payment. Already have a license key? Enter it below.': 'ነጻ ነው፣ ክፍያ የለውም። የፈቃድ ቁልፍ አለዎት? ከታች ያስገቡት።',
   '⏳ Your free minutes are being checked': '⏳ ነጻ ደቂቃዎችዎ እየተረጋገጡ ነው',
@@ -618,6 +622,11 @@ const AM_PATTERNS = [
   [/^Try (\d+) minutes free$/, '$1 ደቂቃ በነጻ ይሞክሩ'],
   // 1.77: the first minutes on the computer, the rest from the bot
   [/^Get (\d+) more free minutes$/, '$1 ተጨማሪ ነጻ ደቂቃ ያግኙ'],
+  // 1.80 one-tap update
+  [/^Downloading the update… ([\d.]+) \/ ([\d.]+) MB$/, 'ማሻሻያው በመውረድ ላይ… $1 / $2 MB'],
+  [/^✓ Updated to ([\d.]+)\. Close the Studio and open it again\.$/, '✓ ወደ $1 ተሻሽሏል። ስቱዲዮውን ዘግተው እንደገና ይክፈቱት።'],
+  [/^✓ Updated to ([\d.]+)\. Close (Premiere Pro|After Effects) and open it again\.$/, '✓ ወደ $1 ተሻሽሏል። $2ን ዘግተው እንደገና ይክፈቱት።'],
+  [/^Version ([\d.]+) needs the full download\.$/, 'ስሪት $1 ሙሉውን ማውረድ ይፈልጋል።'],
   [/^Free: press Make captions — the first (\d+) minutes start right here$/, 'ነጻ፦ «ካፕሽን ፍጠር»ን ይጫኑ — የመጀመሪያዎቹ $1 ደቂቃዎች እዚሁ ይጀምራሉ'],
   [/^Then (\d+) more free minutes in Telegram — one tap\.$/, 'ከዚያ $1 ተጨማሪ ነጻ ደቂቃዎች በቴሌግራም — በአንድ ንክኪ።'],
   [/^🎁 Get (\d+) more free minutes$/, '🎁 $1 ተጨማሪ ነጻ ደቂቃ ያግኙ'],
