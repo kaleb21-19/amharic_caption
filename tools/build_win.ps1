@@ -119,6 +119,7 @@ Copy-Item "$ROOT\amh_decode.py" (Join-Path $BNAME "runtime\amh_decode.py")
 Copy-Item "$ROOT\amh_license.py" (Join-Path $BNAME "runtime\amh_license.py")
 Copy-Item "$ROOT\amh_standalone.py" (Join-Path $BNAME "runtime\amh_standalone.py")
 Copy-Item "$ROOT\amh_model.py" (Join-Path $BNAME "runtime\amh_model.py")
+Copy-Item "$ROOT\amh_update.py" (Join-Path $BNAME "runtime\amh_update.py")
 # Caption styles (1.11): the style drawer + the Amharic fonts it uses (OFL).
 Copy-Item "$ROOT\amh_styles.py" (Join-Path $BNAME "runtime\amh_styles.py")
 New-Item -ItemType Directory -Force (Join-Path $BNAME "runtime\fonts") | Out-Null
@@ -217,6 +218,35 @@ Write-Host "  [ok] desktop app"
 # The released JavaScript without comments/whitespace (names unchanged).
 & node (Join-Path $ROOT "tools\minify_panel.mjs") $BNAME
 if ($LASTEXITCODE -ne 0) { throw "minifying the panel failed" }
+
+# 1.80 one-tap update: the program's own files without Python, ffmpeg and the
+# model (~15 MB instead of 110), plus update.json (version + runtime id: a
+# package built on another Python / packages / ffmpeg is refused by
+# amh_update.py and the customer gets the full installer instead).
+if ($Lite) {
+    $UPDDIR = Join-Path $BUILD "update-pkg"
+    New-Item -ItemType Directory -Force $UPDDIR | Out-Null
+    Get-ChildItem $BNAME -Force | ForEach-Object {
+        if ($_.Name -ne "runtime") { Copy-Item $_.FullName (Join-Path $UPDDIR $_.Name) -Recurse -Force }
+    }
+    New-Item -ItemType Directory -Force (Join-Path $UPDDIR "runtime") | Out-Null
+    Get-ChildItem (Join-Path $BNAME "runtime") -Force | Where-Object { $_.Name -notin @("python", "bin", "model") } |
+        ForEach-Object { Copy-Item $_.FullName (Join-Path $UPDDIR ("runtime\" + $_.Name)) -Recurse -Force }
+    $RID = (& (Join-Path $PYOUT "python.exe") -E -s "$ROOT\amh_update.py" runtime-id (Join-Path $BNAME "runtime")).Trim()
+    if ($LASTEXITCODE -ne 0 -or $RID -notmatch '^[0-9a-f]{16}$') { throw "runtime id failed: $RID" }
+    $UVER = ([regex]::Match((Get-Content (Join-Path $BNAME "CSXS\manifest.xml") -Raw), 'ExtensionBundleVersion="([^"]+)"')).Groups[1].Value
+    Set-Content -Path (Join-Path $UPDDIR "update.json") -Value ('{"version": "' + $UVER + '", "target": "' + $TARGET + '", "runtime_id": "' + $RID + '"}') -Encoding ascii
+    $UPD = Join-Path $ROOT "dist\amharic-captions-update-$TARGET.zip"
+    New-Item -ItemType Directory -Force -Path (Join-Path $ROOT "dist") | Out-Null
+    if (Test-Path $UPD) { Remove-Item -Force $UPD }
+    $names = @(Get-ChildItem $UPDDIR -Force | ForEach-Object { $_.Name })
+    Push-Location $UPDDIR
+    & "$env:SystemRoot\System32\tar.exe" -a -c -f $UPD @names
+    $tarExit = $LASTEXITCODE
+    Pop-Location
+    if ($tarExit -ne 0 -or -not (Test-Path $UPD)) { throw "update package zip failed" }
+    Write-Host ("  [ok] update package " + [math]::Round((Get-Item $UPD).Length / 1MB, 1) + " MB (runtime $RID)")
+}
 
 # one-click installer (shipped at zip root, next to the extension folder)
 $INST = Join-Path $ROOT "tools\installers"

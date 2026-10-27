@@ -133,6 +133,7 @@ if [[ -f "$MODEL_SRC/model.bin" ]]; then   # degraded fp16/fp32 builds have none
     --out "$RT/model_manifest.json"
 fi
 cp "$ROOT/amh_model.py" "$RT/amh_model.py"
+cp "$ROOT/amh_update.py" "$RT/amh_update.py"
 # Caption styles (1.11): the style drawer + the Amharic fonts it uses (OFL).
 cp "$ROOT/amh_styles.py" "$RT/amh_styles.py"
 mkdir -p "$RT/fonts"
@@ -338,4 +339,23 @@ if [[ "$INSTALLER" == "Install.command" ]]; then
   zipinfo "$ZIP" "Install.command" | grep -q '^-rwx'     || { echo "[FAIL] Install.command lost its executable permission in $ZIP"; exit 1; }
 fi
 echo "  [ok] zip contains START HERE.html, $INSTALLER and $NAME"
+
+# 1.80 one-tap update: the program's own files without Python, ffmpeg and the
+# model, plus update.json (version + runtime id) — see amh_update.py.
+if [[ "$LITE" == "1" ]]; then
+  UPD="${DIST}/amharic-captions-update-${TARGET}.zip"
+  rm -f "$UPD"
+  RID="$(python3 "$ROOT/amh_update.py" runtime-id "$RT")"
+  [[ "$RID" =~ ^[0-9a-f]{16}$ ]] || { echo "[FAIL] runtime id: $RID"; exit 1; }
+  UVER="$(grep -o 'ExtensionBundleVersion="[^"]*"' "${BUILD_DIR}/${NAME}/CSXS/manifest.xml" | head -1 | sed 's/[^"]*"//;s/"//')"
+  printf '{"version": "%s", "target": "%s", "runtime_id": "%s"}\n' "$UVER" "$TARGET" "$RID" > "${BUILD_DIR}/update.json"
+  (
+    cd "${BUILD_DIR}/${NAME}"
+    zip -r -q "$UPD" . -x "runtime/python/*" "runtime/bin/*" "runtime/model/*" "*.DS_Store"
+    cd "${BUILD_DIR}" && zip -q "$UPD" update.json
+  ) || { echo "[FAIL] update package"; exit 1; }
+  unzip -l "$UPD" | grep -q " update.json$" || { echo "[FAIL] update.json missing from $UPD"; exit 1; }
+  if unzip -l "$UPD" | grep -qE " runtime/(python|bin|model)/"; then echo "[FAIL] $UPD contains Python/ffmpeg/model"; exit 1; fi
+  echo "  [ok] update package $(du -sh "$UPD" | cut -f1) (runtime $RID)"
+fi
 echo "== wrote $ZIP ($(du -sh "$ZIP" | cut -f1)) =="

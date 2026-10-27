@@ -424,7 +424,7 @@ jobs:
       - name: Create mac-arm64 package checksums
         shell: bash
         run: |
-          for z in amharic-captions-mac-arm64 amharic-captions-mac-arm64-lite; do
+          for z in amharic-captions-mac-arm64 amharic-captions-mac-arm64-lite amharic-captions-update-mac-arm64; do
             shasum -a 256 "dist/$z.zip" > "dist/$z.zip.sha256"
           done
 
@@ -437,6 +437,8 @@ jobs:
             dist/amharic-captions-mac-arm64.zip.sha256
             dist/amharic-captions-mac-arm64-lite.zip
             dist/amharic-captions-mac-arm64-lite.zip.sha256
+            dist/amharic-captions-update-mac-arm64.zip
+            dist/amharic-captions-update-mac-arm64.zip.sha256
           if-no-files-found: error
           retention-days: 1
 
@@ -491,7 +493,7 @@ jobs:
       - name: Create mac-x64 package checksums
         shell: bash
         run: |
-          for z in amharic-captions-mac-x64 amharic-captions-mac-x64-lite; do
+          for z in amharic-captions-mac-x64 amharic-captions-mac-x64-lite amharic-captions-update-mac-x64; do
             shasum -a 256 "dist/$z.zip" > "dist/$z.zip.sha256"
           done
 
@@ -504,6 +506,8 @@ jobs:
             dist/amharic-captions-mac-x64.zip.sha256
             dist/amharic-captions-mac-x64-lite.zip
             dist/amharic-captions-mac-x64-lite.zip.sha256
+            dist/amharic-captions-update-mac-x64.zip
+            dist/amharic-captions-update-mac-x64.zip.sha256
           if-no-files-found: error
           retention-days: 1
 
@@ -563,6 +567,7 @@ jobs:
           path: |
             dist/amharic-captions-win-x64.zip
             dist/amharic-captions-win-x64-lite.zip
+            dist/amharic-captions-update-win-x64.zip
           if-no-files-found: error
           retention-days: 1
 
@@ -665,7 +670,10 @@ jobs:
                    amharic-captions-mac-arm64.zip \
                    amharic-captions-mac-arm64-lite.zip \
                    amharic-captions-mac-x64.zip \
-                   amharic-captions-mac-x64-lite.zip; do
+                   amharic-captions-mac-x64-lite.zip \
+                   amharic-captions-update-win-x64.zip \
+                   amharic-captions-update-mac-arm64.zip \
+                   amharic-captions-update-mac-x64.zip; do
             test -f "release-assets/$z"
             (cd release-assets && sha256sum "$z" > "$z.sha256" && sha256sum -c "$z.sha256")
           done
@@ -685,7 +693,10 @@ jobs:
                    amharic-captions-mac-arm64.zip \
                    amharic-captions-mac-arm64-lite.zip \
                    amharic-captions-mac-x64.zip \
-                   amharic-captions-mac-x64-lite.zip; do
+                   amharic-captions-mac-x64-lite.zip \
+                   amharic-captions-update-win-x64.zip \
+                   amharic-captions-update-mac-arm64.zip \
+                   amharic-captions-update-mac-x64.zip; do
             bash tools/publish_public_zip.sh "release-assets/$z"
           done
 
@@ -713,7 +724,13 @@ jobs:
             amharic-captions-mac-x64.zip \
             amharic-captions-mac-x64.zip.sha256 \
             amharic-captions-mac-x64-lite.zip \
-            amharic-captions-mac-x64-lite.zip.sha256 | sort)"
+            amharic-captions-mac-x64-lite.zip.sha256 \
+            amharic-captions-update-win-x64.zip \
+            amharic-captions-update-win-x64.zip.sha256 \
+            amharic-captions-update-mac-arm64.zip \
+            amharic-captions-update-mac-arm64.zip.sha256 \
+            amharic-captions-update-mac-x64.zip \
+            amharic-captions-update-mac-x64.zip.sha256 | sort)"
           diff -u <(printf '%s\n' "$EXPECTED") <(printf '%s\n' "$ASSETS")
           SUMDIR="$(mktemp -d)"
           trap 'rm -rf "$SUMDIR"' EXIT
@@ -722,7 +739,10 @@ jobs:
                    amharic-captions-mac-arm64.zip \
                    amharic-captions-mac-arm64-lite.zip \
                    amharic-captions-mac-x64.zip \
-                   amharic-captions-mac-x64-lite.zip; do
+                   amharic-captions-mac-x64-lite.zip \
+                   amharic-captions-update-win-x64.zip \
+                   amharic-captions-update-mac-arm64.zip \
+                   amharic-captions-update-mac-x64.zip; do
             gh release download "$TAG" --repo "${{ github.repository }}" --pattern "$z.sha256" --dir "$SUMDIR" >/dev/null
             RECORDED="$(awk 'length($1) == 64 && $1 ~ /^[0-9a-f]+$/ { print $1; exit }' "$SUMDIR/$z.sha256")"
             test -n "$RECORDED"
@@ -756,7 +776,10 @@ jobs:
                    amharic-captions-mac-arm64.zip \
                    amharic-captions-mac-arm64-lite.zip \
                    amharic-captions-mac-x64.zip \
-                   amharic-captions-mac-x64-lite.zip; do
+                   amharic-captions-mac-x64-lite.zip \
+                   amharic-captions-update-win-x64.zip \
+                   amharic-captions-update-mac-arm64.zip \
+                   amharic-captions-update-mac-x64.zip; do
             url="https://github.com/${{ github.repository }}/releases/latest/download/$z"
             code="$(curl -s -o /dev/null -I -L -w '%{http_code}' "$url" || true)"
             echo "  $code  $url"

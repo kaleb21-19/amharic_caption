@@ -172,6 +172,8 @@ function loadPanel(opts) {
     fetch: opts.fetch || defaultFetch,
     addEventListener(){}, removeEventListener(){}, open(){},
     getComputedStyle: () => ({ getPropertyValue: () => '' }),
+    atob: (b64) => Buffer.from(String(b64), 'base64').toString('binary'),   // as in CEP / the Studio's webview
+    TextEncoder,                                                            // likewise
   };
   sandbox.window = sandbox;
   sandbox.__dirname  = PANEL_JS;
@@ -238,7 +240,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.79.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.80.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1172,6 +1174,66 @@ await t('4h. 1.77.2 the worker exited while the free minutes were checked: a tra
     assert.strictEqual(msg, 'worker exited');
     assert.strictEqual(p.evalVm('WARM_TRANSPORT_ERRS.has("worker exited")'), true, 'the caller falls back to the one-shot engine');
     assert.strictEqual(p.evalVm('warmPending.size'), 0, 'nothing left pending');
+  } finally { p.close(); }
+});
+
+await t('4j. 1.80 one-tap update: only a package signed by our server is installed; failures change nothing', async () => {
+  const kp = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  const pem = kp.publicKey.export({ type: 'spki', format: 'pem' });
+  const sign = (msg) => crypto.sign('sha256', Buffer.from(msg), { key: kp.privateKey, dsaEncoding: 'ieee-p1363' }).toString('hex');
+  const SHA = 'ab'.repeat(32);
+  const URL = 'https://github.com/kaleb21-19/amharic_caption/releases/download/v1.80.5/amharic-captions-update-win-x64.zip';
+  const latest = (sig, sha = SHA) => JSON.stringify({ version: '1.80.5', url: 'https://amharic-caption-pro.vercel.app/install/',
+    update: { 'win-x64': { url: URL, sha256: sha, size: 2097152, sig } } });
+  const p = loadPanel({});
+  try {
+    await flush(5);
+    // a developer's or test runtime (not <program>/runtime) never updates itself
+    p.evalVm('localStorage.setItem(UPDATE_LATEST_KEY, ' + JSON.stringify(latest('00')) + ');');
+    assert.strictEqual(p.evalVm('updateOffered(readJson(UPDATE_LATEST_KEY))'), false);
+    p.evalVm('globalThis.__calls = []; globalThis.__apply = { ok: true, changed: 3, version: "1.80.5" };');
+    p.evalVm('UPDATE_PUBKEY_PEM = ' + JSON.stringify(pem) + '; updateOffered = () => true;' +
+      'runUpdater = async (args, onLine) => { __calls.push(args); if (args[0] === "target") { onLine("win-x64"); return { ok: false }; }' +
+      ' onLine("[up] 1048576 2097152"); globalThis.__mid = document.getElementById("updateText").textContent; return __apply; };');
+    p.evalVm('localStorage.setItem(UPDATE_LATEST_KEY, ' + JSON.stringify(latest(sign('update|1.80.5|win-x64|' + SHA + '|2097152'))) + '); renderUpdateBanner();');
+    assert.strictEqual(p.els('updateNow').style.display, '', 'Update now shows');
+    assert.strictEqual(p.els('updateNow').textContent, '🔄 Update now');
+    assert.strictEqual(p.els('updateGo').style.display, 'none', 'no website button while one tap works');
+    p.els('updateNow').fire('click');
+    await flush(10);
+    const calls = JSON.parse(p.evalVm('JSON.stringify(__calls)'));
+    assert.deepStrictEqual(calls[0], ['target']);
+    assert.deepStrictEqual(calls[1].slice(0, 7), ['apply', '--url', URL, '--sha256', SHA, '--size', '2097152']);
+    assert.strictEqual(calls[1][calls[1].length - 1], '1.80.5');
+    assert.strictEqual(p.evalVm('__mid'), 'Downloading the update… 1.0 / 2.0 MB', 'progress');
+    assert.strictEqual(p.els('updateText').textContent, '✓ Updated to 1.80.5. Close Premiere Pro and open it again.');
+    assert.strictEqual(p.els('updateNow').style.display, 'none');
+
+    // a signature for another file (a swapped or tampered package): never installed
+    p.evalVm('UPDATE_RUN = null; __calls.length = 0;');
+    p.evalVm('localStorage.setItem(UPDATE_LATEST_KEY, ' + JSON.stringify(latest(sign('update|1.80.5|win-x64|' + 'cd'.repeat(32) + '|2097152'))) + '); renderUpdateBanner();');
+    p.els('updateNow').fire('click');
+    await flush(10);
+    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(__calls.map((a) => a[0]))')), ['target'], 'nothing applied');
+    assert.strictEqual(p.els('updateText').textContent, 'Version 1.80.5 needs the full download.');
+    assert.strictEqual(p.els('updateGo').style.display, '', 'the website button instead');
+
+    // a package for another Python: the full download
+    p.evalVm('UPDATE_RUN = null; __apply = { ok: false, error: "runtime" };');
+    p.evalVm('localStorage.setItem(UPDATE_LATEST_KEY, ' + JSON.stringify(latest(sign('update|1.80.5|win-x64|' + SHA + '|2097152'))) + '); renderUpdateBanner();');
+    p.els('updateNow').fire('click');
+    await flush(10);
+    assert.strictEqual(p.els('updateText').textContent, 'Version 1.80.5 needs the full download.');
+    // a dropped connection: nothing changed, try again
+    p.evalVm('UPDATE_RUN = null; __apply = { ok: false, error: "download failed: timeout" };');
+    p.els('updateNow').fire('click');
+    await flush(10);
+    assert.ok(/nothing was changed/.test(p.els('updateText').textContent));
+    assert.strictEqual(p.els('updateNow').textContent, '↻ Try again');
+    // Amharic
+    p.evalVm('AMH_LANG = "am"; UPDATE_RUN = null; renderUpdateBanner();');
+    assert.strictEqual(p.els('updateNow').textContent, '🔄 አሁን አሻሽል');
+    p.evalVm('AMH_LANG = "en";');
   } finally { p.close(); }
 });
 
