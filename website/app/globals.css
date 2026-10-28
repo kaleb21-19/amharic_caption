@@ -1012,6 +1012,8 @@ code {
 
 /* The panel's "Download" button brings existing owners straight to the cards
    above: the same installer updates an installed copy, license untouched. */
+.dl-tg { display: flex; width: fit-content; margin: 0 auto var(--s-3); }
+.dl-tg-note { color: var(--muted); font-size: var(--t-sm); margin-bottom: var(--s-3); }
 .dl-keep {
   margin-top: var(--s-4);
   padding: var(--s-3) var(--s-4);

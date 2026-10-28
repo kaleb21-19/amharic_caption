@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Tx from "@/components/Tx";
 import {
-  DL_WIN, DL_WIN_LITE, DL_MAC_ARM, DL_MAC_ARM_LITE, DL_MAC_X64, DL_MAC_X64_LITE,
+  DL_WIN, DL_WIN_LITE, DL_MAC_ARM, DL_MAC_ARM_LITE, DL_MAC_X64, DL_MAC_X64_LITE, BOT_URL,
 } from "@/lib/site";
 
 // Install flow as a tabbed guide rather than two long parallel columns.
@@ -253,6 +253,14 @@ export default function InstallGuide() {
               </p>
             )}
           </div>
+
+          {/* Telegram is fast and often cheap in Ethiopia, and resumes by itself. */}
+          <a className="btn btn-primary btn-lg dl-tg" href={BOT_URL + "?start=dl"} target="_blank" rel="noopener">
+            <Tx am="📥 በቴሌግራም ያውርዱ — ፈጣን" en="📥 Download in Telegram — fast" />
+          </a>
+          <p className="center dl-tg-note">
+            <Tx am="ወይም ከዚህ በቀጥታ፦" en="Or directly from here:" />
+          </p>
 
           <div className="dl-grid">
             {downloads.map((d) => {
