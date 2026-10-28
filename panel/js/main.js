@@ -430,6 +430,18 @@ setTimeout(() => { if (FIRST_OPEN) track('first_open'); track('open'); }, 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.80.1': {
+    banner: {
+      am: '⚡ ማውረድ በጣም ፈጥኗል — የአማርኛ ሞዴሉና ማሻሻያዎች አሁን በፈጣን መንገድ ይወርዳሉ። ከዚህ በኋላ ማሻሻያ በአንድ ንክኪ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '⚡ Much faster downloads — the Amharic model and updates now come by a fast route. From now on, updates take one tap — your license stays the same.',
+    },
+    items: [
+      { am: 'የአማርኛ ሞዴሉ (612 MB) በፈጣን መንገድ ይወርዳል — በደቂቃዎች እንጂ በሰዓታት አይደለም', en: 'The Amharic model (612 MB) downloads by a fast route — minutes, not hours' },
+      { am: 'ማሻሻያዎችም በፈጣን መንገድ፤ ፈጣኑ መንገድ ቢቋረጥ በራሱ ወደ ሌላው ይቀየራል', en: 'Updates too; if the fast route is down, it switches to the other one by itself' },
+      { am: 'ከዚህ በኋላ አዲስ ስሪት ሲወጣ «🔄 አሁን አሻሽል»ን ብቻ ይጫኑ — ዌብሳይትና ዳግም መጫን አያስፈልግም', en: 'From now on, when a new version is out just press "🔄 Update now" — no website, no reinstalling' },
+      { am: 'ማሻሻያው ትንሽ ነው (13 MB ገደማ) — ፕሮግራሙን በሙሉ (110 MB) እንደገና ማውረድ አያስፈልግም', en: 'An update is small (about 13 MB) — no need to download the whole program (110 MB) again' },
+    ],
+  },
   '1.80.0': {
     banner: {
       am: '🔄 ከአሁን ጀምሮ ማሻሻያ በአንድ ንክኪ — ዳግም ማውረድና መጫን የለም። በተጨማሪ፦ የመጀመሪያው ቪዲዮ በነጻ፣ ሁሉም ፕሮጀክቶች በስቱዲዮ፣ የአማርኛ ቪዲዮ ፍለጋ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -1032,6 +1044,7 @@ function renderUpdateBanner() {
 // website button comes back.
 let UPDATE_PUBKEY_PEM = LICENSE_TOKEN_PUBKEY_PEM;     // tests use their own key pair
 const UPDATE_URL_PREFIX = 'https://github.com/kaleb21-19/amharic_caption/releases/download/';
+const UPDATE_FAST_PREFIX = API_URL + '/dl/';      // 1.80.1: GitHub is ~13 KB/s from Ethiopia
 let UPDATE_RUN = null;          // { state: 'running' | 'done' | 'failed' | 'full', text }
 function updateOffered(latest) {
   if (!latest || !latest.update || typeof latest.update !== 'object') return false;
@@ -1045,7 +1058,8 @@ function updatePackageFor(latest, target) {
   if (typeof u.url !== 'string' || u.url.indexOf(UPDATE_URL_PREFIX) !== 0) return null;
   if (!/^[0-9a-f]{64}$/.test(String(u.sha256)) || !/^[0-9a-f]{128}$/.test(String(u.sig))) return null;
   if (!Number.isInteger(u.size) || u.size <= 0 || u.size > 300 * 1024 * 1024) return null;
-  return { version: latest.version, target, url: u.url, sha256: u.sha256, size: u.size, sig: u.sig };
+  const fast = typeof u.fast_url === 'string' && u.fast_url.indexOf(UPDATE_FAST_PREFIX) === 0 ? u.fast_url : '';
+  return { version: latest.version, target, url: u.url, fast, sha256: u.sha256, size: u.size, sig: u.sig };
 }
 async function updateSignatureOk(u) {
   try {
@@ -1107,8 +1121,8 @@ async function updateNow() {
   try { if (warmChild && !warmChild.killed) warmChild.kill(); } catch (e) {}
   warmChild = null; warmReady = false;
   const mbs = (n) => (n / 1048576).toFixed(1);
-  const r = await runUpdater(['apply', '--url', u.url, '--sha256', u.sha256, '--size', String(u.size),
-    '--ext', EXT_DIR, '--version', u.version], (line) => {
+  const r = await runUpdater(['apply'].concat(u.fast ? ['--url', u.fast] : [], ['--url', u.url, '--sha256', u.sha256, '--size', String(u.size)],
+    ['--ext', EXT_DIR, '--version', u.version]), (line) => {
     const m = /^\[up\] (\d+) (\d+)$/.exec(line);
     if (m) setUpdateRun('running', L('Downloading the update… ' + mbs(Number(m[1])) + ' / ' + mbs(u.size) + ' MB'));
   });

@@ -205,12 +205,19 @@ const JOB_PAGES = {};
 const JOB_POSTS = {};
 const JOB_FETCHES = [];
 // fake api.github.com releases/latest (update-available notice)
-const GH = { calls: 0, status: 200, body: { tag_name: 'v1.8.0' }, files: {} };
+const GH = { calls: 0, status: 200, body: { tag_name: 'v1.8.0' }, files: {}, dl: [] };
 globalThis.fetch = async (url, init = {}) => {
   url = String(url);
-  if (url.startsWith('https://github.com/kaleb21-19/amharic_caption/releases/download/')) {
+  if (url.startsWith('https://github.com/kaleb21-19/amharic_caption/releases/') || url.startsWith('https://huggingface.co/kal11/')) {
+    GH.dl.push({ url, range: (init.headers || {}).Range || '', method: init.method || 'GET' });
     const f = GH.files[url];
-    return { ok: f !== undefined, status: f !== undefined ? 200 : 404, text: async () => f || '' };
+    if (f === undefined) return new Response('nope', { status: 404 });
+    const r = /^bytes=(\d+)-$/.exec((init.headers || {}).Range || '');
+    if (r) {
+      const part = f.slice(Number(r[1]));
+      return new Response(part, { status: 206, headers: { 'Content-Length': String(part.length), 'Content-Range': `bytes ${r[1]}-${f.length - 1}/${f.length}` } });
+    }
+    return new Response(f, { status: 200, headers: { 'Content-Length': String(f.length) } });
   }
   if (url.startsWith('https://api.github.com/')) {
     GH.calls++;
@@ -1238,6 +1245,7 @@ console.log('\n:: scenario 9 — extension API: trial, rate limits, API key togg
     assert.deepEqual(Object.keys(uj.update), ['win-x64'], 'only complete packages from our own release');
     const w = uj.update['win-x64'];
     assert.equal(w.url, D + 'amharic-captions-update-win-x64.zip');
+    assert.equal(w.fast_url, 'https://amharic-captions-bot.amhcaps.workers.dev/dl/v1.80.0/amharic-captions-update-win-x64.zip', 'the fast address too');
     assert.equal(w.sha256, SHA);
     assert.equal(w.size, 14000000);
     assert.ok(cryptoVerify('sha256', Buffer.from('update|1.80.0|win-x64|' + SHA + '|14000000'),
@@ -1248,6 +1256,44 @@ console.log('\n:: scenario 9 — extension API: trial, rate limits, API key togg
     GH.files = {};
   }
   ok('/api/latest 1.80: each platform\'s update package with its SHA-256, signed; incomplete or foreign packages left out');
+
+  // 1.80.1 fast downloads: our release files and the model's files only, with Range
+  {
+    const envD = fresh();
+    const REL = 'https://github.com/kaleb21-19/amharic_caption/releases/';
+    GH.files = {
+      [REL + 'latest/download/amharic-captions-win-x64-lite.zip']: 'ZIPDATA-0123456789',
+      [REL + 'download/v1.80.1/amharic-captions-update-win-x64.zip']: 'UPDATE-PACKAGE',
+      'https://huggingface.co/kal11/amharic-captions-model/resolve/main/model.bin': 'MODELBYTES',
+    };
+    GH.dl = [];
+    const get = (p, h = {}) => worker.fetch(new Request('https://w.example' + p, { headers: Object.assign({ 'CF-Connecting-IP': '196.188.80.1' }, h) }), envD.env);
+    let r = await get('/dl/amharic-captions-win-x64-lite.zip');
+    assert.equal(r.status, 200);
+    assert.equal(await r.text(), 'ZIPDATA-0123456789');
+    assert.equal(r.headers.get('Accept-Ranges'), 'bytes');
+    assert.ok(/attachment; filename="amharic-captions-win-x64-lite.zip"/.test(r.headers.get('Content-Disposition')));
+    r = await get('/dl/amharic-captions-win-x64-lite.zip', { Range: 'bytes=8-' });
+    assert.equal(r.status, 206, 'a dropped download continues');
+    assert.equal(await r.text(), '0123456789');
+    assert.equal(r.headers.get('Content-Range'), 'bytes 8-17/18');
+    assert.equal(GH.dl[GH.dl.length - 1].range, 'bytes=8-', 'the Range goes to the source');
+    r = await get('/dl/v1.80.1/amharic-captions-update-win-x64.zip');
+    assert.equal(await r.text(), 'UPDATE-PACKAGE', 'a given release');
+    r = await get('/dl/model/model.bin');
+    assert.equal(await r.text(), 'MODELBYTES', 'the model');
+    const before = GH.dl.length;
+    for (const bad of ['/dl/model/secret.txt', '/dl/../worker.js', '/dl/other-file.zip', '/dl/https%3A%2F%2Fevil.example%2Fx',
+                       '/dl/v1.80.1/../../x', '/dl/model/../../etc']) {
+      const st = (await get(bad)).status;
+      assert.ok(st === 404 || st === 405, bad + ' -> ' + st);
+    }
+    assert.equal(GH.dl.length, before, 'nothing else is ever fetched — not an open proxy');
+    r = await get('/dl/amharic-captions-mac-x64.zip');
+    assert.equal(r.status, 404, 'a missing file stays a 404');
+    GH.files = {};
+  }
+  ok('/dl 1.80.1: our release files and the model through Cloudflare, Range resumes, nothing else ever fetched');
 
   // CORS lock: whitelisted origins echoed, anything else gets no allow header
   const envL = fresh({ AMH_ALLOWED_ORIGIN: 'file://,null' });

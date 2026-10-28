@@ -92,6 +92,8 @@ if ((Test-Path $LockFile) -and (Test-Path $ModelBin)) {
         Write-Host "  [ok] model.bin matches tools\model.lock"
     }
 }
+# "a,b" from a workflow (powershell -File passes one string): several sources
+$ModelSource = @($ModelSource | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 if ($Lite -and $ModelSource.Count -eq 0) {
     Write-Host "  [FAIL] -Lite needs at least one -ModelSource URL (where customers download the model)"; exit 1
 }

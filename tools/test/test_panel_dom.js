@@ -1186,6 +1186,7 @@ await t('4j. 1.80 one-tap update: only a package signed by our server is install
   const latest = (sig, sha = SHA) => JSON.stringify({ version: '1.80.5', url: 'https://amharic-caption-pro.vercel.app/install/',
     update: { 'win-x64': { url: URL, sha256: sha, size: 2097152, sig } } });
   const p = loadPanel({});
+  const settle = async () => { for (let i = 0; i < 400; i++) { await flush(2); if (p.evalVm('!UPDATE_RUN || UPDATE_RUN.state !== "running"')) return; } };
   try {
     await flush(5);
     // a developer's or test runtime (not <program>/runtime) never updates itself
@@ -1200,10 +1201,23 @@ await t('4j. 1.80 one-tap update: only a package signed by our server is install
     assert.strictEqual(p.els('updateNow').textContent, '🔄 Update now');
     assert.strictEqual(p.els('updateGo').style.display, 'none', 'no website button while one tap works');
     p.els('updateNow').fire('click');
-    await flush(10);
+    await settle();
     const calls = JSON.parse(p.evalVm('JSON.stringify(__calls)'));
     assert.deepStrictEqual(calls[0], ['target']);
     assert.deepStrictEqual(calls[1].slice(0, 7), ['apply', '--url', URL, '--sha256', SHA, '--size', '2097152']);
+    // 1.80.1: with a fast (Cloudflare) address it goes first, GitHub second; a foreign one is ignored
+    const FAST = 'https://amharic-captions-bot.amhcaps.workers.dev/dl/v1.80.5/amharic-captions-update-win-x64.zip';
+    const withFast = (fast) => { const o = JSON.parse(latest(sign('update|1.80.5|win-x64|' + SHA + '|2097152'))); o.update['win-x64'].fast_url = fast; return JSON.stringify(o); };
+    p.evalVm('localStorage.setItem(UPDATE_LATEST_KEY, ' + JSON.stringify(withFast(FAST)) + ');');
+    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(updatePackageFor(readJson(UPDATE_LATEST_KEY), "win-x64").fast)')), FAST);
+    p.evalVm('localStorage.setItem(UPDATE_LATEST_KEY, ' + JSON.stringify(withFast('https://evil.example/x.zip')) + ');');
+    assert.strictEqual(p.evalVm('updatePackageFor(readJson(UPDATE_LATEST_KEY), "win-x64").fast'), '', 'only our own bot');
+    p.evalVm('UPDATE_RUN = null; __calls.length = 0; localStorage.setItem(UPDATE_LATEST_KEY, ' + JSON.stringify(withFast(FAST)) + ');');
+    p.els('updateNow').fire('click');
+    await settle();
+    const c2 = JSON.parse(p.evalVm('JSON.stringify(__calls)'));
+    assert.deepStrictEqual(c2[1].slice(0, 5), ['apply', '--url', FAST, '--url', URL], 'Cloudflare first, GitHub second');
+    p.evalVm('UPDATE_RUN = null; __calls.length = 0;');
     assert.strictEqual(calls[1][calls[1].length - 1], '1.80.5');
     assert.strictEqual(p.evalVm('__mid'), 'Downloading the update… 1.0 / 2.0 MB', 'progress');
     assert.strictEqual(p.els('updateText').textContent, '✓ Updated to 1.80.5. Close Premiere Pro and open it again.');
@@ -1213,7 +1227,7 @@ await t('4j. 1.80 one-tap update: only a package signed by our server is install
     p.evalVm('UPDATE_RUN = null; __calls.length = 0;');
     p.evalVm('localStorage.setItem(UPDATE_LATEST_KEY, ' + JSON.stringify(latest(sign('update|1.80.5|win-x64|' + 'cd'.repeat(32) + '|2097152'))) + '); renderUpdateBanner();');
     p.els('updateNow').fire('click');
-    await flush(10);
+    await settle();
     assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(__calls.map((a) => a[0]))')), ['target'], 'nothing applied');
     assert.strictEqual(p.els('updateText').textContent, 'Version 1.80.5 needs the full download.');
     assert.strictEqual(p.els('updateGo').style.display, '', 'the website button instead');
@@ -1222,12 +1236,12 @@ await t('4j. 1.80 one-tap update: only a package signed by our server is install
     p.evalVm('UPDATE_RUN = null; __apply = { ok: false, error: "runtime" };');
     p.evalVm('localStorage.setItem(UPDATE_LATEST_KEY, ' + JSON.stringify(latest(sign('update|1.80.5|win-x64|' + SHA + '|2097152'))) + '); renderUpdateBanner();');
     p.els('updateNow').fire('click');
-    await flush(10);
+    await settle();
     assert.strictEqual(p.els('updateText').textContent, 'Version 1.80.5 needs the full download.');
     // a dropped connection: nothing changed, try again
     p.evalVm('UPDATE_RUN = null; __apply = { ok: false, error: "download failed: timeout" };');
     p.els('updateNow').fire('click');
-    await flush(10);
+    await settle();
     assert.ok(/nothing was changed/.test(p.els('updateText').textContent));
     assert.strictEqual(p.els('updateNow').textContent, '↻ Try again');
     // Amharic
