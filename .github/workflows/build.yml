@@ -30,8 +30,9 @@ concurrency:
 # tools/make_model_ct2_int8.sh), upload, then update model_manifest.json + lock.
 env:
   MODEL_SOURCE: https://huggingface.co/kal11/amharic-captions-model/resolve/main/
-  # what the Lite packages download from: the bot's /dl/model/ (Cloudflare,
-  # ~3 MB/s from Ethiopia) first, Hugging Face (~0.3 MB/s) second
+  # the Lite packages' second model source: the bot's /dl/model/. Measured from
+  # Ethiopia (2026-10-28) Hugging Face direct (0.3-1.4 MB/s) beats the bot
+  # (0.1-0.3 MB/s, it runs in Munich), so Hugging Face stays first
   MODEL_FAST: https://amharic-captions-bot.amhcaps.workers.dev/dl/model/
   # Deliberate, documented licence choice. The bundled ffmpeg is a GPL build
   # (it needs libx264 for the burn-in encoder and libass for the subtitles
@@ -422,7 +423,7 @@ jobs:
         run: bash tools/build.sh mac-arm64
 
       - name: Assemble + zip (Lite, model downloaded on first use)
-        run: LITE=1 MODEL_SOURCES="$MODEL_FAST $MODEL_SOURCE" bash tools/build.sh mac-arm64
+        run: LITE=1 MODEL_SOURCES="$MODEL_SOURCE $MODEL_FAST" bash tools/build.sh mac-arm64
 
       - name: Create mac-arm64 package checksums
         shell: bash
@@ -491,7 +492,7 @@ jobs:
         run: bash tools/build.sh mac-x64
 
       - name: Assemble + zip (Lite, model downloaded on first use)
-        run: LITE=1 MODEL_SOURCES="$MODEL_FAST $MODEL_SOURCE" bash tools/build.sh mac-x64
+        run: LITE=1 MODEL_SOURCES="$MODEL_SOURCE $MODEL_FAST" bash tools/build.sh mac-x64
 
       - name: Create mac-x64 package checksums
         shell: bash
@@ -561,7 +562,7 @@ jobs:
 
       - name: Assemble + zip (Lite, model downloaded on first use)
         shell: pwsh
-        run: powershell -ExecutionPolicy Bypass -File tools/build_win.ps1 -Lite -ModelSource "$env:MODEL_FAST,$env:MODEL_SOURCE"
+        run: powershell -ExecutionPolicy Bypass -File tools/build_win.ps1 -Lite -ModelSource "$env:MODEL_SOURCE,$env:MODEL_FAST"
 
       - name: Upload win-x64 package artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

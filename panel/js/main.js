@@ -432,11 +432,11 @@ setTimeout(() => { if (FIRST_OPEN) track('first_open'); track('open'); }, 1200);
 const WHATS_NEW = {
   '1.80.1': {
     banner: {
-      am: '⚡ ማውረድ በጣም ፈጥኗል — የአማርኛ ሞዴሉና ማሻሻያዎች አሁን በፈጣን መንገድ ይወርዳሉ። ከዚህ በኋላ ማሻሻያ በአንድ ንክኪ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
-      en: '⚡ Much faster downloads — the Amharic model and updates now come by a fast route. From now on, updates take one tap — your license stays the same.',
+      am: '⚡ ፕሮግራሙና ማሻሻያዎች በጣም በፍጥነት ይወርዳሉ። ከዚህ በኋላ ማሻሻያ በአንድ ንክኪ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '⚡ The program and updates now download much faster. From now on, updates take one tap — your license stays the same.',
     },
     items: [
-      { am: 'የአማርኛ ሞዴሉ (612 MB) በፈጣን መንገድ ይወርዳል — በደቂቃዎች እንጂ በሰዓታት አይደለም', en: 'The Amharic model (612 MB) downloads by a fast route — minutes, not hours' },
+      { am: 'የአማርኛ ሞዴሉ አንዱ መንገድ ቢቋረጥ በሌላ መንገድ ይወርዳል', en: 'The Amharic model has a second download route if the first one fails' },
       { am: 'ማሻሻያዎችም በፈጣን መንገድ፤ ፈጣኑ መንገድ ቢቋረጥ በራሱ ወደ ሌላው ይቀየራል', en: 'Updates too; if the fast route is down, it switches to the other one by itself' },
       { am: 'ከዚህ በኋላ አዲስ ስሪት ሲወጣ «🔄 አሁን አሻሽል»ን ብቻ ይጫኑ — ዌብሳይትና ዳግም መጫን አያስፈልግም', en: 'From now on, when a new version is out just press "🔄 Update now" — no website, no reinstalling' },
       { am: 'ማሻሻያው ትንሽ ነው (13 MB ገደማ) — ፕሮግራሙን በሙሉ (110 MB) እንደገና ማውረድ አያስፈልግም', en: 'An update is small (about 13 MB) — no need to download the whole program (110 MB) again' },
