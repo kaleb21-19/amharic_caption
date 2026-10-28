@@ -4178,6 +4178,55 @@ console.log('\n:: 1.77 the first video without Telegram');
   ok('/funnel 1.78: new computers, new captions apart from reopened projects, VPN users (Ethiopian time) counted with Ethiopia');
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: 📥 the program as a Telegram file');
+{
+  const { env } = fresh();
+  const U = 978000001;
+  const said = (from, uid) => OUTBOUND.slice(from).filter((x) => String(x.body.chat_id) === String(uid));
+  // nothing yet: the website instead
+  let n = OUTBOUND.length;
+  await post(env, msg(U, { id: U }, { text: '/start dl' }));
+  assert.ok(said(n, U).some((x) => /not in Telegram yet/.test(x.body.text || '')), 'no file yet: the website');
+  // a customer sending a zip with that name is NOT saved (it goes to the payment flow)
+  n = OUTBOUND.length;
+  await post(env, msg(U, { id: U }, { document: { file_id: 'BQACevil', file_unique_id: 'u1', file_name: 'amharic-captions-win-x64.zip', mime_type: 'application/zip', file_size: 1000 } }));
+  assert.equal(row(env, "SELECT value FROM settings WHERE key='tgfile_win_x64'"), null, 'only the owner can set the download');
+  // the owner sends the Windows zip once
+  n = OUTBOUND.length;
+  await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { document: { file_id: 'BQACwin123', file_unique_id: 'w1', file_name: 'amharic-captions-win-x64.zip', mime_type: 'application/zip', file_size: 723517440 } }));
+  assert.ok(said(n, ADMIN_ID).some((x) => /Saved as the 🪟 Windows download/.test(x.body.text || '') && /690 MB/.test(x.body.text || '')), 'owner told');
+  // a customer: the menu button, choose Windows, the file arrives with the steps
+  n = OUTBOUND.length;
+  await post(env, msg(U, { id: U }, { text: '/start' }));
+  assert.ok(JSON.stringify(said(n, U).map((x) => x.body.reply_markup)).includes('dl:menu'), '📥 in the menu');
+  n = OUTBOUND.length;
+  await cb(env, { id: U }, 'dl:menu');
+  const menu = said(n, U).map((x) => JSON.stringify(x.body.reply_markup || {})).join(' ');
+  assert.ok(menu.includes('dl:win-x64') && menu.includes('690 MB') && !menu.includes('dl:mac-arm64'), 'only the files that exist');
+  n = OUTBOUND.length;
+  await cb(env, { id: U }, 'dl:win-x64');
+  const doc = OUTBOUND.slice(n).find((x) => x.method === 'sendDocument' && String(x.body.chat_id) === String(U));
+  assert.ok(doc && doc.body.document === 'BQACwin123', 'the saved file, no new upload');
+  assert.ok(/Extract All/.test(doc.body.caption) && /Install\.cmd/.test(doc.body.caption) && /ሁሉም ተካትቷል/.test(doc.body.caption), 'install steps, Amharic first');
+  assert.ok(doc.body.caption.length <= 1024, 'fits a Telegram caption');
+  assert.equal(row(env, "SELECT COUNT(*) AS n FROM funnel WHERE event='tg_download'").n, 1, 'counted');
+  // a Mac Lite zip: its own caption
+  await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { document: { file_id: 'BQACmac', file_unique_id: 'm1', file_name: 'amharic-captions-mac-arm64-lite.zip', mime_type: 'application/zip', file_size: 160000000 } }));
+  n = OUTBOUND.length;
+  await cb(env, { id: U }, 'dl:mac-arm64');
+  const mdoc = OUTBOUND.slice(n).find((x) => x.method === 'sendDocument');
+  assert.ok(mdoc && /Install\.command/.test(mdoc.body.caption) && /612 MB/.test(mdoc.body.caption), 'Mac steps + the model note');
+  // /download works too; junk taps do nothing
+  n = OUTBOUND.length;
+  await post(env, msg(U, { id: U }, { text: '/download' }));
+  assert.ok(said(n, U).some((x) => /Choose your computer/.test(x.body.text || '')));
+  n = OUTBOUND.length;
+  await cb(env, { id: U }, 'dl:../../x');
+  assert.ok(!OUTBOUND.slice(n).some((x) => x.method === 'sendDocument'), 'unknown target: nothing sent');
+  ok('📥 Telegram download: the owner sends the zip once (admin only), customers get it from the menu, /download or ?start=dl, with the install steps');
+}
+
 // Across EVERY scenario: nothing may be silently refused by Telegram (a refused
 // call is a screen the user never sees). Only the recovered photo→file case.
 {

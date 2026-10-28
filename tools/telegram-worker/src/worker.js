@@ -253,6 +253,86 @@ async function serveDownload(request, src) {
   return new Response(request.method === 'HEAD' ? null : up.body, { status: up.status, headers: out });
 }
 
+// ── 📥 the program as a Telegram file (owner's idea, 2026-10-28) ───────────
+// GitHub is slow from Ethiopia and the internet was slow that week; Telegram is
+// fast, used every day, often on a cheap Telegram data package, and it resumes
+// a broken download by itself. The owner sends the release zip to the bot once
+// (admin only, file name amharic-captions-<target>[-lite].zip); the bot keeps
+// its file_id and sends that file to anyone who taps 📥 — any size, nothing
+// uploaded again. One-tap updates keep an older zip up to date, so a new
+// upload is only needed when the installer itself changes.
+const TG_DL_RE = /^amharic-captions-(win-x64|mac-arm64|mac-x64)(-lite)?\.zip$/i;
+const TG_DL_TARGETS = [['win-x64', '🪟 Windows'], ['mac-arm64', '🍎 Mac (M1 / M2 / M3)'], ['mac-x64', '🍎 Mac (Intel)']];
+const tgDlKey = (t) => 'tgfile_' + t.replace('-', '_');
+async function tgDlFiles() {
+  const s = await getSettings();
+  const out = {};
+  for (const [t] of TG_DL_TARGETS) {
+    try {
+      const v = JSON.parse(s[tgDlKey(t)] || 'null');
+      if (v && typeof v.file_id === 'string' && v.file_id) out[t] = v;
+    } catch (e) { /* not set */ }
+  }
+  return out;
+}
+async function saveTgDlFile(chatId, uid, doc) {
+  const m = TG_DL_RE.exec(String(doc.file_name || ''));
+  if (!m) return false;
+  const t = m[1].toLowerCase();
+  const v = { file_id: doc.file_id, name: doc.file_name, size: doc.file_size || 0, lite: !!m[2], at: new Date().toISOString().slice(0, 10) };
+  await setSetting(tgDlKey(t), JSON.stringify(v));
+  await audit(uid, 'tg_download_file', t + ' ' + v.name);
+  const mb = v.size ? ' · ' + Math.round(v.size / 1048576) + ' MB' : '';
+  await sendText(chatId,
+    `✅ <b>Saved as the ${esc(TG_DL_TARGETS.find((x) => x[0] === t)[1])} download</b> (${esc(v.name)}${mb}).\n\n` +
+    'Customers get it with 📥 <b>Download in Telegram</b> in the bot menu, or the link ' +
+    `<code>${BOT_LINK}?start=dl</code> (also on the website).` +
+    (v.lite ? '\n\n<i>Lite: the Amharic model (612 MB) downloads on first use. The full zip includes it.</i>' : ''));
+  return true;
+}
+async function showTgDownload(chatId, messageId) {
+  const files = await tgDlFiles();
+  const kb = TG_DL_TARGETS.filter(([t]) => files[t]).map(([t, label]) => [{
+    text: label + (files[t].size ? ' · ' + Math.round(files[t].size / 1048576) + ' MB' : ''), callback_data: 'dl:' + t,
+  }]);
+  const text = kb.length
+    ? '📥 <b>ፕሮግራሙን በቴሌግራም ያውርዱ</b>\nኮምፒውተርዎን ይምረጡ — ፋይሉ እዚሁ ይመጣል።\n<i>Choose your computer — the file comes right here in Telegram.</i>'
+    : '📥 ፋይሉ ለጊዜው በቴሌግራም የለም — ከዌብሳይቱ ያውርዱ።\n<i>The file is not in Telegram yet — download it from the website.</i>';
+  kb.push([INSTALL_BTN], [MENU_BTN]);
+  const r = messageId ? await editText(chatId, messageId, text, kb) : null;
+  if (!r || !r.ok) await sendText(chatId, text, kb);
+}
+function tgDlCaption(t, f) {
+  const win = t === 'win-x64';
+  return (
+    `📦 <b>አማርኛ ካፕሽን ፕሮ — ${win ? 'Windows' : 'Mac'}</b>\n\n` +
+    '<b>①</b> ፋይሉን ይጫኑ — ይወርዳል\n' +
+    (win
+      ? '<b>②</b> ፋይሉ ላይ Right-click → <b>Extract All</b>\n<b>③</b> በተከፈተው አቃፊ <b>Install.cmd</b> ን ሁለቴ ይጫኑ\n'
+      : '<b>②</b> ዚፑን ሁለቴ ይጫኑ — አቃፊ ይከፈታል\n<b>③</b> <b>Install.command</b> ላይ Right-click → <b>Open</b>\n') +
+    '<b>④</b> <b>Make Amharic Captions</b> ን ይክፈቱ (ወይም Premiere / After Effects ውስጥ፦ Window → Extensions)\n\n' +
+    (f.lite ? '🧠 የአማርኛ ሞዴሉ (612 MB) በመጀመሪያው አጠቃቀም አንድ ጊዜ ይወርዳል።\n' : '🧠 ሁሉም ተካትቷል — ሞዴሉን ማውረድ አያስፈልግም።\n') +
+    '🔄 ከዚህ በኋላ ማሻሻያ በፕሮግራሙ ውስጥ በአንድ ንክኪ።\n\n' +
+    `<i>Download → ${win ? 'Extract All → Install.cmd' : 'open the zip → Install.command (right-click → Open)'} → open Make Amharic Captions. ` +
+    (f.lite ? 'The Amharic model downloads once on first use.' : 'Everything is included.') + ' Updates later: one tap inside the program.</i>'
+  );
+}
+async function sendTgDownload(chatId, uid, t) {
+  const files = await tgDlFiles();
+  const f = files[t];
+  if (!f) { await showTgDownload(chatId, null); return; }
+  const r = await safeSend(tg(TOKEN, 'sendDocument', {
+    chat_id: chatId, document: f.file_id, caption: tgDlCaption(t, f), parse_mode: 'HTML',
+    reply_markup: { inline_keyboard: [[INSTALL_BTN], [SUPPORT_BTN]] },
+  }));
+  if (!r || !r.ok) {
+    log('error', 'tg_download_send_failed', { t, err: String((r && r.description) || '') });
+    await sendText(chatId, '⚠️ ፋይሉን መላክ አልተቻለም — ከዌብሳይቱ ያውርዱ።\n<i>Could not send the file — please download it from the website.</i>', [[INSTALL_BTN], [SUPPORT_BTN]]);
+    return;
+  }
+  try { await addFunnel(String(uid), 'tg_download'); } catch (e) {}
+}
+
 async function licenseServicesReady() {
   if (!SECRET || !SIGN_KEY) return false;
   try {
@@ -566,6 +646,7 @@ async function heroText(first = '', offer = null) {
 // `invite` adds the referral button (programme ON and the user is a buyer).
 const FAQ_BTN = { text: '❓ ጥያቄዎች · Questions', callback_data: 'faq:home' };
 const heroKeyboard = (invite = false) => [
+  [{ text: '📥 ፕሮግራሙን በቴሌግራም ያውርዱ · Download in Telegram', callback_data: 'dl:menu' }],
   [{ text: '🎁 በነጻ ይሞክሩ — አውርድ · Try free (Install guide)', url: `${SITE_URL}/install` }],
   [{ text: '💳 ፈቃድ ይግዙ · Buy a license', callback_data: 'menu:pay' }],
   [FAQ_BTN],
@@ -2258,6 +2339,7 @@ async function handleMessage(msg, env) {
   const startArg = text.match(/^\/start(?:@\w+)?\s+(\S+)$/i);
   if (startArg || ['/start', '/start@amhariccaptionsbot', '/menu', 'menu'].includes(lower)) {
     // The panel's free-minutes button (1.10.7): t_<nonce>.
+    if (privateChat && startArg && startArg[1] === 'dl') { await showTgDownload(chatId, null); return; }
     const trialLink = privateChat && startArg && /^t_([a-z0-9]{16})$/.exec(startArg[1]);
     if (trialLink) {
       await startTrialGrant(uid, chatId, trialLink[1], user.username ? '@' + user.username : (first || String(uid)));
@@ -2286,6 +2368,10 @@ async function handleMessage(msg, env) {
         await sendText(chatId, home.text + (offer || !inv ? '' : linkNote(reason)), home.kb);
       }
     }
+    return;
+  }
+  if (lower === '/download' || lower === '/download@amhariccaptionsbot') {
+    await showTgDownload(chatId, null);
     return;
   }
   if (lower === '/invite' || lower === '/invite@amhariccaptionsbot') {
@@ -2504,6 +2590,11 @@ async function handleMessage(msg, env) {
     }
   }
 
+  // 📥 the owner sends a release zip: it becomes the Telegram download
+  if (msg.document && isAdmin(user.id) && TG_DL_RE.test(String(msg.document.file_name || ''))) {
+    await saveTgDlFile(chatId, uid, msg.document);
+    return;
+  }
   // photos / documents (payment screenshot)
   if (msg.photo || msg.document) {
     if (!privateChat) {
@@ -6274,6 +6365,14 @@ async function handleCallback(cb) {
     return;
   }
 
+  if (data.startsWith('dl:')) {
+    const t = data.slice(3);
+    if (t === 'menu') { await answerCb(cbId, ''); await showTgDownload(chatId, messageId); return; }
+    if (!TG_DL_TARGETS.some(([x]) => x === t)) { await answerCb(cbId, ''); return; }
+    await answerCb(cbId, '📥 …');
+    await sendTgDownload(chatId, fromUid, t);
+    return;
+  }
   if (data.startsWith('menu:')) {
     await answerCb(cbId, '');
     const kind = data.split(':')[1];
