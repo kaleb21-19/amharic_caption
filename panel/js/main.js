@@ -238,10 +238,20 @@ function parseMachineRecord(raw) {
 function loadMachineRecord() {
   const p = machineFilePath();
   if (!p || !nodeFs) return null;
-  try {
-    const primary = parseMachineRecord(nodeFs.readFileSync(p, 'utf8'));
-    if (primary) return primary;
-  } catch (e) {}
+  // 1.80.1: the Studio reads through its local bridge, and one failed read at
+  // start made up a NEW Machine ID while the engine kept the file's — a free
+  // job then failed with "Trial ticket is for a different machine" (a
+  // customer's problem report). A read that throws is tried again; only a
+  // missing or unreadable-as-a-record file counts as "no record".
+  for (let i = 0; i < 3; i++) {
+    try {
+      const primary = parseMachineRecord(nodeFs.readFileSync(p, 'utf8'));
+      if (primary) return primary;
+      break;                                   // read fine, not a record
+    } catch (e) {
+      if (e && e.code === 'ENOENT') break;     // no file: nothing to retry
+    }
+  }
   // A crash during a direct write must not mint a new paid license identity.
   // Recover the last complete record before considering a fresh machine.
   try {
@@ -4009,8 +4019,36 @@ async function transcribe(sourcePath, outSrt, range, offset) {
 // used to be charged when the review opened); a retry of the same run reuses
 // the same ticket. Free captions need internet once, to get the ticket.
 let ENGINE_AUTH = null;     // { run, auth } for the current run
+// 1.80.1: the engine accepts a lease or a free-minutes ticket only for the ID
+// in the machine file. Checked before anything is charged: a different ID in
+// the file means this session started with a wrong one — charge nothing,
+// remember the file's ID and reopen; a missing file is written back.
+function machineFileId() {
+  const p = machineFilePath();
+  if (!p || !nodeFs) return undefined;            // cannot tell (browser tests)
+  for (let i = 0; i < 3; i++) {
+    try {
+      const rec = parseMachineRecord(nodeFs.readFileSync(p, 'utf8'));
+      return rec ? rec.id : null;
+    } catch (e) {
+      if (e && e.code === 'ENOENT') return null;
+    }
+  }
+  return undefined;
+}
+function checkMachineIdForEngine() {
+  const fileId = machineFileId();
+  if (fileId === null) { saveMachineRecord(MACHINE_ID, hostFingerprint()); return; }
+  if (!fileId || fileId === MACHINE_ID) return;
+  log('This computer\'s ID was read wrong when the program started (' + MACHINE_ID.slice(0, 6) + '… instead of ' +
+      fileId.slice(0, 6) + '…). Nothing was charged — reopening with the right one.');
+  try { localStorage.setItem('amh.machineId', fileId); } catch (e) {}
+  setTimeout(() => { try { location.reload(); } catch (e) {} }, 2500);
+  throw new Error('machine id changed: reopening');
+}
 async function engineAuth(seconds) {
   if (ENGINE_AUTH && ENGINE_AUTH.run === activeRunId) return ENGINE_AUTH.auth;
+  checkMachineIdForEngine();
   const stored = getLicense();
   let auth;
   if (LICENSED && stored && stored.token) {

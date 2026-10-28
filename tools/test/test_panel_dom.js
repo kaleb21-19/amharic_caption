@@ -1251,6 +1251,34 @@ await t('4j. 1.80 one-tap update: only a package signed by our server is install
   } finally { p.close(); }
 });
 
+await t('4k. 1.80.1 the program and the engine always mean the same computer: a wrong ID is caught before charging', async () => {
+  const p = loadPanel({});
+  try {
+    await flush(5);
+    const file = p.evalVm('machineFilePath()');
+    const mid = p.evalVm('MACHINE_ID');
+    assert.strictEqual(p.evalVm('machineFileId()'), mid, 'the file holds this session\'s ID');
+    p.evalVm('globalThis.__charged = 0; consumeTrialCredit = async () => { __charged++; return { allowed: true, ticket: "t2.x" }; }; globalThis.location = { reload: () => { globalThis.__reloaded = true; } };');
+    // the file says another computer ID (the session started with a wrong one)
+    const other = mid === 'aaaaaaaaaaaaaaaa' ? 'bbbbbbbbbbbbbbbb' : 'aaaaaaaaaaaaaaaa';
+    fs.writeFileSync(file, JSON.stringify({ id: other, host: null, hv: 2 }));
+    const err = await p.evalVm('engineAuth(30).then(() => "ran", (e) => e.message)');
+    assert.strictEqual(err, 'machine id changed: reopening');
+    assert.strictEqual(p.evalVm('__charged'), 0, 'nothing charged');
+    assert.strictEqual(p.evalVm('localStorage.getItem("amh.machineId")'), other, 'the file\'s ID is kept for the reopen');
+    await new Promise((r) => setTimeout(r, 2700));
+    assert.strictEqual(p.evalVm('!!globalThis.__reloaded'), true, 'reopens');
+    assert.ok(/read wrong when the program started/.test(p.els('logBox').textContent));
+    // the file is gone: it is written back with this session's ID, and the job goes on
+    fs.unlinkSync(file);
+    try { fs.unlinkSync(file + '.bak'); } catch (e) {}
+    p.evalVm('ENGINE_AUTH = null; LICENSED = false;');
+    await p.evalVm('engineAuth(30).then(() => "ran", (e) => e.message)');
+    assert.strictEqual(JSON.parse(fs.readFileSync(file, 'utf8')).id, mid, 'written back');
+    assert.strictEqual(p.evalVm('__charged'), 1, 'then charged once, as normal');
+  } finally { p.close(); }
+});
+
 await t('4e. free week (1.10.20): the panel shows until when, and says when the week has ended', async () => {
   const p = loadPanel({});
   try {

@@ -176,7 +176,8 @@ def verify_ticket(ticket, machine_id, pubkey_pem=LICENSE_TOKEN_PUBKEY_PEM, now=N
     if len(sig) != 128 or not set(sig) <= hexd or not until.isdigit() or not run:
         return False, "Malformed trial ticket"
     if mid != str(machine_id or "").lower():
-        return False, "Trial ticket is for a different machine"
+        return False, "Trial ticket is for a different machine (ticket %s..., this computer %s...)" % (
+            mid[:6], str(machine_id or "")[:6])
     if int(until) < int(now if now is not None else time.time()):
         return False, "Trial ticket expired"
     try:
