@@ -38,14 +38,14 @@ export const ACCOUNTS_LABEL = "CBE 1000504159977 · Abyssinia 402393939 · Zemen
 // newest published release.
 export const RELEASES_URL = "https://github.com/kaleb21-19/amharic_caption/releases/latest";
 export const DL_WIN =
-  "https://github.com/kaleb21-19/amharic_caption/releases/latest/download/amharic-captions-win-x64.zip";
+  "https://amharic-captions-bot.amhcaps.workers.dev/dl/amharic-captions-win-x64.zip";
 export const DL_MAC_ARM =
-  "https://github.com/kaleb21-19/amharic_caption/releases/latest/download/amharic-captions-mac-arm64.zip";
+  "https://amharic-captions-bot.amhcaps.workers.dev/dl/amharic-captions-mac-arm64.zip";
 // Intel Macs: same latest-tag mechanism — the x64 build runs on the arm64
 // macOS runner (AMH_TARGET=mac-x64) and publishes with the others, so this
 // link always resolves.
 export const DL_MAC_X64 =
-  "https://github.com/kaleb21-19/amharic_caption/releases/latest/download/amharic-captions-mac-x64.zip";
+  "https://amharic-captions-bot.amhcaps.workers.dev/dl/amharic-captions-mac-x64.zip";
 
 // Lite builds (~110-180 MB): same installer; the Amharic model (~612 MB) is
 // downloaded once from inside the panel, resumably. These are the default
@@ -53,11 +53,11 @@ export const DL_MAC_X64 =
 // Needs a release that carries the -lite assets (v1.7.1+): publish the release
 // before deploying these links.
 export const DL_WIN_LITE =
-  "https://github.com/kaleb21-19/amharic_caption/releases/latest/download/amharic-captions-win-x64-lite.zip";
+  "https://amharic-captions-bot.amhcaps.workers.dev/dl/amharic-captions-win-x64-lite.zip";
 export const DL_MAC_ARM_LITE =
-  "https://github.com/kaleb21-19/amharic_caption/releases/latest/download/amharic-captions-mac-arm64-lite.zip";
+  "https://amharic-captions-bot.amhcaps.workers.dev/dl/amharic-captions-mac-arm64-lite.zip";
 export const DL_MAC_X64_LITE =
-  "https://github.com/kaleb21-19/amharic_caption/releases/latest/download/amharic-captions-mac-x64-lite.zip";
+  "https://amharic-captions-bot.amhcaps.workers.dev/dl/amharic-captions-mac-x64-lite.zip";
 
 // Legal documents carry a FIXED effective date and version. (It used to be
 // new Date() at build time, so the "effective" date silently moved on every

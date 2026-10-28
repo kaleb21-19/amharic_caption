@@ -195,12 +195,62 @@ async function releaseUpdates(rel, version) {
       if (!res.ok) continue;
       const m = /\b([0-9a-f]{64})\b/.exec(String(await res.text()).toLowerCase());
       if (!m) continue;
-      out[t] = { url, sha256: m[1], size: zip.size, sig: await signUpdate(version, t, m[1], zip.size) };
+      out[t] = {
+        url, fast_url: FAST_BASE + '/dl/v' + version + '/' + name,
+        sha256: m[1], size: zip.size, sig: await signUpdate(version, t, m[1], zip.size),
+      };
     } catch (e) {
       log('warn', 'update_package_failed', { t, err: String((e && e.message) || e) });
     }
   }
   return Object.keys(out).length ? out : null;
+}
+
+// ── fast downloads (1.80.1) ────────────────────────────────────────────────
+// Measured from an Ethiopian connection (2026-10-28): GitHub release files
+// 13 KB/s (the 110 MB zip ≈ 2.5 h), Hugging Face 294 KB/s, Cloudflare
+// 3,270 KB/s. So every download goes through this Worker: /dl/<release file>
+// (latest release, or /dl/v1.2.3/<file>) and /dl/model/<model file> fetch
+// from GitHub / Hugging Face inside Cloudflare's network and stream it on,
+// with Range (a dropped connection continues). Only our own release files and
+// the model's files — never an open proxy. The program still checks every
+// file's SHA-256 (and the signed update hash), so nothing here can alter them.
+const DL_RELEASE_RE = /^amharic-captions-(?:update-)?(?:win-x64|mac-arm64|mac-x64)(?:-lite)?\.zip(?:\.sha256)?$/;
+const DL_MODEL_FILES = new Set(['config.json', 'lm_head_b.npy', 'lm_head_w.npy', 'mel_filters.npy', 'model.bin', 'model_meta.json', 'preprocessor_config.json', 'vocab.json', 'vocabulary.json', 'window.npy']);
+const DL_MODEL_ORIGIN = 'https://huggingface.co/kal11/amharic-captions-model/resolve/main/';
+const DL_RELEASE_ORIGIN = 'https://github.com/kaleb21-19/amharic_caption/releases/';
+const FAST_BASE = 'https://amharic-captions-bot.amhcaps.workers.dev';
+function dlSource(pathname) {
+  let m = /^\/dl\/model\/([A-Za-z0-9_.-]{1,64})$/.exec(pathname);
+  if (m) return DL_MODEL_FILES.has(m[1]) ? { url: DL_MODEL_ORIGIN + m[1], name: m[1] } : null;
+  m = /^\/dl\/(?:(v\d{1,4}\.\d{1,4}\.\d{1,4})\/)?([A-Za-z0-9_.-]{1,80})$/.exec(pathname);
+  if (m && DL_RELEASE_RE.test(m[2])) {
+    return { url: DL_RELEASE_ORIGIN + (m[1] ? 'download/' + m[1] + '/' : 'latest/download/') + m[2], name: m[2] };
+  }
+  return null;
+}
+async function serveDownload(request, src) {
+  const headers = { 'User-Agent': 'amharic-captions-worker' };
+  const range = request.headers.get('Range') || '';
+  if (/^bytes=\d*-\d*$/.test(range)) headers.Range = range;
+  let up;
+  try {
+    up = await fetch(src.url, { method: request.method === 'HEAD' ? 'HEAD' : 'GET', headers, redirect: 'follow' });
+  } catch (e) {
+    return new Response('download source unreachable', { status: 502 });
+  }
+  if (up.status === 416) return new Response(null, { status: 416, headers: { 'Content-Range': up.headers.get('Content-Range') || '' } });
+  if (!(up.status === 200 || up.status === 206)) return new Response('not found', { status: up.status === 404 ? 404 : 502 });
+  const out = new Headers();
+  for (const k of ['Content-Length', 'Content-Range', 'ETag', 'Last-Modified']) {
+    const v = up.headers.get(k);
+    if (v) out.set(k, v);
+  }
+  out.set('Accept-Ranges', 'bytes');
+  out.set('Content-Type', 'application/octet-stream');
+  out.set('Content-Disposition', 'attachment; filename="' + src.name + '"');
+  out.set('Cache-Control', 'public, max-age=300');
+  return new Response(request.method === 'HEAD' ? null : up.body, { status: up.status, headers: out });
 }
 
 async function licenseServicesReady() {
@@ -6789,6 +6839,14 @@ export default {
     const clientIp = () => request.headers.get('CF-Connecting-IP') || '0.0.0.0';
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders });
+    }
+    // GET/HEAD /dl/<file> — fast downloads through Cloudflare (1.80.1)
+    if ((request.method === 'GET' || request.method === 'HEAD') && url.pathname.startsWith('/dl/')) {
+      const src = dlSource(url.pathname);
+      if (!src) return new Response('not found', { status: 404 });
+      // a download resumes with many Range requests; this only stops a flood
+      if (await rlHit('rl:ip:' + clientIp() + ':dl', 900, 3600)) return new Response('too many requests', { status: 429 });
+      return serveDownload(request, src);
     }
     // The extension API is intentionally public at the transport layer: a
     // desktop client cannot hold a meaningful shared secret. License checks

@@ -159,7 +159,16 @@ def apply(args):
     work = ext + ".update"
     os.makedirs(work, exist_ok=True)
     pkg = os.path.join(work, "update-%s.zip" % args.version)
-    fetch(args.url, pkg, args.size)
+    last = None
+    for url in args.url:                     # the fast address first, then GitHub
+        try:
+            fetch(url, pkg, args.size)
+            last = None
+            break
+        except Exception as e:
+            last = e
+    if last is not None:
+        raise last
     if sha256_of(pkg) != args.sha256.lower():
         os.remove(pkg)                       # never reuse a wrong file
         return {"ok": False, "error": "checksum"}
@@ -230,7 +239,7 @@ def main(argv=None):
     r = sub.add_parser("runtime-id")
     r.add_argument("runtime")
     a = sub.add_parser("apply")
-    a.add_argument("--url", required=True)
+    a.add_argument("--url", required=True, action="append")
     a.add_argument("--sha256", required=True)
     a.add_argument("--size", type=int, default=0)
     a.add_argument("--ext", required=True)

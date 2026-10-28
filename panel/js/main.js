@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.80.0';
+const APP_VERSION = '1.80.1';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -238,10 +238,20 @@ function parseMachineRecord(raw) {
 function loadMachineRecord() {
   const p = machineFilePath();
   if (!p || !nodeFs) return null;
-  try {
-    const primary = parseMachineRecord(nodeFs.readFileSync(p, 'utf8'));
-    if (primary) return primary;
-  } catch (e) {}
+  // 1.80.1: the Studio reads through its local bridge, and one failed read at
+  // start made up a NEW Machine ID while the engine kept the file's — a free
+  // job then failed with "Trial ticket is for a different machine" (a
+  // customer's problem report). A read that throws is tried again; only a
+  // missing or unreadable-as-a-record file counts as "no record".
+  for (let i = 0; i < 3; i++) {
+    try {
+      const primary = parseMachineRecord(nodeFs.readFileSync(p, 'utf8'));
+      if (primary) return primary;
+      break;                                   // read fine, not a record
+    } catch (e) {
+      if (e && e.code === 'ENOENT') break;     // no file: nothing to retry
+    }
+  }
   // A crash during a direct write must not mint a new paid license identity.
   // Recover the last complete record before considering a fresh machine.
   try {
@@ -430,6 +440,18 @@ setTimeout(() => { if (FIRST_OPEN) track('first_open'); track('open'); }, 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.80.1': {
+    banner: {
+      am: '⚡ ፕሮግራሙና ማሻሻያዎች በጣም በፍጥነት ይወርዳሉ። ከዚህ በኋላ ማሻሻያ በአንድ ንክኪ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '⚡ The program and updates now download much faster. From now on, updates take one tap — your license stays the same.',
+    },
+    items: [
+      { am: 'የአማርኛ ሞዴሉ አንዱ መንገድ ቢቋረጥ በሌላ መንገድ ይወርዳል', en: 'The Amharic model has a second download route if the first one fails' },
+      { am: 'ማሻሻያዎችም በፈጣን መንገድ፤ ፈጣኑ መንገድ ቢቋረጥ በራሱ ወደ ሌላው ይቀየራል', en: 'Updates too; if the fast route is down, it switches to the other one by itself' },
+      { am: 'ከዚህ በኋላ አዲስ ስሪት ሲወጣ «🔄 አሁን አሻሽል»ን ብቻ ይጫኑ — ዌብሳይትና ዳግም መጫን አያስፈልግም', en: 'From now on, when a new version is out just press "🔄 Update now" — no website, no reinstalling' },
+      { am: 'ማሻሻያው ትንሽ ነው (13 MB ገደማ) — ፕሮግራሙን በሙሉ (110 MB) እንደገና ማውረድ አያስፈልግም', en: 'An update is small (about 13 MB) — no need to download the whole program (110 MB) again' },
+    ],
+  },
   '1.80.0': {
     banner: {
       am: '🔄 ከአሁን ጀምሮ ማሻሻያ በአንድ ንክኪ — ዳግም ማውረድና መጫን የለም። በተጨማሪ፦ የመጀመሪያው ቪዲዮ በነጻ፣ ሁሉም ፕሮጀክቶች በስቱዲዮ፣ የአማርኛ ቪዲዮ ፍለጋ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -1032,6 +1054,7 @@ function renderUpdateBanner() {
 // website button comes back.
 let UPDATE_PUBKEY_PEM = LICENSE_TOKEN_PUBKEY_PEM;     // tests use their own key pair
 const UPDATE_URL_PREFIX = 'https://github.com/kaleb21-19/amharic_caption/releases/download/';
+const UPDATE_FAST_PREFIX = API_URL + '/dl/';      // 1.80.1: GitHub is ~13 KB/s from Ethiopia
 let UPDATE_RUN = null;          // { state: 'running' | 'done' | 'failed' | 'full', text }
 function updateOffered(latest) {
   if (!latest || !latest.update || typeof latest.update !== 'object') return false;
@@ -1045,7 +1068,8 @@ function updatePackageFor(latest, target) {
   if (typeof u.url !== 'string' || u.url.indexOf(UPDATE_URL_PREFIX) !== 0) return null;
   if (!/^[0-9a-f]{64}$/.test(String(u.sha256)) || !/^[0-9a-f]{128}$/.test(String(u.sig))) return null;
   if (!Number.isInteger(u.size) || u.size <= 0 || u.size > 300 * 1024 * 1024) return null;
-  return { version: latest.version, target, url: u.url, sha256: u.sha256, size: u.size, sig: u.sig };
+  const fast = typeof u.fast_url === 'string' && u.fast_url.indexOf(UPDATE_FAST_PREFIX) === 0 ? u.fast_url : '';
+  return { version: latest.version, target, url: u.url, fast, sha256: u.sha256, size: u.size, sig: u.sig };
 }
 async function updateSignatureOk(u) {
   try {
@@ -1107,8 +1131,8 @@ async function updateNow() {
   try { if (warmChild && !warmChild.killed) warmChild.kill(); } catch (e) {}
   warmChild = null; warmReady = false;
   const mbs = (n) => (n / 1048576).toFixed(1);
-  const r = await runUpdater(['apply', '--url', u.url, '--sha256', u.sha256, '--size', String(u.size),
-    '--ext', EXT_DIR, '--version', u.version], (line) => {
+  const r = await runUpdater(['apply'].concat(u.fast ? ['--url', u.fast] : [], ['--url', u.url, '--sha256', u.sha256, '--size', String(u.size)],
+    ['--ext', EXT_DIR, '--version', u.version]), (line) => {
     const m = /^\[up\] (\d+) (\d+)$/.exec(line);
     if (m) setUpdateRun('running', L('Downloading the update… ' + mbs(Number(m[1])) + ' / ' + mbs(u.size) + ' MB'));
   });
@@ -3995,8 +4019,36 @@ async function transcribe(sourcePath, outSrt, range, offset) {
 // used to be charged when the review opened); a retry of the same run reuses
 // the same ticket. Free captions need internet once, to get the ticket.
 let ENGINE_AUTH = null;     // { run, auth } for the current run
+// 1.80.1: the engine accepts a lease or a free-minutes ticket only for the ID
+// in the machine file. Checked before anything is charged: a different ID in
+// the file means this session started with a wrong one — charge nothing,
+// remember the file's ID and reopen; a missing file is written back.
+function machineFileId() {
+  const p = machineFilePath();
+  if (!p || !nodeFs) return undefined;            // cannot tell (browser tests)
+  for (let i = 0; i < 3; i++) {
+    try {
+      const rec = parseMachineRecord(nodeFs.readFileSync(p, 'utf8'));
+      return rec ? rec.id : null;
+    } catch (e) {
+      if (e && e.code === 'ENOENT') return null;
+    }
+  }
+  return undefined;
+}
+function checkMachineIdForEngine() {
+  const fileId = machineFileId();
+  if (fileId === null) { saveMachineRecord(MACHINE_ID, hostFingerprint()); return; }
+  if (!fileId || fileId === MACHINE_ID) return;
+  log('This computer\'s ID was read wrong when the program started (' + MACHINE_ID.slice(0, 6) + '… instead of ' +
+      fileId.slice(0, 6) + '…). Nothing was charged — reopening with the right one.');
+  try { localStorage.setItem('amh.machineId', fileId); } catch (e) {}
+  setTimeout(() => { try { location.reload(); } catch (e) {} }, 2500);
+  throw new Error('machine id changed: reopening');
+}
 async function engineAuth(seconds) {
   if (ENGINE_AUTH && ENGINE_AUTH.run === activeRunId) return ENGINE_AUTH.auth;
+  checkMachineIdForEngine();
   const stored = getLicense();
   let auth;
   if (LICENSED && stored && stored.token) {

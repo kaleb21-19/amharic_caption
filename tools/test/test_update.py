@@ -56,7 +56,8 @@ def make_package(path, files, version="1.80.0", rid=None):
 
 
 def run(url, sha, size, ext, version="1.80.0"):
-    p = subprocess.run([sys.executable, os.path.join(ROOT, "amh_update.py"), "apply", "--url", url, "--sha256", sha,
+    urls = url if isinstance(url, list) else [url]
+    p = subprocess.run([sys.executable, os.path.join(ROOT, "amh_update.py"), "apply"] + sum([["--url", u] for u in urls], []) + ["--sha256", sha,
                         "--size", str(size), "--ext", ext, "--version", version], capture_output=True, text=True)
     last = [l for l in p.stdout.splitlines() if l.startswith("{")][-1]
     return json.loads(last)
@@ -137,6 +138,14 @@ try:
     assert read(ext, "js/main.js") == "new main", "rolled back"
     assert not os.path.exists(os.path.join(ext, "js", "a_first.js")), "a new file from the failed update is removed"
     ok("a failure halfway puts every file back (old files restored, new ones removed)")
+
+    # the fast address is down: the next address (GitHub) is used
+    u, s, z = make_package(os.path.join(base, "u6.zip"), {"js/main.js": "via second address"}, version="1.80.6", rid=rid)
+    dead = pathlib.Path(os.path.join(base, "no-such-file.zip")).as_uri()
+    r = run([dead, u], s, z, ext, "1.80.6")
+    assert r["ok"] is True, r
+    assert read(ext, "js/main.js") == "via second address"
+    ok("the fast address failing falls back to the next one (GitHub)")
 
     # not the program folder
     r = run(url, sha, size, os.path.join(base, "nowhere"))
