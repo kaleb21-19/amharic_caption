@@ -305,17 +305,20 @@ async function showTgDownload(chatId, messageId) {
 }
 function tgDlCaption(t, f) {
   const win = t === 'win-x64';
+  // The owner: customers did not know where the program is after installing.
+  // The desktop icon is "Make Amharic Captions"; it opens Amharic Captions Studio.
   return (
     `📦 <b>አማርኛ ካፕሽን ፕሮ — ${win ? 'Windows' : 'Mac'}</b>\n\n` +
     '<b>①</b> ፋይሉን ይጫኑ — ይወርዳል\n' +
     (win
       ? '<b>②</b> ፋይሉ ላይ Right-click → <b>Extract All</b>\n<b>③</b> በተከፈተው አቃፊ <b>Install.cmd</b> ን ሁለቴ ይጫኑ\n'
       : '<b>②</b> ዚፑን ሁለቴ ይጫኑ — አቃፊ ይከፈታል\n<b>③</b> <b>Install.command</b> ላይ Right-click → <b>Open</b>\n') +
-    '<b>④</b> <b>Make Amharic Captions</b> ን ይክፈቱ (ወይም Premiere / After Effects ውስጥ፦ Window → Extensions)\n\n' +
-    (f.lite ? '🧠 የአማርኛ ሞዴሉ (612 MB) በመጀመሪያው አጠቃቀም አንድ ጊዜ ይወርዳል።\n' : '🧠 ሁሉም ተካትቷል — ሞዴሉን ማውረድ አያስፈልግም።\n') +
-    '🔄 ከዚህ በኋላ ማሻሻያ በፕሮግራሙ ውስጥ በአንድ ንክኪ።\n\n' +
-    `<i>Download → ${win ? 'Extract All → Install.cmd' : 'open the zip → Install.command (right-click → Open)'} → open Make Amharic Captions. ` +
-    (f.lite ? 'The Amharic model downloads once on first use.' : 'Everything is included.') + ' Updates later: one tap inside the program.</i>'
+    '<b>④</b> ተጠናቋል! 🎉\n\n' +
+    '💻 <b>ዴስክቶፕዎ ላይ «Make Amharic Captions» የሚል አዶ ይታያል — ሁለቴ ይጫኑት፤ Amharic Captions Studio ይከፈታል።</b>\n' +
+    '🎬 Premiere / After Effects፦ Window → Extensions → Amharic Captions\n\n' +
+    (f.lite ? '🧠 የአማርኛ ሞዴሉ በመጀመሪያው አጠቃቀም አንድ ጊዜ ይወርዳል።\n' : '🧠 ሁሉም ተካትቷል — ሞዴሉን ማውረድ አያስፈልግም።\n') +
+    '🔄 ማሻሻያ በፕሮግራሙ ውስጥ በአንድ ንክኪ።\n\n' +
+    `<i>${win ? 'Extract All → Install.cmd' : 'Open the zip → Install.command'}, then double-click <b>Make Amharic Captions</b> on your desktop — Amharic Captions Studio opens.</i>`
   );
 }
 async function sendTgDownload(chatId, uid, t) {
