@@ -595,7 +595,7 @@ set "AMH_APP_PY=%DEST%\app\amh_app.py"
 set "SC_OK=0"
 rem AMH_NO_SHORTCUT=1 skips this step (sandboxed installer tests only).
 if not defined AMH_NO_SHORTCUT if exist "%AMH_SRT_TARGET%" (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "$w = New-Object -ComObject WScript.Shell; $q = [char]34; foreach ($f in @('Desktop','Programs')) { $d = [Environment]::GetFolderPath($f); if ($d) { $s = $w.CreateShortcut((Join-Path $d 'Make Amharic Captions.lnk')); if ((Test-Path $env:AMH_APP_PYW) -and (Test-Path $env:AMH_APP_PY)) { $s.TargetPath = $env:AMH_APP_PYW; $s.Arguments = '-E -s -X utf8 ' + $q + $env:AMH_APP_PY + $q } else { $s.TargetPath = $env:AMH_SRT_TARGET; $s.Arguments = '' }; $s.WorkingDirectory = $env:AMH_SRT_DIR; $s.Description = 'Amharic captions for CapCut, DaVinci Resolve and other editors'; $s.Save() } }" >> "%LOG%" 2>&1
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "$w = New-Object -ComObject WScript.Shell; $q = [char]34; foreach ($f in @('Desktop','Programs')) { $d = [Environment]::GetFolderPath($f); if ($d) { $s = $w.CreateShortcut((Join-Path $d 'Make Amharic Captions.lnk')); if ((Test-Path $env:AMH_APP_PYW) -and (Test-Path $env:AMH_APP_PY)) { $s.TargetPath = $env:AMH_APP_PYW; $s.Arguments = '-E -s -X utf8 ' + $q + $env:AMH_APP_PY + $q } else { $s.TargetPath = $env:AMH_SRT_TARGET; $s.Arguments = '' }; $ico = Join-Path (Split-Path $env:AMH_APP_PY) 'amh.ico'; if (Test-Path $ico) { $s.IconLocation = $ico + ',0' }; $s.WorkingDirectory = $env:AMH_SRT_DIR; $s.Description = 'Amharic captions for CapCut, DaVinci Resolve and other editors'; $s.Save() } }" >> "%LOG%" 2>&1
     if not errorlevel 1 set "SC_OK=1"
 )
 if "!SC_OK!"=="1" (
