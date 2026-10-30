@@ -5265,6 +5265,8 @@ const EVENT_NAMES = new Set([
   'first_open', 'cap_new',
   // 1.80: one-tap update
   'update_start', 'update_ok', 'update_fail',
+  // 1.81: the model download offered the full program in Telegram
+  'model_tg',
   'trial_starter', 'trial_more', 'gate_none', 'gate_used', 'gate_expired', 'gate_pending', 'gate_offline', 'gate_blocked',
   'err_av_blocked', 'err_too_short', 'err_no_speech', 'err_no_clips', 'err_no_clip', 'err_no_media',
   'err_media_unreadable', 'err_no_audio', 'err_disk_full', 'err_engine', 'err_runtime', 'err_license', 'err_other',
@@ -5332,7 +5334,8 @@ async function adminUsage(chatId, messageId, days = 7) {
       ? `📦 Needed the model download: ${c('model_needed')}\n` +
         `   ├ started: ${c('model_dl_start')}\n` +
         `   ├ ✅ finished: ${c('model_dl_ok')}\n` +
-        `   └ ❌ failed: ${c('model_dl_fail')}\n`
+        `   └ ❌ failed: ${c('model_dl_fail')}\n` +
+        (c('model_tg') ? `   → 📥 took the full program from Telegram instead: ${c('model_tg')}\n` : '')
       : '') +
     `▶️ Pressed “Make captions”: <b>${c('run_click')}</b> (${pct(c('open'), c('run_click'))} of opened)\n` +
     ((c('blocked_model') + c('blocked_trial') + c('blocked_runtime'))

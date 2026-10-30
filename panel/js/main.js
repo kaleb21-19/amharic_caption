@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.80.2';
+const APP_VERSION = '1.81.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -8958,6 +8958,31 @@ function modelTimeLeft(done) {
   return left >= 90 ? ' · about ' + Math.round(left / 60) + ' min left' : ' · less than 2 min left';
 }
 function mb(n) { return Math.round(n / 1e6); }
+// 1.81: /funnel 7 days — 22 people pressed Make captions and stopped at "no
+// model", 6 of 35 downloads failed. When the download is slow or failing, the
+// card offers the program WITH the model in Telegram (fast and resumable in
+// Ethiopia; the owner keeps the full zip in the bot's 📥 Download).
+const MODEL_TG_URL = 'https://t.me/AmharicCaptionsBot?start=dl';
+const MODEL_TG_SLOW_S = 20 * 60;          // more than 20 minutes left = slow
+function modelSecondsLeft(done) {
+  if (!MODEL_SPEED.bps || MODEL_SPEED.bps < 1) return null;
+  return Math.max(0, (MODEL_TOTAL_BYTES || 612e6) - (done || 0)) / MODEL_SPEED.bps;
+}
+function renderModelTg(state, done) {
+  const box = $('modelTgBox');
+  if (!box) return;
+  const left = modelSecondsLeft(done);
+  const why = state === 'retrying' || state === 'failed' ? 'stuck'
+    : (state === 'running' && left !== null && left > MODEL_TG_SLOW_S ? 'slow' : '');
+  box.style.display = why ? '' : 'none';
+  if (!why) return;
+  const w = $('modelTgWhy');
+  if (w) w.textContent = L(why === 'slow'
+    ? 'Slow internet? Get the program with the Amharic model already inside — in Telegram, fast, and it continues if the connection drops.'
+    : 'The download keeps stopping? Get the program with the Amharic model already inside — in Telegram.');
+  const b = $('modelTg');
+  if (b) b.textContent = L('📥 Get it in Telegram — model included');
+}
 function setModelUi(state, done) {
   const btn = $('modelBtn'), bar = $('modelBar'), label = $('modelLabel'), card = $('modelCard');
   if (!card) return;
@@ -8997,6 +9022,7 @@ function setModelUi(state, done) {
     setTimeout(() => { const c = $('modelCard'); if (c && !MODEL_MISSING) c.style.display = 'none'; }, 2500);
   }
   card.setAttribute('data-state', state);
+  renderModelTg(state, done);
 }
 let MODEL_UI = { state: 'idle', done: 0 };
 function modelUi(state, done) {
@@ -9081,6 +9107,8 @@ function startModelDownload() {
 function initModelDownload() {
   const btn = $('modelBtn');
   if (!btn) return;
+  const tgb = $('modelTg');
+  if (tgb) tgb.addEventListener('click', (e) => { if (e && e.preventDefault) e.preventDefault(); track('model_tg'); openUrl(MODEL_TG_URL); });
   if (!MODEL_MISSING) { const c = $('modelCard'); if (c) c.style.display = 'none'; return; }
   track('model_needed');
   btn.addEventListener('click', () => {
