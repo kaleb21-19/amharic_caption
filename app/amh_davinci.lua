@@ -84,13 +84,21 @@ local function findPieces(t0)
       local mpi = it.GetMediaPoolItem and it:GetMediaPoolItem()
       local v = videoFor(mpi)
       if v then
-        local src
-        if it.GetSourceStartTime then src = it:GetSourceStartTime() end
-        if type(src) ~= "number" then
-          local cf = tonumber(mpi:GetClipProperty("FPS")) or rate
-          src = (it.GetSourceStartFrame and it:GetSourceStartFrame() or it:GetLeftOffset()) / cf
-        end
-        pcs[#pcs + 1] = { v = v, a = it:GetStart(), b = it:GetEnd(), src = src, track = t }
+        -- 1.80.2: where this piece starts in the FILE, in seconds. DaVinci
+        -- versions answer this differently (seconds, frames, or counted from the
+        -- file's start timecode, e.g. 01:00:00:00) — the owner's test placed no
+        -- caption at all. Every answer is kept; the one the captions fit wins.
+        local cf = tonumber(mpi:GetClipProperty("FPS")) or rate
+        local cands = {}
+        local function add(x) if type(x) == "number" and x == x and x >= 0 then cands[#cands + 1] = x end end
+        pcall(function() if it.GetSourceStartTime then add(it:GetSourceStartTime()) end end)
+        pcall(function() if it.GetSourceStartFrame then add(it:GetSourceStartFrame() / cf) end end)
+        pcall(function() if it.GetLeftOffset then add(it:GetLeftOffset() / cf) end end)
+        local th, tm, ts, tf = (mpi:GetClipProperty("Start TC") or ""):match("(%d+)%D(%d+)%D(%d+)%D(%d+)")
+        local tc = th and (tonumber(th) * 3600 + tonumber(tm) * 60 + tonumber(ts) + tonumber(tf) / cf) or 0
+        for i = 1, #cands do if tc > 0 and cands[i] >= tc then add(cands[i] - tc) end end
+        add(0)
+        pcs[#pcs + 1] = { v = v, a = it:GetStart(), b = it:GetEnd(), cands = cands, src = cands[1], track = t }
         local res = mpi:GetClipProperty("Resolution") or ""
         local rw, rh = res:match("(%d+)%s*x%s*(%d+)")
         if rw and not w0 then w0, h0 = tonumber(rw), tonumber(rh) end
@@ -174,6 +182,27 @@ local W = tonumber(tl:GetSetting("timelineResolutionWidth")) or 1920
 local H = tonumber(tl:GetSetting("timelineResolutionHeight")) or 1080
 local s0 = tl:GetStartFrame()
 
+-- ── where each piece starts in its file: a timeline the script just made
+-- holds the whole video from its first frame; otherwise the answer the
+-- captions fit best (the most captions inside the piece; ties: DaVinci's own)
+local function fits(pc, s)
+  local dur, n = (pc.b - pc.a) / fps, 0
+  for _, c in ipairs(pc.v.cues or {}) do if c[2] > s and c[1] < s + dur then n = n + 1 end end
+  return n
+end
+for _, pc in ipairs(pieces) do
+  if created then
+    pc.src = 0
+  else
+    local best, bn = pc.cands[1] or 0, -1
+    for _, s in ipairs(pc.cands) do
+      local n = fits(pc, s)
+      if n > bn then best, bn = s, n end
+    end
+    pc.src = best
+  end
+end
+
 -- ── every caption in timeline frames (a cue split by a cut = two captions)
 local caps = {}
 for _, pc in ipairs(pieces) do
@@ -193,7 +222,18 @@ for _, c in ipairs(caps) do                -- never two at once: the earlier one
   if prev and prev.b - prev.a < 2 then list[#list] = nil end
   list[#list + 1] = c
 end
-if #list == 0 then say({ tx("ቪዲዮው ተገኝቷል፣ ግን በTimeline ላይ ባሉት ክፍሎቹ ውስጥ ካፕሽን የለም።", "The video was found, but no captions fall in the parts of it on the timeline.") }); return end
+if #list == 0 then
+  -- what DaVinci answered, so a problem report can say why
+  local p1 = pieces[1]
+  local nc = #(p1.v.cues or {})
+  local last = nc > 0 and p1.v.cues[nc][2] or 0
+  local cs = {}
+  for _, s in ipairs(p1.cands or {}) do cs[#cs + 1] = string.format("%.2f", s) end
+  say({ tx("ቪዲዮው ተገኝቷል፣ ግን በTimeline ላይ ባሉት ክፍሎቹ ውስጥ ካፕሽን የለም።", "The video was found, but no captions fall in the parts of it on the timeline."),
+        string.format("(%d piece(s); first: frames %d-%d at %s fps, file start %s s; tried %s; captions 0-%.1f s)",
+          #pieces, p1.a, p1.b, tostring(fps), string.format("%.2f", p1.src or -1), table.concat(cs, " / "), last) })
+  return
+end
 
 -- ── the look: the font's height is a share of the picture's height; the
 -- picture is the video's own area (a tall video on a wide timeline too)

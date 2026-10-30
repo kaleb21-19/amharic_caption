@@ -102,6 +102,11 @@ test('the script keeps its safety steps', () => {
   assert.ok(LUA.includes('CreateEmptyTimeline(nm)') && LUA.includes('GetTimelineByIndex(i)'), 'no timeline with the video: another one of the project, else a new one');
   assert.ok(LUA.includes('snapshot()') && LUA.includes('Ctrl+Z'), 'checks nothing of yours moved');
   assert.ok(LUA.includes('item:AddMarker(0, "Green"') && LUA.includes('t:AddMarker(at + i, "Red"'), 'the result as a marker (DaVinci free shows no script windows)');
+  // 1.80.2: "the video was found, but no captions fall in it" on the owner's DaVinci
+  assert.ok(/if created then\s+pc\.src = 0/.test(LUA), 'a timeline the script made itself: the video starts at its first frame');
+  assert.ok(LUA.includes('GetSourceStartTime') && LUA.includes('GetLeftOffset') && LUA.includes('"Start TC"') && LUA.includes('fits(pc, s)'),
+    'every way DaVinci reports the start is tried; the one the captions fit wins');
+  assert.ok(LUA.includes('tried %s; captions 0-%.1f s'), 'when nothing fits, the marker says what DaVinci answered');
 });
 
 console.log('\n' + passed + ' passed');
