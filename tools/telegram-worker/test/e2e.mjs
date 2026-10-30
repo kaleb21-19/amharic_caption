@@ -4210,13 +4210,14 @@ console.log('\n:: 📥 the program as a Telegram file');
   assert.ok(doc && doc.body.document === 'BQACwin123', 'the saved file, no new upload');
   assert.ok(/Extract All/.test(doc.body.caption) && /Install\.cmd/.test(doc.body.caption) && /ሁሉም ተካትቷል/.test(doc.body.caption), 'install steps, Amharic first');
   assert.ok(doc.body.caption.length <= 1024, 'fits a Telegram caption');
+  assert.ok(/ዴስክቶፕዎ ላይ «Make Amharic Captions»/.test(doc.body.caption) && /Amharic Captions Studio/.test(doc.body.caption), 'says where the program is after installing');
   assert.equal(row(env, "SELECT COUNT(*) AS n FROM funnel WHERE event='tg_download'").n, 1, 'counted');
   // a Mac Lite zip: its own caption
   await post(env, msg(Number(ADMIN_ID), { id: Number(ADMIN_ID) }, { document: { file_id: 'BQACmac', file_unique_id: 'm1', file_name: 'amharic-captions-mac-arm64-lite.zip', mime_type: 'application/zip', file_size: 160000000 } }));
   n = OUTBOUND.length;
   await cb(env, { id: U }, 'dl:mac-arm64');
   const mdoc = OUTBOUND.slice(n).find((x) => x.method === 'sendDocument');
-  assert.ok(mdoc && /Install\.command/.test(mdoc.body.caption) && /612 MB/.test(mdoc.body.caption), 'Mac steps + the model note');
+  assert.ok(mdoc && /Install\.command/.test(mdoc.body.caption) && /የአማርኛ ሞዴሉ በመጀመሪያው አጠቃቀም/.test(mdoc.body.caption), 'Mac steps + the model note');
   // /download works too; junk taps do nothing
   n = OUTBOUND.length;
   await post(env, msg(U, { id: U }, { text: '/download' }));

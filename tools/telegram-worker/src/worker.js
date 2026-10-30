@@ -298,23 +298,27 @@ async function showTgDownload(chatId, messageId) {
   const text = kb.length
     ? '📥 <b>ፕሮግራሙን በቴሌግራም ያውርዱ</b>\nኮምፒውተርዎን ይምረጡ — ፋይሉ እዚሁ ይመጣል።\n<i>Choose your computer — the file comes right here in Telegram.</i>'
     : '📥 ፋይሉ ለጊዜው በቴሌግራም የለም — ከዌብሳይቱ ያውርዱ።\n<i>The file is not in Telegram yet — download it from the website.</i>';
-  kb.push([INSTALL_BTN], [MENU_BTN]);
+  // the file is here: nothing else to read; no file yet: the website
+  kb.push(...(kb.length ? [] : [[INSTALL_BTN]]), [MENU_BTN]);
   const r = messageId ? await editText(chatId, messageId, text, kb) : null;
   if (!r || !r.ok) await sendText(chatId, text, kb);
 }
 function tgDlCaption(t, f) {
   const win = t === 'win-x64';
+  // The owner: customers did not know where the program is after installing.
+  // The desktop icon is "Make Amharic Captions"; it opens Amharic Captions Studio.
   return (
     `📦 <b>አማርኛ ካፕሽን ፕሮ — ${win ? 'Windows' : 'Mac'}</b>\n\n` +
     '<b>①</b> ፋይሉን ይጫኑ — ይወርዳል\n' +
     (win
       ? '<b>②</b> ፋይሉ ላይ Right-click → <b>Extract All</b>\n<b>③</b> በተከፈተው አቃፊ <b>Install.cmd</b> ን ሁለቴ ይጫኑ\n'
       : '<b>②</b> ዚፑን ሁለቴ ይጫኑ — አቃፊ ይከፈታል\n<b>③</b> <b>Install.command</b> ላይ Right-click → <b>Open</b>\n') +
-    '<b>④</b> <b>Make Amharic Captions</b> ን ይክፈቱ (ወይም Premiere / After Effects ውስጥ፦ Window → Extensions)\n\n' +
-    (f.lite ? '🧠 የአማርኛ ሞዴሉ (612 MB) በመጀመሪያው አጠቃቀም አንድ ጊዜ ይወርዳል።\n' : '🧠 ሁሉም ተካትቷል — ሞዴሉን ማውረድ አያስፈልግም።\n') +
-    '🔄 ከዚህ በኋላ ማሻሻያ በፕሮግራሙ ውስጥ በአንድ ንክኪ።\n\n' +
-    `<i>Download → ${win ? 'Extract All → Install.cmd' : 'open the zip → Install.command (right-click → Open)'} → open Make Amharic Captions. ` +
-    (f.lite ? 'The Amharic model downloads once on first use.' : 'Everything is included.') + ' Updates later: one tap inside the program.</i>'
+    '<b>④</b> ተጠናቋል! 🎉\n\n' +
+    '💻 <b>ዴስክቶፕዎ ላይ «Make Amharic Captions» የሚል አዶ ይታያል — ሁለቴ ይጫኑት፤ Amharic Captions Studio ይከፈታል።</b>\n' +
+    '🎬 Premiere / After Effects፦ Window → Extensions → Amharic Captions\n\n' +
+    (f.lite ? '🧠 የአማርኛ ሞዴሉ በመጀመሪያው አጠቃቀም አንድ ጊዜ ይወርዳል።\n' : '🧠 ሁሉም ተካትቷል — ሞዴሉን ማውረድ አያስፈልግም።\n') +
+    '🔄 ማሻሻያ በፕሮግራሙ ውስጥ በአንድ ንክኪ።\n\n' +
+    `<i>${win ? 'Extract All → Install.cmd' : 'Open the zip → Install.command'}, then double-click <b>Make Amharic Captions</b> on your desktop — Amharic Captions Studio opens.</i>`
   );
 }
 async function sendTgDownload(chatId, uid, t) {
@@ -323,7 +327,7 @@ async function sendTgDownload(chatId, uid, t) {
   if (!f) { await showTgDownload(chatId, null); return; }
   const r = await safeSend(tg(TOKEN, 'sendDocument', {
     chat_id: chatId, document: f.file_id, caption: tgDlCaption(t, f), parse_mode: 'HTML',
-    reply_markup: { inline_keyboard: [[INSTALL_BTN], [SUPPORT_BTN]] },
+    reply_markup: { inline_keyboard: [[SUPPORT_BTN]] },
   }));
   if (!r || !r.ok) {
     log('error', 'tg_download_send_failed', { t, err: String((r && r.description) || '') });
@@ -647,7 +651,6 @@ async function heroText(first = '', offer = null) {
 const FAQ_BTN = { text: '❓ ጥያቄዎች · Questions', callback_data: 'faq:home' };
 const heroKeyboard = (invite = false) => [
   [{ text: '📥 ፕሮግራሙን በቴሌግራም ያውርዱ · Download in Telegram', callback_data: 'dl:menu' }],
-  [{ text: '🎁 በነጻ ይሞክሩ — አውርድ · Try free (Install guide)', url: `${SITE_URL}/install` }],
   [{ text: '💳 ፈቃድ ይግዙ · Buy a license', callback_data: 'menu:pay' }],
   [FAQ_BTN],
   [{ text: '🔑 ቁልፌ · My Key', callback_data: 'menu:mykey' }],
@@ -5265,6 +5268,8 @@ const EVENT_NAMES = new Set([
   'first_open', 'cap_new',
   // 1.80: one-tap update
   'update_start', 'update_ok', 'update_fail',
+  // 1.81: the model download offered the full program in Telegram
+  'model_tg',
   'trial_starter', 'trial_more', 'gate_none', 'gate_used', 'gate_expired', 'gate_pending', 'gate_offline', 'gate_blocked',
   'err_av_blocked', 'err_too_short', 'err_no_speech', 'err_no_clips', 'err_no_clip', 'err_no_media',
   'err_media_unreadable', 'err_no_audio', 'err_disk_full', 'err_engine', 'err_runtime', 'err_license', 'err_other',
@@ -5332,7 +5337,8 @@ async function adminUsage(chatId, messageId, days = 7) {
       ? `📦 Needed the model download: ${c('model_needed')}\n` +
         `   ├ started: ${c('model_dl_start')}\n` +
         `   ├ ✅ finished: ${c('model_dl_ok')}\n` +
-        `   └ ❌ failed: ${c('model_dl_fail')}\n`
+        `   └ ❌ failed: ${c('model_dl_fail')}\n` +
+        (c('model_tg') ? `   → 📥 took the full program from Telegram instead: ${c('model_tg')}\n` : '')
       : '') +
     `▶️ Pressed “Make captions”: <b>${c('run_click')}</b> (${pct(c('open'), c('run_click'))} of opened)\n` +
     ((c('blocked_model') + c('blocked_trial') + c('blocked_runtime'))

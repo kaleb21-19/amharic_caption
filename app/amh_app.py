@@ -825,6 +825,27 @@ def unblock_window_files():
                     pass
 
 
+def refresh_shortcut_icon():
+    """1.81: the owner's logo on the desktop icon. A new install gets it from
+    Install.cmd; an install updated with one tap gets amh.ico in app/, and the
+    Studio puts it on its own shortcut ("Make Amharic Captions", Desktop and
+    Start menu) — nothing else is touched, and only when it is not set yet."""
+    ico = os.path.join(HERE, "amh.ico")
+    if not IS_WIN or os.environ.get("AMH_NO_SHORTCUT") or not os.path.isfile(ico):
+        return
+    ps = ("$w = New-Object -ComObject WScript.Shell; foreach ($f in @('Desktop','Programs')) { "
+          "$d = [Environment]::GetFolderPath($f); if (-not $d) { continue }; "
+          "$p = Join-Path $d 'Make Amharic Captions.lnk'; if (-not (Test-Path $p)) { continue }; "
+          "$s = $w.CreateShortcut($p); if ($s.IconLocation -notlike '*amh.ico*') { "
+          "$s.IconLocation = $env:AMH_ICON + ',0'; $s.Save() } }")
+    env = dict(os.environ, AMH_ICON=ico)
+    try:
+        subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps],
+                       env=env, timeout=30, capture_output=True, creationflags=0x08000000)  # CREATE_NO_WINDOW
+    except Exception:
+        pass
+
+
 def main():
     global WINDOW
     ap = argparse.ArgumentParser()
@@ -836,6 +857,7 @@ def main():
     ext_dir = os.path.realpath(a.ext or a.ui)
 
     unblock_window_files()
+    threading.Thread(target=refresh_shortcut_icon, daemon=True).start()
     try:
         import webview
         from webview.dom import DOMEventHandler

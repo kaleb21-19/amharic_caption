@@ -972,6 +972,11 @@
         <div class="progress" role="progressbar" aria-labelledby="modelLabel"><div id="modelBar"></div></div>
         <span id="modelLabel" aria-live="polite"></span>
       </div>
+      <!-- 1.81: slow or failing? the whole program WITH the model, in Telegram -->
+      <div id="modelTgBox" style="display:none;margin-top:10px;">
+        <div class="hint" id="modelTgWhy" style="margin-bottom:6px;"></div>
+        <button type="button" id="modelTg" class="btn btn-primary"></button>
+      </div>
     </div>
 
     <!-- STEP 1: Source -->
@@ -1172,7 +1177,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.80.2</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.81.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
