@@ -94,7 +94,17 @@
       'Cut the video again in DaVinci? Just run the script again — the captions follow the new cut (the older track is turned off, not deleted).'));
     let here = {};
     try { here = (window.__amhAppExport && window.__amhAppExport.editors && window.__amhAppExport.editors()) || {}; } catch (e) {}
-    if (here.davinci) out.appendChild(btn('st-btn', '🎞️ ' + tx('DaVinciን ክፈት', 'Open DaVinci'), '', () => { try { APP.call('openEditor', ['davinci']); } catch (e) {} }));
+    // 1.80.2: the owner opened DaVinci, saw an empty project and stopped — the
+    // script step was a line in a list. Now it is the big last thing said.
+    const next = el('div', 'st-ok st-dv-next', '👉 ' + tx('በDaVinci ውስጥ፦ Project ይክፈቱ፣ ከዚያ ከላይ ሜኑ Workspace → Scripts → Amharic Captions ይጫኑ — ቪዲዮውና ካፕሽኖቹ በራሳቸው ይገባሉ።',
+      'In DaVinci: open a project, then in the top menu click Workspace → Scripts → Amharic Captions — the video and the captions come in by themselves.'));
+    if (here.davinci) {
+      out.appendChild(btn('st-btn primary', '🎞️ ' + tx('DaVinciን ክፈት', 'Open DaVinci'), '', () => {
+        try { APP.call('openEditor', ['davinci']); } catch (e) {}
+        next.classList.add('st-dv-flash');
+      }));
+    }
+    out.appendChild(next);
   }
 
   // the card in ⬆ Export (studio.js openExport calls this)
