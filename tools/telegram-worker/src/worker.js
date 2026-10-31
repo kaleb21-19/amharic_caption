@@ -5321,6 +5321,14 @@ async function adminUsage(chatId, messageId, days = 7) {
     ? ' (' + Object.entries(et.hosts).map(([h, n]) => ({ PPRO: 'Premiere', AEFT: 'After Effects', APP: 'CapCut/DaVinci app' }[h] || h) + ' ' + n).join(' · ') + ')'
     : '';
   const otherOpen = other.by.open || 0;
+  // 1.82: how many of those who pressed Buy in the program got to the bot
+  // (the program's Buy link carries m_<Machine ID>; counted per person, all countries)
+  let reachedBot = null;
+  try {
+    const rb = await DB.prepare("SELECT COUNT(DISTINCT uid) AS n FROM funnel WHERE event = 'panel_buy' AND ts > datetime('now', ?)")
+      .bind('-' + days + ' days').first();
+    reachedBot = rb ? rb.n : 0;
+  } catch (e) { /* older table: leave it out */ }
   const gates = [['gate_none', 'none yet'], ['gate_used', 'used up'], ['gate_expired', 'week ended'],
     ['gate_pending', 'waiting for OK'], ['gate_offline', 'no internet'], ['gate_blocked', 'blocked']]
     .filter(([k]) => c(k)).map(([k, n]) => n + ' ' + c(k));
@@ -5357,7 +5365,8 @@ async function adminUsage(chatId, messageId, days = 7) {
     (c('update_start') ? `🔄 One-tap updates: ${c('update_start')} · ✅ ${c('update_ok')} · ❌ ${c('update_fail')}\n` : '') +
     (c('report_sent') ? `📨 Problem reports sent: ${c('report_sent')}\n` : '') +
     (c('feedback_sent') ? `💡 Feedback sent: ${c('feedback_sent')}\n` : '') +
-    `💳 Pressed Buy: ${c('buy_click')} · 🔑 Activated: ${c('activate_ok')}` +
+    `💳 Pressed Buy: ${c('buy_click')}` + (reachedBot !== null ? ` → reached the bot: <b>${reachedBot}</b>` : '') +
+    ` · 🔑 Activated: ${c('activate_ok')}` +
     (c('activate_fail') ? ` · activation failed: ${c('activate_fail')}` : '') + '\n\n' +
     `<i>Outside Ethiopia (mostly our test machines): opened ${otherOpen}.</i>`;
   const kb = [

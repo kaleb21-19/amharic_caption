@@ -422,7 +422,10 @@
   }
   #buyQrCard.show { display: flex; }
   #buyQrCard .tc-box { text-align: center; max-width: 340px; }
-  .bq-code { margin: 10px auto 8px; width: 216px; height: 216px; background: #fff; border-radius: 10px; padding: 8px; box-sizing: border-box; }
+  .bq-prices { margin: 6px 0 8px; font-size: 13px; line-height: 1.5; }
+  .bq-again { width: 100%; margin: 4px 0 10px; }
+  .bq-phone { margin-top: 2px; }
+  .bq-code { margin: 6px auto 8px; width: 150px; height: 150px; background: #fff; border-radius: 10px; padding: 8px; box-sizing: border-box; }
   .bq-code svg { display: block; width: 100%; height: 100%; }
   .bq-steps { text-align: left; margin: 6px 0 8px; padding-left: 20px; font-size: var(--font-s); line-height: 1.6; color: var(--text-secondary); }
   .bq-status:empty { display: none; }
@@ -1177,7 +1180,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.81.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.82.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
@@ -1196,16 +1199,20 @@
   <!-- Buy with your phone (1.41): the bot opens on the phone, where the bank app is -->
   <div id="buyQrCard" role="dialog" aria-modal="true" aria-labelledby="buyQrTitle">
     <div class="tc-box">
-      <div class="tc-title" id="buyQrTitle" data-i18n="bq.title">📱 Buy with your phone</div>
-      <div class="tc-sub" data-i18n="bq.sub">Scan this with your phone’s camera — Telegram opens on your phone, where your bank app is.</div>
-      <div id="buyQr" class="bq-code" aria-label="QR code"></div>
+      <!-- 1.82: 11 computers pressed Buy in 7 days, 2 reached the bot — the
+           card asked for a phone scan first. Telegram now opens on this
+           computer at once; the prices are here; the phone is the second way. -->
+      <div class="tc-title" id="buyQrTitle" data-i18n="bq.title">💳 Telegram is opening on this computer</div>
+      <div class="bq-prices" data-i18n-html="bq.prices"><b>1 month</b> ETB 500 · <b>2 months</b> ETB 900 · <b>Forever</b> ETB 2,500</div>
       <ol class="bq-steps">
-        <li data-i18n="bq.s1">Scan → the bot opens in Telegram on your phone</li>
-        <li data-i18n="bq.s2">Pay in your bank app, take a screenshot</li>
-        <li data-i18n="bq.s3">Send the screenshot to the bot — this computer unlocks by itself</li>
+        <li data-i18n="bq.s1">In Telegram: choose your plan and pay</li>
+        <li data-i18n="bq.s2">Send the payment screenshot to the bot</li>
+        <li data-i18n="bq.s3">This computer unlocks by itself — nothing to copy</li>
       </ol>
       <div class="tc-sub bq-status" id="buyQrStatus"></div>
-      <button type="button" id="buyQrPc" class="tc-later" data-i18n="bq.pc">💻 Open Telegram on this computer instead</button>
+      <button type="button" id="buyQrPc" class="btn btn-primary bq-again" data-i18n="bq.pc">💻 Telegram did not open? Open it again</button>
+      <div class="tc-sub bq-phone" data-i18n="bq.sub">📱 Paying on your phone instead? Scan this with the camera:</div>
+      <div id="buyQr" class="bq-code" aria-label="QR code"></div>
       <button type="button" id="buyQrClose" class="tc-later" data-i18n="bq.close">Close</button>
     </div>
   </div>

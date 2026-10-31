@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.81.0';
+const APP_VERSION = '1.82.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -2089,11 +2089,12 @@ function initBuy() {
       // 1.41: buy on the PHONE — the bank app, the screenshot and Telegram
       // are all there; this computer still unlocks itself (the same link).
       showBuyQr(buyUrl(p));
+      openUrl(buyUrl(p));          // 1.82: Telegram on this computer at once
       startBuyPoll();
     });
   }
   const pc = document.getElementById('buyQrPc');
-  if (pc) pc.addEventListener('click', () => { const p = getPendingBuy(); if (p) openUrl(buyUrl(p)); hideBuyQr(); });
+  if (pc) pc.addEventListener('click', () => { const p = getPendingBuy(); if (p) openUrl(buyUrl(p)); });
   const close = document.getElementById('buyQrClose');
   if (close) close.addEventListener('click', hideBuyQr);
   // A purchase started earlier (the panel was closed meanwhile): keep checking.
