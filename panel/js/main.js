@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.82.0';
+const APP_VERSION = '1.83.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -440,6 +440,19 @@ setTimeout(() => { if (FIRST_OPEN) track('first_open'); track('open'); }, 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.83.0': {
+    banner: {
+      am: '⬆ ፕሮፌሽናል መላክ — 4K፣ ጥራት፣ H.265፣ ProRes፣ ድምፅ ብቻ፣ እና የአማርኛ ካፕሽን ብቻ በግልጽ ዳራ ከማንኛውም ኤዲት ላይ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '⬆ Professional export — 4K, quality, H.265, ProRes, sound only, and Amharic captions alone on a transparent background for any edit — your license stays the same.',
+    },
+    items: [
+      { am: 'መጠን (720p እስከ 4K)፣ ጥራት (ትንሽ ፋይል እስከ ማስተር) እና ፍሬም በሰከንድ ይምረጡ — የፋይሉ መጠን ቀድሞ ይታያል', en: 'Choose the size (720p to 4K), quality (small file to master) and frame rate — the file size shows before you export' },
+      { am: 'MP4 H.265 (ግማሽ መጠን)፣ MOV ProRes ለቀጣይ ኤዲቲንግ፣ ድምፅ ብቻ (WAV / MP3)', en: 'MP4 H.265 (half the size), MOV ProRes to keep editing on, sound only (WAV / MP3)' },
+      { am: '🔤 ካፕሽን ብቻ በግልጽ ዳራ — በPremiere፣ DaVinci ወይም Final Cut ውስጥ ከቪዲዮዎ በላይ ያድርጉት', en: '🔤 Captions only on a transparent background — put it above your video in Premiere, DaVinci or Final Cut' },
+      { am: 'የሚቀመጥበትን አቃፊ ይምረጡ', en: 'Choose the folder the files go to' },
+      { am: 'የዴስክቶፕ አዶው አሁን የአማርኛ ካፕሽን ፕሮ ምልክት ነው፤ ክፍያ በዚህ ኮምፒውተር ቴሌግራም በቀጥታ ይከፍታል', en: 'The desktop icon is now the Amharic Captions Pro logo; Buy opens Telegram on this computer straight away' },
+    ],
+  },
   '1.80.1': {
     banner: {
       am: '⚡ ፕሮግራሙና ማሻሻያዎች በጣም በፍጥነት ይወርዳሉ። ከዚህ በኋላ ማሻሻያ በአንድ ንክኪ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',

@@ -354,17 +354,61 @@
   // the graphics card's encoder when there is one (found by a tiny test
   // encode), else x264; q: high | small (a light file to send) | master
   const GPU_ENCODERS = { win32: ['h264_nvenc', 'h264_qsv', 'h264_amf'], darwin: ['h264_videotoolbox'], linux: ['h264_nvenc'] };
-  function encoderArgs(enc, q, h) {
-    const Q = { high: 0, small: 1, master: 2 }[q] || 0;
+  // ── ⬆ Pro export (1.83): what the file is. h264 plays everywhere; hevc is
+  // about half the size; prores is for editing on in Premiere / DaVinci /
+  // Final Cut; alpha = the captions (and titles) alone on a transparent
+  // background, to lay over any edit; wav / mp3 = the sound only.
+  const EXPORT_KINDS = {
+    h264: { ext: '.mp4' }, hevc: { ext: '.mp4' }, prores: { ext: '.mov' },
+    alpha: { ext: '.mov', captionsOnly: true }, wav: { ext: '.wav', audio: true }, mp3: { ext: '.mp3', audio: true },
+  };
+  // which ffmpeg encoder each kind needs (the program hides a kind it lacks)
+  const KIND_NEEDS = { h264: ['libx264'], hevc: ['libx265'], prores: ['prores_ks'], alpha: ['prores_ks'], wav: ['pcm_s16le'], mp3: ['libmp3lame'] };
+  const HEVC_GPU = { h264_nvenc: 'hevc_nvenc', h264_qsv: 'hevc_qsv', h264_amf: 'hevc_amf', h264_videotoolbox: 'hevc_videotoolbox' };
+  // q: high | small (a light file to send) | master | good (1.83: between)
+  function encoderArgs(enc, q, h, kind) {
+    kind = EXPORT_KINDS[kind] ? kind : 'h264';
+    const Q = { high: 0, small: 1, master: 2, good: 3 }[q] || 0;
     const pick = (a) => a[Q];
+    if (kind === 'wav') return ['-vn', '-c:a', 'pcm_s16le'];
+    if (kind === 'mp3') return ['-vn', '-c:a', 'libmp3lame', '-b:a', pick(['256k', '128k', '320k', '192k'])];
+    if (kind === 'prores') return ['-c:v', 'prores_ks', '-profile:v', Q === 2 ? '3' : '2', '-pix_fmt', 'yuv422p10le', '-c:a', 'pcm_s16le'];
+    if (kind === 'alpha') return ['-c:v', 'prores_ks', '-profile:v', '4', '-pix_fmt', 'yuva444p10le', '-an'];
     let v;
-    if (enc === 'h264_nvenc') v = ['-c:v', 'h264_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', String(pick([20, 27, 16])), '-b:v', '0'];
-    else if (enc === 'h264_qsv') v = ['-c:v', 'h264_qsv', '-preset', 'medium', '-global_quality', String(pick([20, 27, 16]))];
-    else if (enc === 'h264_amf') { const k = pick([20, 27, 16]); v = ['-c:v', 'h264_amf', '-quality', 'quality', '-rc', 'cqp', '-qp_i', String(k), '-qp_p', String(k + 2)]; }
-    else if (enc === 'h264_videotoolbox') v = ['-c:v', 'h264_videotoolbox', '-b:v', pick([h >= 1000 ? '12M' : '6M', '2500k', h >= 1000 ? '25M' : '12M'])];
-    else v = ['-c:v', 'libx264', '-preset', pick(['medium', 'medium', 'slow']), '-crf', String(pick([18, 24, 14]))];
-    if (Q === 1 && enc !== 'h264_videotoolbox') v = v.concat(['-maxrate', '2500k', '-bufsize', '5000k']);
-    return v.concat(['-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', pick(['192k', '128k', '320k'])]);
+    if (kind === 'hevc') {
+      const g = HEVC_GPU[enc];
+      if (g === 'hevc_nvenc') v = ['-c:v', 'hevc_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', String(pick([23, 30, 19, 26])), '-b:v', '0'];
+      else if (g === 'hevc_qsv') v = ['-c:v', 'hevc_qsv', '-preset', 'medium', '-global_quality', String(pick([23, 30, 19, 26]))];
+      else if (g === 'hevc_amf') { const k = pick([23, 30, 19, 26]); v = ['-c:v', 'hevc_amf', '-quality', 'quality', '-rc', 'cqp', '-qp_i', String(k), '-qp_p', String(k + 2)]; }
+      else if (g === 'hevc_videotoolbox') v = ['-c:v', 'hevc_videotoolbox', '-b:v', pick([h >= 1000 ? '7M' : '3500k', '1500k', h >= 1000 ? '15M' : '7M', h >= 1000 ? '4500k' : '2500k'])];
+      else v = ['-c:v', 'libx265', '-preset', pick(['medium', 'medium', 'slow', 'medium']), '-crf', String(pick([22, 28, 18, 25]))];
+      v = v.concat(['-tag:v', 'hvc1']);          // plays on iPhones / Macs too
+    } else if (enc === 'h264_nvenc') v = ['-c:v', 'h264_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', String(pick([20, 27, 16, 23])), '-b:v', '0'];
+    else if (enc === 'h264_qsv') v = ['-c:v', 'h264_qsv', '-preset', 'medium', '-global_quality', String(pick([20, 27, 16, 23]))];
+    else if (enc === 'h264_amf') { const k = pick([20, 27, 16, 23]); v = ['-c:v', 'h264_amf', '-quality', 'quality', '-rc', 'cqp', '-qp_i', String(k), '-qp_p', String(k + 2)]; }
+    else if (enc === 'h264_videotoolbox') v = ['-c:v', 'h264_videotoolbox', '-b:v', pick([h >= 1000 ? '12M' : '6M', '2500k', h >= 1000 ? '25M' : '12M', h >= 1000 ? '8M' : '4M'])];
+    else v = ['-c:v', 'libx264', '-preset', pick(['medium', 'medium', 'slow', 'medium']), '-crf', String(pick([18, 24, 14, 21]))];
+    if (Q === 1 && !/videotoolbox/.test(v[1])) v = v.concat(['-maxrate', kind === 'hevc' ? '1500k' : '2500k', '-bufsize', kind === 'hevc' ? '3000k' : '5000k']);
+    return v.concat(['-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', pick(['192k', '128k', '320k', '160k'])]);
+  }
+  // about how big the file will be, in MB (shown before exporting): typical
+  // bitrates for a talking video at 1080p, scaled by the picture area
+  function sizeEstimate(seconds, h, q, kind) {
+    kind = EXPORT_KINDS[kind] ? kind : 'h264';
+    const s = Math.max(0, Number(seconds) || 0);
+    const Q = { high: 0, small: 1, master: 2, good: 3 }[q] || 0;
+    const area = Math.pow((Number(h) || 1080) / 1080, 2);
+    const audio = [0.192, 0.128, 0.32, 0.16][Q];
+    let mbps;
+    if (kind === 'wav') mbps = 1.411;
+    else if (kind === 'mp3') mbps = [0.256, 0.128, 0.32, 0.192][Q];
+    else if (kind === 'prores') mbps = (Q === 2 ? 180 : 120) * area + 1.5;
+    else if (kind === 'alpha') mbps = 21 * area;           // mostly empty frames (measured: 9.6 Mbps at 720p)
+    else {
+      const base = [8, 2.5, 16, 5][Q] * (Q === 1 ? 1 : area);
+      mbps = base * (kind === 'hevc' ? 0.55 : 1) + audio;
+    }
+    return Math.max(0.1, Math.round(s * mbps / 8 * 10) / 10);
   }
   // seconds left, from how far it is and how long it took so far (none at first)
   function eta(progress, elapsed) {
@@ -1495,7 +1539,7 @@
   const api = { MIN, layout, total, locate, sourceToEdit, splitAt, removeClip, trimClip, moveClip, dropIndex, cutRange, moveRange, rangeState, insertClips, keptSegs, mapTime, followClips,
     words, deriveCaptions, syncBack, FORMATS, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
     TFONTS, TPRESETS, assColor, textAnchor, textAss, setFontInfo, fontInfo, textSize, LOUD, MUS_DEFAULT, musicGain,
-    PRESETS, presetFor, GPU_ENCODERS, encoderArgs, eta,
+    PRESETS, presetFor, GPU_ENCODERS, encoderArgs, eta, EXPORT_KINDS, KIND_NEEDS, HEVC_GPU, sizeEstimate,
     speedOf: sp, clipLen, cropOf, rotOf, tiltOf, picOn, picDims, tiltScale, picFilter, picCss, cropToFile, cropToView, RAMPS, rampPieces, unRamp, trackedState, SFX, SFX_LEN, SFX_LEAD, sfxEvents, RF_PACE, rfWindow, rfTrack, rfAt, rfPlace, rfExpr, rfOn, TEMPLATES, TPL_GROUPS, HOLIDAYS, TPL_SPEED, tplOf, tplLayers, tplState, tplAss, setMeasure, tplFade: fadeOut, OV_LAYOUTS, OV_ANIMS, OV_MOTION, ovLook, ovBox, ovAnim, ovChain, ovPos, ZOOM_STYLES, ZOOM_SPEED, ZOOM_DEFAULT, zoomEnv, zoomRect, zoomExprs, zoomFilter, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhEdit = api;

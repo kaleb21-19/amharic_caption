@@ -263,6 +263,25 @@ test('export choices: presets, 720p, encoders (graphics card or x264), captions 
   assert.ok(E.encoderArgs('h264_amf', 'master', 1080).join(' ').includes('-qp_i 16 -qp_p 18') && E.encoderArgs('h264_amf', 'master', 1080).includes('320k'));
   const g = E.editGraph([{ id: 'a', m: 'v', in: 0, out: 12 }], { v: { idx: 0, w: 1920, h: 1080, video: true, audio: true } }, '9:16', 30, [], { ass: ['t.ass', 'c.ass'], res: 720 }).graph;
   assert.ok(g.includes('s=720x1280') && g.endsWith('[vx]subtitles=t.ass:fontsdir=fonts,subtitles=c.ass:fontsdir=fonts,format=yuv420p[v]'), 'text, then captions on top, one pass');
+  // 1.83 Pro export: a fourth quality, other kinds of file, the size before exporting
+  assert.ok(E.encoderArgs('libx264', 'good', 1080).join(' ').includes('-crf 21'), 'good = between high and small');
+  const hv = E.encoderArgs('libx264', 'high', 1080, 'hevc').join(' ');
+  assert.ok(hv.startsWith('-c:v libx265 -preset medium -crf 22 -tag:v hvc1') && hv.includes('-c:a aac'), 'H.265 on the processor, plays on iPhones (hvc1): ' + hv);
+  assert.ok(E.encoderArgs('h264_nvenc', 'high', 1080, 'hevc').join(' ').startsWith('-c:v hevc_nvenc'), 'H.265 on the NVIDIA card');
+  assert.strictEqual(E.encoderArgs('libx264', 'high', 1080, 'prores').join(' '), '-c:v prores_ks -profile:v 2 -pix_fmt yuv422p10le -c:a pcm_s16le', 'ProRes 422 for editing');
+  assert.ok(E.encoderArgs('libx264', 'master', 1080, 'prores').includes('3'), 'best quality = ProRes HQ');
+  assert.strictEqual(E.encoderArgs('h264_nvenc', 'high', 1080, 'alpha').join(' '), '-c:v prores_ks -profile:v 4 -pix_fmt yuva444p10le -an', 'transparent captions: ProRes 4444 with alpha');
+  assert.deepStrictEqual(E.encoderArgs('libx264', 'high', 1080, 'wav'), ['-vn', '-c:a', 'pcm_s16le']);
+  assert.ok(E.encoderArgs('libx264', 'master', 1080, 'mp3').join(' ') === '-vn -c:a libmp3lame -b:a 320k');
+  assert.strictEqual(E.EXPORT_KINDS.prores.ext, '.mov');
+  assert.strictEqual(E.EXPORT_KINDS.mp3.ext, '.mp3');
+  assert.strictEqual(E.encoderArgs('libx264', 'high', 1080, 'nonsense').join(' '), x, 'an unknown kind = the usual MP4');
+  const one = E.sizeEstimate(60, 1080, 'high', 'h264');
+  assert.ok(one > 55 && one < 65, 'a minute at 1080p high ≈ 60 MB: ' + one);
+  assert.ok(E.sizeEstimate(60, 1080, 'high', 'hevc') < one * 0.6, 'H.265 about half');
+  assert.ok(E.sizeEstimate(60, 2160, 'high', 'h264') > one * 3.5, '4K about four times');
+  assert.ok(E.sizeEstimate(60, 1080, 'high', 'prores') > one * 10, 'ProRes is big');
+  assert.ok(Math.abs(E.sizeEstimate(60, 1080, 'high', 'wav') - 10.6) < 0.2, 'WAV 10.6 MB a minute');
   assert.strictEqual(E.eta(0.01, 5), null, 'no guess at the very start');
   assert.strictEqual(E.eta(0.25, 30), 90);
 });
