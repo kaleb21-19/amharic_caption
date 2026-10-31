@@ -240,7 +240,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.81.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.82.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -444,15 +444,16 @@ await t('3.7 simple buying: Buy link carries a secret, the panel activates itsel
     await flush(5);
     p.els('buyBtn').fire('click', { preventDefault() {} });
     await flush(20);
-    // 1.41: a QR code to buy on the phone (the same link); nothing opens by itself
-    assert.ok(p.els('buyQrCard').classList.contains('show'), 'the QR card shows');
-    assert.strictEqual(p.evalVm('__opened'), null, 'nothing opened on the PC yet');
-    assert.ok(/^<svg[\s\S]*<\/svg>$/.test(String(p.els('buyQr').innerHTML).trim()), 'an SVG QR code');
+    // 1.82: Telegram opens on this computer at once; the card guides, with the
+    // prices, and keeps the QR code for paying on the phone (the same link)
+    assert.ok(p.els('buyQrCard').classList.contains('show'), 'the card shows');
     const qrUrl = p.els('buyQr').dataset.url;
-    // "Open Telegram on this computer instead" = the old way, the same link
+    assert.strictEqual(p.evalVm('__opened'), qrUrl, 'Telegram opened on this computer at once');
+    assert.ok(/^<svg[\s\S]*<\/svg>$/.test(String(p.els('buyQr').innerHTML).trim()), 'the QR code for the phone');
+    p.evalVm('__opened = null;');
     p.els('buyQrPc').fire('click');
-    assert.strictEqual(p.evalVm('__opened'), qrUrl, 'PC button opens the same link');
-    assert.ok(!p.els('buyQrCard').classList.contains('show'), 'and the card closes');
+    assert.strictEqual(p.evalVm('__opened'), qrUrl, '"open it again" opens the same link');
+    assert.ok(p.els('buyQrCard').classList.contains('show'), 'the card stays as the guide');
     const opened = p.evalVm('__opened');
     assert.match(opened, new RegExp('^https://t\\.me/AmharicCaptionsBot\\?start=m_' + p.mid + '_[A-Za-z0-9]{16}$'), 'deep link: ' + opened);
     assert.ok(opened.length - 'https://t.me/AmharicCaptionsBot?start='.length <= 64, 'fits Telegram’s 64-char /start limit');
