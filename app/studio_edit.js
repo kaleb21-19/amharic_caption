@@ -2978,7 +2978,7 @@
   function moPanel(o) {
     const M = E.moOf(o);
     clipPane.appendChild(el('div', 'ed-sec', '🎬 ' + tx('ከመጀመሪያ → እስከ መጨረሻ', 'Start → End')));
-    clipPane.appendChild(el('div', 'ed-hint', tx('መጀመሪያና መጨረሻ ላይ እንዴት እንደሚታይ ይምረጡ — በመካከሉ በራሱ በለስላሳ ይንቀሳቀሳል። ኪፍሬም የለም።',
+    clipPane.appendChild(el('div', 'st-note', tx('መጀመሪያና መጨረሻ ላይ እንዴት እንደሚታይ ይምረጡ — በመካከሉ በራሱ በለስላሳ ይንቀሳቀሳል። ኪፍሬም የለም።',
       'Choose how it looks at its start and at its end — it moves smoothly in between by itself. No keyframes.')));
     const setMo = (mo) => change('motion', () => { ovl = ovl.map((x) => (x.id === o.id ? Object.assign({}, x, { mo }) : x)); });
     const chips = el('div', 'br-chips');
