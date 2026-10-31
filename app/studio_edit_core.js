@@ -1244,8 +1244,9 @@
     const ad = Math.min(L.ad, d / 2);
     const ui = Math.max(0, Math.min(1, (t - s) / ad)), uo = Math.max(0, Math.min(1, (t - (s + d - ad)) / ad));
     let dx = 0, dy = 0, a = o.opacity == null ? 1 : Number(o.opacity);
-    if (L.ain === 'fade') a *= outC(ui); else if (L.ain !== 'none') { const v = ovSlide(L.ain, box, W, H); dx += v[0] * (1 - outC(ui)); dy += v[1] * (1 - outC(ui)); }
-    if (L.aout === 'fade') a *= 1 - inC(uo); else if (L.aout !== 'none') { const v = ovSlide(L.aout, box, W, H); dx += v[0] * inC(uo); dy += v[1] * inC(uo); }
+    const moving = !!moOf(o);           // 1.84: Start -> End replaces the slides
+    if (L.ain === 'fade') a *= outC(ui); else if (L.ain !== 'none' && !moving) { const v = ovSlide(L.ain, box, W, H); dx += v[0] * (1 - outC(ui)); dy += v[1] * (1 - outC(ui)); }
+    if (L.aout === 'fade') a *= 1 - inC(uo); else if (L.aout !== 'none' && !moving) { const v = ovSlide(L.aout, box, W, H); dx += v[0] * inC(uo); dy += v[1] * inC(uo); }
     const p = d > 0 ? Math.max(0, Math.min(1, (t - s) / d)) : 0, e = (1 - Math.cos(Math.PI * p)) / 2;
     const z = Math.max(1, L.mot === 'in' ? 1 + 0.15 * e : L.mot === 'out' ? 1.15 - 0.15 * e : L.mot === 'pan' ? 1.15 : 1);
     const fx = L.mot === 'pan' ? 0.3 + 0.4 * e : 0.5;
@@ -1277,6 +1278,76 @@
     if (L.ain === 'fade') steps.push('fade=t=in:st=' + s + ':d=' + ad + ':alpha=1');
     if (L.aout === 'fade') steps.push('fade=t=out:st=' + r3(s + d - ad) + ':d=' + ad + ':alpha=1');
     return { box, steps, blur: box.fit === 'blur' };
+  }
+  // ── 🎬 Start → End motion (1.84) ───────────────────────────────────────
+  // No keyframes: an overlay's look at its START and at its END, and the
+  // program moves it smoothly between them. o.mo = { a: start, b: end,
+  // ease } where each end is { x, y (move of its centre, share of the frame
+  // width / height), s (size, x1 = as placed), r (turn, degrees) }. The
+  // preview (moAt -> CSS) and the export (moPerspective -> ffmpeg) use the
+  // same curve. While it moves, its own slide-in / slide-out is left out
+  // (fades stay).
+  const MO_EASES = ['smooth', 'linear', 'out', 'in'];
+  const MO_EASE_EXPR = { smooth: '(1-cos(PI*U))/2', linear: 'U', out: '(1-pow(1-U,3))', in: 'pow(U,3)' };
+  const moNum = (v, lo, hi, d) => { const n = Number(v); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
+  const moPart = (p) => ({ x: moNum(p && p.x, -2, 2, 0), y: moNum(p && p.y, -2, 2, 0), s: moNum(p && p.s, 0.05, 5, 1), r: moNum(p && p.r, -720, 720, 0) });
+  const moIdle = (p) => Math.abs(p.x) < 1e-4 && Math.abs(p.y) < 1e-4 && Math.abs(p.s - 1) < 1e-4 && Math.abs(p.r) < 1e-3;
+  function moOf(o) {
+    const m = o && o.mo;
+    if (!m || typeof m !== 'object') return null;
+    const a = moPart(m.a), b = moPart(m.b);
+    if (moIdle(a) && moIdle(b)) return null;
+    return { a, b, ease: MO_EASES.indexOf(m.ease) >= 0 ? m.ease : 'smooth' };
+  }
+  function moEase(ease, u) {
+    u = Math.max(0, Math.min(1, u));
+    return ease === 'linear' ? u : ease === 'out' ? 1 - Math.pow(1 - u, 3) : ease === 'in' ? u * u * u : (1 - Math.cos(Math.PI * u)) / 2;
+  }
+  // at edit time t: { x, y, s, r } (null = no motion)
+  function moAt(o, t) {
+    const M = moOf(o);
+    if (!M) return null;
+    const d = ovLen(o), s = Number(o.start) || 0;
+    const e = moEase(M.ease, d > 0 ? (t - s) / d : 0);
+    const mix = (k) => M.a[k] + (M.b[k] - M.a[k]) * e;
+    return { x: mix('x'), y: mix('y'), s: mix('s'), r: mix('r') };
+  }
+  // the ready motions (relative to where it is placed)
+  const MO_PRESETS = {
+    across: { a: { x: -0.35 }, b: { x: 0.35 }, ease: 'smooth' },
+    rise: { a: { y: 0.3 }, b: {}, ease: 'out' },
+    grow: { a: { s: 0.6 }, b: {}, ease: 'out' },
+    shrink: { a: { s: 1.2 }, b: { s: 0.85 }, ease: 'smooth' },
+    spin: { a: { s: 0.3, r: -180 }, b: {}, ease: 'out' },
+    pop: { a: { s: 0.2 }, b: {}, ease: 'out' },
+    drift: { a: { x: -0.04, s: 1 }, b: { x: 0.04, s: 1.08 }, ease: 'linear' },
+  };
+  function moPreset(name) {
+    const p = MO_PRESETS[name];
+    if (!p) return null;
+    return { a: moPart(p.a), b: moPart(p.b), ease: p.ease };
+  }
+  // the export: a frame-sized transparent canvas holding the overlay at
+  // (px, py), its four corners moved per frame (ffmpeg perspective,
+  // sense=destination: sub-pixel, no jitter). cx / cy = the overlay's centre.
+  function moPerspective(o, W, H, fps, d, cx, cy) {
+    const M = moOf(o);
+    if (!M) return null;
+    const n = (v) => String(r3(v));
+    const E2 = MO_EASE_EXPR[M.ease].replace(/U/g, 'ld(0)');
+    const head = 'st(0,clip((in/' + fps + ')/' + n(Math.max(0.05, d)) + ',0,1));st(1,' + E2 + ');' +
+      'st(2,' + n(M.a.s) + '+' + n(M.b.s - M.a.s) + '*ld(1));' +
+      'st(3,(' + n(M.a.r) + '+' + n(M.b.r - M.a.r) + '*ld(1))*PI/180);' +
+      'st(4,' + n(cx) + '+' + n(W) + '*(' + n(M.a.x) + '+' + n(M.b.x - M.a.x) + '*ld(1)));' +
+      'st(5,' + n(cy) + '+' + n(H) + '*(' + n(M.a.y) + '+' + n(M.b.y - M.a.y) + '*ld(1)));';
+    const corner = (X, Y) => {
+      const rx = n(X - cx), ry = n(Y - cy);
+      return ["'" + head + 'ld(4)+(' + rx + ')*ld(2)*cos(ld(3))-(' + ry + ")*ld(2)*sin(ld(3))'",
+        "'" + head + 'ld(5)+(' + rx + ')*ld(2)*sin(ld(3))+(' + ry + ")*ld(2)*cos(ld(3))'"];
+    };
+    const c0 = corner(0, 0), c1 = corner(W, 0), c2 = corner(0, H), c3 = corner(W, H);
+    return 'perspective=sense=destination:eval=frame:x0=' + c0[0] + ':y0=' + c0[1] + ':x1=' + c1[0] + ':y1=' + c1[1] +
+      ':x2=' + c2[0] + ':y2=' + c2[1] + ':x3=' + c3[0] + ':y3=' + c3[1] + ':interpolation=linear';
   }
   // overlay x / y (of the top-left corner, border included), with the slides
   function ovPos(o, box, W, H) {
@@ -1499,7 +1570,24 @@
         const next = k === list.length - 1 ? vOut : 'vo' + k;
         const LK = ovLook(o);
         let px = p.x, py = p.y;
-        if (LK.layout === 'free' && LK.ain === 'none' && LK.aout === 'none' && LK.mot === 'none') {
+        const moving = moOf(o) && ovBox(o, m, W, H).fit !== 'blur';
+        if (moving) {
+          // 🎬 Start -> End (1.84): the overlay's own look (from 0 s), on a
+          // frame-sized transparent canvas, moved per frame, then placed at
+          // its start on the edit
+          const o2 = Object.assign({}, o, { out: r3(o.in + d), start: 0 });
+          const ch = ovChain(o2, m, W, H, fps, k);
+          const bx = ch.box.x - ch.box.b, by = ch.box.y - ch.box.b;
+          const cx = ch.box.x + ch.box.w / 2, cy = ch.box.y + ch.box.h / 2;
+          parts.push(src + ',setpts=PTS-STARTPTS,fps=' + fps + ',' + ch.steps.join(',') + '[om' + k + ']');
+          parts.push('color=c=black@0.0:s=' + W + 'x' + H + ':r=' + fps + ':d=' + r3(d) + ',format=yuva444p[oc' + k + ']');
+          // a 2 px transparent edge: the move repeats the frame's outer
+          // pixels, and a picture touching the edge would smear across
+          parts.push('[oc' + k + '][om' + k + ']overlay=' + bx + ':' + by + ':format=auto:shortest=1,format=yuva444p,' +
+            'drawbox=x=0:y=0:w=iw:h=ih:t=2:color=black@0.0:replace=1,' +
+            moPerspective(o, W, H, fps, d, cx, cy) + ',setpts=PTS+' + o.start + '/TB[o' + k + ']');
+          px = 0; py = 0;
+        } else if (LK.layout === 'free' && LK.ain === 'none' && LK.aout === 'none' && LK.mot === 'none') {
           parts.push(src + ',setpts=PTS-STARTPTS+' + o.start + '/TB,fps=' + fps + ',scale=' + p.sw + ':' + p.sh + ',setsar=1,format=yuva420p' +
             (op < 1 ? ',colorchannelmixer=aa=' + op : '') + '[o' + k + ']');
         } else {
@@ -1540,6 +1628,7 @@
     words, deriveCaptions, syncBack, FORMATS, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
     TFONTS, TPRESETS, assColor, textAnchor, textAss, setFontInfo, fontInfo, textSize, LOUD, MUS_DEFAULT, musicGain,
     PRESETS, presetFor, GPU_ENCODERS, encoderArgs, eta, EXPORT_KINDS, KIND_NEEDS, HEVC_GPU, sizeEstimate,
+    MO_EASES, MO_PRESETS, moOf, moAt, moEase, moPreset, moPerspective,
     speedOf: sp, clipLen, cropOf, rotOf, tiltOf, picOn, picDims, tiltScale, picFilter, picCss, cropToFile, cropToView, RAMPS, rampPieces, unRamp, trackedState, SFX, SFX_LEN, SFX_LEAD, sfxEvents, RF_PACE, rfWindow, rfTrack, rfAt, rfPlace, rfExpr, rfOn, TEMPLATES, TPL_GROUPS, HOLIDAYS, TPL_SPEED, tplOf, tplLayers, tplState, tplAss, setMeasure, tplFade: fadeOut, OV_LAYOUTS, OV_ANIMS, OV_MOTION, ovLook, ovBox, ovAnim, ovChain, ovPos, ZOOM_STYLES, ZOOM_SPEED, ZOOM_DEFAULT, zoomEnv, zoomRect, zoomExprs, zoomFilter, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhEdit = api;

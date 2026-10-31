@@ -759,6 +759,10 @@
       box.style.left = ((b.x + an.dx) * k) + 'px'; box.style.top = ((b.y + an.dy) * k) + 'px';
       box.style.width = (b.w * k) + 'px'; box.style.height = (b.h * k) + 'px';
       box.style.opacity = an.a;
+      // 🎬 Start -> End (1.84)
+      const mo = E.moAt(o, t);
+      box.style.transformOrigin = '50% 50%';
+      box.style.transform = mo ? 'translate(' + (mo.x * W * k) + 'px,' + (mo.y * H * k) + 'px) rotate(' + mo.r + 'deg) scale(' + mo.s + ')' : '';
       box.style.outline = b.b ? (Math.max(1, b.b * k) + 'px solid ' + (L.border === 'black' ? '#000' : '#fff')) : '';
       box.style.background = b.fit === 'contain' ? '#000' : '';
       box.classList.toggle('sel', o.id === sel);
@@ -2938,6 +2942,7 @@
     [[0.2, tx('ፈጣን', 'Fast')], [0.35, tx('መደበኛ', 'Normal')], [0.7, tx('ቀስ', 'Slow')]].forEach(([v, t]) => sp.appendChild(btn(Math.abs(L.ad - v) < 0.01 ? 'on' : '', t, '', () => setO({ ad: v }))));
     clipPane.appendChild(sp);
     segRow(tx('እንቅስቃሴ በውስጡ', 'Motion inside'), BR_MOT, L.mot, 'mot');
+    moPanel(o);
     clipPane.appendChild(el('div', 'ed-sec', tx('ግልጽነትና ድምፅ', 'Opacity and sound')));
     slider(tx('ግልጽነት', 'Opacity'), 'opacity', 0, 1, 0.01, 1, (v) => Math.round(v * 100) + '%');
     if (!m.image && m.audio) { slider(tx('ድምፅ', 'Volume'), 'volume', 0, 2, 0.01, 0, (v) => (v ? Math.round(v * 100) + '%' : tx('ድምፅ የለም', 'muted'))); clipPane.lastChild.classList.add('simple-ok'); }
@@ -2959,6 +2964,87 @@
     row.appendChild(btn('st-btn', '⤓ ' + tx('ወደ ማጫወቻው', 'To playhead'), tx('እዚህ እንዲጀምር', 'Start it here'), () => change('move overlay', () => { ovl = E.ovMove(ovl, o.id, time()); })));
     row.appendChild(btn('st-btn', '🗑 ' + tx('ሰርዝ', 'Delete'), '', deleteSel));
     clipPane.appendChild(row);
+  }
+
+  // ── 🎬 Start → End (1.84): no keyframes — how it looks at its start and at
+  // its end; the program moves it smoothly between. One tap for a ready
+  // motion, or 📍 Start / 🏁 End with four sliders each (the player jumps
+  // there so you see what you set).
+  let MO_SIDE = 'b';
+  const MO_NAMES = () => ({
+    none: tx('የለም', 'None'), across: tx('→ አቋርጦ', '→ Across'), rise: tx('↑ ከታች', '↑ Rise'), grow: tx('＋ ያድጋል', '＋ Grow'),
+    shrink: tx('－ ያንሳል', '－ Shrink'), spin: tx('↻ እየዞረ', '↻ Spin in'), pop: tx('✦ ብቅ', '✦ Pop'), drift: tx('⇝ ቀስ', '⇝ Drift'),
+  });
+  function moPanel(o) {
+    const M = E.moOf(o);
+    clipPane.appendChild(el('div', 'ed-sec', '🎬 ' + tx('ከመጀመሪያ → እስከ መጨረሻ', 'Start → End')));
+    clipPane.appendChild(el('div', 'ed-hint', tx('መጀመሪያና መጨረሻ ላይ እንዴት እንደሚታይ ይምረጡ — በመካከሉ በራሱ በለስላሳ ይንቀሳቀሳል። ኪፍሬም የለም።',
+      'Choose how it looks at its start and at its end — it moves smoothly in between by itself. No keyframes.')));
+    const setMo = (mo) => change('motion', () => { ovl = ovl.map((x) => (x.id === o.id ? Object.assign({}, x, { mo }) : x)); });
+    const chips = el('div', 'br-chips');
+    const names = MO_NAMES();
+    Object.keys(names).forEach((p) => {
+      const on = p === 'none' ? !M : !!(M && JSON.stringify(E.moPreset(p)) === JSON.stringify({ a: M.a, b: M.b, ease: M.ease }));
+      chips.appendChild(btn('br-chip' + (on ? ' on' : ''), names[p], '', () => {
+        setMo(p === 'none' ? null : E.moPreset(p));
+        if (p !== 'none') { const z = ovl.find((x) => x.id === o.id) || o; seek(Math.max(0, z.start)); play(); const end = E.ovEnd(z); const stop = () => { if (time() >= end) pause(); else if (playing) requestAnimationFrame(stop); }; requestAnimationFrame(stop); }
+      }));
+    });
+    clipPane.appendChild(chips);
+    // 📍 Start / 🏁 End: which end the sliders set (the player goes there)
+    const cur = M || { a: { x: 0, y: 0, s: 1, r: 0 }, b: { x: 0, y: 0, s: 1, r: 0 }, ease: 'smooth' };
+    const sides = el('div', 'st-seg ed-mo-side');
+    const goSide = (sd) => {
+      MO_SIDE = sd;
+      const z = ovl.find((x) => x.id === o.id) || o;
+      seek(sd === 'a' ? z.start + 0.01 : Math.max(z.start, E.ovEnd(z) - 0.04));
+      renderInspector();
+    };
+    sides.appendChild(btn(MO_SIDE === 'a' ? 'on' : '', '📍 ' + tx('መጀመሪያ', 'Start'), '', () => goSide('a')));
+    sides.appendChild(btn(MO_SIDE === 'b' ? 'on' : '', '🏁 ' + tx('መጨረሻ', 'End'), '', () => goSide('b')));
+    clipPane.appendChild(sides);
+    const part = cur[MO_SIDE];
+    const moSlider = (label, key, min, max, step, show) => {
+      const row = el('div', 'ed-row');
+      row.appendChild(el('span', 'ed-lab', label));
+      const r = el('input'); r.type = 'range'; r.min = min; r.max = max; r.step = step; r.value = part[key];
+      const val = el('span', 'ed-val', show(Number(r.value)));
+      let started = false;
+      r.addEventListener('input', () => {
+        if (!started) { pushReviewUndo('motion'); started = true; }
+        const v = Number(r.value);
+        const z = ovl.find((x) => x.id === o.id) || o;
+        const base = E.moOf(z) || cur;
+        const mo = { a: Object.assign({}, base.a), b: Object.assign({}, base.b), ease: base.ease };
+        mo[MO_SIDE][key] = v;
+        ovl = ovl.map((x) => (x.id === o.id ? Object.assign({}, x, { mo }) : x));
+        val.textContent = show(v);
+        frame();
+      });
+      r.addEventListener('change', () => { started = false; ST.saveSoon(); drawSoon(); renderInspector(); });
+      row.appendChild(r); row.appendChild(val);
+      clipPane.appendChild(row);
+    };
+    moSlider(tx('ወደ ጎን', 'Move ↔'), 'x', -1, 1, 0.005, (v) => Math.round(v * 100));
+    moSlider(tx('ወደ ላይ/ታች', 'Move ↕'), 'y', -1, 1, 0.005, (v) => Math.round(v * 100));
+    moSlider(tx('መጠን', 'Size'), 's', 0.05, 3, 0.01, (v) => Math.round(v * 100) + '%');
+    moSlider(tx('ማዞር', 'Turn'), 'r', -360, 360, 1, (v) => Math.round(v) + '°');
+    // how it moves
+    const ez = el('div', 'st-seg');
+    [['smooth', tx('ለስላሳ', 'Smooth')], ['linear', tx('እኩል', 'Steady')], ['out', tx('ፈጥኖ ይቆማል', 'Fast, then settles')], ['in', tx('ቀስ ብሎ ይጀምራል', 'Slow start')]].forEach(([v, t2]) => {
+      ez.appendChild(btn(cur.ease === v ? 'on' : '', t2, '', () => setMo({ a: cur.a, b: cur.b, ease: v })));
+    });
+    clipPane.appendChild(ez);
+    const acts = el('div', 'st-row');
+    acts.appendChild(btn('st-btn', '⇄ ' + tx('ቀይር', 'Swap'), tx('መጀመሪያውና መጨረሻው ቦታ ይቀያየሩ', 'Swap start and end'), () => setMo({ a: cur.b, b: cur.a, ease: cur.ease })));
+    acts.appendChild(btn('st-btn', '▶ ' + tx('አሳይ', 'Play it'), '', () => {
+      const z = ovl.find((x) => x.id === o.id) || o;
+      seek(Math.max(0, z.start)); play();
+      const end = E.ovEnd(z);
+      const stop = () => { if (time() >= end) pause(); else if (playing) requestAnimationFrame(stop); };
+      requestAnimationFrame(stop);
+    }));
+    clipPane.appendChild(acts);
   }
 
   function renderMusicInspector(o) {
