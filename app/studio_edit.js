@@ -1768,6 +1768,14 @@
       const x = S.timeToX(drag.dropT, view);
       ctx.fillStyle = '#ffd60a'; ctx.fillRect(x - 1, mainTop - 3, 3, MAIN + 6);
     }
+    // 🎬 where a dragged file will land
+    if (mdrop) {
+      const LL = L();
+      const x = S.timeToX(mdrop.kind === 'main' ? (mdrop.idx < LL.length ? LL[mdrop.idx].s : total()) : mdrop.t, view);
+      const y0 = mdrop.kind === 'main' ? mainTop - 3 : mdrop.kind === 'ov' ? ovY(mdrop.row) - 2 : muY(0) - 2;
+      const hh = mdrop.kind === 'main' ? MAIN + 6 : (mdrop.kind === 'ov' ? OVL : MUS) + 4;
+      ctx.fillStyle = '#ffd60a'; ctx.fillRect(x - 1, y0, 3, hh);
+    }
     // 💬 captions
     const cues = (typeof reviewCues !== 'undefined' && reviewCues) || [];
     const t = time();
@@ -1884,6 +1892,25 @@
     }
     return null;
   }
+  // 🎬 1.90: a Media card or a file from the desktop dropped on the timeline
+  let mdrop = null, lastOver = null;
+  canvas.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    const spot = dropSpot(xy(e));
+    mdrop = spot;
+    lastOver = { spot, at: performance.now() };
+    try { e.dataTransfer.dropEffect = 'copy'; } catch (x) {}
+    drawSoon();
+  });
+  canvas.addEventListener('dragleave', () => { mdrop = null; drawSoon(); });
+  canvas.addEventListener('drop', (e) => {
+    let id = '';
+    try { id = e.dataTransfer.getData('text/amh-media'); } catch (x) {}
+    const spot = dropSpot(xy(e));
+    mdrop = null; drawSoon();
+    if (id && media[id] && spot) { e.preventDefault(); placeAt(id, spot); renderMedia(); }
+  });
+  const fileSpot = () => { const s = lastOver && performance.now() - lastOver.at < 700 ? lastOver.spot : null; lastOver = null; mdrop = null; return s; };
   canvas.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
@@ -2276,19 +2303,19 @@
     if (p) await addToMedia(p);
   }
   // above the main video, from the playhead: B-roll up to 5 s (silent), a photo 5 s
-  function addOverlay(id) {
+  function addOverlay(id, atT, row) {
     const m = media[id];
-    const at = Math.min(time(), Math.max(0, total() - 0.5));
+    const at = Math.min(atT == null ? time() : atT, Math.max(0, total() - 0.5));
     const len = m.image ? 5 : Math.min(5, m.dur);
     const oid = newId();
-    change('add overlay', () => { ovl = ovl.concat([{ id: oid, m: id, in: 0, out: Math.round(len * 1000) / 1000, start: Math.round(at * 1000) / 1000, volume: 0 }]); });
+    change('add overlay', () => { ovl = ovl.concat([Object.assign({ id: oid, m: id, in: 0, out: Math.round(len * 1000) / 1000, start: Math.round(at * 1000) / 1000, volume: 0 }, row != null ? { row } : {})]); });
     sel = oid; after(); ST.showTab('clip');
   }
   // a song under the whole edit: from the start (or the playhead, if there is
   // music already), as long as the edit, fades and ducking on
-  function addMusic(id) {
+  function addMusic(id, atT) {
     const m = media[id];
-    const at = mus.length ? Math.min(time(), Math.max(0, total() - 0.5)) : 0;
+    const at = atT != null ? Math.min(atT, Math.max(0, total() - 0.5)) : mus.length ? Math.min(time(), Math.max(0, total() - 0.5)) : 0;
     const len = Math.min(m.dur, Math.max(0.5, total() - at));
     const mid = newId();
     change('add music', () => { mus = mus.concat([{ id: mid, m: id, in: 0, out: Math.round(len * 1000) / 1000, start: Math.round(at * 1000) / 1000 }]); });
@@ -2307,6 +2334,52 @@
     const last = it[it.length - 1];
     if (last) { last.classList.add('fresh'); try { last.scrollIntoView({ block: 'nearest' }); } catch (e) {} }
     return id;
+  }
+  // 🎬 1.90: one video from many shots — a file goes into the main track at a
+  // cut (idx = before that shot; clips.length = at the end); what comes after
+  // moves along with its shot
+  function insertMain(id, idx) {
+    const m = media[id];
+    if (!m || !m.video || m.image) return null;
+    const cid = newId();
+    const old = clips;
+    idx = Math.max(0, Math.min(clips.length, idx == null ? clips.length : idx));
+    change('add clip', () => { clips = clips.slice(0, idx).concat([{ id: cid, m: id, in: 0, out: Math.round(m.dur * 1000) / 1000 }], clips.slice(idx)); follow(old); });
+    const c = L().find((x) => x.id === cid);
+    sel = cid; renderInspector();
+    if (c) seek(c.s);
+    view = S.fitView(total(), width());
+    drawSoon();
+    hint.textContent = '✓ ' + tx('በጊዜ መስመሩ ገብቷል', 'Added to the timeline') + ' — ' + tx('ክፍል', 'shot') + ' ' + (idx + 1) + ' / ' + clips.length;
+    setTimeout(() => { if (/✓/.test(hint.textContent)) hint.textContent = ''; }, 4000);
+    return cid;
+  }
+  // ＋ Add to timeline: after the shot under the playhead (at the end when the playhead is there)
+  function addToTimeline(id) {
+    const m = media[id];
+    if (!m) return;
+    if (m.image) { addOverlay(id); return; }
+    if (!m.video) { addMusic(id); return; }
+    const LL = L(), t = time();
+    const i = LL.findIndex((x) => t < x.e - 1e-3);
+    insertMain(id, i < 0 ? clips.length : i + 1);
+  }
+  // where a drop on the timeline lands: the main track (at a cut), a picture track or a sound track
+  function dropSpot(p) {
+    const t = Math.max(0, S.xToTime(p.x, view));
+    if (p.y >= mainTop - 4 && p.y <= mainTop + MAIN + 4) return { kind: 'main', idx: E.dropIndex(clips, null, t), t };
+    const ln = laneAt(p.y);
+    if (ln && ln.kind === 'ov') return { kind: 'ov', t, row: ln.row };
+    if (ln && ln.kind === 'au') return { kind: 'au', t };
+    return null;
+  }
+  function placeAt(id, spot) {
+    const m = media[id];
+    if (!m || !spot) return;
+    if (spot.kind === 'main' && m.video && !m.image) { insertMain(id, spot.idx); spot.idx++; return; }
+    if (spot.kind === 'au' && m.audio && !m.image) { addMusic(id, spot.t); spot.t += m.dur; return; }
+    if (m.image || m.video) { addOverlay(id, spot.t, spot.kind === 'ov' ? spot.row : null); spot.t += m.image ? 5 : Math.min(5, m.dur); return; }
+    addMusic(id, spot.t); spot.t += m.dur;
   }
   async function addAndPlace(p) {
     const id = await addMedia(p);
@@ -2328,9 +2401,9 @@
     Object.keys(media).forEach((id) => {
       const m = media[id];
       const it = el('div', 'ed-mitem');
-      if (m.image || m.video) {
+      {
         it.draggable = true;
-        it.title = tx('ወደ አንድ ቃል ይጎትቱ — B-roll ይሆናል', 'Drag onto a word in the Script — it becomes B-roll');
+        it.title = tx('ወደ ጊዜ መስመሩ ይጎትቱ (በሁለት ክፍሎች መካከል) ወይም ወደ አንድ ቃል (B-roll)', 'Drag it onto the timeline (between two shots) or onto a word in the Script (B-roll)');
         it.addEventListener('dragstart', (e) => { try { e.dataTransfer.setData('text/amh-media', id); e.dataTransfer.effectAllowed = 'copy'; } catch (x) {} });
       }
       const th = el('div', 'ed-mthumb', m.image ? '' : (m.video ? '🎬' : '♪'));
@@ -2359,10 +2432,9 @@
         }
       }
       const row = el('div', 'ed-madd');
-      if (!m.image) row.appendChild(btn('st-btn', '＋ ' + tx('ዋና', 'Main'), tx('በዋናው መስመር መጨረሻ', 'At the end of the main track'), () => change('add clip', () => {
-        clips = clips.concat([{ id: newId(), m: id, in: 0, out: Math.round(m.dur * 1000) / 1000 }]);
-      })));
-      if (m.video) row.appendChild(btn('st-btn', '＋ ' + tx('ተደራቢ', 'Overlay'), tx('ከዋናው ቪዲዮ በላይ፣ ማጫወቻው ባለበት', 'Above the main video, at the playhead'), () => addOverlay(id)));
+      // 🎬 1.90: the one thing most people want, said plainly
+      if (m.video && !m.image) it.appendChild(btn('st-btn primary ed-maddtl', '＋ ' + tx('ወደ ጊዜ መስመሩ', 'Add to the timeline'), tx('ከማጫወቻው ክፍል በኋላ (ማጫወቻው መጨረሻ ላይ ከሆነ በመጨረሻ) — ወይም ወደ ጊዜ መስመሩ ይጎትቱት', 'After the shot at the playhead (at the end when the playhead is there) — or drag it onto the timeline'), () => { addToTimeline(id); renderMedia(); }));
+      if (m.video) row.appendChild(btn('st-btn', '＋ ' + tx('ከላይ', 'On top'), tx('ከዋናው ቪዲዮ በላይ (ተደራቢ)፣ ማጫወቻው ባለበት', 'Above the main video (overlay), at the playhead'), () => addOverlay(id)));
       if (m.audio && !m.image) row.appendChild(btn('st-btn', '＋ ♪ ' + tx('ሙዚቃ', 'Music'), tx('ከዋናው መስመር በታች፣ ሰው ሲናገር ይቀንሳል', 'Under the main track; quieter while someone speaks'), () => addMusic(id)));
       it.appendChild(row);
       grid.appendChild(it);
@@ -2446,6 +2518,11 @@
   let pendingFiles = [];
   window.__amhDropped = (paths) => {
     if (typeof reviewOpen !== 'undefined' && reviewOpen && built) {
+      const spot = fileSpot();
+      if (spot) {
+        (paths || []).reduce((pr, p) => pr.then(async () => { const id = await addMedia(p); if (id) placeAt(id, spot); }), Promise.resolve()).then(() => renderMedia());
+        return;
+      }
       (paths || []).reduce((pr, p) => pr.then(() => addToMedia(p)), Promise.resolve());
       return;
     }
@@ -4963,5 +5040,5 @@
     queueExports, stopExport, clearDone, detectGpu, gpuName: (e) => GPU_NAMES[e] || '', queue: () => QUEUE, onQueue: (f) => qWatch.push(f),
     setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } });
   window.__amhEditor = { renderJob, snapshot, open, copySel, paste, duplicate, togglePick, selected, state: () => ({ clips, ovl, txt, mus, snd, zm, media, SRC, fmt, sel, built }), addOverlay, addText, addZoom, autoZooms, addBroll, brollPicker, findFaces, followFaces, frameClips, useSoundFolder, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, moveRange, total, redo,
-    select: (id) => { sel = id; picks = []; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, transcribeAll, capCard, sourceShort, insertFound, startCrop, endCrop, cropState: () => cropEdit, setCropView: (v) => { if (cropEdit) { cropEdit.v = v; frame(); } }, freezeFrame, reverseClip, rampClip, guide: () => maybeGuide(true), queueExports, kinds, queue: () => QUEUE, markedPart, toggleMarker, markIO, clearIO, setShuttle, markers: () => mk, addToMedia, findFile, missingFiles, checkFiles, render, exportVideo, frame, setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } };
+    select: (id) => { sel = id; picks = []; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, transcribeAll, capCard, sourceShort, addToTimeline, insertMain, insertFound, startCrop, endCrop, cropState: () => cropEdit, setCropView: (v) => { if (cropEdit) { cropEdit.v = v; frame(); } }, freezeFrame, reverseClip, rampClip, guide: () => maybeGuide(true), queueExports, kinds, queue: () => QUEUE, markedPart, toggleMarker, markIO, clearIO, setShuttle, markers: () => mk, addToMedia, findFile, missingFiles, checkFiles, render, exportVideo, frame, setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } };
 })();
