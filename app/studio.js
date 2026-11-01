@@ -420,9 +420,10 @@
       ids.forEach((id) => {
         const P = E.PRESETS[id];
         if (!P) return;
-        const res = typeof expOpts.res === 'number' ? expOpts.res : P.res;
+        const res = typeof expOpts.res === 'number' ? expOpts.res : E.autoRes(P.res, editor.sourceShort ? editor.sourceShort() : 0);
         const q = expOpts.q === 'auto' ? P.q : expOpts.q;
-        mb += E.sizeEstimate(secs, E.canvasSize(P.fmt || fmtName, res).h, q, expOpts.kind);
+        const cs = E.canvasSize(P.fmt || fmtName, res);
+        mb += E.sizeEstimate(secs, Math.min(cs.w, cs.h), q, expOpts.kind);
       });
       sizeLine.textContent = ids.length ? '≈ ' + (mb >= 1000 ? (mb / 1000).toFixed(1) + ' GB' : Math.max(1, Math.round(mb)) + ' MB') +
         ' · ' + mins(secs) + (ids.length > 1 ? ' · ' + ids.length + ' ' + tx('ፋይሎች', 'files') : '') : '';

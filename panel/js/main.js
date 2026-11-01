@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.88.0';
+const APP_VERSION = '1.89.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -440,6 +440,18 @@ setTimeout(() => { if (FIRST_OPEN) track('first_open'); track('open'); }, 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.89.0': {
+    banner: {
+      am: '⬆ ፈጣን መላክና ትንሽ ፋይል፣ ኤዲቲንግ አይቆምም — ስቱዲዮው ቀጥታ ኤዲተር ነው፣ ካፕሽን ሲፈልጉ 📝 ጽሑፍ ይስሩ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '⬆ Faster export and smaller files, editing no longer freezes — the Studio is an editor straight away, 📝 Transcribe when you want captions — your license stays the same.',
+    },
+    items: [
+      { am: 'መላክ እስከ 3 እጥፍ ፈጣን፣ ፋይሉ እስከ 3 እጥፍ ያነሰ — ጥራቱ እንደዛው', en: 'Export up to 3× faster and files up to 3× smaller — the same look' },
+      { am: 'ራስ-ሰር መጠን ቪዲዮውን ከተቀረፀበት በላይ አያሰፋውም (በስልክ የተቀረፀ 720p እንደ 720p ይላካል)', en: 'Auto size never makes a video bigger than it was filmed (a 720p phone video exports as 720p)' },
+      { am: 'ረጅም ቪዲዮ ብዙ ካፕሽን ሲኖረው ቆርጦ፣ መልሶ፣ ርዕስ ሲጨመር አይቆምም', en: 'Cutting, undo and adding titles no longer freeze on long videos with many captions' },
+      { am: 'ስቱዲዮው ቀጥታ ኤዲተር ነው፦ ቪዲዮና ምስል ያስገቡ፣ ካፕሽን ሲፈልጉ 📝 ጽሑፍ ይስሩ', en: 'The Studio is an editor straight away: bring in videos and pictures, 📝 Transcribe when you want captions' },
+    ],
+  },
   '1.88.0': {
     banner: {
       am: '⬆ ስቱዲዮው አሁን በቀጥታ ኤዲተር ነው — ቪዲዮና ምስል ያስገቡ፣ ወዲያው ኤዲት ያድርጉ፣ ካፕሽን ሲፈልጉ 📝 ጽሑፍ ይስሩ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -5064,10 +5076,27 @@ function initTrialCard() {
   const l = $('tcLater'); if (l) l.addEventListener('click', hideTrialCard);
 }
 
-function renderReview() {
+// 1.89 (Studio): while the caption list is hidden (the script view or Media
+// shows), an edit no longer rebuilds hundreds of rows behind it — that froze
+// every cut, split and undo on a long video. One small marker goes in instead
+// (whoever listens to the list still hears the change); the rows are built
+// when the list is shown, or when something needs a row.
+let REVIEW_ROWS_LATER = false;
+function ensureReviewRows() { if (REVIEW_ROWS_LATER) { REVIEW_ROWS_LATER = false; renderReview(true); } }
+function renderReview(force) {
   // Sort by start time so playback order matches what gets written.
   reviewCues.sort((a, b) => a.start - b.start);
   const list = $('reviewList');
+  if (!force && typeof window !== 'undefined' && typeof window.__amhListHidden === 'function' && window.__amhListHidden()) {
+    list.textContent = '';
+    const later = document.createElement('div');
+    later.className = 'review-later';
+    list.appendChild(later);
+    REVIEW_ROWS_LATER = true;
+    updateReviewCount();
+    return;
+  }
+  REVIEW_ROWS_LATER = false;
   list.textContent = '';
   const ts = (sec) => fmtReviewTs(sec);
 
@@ -5390,6 +5419,7 @@ function canJoin(i) {
 }
 // Put the cursor in caption `i` at `caret` (after a split / join / add).
 function focusReviewCue(i, caret) {
+  ensureReviewRows();
   const list = $('reviewList');
   const row = list && list.children ? list.children[i] : null;
   const ta = row && row.querySelector ? row.querySelector('textarea') : null;
@@ -7721,6 +7751,7 @@ function clearRowHint() {
 }
 function showRowHint(cue, parts, offer) {
   clearRowHint();
+  ensureReviewRows();
   const list = $('reviewList');
   const row = list && list.children ? list.children[reviewCues.indexOf(cue)] : null;
   if (!row) return null;

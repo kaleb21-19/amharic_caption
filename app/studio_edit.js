@@ -2267,6 +2267,7 @@
     bMedia.classList.toggle('on', !!m);
     if (sw) sw.querySelectorAll('button').forEach((b) => { if (b !== bMedia && m) b.classList.remove('on'); });
     if (m) renderMedia();
+    else if (typeof ensureReviewRows === 'function' && !(window.__amhListHidden && window.__amhListHidden())) ensureReviewRows();
   }
   if (sw) sw.addEventListener('click', (e) => { if (e.target !== bMedia && e.target.closest && e.target.closest('button')) setLeft(false); });
   async function importMedia() {
@@ -4684,7 +4685,7 @@
         // afterwards, it is already opaque black)
         const vf = ass.map((a2) => 'subtitles=' + a2 + ':fontsdir=fonts:alpha=1').join(',');
         const aargs = ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=black@0.0:s=' + W + 'x' + H + ':r=' + FPS + ':d=' + tot.toFixed(3) + ',format=yuva444p10le',
-          '-vf', vf, '-t', tot.toFixed(3)].concat(E.encoderArgs('libx264', job.q, H, 'alpha'), ['-progress', 'pipe:1', '-nostats', out]);
+          '-vf', vf, '-t', tot.toFixed(3)].concat(E.encoderArgs('libx264', job.q, Math.min(W, H), 'alpha', FPS), ['-progress', 'pipe:1', '-nostats', out]);
         await runFfmpeg(aargs, cwd, tot, onProgress, ctl);
         if (!fs.existsSync(out)) throw new Error('no file');
         if (onProgress) onProgress(1);
@@ -4706,7 +4707,7 @@
           if (!gfile) { gfile = path.join(os.tmpdir(), 'amh_edit_' + Date.now() + '_' + nid + '.txt'); fs.writeFileSync(gfile, graph, { encoding: 'utf8' }); made.push(gfile); }
           a.push('-/filter_complex', gfile);
         } else a.push('-filter_complex', graph);
-        return a.concat(audioOnly ? ['-map', '[a]'] : ['-map', '[v]', '-map', '[a]'], ['-t', String(g.duration)], E.encoderArgs(enc, job.q, H, kind),
+        return a.concat(audioOnly ? ['-map', '[a]'] : ['-map', '[v]', '-map', '[a]'], ['-t', String(g.duration)], E.encoderArgs(enc, job.q, Math.min(W, H), kind, FPS),
           kind === 'h264' || kind === 'hevc' ? ['-movflags', '+faststart'] : [], ['-progress', 'pipe:1', '-nostats', out]);
       };
       const enc = job.enc || 'libx264';
@@ -4738,6 +4739,12 @@
     const cues = ((typeof reviewCues !== 'undefined' && reviewCues) || []).filter((q) => String(q.text || '').trim());
     if (!cues.length) return null;
     return { cues: styleCues(cues), style: STYLE, opts: styleOpts(STYLE), tag: !LICENSED, ffmpeg: FFMPEG, fonts: fontsDir() };
+  }
+  // 1.89: the main track's biggest picture (its short side): Auto never exports above it
+  function sourceShort() {
+    let s = 0;
+    clips.forEach((c) => { const m = media[c.m]; if (m && m.video && !m.image && m.w && m.h) s = Math.max(s, Math.min(m.w, m.h)); });
+    return s;
   }
   // the queue: one export at a time, editing goes on meanwhile
   const QUEUE = [];
@@ -4778,7 +4785,7 @@
       if (!P) return;
       const label = (names && names[id]) || id;
       const fixed = [720, 1080, 1440, 2160].indexOf(Number(opts.res)) >= 0 ? Number(opts.res) : null;
-      const res = fixed || (opts.k4 && P.q !== 'small' ? 2160 : P.res);
+      const res = fixed || (opts.k4 && P.q !== 'small' ? 2160 : E.autoRes(P.res, sourceShort()));
       const q = ['small', 'good', 'high', 'master'].indexOf(opts.q) >= 0 ? opts.q : P.q;
       const rtag = res === 2160 ? ' 4K' : (fixed && res !== P.res ? ' ' + res + 'p' : '');
       QUEUE.push({ id: newId(), label: (K.audio ? (kind === 'wav' ? 'WAV' : 'MP3') : label + rtag.replace(' 4K', ' · 4K')) + (KIND_TAGS[kind] && !K.audio ? ' ·' + KIND_TAGS[kind] : '') +
@@ -4952,9 +4959,9 @@
   loadFonts();
   loadMyFonts();
   loadLuts();
-  ST.attachEditor({ draw, drawSoon, seek, duration: total, peaks: editPeaks, open, shown, saveState, loadState, exportVideo, markedPart, format: () => fmt,
+  ST.attachEditor({ draw, drawSoon, seek, duration: total, peaks: editPeaks, open, shown, saveState, loadState, exportVideo, markedPart, format: () => fmt, sourceShort,
     queueExports, stopExport, clearDone, detectGpu, gpuName: (e) => GPU_NAMES[e] || '', queue: () => QUEUE, onQueue: (f) => qWatch.push(f),
     setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } });
   window.__amhEditor = { renderJob, snapshot, open, copySel, paste, duplicate, togglePick, selected, state: () => ({ clips, ovl, txt, mus, snd, zm, media, SRC, fmt, sel, built }), addOverlay, addText, addZoom, autoZooms, addBroll, brollPicker, findFaces, followFaces, frameClips, useSoundFolder, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, moveRange, total, redo,
-    select: (id) => { sel = id; picks = []; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, transcribeAll, capCard, insertFound, startCrop, endCrop, cropState: () => cropEdit, setCropView: (v) => { if (cropEdit) { cropEdit.v = v; frame(); } }, freezeFrame, reverseClip, rampClip, guide: () => maybeGuide(true), queueExports, kinds, queue: () => QUEUE, markedPart, toggleMarker, markIO, clearIO, setShuttle, markers: () => mk, addToMedia, findFile, missingFiles, checkFiles, render, exportVideo, frame, setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } };
+    select: (id) => { sel = id; picks = []; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, transcribeAll, capCard, sourceShort, insertFound, startCrop, endCrop, cropState: () => cropEdit, setCropView: (v) => { if (cropEdit) { cropEdit.v = v; frame(); } }, freezeFrame, reverseClip, rampClip, guide: () => maybeGuide(true), queueExports, kinds, queue: () => QUEUE, markedPart, toggleMarker, markIO, clearIO, setShuttle, markers: () => mk, addToMedia, findFile, missingFiles, checkFiles, render, exportVideo, frame, setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } };
 })();

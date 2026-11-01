@@ -35,10 +35,13 @@
   const bCaps = el('button', '', ''); bCaps.type = 'button';
   sw.appendChild(bScript); sw.appendChild(bCaps);
   if (thead) thead.insertBefore(sw, thead.children[1] || null);
+  // 1.89: the caption list is only built while it can be seen
+  window.__amhListHidden = () => mode === 'script' || review.classList.contains('ed-mediamode');
   function setMode(m) {
     mode = m;
     try { localStorage.setItem(VIEW_KEY, m); } catch (e) {}
     review.classList.toggle('st-scriptmode', m === 'script');
+    if (m === 'captions' && typeof ensureReviewRows === 'function') ensureReviewRows();
     bScript.classList.toggle('on', m === 'script');
     bCaps.classList.toggle('on', m === 'captions');
     hideBar();

@@ -585,10 +585,31 @@
   const KIND_NEEDS = { h264: ['libx264'], hevc: ['libx265'], prores: ['prores_ks'], alpha: ['prores_ks'], wav: ['pcm_s16le'], mp3: ['libmp3lame'] };
   const HEVC_GPU = { h264_nvenc: 'hevc_nvenc', h264_qsv: 'hevc_qsv', h264_amf: 'hevc_amf', h264_videotoolbox: 'hevc_videotoolbox' };
   // q: high | small (a light file to send) | master | good (1.83: between)
-  function encoderArgs(enc, q, h, kind) {
+  // 1.89 (the owner: "export is slow and the file too big"): measured on a
+  // real 53 s phone video (720x1280, 12 MB) — before: 49 s and 43 MB on the
+  // processor (scaled up to 1080, x264 medium CRF 18), 13 s and 73 MB on the
+  // graphics card (no ceiling); now: 9 s and 15 MB at the same look (SSIM
+  // 0.991). The x264 preset is veryfast, every quality but Master has a
+  // ceiling (YouTube's recommended upload rates, Mb/s), the graphics cards
+  // use their better settings, and Auto never makes a video bigger than it
+  // was filmed.
+  function rateCap(short, fps) {
+    const b = short <= 720 ? 5 : short <= 1080 ? 8 : short <= 1440 ? 16 : 35;
+    return b * (Number(fps) > 30 ? 1.5 : 1);
+  }
+  // the size Auto exports at: the preset's, never above the source's own
+  function autoRes(presetRes, srcShort) {
+    if (!(srcShort > 0)) return presetRes;
+    const need = [720, 1080, 1440, 2160].find((s) => s >= srcShort - 8) || 2160;
+    return Math.min(presetRes, need);
+  }
+  // h: the picture's SHORT side (720 / 1080 / 1440 / 2160)
+  function encoderArgs(enc, q, h, kind, fps) {
     kind = EXPORT_KINDS[kind] ? kind : 'h264';
     const Q = { high: 0, small: 1, master: 2, good: 3 }[q] || 0;
     const pick = (a) => a[Q];
+    const cap = rateCap(Number(h) || 1080, fps) * (kind === 'hevc' ? 0.6 : 1);
+    const ceil = Q === 0 || Q === 3 ? ['-maxrate', r3(cap) + 'M', '-bufsize', r3(cap * 2) + 'M'] : [];
     if (kind === 'wav') return ['-vn', '-c:a', 'pcm_s16le'];
     if (kind === 'mp3') return ['-vn', '-c:a', 'libmp3lame', '-b:a', pick(['256k', '128k', '320k', '192k'])];
     if (kind === 'prores') return ['-c:v', 'prores_ks', '-profile:v', Q === 2 ? '3' : '2', '-pix_fmt', 'yuv422p10le', '-c:a', 'pcm_s16le'];
@@ -596,17 +617,17 @@
     let v;
     if (kind === 'hevc') {
       const g = HEVC_GPU[enc];
-      if (g === 'hevc_nvenc') v = ['-c:v', 'hevc_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', String(pick([23, 30, 19, 26])), '-b:v', '0'];
+      if (g === 'hevc_nvenc') v = ['-c:v', 'hevc_nvenc', '-preset', 'p5', '-tune', 'hq', '-rc', 'vbr', '-cq', String(pick([28, 31, 19, 30])), '-b:v', '0', '-spatial_aq', '1', '-rc-lookahead', '20'].concat(ceil);
       else if (g === 'hevc_qsv') v = ['-c:v', 'hevc_qsv', '-preset', 'medium', '-global_quality', String(pick([23, 30, 19, 26]))];
       else if (g === 'hevc_amf') { const k = pick([23, 30, 19, 26]); v = ['-c:v', 'hevc_amf', '-quality', 'quality', '-rc', 'cqp', '-qp_i', String(k), '-qp_p', String(k + 2)]; }
       else if (g === 'hevc_videotoolbox') v = ['-c:v', 'hevc_videotoolbox', '-b:v', pick([h >= 1000 ? '7M' : '3500k', '1500k', h >= 1000 ? '15M' : '7M', h >= 1000 ? '4500k' : '2500k'])];
-      else v = ['-c:v', 'libx265', '-preset', pick(['medium', 'medium', 'slow', 'medium']), '-crf', String(pick([22, 28, 18, 25]))];
+      else v = ['-c:v', 'libx265', '-preset', pick(['fast', 'fast', 'slow', 'fast']), '-crf', String(pick([23, 28, 18, 25]))].concat(ceil);
       v = v.concat(['-tag:v', 'hvc1']);          // plays on iPhones / Macs too
-    } else if (enc === 'h264_nvenc') v = ['-c:v', 'h264_nvenc', '-preset', 'p5', '-rc', 'vbr', '-cq', String(pick([20, 27, 16, 23])), '-b:v', '0'];
-    else if (enc === 'h264_qsv') v = ['-c:v', 'h264_qsv', '-preset', 'medium', '-global_quality', String(pick([20, 27, 16, 23]))];
-    else if (enc === 'h264_amf') { const k = pick([20, 27, 16, 23]); v = ['-c:v', 'h264_amf', '-quality', 'quality', '-rc', 'cqp', '-qp_i', String(k), '-qp_p', String(k + 2)]; }
-    else if (enc === 'h264_videotoolbox') v = ['-c:v', 'h264_videotoolbox', '-b:v', pick([h >= 1000 ? '12M' : '6M', '2500k', h >= 1000 ? '25M' : '12M', h >= 1000 ? '8M' : '4M'])];
-    else v = ['-c:v', 'libx264', '-preset', pick(['medium', 'medium', 'slow', 'medium']), '-crf', String(pick([18, 24, 14, 21]))];
+    } else if (enc === 'h264_nvenc') v = ['-c:v', 'h264_nvenc', '-preset', 'p5', '-tune', 'hq', '-rc', 'vbr', '-cq', String(pick([27, 30, 16, 29])), '-b:v', '0', '-spatial_aq', '1', '-bf', '3', '-rc-lookahead', '20'].concat(ceil);
+    else if (enc === 'h264_qsv') v = ['-c:v', 'h264_qsv', '-preset', 'medium', '-global_quality', String(pick([25, 28, 16, 27]))];
+    else if (enc === 'h264_amf') { const k = pick([25, 28, 16, 27]); v = ['-c:v', 'h264_amf', '-quality', 'quality', '-rc', 'cqp', '-qp_i', String(k), '-qp_p', String(k + 2)]; }
+    else if (enc === 'h264_videotoolbox') v = ['-c:v', 'h264_videotoolbox', '-b:v', pick([r3(cap * 0.75) + 'M', '2500k', r3(cap * 2) + 'M', r3(cap * 0.55) + 'M'])];
+    else v = ['-c:v', 'libx264', '-preset', pick(['veryfast', 'veryfast', 'slow', 'veryfast']), '-crf', String(pick([21, 26, 14, 23]))].concat(ceil);
     if (Q === 1 && !/videotoolbox/.test(v[1])) v = v.concat(['-maxrate', kind === 'hevc' ? '1500k' : '2500k', '-bufsize', kind === 'hevc' ? '3000k' : '5000k']);
     return v.concat(['-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', pick(['192k', '128k', '320k', '160k'])]);
   }
@@ -624,8 +645,8 @@
     else if (kind === 'prores') mbps = (Q === 2 ? 180 : 120) * area + 1.5;
     else if (kind === 'alpha') mbps = 21 * area;           // mostly empty frames (measured: 9.6 Mbps at 720p)
     else {
-      const base = [8, 2.5, 16, 5][Q] * (Q === 1 ? 1 : area);
-      mbps = base * (kind === 'hevc' ? 0.55 : 1) + audio;
+      const base = Math.min([4, 2.5, 16, 3][Q] * (Q === 1 ? 1 : area), Q === 2 ? Infinity : rateCap(Number(h) || 1080));
+      mbps = base * (kind === 'hevc' ? 0.6 : 1) + audio;
     }
     return Math.max(0.1, Math.round(s * mbps / 8 * 10) / 10);
   }
@@ -2160,7 +2181,7 @@
     TFONTS, TPRESETS, assColor, textAnchor, textAss, setFontInfo, fontInfo, textSize, addFont, fontFacts,
     TITLE_ANIMS, TITLE_LOOKS, TITLE_BG, titleOf, titleLook, LOUD, MUS_DEFAULT, musicGain,
     MIX_BUSES, MIX_EQ, MIX_PRESETS, stripOf, mixOf, mixerOn, compParams, panGains, stripChain,
-    PRESETS, presetFor, GPU_ENCODERS, encoderArgs, eta, EXPORT_KINDS, KIND_NEEDS, HEVC_GPU, sizeEstimate,
+    PRESETS, presetFor, GPU_ENCODERS, encoderArgs, rateCap, autoRes, eta, EXPORT_KINDS, KIND_NEEDS, HEVC_GPU, sizeEstimate,
     MO_EASES, MO_PRESETS, moOf, moAt, moEase, moPreset, moPerspective,
     speedOf: sp, clipLen, cropOf, rotOf, tiltOf, picOn, picDims, tiltScale, picFilter, picCss, cropToFile, cropToView, RAMPS, rampPieces, unRamp, trackedState, SFX, SFX_LEN, SFX_LEAD, sfxEvents, RF_PACE, rfWindow, rfTrack, rfAt, rfPlace, rfExpr, rfOn, TEMPLATES, TPL_GROUPS, HOLIDAYS, TPL_SPEED, tplOf, tplLayers, tplState, tplAss, setMeasure, tplFade: fadeOut, OV_LAYOUTS, OV_ANIMS, OV_MOTION, ovLook, ovBox, ovAnim, ovChain, ovPos, ZOOM_STYLES, ZOOM_SPEED, ZOOM_DEFAULT, zoomEnv, zoomRect, zoomExprs, zoomFilter, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter,
     HSL_BANDS, GRADE_N, PRO_LOOKS, gradeOf, proOn, basicOn, parseCube, setLut, sampleCube, curveFn, wheelRgb, gradeFn, gradeLut, cubeText, gradeKey, gradeFiles };

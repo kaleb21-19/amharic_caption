@@ -257,16 +257,16 @@ test('export choices: presets, 720p, encoders (graphics card or x264), captions 
   assert.strictEqual(E.presetFor('9:16'), 'shorts');
   assert.strictEqual(E.presetFor('3:2'), 'youtube');
   const x = E.encoderArgs('libx264', 'high', 1080).join(' ');
-  assert.ok(x.startsWith('-c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p -c:a aac -b:a 192k'), x);
-  assert.ok(E.encoderArgs('h264_nvenc', 'small', 720).join(' ').includes('-cq 27 -b:v 0 -maxrate 2500k'), 'a light file for Telegram');
-  assert.ok(E.encoderArgs('h264_videotoolbox', 'high', 1080).join(' ').includes('-b:v 12M'));
+  assert.ok(x.startsWith('-c:v libx264 -preset veryfast -crf 21 -maxrate 8M -bufsize 16M -pix_fmt yuv420p -c:a aac -b:a 192k'), x);
+  assert.ok(/-cq 30 -b:v 0 .*-maxrate 2500k/.test(E.encoderArgs('h264_nvenc', 'small', 720).join(' ')), 'a light file for Telegram');
+  assert.ok(E.encoderArgs('h264_videotoolbox', 'high', 1080).join(' ').includes('-b:v 6M'));
   assert.ok(E.encoderArgs('h264_amf', 'master', 1080).join(' ').includes('-qp_i 16 -qp_p 18') && E.encoderArgs('h264_amf', 'master', 1080).includes('320k'));
   const g = E.editGraph([{ id: 'a', m: 'v', in: 0, out: 12 }], { v: { idx: 0, w: 1920, h: 1080, video: true, audio: true } }, '9:16', 30, [], { ass: ['t.ass', 'c.ass'], res: 720 }).graph;
   assert.ok(g.includes('s=720x1280') && g.endsWith('[vx]subtitles=t.ass:fontsdir=fonts,subtitles=c.ass:fontsdir=fonts,format=yuv420p[v]'), 'text, then captions on top, one pass');
   // 1.83 Pro export: a fourth quality, other kinds of file, the size before exporting
-  assert.ok(E.encoderArgs('libx264', 'good', 1080).join(' ').includes('-crf 21'), 'good = between high and small');
+  assert.ok(E.encoderArgs('libx264', 'good', 1080).join(' ').includes('-crf 23'), 'good = between high and small');
   const hv = E.encoderArgs('libx264', 'high', 1080, 'hevc').join(' ');
-  assert.ok(hv.startsWith('-c:v libx265 -preset medium -crf 22 -tag:v hvc1') && hv.includes('-c:a aac'), 'H.265 on the processor, plays on iPhones (hvc1): ' + hv);
+  assert.ok(hv.startsWith('-c:v libx265 -preset fast -crf 23 -maxrate 4.8M -bufsize 9.6M -tag:v hvc1') && hv.includes('-c:a aac'), 'H.265 on the processor, plays on iPhones (hvc1): ' + hv);
   assert.ok(E.encoderArgs('h264_nvenc', 'high', 1080, 'hevc').join(' ').startsWith('-c:v hevc_nvenc'), 'H.265 on the NVIDIA card');
   assert.strictEqual(E.encoderArgs('libx264', 'high', 1080, 'prores').join(' '), '-c:v prores_ks -profile:v 2 -pix_fmt yuv422p10le -c:a pcm_s16le', 'ProRes 422 for editing');
   assert.ok(E.encoderArgs('libx264', 'master', 1080, 'prores').includes('3'), 'best quality = ProRes HQ');
@@ -277,11 +277,17 @@ test('export choices: presets, 720p, encoders (graphics card or x264), captions 
   assert.strictEqual(E.EXPORT_KINDS.mp3.ext, '.mp3');
   assert.strictEqual(E.encoderArgs('libx264', 'high', 1080, 'nonsense').join(' '), x, 'an unknown kind = the usual MP4');
   const one = E.sizeEstimate(60, 1080, 'high', 'h264');
-  assert.ok(one > 55 && one < 65, 'a minute at 1080p high ≈ 60 MB: ' + one);
-  assert.ok(E.sizeEstimate(60, 1080, 'high', 'hevc') < one * 0.6, 'H.265 about half');
+  assert.ok(one > 25 && one < 40, 'a minute at 1080p high ≈ 31 MB: ' + one);
+  assert.ok(E.sizeEstimate(60, 1080, 'high', 'hevc') < one * 0.7, 'H.265 smaller');
   assert.ok(E.sizeEstimate(60, 2160, 'high', 'h264') > one * 3.5, '4K about four times');
   assert.ok(E.sizeEstimate(60, 1080, 'high', 'prores') > one * 10, 'ProRes is big');
   assert.ok(Math.abs(E.sizeEstimate(60, 1080, 'high', 'wav') - 10.6) < 0.2, 'WAV 10.6 MB a minute');
+  // 1.89: never bigger than it was filmed; a ceiling for every quality but Master
+  assert.deepStrictEqual([E.autoRes(1080, 720), E.autoRes(1080, 1080), E.autoRes(1080, 2160), E.autoRes(1080, 576), E.autoRes(1080, 0), E.autoRes(720, 1080)], [720, 1080, 1080, 720, 1080, 720]);
+  assert.deepStrictEqual([E.rateCap(720), E.rateCap(1080), E.rateCap(1440), E.rateCap(2160), E.rateCap(1080, 60)], [5, 8, 16, 35, 12]);
+  assert.ok(E.encoderArgs('libx264', 'high', 720, 'h264', 30).join(' ').includes('-maxrate 5M -bufsize 10M'), 'a vertical 720x1280 is capped by its short side');
+  assert.ok(!E.encoderArgs('libx264', 'master', 1080).includes('-maxrate'), 'Master has no ceiling');
+  assert.ok(E.encoderArgs('h264_nvenc', 'high', 1080).join(' ').includes('-cq 27 -b:v 0 -spatial_aq 1 -bf 3 -rc-lookahead 20 -maxrate 8M'), 'the graphics card: better settings and the ceiling');
   assert.strictEqual(E.eta(0.01, 5), null, 'no guess at the very start');
   assert.strictEqual(E.eta(0.25, 30), 90);
 });
