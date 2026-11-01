@@ -518,8 +518,104 @@
     f.appendChild(m); fsvg.appendChild(f); CFM[n] = m;
   });
   document.body.appendChild(fsvg);
+  // 🎨 1.86: a pro grade in the picture — the export's own 33³ table on the
+  // graphics card (WebGL 2, trilinear like ffmpeg lut3d). A canvas twin sits
+  // on the video element, takes its place, size, turn and transition styles,
+  // and draws each video frame through the table.
+  const TWINS = new Map();
+  let BEFORE = false;                        // ◐ before / after
+  let glBroken = false;
+  const GVS = '#version 300 es\nin vec2 p;out vec2 uv;void main(){uv=vec2(p.x*.5+.5,.5-p.y*.5);gl_Position=vec4(p,0.,1.);}';
+  const GFS = '#version 300 es\nprecision highp float;precision highp sampler3D;uniform sampler2D v;uniform sampler3D l;uniform float n;uniform float by;in vec2 uv;out vec4 o;' +
+    'void main(){vec3 c=texture(v,uv).rgb;vec3 g=texture(l,(c*(n-1.)+.5)/n).rgb;o=vec4(mix(g,c,by),1.);}';
+  function twinOf(e) {
+    let T = TWINS.get(e);
+    if (T || glBroken || !e.parentNode) return T || null;
+    const cv = document.createElement('canvas');
+    cv.className = 'ed-twin';
+    const gl = cv.getContext('webgl2', { alpha: false, premultipliedAlpha: false, preserveDrawingBuffer: true, antialias: false });
+    if (!gl) { glBroken = true; return null; }
+    const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+    const prog = gl.createProgram();
+    gl.attachShader(prog, sh(gl.VERTEX_SHADER, GVS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, GFS)); gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { glBroken = true; return null; }
+    gl.useProgram(prog);
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(prog, 'p');
+    gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    const tex = (unit, target) => {
+      const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(target, t);
+      [gl.TEXTURE_MIN_FILTER, gl.TEXTURE_MAG_FILTER].forEach((p) => gl.texParameteri(target, p, gl.LINEAR));
+      [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T].concat(target === gl.TEXTURE_3D ? [gl.TEXTURE_WRAP_R] : []).forEach((p) => gl.texParameteri(target, p, gl.CLAMP_TO_EDGE));
+      return t;
+    };
+    const tv = tex(0, gl.TEXTURE_2D), tl = tex(1, gl.TEXTURE_3D);
+    gl.uniform1i(gl.getUniformLocation(prog, 'v'), 0); gl.uniform1i(gl.getUniformLocation(prog, 'l'), 1);
+    gl.uniform1f(gl.getUniformLocation(prog, 'n'), E.GRADE_N);
+    T = { cv, gl, tv, tl, uBy: gl.getUniformLocation(prog, 'by'), key: '' };
+    e.parentNode.insertBefore(cv, e.nextSibling);
+    TWINS.set(e, T);
+    twinLoop();
+    return T;
+  }
+  function untwin(e) {
+    const T = TWINS.get(e);
+    if (!T) return;
+    TWINS.delete(e);
+    T.cv.remove();
+    try { const x = T.gl.getExtension('WEBGL_lose_context'); if (x) x.loseContext(); } catch (er) {}
+    e.classList.remove('ed-graded');
+  }
+  function drawTwin(e, T) {
+    const st = e.style;
+    T.cv.style.cssText = st.cssText;
+    T.cv.style.filter = '';
+    T.cv.style.opacity = st.opacity;
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(2, Math.min(e.videoWidth || 1920, Math.round((parseFloat(st.width) || e.clientWidth || 2) * dpr)));
+    const h = Math.max(2, Math.min(e.videoHeight || 1080, Math.round((parseFloat(st.height) || e.clientHeight || 2) * dpr)));
+    if (T.cv.width !== w || T.cv.height !== h) { T.cv.width = w; T.cv.height = h; }
+    if (e.readyState < 2) return;
+    const gl = T.gl;
+    try {
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, T.tv);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, e);
+    } catch (er) { glBroken = true; Array.from(TWINS.keys()).forEach(untwin); frame(); return; }
+    gl.uniform1f(T.uBy, BEFORE ? 1 : 0);
+    gl.viewport(0, 0, w, h);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+  let twinRaf = 0;
+  function twinLoop() {
+    if (twinRaf) return;
+    const step = () => {
+      twinRaf = 0;
+      if (!TWINS.size) return;
+      TWINS.forEach((T, e) => { if (!e.isConnected) untwin(e); else drawTwin(e, T); });
+      twinRaf = requestAnimationFrame(step);
+    };
+    twinRaf = requestAnimationFrame(step);
+  }
+  function gradeTo(e, col) {
+    if (!E.proOn(col)) { untwin(e); return false; }
+    const T = twinOf(e);
+    if (!T) return false;
+    const key = E.gradeKey(col);
+    if (T.key !== key) {
+      const gl = T.gl, N = E.GRADE_N;
+      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_3D, T.tl);
+      gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGB16F, N, N, N, 0, gl.RGB, gl.FLOAT, E.gradeLut(col, N));
+      T.key = key;
+    }
+    e.classList.add('ed-graded');
+    drawTwin(e, T);
+    return true;
+  }
   function colorTo(e, n, col) {
-    if (!E.colorOn(col)) { e.style.filter = ''; return; }
+    if (gradeTo(e, col)) { e.style.filter = ''; return; }
+    if (!E.colorOn(col) || BEFORE) { e.style.filter = ''; return; }
     const { m, o } = E.colorMatrix(col);
     CFM[n].setAttribute('values', [m[0], m[1], m[2], 0, o, m[3], m[4], m[5], 0, o, m[6], m[7], m[8], 0, o, 0, 0, 0, 1, 0].join(' '));
     e.style.filter = 'url(#edcol' + n + ')';
@@ -739,6 +835,29 @@
       step();
     });
     return sysScan;
+  }
+  // 🎨 1.86: .cube LUTs the editor imports (kept in Documents / AmharicCaptions / LUTs)
+  const lutDir = () => path.join(typeof USER_CAPTIONS_DIR !== 'undefined' ? USER_CAPTIONS_DIR : path.join(os.homedir(), 'Documents', 'AmharicCaptions'), 'LUTs');
+  const LUTLIST = [];
+  function loadLuts() {
+    try {
+      fs.readdirSync(lutDir()).filter((x) => /\.cube$/i.test(x)).sort().forEach((x) => {
+        try { const cube = E.parseCube(fs.readFileSync(path.join(lutDir(), x), 'utf8')); if (cube) { E.setLut(x, cube); if (LUTLIST.indexOf(x) < 0) LUTLIST.push(x); } } catch (e) {}
+      });
+    } catch (e) {}
+  }
+  function importLut() {
+    let file = '';
+    try { const r = window.cep.fs.showOpenDialog(false, false, tx('የቀለም LUT (.cube)', 'A colour LUT (.cube)'), '', ['cube']); file = (r && r.data && r.data[0]) || ''; } catch (e) {}
+    if (!file) return null;
+    let cube = null;
+    try { cube = E.parseCube(fs.readFileSync(file, 'utf8')); } catch (e) {}
+    if (!cube) { log(tx('ይህ 3D .cube LUT አይደለም።', 'That is not a 3D .cube LUT.')); return null; }
+    const id = path.basename(file);
+    try { fs.mkdirSync(lutDir(), { recursive: true }); const dst = path.join(lutDir(), id); if (path.resolve(dst) !== path.resolve(file)) fs.copyFileSync(file, dst); } catch (e) {}
+    E.setLut(id, cube);
+    if (LUTLIST.indexOf(id) < 0) LUTLIST.push(id);
+    return id;
   }
   // the text items on the canvas — the same place, size, font and look as libass draws them
   const TXEL = {};
@@ -2770,7 +2889,10 @@
     const looks = el('div', 'ed-looks');
     const curLook = (c.col && c.col.look) || 'none';
     LOOKN().forEach(([id, name]) => {
-      const b = btn('ed-look' + (curLook === id ? ' on' : ''), '', '', () => change('colour', () => { set({ col: id === 'none' ? null : Object.assign({ look: id }, E.LOOKS[id]) }); }));
+      const b = btn('ed-look' + (curLook === id ? ' on' : ''), '', '', () => change('colour', () => {
+        const pro = c.col && c.col.pro;
+        set({ col: id === 'none' ? (pro ? { pro } : null) : Object.assign({ look: id }, E.LOOKS[id], pro ? { pro } : {}) });
+      }));
       const sw = el('span', 'ed-lsw');
       const { m, o } = E.colorMatrix(E.LOOKS[id]);
       const tint = (r, g, bb) => 'rgb(' + [0, 1, 2].map((k) => Math.round(255 * Math.max(0, Math.min(1, m[k * 3] * r + m[k * 3 + 1] * g + m[k * 3 + 2] * bb + o)))).join(',') + ')';
@@ -2789,7 +2911,7 @@
       r.addEventListener('input', () => {
         if (!started) { pushReviewUndo('colour'); started = true; }
         const cur2 = clips.find((x) => x.id === c.id);
-        set({ col: Object.assign({}, E.LOOKS.none, (cur2 && cur2.col) || {}, { [key]: Number(r.value) }) });
+        set({ col: Object.assign({}, E.LOOKS.none, (cur2 && cur2.col) || {}, { [key]: Number(r.value) }) });   // (keeps .pro)
         val.textContent = show(Number(r.value));
         frame();
       });
@@ -2802,6 +2924,7 @@
     cslider(tx('ንፅፅር', 'Contrast'), 'contrast', 0.5, 1.5, 0.01, (v) => pct(v - 1));
     cslider(tx('ቀለም ሙሌት', 'Saturation'), 'sat', 0, 2, 0.01, (v) => pct(v - 1));
     cslider(tx('ሙቀት', 'Temperature'), 'temp', -1, 1, 0.01, pct);
+    proColourPane(c, set);
     if (E.colorOn(c.col)) {
       const crow = el('div', 'st-row');
       crow.appendChild(btn('st-btn', '🎨 ' + tx('ለሁሉም ክሊፖች', 'Apply to all clips'), tx('ይህን ቀለም ለሁሉም ክሊፖች', 'Give every clip this colour'), () => change('colour', () => { const col = c.col; clips = clips.map((x) => Object.assign({}, x, { col })); })));
@@ -3940,6 +4063,274 @@
     clipPane.appendChild(el('div', 'st-note', tx('በምስሉ ላይ ጎትተው ቦታውን ይቀይሩ።', 'Drag it on the picture to place it.')));
   }
 
+  // ── 🎨 Pro colour (1.86): the panel ──────────────────────────────────
+  const CFOLD = { looks: true };
+  let HSLB = 'red', CURVE_CH = 'm', SCOPES = false;
+  function proColourPane(c, set) {
+    const proOf = () => { const z = clips.find((x) => x.id === c.id) || c; return JSON.parse(JSON.stringify((z.col && z.col.pro) || {})); };
+    // a change by hand: no longer exactly the ready look
+    const putPro = (pro) => { const z = clips.find((x) => x.id === c.id) || c; const col = Object.assign({}, z.col || {}, { pro }); delete col.plook; set({ col }); };
+    // a live change (sliders, wheels, curves): one undo step per drag
+    let live = false;
+    const liveSet = (fn) => { if (!live) { pushReviewUndo('colour'); live = true; } const pro = proOf(); fn(pro); putPro(pro); frame(); };
+    const liveEnd = () => { live = false; ST.saveSoon(); drawSoon(); };
+    const fold = (id, title, cls) => {
+      const d = el('details', 'ed-cfold' + (cls ? ' ' + cls : ''));
+      d.open = !!CFOLD[id];
+      d.addEventListener('toggle', () => { CFOLD[id] = d.open; });
+      d.appendChild(el('summary', '', title));
+      clipPane.appendChild(d);
+      return d;
+    };
+    const slider = (box, label, get, put, min, max, step, show) => {
+      const row = el('div', 'ed-row');
+      row.appendChild(el('span', 'ed-lab', label));
+      const r = el('input'); r.type = 'range'; r.min = min; r.max = max; r.step = step; r.value = get(proOf());
+      const val = el('span', 'ed-val', show(Number(r.value)));
+      r.addEventListener('input', () => { liveSet((p) => put(p, Number(r.value))); val.textContent = show(Number(r.value)); });
+      r.addEventListener('change', liveEnd);
+      r.addEventListener('dblclick', () => { r.value = 0; liveSet((p) => put(p, 0)); liveEnd(); val.textContent = show(0); });
+      row.appendChild(r); row.appendChild(val);
+      box.appendChild(row);
+      return r;
+    };
+    const pct = (v) => (v > 0 ? '+' : '') + Math.round(v * 100);
+    const P0 = proOf();
+    // ✨ pro looks: one tap (made of the controls below, so every part can be changed)
+    const lk = fold('looks', '✨ ' + tx('ፕሮ መልኮች', 'Pro looks'));
+    const lrow = el('div', 'ed-looks');
+    [['none', tx('የለም', 'None')]].concat(Object.keys(E.PRO_LOOKS).map((k) => [k, tx(E.PRO_LOOKS[k].name[0], E.PRO_LOOKS[k].name[1])])).forEach(([k, name]) => {
+      const on = k === 'none' ? !E.proOn(c.col) : (c.col && c.col.plook === k);
+      const b = btn('ed-look' + (on ? ' on' : ''), '', '', () => change('colour', () => {
+        const z = clips.find((x) => x.id === c.id) || c;
+        const col = Object.assign({}, z.col || {});
+        if (k === 'none') { delete col.pro; delete col.plook; } else { col.pro = JSON.parse(JSON.stringify(E.PRO_LOOKS[k].pro)); col.plook = k; }
+        set({ col: Object.keys(col).length ? col : null });
+      }));
+      const f = E.gradeFn(k === 'none' ? {} : { pro: E.PRO_LOOKS[k].pro });
+      const tint = (r, g, b2) => 'rgb(' + f(r, g, b2).map((v) => Math.round(v * 255)).join(',') + ')';
+      const sw = el('span', 'ed-lsw');
+      sw.style.background = 'linear-gradient(90deg,' + tint(0.15, 0.17, 0.2) + ',' + tint(0.85, 0.6, 0.45) + ',' + tint(0.5, 0.5, 0.5) + ',' + tint(0.3, 0.55, 0.75) + ',' + tint(0.95, 0.95, 0.92) + ')';
+      b.appendChild(sw); b.appendChild(el('span', '', name));
+      lrow.appendChild(b);
+    });
+    lk.appendChild(lrow);
+    // ☀ light and colour
+    const lt = fold('light', '☀ ' + tx('ብርሃንና ቀለም', 'Light & colour'), 'pro-only');
+    slider(lt, tx('ኤክስፖዠር', 'Exposure'), (p) => p.exp || 0, (p, v) => { p.exp = v; }, -2, 2, 0.05, (v) => (v > 0 ? '+' : '') + v.toFixed(2));
+    slider(lt, tx('ብሩህ ቦታዎች', 'Highlights'), (p) => p.hi || 0, (p, v) => { p.hi = v; }, -1, 1, 0.01, pct);
+    slider(lt, tx('ጥላዎች', 'Shadows'), (p) => p.sh || 0, (p, v) => { p.sh = v; }, -1, 1, 0.01, pct);
+    slider(lt, tx('ነጮች', 'Whites'), (p) => p.wh || 0, (p, v) => { p.wh = v; }, -1, 1, 0.01, pct);
+    slider(lt, tx('ጥቁሮች', 'Blacks'), (p) => p.bk || 0, (p, v) => { p.bk = v; }, -1, 1, 0.01, pct);
+    slider(lt, tx('ቅልም (አረንጓዴ ↔ ሐምራዊ)', 'Tint (green ↔ magenta)'), (p) => p.tint || 0, (p, v) => { p.tint = v; }, -1, 1, 0.01, pct);
+    slider(lt, tx('ሕያውነት', 'Vibrance'), (p) => p.vib || 0, (p, v) => { p.vib = v; }, -1, 1, 0.01, pct);
+    // 🎞 LUT
+    const lu = fold('lut', '🎞 LUT (.cube)', 'pro-only');
+    const curLut = P0.lut && P0.lut.id;
+    const lc = el('div', 'br-chips');
+    lc.appendChild(btn('br-chip' + (!curLut ? ' on' : ''), tx('የለም', 'None'), '', () => change('colour', () => { const p = proOf(); delete p.lut; putPro(p); })));
+    LUTLIST.forEach((id) => lc.appendChild(btn('br-chip' + (curLut === id ? ' on' : ''), id.replace(/\.cube$/i, ''), id, () => change('colour', () => { const p = proOf(); p.lut = { id, mix: p.lut && p.lut.mix != null ? p.lut.mix : 1 }; putPro(p); }))));
+    lc.appendChild(btn('br-chip', '＋ ' + tx('LUT ያስገቡ', 'Import a LUT'), tx('ማንኛውም 3D .cube LUT', 'Any 3D .cube LUT'), () => { const id = importLut(); if (id) change('colour', () => { const p = proOf(); p.lut = { id, mix: 1 }; putPro(p); }); }));
+    lu.appendChild(lc);
+    if (curLut) {
+      if (LUTLIST.indexOf(curLut) < 0) lu.appendChild(el('div', 'st-note', '⚠ ' + tx('ይህ LUT በዚህ ኮምፒውተር ላይ የለም — እንደገና ያስገቡት።', 'This LUT is not on this computer — import it again.')));
+      slider(lu, tx('ጥንካሬ', 'Strength'), (p) => (p.lut && p.lut.mix != null ? p.lut.mix : 1), (p, v) => { if (p.lut) p.lut.mix = v; }, 0, 1, 0.01, (v) => Math.round(v * 100) + '%');
+    }
+    // 🎡 colour wheels
+    const wh = fold('wheels', '🎡 ' + tx('የቀለም ጎማዎች', 'Colour wheels'), 'pro-only');
+    const wrow = el('div', 'ed-wheels');
+    [['lift', tx('ጥላዎች', 'Shadows')], ['gamma', tx('መሃል', 'Midtones')], ['gain', tx('ብሩህ', 'Highlights')]].forEach(([k, name]) => {
+      const col = el('div', 'ed-wheel');
+      col.appendChild(el('div', 'ed-wl', name));
+      col.appendChild(wheelCanvas(() => (proOf()[k] || { x: 0, y: 0, l: 0 }), (xy) => liveSet((p) => { p[k] = Object.assign({ x: 0, y: 0, l: 0 }, p[k] || {}, xy); }), liveEnd));
+      const r = el('input'); r.type = 'range'; r.min = -1; r.max = 1; r.step = 0.01; r.value = (P0[k] && P0[k].l) || 0; r.className = 'ed-wlum';
+      r.title = tx('ብርሃን', 'Brightness');
+      r.addEventListener('input', () => liveSet((p) => { p[k] = Object.assign({ x: 0, y: 0, l: 0 }, p[k] || {}, { l: Number(r.value) }); }));
+      r.addEventListener('change', liveEnd);
+      r.addEventListener('dblclick', () => { r.value = 0; liveSet((p) => { if (p[k]) p[k].l = 0; }); liveEnd(); });
+      col.appendChild(r);
+      wrow.appendChild(col);
+    });
+    wh.appendChild(wrow);
+    wh.appendChild(el('div', 'st-note', tx('ነጥቡን ይጎትቱ · ሁለቴ ጠቅ = መልስ', 'Drag the dot · double-click = reset')));
+    // 〰 curves
+    const cu = fold('curves', '〰 ' + tx('ከርቮች', 'Curves'), 'pro-only');
+    const ctabs = el('div', 'st-seg');
+    [['m', tx('ሁሉም', 'All')], ['r', 'R'], ['g', 'G'], ['b', 'B']].forEach(([k, n2]) => ctabs.appendChild(btn(CURVE_CH === k ? 'on' : '', n2, '', () => { CURVE_CH = k; renderInspector(); })));
+    cu.appendChild(ctabs);
+    cu.appendChild(curveCanvas(CURVE_CH, () => { const p = proOf(); return (p.curves && p.curves[CURVE_CH]) || [[0, 0], [1, 1]]; },
+      (pts) => liveSet((p) => { p.curves = p.curves || {}; p.curves[CURVE_CH] = pts; }), liveEnd));
+    cu.appendChild(el('div', 'st-note', tx('ጠቅ = ነጥብ ይጨምሩ · ይጎትቱ · ሁለቴ ጠቅ = ነጥቡን ያጥፉ', 'Click = add a point · drag · double-click = remove the point')));
+    // 🌈 HSL per colour
+    const hs = fold('hsl', '🌈 ' + tx('ቀለም በቀለም (HSL)', 'Colour by colour (HSL)'), 'pro-only');
+    const dots = el('div', 'ed-hsl-dots');
+    E.HSL_BANDS.forEach(([b, h]) => {
+      const d = btn('ed-hsl-dot' + (HSLB === b ? ' on' : ''), '', b, () => { HSLB = b; renderInspector(); });
+      d.style.background = 'hsl(' + h + ',85%,55%)';
+      if (P0.hsl && P0.hsl[b] && (P0.hsl[b].h || P0.hsl[b].s || P0.hsl[b].l)) d.classList.add('set');
+      dots.appendChild(d);
+    });
+    hs.appendChild(dots);
+    const band = (p) => { p.hsl = p.hsl || {}; p.hsl[HSLB] = p.hsl[HSLB] || {}; return p.hsl[HSLB]; };
+    const bget = (k) => (p) => (p.hsl && p.hsl[HSLB] && p.hsl[HSLB][k]) || 0;
+    slider(hs, tx('ቀለሙ', 'Hue'), bget('h'), (p, v) => { band(p).h = v; }, -1, 1, 0.01, (v) => (v > 0 ? '+' : '') + Math.round(v * 30) + '°');
+    slider(hs, tx('ሙሌት', 'Saturation'), bget('s'), (p, v) => { band(p).s = v; }, -1, 1, 0.01, pct);
+    slider(hs, tx('ብርሃን', 'Lightness'), bget('l'), (p, v) => { band(p).l = v; }, -1, 1, 0.01, pct);
+    // 📈 scopes · ◐ before / after · reset
+    const act = el('div', 'st-row');
+    act.appendChild(btn('st-btn' + (SCOPES ? ' on' : ''), '📈 ' + tx('ስኮፖች', 'Scopes'), tx('ዌቭፎርምና ቬክተርስኮፕ', 'Waveform and vectorscope'), () => { SCOPES = !SCOPES; renderInspector(); }));
+    act.appendChild(btn('st-btn' + (BEFORE ? ' on' : ''), '◐ ' + tx('በፊት / በኋላ', 'Before / after'), tx('ያለ ቀለም ማስተካከያ ያሳያል', 'Shows it without the colour work'), () => { BEFORE = !BEFORE; frame(); renderInspector(); }));
+    if (E.proOn(c.col)) act.appendChild(btn('st-btn', '↺ ' + tx('ፕሮ ቀለሙን አጥፋ', 'Reset pro colour'), '', () => change('colour', () => { const z = clips.find((x) => x.id === c.id) || c; const col = Object.assign({}, z.col || {}); delete col.pro; delete col.plook; set({ col: Object.keys(col).length ? col : null }); })));
+    act.classList.add('pro-only');
+    clipPane.appendChild(act);
+    if (SCOPES) clipPane.appendChild(scopesEl());
+  }
+  // a colour wheel: drag its dot (direction = the colour, distance = how much)
+  function wheelCanvas(get, put, end) {
+    const S2 = 84, dpr = window.devicePixelRatio || 1;
+    const cv = el('canvas', 'ed-wcv');
+    cv.width = S2 * dpr; cv.height = S2 * dpr; cv.style.width = S2 + 'px'; cv.style.height = S2 + 'px';
+    const g = cv.getContext('2d');
+    const R2 = (S2 / 2 - 4) * dpr, cx = S2 / 2 * dpr;
+    const disc = g.createImageData(cv.width, cv.height);
+    for (let y = 0; y < cv.height; y++) for (let x = 0; x < cv.width; x++) {
+      const dx = (x - cx) / R2, dy = (cy0(y) - 0), d = Math.hypot(dx, dy);
+      if (d > 1) continue;
+      const rgb = E.wheelRgb({ x: dx, y: dy });
+      const i = (y * cv.width + x) * 4;
+      for (let k = 0; k < 3; k++) disc.data[i + k] = Math.round(255 * Math.max(0, Math.min(1, 0.32 + 0.3 * rgb[k])));
+      disc.data[i + 3] = 255;
+    }
+    function cy0(y) { return -(y - cx) / R2; }
+    const paint = () => {
+      g.putImageData(disc, 0, 0);
+      const w = get();
+      g.strokeStyle = 'rgba(255,255,255,.25)'; g.lineWidth = dpr;
+      g.beginPath(); g.moveTo(cx - R2, cx); g.lineTo(cx + R2, cx); g.moveTo(cx, cx - R2); g.lineTo(cx, cx + R2); g.stroke();
+      const px = cx + (w.x || 0) * R2, py = cx - (w.y || 0) * R2;
+      g.fillStyle = '#fff'; g.strokeStyle = '#000'; g.lineWidth = 1.5 * dpr;
+      g.beginPath(); g.arc(px, py, 5 * dpr, 0, Math.PI * 2); g.fill(); g.stroke();
+    };
+    paint();
+    const at = (ev) => {
+      const r = cv.getBoundingClientRect();
+      let x = ((ev.clientX - r.left) - S2 / 2) / (S2 / 2 - 4), y = -((ev.clientY - r.top) - S2 / 2) / (S2 / 2 - 4);
+      const d = Math.hypot(x, y);
+      if (d > 1) { x /= d; y /= d; }
+      // fine control near the middle
+      const k = ev.shiftKey ? 0.25 : 1;
+      return { x: Math.round(x * k * 1000) / 1000, y: Math.round(y * k * 1000) / 1000 };
+    };
+    cv.addEventListener('mousedown', (ev) => {
+      ev.preventDefault();
+      put(at(ev)); paint();
+      const mm = (e2) => { put(at(e2)); paint(); };
+      const mu = () => { document.removeEventListener('mousemove', mm); document.removeEventListener('mouseup', mu); end(); };
+      document.addEventListener('mousemove', mm); document.addEventListener('mouseup', mu);
+    });
+    cv.addEventListener('dblclick', () => { put({ x: 0, y: 0 }); end(); paint(); });
+    return cv;
+  }
+  // a curve: points on a square (0-1), the same smooth curve as the export
+  function curveCanvas(ch, get, put, end) {
+    const S2 = 220, dpr = window.devicePixelRatio || 1;
+    const cv = el('canvas', 'ed-ccv');
+    cv.width = S2 * dpr; cv.height = S2 * dpr; cv.style.width = S2 + 'px'; cv.style.height = S2 + 'px';
+    const g = cv.getContext('2d');
+    const colr = { m: '#e8ecea', r: '#ff5c5c', g: '#4cd964', b: '#4d9dff' }[ch];
+    const X = (v) => v * (S2 - 1) * dpr, Y = (v) => (1 - v) * (S2 - 1) * dpr;
+    let pts = get().map((q) => q.slice());
+    const paint = () => {
+      g.fillStyle = '#101614'; g.fillRect(0, 0, cv.width, cv.height);
+      g.strokeStyle = 'rgba(255,255,255,.08)'; g.lineWidth = dpr;
+      for (let i = 1; i < 4; i++) { g.beginPath(); g.moveTo(X(i / 4), 0); g.lineTo(X(i / 4), cv.height); g.moveTo(0, Y(i / 4)); g.lineTo(cv.width, Y(i / 4)); g.stroke(); }
+      g.strokeStyle = 'rgba(255,255,255,.18)'; g.beginPath(); g.moveTo(X(0), Y(0)); g.lineTo(X(1), Y(1)); g.stroke();
+      const f = E.curveFn(pts);
+      g.strokeStyle = colr; g.lineWidth = 2 * dpr; g.beginPath();
+      for (let i = 0; i <= 100; i++) { const x = i / 100, y = Math.max(0, Math.min(1, f(x))); if (i) g.lineTo(X(x), Y(y)); else g.moveTo(X(x), Y(y)); }
+      g.stroke();
+      pts.forEach((q) => { g.fillStyle = '#101614'; g.strokeStyle = colr; g.lineWidth = 1.5 * dpr; g.beginPath(); g.arc(X(q[0]), Y(q[1]), 4.5 * dpr, 0, Math.PI * 2); g.fill(); g.stroke(); });
+    };
+    paint();
+    const at = (ev) => { const r = cv.getBoundingClientRect(); return [Math.max(0, Math.min(1, (ev.clientX - r.left) / S2)), Math.max(0, Math.min(1, 1 - (ev.clientY - r.top) / S2))]; };
+    const near = (q) => pts.findIndex((p) => Math.hypot((p[0] - q[0]) * S2, (p[1] - q[1]) * S2) < 9);
+    cv.addEventListener('mousedown', (ev) => {
+      ev.preventDefault();
+      const q = at(ev);
+      let i = near(q);
+      if (i < 0) { pts.push([q[0], E.curveFn(pts)(q[0])]); pts.sort((a, b) => a[0] - b[0]); i = near([q[0], E.curveFn(pts)(q[0])]); }
+      const mm = (e2) => {
+        const p = at(e2);
+        const lo = i > 0 ? pts[i - 1][0] + 0.01 : 0, hi = i < pts.length - 1 ? pts[i + 1][0] - 0.01 : 1;
+        pts[i] = [i === 0 ? Math.min(p[0], hi) : i === pts.length - 1 ? Math.max(p[0], lo) : Math.max(lo, Math.min(hi, p[0])), p[1]];
+        put(pts.map((x) => x.slice())); paint();
+      };
+      const mu = () => { document.removeEventListener('mousemove', mm); document.removeEventListener('mouseup', mu); put(pts.map((x) => x.slice())); end(); };
+      document.addEventListener('mousemove', mm); document.addEventListener('mouseup', mu);
+      paint();
+    });
+    cv.addEventListener('dblclick', (ev) => {
+      const i = near(at(ev));
+      if (i > 0 && i < pts.length - 1) { pts.splice(i, 1); put(pts.map((x) => x.slice())); end(); paint(); }
+    });
+    return cv;
+  }
+  // 📈 the scopes: the picture as it looks (with the grade), a few times a second
+  function scopesEl() {
+    const box = el('div', 'ed-scopes');
+    const W2 = 150, H2 = 110, dpr = window.devicePixelRatio || 1;
+    const mk = (cls) => { const cv = el('canvas', cls); cv.width = W2 * dpr; cv.height = H2 * dpr; cv.style.width = W2 + 'px'; cv.style.height = H2 + 'px'; box.appendChild(cv); return cv; };
+    const wf = mk('ed-scope'), vs = mk('ed-scope');
+    const sm = document.createElement('canvas'); sm.width = 160; sm.height = 90;
+    const sc = sm.getContext('2d', { willReadFrequently: true });
+    const skin = (() => { const r = 0.87, g = 0.6, b = 0.47; return [-0.1146 * r - 0.3854 * g + 0.5 * b, 0.5 * r - 0.4542 * g - 0.0458 * b]; })();
+    let last = 0;
+    const draw = (now) => {
+      if (!box.isConnected) return;
+      requestAnimationFrame(draw);
+      if (now - last < 160) return;
+      last = now;
+      const v = V();
+      if (!v) return;
+      const T = TWINS.get(v);
+      try {
+        sc.filter = T ? 'none' : (v.style.filter || 'none');
+        sc.drawImage(T ? T.cv : v, 0, 0, sm.width, sm.height);
+      } catch (e) { return; }
+      let d;
+      try { d = sc.getImageData(0, 0, sm.width, sm.height).data; } catch (e) { return; }
+      const gw = wf.getContext('2d'), gv = vs.getContext('2d');
+      const iw = gw.createImageData(wf.width, wf.height), iv = gv.createImageData(vs.width, vs.height);
+      const plot = (img, x, y, r, g2, b) => {
+        if (x < 0 || y < 0 || x >= img.width || y >= img.height) return;
+        const i = (y * img.width + x) * 4;
+        img.data[i] = Math.min(255, img.data[i] + r); img.data[i + 1] = Math.min(255, img.data[i + 1] + g2); img.data[i + 2] = Math.min(255, img.data[i + 2] + b); img.data[i + 3] = 255;
+      };
+      const cx = vs.width / 2, cy = vs.height / 2, rad = Math.min(cx, cy) - 4 * dpr;
+      for (let y = 0; y < sm.height; y++) for (let x = 0; x < sm.width; x++) {
+        const i = (y * sm.width + x) * 4, r = d[i] / 255, g2 = d[i + 1] / 255, b = d[i + 2] / 255;
+        const Y = 0.2126 * r + 0.7152 * g2 + 0.0722 * b;
+        plot(iw, Math.floor(x / sm.width * wf.width), Math.round((1 - Y) * (wf.height - 1)), 70, 120, 80);
+        const cb = -0.1146 * r - 0.3854 * g2 + 0.5 * b, cr = 0.5 * r - 0.4542 * g2 - 0.0458 * b;
+        plot(iv, Math.round(cx + cb * 2 * rad), Math.round(cy - cr * 2 * rad), 110, 120, 110);
+      }
+      gw.fillStyle = '#0b100e'; gw.fillRect(0, 0, wf.width, wf.height);
+      gv.fillStyle = '#0b100e'; gv.fillRect(0, 0, vs.width, vs.height);
+      const put2 = (g3, img) => { const t = document.createElement('canvas'); t.width = img.width; t.height = img.height; t.getContext('2d').putImageData(img, 0, 0); g3.globalCompositeOperation = 'lighter'; g3.drawImage(t, 0, 0); g3.globalCompositeOperation = 'source-over'; };
+      put2(gw, iw); put2(gv, iv);
+      gw.strokeStyle = 'rgba(255,255,255,.15)'; gw.lineWidth = dpr;
+      [0, 0.5, 1].forEach((q) => { const y = Math.round(q * (wf.height - 1)) + 0.5; gw.beginPath(); gw.moveTo(0, y); gw.lineTo(wf.width, y); gw.stroke(); });
+      gv.strokeStyle = 'rgba(255,255,255,.15)'; gv.lineWidth = dpr;
+      gv.beginPath(); gv.arc(cx, cy, rad, 0, Math.PI * 2); gv.stroke();
+      // the skin-tone line
+      const sl = Math.hypot(skin[0], skin[1]);
+      gv.strokeStyle = 'rgba(255,190,140,.45)'; gv.beginPath(); gv.moveTo(cx, cy); gv.lineTo(cx + skin[0] / sl * rad, cy - skin[1] / sl * rad); gv.stroke();
+    };
+    requestAnimationFrame(draw);
+    box.appendChild(el('div', 'st-note', tx('ግራ፦ ብርሃን (ዌቭፎርም) · ቀኝ፦ ቀለም (ቬክተርስኮፕ፣ ብርቱካናማው መስመር = የቆዳ ቀለም)', 'Left: light (waveform) · right: colour (vectorscope; the orange line = skin tones)')));
+    return box;
+  }
+
   // ── export (1.25.0): jobs, the graphics card, the queue ────────────────
   // A job is a snapshot of the edit + where it goes; the captions (when a
   // style is chosen) are drawn in the SAME render as the edit (one encode).
@@ -4039,6 +4430,9 @@
       });
     };
     try {
+      // 🎨 1.86: each pro grade's table (the preview's own numbers)
+      const grades = E.gradeFiles(st.clips);
+      if (grades.length) { folder(); grades.forEach((gf) => { const p2 = path.join(cwd, gf.name); fs.writeFileSync(p2, gf.text, { encoding: 'utf8' }); made.push(p2); }); }
       if (shown.length) {
         folder();
         fs.writeFileSync(path.join(cwd, 't.ass'), E.textAss(shown, W, H, tot), { encoding: 'utf8' });
@@ -4319,6 +4713,7 @@
   relabel();
   loadFonts();
   loadMyFonts();
+  loadLuts();
   ST.attachEditor({ draw, drawSoon, seek, duration: total, peaks: editPeaks, open, shown, saveState, loadState, exportVideo, markedPart, format: () => fmt,
     queueExports, stopExport, clearDone, detectGpu, gpuName: (e) => GPU_NAMES[e] || '', queue: () => QUEUE, onQueue: (f) => qWatch.push(f),
     setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } });

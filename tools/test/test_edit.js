@@ -744,4 +744,71 @@ test('1.85 Title studio: 30 animations, outline / shadow / glow, backgrounds, an
   assert.ok(!hook.includes('\\blur') && hook.includes('\\4c&H000000&'));
 });
 
+test('1.86 Pro colour: one table for the preview and the export; light, LUT, wheels, curves, HSL; old colours unchanged', () => {
+  // nothing set / only the old sliders: the old way, unchanged
+  assert.strictEqual(E.gradeOf({}), null);
+  assert.strictEqual(E.proOn(Object.assign({ look: 'warm' }, E.LOOKS.warm)), false);
+  assert.ok(E.colorFilter(E.LOOKS.warm).startsWith(',colorchannelmixer='), 'old looks keep their filter');
+  assert.strictEqual(E.gradeOf({ pro: { exp: 0, curves: { m: [[0, 0], [1, 1]] }, hsl: { red: { h: 0 } } } }), null, 'neutral = off');
+  const id = E.gradeFn({});
+  assert.deepStrictEqual(id(0.2, 0.5, 0.8), [0.2, 0.5, 0.8]);
+  // a pro grade: one table, named by its contents
+  const col = { pro: { exp: 0.5, sh: 0.3 } };
+  assert.ok(E.proOn(col) && E.colorOn(col));
+  assert.strictEqual(E.colorFilter(col), ',lut3d=file=' + E.gradeKey(col) + '.cube:interp=trilinear');
+  assert.strictEqual(E.gradeKey({ pro: { exp: 0.5, sh: 0.3 } }), E.gradeKey(col), 'the same grade = the same file');
+  assert.notStrictEqual(E.gradeKey({ pro: { exp: 0.6, sh: 0.3 } }), E.gradeKey(col));
+  // exposure works in light: +1 stop on middle grey
+  const ex = E.gradeFn({ pro: { exp: 1 } })(0.5, 0.5, 0.5)[0];
+  assert.ok(Math.abs(ex - 0.686) < 0.003, String(ex));
+  // shadows lift the darks more than the brights
+  const sh = E.gradeFn({ pro: { sh: 1 } });
+  assert.ok(sh(0.3, 0.3, 0.3)[0] - 0.3 > sh(0.85, 0.85, 0.85)[0] - 0.85);
+  // the table = the maths at every grid point, and the .cube reads back the same
+  const N = 9, L = E.gradeLut(col, N), f = E.gradeFn(col);
+  const at = (r, g, b) => L[((b * N + g) * N + r) * 3];
+  assert.ok(Math.abs(at(4, 2, 7) - f(4 / 8, 2 / 8, 7 / 8)[0]) < 1e-6);
+  const cube = E.parseCube(E.cubeText(col));
+  assert.strictEqual(cube.n, E.GRADE_N);
+  assert.ok(Math.abs(E.sampleCube(cube, 0.5, 0.5, 0.5)[0] - f(0.5, 0.5, 0.5)[0]) < 1e-5);
+  assert.ok(Math.abs(E.sampleCube(cube, 0.37, 0.61, 0.2)[1] - f(0.37, 0.61, 0.2)[1]) < 0.01, 'between grid points: close');
+  // .cube files: 3D only, complete
+  assert.strictEqual(E.parseCube('LUT_1D_SIZE 2\n0 0 0\n1 1 1'), null);
+  assert.strictEqual(E.parseCube('LUT_3D_SIZE 2\n0 0 0\n1 1 1'), null);
+  // a LUT at half strength (an inverting LUT: 0.2 -> 0.8, half way = 0.5)
+  const inv = ['LUT_3D_SIZE 2'];
+  for (let b = 0; b < 2; b++) for (let g = 0; g < 2; g++) for (let r = 0; r < 2; r++) inv.push([1 - r, 1 - g, 1 - b].join(' '));
+  E.setLut('inv.cube', E.parseCube(inv.join('\n')));
+  assert.ok(Math.abs(E.gradeFn({ pro: { lut: { id: 'inv.cube', mix: 0.5 } } })(0.2, 0.2, 0.2)[0] - 0.5) < 1e-9);
+  assert.ok(Math.abs(E.gradeFn({ pro: { lut: { id: 'inv.cube' } } })(0.2, 0.4, 0.9)[2] - 0.1) < 1e-9, 'full strength by default');
+  assert.notStrictEqual(E.gradeKey({ pro: { lut: { id: 'missing.cube' } } }), E.gradeKey({ pro: { lut: { id: 'inv.cube' } } }));
+  // curves: smooth, through their points, never turning back
+  const cf = E.curveFn([[0, 0], [0.25, 0.15], [0.75, 0.85], [1, 1]]);
+  assert.ok(Math.abs(cf(0.25) - 0.15) < 1e-9 && cf(0.1) < 0.1 && cf(0.9) > 0.9);
+  for (let x = 0; x < 1; x += 0.01) assert.ok(cf(x + 0.01) >= cf(x) - 1e-9, 'monotone');
+  const bc = E.gradeFn({ pro: { curves: { b: [[0, 0.2], [1, 1]] } } })(0, 0, 0);
+  assert.deepStrictEqual(bc.map((v) => Math.round(v * 100) / 100), [0, 0, 0.2], 'a channel curve moves only its channel');
+  // the wheels: shadows to blue push the darks' blue more than the brights'
+  const wl = E.gradeFn({ pro: { lift: { x: Math.cos(4 * Math.PI / 3), y: Math.sin(4 * Math.PI / 3), l: 0 } } });
+  const d1 = wl(0.1, 0.1, 0.1), d2 = wl(0.9, 0.9, 0.9);
+  assert.ok(d1[2] > d1[0] && d1[2] - 0.1 > d2[2] - 0.9, JSON.stringify([d1, d2]));
+  assert.deepStrictEqual(E.wheelRgb({ x: 1, y: 0 }).map((v) => Math.round(v * 100) / 100), [1, -0.5, -0.5]);
+  // HSL: one colour changes, greys do not
+  const hs = E.gradeFn({ pro: { hsl: { red: { s: -1 } } } });
+  assert.deepStrictEqual(hs(0.5, 0.5, 0.5), [0.5, 0.5, 0.5]);
+  const red = hs(0.9, 0.1, 0.1);
+  assert.ok(Math.abs(red[0] - red[1]) < 0.01, 'red without colour');
+  const blue = hs(0.1, 0.2, 0.9);
+  assert.ok(Math.abs(blue[2] - 0.9) < 0.01 && blue[0] < 0.15, 'blue untouched');
+  // the ready looks are all pro grades; the export writes one table per grade
+  Object.keys(E.PRO_LOOKS).forEach((k) => { const g = E.gradeFn({ pro: E.PRO_LOOKS[k].pro })(0.4, 0.5, 0.6); assert.ok(E.proOn({ pro: E.PRO_LOOKS[k].pro }) && g.every(Number.isFinite), k); });
+  const files = E.gradeFiles([{ col }, { col: { pro: { exp: 0.5, sh: 0.3 } } }, { col: E.LOOKS.warm }, {}]);
+  assert.strictEqual(files.length, 1);
+  assert.ok(files[0].name === E.gradeKey(col) + '.cube' && /^TITLE .*\nLUT_3D_SIZE 33\n/.test(files[0].text));
+  // the edit uses it for the clip
+  const g2 = E.editGraph([{ id: 'a', m: 'v', in: 0, out: 5, col }], { v: { idx: 0, w: 1920, h: 1080, video: true, audio: true } }, '16:9', 30, [], { res: 720 }).graph;
+  assert.ok(g2.includes(',lut3d=file=' + E.gradeKey(col) + '.cube:interp=trilinear'));
+  E.setLut('inv.cube', null);
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');

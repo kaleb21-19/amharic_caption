@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.85.0';
+const APP_VERSION = '1.86.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -440,6 +440,19 @@ setTimeout(() => { if (FIRST_OPEN) track('first_open'); track('open'); }, 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.86.0': {
+    banner: {
+      am: '⬆ 🎨 ፕሮ ቀለም — LUT፣ የቀለም ጎማዎች፣ ከርቮች፣ ቀለም በቀለም እና ስኮፖች፤ ✍ ርዕስ ስቱዲዮ፤ 🎬 ያለ ኪፍሬም እንቅስቃሴ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '⬆ 🎨 Pro colour — LUTs, colour wheels, curves, colour by colour and scopes; ✍ Title studio; 🎬 motion with no keyframes — your license stays the same.',
+    },
+    items: [
+      { am: '🎨 ክሊፑን ይምረጡ → ቀለም፦ 8 ፕሮ መልኮች (ቲል እና ብርቱካን፣ ፊልም፣ ወርቃማ ሰዓት፣ ንጹሕ ቆዳ…) በአንድ ንክኪ', en: '🎨 Select a clip → Colour: 8 pro looks (Teal & orange, Film, Golden hour, Clean skin…) in one tap' },
+      { am: 'ኤክስፖዠር፣ ብሩህ ቦታዎች፣ ጥላዎች፣ ነጮች፣ ጥቁሮች፣ ቅልም፣ ሕያውነት፤ ማንኛውንም .cube LUT ያስገቡ (ከጥንካሬው ጋር)', en: 'Exposure, highlights, shadows, whites, blacks, tint, vibrance; import any .cube LUT (with its strength)' },
+      { am: 'የቀለም ጎማዎች (ጥላ፣ መሃል፣ ብሩህ)፣ ከርቮች (ሁሉም፣ R፣ G፣ B)፣ ቀለም በቀለም (8 ቀለሞች)', en: 'Colour wheels (shadows, midtones, highlights), curves (all, R, G, B), colour by colour (8 colours)' },
+      { am: '📈 ዌቭፎርምና ቬክተርስኮፕ (ከቆዳ ቀለም መስመር ጋር)፣ ◐ በፊት / በኋላ — የተላከው ቪዲዮ ልክ እንዳዩት ነው', en: '📈 Waveform and vectorscope (with the skin-tone line), ◐ before / after — the exported video is exactly what you saw' },
+      { am: '✍ ርዕስ ስቱዲዮ (ማንኛውም ፊደል፣ ጠርዝ፣ ጥላ፣ 30 እንቅስቃሴዎች)፣ 🎬 ያለ ኪፍሬም እንቅስቃሴ፣ 4K እና ProRes መላክ', en: '✍ Title studio (any font, outline, shadow, 30 animations), 🎬 motion with no keyframes, 4K and ProRes export' },
+    ],
+  },
   '1.85.0': {
     banner: {
       am: '⬆ ✍ ርዕስ ስቱዲዮ — ማንኛውም የአማርኛ ፊደል፣ ጠርዝ፣ ጥላና ብርሃን፣ 30 እንቅስቃሴዎች፤ 🎬 ያለ ኪፍሬም እንቅስቃሴ፤ ፕሮፌሽናል መላክ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',

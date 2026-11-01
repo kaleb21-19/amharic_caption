@@ -324,9 +324,228 @@
     const m = S.map((v, i) => r3(v * T[Math.floor(i / 3)] * c));
     return { m, o: r3(0.5 * (1 - c) + 0.25 * b) };
   }
-  const colorOn = (col) => !!col && ['bright', 'contrast', 'sat', 'temp'].some((k) => Math.abs(colV(col, k) - LOOKS.none[k]) > 1e-6);
+  const basicOn = (col) => !!col && ['bright', 'contrast', 'sat', 'temp'].some((k) => Math.abs(colV(col, k) - LOOKS.none[k]) > 1e-6);
+
+  // ── 🎨 Pro colour (1.86) ─────────────────────────────────────────────────
+  // Exposure, highlights / shadows / whites / blacks, tint, vibrance, a
+  // .cube LUT (with its strength), lift / gamma / gain colour wheels, curves
+  // (master + R G B) and HSL per colour — on top of the look and the four
+  // basic sliders. The whole grade becomes ONE 33³ colour table (gradeLut):
+  // the export applies it with ffmpeg lut3d (trilinear), the preview with the
+  // same table on the graphics card (WebGL, trilinear) — the same numbers.
+  // col.pro = { exp, hi, sh, wh, bk, tint, vib, lift, gamma, gain: {x, y, l},
+  //   curves: { m, r, g, b: [[x, y]…] }, hsl: { band: { h, s, l } }, lut: { id, mix } }
+  const HSL_BANDS = [['red', 0], ['orange', 30], ['yellow', 60], ['green', 120], ['aqua', 180], ['blue', 225], ['purple', 270], ['magenta', 315]];
+  const GRADE_N = 33;
+  const gnum = (v, lo, hi) => { const n = Number(v); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : 0; };
+  const wheelOf = (w) => ({ x: gnum(w && w.x, -1, 1), y: gnum(w && w.y, -1, 1), l: gnum(w && w.l, -1, 1) });
+  const wheelOn = (w) => Math.abs(w.x) + Math.abs(w.y) + Math.abs(w.l) > 1e-4;
+  function curveOf(pts) {
+    if (!Array.isArray(pts)) return null;
+    const p = pts.map((q) => [gnum(q && q[0], 0, 1), gnum(q && q[1], 0, 1)]).sort((a, b) => a[0] - b[0])
+      .filter((q, i, a) => i === 0 || q[0] - a[i - 1][0] > 0.005).slice(0, 16);
+    if (p.length < 2) return null;
+    // the straight line = no curve
+    return p.every((q) => Math.abs(q[0] - q[1]) < 1e-4) && p[0][0] < 1e-4 && p[p.length - 1][0] > 1 - 1e-4 ? null : p;
+  }
+  // the pro part, cleaned (null = nothing set)
+  function gradeOf(col) {
+    const P = col && col.pro;
+    if (!P || typeof P !== 'object') return null;
+    const g = {
+      exp: gnum(P.exp, -3, 3), hi: gnum(P.hi, -1, 1), sh: gnum(P.sh, -1, 1), wh: gnum(P.wh, -1, 1), bk: gnum(P.bk, -1, 1),
+      tint: gnum(P.tint, -1, 1), vib: gnum(P.vib, -1, 1),
+      lift: wheelOf(P.lift), gamma: wheelOf(P.gamma), gain: wheelOf(P.gain), curves: {}, hsl: {}, lut: null,
+    };
+    ['m', 'r', 'g', 'b'].forEach((k) => { const c = curveOf(P.curves && P.curves[k]); if (c) g.curves[k] = c; });
+    HSL_BANDS.forEach(([b]) => {
+      const q = P.hsl && P.hsl[b];
+      const v = { h: gnum(q && q.h, -1, 1), s: gnum(q && q.s, -1, 1), l: gnum(q && q.l, -1, 1) };
+      if (Math.abs(v.h) + Math.abs(v.s) + Math.abs(v.l) > 1e-4) g.hsl[b] = v;
+    });
+    if (P.lut && P.lut.id) g.lut = { id: String(P.lut.id), mix: P.lut.mix == null ? 1 : gnum(P.lut.mix, 0, 1) };
+    const on = ['exp', 'hi', 'sh', 'wh', 'bk', 'tint', 'vib'].some((k) => Math.abs(g[k]) > 1e-4) || wheelOn(g.lift) || wheelOn(g.gamma) || wheelOn(g.gain) ||
+      Object.keys(g.curves).length || Object.keys(g.hsl).length || (g.lut && g.lut.mix > 1e-4);
+    return on ? g : null;
+  }
+  const proOn = (col) => !!gradeOf(col);
+  const colorOn = (col) => basicOn(col) || proOn(col);
+  // .cube LUTs the editor loaded (id = its file name)
+  const LUTS = {};
+  function parseCube(text) {
+    const lines = String(text || '').split(/\r?\n/);
+    let n = 0, min = [0, 0, 0], max = [1, 1, 1];
+    const vals = [];
+    for (let i = 0; i < lines.length; i++) {
+      const s = lines[i].trim();
+      if (!s || s[0] === '#') continue;
+      const w = s.split(/\s+/);
+      if (/^LUT_3D_SIZE$/i.test(w[0])) n = parseInt(w[1], 10);
+      else if (/^LUT_1D_SIZE$/i.test(w[0])) return null;
+      else if (/^DOMAIN_MIN$/i.test(w[0])) min = w.slice(1, 4).map(Number);
+      else if (/^DOMAIN_MAX$/i.test(w[0])) max = w.slice(1, 4).map(Number);
+      else if (/^[-+.\d]/.test(w[0]) && w.length >= 3) { vals.push(Number(w[0]), Number(w[1]), Number(w[2])); }
+    }
+    if (!(n >= 2 && n <= 129) || vals.length !== n * n * n * 3 || vals.some((v) => !Number.isFinite(v))) return null;
+    return { n, d: Float32Array.from(vals), min, max };
+  }
+  function setLut(id, cube) { if (cube) LUTS[id] = cube; else delete LUTS[id]; }
+  // a LUT at (r, g, b): trilinear, red the fastest
+  function sampleCube(L, r, g, b) {
+    const n = L.n, q = [r, g, b].map((v, i) => Math.max(0, Math.min(n - 1, (v - L.min[i]) / ((L.max[i] - L.min[i]) || 1) * (n - 1))));
+    const i0 = q.map(Math.floor), i1 = i0.map((v) => Math.min(n - 1, v + 1)), f = q.map((v, i) => v - i0[i]);
+    const at = (x, y, z, c) => L.d[((z * n + y) * n + x) * 3 + c];
+    const out = [0, 0, 0];
+    for (let c = 0; c < 3; c++) {
+      const c00 = at(i0[0], i0[1], i0[2], c) * (1 - f[0]) + at(i1[0], i0[1], i0[2], c) * f[0];
+      const c10 = at(i0[0], i1[1], i0[2], c) * (1 - f[0]) + at(i1[0], i1[1], i0[2], c) * f[0];
+      const c01 = at(i0[0], i0[1], i1[2], c) * (1 - f[0]) + at(i1[0], i0[1], i1[2], c) * f[0];
+      const c11 = at(i0[0], i1[1], i1[2], c) * (1 - f[0]) + at(i1[0], i1[1], i1[2], c) * f[0];
+      out[c] = (c00 * (1 - f[1]) + c10 * f[1]) * (1 - f[2]) + (c01 * (1 - f[1]) + c11 * f[1]) * f[2];
+    }
+    return out;
+  }
+  // a curve through its points, smooth and never turning back (monotone cubic)
+  function curveFn(p) {
+    const n = p.length, d = [], m = [];
+    for (let i = 0; i < n - 1; i++) d.push((p[i + 1][1] - p[i][1]) / (p[i + 1][0] - p[i][0]));
+    m.push(d[0]);
+    for (let i = 1; i < n - 1; i++) m.push(d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2);
+    m.push(d[n - 2]);
+    for (let i = 0; i < n - 1; i++) {
+      if (Math.abs(d[i]) < 1e-9) { m[i] = 0; m[i + 1] = 0; continue; }
+      const a = m[i] / d[i], b = m[i + 1] / d[i], s = a * a + b * b;
+      if (s > 9) { const t = 3 / Math.sqrt(s); m[i] = t * a * d[i]; m[i + 1] = t * b * d[i]; }
+    }
+    return (x) => {
+      if (x <= p[0][0]) return p[0][1];
+      if (x >= p[n - 1][0]) return p[n - 1][1];
+      let i = 0;
+      while (i < n - 2 && x > p[i + 1][0]) i++;
+      const h = p[i + 1][0] - p[i][0], t = (x - p[i][0]) / h, t2 = t * t, t3 = t2 * t;
+      return (2 * t3 - 3 * t2 + 1) * p[i][1] + (t3 - 2 * t2 + t) * h * m[i] + (-2 * t3 + 3 * t2) * p[i + 1][1] + (t3 - t2) * h * m[i + 1];
+    };
+  }
+  // a colour wheel's push on each channel: its direction (x, y) on the hue
+  // circle (red at 0°, then green at 120°, blue at 240°) and its amount
+  function wheelRgb(w) {
+    const a = Math.min(1, Math.hypot(w.x, w.y)), th = Math.atan2(w.y, w.x);
+    return [0, 1, 2].map((c) => a * Math.cos(th - c * 2 * Math.PI / 3));
+  }
+  const cl01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+  const s2l = (v) => (v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+  const l2s = (v) => (v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055);
+  // one colour through the whole grade (0-1 in, 0-1 out)
+  function gradeFn(col) {
+    const G = gradeOf(col);
+    const M = basicOn(col) ? colorMatrix(col) : null;
+    const lut = G && G.lut && LUTS[G.lut.id] ? LUTS[G.lut.id] : null;
+    const cv = G ? Object.keys(G.curves).reduce((o, k) => { o[k] = curveFn(G.curves[k]); return o; }, {}) : {};
+    const wl = G ? [wheelRgb(G.lift), wheelRgb(G.gamma), wheelRgb(G.gain)] : null;
+    const bands = G ? HSL_BANDS.map(([b, h]) => ({ h, v: G.hsl[b] || null })) : [];
+    const hslOn = G && Object.keys(G.hsl).length;
+    const ex = G ? Math.pow(2, G.exp) : 1;
+    const bs = (v) => 6.75 * v * (1 - v) * (1 - v), bh = (v) => 6.75 * v * v * (1 - v);
+    return (r, g, b) => {
+      let c = [r, g, b];
+      if (G) {
+        // exposure (in light, not in screen values), tint
+        if (Math.abs(G.exp) > 1e-4) c = c.map((v) => cl01(l2s(s2l(v) * ex)));
+        if (Math.abs(G.tint) > 1e-4) c = [c[0] * (1 + 0.06 * G.tint), c[1] * (1 - 0.12 * G.tint), c[2] * (1 + 0.06 * G.tint)].map(cl01);
+        // highlights / shadows / whites / blacks
+        if (G.hi || G.sh || G.wh || G.bk) c = c.map((v) => cl01(v + 0.22 * (G.sh * bs(v) + G.hi * bh(v)) + 0.15 * (G.wh * v * v * v + G.bk * (1 - v) * (1 - v) * (1 - v))));
+        // the LUT, at its strength
+        if (lut && G.lut.mix > 0) { const s = sampleCube(lut, c[0], c[1], c[2]); c = c.map((v, i) => cl01(v + (s[i] - v) * G.lut.mix)); }
+        // lift / gamma / gain
+        if (wheelOn(G.lift) || wheelOn(G.gamma) || wheelOn(G.gain)) {
+          c = c.map((v, i) => {
+            const L = 0.25 * G.lift.l + 0.15 * wl[0][i], Gn = 1 + 0.5 * G.gain.l + 0.3 * wl[2][i], Gm = Math.max(0.2, 1 + 0.5 * G.gamma.l + 0.3 * wl[1][i]);
+            return Math.pow(cl01(Gn * (v + L * (1 - v))), 1 / Gm);
+          });
+        }
+        // curves: the master, then each channel
+        if (cv.m) c = c.map((v) => cl01(cv.m(v)));
+        ['r', 'g', 'b'].forEach((k, i) => { if (cv[k]) c[i] = cl01(cv[k](c[i])); });
+        // HSL per colour (greys are left alone)
+        if (hslOn) {
+          const mx = Math.max(c[0], c[1], c[2]), mn = Math.min(c[0], c[1], c[2]), l = (mx + mn) / 2, d = mx - mn;
+          if (d > 1e-5) {
+            let s = d / (1 - Math.abs(2 * l - 1) || 1e-6);
+            let h = mx === c[0] ? ((c[1] - c[2]) / d + 6) % 6 : mx === c[1] ? (c[2] - c[0]) / d + 2 : (c[0] - c[1]) / d + 4;
+            h *= 60;
+            let dh = 0, ds = 0, dl = 0;
+            for (let i = 0; i < bands.length; i++) {
+              const B = bands[i];
+              if (!B.v) continue;
+              const prev = bands[(i + bands.length - 1) % bands.length].h, next = bands[(i + 1) % bands.length].h;
+              const dd = ((h - B.h + 540) % 360) - 180;
+              const span = dd >= 0 ? ((next - B.h + 360) % 360) : ((B.h - prev + 360) % 360);
+              const w = Math.max(0, 1 - Math.abs(dd) / (span || 360));
+              dh += w * B.v.h * 30; ds += w * B.v.s; dl += w * B.v.l;
+            }
+            const sw = Math.min(1, s * 2);
+            h = (h + dh * sw + 360) % 360;
+            s = cl01(s * (1 + ds));
+            const l2 = cl01(l + dl * 0.25 * sw);
+            const q = l2 < 0.5 ? l2 * (1 + s) : l2 + s - l2 * s, p2 = 2 * l2 - q;
+            const hue = (t) => { t = (t + 1) % 1; return t < 1 / 6 ? p2 + (q - p2) * 6 * t : t < 0.5 ? q : t < 2 / 3 ? p2 + (q - p2) * (2 / 3 - t) * 6 : p2; };
+            c = [hue(h / 360 + 1 / 3), hue(h / 360), hue(h / 360 - 1 / 3)].map(cl01);
+          }
+        }
+        // vibrance: the quiet colours get more, the strong ones less
+        if (Math.abs(G.vib) > 1e-4) {
+          const Y = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2], sat = Math.max(c[0], c[1], c[2]) - Math.min(c[0], c[1], c[2]);
+          const k = 1 + G.vib * (G.vib > 0 ? 1 - sat : 1);
+          c = c.map((v) => cl01(Y + (v - Y) * k));
+        }
+      }
+      // the look and the four basic sliders, as before
+      if (M) { const m = M.m, o = M.o; c = [0, 1, 2].map((i) => cl01(m[i * 3] * c[0] + m[i * 3 + 1] * c[1] + m[i * 3 + 2] * c[2] + o)); }
+      return c;
+    };
+  }
+  // the whole grade as one table: N³ × RGB, red the fastest (the .cube order)
+  function gradeLut(col, N) {
+    N = N || GRADE_N;
+    const f = gradeFn(col), out = new Float32Array(N * N * N * 3);
+    let i = 0;
+    for (let b = 0; b < N; b++) for (let g = 0; g < N; g++) for (let r = 0; r < N; r++) { const c = f(r / (N - 1), g / (N - 1), b / (N - 1)); out[i++] = c[0]; out[i++] = c[1]; out[i++] = c[2]; }
+    return out;
+  }
+  function cubeText(col, N) {
+    N = N || GRADE_N;
+    const d = gradeLut(col, N), L = ['TITLE "Amharic Captions grade"', 'LUT_3D_SIZE ' + N];
+    for (let i = 0; i < d.length; i += 3) L.push(d[i].toFixed(6) + ' ' + d[i + 1].toFixed(6) + ' ' + d[i + 2].toFixed(6));
+    return L.join('\n') + '\n';
+  }
+  // a short name for a grade (the same grade = the same file)
+  function gradeKey(col) {
+    const G = gradeOf(col);
+    const s = JSON.stringify([G, basicOn(col) ? ['bright', 'contrast', 'sat', 'temp'].map((k) => colV(col, k)) : null, G && G.lut ? !!LUTS[G.lut.id] : 0]);
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+    return 'grade_' + h.toString(36);
+  }
+  // the tables an export needs: [{ name, text }]
+  function gradeFiles(clips) {
+    const seen = {}, out = [];
+    (clips || []).forEach((c) => { if (proOn(c.col)) { const n = gradeKey(c.col) + '.cube'; if (!seen[n]) { seen[n] = 1; out.push({ name: n, text: cubeText(c.col) }); } } });
+    return out;
+  }
+  // a one-tap pro look (no files: made of the controls above)
+  const PRO_LOOKS = {
+    teal: { name: ['ቲል እና ብርቱካን', 'Teal & orange'], pro: { lift: { x: -0.6, y: -0.22, l: 0 }, gamma: { x: -0.15, y: -0.05, l: 0 }, gain: { x: 0.4, y: 0.23, l: 0.03 }, vib: 0.15, hsl: { orange: { s: 0.2 }, blue: { h: -0.5, s: 0.1 }, aqua: { s: 0.15 } } } },
+    film: { name: ['ፊልም', 'Film'], pro: { curves: { m: [[0, 0.05], [0.25, 0.2], [0.75, 0.8], [1, 0.96]] }, gain: { x: 0.35, y: 0.2, l: 0 }, vib: -0.15 } },
+    moody: { name: ['ጨለምተኛ', 'Moody'], pro: { exp: -0.3, sh: -0.4, hi: -0.2, vib: -0.35, lift: { x: -0.35, y: -0.6, l: -0.05 } } },
+    golden: { name: ['ወርቃማ ሰዓት', 'Golden hour'], pro: { gain: { x: 0.55, y: 0.35, l: 0.06 }, gamma: { x: 0.3, y: 0.2, l: 0.04 }, vib: 0.2, hsl: { orange: { s: 0.2 }, yellow: { h: -0.3 } } } },
+    skin: { name: ['ንጹሕ ቆዳ', 'Clean skin'], pro: { sh: 0.25, hi: -0.15, vib: 0.15, hsl: { orange: { s: -0.1, l: 0.35 }, red: { h: 0.25, s: -0.1 } } } },
+    night: { name: ['ሌሊት', 'Night'], pro: { exp: -0.6, gain: { x: -0.6, y: -0.45, l: 0 }, gamma: { x: -0.3, y: -0.2, l: 0 }, vib: -0.4, sh: -0.2 } },
+    matte: { name: ['ማት', 'Matte'], pro: { curves: { m: [[0, 0.1], [0.5, 0.5], [1, 0.92]] }, vib: -0.1 } },
+    punch: { name: ['ጠንካራ', 'Punchy'], pro: { curves: { m: [[0, 0], [0.25, 0.2], [0.75, 0.82], [1, 1]] }, vib: 0.4, sh: 0.1 } },
+  };
   function colorFilter(col) {
     if (!colorOn(col)) return '';
+    if (proOn(col)) return ',lut3d=file=' + gradeKey(col) + '.cube:interp=trilinear';
     const { m, o } = colorMatrix(col);
     const n = ['rr', 'rg', 'rb', 'gr', 'gg', 'gb', 'br', 'bg', 'bb'];
     let f = ',colorchannelmixer=' + n.map((k, i) => k + '=' + m[i]).join(':');
@@ -1838,7 +2057,8 @@
     TITLE_ANIMS, TITLE_LOOKS, TITLE_BG, titleOf, titleLook, LOUD, MUS_DEFAULT, musicGain,
     PRESETS, presetFor, GPU_ENCODERS, encoderArgs, eta, EXPORT_KINDS, KIND_NEEDS, HEVC_GPU, sizeEstimate,
     MO_EASES, MO_PRESETS, moOf, moAt, moEase, moPreset, moPerspective,
-    speedOf: sp, clipLen, cropOf, rotOf, tiltOf, picOn, picDims, tiltScale, picFilter, picCss, cropToFile, cropToView, RAMPS, rampPieces, unRamp, trackedState, SFX, SFX_LEN, SFX_LEAD, sfxEvents, RF_PACE, rfWindow, rfTrack, rfAt, rfPlace, rfExpr, rfOn, TEMPLATES, TPL_GROUPS, HOLIDAYS, TPL_SPEED, tplOf, tplLayers, tplState, tplAss, setMeasure, tplFade: fadeOut, OV_LAYOUTS, OV_ANIMS, OV_MOTION, ovLook, ovBox, ovAnim, ovChain, ovPos, ZOOM_STYLES, ZOOM_SPEED, ZOOM_DEFAULT, zoomEnv, zoomRect, zoomExprs, zoomFilter, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter };
+    speedOf: sp, clipLen, cropOf, rotOf, tiltOf, picOn, picDims, tiltScale, picFilter, picCss, cropToFile, cropToView, RAMPS, rampPieces, unRamp, trackedState, SFX, SFX_LEN, SFX_LEAD, sfxEvents, RF_PACE, rfWindow, rfTrack, rfAt, rfPlace, rfExpr, rfOn, TEMPLATES, TPL_GROUPS, HOLIDAYS, TPL_SPEED, tplOf, tplLayers, tplState, tplAss, setMeasure, tplFade: fadeOut, OV_LAYOUTS, OV_ANIMS, OV_MOTION, ovLook, ovBox, ovAnim, ovChain, ovPos, ZOOM_STYLES, ZOOM_SPEED, ZOOM_DEFAULT, zoomEnv, zoomRect, zoomExprs, zoomFilter, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter,
+    HSL_BANDS, GRADE_N, PRO_LOOKS, gradeOf, proOn, basicOn, parseCube, setLut, sampleCube, curveFn, wheelRgb, gradeFn, gradeLut, cubeText, gradeKey, gradeFiles };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhEdit = api;
 })(typeof window !== 'undefined' ? window : this);
