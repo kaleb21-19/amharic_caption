@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.89.0';
+const APP_VERSION = '1.90.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -440,6 +440,18 @@ setTimeout(() => { if (FIRST_OPEN) track('first_open'); track('open'); }, 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.90.0': {
+    banner: {
+      am: '⬆ ከብዙ ቪዲዮዎች አንድ ቪዲዮ — ሁለተኛውን ቪዲዮ «＋ ወደ ጊዜ መስመሩ» ይጫኑ ወይም ይጎትቱ፤ ፈጣን መላክና ትንሽ ፋይል — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '⬆ One video from many shots — press «＋ Add to the timeline» or drag your next video in; faster export and smaller files — your license stays the same.',
+    },
+    items: [
+      { am: '📁 ሚዲያ፦ እያንዳንዱ ቪዲዮ ትልቅ «＋ ወደ ጊዜ መስመሩ» ቁልፍ አለው — ከማጫወቻው ክፍል በኋላ ይገባል', en: '📁 Media: every video has a big «＋ Add to the timeline» button — it goes in after the shot at the playhead' },
+      { am: 'ቪዲዮን ከሚዲያ ወይም ከኮምፒውተሩ ወደ ጊዜ መስመሩ ይጎትቱ — በሁለት ክፍሎች መካከል ይገባል (ቢጫ መስመሩ ቦታውን ያሳያል)', en: 'Drag a video from Media or from your computer onto the timeline — it goes in between two shots (the yellow line shows where)' },
+      { am: 'ክፍሎቹን በመጎተት ቅደም ተከተላቸውን ይቀይሩ', en: 'Drag the shots to change their order' },
+      { am: 'መላክ እስከ 3 እጥፍ ፈጣን፣ ፋይሉ እስከ 3 እጥፍ ያነሰ፤ ኤዲቲንግ አይቆምም', en: 'Export up to 3× faster, files up to 3× smaller; editing no longer freezes' },
+    ],
+  },
   '1.89.0': {
     banner: {
       am: '⬆ ፈጣን መላክና ትንሽ ፋይል፣ ኤዲቲንግ አይቆምም — ስቱዲዮው ቀጥታ ኤዲተር ነው፣ ካፕሽን ሲፈልጉ 📝 ጽሑፍ ይስሩ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
