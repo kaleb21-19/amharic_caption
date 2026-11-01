@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.83.0';
+const APP_VERSION = '1.84.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -440,6 +440,18 @@ setTimeout(() => { if (FIRST_OPEN) track('first_open'); track('open'); }, 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.84.0': {
+    banner: {
+      am: '⬆ 🎬 ከመጀመሪያ → እስከ መጨረሻ እንቅስቃሴ ያለ ኪፍሬም፣ እና ፕሮፌሽናል መላክ (4K፣ ProRes፣ ካፕሽን ብቻ በግልጽ ዳራ) — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '⬆ 🎬 Start → End motion with no keyframes, and professional export (4K, ProRes, captions alone on a transparent background) — your license stays the same.',
+    },
+    items: [
+      { am: 'ምስል ወይም ቪዲዮ በላይ ሲያደርጉ፦ መጀመሪያና መጨረሻ ላይ ቦታውን፣ መጠኑንና መዞሩን ይምረጡ — በመካከሉ በራሱ በለስላሳ ይንቀሳቀሳል', en: 'For a picture or video on top: choose its place, size and turn at its start and at its end — it moves smoothly in between by itself' },
+      { am: 'በአንድ ንክኪ፦ አቋርጦ፣ ከታች፣ ያድጋል፣ ያንሳል፣ እየዞረ፣ ብቅ፣ ቀስ', en: 'One tap: Across, Rise, Grow, Shrink, Spin in, Pop, Drift' },
+      { am: 'የተላከው ቪዲዮ ልክ በቅድመ እይታው እንዳዩት ይንቀሳቀሳል', en: 'The exported video moves exactly as you saw in the preview' },
+      { am: 'ፕሮፌሽናል መላክ፦ 4K፣ ጥራት፣ H.265፣ ProRes፣ ድምፅ ብቻ፣ ካፕሽን ብቻ በግልጽ ዳራ፣ የሚቀመጥበት አቃፊ', en: 'Professional export: 4K, quality, H.265, ProRes, sound only, captions alone on a transparent background, your folder' },
+    ],
+  },
   '1.83.0': {
     banner: {
       am: '⬆ ፕሮፌሽናል መላክ — 4K፣ ጥራት፣ H.265፣ ProRes፣ ድምፅ ብቻ፣ እና የአማርኛ ካፕሽን ብቻ በግልጽ ዳራ ከማንኛውም ኤዲት ላይ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',

@@ -653,4 +653,35 @@ test('1.72 crop as seen (turned, flipped) <-> as the file has it', () => {
   assert.deepStrictEqual(E.cropToFile({ l: 0.25, t: 0, r: 0, b: 0 }, 90, false, false), { l: 0, t: 0, r: 0, b: 0.25 });
 });
 
+test('1.84 Start → End: the same curve in the preview and the export; ready motions; no motion = nothing changes', () => {
+  assert.strictEqual(E.moOf({}), null, 'no motion');
+  assert.strictEqual(E.moOf({ mo: { a: {}, b: {} } }), null, 'both ends as placed = no motion');
+  const o = { id: 'o', m: 'p', start: 10, in: 0, out: 4, mo: { a: { x: -0.3, s: 0.5, r: -90 }, b: { x: 0.3, s: 1.5, r: 0 }, ease: 'linear' } };
+  assert.deepStrictEqual(E.moAt(o, 10), { x: -0.3, y: 0, s: 0.5, r: -90 }, 'its start');
+  const mid = E.moAt(o, 12);
+  assert.ok(Math.abs(mid.x) < 1e-9 && Math.abs(mid.s - 1) < 1e-9 && Math.abs(mid.r + 45) < 1e-9, 'half way');
+  assert.deepStrictEqual(E.moAt(o, 14), { x: 0.3, y: 0, s: 1.5, r: 0 }, 'its end');
+  assert.deepStrictEqual(E.moAt(o, 20), E.moAt(o, 14), 'holds after');
+  assert.ok(E.moEase('smooth', 0.25) < 0.25 && E.moEase('out', 0.25) > 0.25 && E.moEase('in', 0.25) < E.moEase('smooth', 0.25), 'the easings');
+  const pre = E.moPreset('grow');
+  assert.deepStrictEqual(pre.b, { x: 0, y: 0, s: 1, r: 0 }, 'a ready motion ends where it was placed');
+  assert.strictEqual(pre.a.s, 0.6);
+  Object.keys(E.MO_PRESETS).forEach((k) => assert.ok(E.moOf({ mo: E.moPreset(k) }), k + ' moves'));
+  // the export: four corners per frame, the same numbers
+  const pf = E.moPerspective(o, 1280, 720, 30, 4, 640, 360);
+  assert.ok(pf.startsWith('perspective=sense=destination:eval=frame:x0=') && pf.endsWith(':interpolation=linear'));
+  assert.ok(pf.includes('st(0,clip((in/30)/4,0,1));st(1,ld(0))') && pf.includes('st(2,0.5+1*ld(1))') && pf.includes('st(3,(-90+90*ld(1))*PI/180)'), pf.slice(0, 260));
+  assert.strictEqual(E.moPerspective({}, 1280, 720, 30, 4, 640, 360), null);
+  // while it moves, slides are left out (the export places it once); fades stay
+  const W = 1280, H = 720, box = { x: 100, y: 100, w: 320, h: 180, b: 0 };
+  const sl = Object.assign({}, o, { ain: 'left', aout: 'fade', ad: 0.5 });
+  assert.strictEqual(E.ovAnim(sl, 10.1, box, W, H).dx, 0, 'no slide while it moves');
+  assert.ok(E.ovAnim(Object.assign({}, sl, { mo: null }), 10.1, box, W, H).dx < 0, 'the slide is back without motion');
+  // in the edit: its own canvas, moved, then placed at its start
+  const g = E.editGraph([{ id: 'a', m: 'v', in: 0, out: 20 }], { v: { idx: 0, w: 1920, h: 1080, video: true, audio: true }, p: { idx: 1, w: 800, h: 600, image: true } },
+    '16:9', 30, [Object.assign({}, o, { x: 0, y: 0, scale: 0.4 })], { res: 720 }).graph;
+  assert.ok(/color=c=black@0\.0:s=1280x720:r=30:d=4,format=yuva444p\[oc0\]/.test(g), 'a transparent canvas the size of the frame');
+  assert.ok(g.includes('perspective=sense=destination') && g.includes(',setpts=PTS+10/TB[o0]') && g.includes('[o0]overlay=0:0:'), 'moved, then placed at 10 s');
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');
