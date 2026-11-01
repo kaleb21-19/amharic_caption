@@ -684,4 +684,64 @@ test('1.84 Start → End: the same curve in the preview and the export; ready mo
   assert.ok(g.includes('perspective=sense=destination') && g.includes(',setpts=PTS+10/TB[o0]') && g.includes('[o0]overlay=0:0:'), 'moved, then placed at 10 s');
 });
 
+test('1.85 Title studio: 30 animations, outline / shadow / glow, backgrounds, any font — one set of layers for the preview and the export', () => {
+  const A = E.TITLE_ANIMS;
+  assert.strictEqual(Object.keys(A).length, 30, 'thirty animations');
+  const units = { all: 0, word: 0, letter: 0 };
+  Object.keys(A).forEach((k) => { units[A[k].unit]++; });
+  assert.ok(units.all >= 10 && units.word >= 5 && units.letter >= 10, JSON.stringify(units));
+  const base = { tpl: 'studio', start: 2, in: 0, out: 4, text: 'ሰላም ለሁላችሁ', ow: 5, sd: 3, sb: 4 };
+  Object.keys(A).concat(['none']).forEach((k) => {
+    const it = Object.assign({}, base, { anim: k, sub: 'ሁለተኛ', bg: 'box' });
+    const L = E.tplLayers(it, 1920, 1080).layers;
+    const ass = E.tplAss(it, 1920, 1080, 30).join('\n');
+    assert.ok(L.length >= 3 && !/NaN|undefined|Infinity/.test(ass), k);
+  });
+  // letter by letter: each letter its own layer (spaces skipped); every
+  // outline / shadow first, the letters on top; one step between letters
+  const n = Array.from('ሰላምለሁላችሁ').length;
+  const L = E.tplLayers(Object.assign({}, base, { anim: 'lpop' }), 1920, 1080).layers;
+  assert.strictEqual(L.length, n * 2);
+  assert.ok(L.slice(0, n).every((l) => l.under) && L.slice(n).every((l) => !l.under), 'outlines under all the letters');
+  assert.ok(L[n + 1].an[0].t0 > L[n].an[0].t0, 'one after the other');
+  assert.ok(L[n + 1].x > L[n].x && Math.abs((L[n].x + L[2 * n - 1].x) / 2 - 960) < 60, 'left to right, the line centred');
+  // word by word, no outline: one layer per word
+  assert.strictEqual(E.tplLayers(Object.assign({}, base, { anim: 'wpop', ow: 0, sd: 0, sb: 0 }), 1920, 1080).layers.length, 2);
+  // the export: outline + shadow (its colour, its strength) + softness under, crisp letters over
+  const a = E.tplAss(Object.assign({}, base, { anim: 'none', oc: '#00E5FF', shc: '#FF0033', sha: 0.5 }), 1920, 1080, 30);
+  assert.strictEqual(a.length, 2);
+  assert.ok(a[0].includes('\\3c&H00FFE500&') && a[0].includes('\\4c&H003300FF&') && a[0].includes('\\4a&H80&') && a[0].includes('\\blur4') && a[0].includes('\\bord5') && a[0].includes('\\shad3'), a[0]);
+  assert.ok(a[1].includes('\\bord0') && a[1].includes('\\shad0') && !a[1].includes('\\blur'), a[1]);
+  // a blur-in animates both
+  const b = E.tplAss(Object.assign({}, base, { anim: 'blur' }), 1920, 1080, 30);
+  assert.ok(/\\blur26\\t\(0,500,0\.6,\\blur4\)/.test(b[0]) && /\\blur22\\t\(0,500,0\.6,\\blur0\)/.test(b[1]), b.join('\n'));
+  const bl = E.tplLayers(Object.assign({}, base, { anim: 'blur' }), 1920, 1080).layers[1];
+  assert.strictEqual(E.tplState(bl, 0).bl, 22);
+  assert.strictEqual(E.tplState(bl, 1).bl, 0);
+  // letter spacing is the line's own (preview and export)
+  const sp = E.tplLayers(Object.assign({}, base, { anim: 'none', lsp: 10 }), 1920, 1080).layers[0];
+  assert.strictEqual(E.tplState(sp, 1).sp, 10);
+  // backgrounds, under the words
+  ['box', 'pill', 'mark', 'line'].forEach((bg) => assert.strictEqual(E.tplLayers(Object.assign({}, base, { bg, anim: 'fade' }), 1920, 1080).layers[0].kind, 'rect', bg));
+  // a look in one tap; nonsense is kept in range
+  assert.strictEqual(E.titleLook('neon').sb, 12);
+  assert.strictEqual(E.titleLook('nope'), null);
+  const q = E.titleOf({ ow: 99, sd: -3, bg: 'x', anim: 'nope', align: 'z', oc: 'red' });
+  assert.deepStrictEqual([q.ow, q.sd, q.bg, q.anim, q.align, q.oc], [16, 0, 'none', 'pop', 'c', '#000000']);
+  // any font: a font file's name, sizes and Amharic letters; used by its name
+  const fs = require('fs'), path = require('path');
+  const buf = fs.readFileSync(path.join(__dirname, '..', 'fonts', 'NotoSansEthiopic-Bold.ttf'));
+  assert.deepStrictEqual(E.fontFacts((o, l) => buf.subarray(o, o + l)), { family: 'Noto Sans Ethiopic', style: 'Bold', upm: 1000, em: 1362, ethiopic: true, bold: true });
+  assert.strictEqual(E.fontFacts(() => null), null, 'not a font');
+  assert.strictEqual(E.fontFacts((o, l) => Buffer.alloc(l)), null, 'zeros');
+  E.addFont('u:Test Font', 'Test Font', { upm: 1000, em: 1250 });
+  assert.strictEqual(E.fontInfo('u:Test Font').css, 0.8);
+  assert.ok(E.tplAss(Object.assign({}, base, { font: 'u:Test Font' }), 1920, 1080, 30)[0].includes('\\fnTest Font'));
+  E.addFont('menbere', 'Something else');
+  assert.strictEqual(E.TFONTS.menbere, 'Menbere', 'a built-in font cannot be replaced');
+  // the templates people already made do not change
+  const hook = E.tplAss({ tpl: 'hook', start: 0, in: 0, out: 3, text: 'ሰላም' }, 1920, 1080, 30).join('\n');
+  assert.ok(!hook.includes('\\blur') && hook.includes('\\4c&H000000&'));
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');

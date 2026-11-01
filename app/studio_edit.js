@@ -656,6 +656,90 @@
     st.textContent = css.join('\n');
     document.head.appendChild(st);
   }
+  // ✍ 1.85: any font — the Amharic fonts already on this computer (found by
+  // themselves) and font files the editor adds (kept in Documents /
+  // AmharicCaptions / Fonts). Each is used by its family name; the export
+  // copies the file next to the built-in fonts.
+  const UFONTS = {};                                    // id -> { family, file }
+  const hasFont = (id) => !!(FONTFILES[id] || UFONTS[id]);
+  const allFonts = () => Object.keys(FONTFILES).concat(Object.keys(UFONTS));
+  // a font's facts, read in a few blocks (the app reads font files only)
+  function readFacts(file) {
+    const blocks = [];
+    const get = (off, len) => {
+      if (off < 0 || len < 0 || len > 4e6) return null;
+      const hit = blocks.find((x) => x.off <= off && x.off + x.b.length >= off + len);
+      if (hit) return hit.b.subarray(off - hit.off, off - hit.off + len);
+      const n = Math.max(len, 65536);
+      let b;
+      if (fs.readFontRange) {
+        const s = atob(fs.readFontRange(file, off, n));
+        b = new Uint8Array(s.length);
+        for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i);
+      } else {
+        const fd = fs.openSync(file, 'r');
+        try { b = new Uint8Array(n); b = b.subarray(0, fs.readSync(fd, b, 0, n, off)); } finally { fs.closeSync(fd); }
+      }
+      blocks.push({ off, b });
+      return b.length >= len ? b.subarray(0, len) : null;
+    };
+    try { return E.fontFacts(get); } catch (e) { return null; }
+  }
+  const BUILTIN_FAMILIES = () => Object.keys(FONTFILES).map((id) => E.TFONTS[id]);
+  function useFont(file, f) {
+    f = f || readFacts(file);
+    if (!f || !f.ethiopic || BUILTIN_FAMILIES().indexOf(f.family) >= 0) return null;
+    const id = 'u:' + f.family;
+    if (!UFONTS[id]) {
+      E.addFont(id, f.family, f);
+      UFONTS[id] = { family: f.family, file };
+      let u = null;
+      try { u = APP.call('media', [file]); } catch (e) {}
+      if (u) { const st = document.createElement('style'); st.textContent = "@font-face{font-family:'AC " + id + "';src:url('" + u + "');}"; document.head.appendChild(st); }
+    }
+    return id;
+  }
+  const myFontsDir = () => path.join(typeof USER_CAPTIONS_DIR !== 'undefined' ? USER_CAPTIONS_DIR : path.join(os.homedir(), 'Documents', 'AmharicCaptions'), 'Fonts');
+  // the editor's own font files (copied in, so they stay)
+  function loadMyFonts() {
+    try { fs.readdirSync(myFontsDir()).filter((x) => /\.(ttf|otf|ttc)$/i.test(x)).forEach((x) => useFont(path.join(myFontsDir(), x))); } catch (e) {}
+  }
+  function addFontFile() {
+    let file = '';
+    try { const r = window.cep.fs.showOpenDialog(false, false, tx('የፊደል ፋይል (.ttf / .otf)', 'A font file (.ttf / .otf)'), '', ['ttf', 'otf', 'ttc']); file = (r && r.data && r.data[0]) || ''; } catch (e) {}
+    if (!file) return null;
+    const f = readFacts(file);
+    if (!f) { log(tx('ይህ የፊደል ፋይል አይደለም።', 'That is not a font file.')); return null; }
+    if (!f.ethiopic) { log(tx('ይህ ፊደል የአማርኛ ፊደላት የሉትም።', 'That font has no Amharic letters.')); return null; }
+    let dest = file;
+    try { fs.mkdirSync(myFontsDir(), { recursive: true }); dest = path.join(myFontsDir(), path.basename(file)); if (path.resolve(dest) !== path.resolve(file)) fs.copyFileSync(file, dest); } catch (e) { dest = file; }
+    return useFont(dest, f);
+  }
+  // the computer's own Amharic fonts (looked for once, a few files at a time)
+  let sysScan = null;
+  function scanSystemFonts() {
+    if (sysScan) return sysScan;
+    const dirs = process.platform === 'win32'
+      ? [path.join(process.env.WINDIR || 'C:\\Windows', 'Fonts'), process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Microsoft', 'Windows', 'Fonts') : '']
+      : ['/Library/Fonts', '/System/Library/Fonts', '/System/Library/Fonts/Supplemental', path.join(os.homedir(), 'Library', 'Fonts')];
+    const files = [];
+    dirs.filter(Boolean).forEach((d) => { try { fs.readdirSync(d).forEach((x) => { if (/\.(ttf|otf|ttc)$/i.test(x)) files.push(path.join(d, x)); }); } catch (e) {} });
+    sysScan = new Promise((resolve) => {
+      const found = {};
+      let i = 0;
+      const step = () => {
+        for (let n = 0; n < 25 && i < files.length; n++, i++) {
+          const f = readFacts(files[i]);
+          // one file per family: the regular one when there is a choice
+          if (f && f.ethiopic && (!found[f.family] || (found[f.family].f.bold && !f.bold))) found[f.family] = { file: files[i], f };
+        }
+        if (i < files.length) setTimeout(step, 0);
+        else { let added = 0; Object.keys(found).sort().forEach((k) => { if (!UFONTS['u:' + k] && useFont(found[k].file, found[k].f)) added++; }); resolve(added); }
+      };
+      step();
+    });
+    return sysScan;
+  }
   // the text items on the canvas — the same place, size, font and look as libass draws them
   const TXEL = {};
   function syncTexts(t) {
@@ -681,7 +765,7 @@
       const a = E.textAnchor(it, W, H);
       e.className = 'ed-tx ed-tx-' + preset + (it.id === sel ? ' sel' : '');
       e.style.display = '';
-      e.style.fontFamily = "'AC " + (FONTFILES[it.font] ? it.font : 'sans') + "', 'Abyssinica SIL', serif";
+      e.style.fontFamily = "'AC " + (hasFont(it.font) ? it.font : 'sans') + "', 'Abyssinica SIL', serif";
       e.style.fontSize = fsz + 'px';
       e.style.color = it.color || '#FFFFFF';
       e.style.setProperty('--fs', fsz + 'px');
@@ -3361,7 +3445,7 @@
   // The editor measures text with the real fonts — the export uses the same
   // numbers (E.setMeasure), so boxes fit the words in both.
   const mctx = document.createElement('canvas').getContext('2d');
-  const fontCss = (font, S, bold) => (bold ? '700 ' : '400 ') + (S * E.fontInfo(font).css) + "px 'AC " + (FONTFILES[font] ? font : 'sans') + "', 'Abyssinica SIL', serif";
+  const fontCss = (font, S, bold) => (bold ? '700 ' : '400 ') + (S * E.fontInfo(font).css) + "px 'AC " + (hasFont(font) ? font : 'sans') + "', 'Abyssinica SIL', serif";
   E.setMeasure((text, font, S, bold, fsp) => {
     if (!mctx) return 0;
     mctx.font = fontCss(font, S, bold);
@@ -3371,10 +3455,12 @@
   let TPLCACHE = {};
   if (document.fonts && document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', () => { TPLCACHE = {}; });
   function tplLayersOf(it, W, H) {
-    const key = JSON.stringify([it.tpl, it.text, it.sub, it.accent, it.color, it.font, it.size, it.fx, it.fy, it.speed, it.end, it.theme, it.in, it.out, W, H]);
+    const key = JSON.stringify([it.tpl, it.text, it.sub, it.accent, it.color, it.font, it.size, it.fx, it.fy, it.speed, it.end, it.theme, it.in, it.out, W, H,
+      it.ow, it.oc, it.sd, it.sb, it.shc, it.sha, it.bg, it.lsp, it.align, it.anim, hasFont(it.font)]);
     if (!TPLCACHE[key]) TPLCACHE[key] = E.tplLayers(it, W, H);
     return TPLCACHE[key];
   }
+  const BLUR_K = 1;
   // one template at τ seconds after its start, in canvas px (k = screen px per canvas px)
   function drawTpl(c2, it, tau, k, W, H, boxOut) {
     const T = tplLayersOf(it, W, H);
@@ -3415,11 +3501,15 @@
         try { c2.letterSpacing = (st.sp || 0) + 'px'; } catch (e) {}
         c2.textAlign = 'center'; c2.textBaseline = 'middle';
         c2.lineJoin = 'round';
-        if (l.sh) { c2.globalAlpha = a * 0.55; c2.fillStyle = '#000'; if (l.ob) { c2.lineWidth = l.ob * 2; c2.strokeStyle = '#000'; c2.strokeText(l.text, l.sh, l.sh); } c2.fillText(l.text, l.sh, l.sh); }
+        // softness (libass \\blur: about the same spread as a canvas blur)
+        const bl = (l.bl || 0) + (st.bl || 0);
+        if (bl > 0.05) c2.filter = 'blur(' + (bl * BLUR_K * k) + 'px)';
+        const shc = l.shc || '#000';
+        if (l.sh) { c2.globalAlpha = a * (l.sha == null ? 0.55 : l.sha); c2.fillStyle = shc; if (l.ob) { c2.lineWidth = l.ob * 2; c2.strokeStyle = shc; c2.strokeText(l.text, l.sh, l.sh); } c2.fillText(l.text, l.sh, l.sh); }
         if (l.ob) { c2.globalAlpha = a; c2.lineWidth = l.ob * 2; c2.strokeStyle = l.oc || '#000'; c2.strokeText(l.text, 0, 0); }
-        c2.globalAlpha = a * (l.a == null ? 1 : l.a);
-        c2.fillStyle = l.color;
-        c2.fillText(l.text, 0, 0);
+        const fa = l.a == null ? 1 : l.a;
+        if (fa > 0) { c2.globalAlpha = a * fa; c2.fillStyle = l.color; c2.fillText(l.text, 0, 0); }
+        c2.filter = 'none';
       }
       c2.restore();
       const hw = l.kind === 'text' ? l.w2 : (l.w || 0) / 2, hh = l.kind === 'text' ? l.S / 2 : (l.h || 0) / 2;
@@ -3525,6 +3615,19 @@
         grid.appendChild(card);
         thumbs.push({ cv, it: Object.assign({ id: 'thumb', start: 0, in: 0, out: 3.2 }, spec, { _mine: undefined, name: undefined }) });
       });
+      if (TGROUP === 'studio') {
+        // ✍ one card per look, each with its own animation
+        grid.textContent = ''; thumbs.length = 0;
+        Object.keys(E.TITLE_LOOKS).forEach((lk) => {
+          const spec = Object.assign({ tpl: 'studio', anim: TITLE_LOOK_ANIM[lk] || 'pop' }, E.titleLook(lk));
+          const card = btn('tg-card', '', '', () => { tmenu.style.display = 'none'; addTemplate(spec); });
+          const cv = el('canvas', 'tg-cv'); cv.width = TW * 2; cv.height = TH * 2;
+          card.appendChild(cv);
+          card.appendChild(el('b', '', tx(E.TITLE_LOOKS[lk].name[0], E.TITLE_LOOKS[lk].name[1])));
+          grid.appendChild(card);
+          thumbs.push({ cv, it: Object.assign({ id: 'thumb', start: 0, in: 0, out: 3.2, text: tx('የእርስዎ ርዕስ', 'የእርስዎ ርዕስ') }, spec) });
+        });
+      }
       if (TGROUP === 'holiday') {
         // one card per holiday
         grid.textContent = ''; thumbs.length = 0;
@@ -3572,6 +3675,7 @@
     };
     thumbRaf = requestAnimationFrame(loop);
   }
+  const TITLE_LOOK_ANIM = { clean: 'rise', outline: 'pop', yellow: 'slam', neon: 'blur', gold: 'spread', box: 'wipe', pill: 'jelly', marker: 'wrise' };
   const TPL_LEN = { subscribe: 3.2, cta: 4, banner: 5, price: 3, holiday: 5, cinema: 4.5 };
   function addTemplate(spec) {
     const D = E.TEMPLATES[spec.tpl];
@@ -3586,7 +3690,7 @@
     sel = id; after(); ST.showTab('clip');
     void D;
   }
-  const TPL_SUB = { subscribe: tx('ከተጫነ በኋላ', 'After the click'), follow: tx('የአዝራሩ ጽሑፍ', 'Button text'), number: tx('ቁጥር', 'Number'),
+  const TPL_SUB = { studio: tx('ሁለተኛ መስመር (ካስፈለገ)', 'Second line (if you want one)'), subscribe: tx('ከተጫነ በኋላ', 'After the click'), follow: tx('የአዝራሩ ጽሑፍ', 'Button text'), number: tx('ቁጥር', 'Number'),
     price: tx('ከላይ ያለው ጽሑፍ', 'Small text on top'), quote: tx('ማን አለው', 'Who said it'), banner: tx('ሁለተኛ መስመር', 'Second line'),
     hook: tx('ከስር ያለ ትንሽ ጽሑፍ', 'Small line under it'), slam: tx('ከስር ያለ ጽሑፍ', 'Line under it'), cinema: tx('ከላይ ያለ ትንሽ ጽሑፍ', 'Small line above'),
     stack: tx('የላይኛው መስመር', 'Top line'), lower: tx('ማዕረግ', 'Title / role'), minimal: tx('ማዕረግ', 'Title / role'), holiday: tx('ከማን', 'From') };
@@ -3640,12 +3744,27 @@
       sw.appendChild(pick);
       clipPane.appendChild(sw);
     };
-    swatches(tx('ዋና ቀለም', 'Accent colour'), 'accent', P.accent, BRAND);
+    const studio = P.id === 'studio';
+    const Q = studio ? E.titleOf(it) : null;
+    if (studio) {
+      clipPane.appendChild(el('div', 'ed-sec', tx('መልክ (በአንድ ንክኪ)', 'Look (one tap)')));
+      const lk = el('div', 'br-chips');
+      Object.keys(E.TITLE_LOOKS).forEach((k) => lk.appendChild(btn('br-chip', tx(E.TITLE_LOOKS[k].name[0], E.TITLE_LOOKS[k].name[1]), '', () => setC(E.titleLook(k)))));
+      clipPane.appendChild(lk);
+    }
+    if (!studio || Q.bg !== 'none') swatches(studio ? tx('የዳራ ቀለም', 'Background colour') : tx('ዋና ቀለም', 'Accent colour'), 'accent', P.accent, BRAND);
     swatches(tx('የጽሑፍ ቀለም', 'Text colour'), 'color', P.color, ['#FFFFFF', '#111111', '#FFD60A', '#2ECC71', '#E8C77A']);
     clipPane.appendChild(el('div', 'ed-sec', tx('ፊደል', 'Font')));
     const fr = el('div', 'st-seg ed-fonts');
-    Object.keys(FONTFILES).forEach((f) => { const b = btn(P.font === f ? 'on' : '', 'ሰላም', f, () => setC({ font: f })); b.style.fontFamily = "'AC " + f + "', serif"; fr.appendChild(b); });
+    allFonts().forEach((f) => { const b = btn(P.font === f ? 'on' : '', 'ሰላም', UFONTS[f] ? UFONTS[f].family : f, () => setC({ font: f })); b.style.fontFamily = "'AC " + f + "', serif"; fr.appendChild(b); });
     clipPane.appendChild(fr);
+    if (studio) {
+      const fa = el('div', 'st-row');
+      fa.appendChild(btn('st-btn', '＋ ' + tx('የፊደል ፋይል ያክሉ', 'Add a font file'), tx('ማንኛውም የአማርኛ ፊደል (.ttf / .otf)', 'Any Amharic font (.ttf / .otf)'), () => { const id = addFontFile(); if (id) setC({ font: id }); }));
+      clipPane.appendChild(fa);
+      // the computer's own Amharic fonts join the list by themselves
+      if (!sysScan) scanSystemFonts().then((n) => { if (n && sel === it.id) renderInspector(); });
+    }
     const row = el('div', 'ed-row');
     row.appendChild(el('span', 'ed-lab', tx('መጠን', 'Size')));
     const r = el('input'); r.type = 'range'; r.min = 0.5; r.max = 2; r.step = 0.01; r.value = P.size;
@@ -3656,6 +3775,7 @@
     row.appendChild(r); row.appendChild(val);
     row.classList.add('simple-ok');
     clipPane.appendChild(row);
+    if (studio) titleLookPane(it, Q, setT, setC, swatches);
     clipPane.appendChild(el('div', 'ed-sec', tx('ቦታ', 'Position')));
     const pw = el('div', 'zm-focus-wrap');
     const pg = el('div', 'zm-focus');
@@ -3672,6 +3792,7 @@
       opts.forEach(([v, t]) => s2.appendChild(btn(cur === v ? 'on' : '', t, '', () => setC({ [key]: v }))));
       clipPane.appendChild(s2);
     };
+    if (studio) titleAnimPane(it, Q, setC);
     seg(tx('የእንቅስቃሴ ፍጥነት', 'Animation speed'), [['slow', tx('ቀስ', 'Slow')], ['normal', tx('መደበኛ', 'Normal')], ['fast', tx('ፈጣን', 'Fast')]], it.speed || 'normal', 'speed');
     seg(tx('ሲጨርስ', 'At the end'), [['fade', tx('ደብዝዞ ይጠፋል', 'Fades out')], ['none', tx('በቀጥታ ይቆማል', 'Cuts')]], it.end === 'none' ? 'none' : 'fade', 'end');
     sfxRow(it.sfx, (v) => setC({ sfx: v }));
@@ -3685,7 +3806,7 @@
     acts.appendChild(btn('st-btn', '★ ' + tx('እንደ የኔ አስቀምጥ', 'Save as mine'), tx('ይህን መልክ በ«የኔ» ውስጥ ያስቀምጡ', 'Keep this look under «Mine»'), () => {
       const name = (it.text || tx(D.name[0], D.name[1])).slice(0, 24);
       const keep = { name, tpl: it.tpl };
-      ['text', 'sub', 'accent', 'color', 'font', 'size', 'fx', 'fy', 'speed', 'end', 'theme'].forEach((k) => { if (it[k] != null) keep[k] = it[k]; });
+      ['text', 'sub', 'accent', 'color', 'font', 'size', 'fx', 'fy', 'speed', 'end', 'theme', 'ow', 'oc', 'sd', 'sb', 'shc', 'sha', 'bg', 'lsp', 'align', 'anim'].forEach((k) => { if (it[k] != null) keep[k] = it[k]; });
       const list = myTemplates().filter((x) => x.name !== name).concat([keep]).slice(-24);
       saveSettings({ myTemplates: list });
       log('★ ' + tx('ተቀምጧል፦ ', 'Saved: ') + name);
@@ -3693,6 +3814,62 @@
     acts.appendChild(btn('st-btn', '⤓ ' + tx('ወደ ማጫወቻው', 'To playhead'), '', () => change('move text', () => { txt = E.ovMove(txt, it.id, time()); })));
     acts.appendChild(btn('st-btn', '🗑 ' + tx('ሰርዝ', 'Delete'), '', deleteSel));
     clipPane.appendChild(acts);
+  }
+
+  // ✍ the title's look: outline, shadow, background, spacing, alignment
+  function titleLookPane(it, Q, setT, setC, swatches) {
+    const slider = (label, key, min, max, step, cur, show) => {
+      const row = el('div', 'ed-row');
+      row.appendChild(el('span', 'ed-lab', label));
+      const r = el('input'); r.type = 'range'; r.min = min; r.max = max; r.step = step; r.value = cur;
+      const val = el('span', 'ed-val', show(cur));
+      let started = false;
+      r.addEventListener('input', () => { setT({ [key]: Number(r.value) }, !started); started = true; val.textContent = show(Number(r.value)); });
+      r.addEventListener('change', () => { started = false; ST.saveSoon(); });
+      row.appendChild(r); row.appendChild(val);
+      clipPane.appendChild(row);
+    };
+    const px = (v) => String(Math.round(v * 10) / 10);
+    clipPane.appendChild(el('div', 'ed-sec', tx('ጠርዝ', 'Outline')));
+    slider(tx('ውፍረት', 'Width'), 'ow', 0, 16, 0.5, Q.ow, px);
+    if (Q.ow > 0 || Q.sb > 0) swatches(tx('የጠርዝ ቀለም', 'Outline colour'), 'oc', Q.oc, ['#000000', '#FFFFFF', '#FFD60A', '#00E5FF', '#FF2E88', '#2ECC71', '#5C3D00']);
+    clipPane.appendChild(el('div', 'ed-sec', tx('ጥላ', 'Shadow')));
+    slider(tx('ርቀት', 'Distance'), 'sd', 0, 24, 0.5, Q.sd, px);
+    slider(tx('ልስላሴ / ብርሃን', 'Softness / glow'), 'sb', 0, 24, 0.5, Q.sb, px);
+    if (Q.sd > 0) {
+      swatches(tx('የጥላ ቀለም', 'Shadow colour'), 'shc', Q.shc, ['#000000', '#FFFFFF', '#FF0033', '#1565C0', '#FFD60A']);
+      slider(tx('ጥንካሬ', 'Strength'), 'sha', 0.1, 1, 0.05, Q.sha, (v) => Math.round(v * 100) + '%');
+    }
+    const seg2 = (label, opts, cur, key) => {
+      clipPane.appendChild(el('div', 'ed-sec', label));
+      const s2 = el('div', 'st-seg');
+      opts.forEach(([v, t]) => s2.appendChild(btn(cur === v ? 'on' : '', t, '', () => setC({ [key]: v }))));
+      clipPane.appendChild(s2);
+    };
+    seg2(tx('ዳራ', 'Background'), [['none', tx('የለም', 'None')], ['box', tx('ሳጥን', 'Box')], ['pill', tx('ካፕሱል', 'Pill')], ['mark', tx('ማርከር', 'Marker')], ['line', tx('ከስር መስመር', 'Underline')]], Q.bg, 'bg');
+    slider(tx('የፊደል ክፍተት', 'Letter spacing'), 'lsp', -6, 40, 0.5, Q.lsp, px);
+    seg2(tx('አሰላለፍ', 'Align'), [['l', '⇤ ' + tx('ግራ', 'Left')], ['c', '↔ ' + tx('መሃል', 'Centre')], ['r', tx('ቀኝ', 'Right') + ' ⇥']], Q.align, 'align');
+  }
+  // ✍ the 30 animations: the whole line, word by word, letter by letter (a tap plays it)
+  function titleAnimPane(it, Q, setC) {
+    clipPane.appendChild(el('div', 'ed-sec', '🎬 ' + tx('እንቅስቃሴ', 'Animation') + ' · ' + Object.keys(E.TITLE_ANIMS).length));
+    const groups = [['all', tx('ሙሉው መስመር', 'The whole line')], ['word', tx('ቃል በቃል', 'Word by word')], ['letter', tx('ፊደል በፊደል', 'Letter by letter')]];
+    const playIt = () => {
+      seek(Math.max(0, it.start)); play();
+      const end = Math.min(it.start + E.ovLen(it), it.start + 2.5);
+      const stop = () => { if (time() >= end) pause(); else if (playing) requestAnimationFrame(stop); };
+      requestAnimationFrame(stop);
+    };
+    groups.forEach(([g, gname]) => {
+      clipPane.appendChild(el('div', 'ed-hint2', gname));
+      const ch = el('div', 'br-chips');
+      if (g === 'all') ch.appendChild(btn('br-chip' + (Q.anim === 'none' ? ' on' : ''), tx('የለም', 'None'), '', () => setC({ anim: 'none' })));
+      Object.keys(E.TITLE_ANIMS).filter((k) => E.TITLE_ANIMS[k].unit === g).forEach((k) => {
+        const A = E.TITLE_ANIMS[k];
+        ch.appendChild(btn('br-chip' + (Q.anim === k ? ' on' : ''), tx(A.name[0], A.name[1]), '', () => { setC({ anim: k }); playIt(); }));
+      });
+      clipPane.appendChild(ch);
+    });
   }
 
   function renderTextInspector(it) {
@@ -3853,6 +4030,13 @@
       cwd = path.join(os.tmpdir(), 'amh_exp_' + Date.now() + '_' + (++nid));
       fs.mkdirSync(path.join(cwd, 'fonts'), { recursive: true });
       try { fs.readdirSync(fontsDir()).filter((x) => /\.(ttf|otf)$/i.test(x)).forEach((x) => { fs.copyFileSync(path.join(fontsDir(), x), path.join(cwd, 'fonts', x)); made.push(path.join(cwd, 'fonts', x)); }); } catch (e) {}
+      // ✍ 1.85: the fonts this edit uses from the computer / the editor's own
+      const usedU = {};
+      (st.txt || []).forEach((t) => { if (UFONTS[t.font]) usedU[t.font] = 1; });
+      Object.keys(usedU).forEach((id, n) => {
+        const src = UFONTS[id].file, dst = path.join(cwd, 'fonts', 'user' + n + '_' + path.basename(src));
+        try { fs.copyFileSync(src, dst); made.push(dst); } catch (e) {}
+      });
     };
     try {
       if (shown.length) {
@@ -4134,6 +4318,7 @@
 
   relabel();
   loadFonts();
+  loadMyFonts();
   ST.attachEditor({ draw, drawSoon, seek, duration: total, peaks: editPeaks, open, shown, saveState, loadState, exportVideo, markedPart, format: () => fmt,
     queueExports, stopExport, clearDone, detectGpu, gpuName: (e) => GPU_NAMES[e] || '', queue: () => QUEUE, onQueue: (f) => qWatch.push(f),
     setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } });
