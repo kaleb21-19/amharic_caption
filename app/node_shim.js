@@ -136,6 +136,8 @@
     readFileSync: (p) => call('readFileSync', [String(p)]),
     // binary pictures (the caption-style preview) come back as base64
     readBase64: (p) => call('readBase64', [String(p)]),
+    // 1.85: a part of a font file, base64 (the title studio's fonts)
+    readFontRange: (p, off, n) => call('fontRange', [String(p), off, n]),
     writeFileSync: (p, d, o) => { call('writeFileSync', [String(p), String(d), typeof o === 'string' ? { encoding: o } : (o || null)]); },
     unlinkSync: (p) => { call('unlinkSync', [String(p)]); },
     statSync: (p) => {
@@ -289,9 +291,10 @@
   window.cep = {
     util: { openURLInDefaultBrowser: (u) => { try { call('openURL', [String(u)]); } catch (e) {} } },
     fs: {
-      showOpenDialog(multi, chooseDir, title) {
+      showOpenDialog(multi, chooseDir, title, initial, types) {
         try {
-          const p = call('dialog', [chooseDir ? 'folder' : 'open', title || '']);
+          const ft = !chooseDir && types && types.length ? [title + ' (' + types.map((x) => '*.' + x).join(';') + ')'] : null;
+          const p = call('dialog', [chooseDir ? 'folder' : 'open', title || '', ft]);
           return p ? { err: 0, data: [p] } : { err: 0, data: [] };
         } catch (e) { return { err: 1, data: [] }; }
       },

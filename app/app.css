@@ -653,6 +653,7 @@ html.amh-editor .ed-cwrap { height: 246px; }
 .br-cdot.on { background: #a58be0; border-color: #fff; }
 .br-pip-r { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
 .br-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 4px; }
+.ed-hint2 { font-size: var(--font-s); color: var(--text-secondary); margin: 6px 0 3px; }
 .br-chip { height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-card); color: var(--text-primary);
   font-family: inherit; font-size: 12px; cursor: pointer; }
 .br-chip:hover { border-color: #a58be0; }

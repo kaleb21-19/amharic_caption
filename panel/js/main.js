@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.84.0';
+const APP_VERSION = '1.85.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -440,6 +440,19 @@ setTimeout(() => { if (FIRST_OPEN) track('first_open'); track('open'); }, 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.85.0': {
+    banner: {
+      am: '⬆ ✍ ርዕስ ስቱዲዮ — ማንኛውም የአማርኛ ፊደል፣ ጠርዝ፣ ጥላና ብርሃን፣ 30 እንቅስቃሴዎች፤ 🎬 ያለ ኪፍሬም እንቅስቃሴ፤ ፕሮፌሽናል መላክ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '⬆ ✍ Title studio — any Amharic font, outline, shadow and glow, 30 animations; 🎬 motion with no keyframes; professional export — your license stays the same.',
+    },
+    items: [
+      { am: '✍ ＋ ጽሑፍ → ርዕስ ስቱዲዮ፦ 8 ዝግጁ መልኮች (ኒዮን፣ ወርቅ፣ በሳጥን፣ ማርከር…) — ከዚያ ሁሉንም ይቀይሩ', en: '✍ ＋ Text → Title studio: 8 ready looks (Neon, Gold, On a box, Marker…) — then change everything' },
+      { am: 'ማንኛውም ፊደል፦ 12ቱ የአማርኛ ፊደሎች፣ በኮምፒውተርዎ ያሉት የአማርኛ ፊደሎች (ለምሳሌ Nyala፣ Ebrima) በራሳቸው ይገባሉ፣ ወይም የራስዎን .ttf ያክሉ', en: 'Any font: the 12 Amharic fonts, the Amharic fonts already on your computer (e.g. Nyala, Ebrima) join by themselves, or add your own .ttf' },
+      { am: 'ጠርዝ (ውፍረትና ቀለም)፣ ጥላ (ርቀት፣ ልስላሴ፣ ቀለም)፣ ብርሃን፣ ዳራ (ሳጥን፣ ካፕሱል፣ ማርከር፣ ከስር መስመር)፣ የፊደል ክፍተት፣ አሰላለፍ', en: 'Outline (width, colour), shadow (distance, softness, colour), glow, background (box, pill, marker, underline), letter spacing, alignment' },
+      { am: '🎬 30 እንቅስቃሴዎች፦ ሙሉው መስመር፣ ቃል በቃል ወይም ፊደል በፊደል — የተላከው ቪዲዮ ልክ እንዳዩት ነው', en: '🎬 30 animations: the whole line, word by word or letter by letter — the exported video is exactly what you saw' },
+      { am: 'ምስል ወይም ቪዲዮ ያለ ኪፍሬም ከመጀመሪያ → እስከ መጨረሻ ይንቀሳቀሳል፤ 4K፣ ProRes እና ካፕሽን ብቻ በግልጽ ዳራ ይላኩ', en: 'Pictures and videos move Start → End with no keyframes; export 4K, ProRes and captions alone on a transparent background' },
+    ],
+  },
   '1.84.0': {
     banner: {
       am: '⬆ 🎬 ከመጀመሪያ → እስከ መጨረሻ እንቅስቃሴ ያለ ኪፍሬም፣ እና ፕሮፌሽናል መላክ (4K፣ ProRes፣ ካፕሽን ብቻ በግልጽ ዳራ) — ፈቃድዎ እንደቀድሞው ይቀጥላል።',

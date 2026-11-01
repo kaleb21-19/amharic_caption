@@ -726,7 +726,82 @@
       if (m) FONTINFO[id] = { scale: Number(m.scale) || 1, css: m.upm && m.em ? m.upm / m.em : 1 };
     });
   }
-  const fontInfo = (id) => FONTINFO[TFONTS[id] ? id : 'sans'] || { scale: 1, css: 1 };
+  // ✍ 1.85: any font — the computer's own Amharic fonts and font files the
+  // editor adds. id 'u:' + its family name (the same on every computer);
+  // libass finds it by that name in the export's fonts folder.
+  const USERINFO = {};
+  function addFont(id, family, f) {
+    if (!/^u:/.test(String(id)) || !family) return;
+    TFONTS[id] = family;
+    USERINFO[id] = { scale: 1, css: f && f.upm && f.em ? f.upm / f.em : 1 };
+  }
+  const fontInfo = (id) => (TFONTS[id] ? FONTINFO[id] || USERINFO[id] : FONTINFO.sans) || { scale: 1, css: 1 };
+  // what a font file is (rd(offset, length) -> bytes): its family name, its
+  // sizes (libass: usWinAscent + usWinDescent = the font size) and whether
+  // it has Amharic letters. TrueType, OpenType and collections (first face).
+  function fontFacts(rd) {
+    try {
+      const dv = (off, len) => { const b = rd(off, len); return b && b.length >= len ? new DataView(b.buffer, b.byteOffset, len) : null; };
+      let base = 0;
+      let h = dv(0, 16);
+      if (!h) return null;
+      if (h.getUint32(0) === 0x74746366) { base = h.getUint32(12); h = dv(base, 12); if (!h) return null; }
+      const n = h.getUint16(4);
+      if (!n || n > 200) return null;
+      const dir = dv(base + 12, 16 * n);
+      if (!dir) return null;
+      const T = {};
+      for (let i = 0; i < n; i++) {
+        const tag = String.fromCharCode(dir.getUint8(i * 16), dir.getUint8(i * 16 + 1), dir.getUint8(i * 16 + 2), dir.getUint8(i * 16 + 3));
+        T[tag] = { off: dir.getUint32(i * 16 + 8), len: dir.getUint32(i * 16 + 12) };
+      }
+      if (!T.head || !T.name || !T.cmap) return null;
+      const upm = dv(T.head.off + 18, 2).getUint16(0);
+      let em = 0, bold = false;
+      if (T['OS/2'] && T['OS/2'].len >= 78) {
+        const o = dv(T['OS/2'].off, 78);
+        em = o.getUint16(74) + o.getUint16(76);
+        bold = o.getUint16(4) >= 600 || !!(o.getUint16(62) & 32);
+      }
+      if (!em && T.hhea) { const hh = dv(T.hhea.off, 8); em = hh.getInt16(4) - hh.getInt16(6); }
+      // the names (1 = family, 2 = style)
+      const nm = dv(T.name.off, 6), cnt = nm.getUint16(2), sOff = T.name.off + nm.getUint16(4);
+      const recs = dv(T.name.off + 6, 12 * cnt);
+      const names = {};
+      for (let i = 0; i < cnt; i++) {
+        const pid = recs.getUint16(i * 12), lang = recs.getUint16(i * 12 + 4), id = recs.getUint16(i * 12 + 6);
+        const len = recs.getUint16(i * 12 + 8), off = recs.getUint16(i * 12 + 10);
+        if ((id !== 1 && id !== 2) || (pid !== 3 && pid !== 1) || !len) continue;
+        const rank = pid === 3 ? (lang === 0x409 ? 3 : 2) : 1;
+        if (names[id] && names[id].rank >= rank) continue;
+        const b = rd(sOff + off, len);
+        if (!b) continue;
+        let s = '';
+        if (pid === 3) { for (let j = 0; j + 1 < b.length; j += 2) s += String.fromCharCode((b[j] << 8) | b[j + 1]); } else { for (let j = 0; j < b.length; j++) s += String.fromCharCode(b[j]); }
+        names[id] = { rank, s: s.trim() };
+      }
+      // Amharic letters: is U+1200 (ሀ) in its character map?
+      const cm = dv(T.cmap.off, 4), ns = cm.getUint16(2);
+      const sub = dv(T.cmap.off + 4, 8 * ns);
+      let ethiopic = false;
+      for (let i = 0; i < ns && !ethiopic; i++) {
+        const so = T.cmap.off + sub.getUint32(i * 8 + 4);
+        const f = dv(so, 2);
+        if (!f) continue;
+        const fmt = f.getUint16(0);
+        if (fmt === 4) {
+          const hd = dv(so, 14), seg = hd.getUint16(6) / 2;
+          const ends = dv(so + 14, seg * 2), starts = dv(so + 16 + seg * 2, seg * 2);
+          for (let k = 0; k < seg; k++) if (starts.getUint16(k * 2) <= 0x1200 && ends.getUint16(k * 2) >= 0x1200) { ethiopic = true; break; }
+        } else if (fmt === 12) {
+          const g = Math.min(dv(so, 16).getUint32(12), 50000), gr = dv(so + 16, 12 * g);
+          for (let k = 0; k < g; k++) if (gr.getUint32(k * 12) <= 0x1200 && gr.getUint32(k * 12 + 4) >= 0x1200) { ethiopic = true; break; }
+        }
+      }
+      if (!names[1] || !names[1].s) return null;
+      return { family: names[1].s, style: names[2] ? names[2].s : '', upm, em: em || upm, ethiopic, bold };
+    } catch (e) { return null; }
+  }
   function textSize(t, H) {
     const preset = TPRESETS[t.preset] ? t.preset : 'plain';
     return Math.round(H * (Number(t.size) || TPRESETS[preset].size) * fontInfo(t.font).scale);
@@ -807,6 +882,7 @@
   };
   // the catalogue: group, names, default texts, look; build -> layers
   const TEMPLATES = {
+    studio: { g: 'studio', name: ['የራስዎ ርዕስ', 'Your own title'], text: 'የእርስዎ ርዕስ', sub: '', accent: '#FFD60A', color: '#FFFFFF', fx: 0.5, fy: 0.5 },
     hook: { g: 'hook', name: ['ርዕስ በሳጥን', 'Hook on a box'], text: 'ይህን ማወቅ አለብዎት!', sub: '', accent: '#FFD60A', color: '#111111', fx: 0.5, fy: 0.3 },
     slam: { g: 'hook', name: ['ኃይለኛ ርዕስ', 'Slam title'], text: 'አስደናቂ ውጤት', sub: 'በ3 ቀን ብቻ', accent: '#FFD60A', color: '#FFFFFF', fx: 0.5, fy: 0.32 },
     cinema: { g: 'hook', name: ['ሲኒማ ርዕስ', 'Cinematic title'], text: 'የኢትዮጵያ ታሪክ', sub: 'ክፍል አንድ', accent: '#E8C77A', color: '#FFFFFF', font: 'serif', fx: 0.5, fy: 0.45 },
@@ -823,7 +899,7 @@
     price: { g: 'text', name: ['ቅናሽ ማህተም', 'Sale badge'], text: '-30%', sub: 'ቅናሽ', accent: '#E53935', color: '#FFFFFF', fx: 0.78, fy: 0.3 },
     holiday: { g: 'holiday', name: ['የበዓል ሰላምታ', 'Holiday greeting'], text: '', sub: 'ከ ቤተሰቦቻችን', accent: '', color: '', theme: 'meskel', fx: 0.5, fy: 0.45 },
   };
-  const TPL_GROUPS = { hook: ['ርዕስ', 'Titles'], name: ['የስም ጽሑፍ', 'Names'], social: ['ሶሻል እና ጥሪ', 'Social & CTA'], text: ['ጥቅስ እና ዝርዝር', 'Quotes & lists'], holiday: ['በዓላት', 'Holidays'] };
+  const TPL_GROUPS = { studio: ['ርዕስ ስቱዲዮ', 'Title studio'], hook: ['ርዕስ', 'Titles'], name: ['የስም ጽሑፍ', 'Names'], social: ['ሶሻል እና ጥሪ', 'Social & CTA'], text: ['ጥቅስ እና ዝርዝር', 'Quotes & lists'], holiday: ['በዓላት', 'Holidays'] };
   const TPL_SPEED = { slow: 1.4, normal: 1, fast: 0.7 };
   // the look of a template item, defaults filled in
   function tplOf(t) {
@@ -842,6 +918,80 @@
       k: TPL_SPEED[t.speed] || 1, out: t.end === 'none' ? 'none' : 'fade',
     };
   }
+  // ── ✍ Title studio (1.85) ─────────────────────────────────────────────
+  // One title, every look: any font, outline (width, colour), shadow
+  // (distance, softness, colour — softness on a coloured outline = a glow),
+  // a background (box / pill / marker / line), letter spacing, alignment and
+  // 30 animations — the whole line, word by word or letter by letter. Built
+  // from the same layers as the templates, so the preview is the export.
+  const TITLE_BG = ['none', 'box', 'pill', 'mark', 'line'];
+  const TITLE_ALIGN = ['c', 'l', 'r'];
+  const tnum = (v, lo, hi, d) => { const n = Number(v); return v != null && v !== '' && Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
+  const thex = (v, d) => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v).toUpperCase() : d);
+  // the animations: unit (the whole line, each word, each letter), the step
+  // between units (s) and what each unit does from its own start d
+  const tpop = (A, d) => [A('sc', d, d + 0.18, 0, 108, 0.5), A('sc', d + 0.18, d + 0.3, 108, 100), A('al', d, d + 0.12, 0, 1)];
+  const tslam = (A, d) => [A('sc', d, d + 0.22, 170, 100, 0.4), A('al', d, d + 0.12, 0, 1)];
+  const tmv = (A, d, dx, dy, t1) => [A('mv', d, d + (t1 || 0.35), [dx, dy], [0, 0]), A('al', d, d + Math.min(0.3, t1 || 0.3), 0, 1)];
+  const tfade = (A, d, t1) => [A('al', d, d + (t1 || 0.4), 0, 1)];
+  const trand = (i, s) => { const x = Math.sin((i + 1) * 12.9898 + (s || 0) * 78.233) * 43758.5453; return x - Math.floor(x); };
+  const TITLE_ANIMS = {
+    // the whole line
+    fade: { unit: 'all', name: ['ደብዝዞ ይገባል', 'Fade'], f: (A, d) => tfade(A, d) },
+    pop: { unit: 'all', name: ['ብቅ', 'Pop'], f: tpop },
+    slam: { unit: 'all', name: ['ይመታል', 'Slam'], f: tslam },
+    zoom: { unit: 'all', name: ['ከቅርብ', 'Zoom in'], f: (A, d, u) => [A('sc', d, d + 0.5, 135, 100, 0.5), A('bl', d, d + 0.5, 10 * u, 0, 0.5), A('al', d, d + 0.3, 0, 1)] },
+    rise: { unit: 'all', name: ['ከታች ይወጣል', 'Rise'], f: (A, d, u) => tmv(A, d, 0, 50 * u, 0.4) },
+    drop: { unit: 'all', name: ['ከላይ ይወርዳል', 'Drop'], f: (A, d, u) => tmv(A, d, 0, -70 * u, 0.35) },
+    left: { unit: 'all', name: ['ከግራ', 'From the left'], f: (A, d, u) => tmv(A, d, -160 * u, 0, 0.4) },
+    right: { unit: 'all', name: ['ከቀኝ', 'From the right'], f: (A, d, u) => tmv(A, d, 160 * u, 0, 0.4) },
+    wipe: { unit: 'all', name: ['ይገለጣል', 'Wipe'], f: (A, d) => [A('wipe', d, d + 0.6, 0, 1, 0.6)] },
+    spread: { unit: 'all', name: ['ይሰፋል', 'Spread'], f: (A, d, u, i, base) => [A('sp', d, d + 1.2, base + 26 * u, base, 0.5), A('al', d, d + 0.6, 0, 1)] },
+    blur: { unit: 'all', name: ['ከብዥታ', 'Blur in'], f: (A, d, u) => [A('bl', d, d + 0.5, 22 * u, 0, 0.6), A('al', d, d + 0.4, 0, 1)] },
+    spin: { unit: 'all', name: ['እየዞረ', 'Spin'], f: (A, d) => [A('rot', d, d + 0.5, -120, 0, 0.5), A('sc', d, d + 0.5, 30, 100, 0.5), A('al', d, d + 0.2, 0, 1)] },
+    swing: { unit: 'all', name: ['ይወዛወዛል', 'Swing'], f: (A, d) => [A('rot', d, d + 0.25, 14, -5, 0.6), A('rot', d + 0.25, d + 0.45, -5, 0), A('al', d, d + 0.15, 0, 1)] },
+    flip: { unit: 'all', sy: true, name: ['ከፍ ይላል', 'Stretch up'], f: (A, d) => [A('sc', d, d + 0.2, 0, 112, 0.5), A('sc', d + 0.2, d + 0.32, 112, 100), A('al', d, d + 0.1, 0, 1)] },
+    jelly: { unit: 'all', name: ['ጄሊ', 'Jelly'], f: (A, d) => [A('sc', d, d + 0.18, 0, 118, 0.5), A('sc', d + 0.18, d + 0.3, 118, 92), A('sc', d + 0.3, d + 0.4, 92, 104), A('sc', d + 0.4, d + 0.5, 104, 100), A('al', d, d + 0.1, 0, 1)] },
+    // word by word
+    wpop: { unit: 'word', s: 0.14, name: ['ቃል በቃል ብቅ', 'Words pop'], f: tpop },
+    wrise: { unit: 'word', s: 0.14, name: ['ቃል በቃል ከታች', 'Words rise'], f: (A, d, u) => tmv(A, d, 0, 40 * u, 0.35) },
+    wfade: { unit: 'word', s: 0.2, name: ['ቃል በቃል ይገባል', 'Words fade'], f: (A, d) => tfade(A, d, 0.35) },
+    wslam: { unit: 'word', s: 0.18, name: ['ቃል በቃል ይመታል', 'Words slam'], f: tslam },
+    wdrop: { unit: 'word', s: 0.14, name: ['ቃል በቃል ከላይ', 'Words drop'], f: (A, d, u) => tmv(A, d, 0, -50 * u, 0.3) },
+    // letter by letter
+    type: { unit: 'letter', s: 0.06, name: ['እንደ ታይፕ', 'Typewriter'], f: (A, d) => [A('al', d, d + 0.01, 0, 1)] },
+    lfade: { unit: 'letter', s: 0.04, name: ['ፊደል በፊደል ይገባል', 'Letters fade'], f: (A, d) => tfade(A, d, 0.25) },
+    lpop: { unit: 'letter', s: 0.04, name: ['ፊደል በፊደል ብቅ', 'Letters pop'], f: tpop },
+    lrise: { unit: 'letter', s: 0.04, name: ['ፊደል በፊደል ከታች', 'Letters rise'], f: (A, d, u) => tmv(A, d, 0, 34 * u, 0.3) },
+    ldrop: { unit: 'letter', s: 0.04, name: ['ፊደል በፊደል ከላይ', 'Letters drop'], f: (A, d, u) => tmv(A, d, 0, -44 * u, 0.3) },
+    lspin: { unit: 'letter', s: 0.05, name: ['ፊደል በፊደል እየዞረ', 'Letters spin'], f: (A, d) => [A('rot', d, d + 0.35, -180, 0, 0.5), A('sc', d, d + 0.35, 0, 100, 0.5), A('al', d, d + 0.1, 0, 1)] },
+    lblur: { unit: 'letter', s: 0.04, name: ['ፊደል በፊደል ከብዥታ', 'Letters blur'], f: (A, d, u) => [A('bl', d, d + 0.35, 16 * u, 0, 0.6), A('al', d, d + 0.3, 0, 1)] },
+    lzoom: { unit: 'letter', s: 0.04, name: ['ፊደል በፊደል ከቅርብ', 'Letters zoom'], f: (A, d) => [A('sc', d, d + 0.3, 300, 100, 0.5), A('al', d, d + 0.2, 0, 1)] },
+    lslide: { unit: 'letter', s: 0.03, name: ['ፊደል በፊደል ከቀኝ', 'Letters slide'], f: (A, d, u) => tmv(A, d, 70 * u, 0, 0.3) },
+    scatter: { unit: 'letter', s: 0.03, rand: true, name: ['ተበትኖ ይሰበሰባል', 'Scatter'],
+      f: (A, d, u, i) => [A('mv', d, d + 0.45, [(trand(i, 1) - 0.5) * 260 * u, (trand(i, 2) - 0.5) * 200 * u], [0, 0]), A('rot', d, d + 0.45, (trand(i, 3) - 0.5) * 160, 0, 0.5), A('al', d, d + 0.25, 0, 1)] },
+  };
+  function titleOf(t) {
+    return {
+      ow: tnum(t.ow, 0, 16, 0), oc: thex(t.oc, '#000000'),
+      sd: tnum(t.sd, 0, 24, 0), sb: tnum(t.sb, 0, 24, 0), shc: thex(t.shc, '#000000'), sha: tnum(t.sha, 0, 1, 0.6),
+      bg: TITLE_BG.indexOf(t.bg) >= 0 ? t.bg : 'none', lsp: tnum(t.lsp, -6, 40, 0),
+      align: TITLE_ALIGN.indexOf(t.align) >= 0 ? t.align : 'c',
+      anim: TITLE_ANIMS[t.anim] || t.anim === 'none' ? t.anim : 'pop',
+    };
+  }
+  // one tap: a whole look (outline, shadow, background, colours)
+  const TITLE_LOOKS = {
+    clean: { name: ['ንጹሕ', 'Clean'], v: { ow: 0, sd: 3, sb: 4, bg: 'none', color: '#FFFFFF' } },
+    outline: { name: ['ወፍራም ጠርዝ', 'Bold outline'], v: { ow: 7, oc: '#000000', sd: 0, sb: 0, bg: 'none', color: '#FFFFFF' } },
+    yellow: { name: ['ቢጫ ኃይል', 'Yellow punch'], v: { ow: 8, oc: '#000000', sd: 6, sb: 0, bg: 'none', color: '#FFD60A' } },
+    neon: { name: ['ኒዮን', 'Neon glow'], v: { ow: 3, oc: '#00E5FF', sd: 0, sb: 12, bg: 'none', color: '#FFFFFF' } },
+    gold: { name: ['ወርቅ', 'Gold'], v: { ow: 2, oc: '#5C3D00', sd: 5, sb: 6, bg: 'none', color: '#F5C542' } },
+    box: { name: ['በሳጥን', 'On a box'], v: { ow: 0, sd: 0, sb: 0, bg: 'box', accent: '#111111', color: '#FFFFFF' } },
+    pill: { name: ['ካፕሱል', 'Pill'], v: { ow: 0, sd: 0, sb: 0, bg: 'pill', accent: '#FFD60A', color: '#111111' } },
+    marker: { name: ['ማርከር', 'Marker'], v: { ow: 0, sd: 0, sb: 0, bg: 'mark', accent: '#2ECC71', color: '#FFFFFF' } },
+  };
+  function titleLook(name) { const L = TITLE_LOOKS[name]; return L ? Object.assign({ oc: '#000000', shc: '#000000' }, L.v) : null; }
   // layers in canvas px: { kind, x, y (centre), w, h, r, color, a, text, S, font, bold, ob (outline), oc, sh,
   //   on, off (s, relative), an: [{ p, t0, t1, from, to, accel }] } — p: 'sc' (scale %), 'al' (0-1),
   //   'mv' ([dx, dy] -> [0, 0], linear like \move), 'sp' (letter spacing), 'wipe' (0-1 shown from the left), 'rot' (deg)
@@ -860,7 +1010,62 @@
     const rise = (d0, dy) => [A('mv', d0, d0 + 0.35, [0, dy], [0, 0]), A('al', d0, d0 + 0.3, 0, 1)];
     const wipe = (d0, d1) => [A('wipe', d0, d1, 0, 1, 0.6)];
     const id = P.id;
-    if (id === 'hook') {
+    if (id === 'studio') {
+      const Q = titleOf(t), AN = Q.anim === 'none' ? null : TITLE_ANIMS[Q.anim];
+      const S = 96 * u, S2 = 52 * u, fsp = Q.lsp * u;
+      const rows = [{ text: P.text, S }].concat(P.sub ? [{ text: P.sub, S: S2 }] : []);
+      const hh = S * 1.2 + (P.sub ? S2 * 1.35 : 0);
+      rows[0].y = ay - hh / 2 + S * 0.6;
+      if (rows[1]) rows[1].y = rows[0].y + S * 0.6 + S2 * 0.75;
+      rows.forEach((r) => { r.w = tw(r.text, r.S, true, fsp) - fsp; r.left = Q.align === 'l' ? ax : Q.align === 'r' ? ax - r.w : ax - r.w / 2; });
+      // the background, behind everything
+      const wmax = Math.max.apply(null, rows.map((r) => r.w));
+      const lft = Math.min.apply(null, rows.map((r) => r.left));
+      let d0 = 0;
+      if (Q.bg !== 'none') {
+        const bgAn = !AN ? () => [] : AN.unit === 'all' ? (d) => AN.f(A, d, u, 0, 0).filter((a) => a.p !== 'sp')
+          : (Q.bg === 'mark' || Q.bg === 'line') ? (d) => [A('wipe', d, d + 0.35, 0, 1, 0.6), A('al', d, d + 0.01, 0, 1)]
+            : (d) => [A('sc', d, d + 0.25, 0, 100, 0.5), A('al', d, d + 0.1, 0, 1)];
+        if (Q.bg === 'box' || Q.bg === 'pill') {
+          const ph = Q.bg === 'pill' ? S * 0.62 : S * 0.38, h = hh + S * 0.3;
+          rect({ x: lft + wmax / 2, y: ay, w: wmax + ph * 2, h, r: Q.bg === 'pill' ? h / 2 : 12 * u, color: P.accent, an: bgAn(0) });
+        } else if (Q.bg === 'mark') {
+          rows.forEach((r) => rect({ x: r.left + r.w / 2, y: r.y + r.S * 0.12, w: r.w + r.S * 0.4, h: r.S * 0.62, color: P.accent, an: bgAn(0) }));
+        } else {
+          rect({ x: rows[0].left + rows[0].w / 2, y: rows[0].y + S * 0.66, w: rows[0].w, h: Math.max(4, 9 * u), color: P.accent, an: bgAn(0) });
+        }
+        if (AN && AN.unit !== 'all') d0 = 0.15;
+      }
+      // the units: the line, each word or each letter, where they sit in the line
+      const units = [];
+      rows.forEach((r) => {
+        const parts = !AN || AN.unit === 'all' ? [r.text] : AN.unit === 'word' ? r.text.split(/(\s+)/) : Array.from(r.text);
+        let pre = '';
+        parts.forEach((p) => {
+          if (p && p.trim()) {
+            const x0 = r.left + (pre ? tw(pre, r.S, true, fsp) : 0), w = tw(p, r.S, true, fsp) - fsp;
+            units.push({ text: p, S: r.S, x: x0 + w / 2, y: r.y });
+          }
+          pre += p;
+        });
+      });
+      const n = units.length;
+      const step = AN && AN.s ? Math.min(AN.s, Math.max(0.01, (0.6 * len / k - 0.5) / Math.max(1, n))) : 0;
+      const order = units.map((_, i) => i);
+      if (AN && AN.rand) order.sort((a, b) => trand(a, 7) - trand(b, 7));
+      const ans = units.map((un, i) => (AN ? AN.f(A, d0 + step * order.indexOf(i), u, i, AN.unit === 'all' ? fsp : 0) : []));
+      const base = (un, i) => ({ x: un.x, y: un.y, text: un.text, S: un.S, fsp: !AN || AN.unit === 'all' ? fsp : 0, sy: !!(AN && AN.sy), an: ans[i] });
+      // outline and shadow under every unit first, then the letters on top
+      // (one unit's outline never covers the letters next to it)
+      if (Q.ow > 0 || Q.sd > 0) {
+        units.forEach((un, i) => text(Object.assign(base(un, i), { under: true, color: Q.ow > 0 ? Q.oc : P.color, a: Q.ow > 0 ? 1 : 0,
+          ob: Q.ow * u, oc: Q.oc, sh: Q.sd * u, shc: Q.shc, sha: Q.sha, bl: Q.sb * u })));
+      } else if (Q.sb > 0) {
+        // softness alone: a soft glow in the outline colour
+        units.forEach((un, i) => text(Object.assign(base(un, i), { under: true, color: Q.oc, a: 1, ob: 2 * u, oc: Q.oc, sh: 0, bl: Q.sb * u })));
+      }
+      units.forEach((un, i) => text(Object.assign(base(un, i), { color: P.color })));
+    } else if (id === 'hook') {
       const S = 86 * u, w = tw(P.text, S, true) + 60 * u, h = S + 36 * u;
       rect({ x: ax, y: ay, w, h, r: 14 * u, color: P.accent, an: pop(0) });
       text({ x: ax, y: ay, text: P.text, S, color: P.color, an: pop(0) });
@@ -972,7 +1177,7 @@
     }
     L.forEach((l) => {
       // a text's half width (the wipe's box); a polygon's own box (it turns / scales in place)
-      if (l.kind === 'text') l.w2 = measureText(l.text, l.font, l.S, l.bold, 0) / 2;
+      if (l.kind === 'text') l.w2 = measureText(l.text, l.font, l.S, l.bold, l.fsp || 0) / 2;
       if (l.kind === 'poly') {
         const xs = l.pts.map((q) => q[0]), ys = l.pts.map((q) => q[1]);
         l.px0 = Math.min.apply(null, xs); l.py0 = Math.min.apply(null, ys);
@@ -987,7 +1192,7 @@
   // a layer's state at τ seconds after the item starts (the libass maths:
   // \t progress = ((τ-t0)/(t1-t0))^accel; \move linear)
   function tplState(l, tau) {
-    const st = { sc: 100, al: 1, mv: [0, 0], sp: 0, wipe: 1, rot: 0 };
+    const st = { sc: 100, al: 1, mv: [0, 0], sp: l.fsp || 0, wipe: 1, rot: 0, bl: 0 };
     const firsts = {};
     l.an.forEach((a) => { if (!(a.p in firsts)) { firsts[a.p] = a; st[a.p] = a.from; } });
     l.an.forEach((a) => {
@@ -1013,7 +1218,8 @@
       l.an.forEach((a) => { if (!(a.p in firsts)) firsts[a.p] = a; });
       // alpha: fill / outline / shadow each from its base, times the animation
       const baseA = l.a == null ? 1 : l.a;
-      const al = (k) => '\\1a' + a2(baseA * k) + '\\3a' + a2(k) + '\\4a' + a2(0.55 * k);
+      const al = (k) => '\\1a' + a2(baseA * k) + '\\3a' + a2(k) + '\\4a' + a2((l.sha == null ? 0.55 : l.sha) * k);
+      const blur = (v) => '\\blur' + r3(Math.max(0, (l.bl || 0) + v));
       let tags = '\\an5';
       const mv = l.an.find((a) => a.p === 'mv' && a.t1 > l.on);
       if (mv) tags += '\\move(' + r3(l.x + mv.from[0]) + ',' + r3(l.y + mv.from[1]) + ',' + r3(l.x + mv.to[0]) + ',' + r3(l.y + mv.to[1]) + ',' + Math.max(0, ms(mv.t0, l)) + ',' + Math.max(0, ms(mv.t1, l)) + ')';
@@ -1028,7 +1234,8 @@
       const clip = (q) => '\\clip(' + Math.round(bx.x0) + ',' + Math.round(bx.y0) + ',' + Math.round(bx.x0 + (bx.x1 - bx.x0) * q) + ',' + Math.round(bx.y1) + ')';
       if (firsts.wipe && bx) tags += clip(s0.wipe);
       if (l.kind === 'text') tags += '\\fn' + (TFONTS[l.font] || TFONTS.sans) + '\\fs' + r3(l.S) + '\\b' + (l.bold ? 1 : 0) + '\\c' + assColor(l.color) +
-        '\\bord' + r3(l.ob || 0) + '\\3c' + assColor(l.oc || '#000000') + '\\shad' + r3(l.sh || 0) + '\\4c&H000000&\\fsp' + r3(s0.sp || 0);
+        '\\bord' + r3(l.ob || 0) + '\\3c' + assColor(l.oc || '#000000') + '\\shad' + r3(l.sh || 0) + '\\4c' + (l.shc ? assColor(l.shc) : '&H000000&') + '\\fsp' + r3(s0.sp || 0) +
+        (l.bl || firsts.bl ? blur(s0.bl) : '');
       else tags += '\\c' + assColor(l.color) + '\\bord0\\shad0\\p1';
       l.an.forEach((a) => {
         if (a.p === 'mv' || a.t1 <= l.on) return;
@@ -1038,6 +1245,7 @@
         else if (a.p === 'al') to = al(a.to);
         else if (a.p === 'sp' && l.kind === 'text') to = '\\fsp' + r3(a.to);
         else if (a.p === 'rot') to = '\\frz' + r3(-a.to);
+        else if (a.p === 'bl' && l.kind === 'text') to = blur(a.to);
         else if (a.p === 'wipe' && bx) to = clip(a.to);
         if (to) tags += '\\t(' + t0 + ',' + t1 + ',' + r3(a.accel) + ',' + to + ')';
       });
@@ -1626,7 +1834,8 @@
 
   const api = { MIN, layout, total, locate, sourceToEdit, splitAt, removeClip, trimClip, moveClip, dropIndex, cutRange, moveRange, rangeState, insertClips, keptSegs, mapTime, followClips,
     words, deriveCaptions, syncBack, FORMATS, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
-    TFONTS, TPRESETS, assColor, textAnchor, textAss, setFontInfo, fontInfo, textSize, LOUD, MUS_DEFAULT, musicGain,
+    TFONTS, TPRESETS, assColor, textAnchor, textAss, setFontInfo, fontInfo, textSize, addFont, fontFacts,
+    TITLE_ANIMS, TITLE_LOOKS, TITLE_BG, titleOf, titleLook, LOUD, MUS_DEFAULT, musicGain,
     PRESETS, presetFor, GPU_ENCODERS, encoderArgs, eta, EXPORT_KINDS, KIND_NEEDS, HEVC_GPU, sizeEstimate,
     MO_EASES, MO_PRESETS, moOf, moAt, moEase, moPreset, moPerspective,
     speedOf: sp, clipLen, cropOf, rotOf, tiltOf, picOn, picDims, tiltScale, picFilter, picCss, cropToFile, cropToView, RAMPS, rampPieces, unRamp, trackedState, SFX, SFX_LEN, SFX_LEAD, sfxEvents, RF_PACE, rfWindow, rfTrack, rfAt, rfPlace, rfExpr, rfOn, TEMPLATES, TPL_GROUPS, HOLIDAYS, TPL_SPEED, tplOf, tplLayers, tplState, tplAss, setMeasure, tplFade: fadeOut, OV_LAYOUTS, OV_ANIMS, OV_MOTION, ovLook, ovBox, ovAnim, ovChain, ovPos, ZOOM_STYLES, ZOOM_SPEED, ZOOM_DEFAULT, zoomEnv, zoomRect, zoomExprs, zoomFilter, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter };

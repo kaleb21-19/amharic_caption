@@ -356,6 +356,20 @@ def sync_op(op, a):
         import base64
         with open(p, "rb") as f:
             return base64.b64encode(f.read()).decode("ascii")
+    if op == "fontRange":
+        # 1.85: a part of a font file — the title studio reads a font's name,
+        # sizes and whether it has Amharic letters (the computer's own fonts
+        # and the font files the editor adds). Font files only.
+        p = a[0]
+        if not p.lower().endswith((".ttf", ".otf", ".ttc")):
+            raise ValueError("not a font")
+        off, n = int(a[1]), int(a[2])
+        if off < 0 or n < 0 or n > 4 * 1024 * 1024:
+            raise ValueError("bad range")
+        import base64
+        with open(p, "rb") as f:
+            f.seek(off)
+            return base64.b64encode(f.read(n)).decode("ascii")
     if op == "readFileSync":
         with open(a[0], "r", encoding="utf-8", errors="replace", newline="") as f:
             return f.read()
