@@ -418,20 +418,79 @@
   let AC = null, AN = null;
   let meterEl = null, meterBar = null, meterHold = null;     // made with the transport bar
   const ABUF = new Float32Array(2048);
-  function meterOn(x) {
-    if (!AC || !x || x._amhSrc) return;
-    try { x._amhSrc = AC.createMediaElementSource(x); x._amhSrc.connect(AN); } catch (e) {}
+  // 🎚 1.87: every sound goes to its strip (voice, video, music, effects),
+  // each strip through the export's own EQ / compressor / pan / fader, then
+  // the master (fader, safety limiter) and the meter
+  function meterOn(x, bus) {
+    if (!AC || !x || !BUS) return;
+    bus = bus || 'voice';
+    if (x._amhBus === bus) return;
+    try {
+      if (!x._amhSrc) x._amhSrc = AC.createMediaElementSource(x);
+      else x._amhSrc.disconnect();
+      x._amhSrc.connect(BUS[bus].in);
+      x._amhBus = bus;
+    } catch (e) {}
+  }
+  let BUS = null, KAN = null;
+  function busBuild() {
+    const master = { in: AC.createGain(), lim: AC.createDynamicsCompressor(), dry: AC.createGain(), wet: AC.createGain(), out: AC.createGain() };
+    master.lim.threshold.value = -1; master.lim.knee.value = 0; master.lim.ratio.value = 20; master.lim.attack.value = 0.001; master.lim.release.value = 0.1;
+    master.in.connect(master.dry); master.in.connect(master.lim); master.lim.connect(master.wet);
+    master.dry.connect(master.out); master.wet.connect(master.out);
+    master.out.connect(AN);
+    // the loudness reading (K-weighted, both channels)
+    const ks = AC.createBiquadFilter(); ks.type = 'highshelf'; ks.frequency.value = 1681.97; ks.gain.value = 4;
+    const kh = AC.createBiquadFilter(); kh.type = 'highpass'; kh.frequency.value = 38.13; kh.Q.value = 0.5;
+    const sp = AC.createChannelSplitter(2);
+    master.out.connect(ks); ks.connect(kh); kh.connect(sp);
+    KAN = [0, 1].map((ch) => { const a = AC.createAnalyser(); a.fftSize = 32768; sp.connect(a, ch); return a; });
+    BUS = { master };
+    E.MIX_BUSES.forEach((b) => {
+      const n = { in: AC.createGain(), lo: AC.createBiquadFilter(), mid: AC.createBiquadFilter(), hi: AC.createBiquadFilter(), comp: AC.createDynamicsCompressor(),
+        dry: AC.createGain(), wet: AC.createGain(), pan: AC.createStereoPanner(), fader: AC.createGain(), an: AC.createAnalyser() };
+      n.lo.type = 'lowshelf'; n.lo.frequency.value = E.MIX_EQ.lo;
+      n.mid.type = 'peaking'; n.mid.frequency.value = E.MIX_EQ.mid; n.mid.Q.value = E.MIX_EQ.q;
+      n.hi.type = 'highshelf'; n.hi.frequency.value = E.MIX_EQ.hi;
+      n.an.fftSize = 1024;
+      n.in.connect(n.lo); n.lo.connect(n.mid); n.mid.connect(n.hi);
+      n.hi.connect(n.dry); n.hi.connect(n.comp); n.comp.connect(n.wet);
+      n.dry.connect(n.pan); n.wet.connect(n.pan);
+      n.pan.connect(n.fader); n.fader.connect(n.an); n.fader.connect(master.in);
+      BUS[b] = n;
+    });
+    busApply();
+  }
+  // the mixer's settings onto the preview's chain (solo = listen to it alone)
+  function busApply() {
+    if (!BUS) return;
+    const M = E.mixOf(snd);
+    const solo = E.MIX_BUSES.some((b) => M[b].solo);
+    const T = AC.currentTime;
+    const set = (p, v) => { try { p.setTargetAtTime(v, T, 0.015); } catch (e) { p.value = v; } };
+    E.MIX_BUSES.forEach((b) => {
+      const n = BUS[b], S2 = M[b];
+      set(n.lo.gain, S2.lo); set(n.mid.gain, S2.mid); set(n.hi.gain, S2.hi);
+      const c = E.compParams(S2.comp);
+      n.comp.threshold.value = c.thr; n.comp.ratio.value = c.ratio; n.comp.knee.value = c.knee; n.comp.attack.value = c.attack; n.comp.release.value = c.release;
+      set(n.dry.gain, S2.comp > 0.001 ? 0 : 1); set(n.wet.gain, S2.comp > 0.001 ? 1 : 0);
+      set(n.pan.pan, S2.pan);
+      set(n.fader.gain, S2.mute || (solo && !S2.solo) ? 0 : Math.pow(10, S2.g / 20));
+    });
+    set(BUS.master.in.gain, Math.pow(10, M.master.g / 20));
+    set(BUS.master.dry.gain, M.master.limit ? 0 : 1); set(BUS.master.wet.gain, M.master.limit ? 1 : 0);
   }
   function meterStart() {
     if (!AC) {
       try {
         AC = new (window.AudioContext || window.webkitAudioContext)();
         AN = AC.createAnalyser(); AN.fftSize = 2048; AN.connect(AC.destination);
-      } catch (e) { AC = null; return; }
+        busBuild();
+      } catch (e) { AC = null; BUS = null; return; }
     }
     if (AC.state === 'suspended') AC.resume().catch(() => {});
-    meterOn(V()); meterOn(vT);
-    Object.keys(MUEL).forEach((k) => meterOn(MUEL[k]));
+    meterOn(V(), 'voice'); meterOn(vT, 'voice');
+    Object.keys(MUEL).forEach((k) => meterOn(MUEL[k], 'music'));
   }
   let peakHold = -60, peakAt = 0;
   function meterTick() {
@@ -691,6 +750,7 @@
     syncOverlays(time());
     syncTexts(time());
     syncTemplates(time());
+    busApply();
   }
   // 🔍 the zoom, live: the main picture's layer, scaled and moved exactly as
   // the export's perspective filter (E.zoomRect = E.zoomExprs)
@@ -938,6 +998,7 @@
   // play a video element at the overlay's second (or hold it, paused)
   function ovSeek(e, o, t, sound) {
     if (e.tagName !== 'VIDEO') return;
+    if (sound) meterOn(e, 'video');
     const want = o.in + (t - o.start);
     e.muted = !sound;
     if (sound) e.volume = Math.min(1, Number(o.volume));
@@ -1056,7 +1117,7 @@
       const m = media[o.m];
       if (!m) return;
       let a = MUEL[o.id];
-      if (!a || a.dataset.m !== o.m) { if (a) a.remove(); a = document.createElement('audio'); a.preload = 'auto'; a.dataset.m = o.m; srcOf(a, o.m); document.body.appendChild(a); MUEL[o.id] = a; meterOn(a); }
+      if (!a || a.dataset.m !== o.m) { if (a) a.remove(); a = document.createElement('audio'); a.preload = 'auto'; a.dataset.m = o.m; srcOf(a, o.m); document.body.appendChild(a); MUEL[o.id] = a; meterOn(a, 'music'); }
       const g = rowHidden('au', rowOf(o)) ? 0 : E.musicGain(o, t, total(), sp);
       const want = o.in + (t - o.start);
       if (!playing || g <= 0 && (t < o.start || t >= E.ovEnd(o))) { if (!a.paused) a.pause(); return; }
@@ -3306,7 +3367,7 @@
   function sfxPlay(name, vol) {
     const u = sfxUrl(name);
     if (!u) return;
-    try { const a = new Audio(u); a.volume = Math.max(0, Math.min(1, vol)); a.play().catch(() => {}); } catch (e) {}
+    try { const a = new Audio(u); a.volume = Math.max(0, Math.min(1, vol)); meterOn(a, 'sfx'); a.onended = () => { try { if (a._amhSrc) a._amhSrc.disconnect(); } catch (x) {} }; a.play().catch(() => {}); } catch (e) {}
   }
   let sfxLastT = -1;
   function syncSfx(t) {
@@ -3426,7 +3487,7 @@
   function playFile(f, vol) {
     const u = fileUrlOf(f);
     if (!u) return;
-    try { const a = new Audio(u); a.volume = Math.max(0, Math.min(1, vol)); a.play().catch(() => {}); } catch (e) {}
+    try { const a = new Audio(u); a.volume = Math.max(0, Math.min(1, vol)); meterOn(a, 'sfx'); a.onended = () => { try { if (a._amhSrc) a._amhSrc.disconnect(); } catch (x) {} }; a.play().catch(() => {}); } catch (e) {}
   }
   // an event's real start: our sounds lead by SFX_LEAD; the editor's by their loudest moment
   function sfxAt(ev) {
@@ -3510,8 +3571,128 @@
     soundPane.appendChild(q);
     soundPane.appendChild(list);
   }
+  // ── 🎚 the mixer (1.87) ──────────────────────────────────────────────
+  let MIXSEL = 'voice';
+  const MIXNAME = () => ({ voice: tx('ንግግር', 'Voice'), video: tx('ቪዲዮ', 'Video'), music: tx('ሙዚቃ', 'Music'), sfx: tx('ውጤቶች', 'Effects'), master: tx('ማስተር', 'Master') });
+  function setMix(bus, patch) {
+    const mx = Object.assign({}, snd.mix || {});
+    mx[bus] = Object.assign({}, mx[bus] || {}, patch);
+    snd = Object.assign({}, snd, { mix: mx });
+    busApply();
+  }
+  function mixerEl() {
+    const box = el('div', 'ed-mixer');
+    const M = E.mixOf(snd);
+    const N = MIXNAME();
+    const strips = el('div', 'ed-strips');
+    const meters = {};
+    let live = false;
+    const liveMix = (bus, patch) => { if (!live) { pushReviewUndo('mixer'); live = true; } setMix(bus, patch); };
+    const liveEnd = () => { live = false; ST.saveSoon(); };
+    const fmtDb = (v) => (v <= -40 ? '−∞' : (v > 0 ? '+' : '') + (Math.round(v * 10) / 10));
+    E.MIX_BUSES.concat(['master']).forEach((b) => {
+      const S2 = b === 'master' ? M.master : M[b];
+      const st = el('div', 'ed-strip' + (MIXSEL === b ? ' sel' : '') + (b === 'master' ? ' master' : ''));
+      st.appendChild(btn('ed-sname', N[b], '', () => { MIXSEL = b; renderSound(); }));
+      const mid = el('div', 'ed-smid');
+      const mt = el('div', 'ed-smeter'); const mb = el('div', 'ed-smeter-bar'); mt.appendChild(mb); meters[b] = mb;
+      const fw = el('div', 'ed-vfader-wrap');
+      const f = el('input', 'ed-vfader'); f.type = 'range'; f.min = -40; f.max = 12; f.step = 0.5; f.value = Math.max(-40, S2.g);
+      const val = el('div', 'ed-sval', fmtDb(S2.g));
+      f.addEventListener('input', () => { const v = Number(f.value); liveMix(b, { g: v <= -40 ? -60 : v }); val.textContent = fmtDb(v); });
+      f.addEventListener('change', liveEnd);
+      f.addEventListener('dblclick', () => { f.value = 0; liveMix(b, { g: 0 }); liveEnd(); val.textContent = fmtDb(0); });
+      fw.appendChild(f);
+      mid.appendChild(mt); mid.appendChild(fw);
+      st.appendChild(mid);
+      st.appendChild(val);
+      const bt = el('div', 'ed-sbtns');
+      if (b === 'master') {
+        bt.appendChild(btn('ed-sbtn' + (M.master.limit ? ' on' : ''), 'L', tx('የደህንነት ሊሚተር፦ ድምፁ ከ−1 dB አያልፍም (አይሰነጠቅም)', 'Safety limiter: the sound never goes over −1 dB (no crackle)'),
+          () => { change('mixer', () => setMix('master', { limit: !M.master.limit })); renderSound(); }));
+      } else {
+        bt.appendChild(btn('ed-sbtn mute' + (S2.mute ? ' on' : ''), 'M', tx('ድምፀ-ከል (በመላክም)', 'Mute (also in the export)'), () => { change('mixer', () => setMix(b, { mute: !S2.mute })); renderSound(); }));
+        bt.appendChild(btn('ed-sbtn solo' + (S2.solo ? ' on' : ''), 'S', tx('ይህን ብቻ ያዳምጡ (ሲላክ ሁሉም ይሰማል)', 'Listen to this one alone (the export plays them all)'), () => { setMix(b, { solo: !S2.solo }); ST.saveSoon(); renderSound(); }));
+      }
+      st.appendChild(bt);
+      if (b !== 'master') {
+        const p = el('input', 'ed-span'); p.type = 'range'; p.min = -1; p.max = 1; p.step = 0.05; p.value = S2.pan;
+        p.title = tx('ግራ ↔ ቀኝ', 'Left ↔ right');
+        p.addEventListener('input', () => liveMix(b, { pan: Number(p.value) }));
+        p.addEventListener('change', liveEnd);
+        p.addEventListener('dblclick', () => { p.value = 0; liveMix(b, { pan: 0 }); liveEnd(); });
+        st.appendChild(p);
+      }
+      strips.appendChild(st);
+    });
+    box.appendChild(strips);
+    // the chosen strip's sound: EQ, compressor (or the master's reading)
+    const det = el('div', 'ed-sdet');
+    if (MIXSEL === 'master') {
+      const lufs = el('div', 'ed-lufs', '— LUFS');
+      det.appendChild(lufs);
+      meters._lufs = lufs;
+      det.appendChild(el('div', 'st-note', tx('ሲጫወት የሚሰማው ድምፅ መጠን (LUFS)። ሲላክ ከታች በመረጡት መጠን ይስተካከላል።', 'How loud the playing sound is (LUFS). The export is set to the loudness chosen below.')));
+    } else {
+      const S2 = M[MIXSEL];
+      det.appendChild(el('div', 'ed-hint2', N[MIXSEL] + ' · EQ'));
+      const pr = el('div', 'br-chips');
+      const names = MIXSEL === 'music' ? ['flat', 'under', 'bass'] : MIXSEL === 'voice' ? ['flat', 'clear', 'warm', 'podcast', 'radio', 'phone'] : ['flat', 'clear', 'bass', 'phone'];
+      names.forEach((k) => {
+        const P = E.MIX_PRESETS[k].v;
+        const on = ['lo', 'mid', 'hi', 'comp'].every((q) => Math.abs(S2[q] - P[q]) < 1e-6);
+        pr.appendChild(btn('br-chip' + (on ? ' on' : ''), tx(E.MIX_PRESETS[k].name[0], E.MIX_PRESETS[k].name[1]), '', () => { change('mixer', () => setMix(MIXSEL, P)); renderSound(); }));
+      });
+      det.appendChild(pr);
+      const sl = (label, key, min, max, step, show) => {
+        const row = el('div', 'ed-row');
+        row.appendChild(el('span', 'ed-lab', label));
+        const r = el('input'); r.type = 'range'; r.min = min; r.max = max; r.step = step; r.value = S2[key];
+        const v2 = el('span', 'ed-val', show(S2[key]));
+        r.addEventListener('input', () => { liveMix(MIXSEL, { [key]: Number(r.value) }); v2.textContent = show(Number(r.value)); });
+        r.addEventListener('change', liveEnd);
+        r.addEventListener('dblclick', () => { r.value = 0; liveMix(MIXSEL, { [key]: 0 }); liveEnd(); v2.textContent = show(0); });
+        row.appendChild(r); row.appendChild(v2);
+        det.appendChild(row);
+      };
+      const db = (v) => (v > 0 ? '+' : '') + Math.round(v * 10) / 10 + ' dB';
+      sl(tx('ዝቅተኛ (100 Hz)', 'Low (100 Hz)'), 'lo', -15, 15, 0.5, db);
+      sl(tx('ግልጽነት (2.5 kHz)', 'Presence (2.5 kHz)'), 'mid', -15, 15, 0.5, db);
+      sl(tx('ከፍተኛ (10 kHz)', 'Air (10 kHz)'), 'hi', -15, 15, 0.5, db);
+      sl(tx('አስተካክል (ኮምፕረሰር)', 'Even out (compressor)'), 'comp', 0, 1, 0.01, (v) => Math.round(v * 100) + '%');
+    }
+    box.appendChild(det);
+    if (!AC) box.appendChild(el('div', 'st-note', tx('▶ ሲጫወት ሜትሮቹ ይንቀሳቀሳሉ።', 'The meters move while it plays (▶).')));
+    // the meters, while the mixer is on screen
+    const peak = (an) => { an.getFloatTimeDomainData(MBUF); let pk = 0; for (let i = 0; i < an.fftSize; i++) { const a = Math.abs(MBUF[i]); if (a > pk) pk = a; } return pk > 0 ? 20 * Math.log10(pk) : -60; };
+    let lastL = 0;
+    const tickM = (now) => {
+      if (!box.isConnected) return;
+      requestAnimationFrame(tickM);
+      if (!BUS) return;
+      E.MIX_BUSES.forEach((b) => { const d = Math.max(-60, peak(BUS[b].an)); meters[b].style.height = Math.round((d + 60) / 60 * 100) + '%'; meters[b].className = 'ed-smeter-bar' + (d > -1 ? ' red' : d > -9 ? ' yel' : ''); });
+      const dm = Math.max(-60, peak(AN));
+      meters.master.style.height = Math.round((dm + 60) / 60 * 100) + '%';
+      meters.master.className = 'ed-smeter-bar' + (dm > -1 ? ' red' : dm > -9 ? ' yel' : '');
+      if (meters._lufs && KAN && now - lastL > 250) {
+        lastL = now;
+        // momentary loudness: the last 400 ms, K-weighted, both channels
+        const n = Math.min(KAN[0].fftSize, Math.round(AC.sampleRate * 0.4));
+        let s = 0;
+        KAN.forEach((a) => { a.getFloatTimeDomainData(KBUF); for (let i = KBUF.length - n; i < KBUF.length; i++) s += KBUF[i] * KBUF[i]; });
+        const l = s > 0 ? -0.691 + 10 * Math.log10(s / n) : -70;
+        meters._lufs.textContent = (playing && l > -70 ? (Math.round(l * 10) / 10) : '—') + ' LUFS';
+      }
+    };
+    requestAnimationFrame(tickM);
+    return box;
+  }
+  const MBUF = new Float32Array(1024);
+  const KBUF = new Float32Array(32768);
   function renderSound() {
     soundPane.textContent = '';
+    soundPane.appendChild(el('div', 'ed-sec', '🎚 ' + tx('ሚክሰር', 'Mixer')));
+    soundPane.appendChild(mixerEl());
     soundPane.appendChild(el('div', 'ed-sec', tx('የንግግር ድምፅ', 'Voice')));
     const cl = el('label', 'ed-check');
     const cb = el('input'); cb.type = 'checkbox'; cb.checked = !!snd.clean;
@@ -3561,7 +3742,7 @@
         soundPane.appendChild(b);
       });
     }
-    soundPane.appendChild(el('div', 'st-note', tx('ማጽዳትና loudness ሲላክ ይሠራሉ።', 'Cleaning and loudness are applied when you export.')));
+    soundPane.appendChild(el('div', 'st-note', tx('ማጽዳትና loudness ሲላክ ይሠራሉ፤ ሚክሰሩ በሚጫወትም ሲላክም ይሠራል።', 'Cleaning and loudness are applied when you export; the mixer works both while playing and in the export.')));
   }
 
   // ── 🇪🇹 Templates (1.62): the preview canvas, the gallery, ⚙ settings ──

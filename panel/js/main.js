@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.86.0';
+const APP_VERSION = '1.87.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -440,6 +440,19 @@ setTimeout(() => { if (FIRST_OPEN) track('first_open'); track('open'); }, 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.87.0': {
+    banner: {
+      am: '⬆ 🎚 የድምፅ ሚክሰር — ለንግግር፣ ለቪዲዮ፣ ለሙዚቃና ለውጤቶች የራሳቸው ድምፅ፣ EQ እና ኮምፕረሰር፤ 🎨 ፕሮ ቀለም፤ ✍ ርዕስ ስቱዲዮ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '⬆ 🎚 Audio mixer — voice, video, music and effects each with their own level, EQ and compressor; 🎨 pro colour; ✍ Title studio — your license stays the same.',
+    },
+    items: [
+      { am: '🎚 🔊 ድምፅ → ሚክሰር፦ ንግግር፣ ቪዲዮ፣ ሙዚቃ፣ ውጤቶችና ማስተር — እያንዳንዱ የራሱ ማንሸራተቻ፣ ሜትር፣ M (ድምፀ-ከል)፣ S (ብቻውን ማዳመጥ) እና ግራ ↔ ቀኝ', en: '🎚 🔊 Sound → Mixer: voice, video, music, effects and master — each with its own fader, meter, M (mute), S (listen alone) and left ↔ right' },
+      { am: 'EQ (ዝቅተኛ፣ ግልጽነት፣ ከፍተኛ) እና ኮምፕረሰር፤ ዝግጁ ድምፆች፦ ግልጽ ድምፅ፣ ሞቅ ያለ፣ ፖድካስት፣ ሬዲዮ፣ ስልክ፣ ሙዚቃ ከድምፁ ስር', en: 'EQ (low, presence, air) and a compressor; ready sounds: Clear voice, Warm, Podcast, Radio, Phone, Music under the voice' },
+      { am: 'ማስተር፦ የደህንነት ሊሚተር (አይሰነጠቅም) እና ሲጫወት የLUFS ንባብ — የሚሰሙት ልክ ሲላክ የሚሆነው ነው', en: 'Master: a safety limiter (no crackle) and a live LUFS reading — what you hear is what you export' },
+      { am: '🎨 ፕሮ ቀለም፦ LUT፣ የቀለም ጎማዎች፣ ከርቮች፣ ቀለም በቀለም፣ ስኮፖች', en: '🎨 Pro colour: LUTs, colour wheels, curves, colour by colour, scopes' },
+      { am: '✍ ርዕስ ስቱዲዮ (ማንኛውም ፊደል፣ 30 እንቅስቃሴዎች)፣ 🎬 ያለ ኪፍሬም እንቅስቃሴ፣ 4K እና ProRes መላክ', en: '✍ Title studio (any font, 30 animations), 🎬 motion with no keyframes, 4K and ProRes export' },
+    ],
+  },
   '1.86.0': {
     banner: {
       am: '⬆ 🎨 ፕሮ ቀለም — LUT፣ የቀለም ጎማዎች፣ ከርቮች፣ ቀለም በቀለም እና ስኮፖች፤ ✍ ርዕስ ስቱዲዮ፤ 🎬 ያለ ኪፍሬም እንቅስቃሴ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',

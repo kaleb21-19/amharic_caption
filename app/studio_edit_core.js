@@ -1564,11 +1564,84 @@
     if ((speech || []).some((r) => t >= r.start && t < r.end)) g *= 1 - 0.75 * Math.max(0, Math.min(1, musV(o, 'duck')));
     return g;
   }
+  // ── 🎚 Audio mixer (1.87) ─────────────────────────────────────────────
+  // Four strips — the voice (the main track), video sounds (pictures on top
+  // that have sound), music, sound effects — and the master. Each strip: a
+  // fader (dB), pan, mute, solo (listening only: the export plays every strip
+  // that is not muted), a 3-band EQ (low shelf 100 Hz, presence 2.5 kHz, high
+  // shelf 10 kHz) and a compressor ("even out"). The preview builds the same
+  // chain in Web Audio (the same biquad filters, the same pan law, the same
+  // compressor numbers) and the export in ffmpeg. snd.mix = { voice, video,
+  // music, sfx: { g, pan, mute, solo, lo, mid, hi, comp }, master: { g, limit } }
+  const MIX_BUSES = ['voice', 'video', 'music', 'sfx'];
+  const MIX_EQ = { lo: 100, mid: 2500, hi: 10000, q: 1 };
+  const MIX_PRESETS = {
+    flat: { name: ['ቀጥ', 'Flat'], v: { lo: 0, mid: 0, hi: 0, comp: 0 } },
+    clear: { name: ['ግልጽ ድምፅ', 'Clear voice'], v: { lo: -3, mid: 3, hi: 2, comp: 0.4 } },
+    warm: { name: ['ሞቅ ያለ', 'Warm'], v: { lo: 3, mid: -1, hi: -2, comp: 0.3 } },
+    radio: { name: ['ሬዲዮ', 'Radio'], v: { lo: 4, mid: 2, hi: 3, comp: 0.7 } },
+    podcast: { name: ['ፖድካስት', 'Podcast'], v: { lo: 1, mid: 2, hi: 1, comp: 0.6 } },
+    phone: { name: ['ስልክ', 'Phone'], v: { lo: -12, mid: 6, hi: -12, comp: 0.5 } },
+    under: { name: ['ከድምፁ ስር', 'Under the voice'], v: { lo: 0, mid: -5, hi: -1, comp: 0 } },
+    bass: { name: ['ባስ', 'Bass'], v: { lo: 5, mid: 0, hi: 1, comp: 0.2 } },
+  };
+  const mnum = (v, lo, hi, d) => { const n = Number(v); return v != null && Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
+  function stripOf(s) {
+    s = s || {};
+    return { g: mnum(s.g, -60, 12, 0), pan: mnum(s.pan, -1, 1, 0), mute: !!s.mute, solo: !!s.solo,
+      lo: mnum(s.lo, -15, 15, 0), mid: mnum(s.mid, -15, 15, 0), hi: mnum(s.hi, -15, 15, 0), comp: mnum(s.comp, 0, 1, 0) };
+  }
+  function mixOf(snd) {
+    const m = (snd && snd.mix) || {};
+    const out = {};
+    MIX_BUSES.forEach((b) => { out[b] = stripOf(m[b]); });
+    out.master = { g: mnum(m.master && m.master.g, -60, 12, 0), limit: !!(m.master && m.master.limit) };
+    return out;
+  }
+  const stripOn = (S) => S.mute || Math.abs(S.g) > 0.01 || Math.abs(S.pan) > 0.001 || Math.abs(S.lo) > 0.01 || Math.abs(S.mid) > 0.01 || Math.abs(S.hi) > 0.01 || S.comp > 0.001;
+  function mixerOn(snd) {
+    if (!snd || !snd.mix) return false;
+    const M = mixOf(snd);
+    return MIX_BUSES.some((b) => stripOn(M[b])) || Math.abs(M.master.g) > 0.01 || M.master.limit;
+  }
+  // the compressor: one amount (0-1) -> the numbers both sides use. The
+  // browser's compressor adds its own make-up gain ((1 / full-range gain)^0.6);
+  // the export adds exactly that.
+  function compParams(a) {
+    const thr = -10 - 14 * a, ratio = 1.5 + 2.5 * a;
+    return { thr, ratio, knee: 6, attack: 0.005, release: 0.15, makeup: -0.6 * thr * (1 - 1 / ratio) };
+  }
+  // pan: the browser's stereo panner law (equal power, the other side folded in)
+  function panGains(p) {
+    const x = p <= 0 ? p + 1 : p, gl = Math.cos(x * Math.PI / 2), gr = Math.sin(x * Math.PI / 2);
+    // [L from L, L from R, R from L, R from R]
+    return p <= 0 ? [1, gl, 0, gr] : [gl, 0, gr, 1];
+  }
+  const dbx = (db) => Math.pow(10, db / 20);
+  // one strip as ffmpeg filters ('' = nothing to do)
+  function stripChain(S) {
+    if (S.mute) return 'volume=0';
+    const f = [];
+    if (Math.abs(S.lo) > 0.01) f.push('lowshelf=f=' + MIX_EQ.lo + ':t=s:w=1:g=' + r3(S.lo));
+    if (Math.abs(S.mid) > 0.01) f.push('equalizer=f=' + MIX_EQ.mid + ':t=q:w=' + MIX_EQ.q + ':g=' + r3(S.mid));
+    if (Math.abs(S.hi) > 0.01) f.push('highshelf=f=' + MIX_EQ.hi + ':t=s:w=1:g=' + r3(S.hi));
+    if (S.comp > 0.001) {
+      const c = compParams(S.comp);
+      f.push('acompressor=threshold=' + r3(dbx(c.thr)) + ':ratio=' + r3(c.ratio) + ':attack=' + r3(c.attack * 1000) + ':release=' + r3(c.release * 1000) +
+        ':knee=2.5:detection=peak:link=maximum:makeup=' + r3(Math.max(1, dbx(c.makeup))));
+    }
+    if (Math.abs(S.pan) > 0.001) { const p = panGains(S.pan).map(r3); f.push('pan=stereo|c0=' + p[0] + '*c0+' + p[1] + '*c1|c1=' + p[2] + '*c0+' + p[3] + '*c1'); }
+    if (Math.abs(S.g) > 0.01) f.push('volume=' + r3(S.g) + 'dB');
+    return f.join(',');
+  }
   // the audio after the voice [vin]: clean, music (ducked by the voice), loudness -> [a]
-  function soundChain(parts, vin, totalLen, media, mus, snd, sfx) {
+  // (1.87: with the mixer on, each kind of sound is its own strip, then the master)
+  function soundChain(parts, vin, totalLen, media, mus, snd, sfx, ovb) {
     snd = snd || {};
+    const MX = mixerOn(snd) ? mixOf(snd) : null;
     let v = vin;
     if (snd.clean) { parts.push('[' + v + ']highpass=f=80,afftdn=nr=12:nf=-40[vcl]'); v = 'vcl'; }
+    if (MX && stripChain(MX.voice)) { parts.push('[' + v + ']' + stripChain(MX.voice) + '[vst]'); v = 'vst'; }
     const list = (mus || []).filter((o) => media[o.m] && media[o.m].audio && o.start < totalLen && ovLen(o) > 0);
     const ducked = list.filter((o) => musV(o, 'duck') > 0);
     let keys = [];
@@ -1578,6 +1651,7 @@
       v = 'vmain';
     }
     const mix = ['[' + v + ']'];
+    const busIn = { video: [], music: [], sfx: [] };
     list.forEach((o, k) => {
       const m = media[o.m];
       const d = r3(Math.min(ovLen(o), totalLen - o.start));
@@ -1593,20 +1667,37 @@
         // one, mixed with the music by the duck amount (0.7 = about -7 dB under steady talk)
         parts.push(f + '[mu' + k + ']');
         parts.push('[mu' + k + '][' + keys[di] + ']sidechaincompress=threshold=0.01:ratio=20:attack=20:release=800:mix=' + r3(Math.min(1, musV(o, 'duck'))) + '[md' + k + ']');
-        mix.push('[md' + k + ']');
+        busIn.music.push('[md' + k + ']');
       } else {
         parts.push(f + '[md' + k + ']');
-        mix.push('[md' + k + ']');
+        busIn.music.push('[md' + k + ']');
       }
     });
     // 🔊 the sound effects (1.65): each its own input, at its time, not ducked
     (sfx || []).forEach((x, k) => {
       const ms = Math.round(x.t * 1000);
       parts.push('[' + x.idx + ':a]aresample=48000,aformat=channel_layouts=stereo,volume=' + r3(x.vol) + ',adelay=' + ms + '|' + ms + ',apad[sx' + k + ']');
-      mix.push('[sx' + k + ']');
+      busIn.sfx.push('[sx' + k + ']');
     });
+    if (MX) {
+      // 🎚 each kind of sound: mixed together, then through its strip
+      if (ovb) busIn.video.push('[' + ovb + ']');
+      ['video', 'music', 'sfx'].forEach((b) => {
+        const ins = busIn[b];
+        if (!ins.length) return;
+        const ch = stripChain(MX[b]);
+        if (ins.length === 1 && !ch) { mix.push(ins[0]); return; }
+        parts.push(ins.join('') + (ins.length > 1 ? 'amix=inputs=' + ins.length + ':duration=longest:normalize=0' + (ch ? ',' + ch : '') : ch) + '[bus_' + b + ']');
+        mix.push('[bus_' + b + ']');
+      });
+    } else mix.push.apply(mix, busIn.music.concat(busIn.sfx));
     const lo = LOUD[snd.loud];
     let tail = lo ? ',loudnorm=I=' + lo + ':TP=-1.5:LRA=11,aresample=48000' : '';
+    if (MX) {
+      // the master: its fader before the loudness target; the safety limiter last
+      if (Math.abs(MX.master.g) > 0.01) tail = ',volume=' + r3(MX.master.g) + 'dB' + tail;
+      if (MX.master.limit) tail += ',alimiter=limit=' + r3(dbx(-1)) + ':attack=1:release=100:level=false';
+    }
     if (mix.length > 1) parts.push(mix.join('') + 'amix=inputs=' + mix.length + ':duration=first:normalize=0' + tail + '[a]');
     else parts.push('[' + v + ']' + (tail ? tail.slice(1) : 'anull') + '[a]');
   }
@@ -1957,7 +2048,8 @@
     });
     const list = (ovl || []).filter((o) => media[o.m] && o.start < total(clips) && ovLen(o) > 0);
     const vOut = opts.ass ? 'vx' : 'v';
-    const soundOn = (opts.mus || []).some((o) => media[o.m]) || (opts.snd && (opts.snd.clean || LOUD[opts.snd.loud])) || (opts.sfx || []).length > 0;
+    const soundOn = (opts.mus || []).some((o) => media[o.m]) || (opts.snd && (opts.snd.clean || LOUD[opts.snd.loud])) || (opts.sfx || []).length > 0 || mixerOn(opts.snd);
+    let ovb = null;                       // 🎚 the pictures' own sounds, as one strip (1.87)
     const aOut = soundOn ? 'av' : 'a';
     const vFinal = list.length ? 'vm' : vOut, aEnd = list.length ? 'am' : aOut;
     // 🔍 zooms (1.60): on the main track only, before the overlays and text
@@ -2042,10 +2134,14 @@
           mix.push('[oa' + k + ']');
         }
       });
-      if (mix.length > 1) parts.push(mix.join('') + 'amix=inputs=' + mix.length + ':duration=first:normalize=0[' + aOut + ']');
+      if (mix.length > 1 && mixerOn(opts.snd)) {
+        ovb = 'ovb';
+        parts.push(mix.slice(1).join('') + (mix.length > 2 ? 'amix=inputs=' + (mix.length - 1) + ':duration=longest:normalize=0' : 'anull') + '[ovb]');
+        parts.push('[am]anull[' + aOut + ']');
+      } else if (mix.length > 1) parts.push(mix.join('') + 'amix=inputs=' + mix.length + ':duration=first:normalize=0[' + aOut + ']');
       else parts.push('[am]anull[' + aOut + ']');
     }
-    if (soundOn) soundChain(parts, aOut, total(clips), media, opts.mus, opts.snd || {}, opts.sfx);
+    if (soundOn) soundChain(parts, aOut, total(clips), media, opts.mus, opts.snd || {}, opts.sfx, ovb);
     // opts.ass: one script or several (the text track, then the captions on top)
     if (opts.ass) parts.push('[vx]' + [].concat(opts.ass).map((a) => 'subtitles=' + a + ':fontsdir=fonts').join(',') + ',format=yuv420p[v]');
     return { graph: parts.join(';'), w: W, h: H, duration: total(clips) };
@@ -2055,6 +2151,7 @@
     words, deriveCaptions, syncBack, FORMATS, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
     TFONTS, TPRESETS, assColor, textAnchor, textAss, setFontInfo, fontInfo, textSize, addFont, fontFacts,
     TITLE_ANIMS, TITLE_LOOKS, TITLE_BG, titleOf, titleLook, LOUD, MUS_DEFAULT, musicGain,
+    MIX_BUSES, MIX_EQ, MIX_PRESETS, stripOf, mixOf, mixerOn, compParams, panGains, stripChain,
     PRESETS, presetFor, GPU_ENCODERS, encoderArgs, eta, EXPORT_KINDS, KIND_NEEDS, HEVC_GPU, sizeEstimate,
     MO_EASES, MO_PRESETS, moOf, moAt, moEase, moPreset, moPerspective,
     speedOf: sp, clipLen, cropOf, rotOf, tiltOf, picOn, picDims, tiltScale, picFilter, picCss, cropToFile, cropToView, RAMPS, rampPieces, unRamp, trackedState, SFX, SFX_LEN, SFX_LEAD, sfxEvents, RF_PACE, rfWindow, rfTrack, rfAt, rfPlace, rfExpr, rfOn, TEMPLATES, TPL_GROUPS, HOLIDAYS, TPL_SPEED, tplOf, tplLayers, tplState, tplAss, setMeasure, tplFade: fadeOut, OV_LAYOUTS, OV_ANIMS, OV_MOTION, ovLook, ovBox, ovAnim, ovChain, ovPos, ZOOM_STYLES, ZOOM_SPEED, ZOOM_DEFAULT, zoomEnv, zoomRect, zoomExprs, zoomFilter, TRANSITIONS, trDur, atempo, LOOKS, colorMatrix, colorOn, colorFilter,
