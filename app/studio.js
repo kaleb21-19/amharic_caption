@@ -655,8 +655,10 @@
   };
   function currentProject() {
     const c = chosenVideo();
-    if (!c || typeof reviewCues === 'undefined' || !reviewCues.length) return null;
+    if (!c || typeof reviewCues === 'undefined') return null;
     const ed = editor ? editor.saveState() : null;
+    // 1.88: an edit without captions is a project too
+    if (!reviewCues.length && !(ed && ed.clips && ed.clips.length)) return null;
     return S.makeProject({ video: c.path, name: c.name, title: projTitle, done: projDone, duration: dur(), edit: ed, style: typeof STYLE !== 'undefined' ? STYLE : 'plain',
       styleOpts: typeof styleOpts === 'function' && typeof STYLE !== 'undefined' ? styleOpts(STYLE) : null, cues: reviewCues,
       group: groupUnknown || typeof CAP === 'undefined' ? null : { n: CAP === 'words' ? 1 : GROUP_SIZE, fmt: FORMAT },
@@ -969,7 +971,8 @@
     const info = el('div', 'st-pmeta');
     const nameEl = el('b', '', p.title || p.name || S.projectFileName(p.video));
     info.appendChild(nameEl);
-    info.appendChild(el('span', '', p.cues.length + ' ' + tx('ካፕሽኖች', 'captions') + ' · ' + libAgo(p.at || 0)));
+    const nClips = p.edit && Array.isArray(p.edit.clips) ? p.edit.clips.length : 0;
+    info.appendChild(el('span', '', (p.cues.length ? p.cues.length + ' ' + tx('ካፕሽኖች', 'captions') : '✂ ' + nClips + ' ' + tx('ክሊፕ', nClips === 1 ? 'clip' : 'clips')) + ' · ' + libAgo(p.at || 0)));
     if (p._hit && p._hit.by === 'words') {
       const q = el('span', 'st-lib-hit', '“' + p._hit.text.slice(0, 90) + '”');
       info.appendChild(q);
@@ -1083,13 +1086,28 @@
 
   // ── drop a video → the work starts (or its project opens) ─────────────
   let running = false;
+  // 1.88: the Studio is an editor first. A chosen video opens straight in the
+  // editor (nothing is transcribed); 📝 Transcribe in the text column makes
+  // the captions when the editor wants them (Premiere users make theirs in
+  // the panel). A project of its own is opened as it was left.
   window.__amhOnChosen = (c) => {
     if (!c || running || reviewOpen) return;
     const p = projectFor(c.path);
-    if (p && p.cues.length) { openProject(p); return; }
+    if (p && (p.cues.length || (p.edit && Array.isArray(p.edit.clips) && p.edit.clips.length))) { openProject(p); return; }
     projDone = null; projTitle = '';
-    startTranscribe();
+    openNew(c);
   };
+  async function openNew(c) {
+    running = true;
+    try {
+      if (typeof lastCues !== 'undefined') lastCues = [];
+      const tmp = path.join(os.tmpdir(), 'amh_review_studio_' + Date.now() + '.srt');
+      fs.writeFileSync(tmp, '', { encoding: 'utf8' });
+      await openReview(tmp, c.name, 0, { projectId: c.name });
+      reviewCues = [];
+    } finally { running = false; }
+  }
+  window.__amhOpenLicense = () => openLicense();
   function startTranscribe() {
     const run = $('runBtn');
     if (!run || run.disabled) return;

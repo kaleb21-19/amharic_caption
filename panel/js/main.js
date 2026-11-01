@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.87.0';
+const APP_VERSION = '1.88.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -440,6 +440,18 @@ setTimeout(() => { if (FIRST_OPEN) track('first_open'); track('open'); }, 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.88.0': {
+    banner: {
+      am: '⬆ ስቱዲዮው አሁን በቀጥታ ኤዲተር ነው — ቪዲዮና ምስል ያስገቡ፣ ወዲያው ኤዲት ያድርጉ፣ ካፕሽን ሲፈልጉ 📝 ጽሑፍ ይስሩ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '⬆ The Studio is now an editor straight away — bring in videos and pictures, edit at once, 📝 Transcribe when you want captions — your license stays the same.',
+    },
+    items: [
+      { am: 'ቪዲዮ ሲያስገቡ ኤዲተሩ ወዲያው ይከፈታል — ጽሑፍ እስኪሰራ መጠበቅ የለም', en: 'A video opens straight in the editor — no waiting for a transcription' },
+      { am: 'ብዙ ፋይሎችን በአንድ ጊዜ ይጎትቱ፦ ቪዲዮዎች በዋናው መስመር፣ ምስሎች ከላይ፣ ድምፆች እንደ ሙዚቃ', en: 'Drop many files at once: videos on the main track, pictures on top, sounds as music' },
+      { am: '📝 ጽሑፍ ይስሩ (Transcribe)፦ ካፕሽን ሲፈልጉ ብቻ — ኤዲቲንጉ እያለ ይሰራል፣ ኤዲቱን አይነካም', en: '📝 Transcribe: only when you want captions — it works while you edit and never touches the edit' },
+      { am: '🎚 የድምፅ ሚክሰር፣ 🎨 ፕሮ ቀለም፣ ✍ ርዕስ ስቱዲዮ፣ 🎬 ያለ ኪፍሬም እንቅስቃሴ', en: '🎚 Audio mixer, 🎨 pro colour, ✍ Title studio, 🎬 motion with no keyframes' },
+    ],
+  },
   '1.87.0': {
     banner: {
       am: '⬆ 🎚 የድምፅ ሚክሰር — ለንግግር፣ ለቪዲዮ፣ ለሙዚቃና ለውጤቶች የራሳቸው ድምፅ፣ EQ እና ኮምፕረሰር፤ 🎨 ፕሮ ቀለም፤ ✍ ርዕስ ስቱዲዮ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -2687,7 +2699,10 @@ function renderFreeMinBox() {
   // 1.77.1: a new computer starts by pressing Make captions — not Telegram.
   const first = st === 'none' && !TRIAL_WAIT && TRIAL_MIN.starterMinutes > 0 ? TRIAL_MIN.starterMinutes : 0;
   box.classList.toggle('fm-first', !!first);
-  if (title && first) title.textContent = L('Free: press Make captions — the first ' + first + ' minutes start right here');
+  // 1.88: in the Studio, captions are made from the editor (📝 Transcribe)
+  const studioUi = typeof document !== 'undefined' && document.documentElement.classList.contains('amh-studio');
+  if (title && first) title.textContent = studioUi ? L('Free: the first ' + first + ' minutes of 📝 Transcribe in the editor are right here')
+    : L('Free: press Make captions — the first ' + first + ' minutes start right here');
   const note = document.getElementById('freeMinNote');
   if (note) note.textContent = first ? L('Then ' + Math.max(1, trialMinutes() - first) + ' more free minutes in Telegram — one tap.') : '';
   const btn = document.getElementById('freeMinBtn');

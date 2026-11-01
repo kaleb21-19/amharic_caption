@@ -632,6 +632,7 @@ const AM_PATTERNS = [
   [/^✓ Updated to ([\d.]+)\. Close (Premiere Pro|After Effects) and open it again\.$/, '✓ ወደ $1 ተሻሽሏል። $2ን ዘግተው እንደገና ይክፈቱት።'],
   [/^Version ([\d.]+) needs the full download\.$/, 'ስሪት $1 ሙሉውን ማውረድ ይፈልጋል።'],
   [/^Free: press Make captions — the first (\d+) minutes start right here$/, 'ነጻ፦ «ካፕሽን ፍጠር»ን ይጫኑ — የመጀመሪያዎቹ $1 ደቂቃዎች እዚሁ ይጀምራሉ'],
+  [/^Free: the first (\d+) minutes of 📝 Transcribe in the editor are right here$/, 'ነጻ፦ በኤዲተሩ ውስጥ የ📝 ጽሑፍ ይስሩ የመጀመሪያዎቹ $1 ደቂቃዎች እዚሁ ናቸው'],
   [/^Then (\d+) more free minutes in Telegram — one tap\.$/, 'ከዚያ $1 ተጨማሪ ነጻ ደቂቃዎች በቴሌግራም — በአንድ ንክኪ።'],
   [/^🎁 Get (\d+) more free minutes$/, '🎁 $1 ተጨማሪ ነጻ ደቂቃ ያግኙ'],
   [/^🎁 Get (\d+) more free minutes — 1 tap$/, '🎁 $1 ተጨማሪ ነጻ ደቂቃ ያግኙ — 1 ንክኪ'],

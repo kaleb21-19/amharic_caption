@@ -76,6 +76,7 @@
     box.appendChild(bar);            // the selection bar lives in the script
     bar.style.display = 'none';
     spans = [];
+    capCardTo(box);
     if (!words.length) return;
     // per caption: where its ★, ✂, doubtful and fixed words are (characters)
     const info = cues.map((c) => {
@@ -129,6 +130,48 @@
   }
   let renderT = 0;
   function renderSoon() { clearTimeout(renderT); renderT = setTimeout(render, 30); }
+  window.__amhScriptRender = () => renderSoon();
+  // 📝 1.88: no captions yet: transcribe when you want (editing works without)
+  let capTick = 0;
+  function capCardTo(into) {
+    const ed = editor();
+    const st = ed && ed.capCard ? ed.capCard() : null;
+    clearTimeout(capTick);
+    if (!st) return;
+    const card = el('div', 'st-capcard');
+    if (st.state === 'idle') {
+      card.appendChild(el('div', 'st-capcard-t', '📝 ' + tx('ካፕሽን ገና የለም', 'No captions yet')));
+      card.appendChild(el('div', 'st-capcard-s', tx('ኤዲቲንግ ያለ ካፕሽን ይሰራል። የተነገረውን ወደ አማርኛ ጽሑፍ ለመቀየር ሲፈልጉ ይጫኑ — ከዚያ በቃላቱ ኤዲት ማድረግና ካፕሽን መጨመር ይችላሉ።',
+        'Editing works without captions. When you want the speech as Amharic text, press this — then you can edit by the words and add captions.')));
+      const b = el('button', 'st-btn primary st-capcard-b', '📝 ' + tx('ጽሑፍ ይስሩ (Transcribe)', 'Transcribe'));
+      b.type = 'button';
+      b.addEventListener('click', () => { ed.transcribeAll(); });
+      card.appendChild(b);
+    } else if (st.state === 'run') {
+      const sec = Math.round((Date.now() - st.t0) / 1000);
+      card.appendChild(el('div', 'st-capcard-t', '⏳ ' + tx('ጽሑፍ እየተሰራ ነው…', 'Transcribing…') + (st.n > 1 ? ' ' + (st.done + 1) + '/' + st.n : '') + ' · ' + Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0')));
+      card.appendChild(el('div', 'st-capcard-s', tx('ኤዲቲንጉን መቀጠል ይችላሉ — ሲያልቅ ጽሑፉ እዚህ ይመጣል።', 'Keep editing — the text comes here when it is done.')));
+      capTick = setTimeout(renderSoon, 1000);
+    } else if (st.state === 'model') {
+      const tot = typeof MODEL_TOTAL_BYTES !== 'undefined' ? MODEL_TOTAL_BYTES : 0, got = typeof MODEL_UI !== 'undefined' ? Number(MODEL_UI.done) || 0 : 0;
+      card.appendChild(el('div', 'st-capcard-t', '⬇ ' + tx('የአማርኛ ሞዴሉ እየወረደ ነው (አንድ ጊዜ ብቻ)', 'Downloading the Amharic model (one time only)') + (tot ? ' · ' + Math.min(100, Math.round(got / tot * 100)) + '%' : '')));
+      card.appendChild(el('div', 'st-capcard-s', tx('ሲያልቅ ጽሑፉ በራሱ ይጀምራል። ኤዲቲንጉን መቀጠል ይችላሉ።', 'The text starts by itself when it is ready. Keep editing meanwhile.')));
+      capTick = setTimeout(renderSoon, 1000);
+    } else {
+      card.appendChild(el('div', 'st-capcard-t', '⚠ ' + (st.msg || tx('ጽሑፍ አልተሰራም።', 'The text was not made.'))));
+      const row = el('div', 'st-capcard-r');
+      const again = el('button', 'st-btn primary', '📝 ' + tx('እንደገና ይሞክሩ', 'Try again')); again.type = 'button';
+      again.addEventListener('click', () => { ed.transcribeAll(); });
+      row.appendChild(again);
+      if (/minutes|ደቂቃ|license|ፈቃድ/i.test(st.msg || '') && window.__amhOpenLicense) {
+        const lic = el('button', 'st-btn', '🔑 ' + tx('ፈቃድ ያግኙ', 'Get a license')); lic.type = 'button';
+        lic.addEventListener('click', () => window.__amhOpenLicense());
+        row.appendChild(lic);
+      }
+      card.appendChild(row);
+    }
+    into.appendChild(card);
+  }
   if (list) new MutationObserver(renderSoon).observe(list, { childList: true });
 
   // ── click / select ─────────────────────────────────────────────────────
