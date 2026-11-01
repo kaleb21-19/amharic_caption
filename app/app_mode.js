@@ -44,9 +44,13 @@
     drop.innerHTML = shown
       ? '<div class="app-drop-icon">🎬</div><div class="app-drop-name"></div>' +
         '<div class="app-drop-sub">' + tx('ሌላ ቪዲዮ ለመምረጥ እዚህ ይጫኑ ወይም ይጎትቱ', 'Click or drop another video to change') + '</div>'
-      : '<div class="app-drop-icon">⬇</div><div class="app-drop-title">' +
-        tx('ቪዲዮዎን እዚህ ይጎትቱ', 'Drag your video here') + '</div><div class="app-drop-sub">' +
-        tx('ወይም ለመምረጥ ይጫኑ', 'or click to choose a file') + '</div>';
+      : document.documentElement.classList.contains('amh-studio')
+        ? '<div class="app-drop-icon">⬇</div><div class="app-drop-title">' +
+          tx('ቪዲዮዎችንና ምስሎችን እዚህ ይጎትቱ — ኤዲቲንግ ይጀምሩ', 'Drop your videos and pictures here — start editing') + '</div><div class="app-drop-sub">' +
+          tx('ወይም ቪዲዮ ለመምረጥ ይጫኑ · ካፕሽን ሲፈልጉ በኤዲተሩ ውስጥ 📝 ጽሑፍ ይስሩ', 'or click to choose a video · captions when you want them: 📝 Transcribe in the editor') + '</div>'
+        : '<div class="app-drop-icon">⬇</div><div class="app-drop-title">' +
+          tx('ቪዲዮዎን እዚህ ይጎትቱ', 'Drag your video here') + '</div><div class="app-drop-sub">' +
+          tx('ወይም ለመምረጥ ይጫኑ', 'or click to choose a file') + '</div>';
     if (shown) drop.querySelector('.app-drop-name').textContent = chosen.name;
     drop.classList.toggle('has-file', !!shown);
     const run = $('runBtn');

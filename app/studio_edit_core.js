@@ -1025,7 +1025,14 @@
     const preset = TPRESETS[t.preset] ? t.preset : 'plain';
     return Math.round(H * (Number(t.size) || TPRESETS[preset].size) * fontInfo(t.font).scale);
   }
-  function textAss(items, W, H, totalLen) {
+  // the free version's small tag in the top corner (amh_styles.py _tag_line)
+  const TAG_TEXT = 'Amharic Captions Pro';
+  function tagLine(W, H, end) {
+    const size = Math.max(12, Math.round(Math.min(W, H) * 0.028));
+    return 'Dialogue: 99,' + assTime(0) + ',' + assTime(end) + ',T,,0,0,0,,{\\an9\\pos(' + (W - Math.round(W * 0.03)) + ',' + Math.round(H * 0.03) + ')\\fs' + size +
+      '\\bord' + (Math.round(size * 0.8) / 10) + '\\shad0\\b0\\1c&H00FFFFFF&\\3c&H00000000&\\alpha&H30&\\fnNoto Sans Ethiopic}' + TAG_TEXT;
+  }
+  function textAss(items, W, H, totalLen, opts) {
     const head = ['[Script Info]', 'ScriptType: v4.00+', 'PlayResX: ' + W, 'PlayResY: ' + H, 'WrapStyle: 0', 'ScaledBorderAndShadow: yes', '',
       '[V4+ Styles]',
       'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
@@ -1072,6 +1079,7 @@
         line('T', '\\an5\\fn' + fn + '\\fs' + fs + '\\c' + col + '\\bord' + (preset === 'title' ? 5 : 3) + '\\shad2' + fx(a.x, a.y), t.text);
       }
     });
+    if (opts && opts.tag && totalLen > 0) ev.push(tagLine(W, H, totalLen));
     return head.concat(ev).join('\n') + '\n';
   }
 

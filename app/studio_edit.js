@@ -2396,14 +2396,65 @@
     renderMedia();
   }
 
+  // 📝 1.88: captions when the editor asks for them — each file of the main
+  // track that has sound and no captions yet, one after the other (the same
+  // engine, license and free minutes as before; the edit is never touched)
+  let capAll = null;          // { state: 'run' | 'model' | 'err', msg, t0 }
+  async function transcribeAll() {
+    if (capAll && (capAll.state === 'run' || capAll.state === 'model')) return;
+    const ids = [];
+    clips.forEach((c) => { const m = media[c.m]; if (m && m.audio && !m.image && !(SRC[c.m] || []).length && ids.indexOf(c.m) < 0) ids.push(c.m); });
+    if (!ids.length) { capAll = { state: 'err', msg: tx('በዚህ ኤዲት ውስጥ ድምፅ ያለው ቪዲዮ የለም።', 'There is no video with sound in this edit.') }; capSoon(); return; }
+    capAll = { state: 'run', t0: Date.now(), n: ids.length, done: 0 };
+    capSoon();
+    for (const id of ids) {
+      // the Amharic model downloads first (one time): wait for it, then go on
+      if (typeof MODEL_MISSING !== 'undefined' && MODEL_MISSING) {
+        capAll = Object.assign({}, capAll, { state: 'model' });
+        capSoon();
+        if (typeof modelReadyForRun === 'function') modelReadyForRun(null);
+        while (typeof MODEL_MISSING !== 'undefined' && MODEL_MISSING) {
+          await new Promise((r) => setTimeout(r, 1500));
+          capSoon();
+          if (!review.classList.contains('show')) { capAll = null; return; }
+        }
+        capAll = Object.assign({}, capAll, { state: 'run', t0: Date.now() });
+        capSoon();
+      }
+      await makeCaptions(id);
+      const j = CAPJOBS[id] || {};
+      if (j.err && !(SRC[id] || []).length && ids.length === 1) { capAll = { state: 'err', msg: j.err }; capSoon(); return; }
+      capAll = Object.assign({}, capAll, { done: capAll.done + 1 });
+      capSoon();
+    }
+    capAll = null;
+    capSoon();
+  }
+  const capSoon = () => { if (window.__amhScriptRender) window.__amhScriptRender(); };
+  // what the 📝 card shows: null = nothing to show (there are captions)
+  function capCard() {
+    if (!built) return null;
+    const words = ((typeof reviewCues !== 'undefined' && reviewCues) || []).some((q) => String(q.text || '').trim());
+    if (words && !capAll) return null;
+    return capAll || { state: 'idle' };
+  }
+
   // a video dropped while editing joins the project (never replaces it)
   const origDropped = window.__amhDropped;
+  const IMG = /\.(png|jpe?g|webp|gif|bmp)$/i;
+  let pendingFiles = [];
   window.__amhDropped = (paths) => {
     if (typeof reviewOpen !== 'undefined' && reviewOpen && built) {
       (paths || []).reduce((pr, p) => pr.then(() => addToMedia(p)), Promise.resolve());
       return;
     }
-    if (origDropped) origDropped(paths);
+    // 1.88: several files on the home: the first video opens the edit, the
+    // others join it in their order (videos on the main track, pictures on top)
+    const list = (paths || []).slice();
+    const first = list.find((p) => !IMG.test(p));
+    if (!first) { log(tx('በቪዲዮ ይጀምሩ — ምስሎቹን ከዚያ ይጨምሩ።', 'Start with a video — then add the pictures.')); return; }
+    pendingFiles = list.filter((p) => p !== first);
+    if (origDropped) origDropped([first]);
   };
 
   // ── ⚙ Clip (right) ──────────────────────────────────────────────────────
@@ -4610,13 +4661,15 @@
         try { fs.copyFileSync(src, dst); made.push(dst); } catch (e) {}
       });
     };
+    // 1.88: the free version's small tag also when there are no styled captions
+    const tagHere = typeof LICENSED !== 'undefined' && !LICENSED && !(job.caps && job.caps.tag);
     try {
       // 🎨 1.86: each pro grade's table (the preview's own numbers)
       const grades = E.gradeFiles(st.clips);
       if (grades.length) { folder(); grades.forEach((gf) => { const p2 = path.join(cwd, gf.name); fs.writeFileSync(p2, gf.text, { encoding: 'utf8' }); made.push(p2); }); }
-      if (shown.length) {
+      if (shown.length || tagHere) {
         folder();
-        fs.writeFileSync(path.join(cwd, 't.ass'), E.textAss(shown, W, H, tot), { encoding: 'utf8' });
+        fs.writeFileSync(path.join(cwd, 't.ass'), E.textAss(shown, W, H, tot, { tag: tagHere }), { encoding: 'utf8' });
         made.push(path.join(cwd, 't.ass')); ass.push('t.ass');
       }
       if (job.caps && typeof renderStyled === 'function') {
@@ -4817,6 +4870,10 @@
     renderReview();
     await seek(0);
     after(); renderMedia(); syncUndo();
+    // the other files dropped with it
+    const more = pendingFiles; pendingFiles = [];
+    for (const p of more) { try { await addAndPlace(p); } catch (e) {} }
+    if (more.length) { await seek(0); after(); }
     setTimeout(() => maybeGuide(false), 600);
   }
   function saveState() {
@@ -4899,5 +4956,5 @@
     queueExports, stopExport, clearDone, detectGpu, gpuName: (e) => GPU_NAMES[e] || '', queue: () => QUEUE, onQueue: (f) => qWatch.push(f),
     setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } });
   window.__amhEditor = { renderJob, snapshot, open, copySel, paste, duplicate, togglePick, selected, state: () => ({ clips, ovl, txt, mus, snd, zm, media, SRC, fmt, sel, built }), addOverlay, addText, addZoom, autoZooms, addBroll, brollPicker, findFaces, followFaces, frameClips, useSoundFolder, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, moveRange, total, redo,
-    select: (id) => { sel = id; picks = []; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, insertFound, startCrop, endCrop, cropState: () => cropEdit, setCropView: (v) => { if (cropEdit) { cropEdit.v = v; frame(); } }, freezeFrame, reverseClip, rampClip, guide: () => maybeGuide(true), queueExports, kinds, queue: () => QUEUE, markedPart, toggleMarker, markIO, clearIO, setShuttle, markers: () => mk, addToMedia, findFile, missingFiles, checkFiles, render, exportVideo, frame, setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } };
+    select: (id) => { sel = id; picks = []; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, transcribeAll, capCard, insertFound, startCrop, endCrop, cropState: () => cropEdit, setCropView: (v) => { if (cropEdit) { cropEdit.v = v; frame(); } }, freezeFrame, reverseClip, rampClip, guide: () => maybeGuide(true), queueExports, kinds, queue: () => QUEUE, markedPart, toggleMarker, markIO, clearIO, setShuttle, markers: () => mk, addToMedia, findFile, missingFiles, checkFiles, render, exportVideo, frame, setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } };
 })();

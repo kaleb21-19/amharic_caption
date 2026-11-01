@@ -850,4 +850,12 @@ test('1.87 Audio mixer: voice / video / music / effects strips and the master â€
   Object.keys(E.MIX_PRESETS).forEach((k) => { const v = E.MIX_PRESETS[k].v; assert.deepStrictEqual(E.stripOf(v).lo, v.lo, k); });
 });
 
+test('1.88 editor first: the free version\'s small tag on an export without captions (the same place and size as the caption styles\' tag)', () => {
+  const a = E.textAss([], 1920, 1080, 12, { tag: true });
+  const line = a.split('\n').find((x) => x.includes('Amharic Captions Pro'));
+  assert.ok(line && line.startsWith('Dialogue: 99,0:00:00.00,0:00:12.00,T,') && line.includes('\\an9\\pos(1862,32)\\fs30'), line);
+  assert.ok(!E.textAss([], 1920, 1080, 12).includes('Amharic Captions Pro'), 'licensed: none');
+  assert.ok(!E.textAss([], 1920, 1080, 12, { tag: false }).includes('Amharic Captions Pro'));
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');

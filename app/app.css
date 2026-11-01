@@ -842,3 +842,10 @@ html.amh-studio .st-pick { display: none; }
 .ed-span { width: 100%; max-width: 54px; }
 .ed-sdet { margin-top: 8px; }
 .ed-lufs { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; margin: 4px 0; }
+
+/* 1.88 editor first: the 📝 Transcribe card */
+.st-capcard { margin: 14px 10px; padding: 14px; border-radius: 10px; border: 1px dashed #2f5a45; background: #111a16; }
+.st-capcard-t { font-weight: 700; margin-bottom: 6px; }
+.st-capcard-s { font-size: var(--font-s); color: var(--text-secondary); line-height: 1.55; margin-bottom: 10px; }
+.st-capcard-b { width: 100%; }
+.st-capcard-r { display: flex; gap: 6px; flex-wrap: wrap; }
