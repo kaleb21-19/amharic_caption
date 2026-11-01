@@ -818,3 +818,27 @@ html.amh-studio .st-pick { display: none; }
 .ed-hsl-dot.set { box-shadow: 0 0 0 2px #2ECC71; }
 .ed-scopes { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
 .ed-scope { border-radius: 4px; background: #0b100e; }
+
+/* 1.87 audio mixer */
+.ed-mixer { margin: 4px 0 10px; }
+.ed-strips { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+.ed-strip { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 2px; border-radius: 6px; background: #121916; border: 1px solid #1f2a25; min-width: 0; }
+.ed-strip.sel { border-color: #2ECC71; }
+.ed-strip.master { background: #16201c; }
+.ed-sname { font-size: 11px; background: none; border: 0; color: inherit; cursor: pointer; padding: 0 2px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-smid { display: flex; gap: 4px; align-items: stretch; height: 120px; }
+.ed-smeter { position: relative; width: 6px; height: 100%; background: #0b100e; border-radius: 3px; overflow: hidden; }
+.ed-smeter-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: #34c784; transition: height 60ms linear; }
+.ed-smeter-bar.yel { background: #f2c94c; }
+.ed-smeter-bar.red { background: #ff5a5a; }
+.ed-vfader-wrap { position: relative; width: 22px; height: 100%; }
+.ed-vfader { position: absolute; width: 120px; left: -49px; top: 49px; transform: rotate(-90deg); margin: 0; }
+.ed-sval { font-size: 10px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.ed-sbtns { display: flex; gap: 3px; }
+.ed-sbtn { width: 20px; height: 18px; padding: 0; font-size: 10px; font-weight: 700; border-radius: 3px; border: 1px solid #2a3631; background: #151c19; color: var(--text-secondary); cursor: pointer; }
+.ed-sbtn.mute.on { background: #c0392b; color: #fff; border-color: #c0392b; }
+.ed-sbtn.solo.on { background: #f2c94c; color: #111; border-color: #f2c94c; }
+.ed-sbtn.on { background: #2ECC71; color: #111; border-color: #2ECC71; }
+.ed-span { width: 100%; max-width: 54px; }
+.ed-sdet { margin-top: 8px; }
+.ed-lufs { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; margin: 4px 0; }

@@ -811,4 +811,43 @@ test('1.86 Pro colour: one table for the preview and the export; light, LUT, whe
   E.setLut('inv.cube', null);
 });
 
+test('1.87 Audio mixer: voice / video / music / effects strips and the master — the same EQ, pan and compressor in the preview and the export', () => {
+  // nothing set: the sound graph is exactly as before
+  assert.strictEqual(E.mixerOn({}), false);
+  assert.strictEqual(E.mixerOn({ mix: { voice: { g: 0, pan: 0 } } }), false, 'all at zero = off');
+  const media = { v: { idx: 0, w: 1920, h: 1080, video: true, audio: true }, b: { idx: 1, w: 1280, h: 720, video: true, audio: true }, mu: { idx: 2, audio: true } };
+  const clips = [{ id: 'a', m: 'v', in: 0, out: 10 }], ovl = [{ id: 'o', m: 'b', in: 0, out: 3, start: 2, volume: 1 }];
+  const opts = (snd) => ({ res: 720, mus: [{ id: 'x', m: 'mu', in: 0, out: 8, start: 0 }], snd, sfx: [{ idx: 3, t: 1, vol: 0.7 }] });
+  const old = E.editGraph(clips, media, '16:9', 30, ovl, opts({ loud: 'web' })).graph;
+  assert.ok(!/bus_|ovb|vst|alimiter/.test(old), 'no mixer = the old graph');
+  // a strip: EQ (shelf / presence / shelf), compressor, pan, fader — in that order
+  const S = E.stripOf({ g: -3, lo: 4, mid: -5, hi: 6, comp: 0.5, pan: 0.35 });
+  const ch = E.stripChain(S);
+  assert.ok(/^lowshelf=f=100:t=s:w=1:g=4,equalizer=f=2500:t=q:w=1:g=-5,highshelf=f=10000:t=s:w=1:g=6,acompressor=.*,pan=stereo\|c0=0\.853\*c0\+0\*c1\|c1=0\.522\*c0\+1\*c1,volume=-3dB$/.test(ch), ch);
+  assert.strictEqual(E.stripChain(E.stripOf({ mute: true, g: 5 })), 'volume=0', 'muted = silent');
+  assert.strictEqual(E.stripChain(E.stripOf({})), '');
+  // the browser's pan law: centre = untouched, hard right = everything right
+  assert.deepStrictEqual(E.panGains(0).map((v) => Math.round(v * 1000) / 1000), [1, 0, 0, 1]);
+  assert.deepStrictEqual(E.panGains(1).map((v) => Math.round(v * 1000) / 1000), [0, 0, 1, 1]);
+  // the compressor: the export adds the browser's own make-up gain
+  const c = E.compParams(1);
+  assert.ok(Math.abs(c.makeup - (-0.6 * c.thr * (1 - 1 / c.ratio))) < 1e-9 && c.thr === -24 && c.ratio === 4);
+  // the whole mix: each kind its own strip, then the master
+  const snd = { loud: 'web', mix: { voice: { g: 2, lo: -3 }, video: { g: -6 }, music: { mid: -5 }, sfx: { mute: true }, master: { g: -1, limit: true } } };
+  const g = E.editGraph(clips, media, '16:9', 30, ovl, opts(snd)).graph;
+  assert.ok(g.includes('[oa0]anull[ovb]') && g.includes('[am]anull[av]'), 'the picture sound is its own strip, not mixed into the voice');
+  assert.ok(g.includes('[av]lowshelf=f=100:t=s:w=1:g=-3,volume=2dB[vst]') && g.includes('[vst]asplit=2[vmain][vk0]'), 'the voice strip, then it ducks the music');
+  assert.ok(g.includes('[ovb]volume=-6dB[bus_video]') && g.includes('[md0]equalizer=f=2500:t=q:w=1:g=-5[bus_music]') && g.includes('[sx0]volume=0[bus_sfx]'));
+  assert.ok(g.includes('[vmain][bus_video][bus_music][bus_sfx]amix=inputs=4:duration=first:normalize=0,volume=-1dB,loudnorm=I=-14') && /alimiter=limit=0\.891:attack=1:release=100:level=false\[a\]$/.test(g.split(';').find((x) => x.endsWith('[a]'))));
+  // only the mixer on (no music, no effects, no loudness): still built
+  const g2 = E.editGraph(clips, media, '16:9', 30, [], { res: 720, snd: { mix: { voice: { g: -6 } } } }).graph;
+  assert.ok(g2.includes('[av]volume=-6dB[vst]') && g2.includes('[vst]anull[a]'), g2);
+  // solo is for listening: the export plays every strip that is not muted
+  const g3 = E.editGraph(clips, media, '16:9', 30, ovl, opts({ mix: { music: { solo: true, g: 1 } } })).graph;
+  assert.ok(g3.includes('[vmain]') || g3.includes('[av]'), 'the voice is still there');
+  assert.ok(!/volume=0(?![.\d])/.test(g3), 'nothing silenced by a solo');
+  // presets are EQ + compressor settings within range
+  Object.keys(E.MIX_PRESETS).forEach((k) => { const v = E.MIX_PRESETS[k].v; assert.deepStrictEqual(E.stripOf(v).lo, v.lo, k); });
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');
