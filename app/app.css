@@ -800,3 +800,21 @@ html.amh-studio .st-pick { display: none; }
 .st-exp-size { font-weight: 700; margin-top: 4px; }
 .st-exp-note { margin: 2px 0 4px; }
 .st-exp-dir { margin-top: 4px; word-break: break-all; }
+
+/* 1.86 pro colour */
+.ed-canvas video.ed-graded { opacity: 0 !important; }
+.ed-canvas .ed-twin { position: absolute; max-width: none; max-height: none; pointer-events: none; }
+.ed-cfold { border-top: 1px solid #22302a; margin: 6px 0; padding-top: 4px; }
+.ed-cfold > summary { cursor: pointer; font-size: var(--font-s); color: var(--text-secondary); padding: 4px 0; user-select: none; }
+.ed-wheels { display: flex; gap: 8px; justify-content: space-between; }
+.ed-wheel { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; min-width: 0; }
+.ed-wl { font-size: 11px; color: var(--text-secondary); }
+.ed-wcv { cursor: crosshair; border-radius: 50%; }
+.ed-wlum { width: 84px; }
+.ed-ccv { display: block; margin: 6px auto; border-radius: 6px; cursor: crosshair; }
+.ed-hsl-dots { display: flex; gap: 6px; margin: 4px 0 8px; }
+.ed-hsl-dot { width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; padding: 0; cursor: pointer; }
+.ed-hsl-dot.on { border-color: #fff; }
+.ed-hsl-dot.set { box-shadow: 0 0 0 2px #2ECC71; }
+.ed-scopes { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.ed-scope { border-radius: 4px; background: #0b100e; }
