@@ -272,7 +272,7 @@
     // captions drawn in when a caption style is chosen
     const styled = typeof STYLE !== 'undefined' && STYLE !== 'plain' && STYLE_OK;
     const fmtName = editor ? editor.format() : '16:9';
-    const v = card('🎬', tx('ቪዲዮ (MP4)', 'Video (MP4)'),
+    const v = card('🎬', tx('ቪዲዮ', 'Video'),
       (styled ? tx('ካፕሽኑ በ ' + (STYLE_NAMES[STYLE] || STYLE) + ' ስታይል ተጽፎበት', 'With the captions in the ' + (STYLE_NAMES[STYLE] || STYLE) + ' style')
         : tx('ያለ ካፕሽን — ካፕሽን ለመጻፍ ስታይል ይምረጡ', 'Without captions — choose a style to draw them in')) + ' · ' + fmtName);
     if (!styled) v.c.appendChild(btn('st-link', '🎨 ' + tx('ስታይል ይምረጡ', 'Choose a style'), '', () => { closeSheet(); showTab('style'); setCapEdit(false); }));
@@ -310,9 +310,17 @@
   const PFMT = { youtube: '16:9', shorts: '9:16', insta: '4:5', square: '1:1' };
   let picked = null;
   // ⚙ 1.71: frame rate, 4K, only the marked part (I / O)
-  let expOpts = { fps: 30, k4: false, part: false };
-  try { const o = JSON.parse(localStorage.getItem('amh_expopts') || '{}'); expOpts.fps = [24, 25, 30, 50, 60].indexOf(o.fps) >= 0 ? o.fps : 30; expOpts.k4 = !!o.k4; } catch (e) {}
-  const saveExpOpts = () => { try { localStorage.setItem('amh_expopts', JSON.stringify({ fps: expOpts.fps, k4: expOpts.k4 })); } catch (e) {} };
+  // 1.83 Pro export: resolution, quality, kind of file, where it goes
+  let expOpts = { fps: 30, k4: false, part: false, res: 'auto', q: 'auto', kind: 'h264', dir: '' };
+  try {
+    const o = JSON.parse(localStorage.getItem('amh_expopts') || '{}');
+    expOpts.fps = [24, 25, 30, 50, 60].indexOf(o.fps) >= 0 ? o.fps : 30;
+    expOpts.res = [720, 1080, 1440, 2160].indexOf(o.res) >= 0 ? o.res : (o.k4 ? 2160 : 'auto');   // the old 4K box
+    expOpts.q = ['small', 'good', 'high', 'master'].indexOf(o.q) >= 0 ? o.q : 'auto';
+    expOpts.kind = ['h264', 'hevc', 'prores', 'alpha', 'wav', 'mp3'].indexOf(o.kind) >= 0 ? o.kind : 'h264';
+    expOpts.dir = typeof o.dir === 'string' ? o.dir : '';
+  } catch (e) {}
+  const saveExpOpts = () => { try { localStorage.setItem('amh_expopts', JSON.stringify({ fps: expOpts.fps, res: expOpts.res, q: expOpts.q, kind: expOpts.kind, dir: expOpts.dir })); } catch (e) {} };
   let useGpu = true;
   try { useGpu = localStorage.getItem('amh_gpu') !== '0'; } catch (e) {}
   let qList = null;
@@ -336,6 +344,7 @@
         const b = btn('st-pchip' + (picked.indexOf(id) >= 0 ? ' on' : ''), '', '', () => {
           picked = picked.indexOf(id) >= 0 ? picked.filter((x) => x !== id) : picked.concat([id]);
           paint();
+          if (typeof paintSetLater === 'function') paintSetLater();
         });
         b.appendChild(el('b', '', name));
         if (sub) b.appendChild(el('span', '', sub));
@@ -351,27 +360,91 @@
       make.textContent = picked.length > 1 ? tx(picked.length + ' ቪዲዮዎች ይስሩ', 'Make ' + picked.length + ' videos') : tx('ቪዲዮ ይስሩ', 'Make video');
       make.disabled = !picked.length;
     };
+    let paintSetLater = null;
     paint();
     v.h.appendChild(make);
     v.c.appendChild(chips);
     v.c.appendChild(note);
-    // ⚙ the pro settings (the Pro switch shows them)
+    // ⚙ 1.83 Pro export: what kind of file, how big, how good, where it goes
     const part = editor.markedPart ? editor.markedPart() : null;
     expOpts.part = !!part && expOpts.part;
-    const opt = el('div', 'st-sub st-expopts pro-only');
-    const fpsSel = el('select', 'st-sel');
-    [24, 25, 30, 50, 60].forEach((f) => { const o = el('option', '', f + ' fps'); o.value = f; if (f === expOpts.fps) o.selected = true; fpsSel.appendChild(o); });
-    fpsSel.addEventListener('change', () => { expOpts.fps = Number(fpsSel.value); saveExpOpts(); });
-    fpsSel.title = tx('ፍሬም በሰከንድ — 30 ለቲክቶክና ዩቲዩብ፣ 25 ለኢትዮጵያ ቴሌቪዥን፣ 60 ለፈጣን እንቅስቃሴ', 'Frames per second — 30 for TikTok and YouTube, 25 for Ethiopian TV, 60 for fast motion');
-    opt.appendChild(el('span', '', '⚙ '));
-    opt.appendChild(fpsSel);
-    const k4 = el('label', 'st-check');
-    const k4b = el('input'); k4b.type = 'checkbox'; k4b.checked = expOpts.k4;
-    k4b.addEventListener('change', () => { expOpts.k4 = k4b.checked; saveExpOpts(); });
-    k4.appendChild(k4b); k4.appendChild(el('span', '', '4K'));
-    k4.title = tx('2160p — ትልቅ ፋይል፣ ረጅም ጊዜ ይወስዳል', '2160p — a big file, takes longer');
-    opt.appendChild(k4);
-    v.c.appendChild(opt);
+    const E = window.AmhEdit;
+    const set = el('div', 'st-expset');
+    const pick = (cls, list, val, onChange, title) => {
+      const s = el('select', 'st-sel ' + cls);
+      list.forEach(([k, name]) => { const o = el('option', '', name); o.value = String(k); if (String(k) === String(val)) o.selected = true; s.appendChild(o); });
+      s.addEventListener('change', () => { onChange(s.value); saveExpOpts(); paintSet(); });
+      if (title) s.title = title;
+      return s;
+    };
+    const KINDS = [
+      ['h264', tx('🎬 MP4 — በሁሉም ቦታ ይጫወታል', '🎬 MP4 — plays everywhere')],
+      ['hevc', tx('🎬 MP4 H.265 — ግማሽ መጠን', '🎬 MP4 H.265 — half the size')],
+      ['prores', tx('🎞 MOV ProRes — ለኤዲቲንግ (Premiere · DaVinci · Final Cut)', '🎞 MOV ProRes — to edit on (Premiere · DaVinci · Final Cut)')],
+      ['alpha', tx('🔤 ካፕሽን ብቻ — ግልጽ ዳራ (ከማንኛውም ኤዲት ላይ)', '🔤 Captions only — transparent (lay over any edit)')],
+      ['wav', tx('🔊 ድምፅ ብቻ — WAV', '🔊 Sound only — WAV')],
+      ['mp3', tx('🔊 ድምፅ ብቻ — MP3', '🔊 Sound only — MP3')],
+    ];
+    const kindSel = pick('st-exp-kind', KINDS, expOpts.kind, (x) => { expOpts.kind = x; });
+    const resSel = pick('st-exp-res', [['auto', tx('መጠን፦ እንደ ቅርጹ', 'Size: as the preset')], [720, '720p'], [1080, '1080p (Full HD)'], [1440, '1440p (2K)'], [2160, '2160p (4K)']],
+      expOpts.res, (x) => { expOpts.res = x === 'auto' ? 'auto' : Number(x); }, tx('የምስሉ መጠን', 'Picture size'));
+    const qSel = pick('st-exp-q', [['auto', tx('ጥራት፦ እንደ ቅርጹ', 'Quality: as the preset')], ['small', tx('ትንሽ ፋይል', 'Small file')], ['good', tx('ጥሩ', 'Good')],
+      ['high', tx('ከፍተኛ', 'High')], ['master', tx('ምርጥ (ማስተር)', 'Best (master)')]], expOpts.q, (x) => { expOpts.q = x; }, tx('ጥራት — ከፍ ባለ ቁጥር ፋይሉ ይተልቃል', 'Quality — higher means a bigger file'));
+    const fpsSel = pick('st-exp-fps', [24, 25, 30, 50, 60].map((f) => [f, f + ' fps']), expOpts.fps, (x) => { expOpts.fps = Number(x); },
+      tx('ፍሬም በሰከንድ — 30 ለቲክቶክና ዩቲዩብ፣ 25 ለኢትዮጵያ ቴሌቪዥን፣ 60 ለፈጣን እንቅስቃሴ', 'Frames per second — 30 for TikTok and YouTube, 25 for Ethiopian TV, 60 for fast motion'));
+    const row1 = el('div', 'st-exp-row'); row1.appendChild(kindSel);
+    const row2 = el('div', 'st-exp-row'); row2.appendChild(resSel); row2.appendChild(qSel); row2.appendChild(fpsSel);
+    const sizeLine = el('div', 'st-sub st-exp-size');
+    const kindNote = el('div', 'st-sub st-exp-note');
+    const dirLine = el('div', 'st-sub st-exp-dir');
+    set.appendChild(row1); set.appendChild(row2); set.appendChild(kindNote); set.appendChild(sizeLine); set.appendChild(dirLine);
+    const NOTES = {
+      prores: tx('ትልቅ ፋይል — ለቀጣይ ኤዲቲንግ የሚሆን ምርጥ ጥራት።', 'A big file — the best quality to keep editing on.'),
+      alpha: tx('ቪዲዮ የለውም፤ ካፕሽኖቹና ጽሑፎቹ ብቻ፣ ከኋላቸው ምንም የለም — በPremiere፣ DaVinci ወይም Final Cut ውስጥ ከቪዲዮዎ በላይ ያድርጉት።',
+        'No video: only the captions and titles, nothing behind them — put it above your video in Premiere, DaVinci or Final Cut.'),
+      hevc: tx('ጥራቱ እንደ MP4፣ ፋይሉ ግማሽ — አዳዲስ ስልኮችና ኮምፒውተሮች ይጫወቱታል።', 'The same quality as MP4 at half the size — new phones and computers play it.'),
+    };
+    const dirName = () => expOpts.dir && fs.existsSync(expOpts.dir) ? expOpts.dir : '';
+    function paintSet() {
+      const K = E.EXPORT_KINDS[expOpts.kind] || E.EXPORT_KINDS.h264;
+      resSel.style.display = K.audio ? 'none' : '';
+      fpsSel.style.display = K.audio ? 'none' : '';
+      qSel.style.display = expOpts.kind === 'alpha' || expOpts.kind === 'wav' ? 'none' : '';
+      kindNote.textContent = NOTES[expOpts.kind] || '';
+      kindNote.style.display = NOTES[expOpts.kind] ? '' : 'none';
+      // about how big, for what is picked
+      let secs = editor.duration ? editor.duration() : 0;
+      if (part && expOpts.part) secs = Math.max(0, part.b - part.a);
+      let mb = 0;
+      const ids = K.audio ? picked.slice(0, 1) : picked;
+      ids.forEach((id) => {
+        const P = E.PRESETS[id];
+        if (!P) return;
+        const res = typeof expOpts.res === 'number' ? expOpts.res : P.res;
+        const q = expOpts.q === 'auto' ? P.q : expOpts.q;
+        mb += E.sizeEstimate(secs, E.canvasSize(P.fmt || fmtName, res).h, q, expOpts.kind);
+      });
+      sizeLine.textContent = ids.length ? '≈ ' + (mb >= 1000 ? (mb / 1000).toFixed(1) + ' GB' : Math.max(1, Math.round(mb)) + ' MB') +
+        ' · ' + mins(secs) + (ids.length > 1 ? ' · ' + ids.length + ' ' + tx('ፋይሎች', 'files') : '') : '';
+      dirLine.textContent = '';
+      dirLine.appendChild(el('span', '', '📁 ' + (dirName() || tx('ከቪዲዮው ጎን', 'Next to the video')) + '  '));
+      dirLine.appendChild(btn('st-link', tx('ቦታ ይቀይሩ', 'Change'), '', () => {
+        let d = '';
+        try { const r = window.cep.fs.showOpenDialog(false, true, tx('ቪዲዮዎቹ የሚቀመጡበት', 'Where the videos go')); d = (r && r.data && r.data[0]) || ''; } catch (e) {}
+        if (d) { expOpts.dir = d; saveExpOpts(); paintSet(); }
+      }));
+      if (dirName()) dirLine.appendChild(btn('st-link', tx('ከቪዲዮው ጎን', 'Next to the video'), '', () => { expOpts.dir = ''; saveExpOpts(); paintSet(); }));
+    }
+    paintSet();
+    paintSetLater = paintSet;
+    v.c.appendChild(set);
+    const repaintChips = paint;
+    // a kind this computer's ffmpeg cannot make is not offered
+    if (editor.kinds) editor.kinds().then((have) => {
+      [...kindSel.options].forEach((o) => { if (have && !have[o.value]) o.remove(); });
+      if (have && !have[expOpts.kind]) { expOpts.kind = 'h264'; kindSel.value = 'h264'; saveExpOpts(); paintSet(); }
+    }).catch(() => {});
+    void repaintChips;
     if (part) {
       const pl = el('label', 'st-check st-partchk');
       const pb = el('input'); pb.type = 'checkbox'; pb.checked = expOpts.part;

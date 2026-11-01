@@ -3691,6 +3691,28 @@
     })), Promise.resolve(null));
     return GPU;
   }
+  // 1.83: which kinds of file this computer's ffmpeg can make (asked once)
+  let KINDS = null;
+  function kinds() {
+    if (KINDS) return KINDS;
+    KINDS = new Promise((resolve) => {
+      let out = '';
+      let p;
+      try { p = spawn(FFMPEG, ['-hide_banner', '-encoders']); } catch (e) { resolve(null); return; }
+      p.stdout.on('data', (d) => { out += d; });
+      p.on('error', () => resolve(null));
+      p.on('close', () => {
+        if (!out) { resolve(null); return; }
+        const has = (n) => new RegExp('\\s' + n + '\\s').test(out);
+        const r = {};
+        Object.keys(E.KIND_NEEDS).forEach((k) => { r[k] = E.KIND_NEEDS[k].every(has); });
+        // H.265 also on a graphics card's own encoder
+        if (!r.hevc) r.hevc = Object.keys(E.HEVC_GPU).some((g) => has(E.HEVC_GPU[g]) && has(g));
+        resolve(r);
+      });
+    });
+    return KINDS;
+  }
   // file names stay short and in Latin letters (they travel to phones, Telegram, YouTube)
   const FILE_TAGS = { youtube: 'YouTube', shorts: 'TikTok Reels Shorts', insta: 'Instagram 4x5', square: 'Square', telegram: 'Telegram 720p', master: 'Master' };
   const GPU_NAMES = { h264_nvenc: 'NVIDIA', h264_qsv: 'Intel', h264_amf: 'AMD', h264_videotoolbox: 'Apple' };
@@ -3757,6 +3779,20 @@
         await renderStyled(Object.assign({}, job.caps, { mode: 'script', width: W, height: H, fps: FPS, duration: tot, out: path.join(cwd, 'c.ass') }));
         made.push(path.join(cwd, 'c.ass')); ass.push('c.ass');
       }
+      const kind = E.EXPORT_KINDS[job.kind] ? job.kind : 'h264';
+      if (kind === 'alpha') {
+        if (!ass.length) throw new Error(tx('ለግልጽ ካፕሽን መጀመሪያ የካፕሽን ስታይል ይምረጡ።', 'For transparent captions, choose a caption style first.'));
+        // the empty frame must be made WITH its transparency (converted
+        // afterwards, it is already opaque black)
+        const vf = ass.map((a2) => 'subtitles=' + a2 + ':fontsdir=fonts:alpha=1').join(',');
+        const aargs = ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=black@0.0:s=' + W + 'x' + H + ':r=' + FPS + ':d=' + tot.toFixed(3) + ',format=yuva444p10le',
+          '-vf', vf, '-t', tot.toFixed(3)].concat(E.encoderArgs('libx264', job.q, H, 'alpha'), ['-progress', 'pipe:1', '-nostats', out]);
+        await runFfmpeg(aargs, cwd, tot, onProgress, ctl);
+        if (!fs.existsSync(out)) throw new Error('no file');
+        if (onProgress) onProgress(1);
+        return out;
+      }
+      const audioOnly = !!E.EXPORT_KINDS[kind].audio;
       const sv = st.snd && st.snd.sfxVol != null ? Number(st.snd.sfxVol) : 0.7;
       const sfx = E.sfxEvents(st, tot).map((x) => Object.assign({}, x, sfxAt(x))).filter((x) => fs.existsSync(x.file))
         .map((x, k) => ({ idx: used.length + k, t: x.t, vol: sv * x.vol, file: x.file }));
@@ -3766,11 +3802,14 @@
         const a = ['-v', 'error', '-y'];
         used.forEach((id) => { if (st.media[id].image) a.push('-loop', '1', '-framerate', String(FPS)); a.push('-i', st.media[id].path); });
         sfx.forEach((x) => a.push('-i', x.file));
-        if (g.graph.length > 6000) {
-          if (!gfile) { gfile = path.join(os.tmpdir(), 'amh_edit_' + Date.now() + '_' + nid + '.txt'); fs.writeFileSync(gfile, g.graph, { encoding: 'utf8' }); made.push(gfile); }
+        // sound only: the picture is built by the same graph, then dropped
+        const graph = audioOnly ? g.graph + ';[v]nullsink' : g.graph;
+        if (graph.length > 6000) {
+          if (!gfile) { gfile = path.join(os.tmpdir(), 'amh_edit_' + Date.now() + '_' + nid + '.txt'); fs.writeFileSync(gfile, graph, { encoding: 'utf8' }); made.push(gfile); }
           a.push('-/filter_complex', gfile);
-        } else a.push('-filter_complex', g.graph);
-        return a.concat(['-map', '[v]', '-map', '[a]', '-t', String(g.duration)], E.encoderArgs(enc, job.q, H), ['-movflags', '+faststart', '-progress', 'pipe:1', '-nostats', out]);
+        } else a.push('-filter_complex', graph);
+        return a.concat(audioOnly ? ['-map', '[a]'] : ['-map', '[v]', '-map', '[a]'], ['-t', String(g.duration)], E.encoderArgs(enc, job.q, H, kind),
+          kind === 'h264' || kind === 'hevc' ? ['-movflags', '+faststart'] : [], ['-progress', 'pipe:1', '-nostats', out]);
       };
       const enc = job.enc || 'libx264';
       try { await runFfmpeg(args(enc), cwd, g.duration, onProgress, ctl); }
@@ -3809,20 +3848,28 @@
   const qChanged = () => { qTimer = 0; qWatch.forEach((f) => { try { f(QUEUE); } catch (e) {} }); };
   const qSoon = () => { if (!qTimer) qTimer = setTimeout(qChanged, 250); };
   const taken = {};
-  function freePath(dir, base) {
+  function freePath(dir, base, ext) {
     const X = window.__amhAppExport;
-    let p2 = X.uniquePath(dir, base, '.mp4');
-    for (let n = 2; taken[p2]; n++) p2 = X.uniquePath(dir, base + ' (' + n + ')', '.mp4');
+    ext = ext || '.mp4';
+    let p2 = X.uniquePath(dir, base, ext);
+    for (let n = 2; taken[p2]; n++) p2 = X.uniquePath(dir, base + ' (' + n + ')', ext);
     taken[p2] = 1;
     return p2;
   }
   // ids: preset ids; styled: draw the captions; useGpu: the graphics card if found
   // opts (1.71): { fps: 24|25|30|50|60, k4: 4K, part: only the marked part }
+  // 1.83: res ('auto' | 720 | 1080 | 1440 | 2160), q ('auto' | small | good |
+  // high | master), kind (h264 | hevc | prores | alpha | wav | mp3), dir
+  const KIND_TAGS = { hevc: ' H265', prores: ' ProRes', alpha: ' captions transparent', wav: ' sound', mp3: ' sound' };
   async function queueExports(ids, styled, useGpu, names, opts) {
     opts = opts || {};
     const X = window.__amhAppExport;
     const c = window.__amhAppChosen && window.__amhAppChosen();
-    const dir = c ? path.dirname(c.path) : os.tmpdir();
+    const dir = (opts.dir && fs.existsSync(opts.dir)) ? opts.dir : (c ? path.dirname(c.path) : os.tmpdir());
+    const kind = E.EXPORT_KINDS[opts.kind] ? opts.kind : 'h264';
+    const K = E.EXPORT_KINDS[kind];
+    // the sound is the same for every format: one file
+    if (K.audio) ids = (ids || []).slice(0, 1);
     const enc = useGpu ? ((await detectGpu()) || 'libx264') : 'libx264';
     const state = snapshot();
     const caps = styled ? capsNow() : null;
@@ -3832,10 +3879,14 @@
       const P = E.PRESETS[id];
       if (!P) return;
       const label = (names && names[id]) || id;
-      const res = opts.k4 && P.q !== 'small' ? 2160 : P.res;
-      QUEUE.push({ id: newId(), label: label + (opts.k4 && res === 2160 ? ' · 4K' : '') + (opts.fps && opts.fps !== 30 ? ' · ' + opts.fps + 'fps' : '') + tag, preset: id,
-        out: freePath(dir, (X.baseName() + ' (' + FILE_TAGS[id] + ')' + (res === 2160 ? ' 4K' : '') + tag).replace(/[\\/:*?"<>|]/g, '.')),
-        status: 'wait', p: 0, eta: null, enc, job: { state, fmt: P.fmt || state.fmt, res, q: P.q, enc, caps, fps: opts.fps || 30, part } });
+      const fixed = [720, 1080, 1440, 2160].indexOf(Number(opts.res)) >= 0 ? Number(opts.res) : null;
+      const res = fixed || (opts.k4 && P.q !== 'small' ? 2160 : P.res);
+      const q = ['small', 'good', 'high', 'master'].indexOf(opts.q) >= 0 ? opts.q : P.q;
+      const rtag = res === 2160 ? ' 4K' : (fixed && res !== P.res ? ' ' + res + 'p' : '');
+      QUEUE.push({ id: newId(), label: (K.audio ? (kind === 'wav' ? 'WAV' : 'MP3') : label + rtag.replace(' 4K', ' · 4K')) + (KIND_TAGS[kind] && !K.audio ? ' ·' + KIND_TAGS[kind] : '') +
+          (!K.audio && opts.fps && opts.fps !== 30 ? ' · ' + opts.fps + 'fps' : '') + tag, preset: id,
+        out: freePath(dir, (X.baseName() + (K.audio ? '' : ' (' + FILE_TAGS[id] + ')') + (K.audio ? '' : rtag) + (KIND_TAGS[kind] || '') + tag).replace(/[\\/:*?"<>|]/g, '.'), K.ext),
+        status: 'wait', p: 0, eta: null, enc, job: { state, fmt: P.fmt || state.fmt, res, q, enc, caps, fps: opts.fps || 30, part, kind } });
     });
     qChanged();
     runQueue();
@@ -4001,5 +4052,5 @@
     queueExports, stopExport, clearDone, detectGpu, gpuName: (e) => GPU_NAMES[e] || '', queue: () => QUEUE, onQueue: (f) => qWatch.push(f),
     setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } });
   window.__amhEditor = { renderJob, snapshot, open, copySel, paste, duplicate, togglePick, selected, state: () => ({ clips, ovl, txt, mus, snd, zm, media, SRC, fmt, sel, built }), addOverlay, addText, addZoom, autoZooms, addBroll, brollPicker, findFaces, followFaces, frameClips, useSoundFolder, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, moveRange, total, redo,
-    select: (id) => { sel = id; picks = []; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, insertFound, startCrop, endCrop, cropState: () => cropEdit, setCropView: (v) => { if (cropEdit) { cropEdit.v = v; frame(); } }, freezeFrame, reverseClip, rampClip, guide: () => maybeGuide(true), queueExports, queue: () => QUEUE, markedPart, toggleMarker, markIO, clearIO, setShuttle, markers: () => mk, addToMedia, findFile, missingFiles, checkFiles, render, exportVideo, frame, setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } };
+    select: (id) => { sel = id; picks = []; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, insertFound, startCrop, endCrop, cropState: () => cropEdit, setCropView: (v) => { if (cropEdit) { cropEdit.v = v; frame(); } }, freezeFrame, reverseClip, rampClip, guide: () => maybeGuide(true), queueExports, kinds, queue: () => QUEUE, markedPart, toggleMarker, markIO, clearIO, setShuttle, markers: () => mk, addToMedia, findFile, missingFiles, checkFiles, render, exportVideo, frame, setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } };
 })();

@@ -790,3 +790,12 @@ html.amh-studio .st-pick { display: none; }
 .st-dv-next { margin-top: 10px; padding: 10px 12px; border: 2px solid #34d399; border-radius: 10px; font-size: 14px; font-weight: 700; line-height: 1.45; }
 .st-dv-flash { animation: st-dv-flash 1.2s ease 2; }
 @keyframes st-dv-flash { 50% { background: rgba(52, 211, 153, 0.18); } }
+
+/* 1.83 Pro export settings (studio.js videoChoices) */
+.st-expset { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.st-exp-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.st-exp-row .st-sel { flex: 1 1 140px; min-width: 0; }
+.st-exp-kind { width: 100%; }
+.st-exp-size { font-weight: 700; margin-top: 4px; }
+.st-exp-note { margin: 2px 0 4px; }
+.st-exp-dir { margin-top: 4px; word-break: break-all; }
