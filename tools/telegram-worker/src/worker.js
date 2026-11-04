@@ -5483,11 +5483,20 @@ async function giveStarterGrant(mid, hf) {
 }
 
 // What the panel shows (GET /api/trial?v=2, POST /api/trial/request).
-async function trialMinutesState(mid) {
+async function trialMinutesState(mid, hf) {
   const terms = trialTerms(await getSettings());
   const lic = await DB.prepare('SELECT revoked FROM customers WHERE machine_id = ?').bind(mid).first();
   if (lic && !lic.revoked) return { mode: 'minutes', status: 'licensed', minutes: terms.minutes };
   const g = await trialGrant(mid);
+  // 2026-11 (owner screenshot): a reinstall (a new machine id) on a computer
+  // that already had its free minutes saw "🎁 Get your free minutes" in the
+  // program, and the bot then refused it by the computer's fingerprint
+  // (TRIAL_COMPUTER_USED) — a loop. Say it here too: "used" — every panel
+  // version shows "free minutes used — buy a license" for this.
+  if (!g && hf && terms.on) {
+    const byHost = await DB.prepare('SELECT 1 AS x FROM trial_grants WHERE hf = ?').bind(hf).first();
+    if (byHost) return { mode: 'minutes', status: 'active', host_used: true, minutes: terms.minutes, seconds_total: 0, seconds_left: 0 };
+  }
   // 1.77.1: starter_minutes = what a new computer gets without Telegram (the
   // panel says "press Make captions" instead of "Telegram first").
   if (!g) return { mode: 'minutes', status: terms.on ? 'none' : 'off', minutes: terms.minutes, seconds_total: 0, seconds_left: 0, starter_minutes: terms.on ? terms.starter : 0 };
@@ -7148,7 +7157,7 @@ export default {
       const hf = validHostFp(body && body.hf) ? body.hf : '';
       if (!isValidMid(mid)) return json({ error: 'bad mid' }, 400);
       if (await rlHit('rl:ip:' + clientIp() + ':treq', 30, 3600)) return json({ error: 'throttled' }, 429);
-      let state = await trialMinutesState(mid);
+      let state = await trialMinutesState(mid, hf);
       // A computer-only start still gets a link: Telegram adds the rest.
       if (state.status !== 'none' && !state.starter) return json(state);
       // Many links from one internet address in a day: the owner approves.
@@ -7198,7 +7207,7 @@ export default {
       // it while the person is in the bot).
       if (url.searchParams.get('v') === '2') {
         if (await rlHit('rl:ip:' + clientIp() + ':trial2', 600, 3600)) return json({ error: 'throttled' }, 429);
-        return json(await trialMinutesState(mid));
+        return json(await trialMinutesState(mid, hfq));
       }
       if (!(await legacyTrialsOpen())) return json({ used: 2, max: 2, remaining: 0 });
       const cacheKey = 'trial:' + mid + (hfq ? ':' + hfq : '');

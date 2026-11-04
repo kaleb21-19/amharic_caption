@@ -3280,9 +3280,10 @@ console.log('\n:: 1.10.7 free minutes via Telegram');
   assert.equal(row(env, 'SELECT 1 AS x FROM trial_grants WHERE machine_id=?', MID2), null);
   const MID3 = '5555666677778888';
   j = await reqLink(MID3, HF);           // same computer, new Machine ID
-  n = OUTBOUND.length;
-  await post(env, msg(U2, { id: U2 }, { text: '/start t_' + j.nonce }));
-  assert.ok(said(n, U2).includes('This computer already had its free minutes'));
+  // (2026-11) the program is told at once — no link the bot would refuse
+  assert.equal(j.host_used, true);
+  assert.equal(j.seconds_left, 0);
+  assert.equal(j.nonce, undefined, 'no link for a computer that had its minutes');
   j = await reqLink(MID, HF);
   assert.equal(j.status, 'active', 'a computer with a trial gets its state, no new link');
   assert.equal(j.nonce, undefined);
@@ -4105,7 +4106,15 @@ console.log('\n:: 1.77 the first video without Telegram');
   assert.ok(/start=t_/.test(j.link), 'still a link for the rest');
   // the same computer under a new Machine ID: no new start
   j = await req({ mid: '77cc77cc77cc77cc', hf: HF, starter: true });
-  assert.equal(j.status, 'none', 'one start per computer');
+  // (2026-11) …and it is told so: used, no Telegram link the bot would refuse
+  assert.equal(j.status, 'active', 'one start per computer');
+  assert.equal(j.seconds_left, 0);
+  assert.equal(j.host_used, true);
+  assert.equal(j.link, undefined, 'no link to free minutes the bot refuses');
+  const hs = await (await api(env, '/api/trial?v=2&mid=77cc77cc77cc77cc&hf=' + HF, { headers: { 'CF-Connecting-IP': '196.188.70.9' } })).json();
+  assert.equal(hs.status, 'active'); assert.equal(hs.seconds_left, 0); assert.equal(hs.host_used, true);
+  const other = await (await api(env, '/api/trial?v=2&mid=77ee77ee77ee77ee&hf=7e7e7e7e', { headers: { 'CF-Connecting-IP': '196.188.70.9' } })).json();
+  assert.equal(other.status, 'none', 'a different computer: still free minutes');
   // no fingerprint: no start
   j = await req({ mid: '77dd77dd77dd77dd', starter: true });
   assert.equal(j.status, 'none', 'no fingerprint, no start');
