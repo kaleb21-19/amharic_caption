@@ -5483,11 +5483,29 @@ async function giveStarterGrant(mid, hf) {
 }
 
 // What the panel shows (GET /api/trial?v=2, POST /api/trial/request).
-async function trialMinutesState(mid) {
+async function adoptHostGrant(mid, hf) {
+  try {
+    const old = await DB.prepare('SELECT machine_id FROM trial_grants WHERE hf = ? ORDER BY created_at DESC LIMIT 1').bind(hf).first();
+    if (!old || old.machine_id === mid) return false;
+    const lic = await DB.prepare('SELECT revoked FROM customers WHERE machine_id = ?').bind(old.machine_id).first();
+    if (lic && !lic.revoked) return false;
+    const r = await DB.prepare("UPDATE trial_grants SET machine_id = ?, updated_at = datetime('now') WHERE machine_id = ?").bind(mid, old.machine_id).run();
+    if (r && r.meta && r.meta.changes > 0) { log('info', 'trial_grant_moved', { from: old.machine_id, to: mid }); return true; }
+  } catch (e) { log('error', 'trial_grant_move_failed', { err: String((e && e.message) || e) }); }
+  return false;
+}
+async function trialMinutesState(mid, hf) {
   const terms = trialTerms(await getSettings());
   const lic = await DB.prepare('SELECT revoked FROM customers WHERE machine_id = ?').bind(mid).first();
   if (lic && !lic.revoked) return { mode: 'minutes', status: 'licensed', minutes: terms.minutes };
-  const g = await trialGrant(mid);
+  let g = await trialGrant(mid);
+  // 2026-11 (owner screenshots): free minutes belong to the COMPUTER. A
+  // reinstall (a new Machine ID) on a computer that already had them saw
+  // "🎁 Get your free minutes", and the bot refused it by the fingerprint —
+  // 9 taps, and the 4:30 it still had were lost (6 computers in 3 days, some
+  // with most of their minutes unused). The new ID takes the computer's grant
+  // over (seconds used and the week kept); START in the bot tops it up as before.
+  if (!g && hf && (await adoptHostGrant(mid, hf))) g = await trialGrant(mid);
   // 1.77.1: starter_minutes = what a new computer gets without Telegram (the
   // panel says "press Make captions" instead of "Telegram first").
   if (!g) return { mode: 'minutes', status: terms.on ? 'none' : 'off', minutes: terms.minutes, seconds_total: 0, seconds_left: 0, starter_minutes: terms.on ? terms.starter : 0 };
@@ -7148,7 +7166,7 @@ export default {
       const hf = validHostFp(body && body.hf) ? body.hf : '';
       if (!isValidMid(mid)) return json({ error: 'bad mid' }, 400);
       if (await rlHit('rl:ip:' + clientIp() + ':treq', 30, 3600)) return json({ error: 'throttled' }, 429);
-      let state = await trialMinutesState(mid);
+      let state = await trialMinutesState(mid, hf);
       // A computer-only start still gets a link: Telegram adds the rest.
       if (state.status !== 'none' && !state.starter) return json(state);
       // Many links from one internet address in a day: the owner approves.
@@ -7198,7 +7216,7 @@ export default {
       // it while the person is in the bot).
       if (url.searchParams.get('v') === '2') {
         if (await rlHit('rl:ip:' + clientIp() + ':trial2', 600, 3600)) return json({ error: 'throttled' }, 429);
-        return json(await trialMinutesState(mid));
+        return json(await trialMinutesState(mid, hfq));
       }
       if (!(await legacyTrialsOpen())) return json({ used: 2, max: 2, remaining: 0 });
       const cacheKey = 'trial:' + mid + (hfq ? ':' + hfq : '');
