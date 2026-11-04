@@ -3279,11 +3279,13 @@ console.log('\n:: 1.10.7 free minutes via Telegram');
   assert.ok(said(n, U1).includes('This Telegram account already had its free minutes'));
   assert.equal(row(env, 'SELECT 1 AS x FROM trial_grants WHERE machine_id=?', MID2), null);
   const MID3 = '5555666677778888';
-  j = await reqLink(MID3, HF);           // same computer, new Machine ID
-  // (2026-11) the program is told at once — no link the bot would refuse
-  assert.equal(j.host_used, true);
-  assert.equal(j.seconds_left, 0);
-  assert.equal(j.nonce, undefined, 'no link for a computer that had its minutes');
+  const left0 = (await state(MID)).seconds_left;
+  j = await reqLink(MID3, HF);           // same computer, new Machine ID (a reinstall)
+  // (2026-11) the minutes belong to the computer: the new ID keeps what was left — no link the bot would refuse
+  assert.equal(j.status, 'active');
+  assert.equal(j.seconds_left, left0, 'the minutes that were left');
+  assert.equal(j.nonce, undefined, 'no new link');
+  assert.equal(row(env, 'SELECT machine_id FROM trial_grants WHERE hf=?', HF).machine_id, MID3);
   j = await reqLink(MID, HF);
   assert.equal(j.status, 'active', 'a computer with a trial gets its state, no new link');
   assert.equal(j.nonce, undefined);
@@ -4106,19 +4108,40 @@ console.log('\n:: 1.77 the first video without Telegram');
   assert.ok(/start=t_/.test(j.link), 'still a link for the rest');
   // the same computer under a new Machine ID: no new start
   j = await req({ mid: '77cc77cc77cc77cc', hf: HF, starter: true });
-  // (2026-11) …and it is told so: used, no Telegram link the bot would refuse
+  // (2026-11) …it takes the computer's own minutes over (none left here), still a computer-only start: a link for the rest
   assert.equal(j.status, 'active', 'one start per computer');
   assert.equal(j.seconds_left, 0);
-  assert.equal(j.host_used, true);
-  assert.equal(j.link, undefined, 'no link to free minutes the bot refuses');
-  const hs = await (await api(env, '/api/trial?v=2&mid=77cc77cc77cc77cc&hf=' + HF, { headers: { 'CF-Connecting-IP': '196.188.70.9' } })).json();
-  assert.equal(hs.status, 'active'); assert.equal(hs.seconds_left, 0); assert.equal(hs.host_used, true);
+  assert.equal(j.started, undefined, 'no second start');
+  assert.equal(j.starter, true);
+  assert.ok(/start=t_/.test(j.link), 'the rest in Telegram, as before');
+  assert.equal(row(env, 'SELECT machine_id FROM trial_grants WHERE hf=?', HF).machine_id, '77cc77cc77cc77cc', 'the grant moved to the new ID');
+  const hs = await (await api(env, '/api/trial?v=2&mid=' + MID + '&hf=' + HF, { headers: { 'CF-Connecting-IP': '196.188.70.9' } })).json();
+  assert.equal(hs.status, 'active', 'and back again'); assert.equal(hs.seconds_left, 0);
   const other = await (await api(env, '/api/trial?v=2&mid=77ee77ee77ee77ee&hf=7e7e7e7e', { headers: { 'CF-Connecting-IP': '196.188.70.9' } })).json();
   assert.equal(other.status, 'none', 'a different computer: still free minutes');
   // no fingerprint: no start
   j = await req({ mid: '77dd77dd77dd77dd', starter: true });
   assert.equal(j.status, 'none', 'no fingerprint, no start');
   ok('first minutes: a new computer gets 5 min without Telegram (1.77 panels with a fingerprint), once per computer, link for the rest');
+
+  // (2026-11, the owner's screenshots) 5 starter minutes, 30 s used, the program
+  // installed again (a new ID) → the minutes left are still there, and START tops up
+  {
+    const HF2 = '1a1a1a1a', OLD = '1aa11aa11aa11aa1', NEW = '1bb11bb11bb11bb1', U9 = 977000009;
+    await req({ mid: OLD, hf: HF2, starter: true }, { 'CF-Connecting-IP': '196.188.71.1' });
+    assert.equal((await use(OLD, 'run-reinst-00001', 30)).charged, true);
+    const r1 = await req({ mid: NEW, hf: HF2, starter: true }, { 'CF-Connecting-IP': '196.188.71.1' });
+    assert.equal(r1.status, 'active', 'not "get your free minutes" again');
+    assert.equal(r1.seconds_left, 270, 'the 4:30 that were left');
+    assert.ok(/start=t_/.test(r1.link), 'and the link for the rest');
+    const n9 = OUTBOUND.length;
+    await post(env, msg(U9, { id: U9, username: 'reinstall9' }, { text: '/start t_' + r1.nonce }));
+    assert.ok(!said(n9, U9).includes('already had its free minutes'), said(n9, U9));
+    const s9 = await (await api(env, '/api/trial?v=2&mid=' + NEW + '&hf=' + HF2, { headers: { 'CF-Connecting-IP': '196.188.71.1' } })).json();
+    assert.equal(s9.seconds_total - s9.seconds_left, 30, 'the 30 s used are still counted');
+    assert.ok(s9.seconds_total > 300, 'topped up by Telegram');
+    ok('reinstall: the computer keeps its free minutes under the new ID, and START in the bot tops them up (no "already had" loop)');
+  }
 
   // START in the bot: the account is linked, the total becomes the full 20 minutes
   j = await req({ mid: MID, hf: HF, starter: true });
