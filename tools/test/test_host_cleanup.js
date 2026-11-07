@@ -66,7 +66,9 @@ function makePremiere(spec, opts) {
     const vt = v.map((c, i) => mkTrack(c, locked && i === 0));
     const at = a.map((c) => mkTrack(c));
     return {
-      name, sequenceID: String(nextId++), spec: { v, a },
+      name, sequenceID: String(nextId++), spec: { v, a }, pos: 0,
+      getPlayerPosition() { return { ticks: String(this.pos) }; },
+      setPlayerPosition(t) { this.pos = Number(t); },
       videoTracks: coll(vt, 'numTracks'), audioTracks: coll(at, 'numTracks'), vt, at,
       frameSizeHorizontal: 1920, frameSizeVertical: 1080,
       getSettings: () => ({ videoFrameRate: { seconds: 1 / (opts.fps || 25) }, videoDisplayFormat: 101 }),
@@ -86,7 +88,9 @@ function makePremiere(spec, opts) {
   };
   class Time {
     constructor() { this.seconds = 0; }
-    getFormatted() { return String(this.seconds); }
+    // opts.mixedTimecode: a sequence shown in another rate's timecode (the
+    // owner's 24 fps in 30 fps timecode) - Time.getFormatted gives the wrong place
+    getFormatted() { return String(opts.mixedTimecode ? this.seconds * 0.8 : this.seconds); }
   }
   const ctx = {
     JSON, Time,
@@ -98,7 +102,8 @@ function makePremiere(spec, opts) {
         get numItems() { return tr.list.length; },
         getItemAt: (j) => { const c = tr.list.slice().sort((x, y) => x.start.seconds - y.start.seconds)[j];
           return c && { type: 'Clip', start: { secs: c.start.seconds }, end: { secs: c.end.seconds }, rippleDelete: () => c.remove(true, true, true) }; } });
-      return { getVideoTrackAt: (i) => qt(s.vt[i]), getAudioTrackAt: (i) => qt(s.at[i]) };
+      const ctiOff = opts.noCti ? undefined : { get timecode() { return String(s.pos / 254016000000); } };
+      return { getVideoTrackAt: (i) => qt(s.vt[i]), getAudioTrackAt: (i) => qt(s.at[i]), CTI: ctiOff };
     } } },
   };
   vm.createContext(ctx);
@@ -338,6 +343,19 @@ test('1.93.1 a piece that cannot be removed at all: says so (never "cut"), and n
   assert.deepStrictEqual(pp.seqs[0].vt[0].snap(), [[0, 10, 'interview.mp4'], [10, 12, 'interview.mp4'], [12, 60, 'interview.mp4']]);
 });
 
+test('1.93.2 timecode shown in another rate (24 fps as 30 fps timecode): Premiere own timecode is used, the cut lands right', () => {
+  const pp = makePremiere(base(), { mixedTimecode: true });
+  pp.seqs[0].pos = 5 * 254016000000;
+  const r = nowCut(pp, { cuts: [[10, 12]], media: [VIDEO] });
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.deepStrictEqual(pp.seqs[0].vt[0].snap(), [[0, 10, 'interview.mp4'], [10, 58, 'interview.mp4']]);
+  assert.strictEqual(pp.seqs[0].pos, 5 * 254016000000, 'the playhead is put back');
+});
+test('1.93.2 a Premiere without the QE playhead: the old timecode way still works', () => {
+  const pp = makePremiere(base(), { noCti: true });
+  const r = nowCut(pp, { cuts: [[10, 12]], media: [VIDEO] });
+  assert.ok(r.ok, JSON.stringify(r));
+});
 test('1.93.1 the razor lands somewhere else (nothing between the lines): says so with the times, never "cut"', () => {
   const pp = makePremiere(base());
   const off = (tr) => ({ razor: (tc) => tr.razor(Number(tc) + 30), get numItems() { return tr.list.length; }, getItemAt: () => null });
