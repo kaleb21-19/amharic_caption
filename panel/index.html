@@ -617,16 +617,6 @@
   .textcut-note { margin: 4px 0 6px; padding: 6px 9px; border-radius: 6px; font-size: 11px; line-height: 1.4;
     background: rgba(46, 204, 113, .12); border: 1px solid rgba(46, 204, 113, .35); }
   .textcut-note.bad { background: rgba(231, 76, 60, .12); border-color: rgba(231, 76, 60, .45); }
-  .mogrt-row { margin: 6px 0 4px; }
-  .mogrt-head { display: flex; align-items: baseline; gap: 8px; font-size: 11px; margin-bottom: 4px; }
-  .mogrt-head span { color: var(--text-secondary); font-size: 10.5px; }
-  .mogrt-chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
-  .mogrt-chip { position: relative; }
-  .mogrt-chip img { background: #111; object-fit: contain; }
-  .mogrt-chip .mogrt-lines { position: absolute; top: 3px; left: 3px; font-style: normal; font-size: 9px; padding: 1px 4px; border-radius: 3px; background: rgba(0,0,0,.65); color: #fff; }
-  .mogrt-add { min-width: 92px; display: flex; align-items: center; justify-content: center; font-size: 11px; }
-  .mogrt-fonts { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 4px 0; font-size: 10.5px; }
-  .mogrt-fonts > span { color: var(--text-secondary); margin-right: 4px; }
   .review-steps .rstep { border: 1px solid var(--border); background: var(--bg-card); color: var(--text-secondary);
     border-radius: 999px; padding: 3px 9px; font-size: var(--font-s); cursor: pointer; white-space: nowrap; }
   .review-steps .rstep:hover { color: var(--text-primary); border-color: var(--accent); }
@@ -1202,7 +1192,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.94.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.93.3</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
@@ -1283,8 +1273,6 @@
     <div class="style-strip" id="styleStrip" style="display:none;">
       <div class="style-head"><span class="style-title" data-i18n="style.title">🎨 Caption style</span><span class="style-note" id="styleNote"></span><button type="button" class="sc-toggle" id="styleCustomToggle" style="display:none;">⚙ Customize</button></div>
       <div class="style-chips" id="styleChips" role="group" aria-label="Caption style"></div>
-      <!-- 1.94 🎬 templates: the editor's own .mogrt files (Premiere) -->
-      <div class="mogrt-row" id="mogrtRow" style="display:none;"></div>
       <div class="style-custom" id="styleCustom" style="display:none;">
         <div class="sc-stage"><img id="stylePreview" alt="" style="display:none;"><span class="sc-pnote" id="stylePreviewNote" style="display:none;"></span></div>
         <div class="sc-tabs" id="styleTabs" role="tablist" style="display:none;"></div>
