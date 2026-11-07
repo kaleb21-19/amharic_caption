@@ -240,7 +240,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.93.2');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.93.3');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1863,6 +1863,28 @@ await t('4i2. styled captions you can edit (1.27.0): one clip per caption, an ed
     assert.strictEqual(p.evalVm('reviewOpen'), false, 'placed');
     hist = JSON.parse(p.evalVm('JSON.stringify(readHistory())'));
     assert.strictEqual(hist[0].placed.mode, 'layer');
+
+    // 1.93.3: captions placed as ONE layer — the bar and 🎨 show too; a change draws the whole layer again
+    host.selected = { name: 'amhstyle_' + p.evalVm('safeFileName("other.mp4")') + '__bold_1.mov', start: 0, end: 3.2 };
+    await p.evalVm('checkSelectedCaption()');
+    assert.strictEqual(p.els('selCapBar').style.display, '', 'the bar shows for one layer');
+    evalLog.length = 0;
+    p.els('selCapBar').children[0].fire('click');
+    await flush(10);
+    assert.strictEqual(p.evalVm('TL.on && TL.mode'), 'layer');
+    const nL = p.evalVm('__jobs.length');
+    p.evalVm('STYLE = "neon"; schedulePreview();');
+    await new Promise((r) => setTimeout(r, 900));
+    await flush(10);
+    const lj = JSON.parse(p.evalVm('JSON.stringify(__jobs.slice(' + nL + '))'));
+    assert.deepStrictEqual([lj.length, lj[0].style, lj[0].cues.length], [1, 'neon', 3], 'the whole layer, in the new look');
+    const lp = argsOf(calls(/amh_placeOverlay\(/).pop(), 'amh_placeOverlay');
+    assert.ok(/^amhstyle_/.test(lp.replacePrefix), 'replaces the old layer');
+    p.evalVm('discardReview()');
+    await flush(10);
+    const lb = JSON.parse(p.evalVm('JSON.stringify(__jobs[__jobs.length - 1])'));
+    assert.deepStrictEqual([lb.style, lb.cues.length], ['bold', 3], 'Discard: the layer goes back');
+    host.selected = null;
   } finally { p.close(); try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {} }
 });
 

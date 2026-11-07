@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.93.2';
+const APP_VERSION = '1.93.3';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -7126,7 +7126,9 @@ function findStyledRecent(sel) {
   const mid = (Number(sel.start) + Number(sel.end)) / 2;
   return readHistory().find((h) => {
     const pl = h.placed;
-    if (!pl || pl.mode !== 'cut' || String(sel.name).indexOf(pl.prefix) !== 0) return false;
+    // 1.93.3: one layer for all captions too (a Premiere that does not cut the
+    // drawn captions into clips) — the owner's 🎨 did not show for those
+    if (!pl || (pl.mode !== 'cut' && pl.mode !== 'layer') || String(sel.name).indexOf(pl.prefix) !== 0) return false;
     const cs = h.cues;
     const a = (Number(h.startSeconds) || 0) + Number(cs[0].start), z = (Number(h.startSeconds) || 0) + Number(cs[cs.length - 1].end);
     return mid >= a - 1 && mid <= z + 2;
@@ -7191,10 +7193,10 @@ function tlCueIndex(t) {
 async function styleSelectedCaption(rec, t) {
   const bar = $('selCapBar');
   if (bar) bar.style.display = 'none';
-  if (!rec || !rec.placed || rec.placed.mode !== 'cut') return false;
+  if (!rec || !rec.placed || (rec.placed.mode !== 'cut' && rec.placed.mode !== 'layer')) return false;
   if (!(await reopenHistory(rec))) return false;
   const i = tlCueIndex(t);
-  Object.assign(TL, { on: true, i, busy: false, again: false, dirty: false, base: Number(rec.startSeconds) || 0,
+  Object.assign(TL, { on: true, i, busy: false, again: false, dirty: false, base: Number(rec.startSeconds) || 0, mode: rec.placed.mode,
     prefix: rec.placed.prefix, track: rec.placed.track, orig: { style: rec.placed.style, opts: rec.placed.opts } });
   STYLE_CUSTOM_OPEN = true;
   renderStyleStrip();
@@ -7229,6 +7231,16 @@ async function tlRedraw(restore, cueArg) {
     const fr = await evalScript('amharic_getFrame()');
     if (!fr || !fr.ok) throw new Error((fr && fr.error) || 'could not read the sequence frame size');
     const out = path.join(ensureCaptionsDir(), TL.prefix + style + '_' + Date.now() + '.mov');
+    if (TL.mode === 'layer') {
+      // one layer for all captions: the whole layer is drawn again in the look
+      const all = styleCues(cueArg ? (TL.cuesAtStop || reviewCues) : reviewCues);
+      const rl = await renderStyled({ cues: all, style, opts, width: fr.width, height: fr.height, fps: fr.fps, out, mode: 'overlay', tag: !LICENSED });
+      const pl = await evalScript('amh_placeOverlay(' + escJson(escJson({ path: rl.out, startSeconds: TL.base + (rl.t0 || 0), duration: rl.duration || 0, replacePrefix: TL.prefix })) + ')', 60000);
+      if (!pl || !pl.ok || pl.placed !== true) throw new Error((pl && pl.error) || HOST_NAME + ' did not take the captions');
+      TL.dirty = !restore;
+      if (!restore) textCutNote('🎬 ' + L('On the timeline now.') + ' ' + L('✓ Place gives every caption this look.'));
+      return true;
+    }
     const r = await renderStyled({ cues: styleCues([cue]), style, opts, width: fr.width, height: fr.height, fps: fr.fps, out, mode: 'overlay', tag: !LICENSED });
     if (!Array.isArray(r.spans) || !r.spans.length) throw new Error('nothing to place');
     const from = TL.base + cue.start - 0.05, to = TL.base + cue.end + 0.6;
@@ -7974,6 +7986,7 @@ function discardReview() {
   log('Discarded — nothing was placed on the timeline.');
   if (TL.on && TL.dirty) {
     const cue = reviewCues[TL.i] ? Object.assign({}, reviewCues[TL.i]) : null;
+    TL.cuesAtStop = (reviewCues || []).map((c) => Object.assign({}, c));
     tlStop();
     if (cue) tlRedraw(true, cue).then((ok) => { if (ok) log('The caption on the timeline is back to its look.'); });
   }
