@@ -1973,12 +1973,34 @@ function amh_mogrtPlace(argsJSON) {
             var comp = null;
             try { comp = item.getMGTComponent(); } catch (e5) {}
             var tp = comp ? amhMogrtTextProps(comp) : [];
+            if (!tp.length && comp) {
+                // no JSON text: the first plain text control takes the whole caption
+                var pr = comp.properties;
+                for (var k = 0; k < pr.numItems; k++) {
+                    var v0 = null;
+                    try { v0 = pr[k].getValue(); } catch (e7) {}
+                    if (typeof v0 === "string" && !/^-?[\d.,]+$/.test(v0) && v0.indexOf(";") < 0) {
+                        try { pr[k].setValue((it.parts || []).join(" "), true); tp = [pr[k]]; } catch (e8) {}
+                        break;
+                    }
+                }
+                if (tp.length) { continue; }
+            }
             if (!tp.length) { noText++; continue; }
             for (var q = 0; q < tp.length; q++) {
                 try { amhMogrtSetText(tp[q], (it.parts && it.parts[q] !== undefined) ? it.parts[q] : " ", it.font); } catch (e6) { errors.push(String(e6)); }
             }
         }
         return amhOk({ track: track, added: added, removed: removed, placed: placed, noText: noText, errors: errors.slice(0, 5) });
+    });
+}
+// Where this Premiere is installed: its own templates (Captions and
+// Subtitles, Basic Title ...) are in <app.path>/Essential Graphics.
+function amh_appPath() {
+    return amhGuard(function () {
+        var p = "";
+        try { p = String(app.path || ""); } catch (e) {}
+        return amhOk({ path: p, version: String(app.version || "") });
     });
 }
 // The template caption selected on the timeline (ours: named <tag><n>).

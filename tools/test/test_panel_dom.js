@@ -1363,6 +1363,20 @@ await t('4n4. 1.94 🎬 templates: add a .mogrt (its name, lines, picture), choo
     await p.evalVm('placeReview()');
     assert.strictEqual(calls[0].items.length, 3, 'free: 3 captions show the look');
     has(p.els('logBox').textContent, '3 of 8 captions placed as the template');
+    // Premiere's OWN caption templates (installed with Premiere, offline) show first, without ✕
+    const pr = path.join(dir, 'Adobe Premiere Pro 2026');
+    fs.mkdirSync(path.join(pr, 'Essential Graphics', 'Captions and Subtitles'), { recursive: true });
+    fs.copyFileSync(file, path.join(pr, 'Essential Graphics', 'Captions and Subtitles', 'Bold Web Caption.mogrt'));
+    fs.copyFileSync(file, path.join(pr, 'Essential Graphics', 'Basic Title.mogrt'));
+    const found = JSON.parse(p.evalVm('JSON.stringify(premiereTemplateFiles(' + JSON.stringify(pr) + ').map((f) => path.basename(f)))'));
+    assert.deepStrictEqual(found, ['Bold Web Caption.mogrt', 'Basic Title.mogrt']);
+    p.evalVm('MOGRT_BUILTIN = null; evalScript = async (j) => (/amh_appPath/.test(j) ? { ok: true, path: ' + JSON.stringify(pr) + ' } : { ok: true });');
+    await p.evalVm('loadPremiereTemplates()');
+    const all = JSON.parse(p.evalVm('JSON.stringify(mogrtList().map((t) => [t.name, !!t.builtin]))'));
+    assert.deepStrictEqual(all.slice(0, 2), [['Bold Web Caption', true], ['Basic Title', true]], 'Premiere own first');
+    assert.deepStrictEqual(all[2], ['Reels Two', false], 'then the editor own');
+    p.evalVm('mogrtRemove(mogrtList()[0].id)');
+    assert.strictEqual(p.evalVm('mogrtList().length'), 3, 'Premiere own cannot be deleted from the row');
     // Premiere: among the styles only Plain (the drawn ones stay in After Effects / the Studio); Plain leaves the template
     p.evalVm('STYLE = "bounce"; lastCues = ' + JSON.stringify(cues) + ';');
     await p.evalVm('openReview(' + JSON.stringify(srt) + ', "talk.mp4", 10, {})');

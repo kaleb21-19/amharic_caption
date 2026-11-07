@@ -170,6 +170,7 @@ const AM_TEXT = {
   // 1.94 🎬 templates
   'Templates': 'ቴምፕሌቶች',
   'your own .mogrt — customize each caption in Essential Graphics': 'የራስዎ .mogrt — እያንዳንዱን ካፕሽን በEssential Graphics ያስተካክሉ',
+  'Premiere\u2019s own and your .mogrt — customize each caption in Essential Graphics': 'የPremiere የራሱና የእርስዎ .mogrt — እያንዳንዱን ካፕሽን በEssential Graphics ያስተካክሉ',
   'Add .mogrt': '.mogrt ጨምር',
   'line': 'መስመር',
   'lines': 'መስመሮች',

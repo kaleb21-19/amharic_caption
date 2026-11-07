@@ -492,7 +492,8 @@ const WHATS_NEW = {
       en: '⬆ 🎬 Templates (Premiere): your captions in your own .mogrt templates — customize them in Essential Graphics — your license stays the same.',
     },
     items: [
-      { am: '🎬 «.mogrt ጨምር»፦ ያለዎትን Motion Graphics ቴምፕሌት ይምረጡ — ስሙ፣ ምስሉና የመስመሩ ብዛት ይታያል', en: '🎬 «Add .mogrt»: choose the Motion Graphics templates you have — their name, picture and number of lines show' },
+      { am: '🎬 የPremiere የራሱ የካፕሽን ቴምፕሌቶች (Captions and Subtitles) ወዲያው ይገኛሉ — ኢንተርኔት አያስፈልግም', en: '🎬 Premiere’s own caption templates (Captions and Subtitles) are there at once — no internet needed' },
+      { am: '«.mogrt ጨምር»፦ ያለዎትን Motion Graphics ቴምፕሌት ይጨምሩ — ስሙ፣ ምስሉና የመስመሩ ብዛት ይታያል', en: '«Add .mogrt»: add the Motion Graphics templates you have — their name, picture and number of lines show' },
       { am: '«በታይምላይን ላይ አስቀምጥ»፦ እያንዳንዱ ካፕሽን አንድ ቴምፕሌት ይሆናል፣ ቃላቱ በቴምፕሌቱ መስመሮች ላይ፣ በአማርኛ ፊደል', en: '«Place»: every caption becomes one template, its words over the lines of the template, in an Amharic font' },
       { am: '2 ወይም 3 መስመር፦ በካፕሽኑ ውስጥ Shift+Enter ይጫኑ — ያን ያህል መስመር ያለው ቴምፕሌት ይጠቀማል', en: '2 or 3 lines: press Shift+Enter inside a caption — a template with that many lines is used' },
       { am: 'አንዱን ካፕሽን በEssential Graphics ይቀይሩ፣ «🎨 ይህን ስታይል ለሁሉም ስጥ» — ሁሉም ካፕሽኖች ያንን መልክ ያገኛሉ', en: 'Change one caption in Essential Graphics, then «🎨 Apply this look to all captions» — every caption gets it' },
@@ -7328,7 +7329,42 @@ const MOGRT_FONTS = { sans: 'NotoSansEthiopic-Bold', menbere: 'Menbere-Bold', se
 const MOGRT_FREE = 3;            // captions a free version places (a preview of the look)
 let MOGRT_FONTS_DONE = false;
 function mogrtAvailable() { return cleanupAvailable(); }
-function mogrtList() { const l = loadSettings().mogrts; return Array.isArray(l) ? l.filter((t) => t && t.id && t.path) : []; }
+// 1.94: Premiere's OWN caption templates (installed with every Premiere —
+// offline, nothing shipped by us): Captions and Subtitles, Basic Title,
+// Basic Lower Third. Found in <Premiere>/Essential Graphics, read once.
+let MOGRT_BUILTIN = null;
+function premiereTemplateFiles(appPath) {
+  const roots = [];
+  if (appPath) roots.push(path.join(appPath, 'Essential Graphics'), path.join(appPath, 'Contents', 'Essential Graphics'), path.join(path.dirname(appPath), 'Essential Graphics'));
+  const out = [];
+  for (const r of roots) {
+    try {
+      if (!fs.existsSync(r)) continue;
+      const cap = path.join(r, 'Captions and Subtitles');
+      if (fs.existsSync(cap)) fs.readdirSync(cap).filter((f) => /\.mogrt$/i.test(f)).sort().forEach((f) => out.push(path.join(cap, f)));
+      ['Basic Title.mogrt', 'Basic Lower Third.mogrt'].forEach((f) => { if (fs.existsSync(path.join(r, f))) out.push(path.join(r, f)); });
+      if (out.length) break;
+    } catch (e) {}
+  }
+  return out;
+}
+async function loadPremiereTemplates() {
+  if (MOGRT_BUILTIN || !mogrtAvailable()) return MOGRT_BUILTIN || [];
+  let appPath = '';
+  try { const r = await evalScript('amh_appPath()', 8000); if (r && r.ok) appPath = r.path; } catch (e) {}
+  const list = [];
+  premiereTemplateFiles(appPath).forEach((f, i) => {
+    try {
+      const info = mogrtInfo(f);
+      list.push({ id: 'pr' + i + '_' + path.basename(f, '.mogrt').replace(/\W+/g, ''), path: f, name: path.basename(f, '.mogrt'), lines: info.lines, thumb: info.thumb, builtin: true });
+    } catch (e) {}
+  });
+  MOGRT_BUILTIN = list;
+  if (list.length) log('🎬 ' + list.length + ' caption templates from this Premiere (offline).');
+  return list;
+}
+function mogrtUserList() { const l = loadSettings().mogrts; return Array.isArray(l) ? l.filter((t) => t && t.id && t.path) : []; }
+function mogrtList() { return (MOGRT_BUILTIN || []).concat(mogrtUserList()); }
 function mogrtActive() {
   if (!mogrtAvailable()) return null;
   const id = loadSettings().mogrtPick;
@@ -7371,7 +7407,7 @@ function mogrtInfo(file) {
   return { name: name.slice(0, 40), lines: Math.max(1, lines), thumb };
 }
 function mogrtAddFiles(files) {
-  const list = mogrtList();
+  const list = mogrtUserList();
   let added = 0, bad = 0;
   (files || []).forEach((f) => {
     if (!/\.mogrt$/i.test(f) || list.some((t) => t.path === f)) return;
@@ -7383,6 +7419,7 @@ function mogrtAddFiles(files) {
   });
   const s = { mogrts: list };
   if (added && !mogrtActive()) s.mogrtPick = list[list.length - 1].id;
+  else if (added) s.mogrtPick = list[list.length - 1].id;
   saveSettings(s);
   renderMogrtRow();
   return { added, bad };
@@ -7399,7 +7436,7 @@ function mogrtUse(id) {
   renderStyleStrip();
 }
 function mogrtRemove(id) {
-  const list = mogrtList().filter((t) => t.id !== id);
+  const list = mogrtUserList().filter((t) => t.id !== id);
   const s = { mogrts: list };
   if (loadSettings().mogrtPick === id) s.mogrtPick = '';
   saveSettings(s);
@@ -7414,10 +7451,11 @@ function renderMogrtRow() {
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const head = el('div', 'mogrt-head');
   head.appendChild(el('b', '', '🎬 ' + L('Templates')));
-  head.appendChild(el('span', '', L('your own .mogrt — customize each caption in Essential Graphics')));
+  head.appendChild(el('span', '', L('Premiere\u2019s own and your .mogrt — customize each caption in Essential Graphics')));
   row.appendChild(head);
   const chips = el('div', 'mogrt-chips');
   const act = mogrtActive();
+  if (!MOGRT_BUILTIN) loadPremiereTemplates().then((l) => { if (l.length) renderMogrtRow(); });
   mogrtList().forEach((t) => {
     const b = el('button', 'style-chip mogrt-chip' + (act && act.id === t.id ? ' active' : ''));
     b.type = 'button';
@@ -7428,10 +7466,13 @@ function renderMogrtRow() {
     b.appendChild(pic);
     b.appendChild(el('span', '', t.name));
     b.appendChild(el('i', 'mogrt-lines', t.lines + ' ' + L(t.lines === 1 ? 'line' : 'lines')));
-    const del = el('i', 'my-del', '✕');
-    del.title = L('Delete');
-    del.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); mogrtRemove(t.id); });
-    b.appendChild(del);
+    if (t.builtin) b.appendChild(el('i', 'mogrt-pr', 'Pr'));
+    else {
+      const del = el('i', 'my-del', '✕');
+      del.title = L('Delete');
+      del.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); mogrtRemove(t.id); });
+      b.appendChild(del);
+    }
     b.addEventListener('click', () => mogrtUse(act && act.id === t.id ? '' : t.id));
     chips.appendChild(b);
   });
