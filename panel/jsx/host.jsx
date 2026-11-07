@@ -1491,7 +1491,24 @@ function amhPlaceCaptions(seq, captionItem, startTicks, startSeconds) {
 // and opened; the original stays exactly as it was. Times are timeline
 // seconds; args = { cuts: [[start, end], ...], media: [paths the captions were
 // made from] }.
+// 1.93.2 (owner report: "Premiere did not cut at 9.68-9.80 s = 00:00:07:22-
+// 00:00:07:25"): a sequence whose timecode display differs from its frame
+// rate (24 fps shown as 30 fps timecode) got the frame count of one written in
+// the other, and the razor landed ~2 s early. Ask Premiere itself: put the
+// playhead at that exact time (ticks), read the timecode QE shows there - the
+// very format its razor reads - and put the playhead back.
+var AMH_TICKS = 254016000000;
 function amhCleanupTc(seq, seconds) {
+    try {
+        app.enableQE();
+        var q = qe.project.getActiveSequence();
+        var old = null;
+        try { old = seq.getPlayerPosition(); } catch (e0) {}
+        seq.setPlayerPosition(String(Math.round(Number(seconds) * AMH_TICKS)));
+        var tc = String(q.CTI.timecode || "");
+        if (old && old.ticks !== undefined) { try { seq.setPlayerPosition(String(old.ticks)); } catch (e1) {} }
+        if (/\d/.test(tc)) { return tc; }
+    } catch (e) {}
     var t = new Time();
     t.seconds = seconds;
     var st = seq.getSettings();
