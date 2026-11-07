@@ -272,4 +272,58 @@ test('1.74 several clips: a cut on the transcribed clip cuts there; a cut on ano
   assert.ok(r.ok, JSON.stringify(r));
 });
 
+// ── 1.92 🎙 podcast camera switcher
+const POD = () => ({
+  v: [[[0, 60, 'wide.mp4', 'C:/v/wide.mp4']], [[0, 60, 'camA.mp4', 'C:/v/camA.mp4']], [[0, 60, 'camB.mp4', 'C:/v/camB.mp4']]],
+  a: [[[0, 60, 'micA.wav', 'C:/v/micA.wav']], [[0, 60, 'micB.wav', 'C:/v/micB.wav']]],
+});
+const podCall = (pp, fn, a) => JSON.parse(vm.runInContext(fn + '(' + (a === undefined ? '' : JSON.stringify(JSON.stringify(a))) + ')', pp.ctx));
+
+test('podcast: read the sequence — camera tracks and microphone clips with their files', () => {
+  const pp = makePremiere(POD());
+  const r = podCall(pp, 'amh_podcastScan');
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.strictEqual(r.video.length, 3);
+  assert.deepStrictEqual(r.video.map((v) => [v.i, v.clips, v.start, v.end]), [[0, 1, 0, 60], [1, 1, 0, 60], [2, 1, 0, 60]]);
+  assert.deepStrictEqual(r.audio.map((a) => a.clips.map((c) => [c.start, c.end, c.path])), [[[0, 60, 'C:/v/micA.wav']], [[0, 60, 'C:/v/micB.wav']]]);
+  assert.strictEqual(r.fps, 25);
+});
+
+test('podcast: on a COPY only the speaking camera stays in each stretch; sound and length untouched', () => {
+  const pp = makePremiere(POD());
+  const p = podCall(pp, 'amh_podcastPrepare', { cams: [1, 2, 0], sequenceID: pp.seqs[0].sequenceID });
+  assert.ok(p.ok, JSON.stringify(p));
+  assert.match(p.sequence, /- podcast$/);
+  const segs = [[0, 11.013, 1], [11.013, 30, 2], [30, 35, 0], [35, 60, 1]];
+  const a = podCall(pp, 'amh_podcastSome', { sequenceID: p.sequenceID, fps: p.fps, cams: [1, 2, 0], segs: segs.slice(2) });
+  const b = podCall(pp, 'amh_podcastSome', { sequenceID: p.sequenceID, fps: p.fps, cams: [1, 2, 0], segs: segs.slice(0, 2) });
+  assert.ok(a.ok && b.ok, JSON.stringify([a, b]));
+  const s = pp.project.activeSequence;
+  assert.notStrictEqual(s, pp.seqs[0]);
+  assert.deepStrictEqual(s.vt[1].snap(), [[0, 11, 'camA.mp4'], [35, 60, 'camA.mp4']], 'edges on frames (11.013 -> 11)');
+  assert.deepStrictEqual(s.vt[2].snap(), [[11, 30, 'camB.mp4']]);
+  assert.deepStrictEqual(s.vt[0].snap(), [[30, 35, 'wide.mp4']]);
+  assert.deepStrictEqual(s.at[0].snap(), [[0, 60, 'micA.wav']], 'the sound is not touched');
+  assert.deepStrictEqual(s.at[1].snap(), [[0, 60, 'micB.wav']]);
+  // the original stays as it was
+  assert.deepStrictEqual(pp.seqs[0].vt.map((t) => t.snap().length), [1, 1, 1]);
+});
+
+test('podcast: a locked camera track, a changed sequence, or the copy not open: nothing is changed', () => {
+  let pp = makePremiere(Object.assign(POD(), { locked: true }));
+  let r = podCall(pp, 'amh_podcastPrepare', { cams: [0, 1, 2] });
+  assert.match(r.error, /locked/);
+  assert.strictEqual(pp.seqs.length, 1, 'no copy made');
+  pp = makePremiere(POD());
+  r = podCall(pp, 'amh_podcastPrepare', { cams: [1, 2], sequenceID: 'other' });
+  assert.match(r.error, /changed/);
+  r = podCall(pp, 'amh_podcastPrepare', { cams: [1] });
+  assert.match(r.error, /two cameras/);
+  const p = podCall(pp, 'amh_podcastPrepare', { cams: [1, 2] });
+  pp.project.activeSequence = pp.seqs[0];
+  r = podCall(pp, 'amh_podcastSome', { sequenceID: p.sequenceID, fps: 25, cams: [1, 2], segs: [[0, 30, 1]] });
+  assert.match(r.error, /no longer the open sequence/);
+  assert.deepStrictEqual(pp.seqs[0].vt.map((t) => t.snap().length), [1, 1, 1]);
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');

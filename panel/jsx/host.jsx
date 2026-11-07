@@ -1733,6 +1733,117 @@ function amh_cleanupCut(argsJSON) {
     });
 }
 
+/* ------------------------------------------------------- podcast cameras */
+
+// Podcast camera switcher (1.92): each speaker has a microphone on an audio
+// track and a camera on a video track (and maybe a wide shot on another). The
+// panel measures the microphones and decides who speaks when; here: read the
+// sequence, then on a COPY keep only the speaking camera's clip in each
+// stretch. The other cameras' clips are lifted, never rippled, so the
+// timeline keeps its length and the sound is untouched.
+
+function amh_podcastScan() {
+    return amhGuard(function () {
+        if (!app || !app.project) { return amhErr("No project is open."); }
+        var seq = app.project.activeSequence;
+        if (!seq) { return amhErr("No active sequence. Open your podcast sequence first."); }
+        var vid = [], aud = [];
+        var v = seq.videoTracks, a = seq.audioTracks;
+        for (var i = 0; i < v.numTracks; i++) {
+            var tr = v[i], cl = tr.clips, n = cl.numItems, nm = "";
+            try { nm = String(tr.name || ""); } catch (e) {}
+            vid.push({ i: i, name: nm, clips: n,
+                       start: n ? Number(cl[0].start.seconds) : 0, end: n ? Number(cl[n - 1].end.seconds) : 0 });
+        }
+        for (var j = 0; j < a.numTracks; j++) {
+            var at = a[j], ac = at.clips, list = [], an = "";
+            try { an = String(at.name || ""); } catch (e) {}
+            for (var k = 0; k < ac.numItems && k < 3000; k++) {
+                var c = ac[k];
+                var p = amhMediaPath(c.projectItem);
+                if (!p) { continue; }
+                var inp = 0;
+                try { inp = Number(c.inPoint.seconds); } catch (e) {}
+                list.push({ start: Number(c.start.seconds), end: Number(c.end.seconds), sourceIn: inp, path: p });
+            }
+            aud.push({ i: j, name: an, clips: list });
+        }
+        return amhOk({ name: String(seq.name), sequenceID: String(seq.sequenceID), fps: amhCleanupFps(), video: vid, audio: aud });
+    });
+}
+
+// Step 1: checks, then copy the sequence and open the copy (nothing changes on
+// the original). args = { cams: [video track indices], sequenceID }.
+function amh_podcastPrepare(argsJSON) {
+    return amhGuard(function () {
+        var args = JSON.parse(argsJSON);
+        if (!app || !app.project) { return amhErr("No project is open."); }
+        var seq = app.project.activeSequence;
+        if (!seq) { return amhErr("No active sequence. Open your podcast sequence first."); }
+        if (args.sequenceID && String(seq.sequenceID) !== String(args.sequenceID)) {
+            return amhErr("The open sequence changed. Press Read the sequence again.");
+        }
+        var cams = args.cams || [];
+        if (cams.length < 2) { return amhErr("Choose at least two cameras."); }
+        for (var c = 0; c < cams.length; c++) {
+            var locked = false;
+            try { locked = seq.videoTracks[cams[c]].isLocked(); } catch (e) {}
+            if (locked) { return amhErr("A camera track is locked. Unlock it (the lock icon), then press Switch again."); }
+        }
+        var origName = String(seq.name);
+        var r = amhCopyAndOpen(seq, " - podcast");
+        if (r.error) { return amhErr(r.error); }
+        return amhOk({ sequence: String(r.seq.name), sequenceID: String(r.seq.sequenceID), original: origName, fps: amhCleanupFps() });
+    });
+}
+
+// One stretch [a, b] where camera `keep` is shown: razor every camera track at
+// both edges, lift the other cameras' clips that lie inside.
+function amhPodcastOne(seq, qseq, cams, a, b, keep, fps) {
+    var eps = 0.5 / fps, lifted = 0;
+    var tcA = amhCleanupTc(seq, a), tcB = amhCleanupTc(seq, b);
+    for (var c = 0; c < cams.length; c++) {
+        try { qseq.getVideoTrackAt(cams[c]).razor(tcB); qseq.getVideoTrackAt(cams[c]).razor(tcA); } catch (e) {}
+    }
+    for (var d = 0; d < cams.length; d++) {
+        if (cams[d] === keep) { continue; }
+        var cl = seq.videoTracks[cams[d]].clips, inside = [];
+        for (var k = amhCleanupFirstAfter(cl, a + eps); k < cl.numItems; k++) {
+            var it = cl[k], s = Number(it.start.seconds), e = Number(it.end.seconds);
+            if (s >= b - eps) { break; }
+            if (s >= a - eps && e <= b + eps) { inside.push(it); }
+        }
+        for (var r = inside.length - 1; r >= 0; r--) {
+            try { inside[r].remove(false, false); lifted++; } catch (e) {}
+        }
+    }
+    return lifted;
+}
+
+// Step 2 (called again and again, so the panel can show progress and stop):
+// some stretches, on the copy only. args = { sequenceID, fps, cams, segs: [[a, b, cam]] }.
+function amh_podcastSome(argsJSON) {
+    return amhGuard(function () {
+        var args = JSON.parse(argsJSON);
+        var seq = app.project.activeSequence;
+        if (!seq || String(seq.sequenceID) !== String(args.sequenceID)) {
+            return amhErr("The podcast copy is no longer the open sequence. Open it, then press Switch again.");
+        }
+        var fps = Number(args.fps) > 0 ? Number(args.fps) : amhCleanupFps();
+        var cams = args.cams || [], segs = args.segs || [];
+        app.enableQE();
+        var qseq = qe.project.getActiveSequence();
+        var lifted = 0, done = 0;
+        for (var n = 0; n < segs.length; n++) {
+            var a = Math.round(Number(segs[n][0]) * fps) / fps, b = Math.round(Number(segs[n][1]) * fps) / fps;
+            if (b - a < 1 / fps) { continue; }
+            lifted += amhPodcastOne(seq, qseq, cams, a, b, Number(segs[n][2]), fps);
+            done++;
+        }
+        return amhOk({ segs: done, lifted: lifted });
+    });
+}
+
 /* ------------------------------------------------------------- auto zoom */
 
 // Auto zoom (1.16.23): a zoom on the video at the moments that matter (a

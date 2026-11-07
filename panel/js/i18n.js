@@ -107,6 +107,8 @@ const AM_STATIC = {
   'fb.sub':           'ሀሳብ፣ ችግር ወይም ጥያቄ — በቀጥታ አማርኛ ካፕሽንን ለሚሰሩት ሰዎች ይደርሳል።',
   'fb.placeholder':   'እዚህ ይጻፉ…',
   // 1.75 🔎 footage search
+  'pod.title':        '🎙 ፖድካስት፦ ካሜራ በራሱ ይቀየራል',
+  'pod.hint':         'ወደሚናገረው ሰው',
   'search.title':     '🔎 የተነገረውን ፈልግ',
   'search.hint':      'በሁሉም ቪዲዮዎችዎ ውስጥ',
   'search.ph':        'ቃል ወይም ዓረፍተ ነገር ይጻፉ…',
@@ -167,6 +169,32 @@ const AM_STATIC = {
 
 // ── dynamic text from main.js / core.js (keyed by the English string) ───────
 const AM_TEXT = {
+  // 1.92 🎙 podcast camera switcher
+  'Each speaker needs their own microphone (an audio track) and camera (a video track). It works on a copy — your sequence stays as it is. No minutes are used.': 'እያንዳንዱ ተናጋሪ የራሱ ማይክ (የድምፅ ትራክ) እና ካሜራ (የቪዲዮ ትራክ) ያስፈልገዋል። የሚሰራው በቅጂ ላይ ነው — ሴክዌንስዎ እንዳለ ይቆያል። ምንም ደቂቃ አይቀነስም።',
+  'Reading the sequence…': 'ሴክዌንሱን በማንበብ ላይ…',
+  'Read the sequence': 'ሴክዌንሱን አንብብ',
+  'Read again': 'እንደገና አንብብ',
+  'This needs at least two camera tracks and two microphone tracks in the open sequence.': 'ይህ በተከፈተው ሴክዌንስ ውስጥ ቢያንስ ሁለት የካሜራ ትራኮችና ሁለት የማይክ ትራኮች ይፈልጋል።',
+  '— not a speaker': '— ተናጋሪ አይደለም',
+  'Two voices at once': 'ሁለት ሰው በአንድ ጊዜ ሲናገር',
+  'keep the camera': 'ካሜራው ይቆይ',
+  'wide': 'ሰፊ',
+  'Shortest shot': 'አጭሩ ሾት',
+  'Listening to the microphones…': 'ማይኮቹን በማዳመጥ ላይ…',
+  'Find who speaks': 'ማን እንደሚናገር ፈልግ',
+  'camera switches': 'የካሜራ ቅያሪዎች',
+  'Switching': 'በመቀየር ላይ',
+  'is open': 'ተከፍቷል',
+  'shots. Watch it; your original sequence is unchanged.': 'ሾቶች። ይመልከቱት፤ የመጀመሪያው ሴክዌንስዎ አልተነካም።',
+  'Switch cameras on a copy of the sequence': 'በሴክዌንሱ ቅጂ ላይ ካሜራዎቹን ቀይር',
+  'Listen again': 'እንደገና አዳምጥ',
+  'Give at least two microphones their own camera.': 'ቢያንስ ለሁለት ማይኮች የራሳቸውን ካሜራ ይምረጡ።',
+  'The sequence is empty.': 'ሴክዌንሱ ባዶ ነው።',
+  'No speech was found on these microphones.': 'በእነዚህ ማይኮች ላይ ንግግር አልተገኘም።',
+  'No active sequence. Open your podcast sequence first.': 'የተከፈተ ሴክዌንስ የለም። መጀመሪያ የፖድካስት ሴክዌንስዎን ይክፈቱ።',
+  'The open sequence changed. Press Read the sequence again.': 'የተከፈተው ሴክዌንስ ተቀይሯል። «ሴክዌንሱን አንብብ»ን እንደገና ይጫኑ።',
+  'A camera track is locked. Unlock it (the lock icon), then press Switch again.': 'አንድ የካሜራ ትራክ ተቆልፏል። ይክፈቱት (የቁልፍ ምልክቱ)፣ ከዚያ እንደገና ይጫኑ።',
+  'The podcast copy is no longer the open sequence. Open it, then press Switch again.': 'የፖድካስቱ ቅጂ የተከፈተው ሴክዌንስ አይደለም። ይክፈቱት፣ ከዚያ እንደገና ይጫኑ።',
   // 1.91 ✂ Edit with text
   '✂ Cut this caption from the video (Shift: every caption from the last ✂ to here). With the cursor in the text: the word at the cursor or the selected words — ✂ again: keep it': '✂ ይህን ካፕሽን በሙሉ ከቪዲዮው ቁረጥ (Shift፦ ከመጨረሻው ✂ እስከዚህ ያሉትን በሙሉ)። ጠቋሚው በጽሑፉ ውስጥ ሲሆን፦ ያለበትን ቃል ወይም የተመረጡትን ቃላት — ✂ እንደገና፦ ይቆይ',
   'Click ✂ on a caption to cut all of it (Shift+click: every caption up to it), or put the cursor on words and press ✂ / Ctrl+D. ▶ hear it first — then it is cut on a copy of your sequence.': 'ካፕሽኑን በሙሉ ለመቁረጥ በላዩ ያለውን ✂ ይጫኑ (Shift+✂፦ እስከሱ ያሉትን በሙሉ)፣ ወይም ጠቋሚውን በቃላቱ ላይ አድርገው ✂ / Ctrl+D ይጫኑ። መጀመሪያ ▶ ያዳምጡ — ከዚያ በሴክዌንሱ ቅጂ ላይ ይቆረጣል።',
