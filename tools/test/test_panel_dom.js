@@ -48,7 +48,10 @@ const realCaptionsState = () => { try { return fs.readdirSync(REAL_CAPTIONS).len
 const REAL_CAPTIONS_BEFORE = realCaptionsState();
 process.env.AMH_CAPTIONS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_panel_captions_'));
 
-const CACHE_FILE = path.join(os.tmpdir(), 'amh_transcript_cache.json');
+// The tests' own transcript cache (never the real one the installed panel
+// uses: a full real cache — 200 entries — pushed the test's entry out)
+const CACHE_FILE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'amh_test_cache_')), 'amh_transcript_cache.json');
+process.env.AMH_CACHE_FILE = CACHE_FILE;
 const ENGINE_FILES = ['ethio_srt.py','ctc_beam.py','amh_correct.py','amh_decode.py','amh_vad.py','amh_lm.py','amh_lm.json.gz'];
 
 const CUE1 = '\u1230\u120b\u121d \u12a5\u1295\u12f5\u1275 \u1290\u1205';
