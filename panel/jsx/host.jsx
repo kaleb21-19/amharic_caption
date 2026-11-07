@@ -1932,19 +1932,22 @@ function amh_mogrtTest(argsJSON) {
                 try { comp = item.getMGTComponent(); } catch (e4) { rep.error = "getMGTComponent: " + e4; }
                 if (comp) {
                     var props = comp.properties, textProp = null, textName = "", jsonMode = false;
+                    rep.full = [];
                     for (var k = 0; k < props.numItems; k++) {
-                        var pr = props[k], nm = "", sval = "";
+                        var pr = props[k], nm = "", sval = "", raw = null, ty = "";
                         try { nm = String(pr.displayName); } catch (e5) {}
-                        try { sval = String(pr.getValue()); } catch (e6) { sval = "(no value)"; }
+                        try { raw = pr.getValue(); ty = typeof raw; sval = String(raw); } catch (e6) { sval = "(no value)"; ty = "error"; }
                         rep.params.push(nm + " = " + sval.substring(0, 160));
-                        if (!textProp && sval.indexOf("textEditValue") >= 0) { textProp = pr; textName = nm; jsonMode = true; }
+                        rep.full.push({ i: k, name: nm, type: ty, value: sval.substring(0, 600) });
+                        if (!textProp && sval.indexOf("textEditValue") >= 0) { textProp = pr; textName = "#" + k + " " + nm; jsonMode = true; }
                     }
                     if (!textProp) {
+                        // a string control that is not a number / colour / position: the text
                         for (var k2 = 0; k2 < props.numItems; k2++) {
                             var p2 = props[k2], n2 = "", v2 = null;
                             try { n2 = String(p2.displayName); } catch (e7) {}
                             try { v2 = p2.getValue(); } catch (e8) {}
-                            if (/text/i.test(n2) && typeof v2 === "string") { textProp = p2; textName = n2; break; }
+                            if (typeof v2 === "string" && !/^-?[\d.]+$/.test(v2) && v2.length > 0 && v2.length < 4000) { textProp = p2; textName = "#" + k2 + " " + n2; break; }
                         }
                     }
                     if (textProp) {

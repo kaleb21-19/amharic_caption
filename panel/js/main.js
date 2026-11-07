@@ -7296,6 +7296,10 @@ async function mogrtTest(pathArg) {
     lines.push((i + 1) + '. ' + (x.placed ? '✓ placed' : '✗ not placed') + (x.set ? ' · text → ' + x.set : '') + (x.error ? ' · ' + x.error : '') + (x.setError ? ' · ' + x.setError : ''));
     if (i === 0) x.params.forEach((pp) => lines.push('     ' + pp));
   });
+  // the whole report in a file, for support (every control, its type and value)
+  let saved = '';
+  try { saved = path.join(os.tmpdir(), 'amh_mogrt_test.json'); fs.writeFileSync(saved, JSON.stringify({ file, at: new Date().toISOString(), result: r }, null, 1), 'utf8'); } catch (e) { saved = ''; }
+  if (saved) lines.push('', 'Saved: ' + saved);
   show(lines.join('\n'));
   log('MOGRT test: ' + JSON.stringify(r).slice(0, 4000));
   return r;

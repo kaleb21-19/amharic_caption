@@ -373,7 +373,7 @@ test('MOGRT test: placed on a free track, the Amharic text goes into the templat
     cues: [{ start: 0, end: 2.5, text: 'ሰላም' }, { start: 2.5, end: 5, text: 'ቡና' }] })) + ')', pp.ctx));
   assert.ok(r.ok, JSON.stringify(r));
   assert.strictEqual(r.track, 1, 'V2 is free at 10-15 s (the title is at 40-45 s)');
-  assert.deepStrictEqual(r.results.map((x) => [x.placed, x.set]), [[true, 'Text 01 (json)'], [true, 'Text 01 (json)']]);
+  assert.deepStrictEqual(r.results.map((x) => [x.placed, x.set]), [[true, '#1 Text 01 (json)'], [true, '#1 Text 01 (json)']]);
   assert.ok(r.results[1].after.indexOf('ቡና') >= 0, 'the Amharic is read back');
   assert.strictEqual(placed[1].end.seconds, 15, 'each caption ends at its time');
 });
