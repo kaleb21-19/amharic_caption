@@ -418,6 +418,26 @@ test('templates: Apply to all copies the selected caption\'s look (colour, font,
   s.getSelection = () => [];
   assert.match(mgtCall(pp, 'amh_mogrtApplyLook', { tag: sel.tag }).error, /Select one of the template captions/);
 });
+test('templates: a Premiere-made template (mTextParam, like Premiere\u2019s own Captions and Subtitles) takes the words and the font', () => {
+  const pp = makePremiere(base());
+  const s = pp.seqs[0];
+  pp.ctx.File = function (f) { this.fsName = f; this.exists = true; };
+  const made = [];
+  s.importMGT = (p, ticks, track) => {
+    const t0 = Number(ticks) / 254016000000;
+    let val = JSON.stringify({ mTextParam: { mAlignment: 2, mStyleSheet: { mFontName: { mParamValues: [[0, 'MyriadPro-Regular']] },
+      mFontSize: { mParamValues: [[0, 100], [8, 120]] }, mFillColor: { mParamValues: [[0, 16777215]] }, mText: 'Captions and Subtitles for online' } }, mVersion: 1 });
+    const c = { name: 'T', start: { seconds: t0 }, end: { seconds: t0 + 5 }, projectItem: { name: 'T', getMediaPath: () => '' }, remove() {},
+      getMGTComponent: () => ({ properties: coll([{ displayName: 'Source Text', getValue: () => val, setValue: (x) => { val = x; } }], 'numItems') }), get val() { return val; } };
+    s.vt[track].list.push(c);
+    made.push(c);
+    return c;
+  };
+  const r = mgtCall(pp, 'amh_mogrtPlace', { tag: 'amhmogrt_t_', items: [{ n: 1, path: 'C:/pr/Modern Web Caption.mogrt', start: 1, end: 3, parts: ['ሰላም ለሁላችሁ'], font: 'NotoSansEthiopic-Bold' }], first: true, rangeStart: 1, rangeEnd: 3 });
+  assert.ok(r.ok && r.placed === 1 && !r.noText, JSON.stringify(r));
+  const ss = JSON.parse(made[0].val).mTextParam.mStyleSheet;
+  assert.deepStrictEqual([ss.mText, ss.mFontName.mParamValues, ss.mFontSize.mParamValues], ['ሰላም ለሁላችሁ', [[0, 'NotoSansEthiopic-Bold']], [[0, 100]]]);
+});
 test('templates: a Premiere without importMGT says so (nothing placed)', () => {
   const pp = makePremiere(base());
   const r = mgtCall(pp, 'amh_mogrtPlace', { tag: 'amhmogrt_x_', items: [], first: true, rangeStart: 0, rangeEnd: 1 });

@@ -3456,6 +3456,7 @@ function setStatus(state, text) {
   if (state) pill.classList.add(state);
   STATUS_EN = text || '';
   txt.textContent = L(STATUS_EN);
+  pill.title = txt.textContent;            // a long message: the whole text on hover
 }
 function setSuccess(text) {
   // Green "ready" pill, but with a concrete outcome so the user sees success

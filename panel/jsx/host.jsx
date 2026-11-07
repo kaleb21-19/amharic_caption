@@ -1903,13 +1903,28 @@ function amhMogrtTextProps(comp) {
     for (var k = 0; k < props.numItems; k++) {
         var v = "";
         try { v = String(props[k].getValue()); } catch (e) {}
-        if (v.indexOf("textEditValue") >= 0) { out.push(props[k]); }
+        // After Effects templates: {textEditValue ...}; Premiere-made ones
+        // (Premiere's own Captions and Subtitles): {mTextParam: {mStyleSheet: {mText ...}}}
+        if (v.indexOf("textEditValue") >= 0 || v.indexOf("mTextParam") >= 0) { out.push(props[k]); }
     }
     return out;
+}
+// Premiere's text form: one style run from the first letter, the new words, the font.
+function amhMogrtPrText(o, text, font) {
+    var ss = o.mTextParam.mStyleSheet || (o.mTextParam.mStyleSheet = {});
+    for (var key in ss) {
+        if (ss.hasOwnProperty(key) && ss[key] && ss[key].mParamValues && ss[key].mParamValues.length > 1) {
+            ss[key].mParamValues = [ss[key].mParamValues[0]];
+        }
+    }
+    ss.mText = text;
+    if (font) { ss.mFontName = { mParamValues: [[0, font]] }; }
+    return o;
 }
 // One text control: new words, one style run as long as them, the font.
 function amhMogrtSetText(prop, text, font) {
     var o = JSON.parse(String(prop.getValue()));
+    if (o.mTextParam) { prop.setValue(JSON.stringify(amhMogrtPrText(o, text, font)), true); return; }
     for (var key in o) {
         if (o.hasOwnProperty(key) && Object.prototype.toString.call(o[key]) === "[object Array]" && o[key].length > 1) { o[key] = [o[key][0]]; }
     }
@@ -2051,7 +2066,11 @@ function amh_mogrtApplyLook(argsJSON) {
                 var lv = look[p];
                 try {
                     var cur = String(tp[p].getValue());
-                    if (cur.indexOf("textEditValue") >= 0 && String(lv).indexOf("textEditValue") >= 0) {
+                    if (cur.indexOf("mTextParam") >= 0 && String(lv).indexOf("mTextParam") >= 0) {
+                        var mineP = JSON.parse(cur), oP = JSON.parse(String(lv));
+                        oP.mTextParam.mStyleSheet.mText = mineP.mTextParam.mStyleSheet.mText;
+                        tp[p].setValue(JSON.stringify(oP), true);
+                    } else if (cur.indexOf("textEditValue") >= 0 && String(lv).indexOf("textEditValue") >= 0) {
                         var mine = JSON.parse(cur), o = JSON.parse(String(lv));
                         o.textEditValue = mine.textEditValue;
                         o.fontTextRunLength = [String(mine.textEditValue).length];

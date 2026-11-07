@@ -81,7 +81,9 @@
     background: var(--bg-field); border: 1px solid var(--border);
     border-radius: 20px; padding: 3px 9px; white-space: nowrap;
     font-weight: 500;
+    max-width: 52vw; min-width: 0; overflow: hidden;
   }
+  #statusText { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   #statusPill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-disabled); }
   #statusPill.ready { color: var(--ok); border-color: rgba(52,192,125,.4); background: var(--ok-soft); }
   #statusPill.ready .dot { background: var(--ok); }
