@@ -7357,6 +7357,7 @@ async function loadPremiereTemplates() {
   premiereTemplateFiles(appPath).forEach((f, i) => {
     try {
       const info = mogrtInfo(f);
+      if (info.lines !== 1) return;          // the owner: one line, simple
       list.push({ id: 'pr' + i + '_' + path.basename(f, '.mogrt').replace(/\W+/g, ''), path: f, name: path.basename(f, '.mogrt'), lines: info.lines, thumb: info.thumb, builtin: true });
     } catch (e) {}
   });
@@ -7527,7 +7528,11 @@ async function placeMogrt(cues, label, startSeconds) {
     show(L('Placing captions') + ' ' + Math.min(items.length, k + CH) + '/' + items.length);
     const r = await hostCall('amh_mogrtPlace', { tag, items: items.slice(k, k + CH), first: k === 0, rangeStart, rangeEnd, track }, 180000);
     if (!r || !r.ok) throw new Error((r && r.error) || HOST_NAME + ' did not place the template');
-    if (k === 0) { track = r.track; removed = r.removed || 0; added = !!r.added; }
+    if (k === 0) {
+      track = r.track; removed = r.removed || 0; added = !!r.added;
+      // for support: what this Premiere shows inside the template (its controls)
+      try { fs.writeFileSync(path.join(os.tmpdir(), 'amh_mogrt_probe.json'), JSON.stringify({ at: new Date().toISOString(), template: items[0] && items[0].path, result: r }, null, 1), 'utf8'); } catch (e) {}
+    }
     placed += r.placed || 0;
     noText += r.noText || 0;
     if (r.errors && r.errors.length) log('Template: ' + r.errors.join(' | '));

@@ -1366,10 +1366,13 @@ await t('4n4. 1.94 🎬 templates: add a .mogrt (its name, lines, picture), choo
     // Premiere's OWN caption templates (installed with Premiere, offline) show first, without ✕
     const pr = path.join(dir, 'Adobe Premiere Pro 2026');
     fs.mkdirSync(path.join(pr, 'Essential Graphics', 'Captions and Subtitles'), { recursive: true });
-    fs.copyFileSync(file, path.join(pr, 'Essential Graphics', 'Captions and Subtitles', 'Bold Web Caption.mogrt'));
-    fs.copyFileSync(file, path.join(pr, 'Essential Graphics', 'Basic Title.mogrt'));
+    const one = mkZip([['definition.json', Buffer.from(JSON.stringify({ clientControls: [{ type: 6 }] }))], ['thumb.png', Buffer.from([137, 80, 78, 71])]]);
+    const two = mkZip([['definition.json', Buffer.from(JSON.stringify({ clientControls: [{ type: 6 }, { type: 6 }] }))]]);
+    fs.writeFileSync(path.join(pr, 'Essential Graphics', 'Captions and Subtitles', 'Bold Web Caption.mogrt'), one);
+    fs.writeFileSync(path.join(pr, 'Essential Graphics', 'Captions and Subtitles', 'Classic Broadcast Caption.mogrt'), two);
+    fs.writeFileSync(path.join(pr, 'Essential Graphics', 'Basic Title.mogrt'), one);
     const found = JSON.parse(p.evalVm('JSON.stringify(premiereTemplateFiles(' + JSON.stringify(pr) + ').map((f) => path.basename(f)))'));
-    assert.deepStrictEqual(found, ['Bold Web Caption.mogrt', 'Basic Title.mogrt']);
+    assert.deepStrictEqual(found, ['Bold Web Caption.mogrt', 'Classic Broadcast Caption.mogrt', 'Basic Title.mogrt']);
     p.evalVm('MOGRT_BUILTIN = null; evalScript = async (j) => (/amh_appPath/.test(j) ? { ok: true, path: ' + JSON.stringify(pr) + ' } : { ok: true });');
     await p.evalVm('loadPremiereTemplates()');
     const all = JSON.parse(p.evalVm('JSON.stringify(mogrtList().map((t) => [t.name, !!t.builtin]))'));
@@ -1377,6 +1380,7 @@ await t('4n4. 1.94 🎬 templates: add a .mogrt (its name, lines, picture), choo
     assert.deepStrictEqual(all[2], ['Reels Two', false], 'then the editor own');
     p.evalVm('mogrtRemove(mogrtList()[0].id)');
     assert.strictEqual(p.evalVm('mogrtList().length'), 3, 'Premiere own cannot be deleted from the row');
+    assert.ok(!JSON.parse(p.evalVm('JSON.stringify(mogrtList().map((t) => t.name))')).includes('Classic Broadcast Caption'), 'one line only (the owner)');
     // Premiere: among the styles only Plain (the drawn ones stay in After Effects / the Studio); Plain leaves the template
     p.evalVm('STYLE = "bounce"; lastCues = ' + JSON.stringify(cues) + ';');
     await p.evalVm('openReview(' + JSON.stringify(srt) + ', "talk.mp4", 10, {})');

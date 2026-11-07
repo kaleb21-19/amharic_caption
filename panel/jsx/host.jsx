@@ -1974,7 +1974,7 @@ function amh_mogrtPlace(argsJSON) {
             }
             if (track < 0) { return amhErr("No free video track for the captions. Add an empty video track at the top, then press Place again."); }
         }
-        var placed = 0, noText = 0, errors = [];
+        var placed = 0, noText = 0, errors = [], probe = null;
         var items = args.items || [];
         for (var n = 0; n < items.length; n++) {
             var it = items[n], item = null;
@@ -1987,6 +1987,19 @@ function amh_mogrtPlace(argsJSON) {
             try { item.name = String(args.tag) + String(it.n); } catch (e4) {}
             var comp = null;
             try { comp = item.getMGTComponent(); } catch (e5) {}
+            if (!probe) {
+                probe = [];
+                try {
+                    var pz = comp ? comp.properties : null;
+                    for (var z = 0; pz && z < pz.numItems && z < 40; z++) {
+                        var zn = "", zt = "", zv = "";
+                        try { zn = String(pz[z].displayName); } catch (ez) {}
+                        try { var zr = pz[z].getValue(); zt = typeof zr; zv = String(zr); } catch (ez2) { zt = "error"; }
+                        probe.push({ i: z, name: zn, type: zt, value: zv.substring(0, 700) });
+                    }
+                    if (!comp) { probe.push({ note: "no getMGTComponent" }); }
+                } catch (ez3) { probe.push({ note: String(ez3) }); }
+            }
             var tp = comp ? amhMogrtTextProps(comp) : [];
             if (!tp.length && comp) {
                 // no JSON text: the first plain text control takes the whole caption
@@ -2006,7 +2019,7 @@ function amh_mogrtPlace(argsJSON) {
                 try { amhMogrtSetText(tp[q], (it.parts && it.parts[q] !== undefined) ? it.parts[q] : " ", it.font); } catch (e6) { errors.push(String(e6)); }
             }
         }
-        return amhOk({ track: track, added: added, removed: removed, placed: placed, noText: noText, errors: errors.slice(0, 5) });
+        return amhOk({ track: track, added: added, removed: removed, placed: placed, noText: noText, errors: errors.slice(0, 5), probe: probe });
     });
 }
 // Where this Premiere is installed: its own templates (Captions and
