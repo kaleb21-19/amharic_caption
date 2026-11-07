@@ -504,6 +504,45 @@ t('1.91 ✂ whole captions and ▶ hear the edit: a struck caption is one cut; t
   assert.strictEqual(core.skipTarget(3, []), null);
 });
 
+t('1.92 🎙 podcast: each microphone picks its camera; leaks, pauses, short words and two voices handled', () => {
+  const step = 0.02, n = 3000;                 // 60 s
+  const A = new Array(n), B = new Array(n);
+  const at = (i) => i * step;
+  for (let i = 0; i < n; i++) {
+    const s = at(i), wob = ((i * 7) % 5) - 2;  // a little life in the levels
+    let a = -70, b = -70;
+    if (s < 10) { a = -20; b = -40; }                       // host speaks (leaks into the guest mic)
+    else if (s < 11) { a = -70; b = -70; }                  // a pause
+    else if (s < 20) { a = -45; b = -25; }                  // guest (a soft voice), leaks into the host mic
+    else if (s < 20.6) { a = -20; b = -40; }                // the host says "yes" for 0.6 s
+    else if (s < 30) { a = -45; b = -25; }                  // guest goes on
+    else if (s < 35) { a = -20; b = -25; }                  // both laugh at once
+    else { a = -20; b = -40; }                              // host
+    A[i] = a + wob; B[i] = b + wob;
+  }
+  const tracks = [{ cam: 1, db: A }, { cam: 2, db: B }];
+  const near = (x, y) => Math.abs(x - y) < 0.4;
+  let p = core.podcastPlan(tracks, { wide: 0, minShot: 2, t0: 0, step, start: 0, end: 60 });
+  assert.deepStrictEqual(p.segs.map((s) => s.cam), [1, 2, 0, 1], JSON.stringify(p.segs));
+  assert.ok(near(p.segs[1].start, 11) && near(p.segs[2].start, 30) && near(p.segs[3].start, 35), JSON.stringify(p.segs));
+  assert.strictEqual(p.segs[0].start, 0);
+  assert.strictEqual(p.segs[3].end, 60);
+  assert.strictEqual(p.switches, 3);
+  assert.ok(near(p.time[2], 19), 'the soft guest gets the guest camera: ' + JSON.stringify(p.time));
+  // no wide shot: two voices keep the camera
+  p = core.podcastPlan(tracks, { wide: null, minShot: 2, t0: 0, step });
+  assert.deepStrictEqual(p.segs.map((s) => s.cam), [1, 2, 1]);
+  // shortest shot 0.5 s: the "yes" gets its own shot
+  p = core.podcastPlan(tracks, { wide: 0, minShot: 0.5, t0: 0, step });
+  assert.deepStrictEqual(p.segs.map((s) => s.cam), [1, 2, 1, 2, 0, 1]);
+  // a time offset on the grid
+  p = core.podcastPlan(tracks, { wide: 0, minShot: 2, t0: 100, step });
+  assert.ok(near(p.segs[1].start, 111));
+  // one microphone or silence: nothing
+  assert.deepStrictEqual(core.podcastPlan([{ cam: 1, db: A }], {}).segs, []);
+  assert.deepStrictEqual(core.podcastPlan([{ cam: 1, db: new Array(100).fill(-120) }, { cam: 2, db: new Array(100).fill(-120) }], {}).segs.length, 1);
+});
+
 // ── exact word times (1.16.26) ───────────────────────────────────────────────
 t('word times: the engine\'s exact times are used while they still fit the text', () => {
   const c = { text: 'ዛሬ ~ስለ~ ቡና', start: 2, end: 3.1, wt: [[2.0, 2.3], [2.35, 2.55], [2.6, 3.1]] };
