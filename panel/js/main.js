@@ -7265,6 +7265,49 @@ function tlStop() {
   TL.on = false;
 }
 
+// ── 🧪 TEST ONLY: captions as a MOGRT the editor owns (owner, 2026-11-08) ──
+// Pick a .mogrt, three Amharic captions go on a free video track at the
+// playhead; the panel shows what Premiere allowed (placed, text set, read back).
+const MOGRT_TEST_CUES = [
+  { start: 0, end: 2.5, text: 'ሰላም ለሁላችሁ እንኳን ደህና መጣችሁ' },
+  { start: 2.5, end: 5, text: 'ዛሬ ስለ ቡና ታሪክ እንነጋገራለን' },
+  { start: 5, end: 8, text: 'ይህ የMOGRT ሙከራ ነው' },
+];
+async function mogrtTest(pathArg) {
+  const out = $('mogrtTestOut');
+  const show = (t) => { if (out) { out.style.display = ''; out.textContent = t; } };
+  let file = pathArg || '';
+  if (!file) {
+    try {
+      const r = window.cep.fs.showOpenDialog(false, false, 'Choose a .mogrt template', '', ['mogrt']);
+      if (!r || r.err !== 0 || !r.data || !r.data.length) return null;
+      file = r.data[0];
+    } catch (e) { show('Could not open the file dialog: ' + e); return null; }
+  }
+  show('⏳ Placing 3 test captions with ' + path.basename(file) + '…');
+  const r = await evalScript('amh_mogrtTest(' + escJson(JSON.stringify({ path: file, cues: MOGRT_TEST_CUES })) + ')', 120000);
+  if (!r || !r.ok) { show('✗ ' + ((r && r.error) || 'Premiere did not answer.')); log('MOGRT test: ' + JSON.stringify(r)); return r; }
+  const res = r.results || [];
+  const placed = res.filter((x) => x.placed).length, set = res.filter((x) => x.set).length;
+  const amh = res.filter((x) => x.after && x.after.indexOf(x.text) >= 0).length;
+  const lines = ['Premiere ' + r.version + ' · track V' + (r.track + 1) + (r.added ? ' (new)' : '') + ' · at ' + Number(r.start).toFixed(2) + ' s',
+    'Placed: ' + placed + '/' + res.length + ' · text put in: ' + set + '/' + res.length + ' · Amharic read back: ' + amh + '/' + res.length, ''];
+  res.forEach((x, i) => {
+    lines.push((i + 1) + '. ' + (x.placed ? '✓ placed' : '✗ not placed') + (x.set ? ' · text → ' + x.set : '') + (x.error ? ' · ' + x.error : '') + (x.setError ? ' · ' + x.setError : ''));
+    if (i === 0) x.params.forEach((pp) => lines.push('     ' + pp));
+  });
+  show(lines.join('\n'));
+  log('MOGRT test: ' + JSON.stringify(r).slice(0, 4000));
+  return r;
+}
+(function () {
+  const b = typeof document !== 'undefined' && document.getElementById('mogrtTest');
+  if (b) {
+    if (IS_AE || IS_APP_MODE()) b.style.display = 'none';
+    else b.addEventListener('click', (e) => { if (e && e.preventDefault) e.preventDefault(); mogrtTest(); });
+  }
+})();
+
 // asked when the editor comes back to the panel (no polling while it is away)
 function selCapSoon() {
   if (IS_AE || Date.now() - SELCAP_AT < 1500) return;

@@ -356,6 +356,28 @@ test('1.93.2 a Premiere without the QE playhead: the old timecode way still work
   const r = nowCut(pp, { cuts: [[10, 12]], media: [VIDEO] });
   assert.ok(r.ok, JSON.stringify(r));
 });
+test('MOGRT test: placed on a free track, the Amharic text goes into the template text (AE json form)', () => {
+  const pp = makePremiere(base());
+  const s = pp.seqs[0];
+  const placed = [];
+  s.importMGT = (p, ticks, track, atrack) => {
+    let val = JSON.stringify({ textEditValue: 'Your Text', fontEditValue: ['Inter'] });
+    const it = { start: { seconds: Number(ticks) / 254016000000 }, end: { seconds: Number(ticks) / 254016000000 + 5 }, track,
+      getMGTComponent: () => ({ properties: coll([{ displayName: 'Scale', getValue: () => 100, setValue() {} },
+        { displayName: 'Text 01', getValue: () => val, setValue: (v) => { val = v; } }], 'numItems') }) };
+    placed.push(it);
+    return it;
+  };
+  pp.ctx.File = function (f) { this.fsName = f; this.exists = fs.existsSync(f); };
+  const r = JSON.parse(vm.runInContext('amh_mogrtTest(' + JSON.stringify(JSON.stringify({ path: __filename, start: 10,
+    cues: [{ start: 0, end: 2.5, text: 'ሰላም' }, { start: 2.5, end: 5, text: 'ቡና' }] })) + ')', pp.ctx));
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.strictEqual(r.track, 1, 'V2 is free at 10-15 s (the title is at 40-45 s)');
+  assert.deepStrictEqual(r.results.map((x) => [x.placed, x.set]), [[true, 'Text 01 (json)'], [true, 'Text 01 (json)']]);
+  assert.ok(r.results[1].after.indexOf('ቡና') >= 0, 'the Amharic is read back');
+  assert.strictEqual(placed[1].end.seconds, 15, 'each caption ends at its time');
+});
+
 test('1.93.1 the razor lands somewhere else (nothing between the lines): says so with the times, never "cut"', () => {
   const pp = makePremiere(base());
   const off = (tr) => ({ razor: (tc) => tr.razor(Number(tc) + 30), get numItems() { return tr.list.length; }, getItemAt: () => null });

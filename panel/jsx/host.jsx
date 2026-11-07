@@ -1885,6 +1885,91 @@ function amh_cleanupCut(argsJSON) {
     });
 }
 
+/* ------------------------------------------------------------- MOGRT test */
+
+// TEST ONLY (owner, 2026-11-08): can a panel place captions as a Motion
+// Graphics template the editor owns, with the Amharic text put in? Places the
+// given captions on a free video track and reports every template control,
+// what was set and what Premiere reads back. args = { path, cues, start? }.
+function amhTrackFree(track, a, b) {
+    var cl = track.clips;
+    for (var k = 0; k < cl.numItems; k++) {
+        var s = Number(cl[k].start.seconds), e = Number(cl[k].end.seconds);
+        if (s < b - 0.001 && e > a + 0.001) { return false; }
+    }
+    return true;
+}
+function amh_mogrtTest(argsJSON) {
+    return amhGuard(function () {
+        var args = JSON.parse(argsJSON);
+        var seq = app.project.activeSequence;
+        if (!seq) { return amhErr("No active sequence. Open one first."); }
+        if (typeof seq.importMGT !== "function") { return amhErr("This Premiere cannot place Motion Graphics templates from a panel (importMGT is missing)."); }
+        var f = new File(args.path);
+        if (!f.exists) { return amhErr("Template not found: " + args.path); }
+        var cues = args.cues || [];
+        var t0 = Number(args.start);
+        if (!(t0 >= 0)) { t0 = 0; try { t0 = Number(seq.getPlayerPosition().seconds) || 0; } catch (e0) {} }
+        var end = t0 + (cues.length ? Number(cues[cues.length - 1].end) : 0);
+        var vt = seq.videoTracks, track = -1, added = false;
+        for (var i = vt.numTracks - 1; i >= 0; i--) { if (amhTrackFree(vt[i], t0, end)) { track = i; break; } }
+        if (track < 0) {
+            try { app.enableQE(); qe.project.getActiveSequence().addTracks(1, vt.numTracks, 0); added = true; } catch (e1) {}
+            vt = seq.videoTracks;
+            if (amhTrackFree(vt[vt.numTracks - 1], t0, end)) { track = vt.numTracks - 1; }
+        }
+        if (track < 0) { return amhErr("No free video track for the test. Add an empty video track at the top, then try again."); }
+        var out = [];
+        for (var c = 0; c < cues.length; c++) {
+            var a = t0 + Number(cues[c].start), b = t0 + Number(cues[c].end);
+            var rep = { text: cues[c].text, placed: false, params: [], set: "", after: "" };
+            var item = null;
+            try { item = seq.importMGT(f.fsName, String(Math.round(a * 254016000000)), track, 0); } catch (e2) { rep.error = "importMGT: " + e2; }
+            if (item) {
+                rep.placed = true;
+                try { var te = new Time(); te.seconds = b; item.end = te; rep.end = Number(item.end.seconds); } catch (e3) { rep.endError = String(e3); }
+                var comp = null;
+                try { comp = item.getMGTComponent(); } catch (e4) { rep.error = "getMGTComponent: " + e4; }
+                if (comp) {
+                    var props = comp.properties, textProp = null, textName = "", jsonMode = false;
+                    for (var k = 0; k < props.numItems; k++) {
+                        var pr = props[k], nm = "", sval = "";
+                        try { nm = String(pr.displayName); } catch (e5) {}
+                        try { sval = String(pr.getValue()); } catch (e6) { sval = "(no value)"; }
+                        rep.params.push(nm + " = " + sval.substring(0, 160));
+                        if (!textProp && sval.indexOf("textEditValue") >= 0) { textProp = pr; textName = nm; jsonMode = true; }
+                    }
+                    if (!textProp) {
+                        for (var k2 = 0; k2 < props.numItems; k2++) {
+                            var p2 = props[k2], n2 = "", v2 = null;
+                            try { n2 = String(p2.displayName); } catch (e7) {}
+                            try { v2 = p2.getValue(); } catch (e8) {}
+                            if (/text/i.test(n2) && typeof v2 === "string") { textProp = p2; textName = n2; break; }
+                        }
+                    }
+                    if (textProp) {
+                        try {
+                            if (jsonMode) {
+                                var o = JSON.parse(String(textProp.getValue()));
+                                o.textEditValue = cues[c].text;
+                                textProp.setValue(JSON.stringify(o), true);
+                            } else {
+                                textProp.setValue(cues[c].text, true);
+                            }
+                            rep.set = textName + (jsonMode ? " (json)" : " (plain)");
+                        } catch (e9) { rep.setError = String(e9); }
+                        try { rep.after = String(textProp.getValue()).substring(0, 200); } catch (e10) {}
+                    } else {
+                        rep.setError = "no text control found";
+                    }
+                }
+            }
+            out.push(rep);
+        }
+        return amhOk({ version: String(app.version), track: track, added: added, start: t0, results: out });
+    });
+}
+
 /* ------------------------------------------------------------- auto zoom */
 
 // Auto zoom (1.16.23): a zoom on the video at the moments that matter (a

@@ -181,7 +181,7 @@ const KNOWN = [
   'revUndo', 'revMemory', 'memoryPanel',
   'revClient', 'clientPanel', 'revCleanup', 'revSilence', 'cleanupPanel', 'revZoom', 'zoomPanel',
   'srcLine', 'wpcSeg', 'wpc1', 'wpc2', 'wpc3', 'wpc4', 'wpc5', 'wpcField', 'capField',
-  'reviewSteps', 'textCutNote', 'stepText', 'stepStyle', 'stepPlace',
+  'reviewSteps', 'mogrtTest', 'mogrtTestOut', 'textCutNote', 'stepText', 'stepStyle', 'stepPlace',
   // next-step card after a free caption
   'trialCard', 'tcGroup', 'tcBuy', 'tcLater', 'tcLeftText', 'tcCutText', 'tcMore', 'tcMoreTitle', 'tcMoreText', 'freeMinNote', 'updateNow', 'modelTgBox', 'modelTgWhy', 'modelTg',
   'freeMinBox', 'freeMinTitle', 'freeMinBtn', 'freeMinWait',
