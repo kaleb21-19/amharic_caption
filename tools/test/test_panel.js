@@ -485,6 +485,25 @@ t('text cuts: until cut from the video, the words stay in every subtitle file (o
   assert.strictEqual(core.findRepeats([{ text: '~ዛሬ ስለ ቡና~ ዛሬ ስለ ቡና ታሪክ', start: 0, end: 4 }]).length, 1);
 });
 
+t('1.91 ✂ whole captions and ▶ hear the edit: a struck caption is one cut; the sound jumps over every cut', () => {
+  assert.strictEqual(core.wholeStruck('~ይህንን ቁረጡ~'), true);
+  assert.strictEqual(core.wholeStruck('ዛሬ ~ስለ ቡና~'), false, 'only some words');
+  assert.strictEqual(core.wholeStruck('~ሀ~ ለ ~መ~'), false, 'two struck parts are not the whole');
+  assert.strictEqual(core.wholeStruck('~~'), false);
+  // three whole captions in a row (Shift+✂) -> one cut when merged, at their exact times
+  const cues = [{ text: '~ሀ ለ~', start: 1, end: 2 }, { text: '~መ ረ~', start: 2, end: 3.5 }, { text: '~ሰ ቀ~', start: 3.5, end: 5 }, { text: 'ቀሪው', start: 5, end: 6 }];
+  const merged = core.mergeRanges(core.findTextCuts(cues));
+  assert.deepStrictEqual(merged.map((c) => [c.start, c.end]), [[1, 5]]);
+  // the sound skips: inside a cut -> its end; a frame before it (lead) -> its end; elsewhere -> on
+  const cuts = [{ start: 1, end: 5 }, { start: 7, end: 8 }];
+  assert.strictEqual(core.skipTarget(2.5, cuts), 5);
+  assert.strictEqual(core.skipTarget(0.99, cuts, 0.02), 5, 'a frame early, so the cut word is not heard');
+  assert.strictEqual(core.skipTarget(5, cuts), null, 'the end of a cut is kept');
+  assert.strictEqual(core.skipTarget(6, cuts), null);
+  assert.strictEqual(core.skipTarget(7.5, cuts), 8);
+  assert.strictEqual(core.skipTarget(3, []), null);
+});
+
 // ── exact word times (1.16.26) ───────────────────────────────────────────────
 t('word times: the engine\'s exact times are used while they still fit the text', () => {
   const c = { text: 'ዛሬ ~ስለ~ ቡና', start: 2, end: 3.1, wt: [[2.0, 2.3], [2.35, 2.55], [2.6, 3.1]] };

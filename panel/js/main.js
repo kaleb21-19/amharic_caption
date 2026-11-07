@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.90.2';
+const APP_VERSION = '1.91.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -486,6 +486,19 @@ setTimeout(() => { if (FIRST_OPEN) track('first_open'); track('open'); }, 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.91.0': {
+    banner: {
+      am: '⬆ ✂ በጽሑፍ ኤዲት ማድረግ ቀለለ — ካፕሽንን በአንድ ንክኪ ይቁረጡ፣ ከመቁረጥዎ በፊት ▶ ያዳምጡ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '⬆ ✂ Editing by text got easier — cut a whole caption in one click, ▶ hear the edit before you cut — your license stays the same.',
+    },
+    items: [
+      { am: '✂ በካፕሽን ላይ ያለውን ✂ ይጫኑ — ካፕሽኑ በሙሉ ከቪዲዮው ይቆረጣል (መጥፎ ቴክ፣ የማይፈለግ ታሪክ)', en: '✂ Click ✂ on a caption — the whole caption is cut from the video (a bad take, a story you do not want)' },
+      { am: 'Shift+✂፦ ከመጨረሻው ✂ እስከዚህ ያሉት ካፕሽኖች በሙሉ — ብዙ ካፕሽን የሚሸፍን ዓረፍተ ነገር በሁለት ንክኪ', en: 'Shift+✂: every caption from the last ✂ to here — a sentence over several captions in two clicks' },
+      { am: '▶ ኤዲቱን ያዳምጡ፦ የተመረጡት ክፍሎች ተዘልለው ይሰማሉ — ከመቁረጥዎ በፊት፤ በእያንዳንዱ ቁርጥ ላይም ▶', en: '▶ Hear the edit: the marked parts are skipped — before anything is cut; ▶ on each cut too' },
+      { am: 'ቃላትን ለብቻቸው መቁረጥ እንደበፊቱ፦ ጠቋሚውን በቃሉ ላይ አድርገው ✂ ወይም Ctrl+D', en: 'Cutting single words works as before: cursor on the word, then ✂ or Ctrl+D' },
+      { am: 'ያለበትን ቦታ አስቀምጦ ፈቃድ እንዲቆይ፣ ማጫወቻው ላይ ያለ አጭር ቁራጭ አይወሰድም፣ ፈጣን መላክ', en: 'A license that stays, no more tiny leftover clips at the playhead, faster export' },
+    ],
+  },
   '1.90.0': {
     banner: {
       am: '⬆ ከብዙ ቪዲዮዎች አንድ ቪዲዮ — ሁለተኛውን ቪዲዮ «＋ ወደ ጊዜ መስመሩ» ይጫኑ ወይም ይጎትቱ፤ ፈጣን መላክና ትንሽ ፋይል — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -5292,6 +5305,7 @@ function renderReview(force) {
         cr.forEach((r) => all.push({ start: r.start, end: r.end, cls: 'cut' }));
       }
       row.classList.toggle('has-cut', cr.length > 0);
+      row.classList.toggle('cut-whole', wholeStruck(t));
       all.sort((a, b) => a.start - b.start);
       back.textContent = '';
       let at = 0;
@@ -5324,10 +5338,12 @@ function renderReview(force) {
     cutBtn.type = 'button';
     cutBtn.className = 'cut-word';
     cutBtn.textContent = '✂';
-    cutBtn.title = L('Cut the word at the cursor (or the selected words) from the video — ✂ again: keep it') + ' — ' + SHORTCUT_MOD + 'D';
+    cutBtn.title = L('✂ Cut this caption from the video (Shift: every caption from the last ✂ to here). With the cursor in the text: the word at the cursor or the selected words — ✂ again: keep it') + ' — ' + SHORTCUT_MOD + 'D';
     cutBtn.addEventListener('mousedown', (e) => {
       if (e && e.preventDefault) e.preventDefault();
-      toggleTextCut(i, ta.selectionStart, ta.selectionEnd);
+      // 1.91: typing in this caption = its words; otherwise the whole caption
+      if (document.activeElement === ta && !(e && e.shiftKey)) toggleTextCut(i, ta.selectionStart, ta.selectionEnd);
+      else toggleWholeCut(i, !!(e && e.shiftKey));
     });
     if (textCutAvailable()) textBox.appendChild(cutBtn);   // where something can cut (Premiere Clean up, Studio export)
     paint();
@@ -5520,6 +5536,29 @@ function toggleTextCut(i, from, to) {
   schedulePreview();
   return true;
 }
+// 1.91 ✂ a whole caption in one click (a bad take, a story you do not want);
+// Shift: every caption from the last ✂ to this one, all struck (or all kept
+// when this one was struck). Struck = ~the whole text~, as before.
+let WHOLE_LAST = -1;
+function toggleWholeCut(i, range) {
+  const c = reviewCues[i];
+  if (!c) return false;
+  const strike = !wholeStruck(c.text);
+  let a = i, b = i;
+  if (range && WHOLE_LAST >= 0 && WHOLE_LAST < reviewCues.length) { a = Math.min(WHOLE_LAST, i); b = Math.max(WHOLE_LAST, i); }
+  pushReviewUndo('cut mark');
+  for (let j = a; j <= b; j++) {
+    const q = reviewCues[j];
+    const plain = String((q && q.text) || '').replace(/~/g, '').trim();
+    if (!plain) continue;
+    q.text = strike ? '~' + plain + '~' : plain;
+  }
+  WHOLE_LAST = i;
+  renderReview();
+  schedulePreview();
+  if (CLEAN && CLEAN_MODE === 'text') { try { cleanupFindAll(); renderCleanupPanel(); } catch (e) {} }
+  return true;
+}
 function toggleEmphasis(i, from, to) {
   const cue = reviewCues[i];
   if (!cue) return false;
@@ -5602,7 +5641,57 @@ function hearFollow() {
   if (i >= 0 && rows[i] && rows[i].classList) rows[i].classList.add('hearing');
   HEAR.row = i;
 }
+// 1.91 ▶ hear the edit: the footage's own sound with the ticked parts skipped
+// (a frame early, so a cut word is not heard), across clips, before anything
+// is cut. until = stop there (one cut heard with a second around it).
+const EDITHEAR = { on: false, raf: 0 };
+function hearPlayAt(t) {
+  const m = previewMediaFor([['', t, t]]);
+  if (!m) return false;
+  try {
+    if (!HEAR.a) {
+      HEAR.a = new Audio();
+      HEAR.a.addEventListener('timeupdate', hearFollow);
+      HEAR.a.addEventListener('ended', stopHearing);
+    }
+    if (HEAR.m !== m.path) { HEAR.a.src = fileUrl(m.path); HEAR.m = m.path; }
+    HEAR.off = m.offset;
+    HEAR.to = m.to;
+    HEAR.a.currentTime = Math.max(0, t + m.offset);
+    const p = HEAR.a.play();
+    if (p && p.catch) p.catch(() => {});
+    return true;
+  } catch (e) { return false; }
+}
+function hearEdit(from, until, extra) {
+  stopHearing();
+  const cuts = mergeRanges(cleanupSelected().concat(extra || [])).sort((a, b) => a.start - b.start);
+  let t = Math.max(0, Number(from) || 0);
+  const first = skipTarget(t, cuts, 0);
+  if (first !== null) t = first;
+  if (!hearPlayAt(t)) return false;
+  EDITHEAR.on = true;
+  hearButton(true);
+  renderCleanupPanel();
+  const tick = () => {
+    EDITHEAR.raf = 0;
+    if (!EDITHEAR.on || !HEAR.a || HEAR.a.paused) return;
+    const now = HEAR.a.currentTime - (HEAR.off || 0);
+    if (until && now >= until) { stopHearing(); return; }
+    const to = skipTarget(now, cuts, 0.02);
+    if (to !== null) { if (!hearPlayAt(to)) { stopHearing(); return; } }
+    else if (HEAR.to && now >= HEAR.to - 0.02 && !hearPlayAt(now + 0.04)) { stopHearing(); return; }
+    EDITHEAR.raf = requestAnimationFrame(tick);
+  };
+  EDITHEAR.raf = requestAnimationFrame(tick);
+  return true;
+}
 function stopHearing() {
+  if (EDITHEAR.on) {
+    EDITHEAR.on = false;
+    if (EDITHEAR.raf) { try { cancelAnimationFrame(EDITHEAR.raf); } catch (e) {} EDITHEAR.raf = 0; }
+    try { renderCleanupPanel(); } catch (e) {}
+  }
   if (HEAR.a) { try { HEAR.a.pause(); } catch (e) {} }
   const list = $('reviewList');
   if (list && HEAR.row >= 0 && list.children && list.children[HEAR.row] && list.children[HEAR.row].classList) list.children[HEAR.row].classList.remove('hearing');
@@ -5869,7 +5958,7 @@ function renderCleanupPanel() {
   const textMode = CLEAN_MODE === 'text';
   p.appendChild(el('div', 'mem-head', textMode ? '✂ ' + L('Edit with text') : '🔇 ' + L('Clean silence')));
   p.appendChild(el('div', 'mem-sub', textMode
-    ? L('Cuts the words you marked ✂ in the captions (select words, then ✂ or Ctrl+D) — on a copy of your sequence.')
+    ? L('Click ✂ on a caption to cut all of it (Shift+click: every caption up to it), or put the cursor on words and press ✂ / Ctrl+D. ▶ hear it first — then it is cut on a copy of your sequence.')
     : L('Cuts long pauses, repeated takes and እ… sounds — on a copy of your sequence.')));
   if (!CLEAN || CLEAN.busy) { p.appendChild(el('div', 'mem-sub', L('Listening for pauses…'))); return; }
   if (CLEAN.done) {
@@ -5898,7 +5987,7 @@ function renderCleanupPanel() {
   const list = el('div', 'clean-list');
   const shown = cleanupShown();
   if (!shown.length) list.appendChild(el('div', 'mem-sub', textMode
-    ? L('No words are marked yet: select words in a caption, then press ✂ (or Ctrl+D).')
+    ? L('Nothing marked yet: click ✂ on a caption (Shift+click for several), or select words and press ✂ / Ctrl+D.')
     : L('Nothing to clean — it is already tight.')));
   shown.forEach((it) => {
     const row = el('label', 'clean-row' + (it.on ? '' : ' off'));
@@ -5907,6 +5996,13 @@ function renderCleanupPanel() {
     cb.checked = it.on;
     cb.addEventListener('change', () => { it.on = cb.checked; renderCleanupPanel(); });
     row.appendChild(cb);
+    // 1.91 ▶ this cut: a second before and after, joined
+    const hear = el('button', 'clean-hear', '▶');
+    hear.type = 'button';
+    hear.title = L('Hear this cut: a second before and after it, joined');
+    hear.addEventListener('click', (e) => { if (e) { if (e.preventDefault) e.preventDefault(); if (e.stopPropagation) e.stopPropagation(); }
+      hearEdit(it.start - 1.5, it.end + 1.5, [{ start: it.start, end: it.end }]); });
+    row.appendChild(hear);
     row.appendChild(el('span', 'clean-t', fmtReviewTs(it.start)));
     const what = names[it.kind] + (it.text ? ' «' + it.text + '»' : '') + ' · ' + (it.end - it.start).toFixed(1) + ' s';
     const txt = el('span', 'clean-what', what);
@@ -5936,6 +6032,14 @@ function renderCleanupPanel() {
     stop.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); CLEAN.stop = true; renderCleanupPanel(); });
     p.appendChild(stop);
   } else {
+    // 1.91 ▶ hear the whole edit before cutting
+    if (sel.length) {
+      const hearAll = el('button', 'btn btn-neutral clean-go', EDITHEAR.on ? '■ ' + L('Stop listening') : '▶ ' + L('Hear the edit (the marked parts are skipped)'));
+      hearAll.type = 'button';
+      hearAll.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation();
+        if (EDITHEAR.on) stopHearing(); else hearEdit(Math.max(0, sel[0].start - 3)); });
+      p.appendChild(hearAll);
+    }
     const go = el('button', 'btn btn-primary clean-go', '✂ ' + L('Cut on a copy of the sequence'));
     go.type = 'button';
     go.disabled = !sel.length;

@@ -167,6 +167,13 @@ const AM_STATIC = {
 
 // ── dynamic text from main.js / core.js (keyed by the English string) ───────
 const AM_TEXT = {
+  // 1.91 ✂ Edit with text
+  '✂ Cut this caption from the video (Shift: every caption from the last ✂ to here). With the cursor in the text: the word at the cursor or the selected words — ✂ again: keep it': '✂ ይህን ካፕሽን በሙሉ ከቪዲዮው ቁረጥ (Shift፦ ከመጨረሻው ✂ እስከዚህ ያሉትን በሙሉ)። ጠቋሚው በጽሑፉ ውስጥ ሲሆን፦ ያለበትን ቃል ወይም የተመረጡትን ቃላት — ✂ እንደገና፦ ይቆይ',
+  'Click ✂ on a caption to cut all of it (Shift+click: every caption up to it), or put the cursor on words and press ✂ / Ctrl+D. ▶ hear it first — then it is cut on a copy of your sequence.': 'ካፕሽኑን በሙሉ ለመቁረጥ በላዩ ያለውን ✂ ይጫኑ (Shift+✂፦ እስከሱ ያሉትን በሙሉ)፣ ወይም ጠቋሚውን በቃላቱ ላይ አድርገው ✂ / Ctrl+D ይጫኑ። መጀመሪያ ▶ ያዳምጡ — ከዚያ በሴክዌንሱ ቅጂ ላይ ይቆረጣል።',
+  'Nothing marked yet: click ✂ on a caption (Shift+click for several), or select words and press ✂ / Ctrl+D.': 'ገና ምንም አልተመረጠም፦ በካፕሽን ላይ ያለውን ✂ ይጫኑ (ለብዙ Shift+✂)፣ ወይም ቃላትን መርጠው ✂ / Ctrl+D ይጫኑ።',
+  'Hear this cut: a second before and after it, joined': 'ይህን ቁርጥ ያዳምጡ፦ ከፊቱና ከኋላው አንድ ሰከንድ፣ ተቀጣጥሎ',
+  'Hear the edit (the marked parts are skipped)': 'ኤዲቱን ያዳምጡ (የተመረጡት ክፍሎች ይዘለላሉ)',
+  'Stop listening': 'ማዳመጥ አቁም',
   // status pill
   'idle': 'በመጠባበቅ ላይ',
   'ready': 'ዝግጁ',
