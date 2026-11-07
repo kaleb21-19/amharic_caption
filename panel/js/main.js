@@ -496,6 +496,7 @@ const WHATS_NEW = {
       { am: '«በታይምላይን ላይ አስቀምጥ»፦ እያንዳንዱ ካፕሽን አንድ ቴምፕሌት ይሆናል፣ ቃላቱ በቴምፕሌቱ መስመሮች ላይ፣ በአማርኛ ፊደል', en: '«Place»: every caption becomes one template, its words over the lines of the template, in an Amharic font' },
       { am: '2 ወይም 3 መስመር፦ በካፕሽኑ ውስጥ Shift+Enter ይጫኑ — ያን ያህል መስመር ያለው ቴምፕሌት ይጠቀማል', en: '2 or 3 lines: press Shift+Enter inside a caption — a template with that many lines is used' },
       { am: 'አንዱን ካፕሽን በEssential Graphics ይቀይሩ፣ «🎨 ይህን ስታይል ለሁሉም ስጥ» — ሁሉም ካፕሽኖች ያንን መልክ ያገኛሉ', en: 'Change one caption in Essential Graphics, then «🎨 Apply this look to all captions» — every caption gets it' },
+      { am: 'በPremiere ውስጥ የሚስተካከሉ ካፕሽኖች ብቻ፦ መደበኛ (የPremiere የራሱ ካፕሽን) እና ቴምፕሌቶች — የተሳሉት ስታይሎች በAfter Effects እና በስቱዲዮ ይቀጥላሉ', en: 'In Premiere only captions you can change: Plain (Premiere’s own) and Templates — the drawn styles stay in After Effects and the Studio' },
     ],
   },
   '1.93.0': {
@@ -6925,6 +6926,13 @@ function styleChip(id, label, img, onClick) {
   b.addEventListener('click', onClick);
   return b;
 }
+// 1.94 (owner): in Premiere only captions the editor can change — Plain
+// (Premiere's own captions, Essential Graphics) and 🎬 Templates. Our drawn
+// styles stay in After Effects and the Studio (they cannot use templates).
+// A style chosen before is kept in the settings (After Effects / the Studio
+// still use it); Premiere simply places Plain or the template.
+let PANEL_STYLES = null;          // tests: true = show the drawn styles here too
+function stylesInPanel() { return PANEL_STYLES !== null ? !!PANEL_STYLES : !cleanupAvailable(); }
 function renderStyleStrip() {
   syncReviewSteps();
   const strip = $('styleStrip');
@@ -6932,11 +6940,12 @@ function renderStyleStrip() {
   if (!strip || !chips) return;
   strip.style.display = STYLE_OK ? '' : 'none';
   if (!STYLE_OK) return;
+  if (!stylesInPanel() && STYLE !== 'plain') STYLE = 'plain';
   const mine = activeMyStyle();
   const list = myStyles();
   // Rebuilt only when the saved looks change: rebuilding on every click
   // would also jump the strip back to the start after scrolling to a style.
-  const sig = JSON.stringify(list.map((m) => [m.id, m.name, m.style, m.opts && m.opts.color]));
+  const sig = JSON.stringify([stylesInPanel()].concat(list.map((m) => [m.id, m.name, m.style, m.opts && m.opts.color])));
   if (chips.dataset.sig === sig && chips.children.length) {
     for (const b of Array.from(chips.children)) {
       const on = !mogrtActive() && (b.dataset.my ? !!mine && mine.id === b.dataset.my : b.dataset.style === STYLE && !mine);
@@ -6971,6 +6980,13 @@ function renderStyleStrip() {
     chips.appendChild(b);
   };
   builtIn('plain');
+  if (!stylesInPanel()) {
+    const note = $('styleNote');
+    if (note) note.textContent = L(styleNote());
+    renderStyleCustom();
+    renderMogrtRow();
+    return;
+  }
   list.forEach((m) => {
     const b = styleChip(m.id, m.name, m.style, () => applyMyStyle(m.id));
     b.classList.add('mine');
@@ -7196,7 +7212,7 @@ async function checkSelectedCaption() {
     const txt = document.createElement('span');
     txt.className = 'sel-cap-text';
     txt.textContent = '“' + String(cue.text || '').replace(/[*~]/g, '').slice(0, 40) + '”';
-    bar.appendChild(look);
+    if (stylesInPanel()) bar.appendChild(look);
     bar.appendChild(b);
     bar.appendChild(txt);
     bar.style.display = '';
@@ -8049,7 +8065,7 @@ async function placeReview() {
         return;
       }
     }
-    if (STYLE !== 'plain' && STYLE_OK) {
+    if (STYLE !== 'plain' && STYLE_OK && stylesInPanel()) {
       log('Placing your captions in the "' + STYLE_NAMES[STYLE] + '" style (' + reviewCues.length + ')…');
       try {
         const st = await placeStyled(reviewCues, REVIEW.label || 'captions', REVIEW.startSeconds);

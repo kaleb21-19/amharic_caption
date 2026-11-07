@@ -198,6 +198,11 @@ function loadPanel(opts) {
     vm.runInContext('engineAuth = async () => ({ lease: "test" });', ctx);
   }
 
+  // 1.94: Premiere shows only Plain + Templates; the drawn styles (still used
+  // by After Effects and the Studio) are tested here with them switched on —
+  // opts.premiereStyles = true keeps the real Premiere behaviour
+  if (!opts.premiereStyles) vm.runInContext('PANEL_STYLES = true;', ctx);
+
   let mid = null;
   try {
     const rec = JSON.parse(fs.readFileSync(path.join(machineHome,'.amharic_captions_machine.json'),'utf8'));
@@ -1323,7 +1328,7 @@ await t('4n4. 1.94 🎬 templates: add a .mogrt (its name, lines, picture), choo
     if (/amharic_getFrame\(/.test(jsx)) return JSON.stringify({ ok: true, width: 1080, height: 1920, fps: 25 });
     return '{"ok":true}';
   };
-  const p = loadPanel({ csiRaw: answers });
+  const p = loadPanel({ csiRaw: answers, premiereStyles: true });
   try {
     await flush(10);
     p.evalVm('ensureCaptionsDir = () => ' + JSON.stringify(dir) + '; STYLE_OK = true; installFonts = async () => ({ ok: true }); renderPreview = async () => {}; reviewTrialCharged = true;');
@@ -1358,12 +1363,13 @@ await t('4n4. 1.94 🎬 templates: add a .mogrt (its name, lines, picture), choo
     await p.evalVm('placeReview()');
     assert.strictEqual(calls[0].items.length, 3, 'free: 3 captions show the look');
     has(p.els('logBox').textContent, '3 of 8 captions placed as the template');
-    // a style chip leaves the template
-    p.evalVm('lastCues = ' + JSON.stringify(cues) + ';');
+    // Premiere: among the styles only Plain (the drawn ones stay in After Effects / the Studio); Plain leaves the template
+    p.evalVm('STYLE = "bounce"; lastCues = ' + JSON.stringify(cues) + ';');
     await p.evalVm('openReview(' + JSON.stringify(srt) + ', "talk.mp4", 10, {})');
-    const chip = Array.from(p.els('styleChips').children).find((b) => b.dataset.style === 'glide');
-    chip.fire('click');
-    assert.strictEqual(p.evalVm('mogrtActive()'), null, 'a style was chosen: no template');
+    assert.deepStrictEqual(Array.from(p.els('styleChips').children).map((b) => b.dataset.style), ['plain'], 'Premiere: Plain only');
+    assert.strictEqual(p.evalVm('STYLE'), 'plain', 'a drawn style chosen before places Plain in Premiere');
+    Array.from(p.els('styleChips').children)[0].fire('click');
+    assert.strictEqual(p.evalVm('mogrtActive()'), null, 'Plain chosen: no template');
     p.evalVm('closeReview()');
   } finally { p.close(); try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {} }
 });
