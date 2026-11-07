@@ -198,7 +198,7 @@ def ticket_seconds(ticket):
 
 def machine_id_if_any():
     """This computer's Machine ID, or None — never creates one."""
-    for candidate in (_machine_path(), _machine_path() + ".bak"):
+    for candidate in (_machine_path(), _machine_path() + ".bak", _machine_alt_path()):
         rec = _read_json(candidate)
         if rec and _valid_mid(rec.get("id")):
             return rec["id"]
@@ -257,6 +257,20 @@ def _machine_path():
     return os.path.join(_home(), ".amharic_captions_machine.json")
 
 
+def _machine_alt_path():
+    """The second copy (1.90.2) — the same place main.js machineAltPath() uses."""
+    if os.environ.get("AMH_MACHINE_HOME"):
+        return os.path.join(_home(), ".amharic_captions_machine.alt.json")
+    home = os.path.expanduser("~")
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA") or os.path.join(home, "AppData", "Roaming")
+    elif sys.platform == "darwin":
+        base = os.path.join(home, "Library", "Application Support")
+    else:
+        base = os.path.join(home, ".config")
+    return os.path.join(base, "AmharicCaptions", "machine.json")
+
+
 def _license_path():
     return os.path.join(_home(), ".amharic_captions_license.json")
 
@@ -310,14 +324,16 @@ def _atomic_write_json(path, obj):
 
 def get_or_create_machine_id():
     path = _machine_path()
-    for candidate in (path, path + ".bak"):
+    for candidate in (path, path + ".bak", _machine_alt_path()):
         rec = _read_json(candidate)
         if rec and _valid_mid(rec.get("id")):
             if candidate != path:
                 _atomic_write_json(path, rec)   # recover from a torn primary
             return rec["id"]
     mid = secrets.token_hex(MACHINE_ID_LENGTH // 2)
-    if not _atomic_write_json(path, {"id": mid, "host": host_fingerprint(), "hv": HOST_FP_VERSION}):
+    rec = {"id": mid, "host": host_fingerprint(), "hv": HOST_FP_VERSION}
+    alt_ok = _atomic_write_json(_machine_alt_path(), rec)
+    if not _atomic_write_json(path, rec) and not alt_ok:
         raise OSError("cannot write machine record at " + path)
     return mid
 

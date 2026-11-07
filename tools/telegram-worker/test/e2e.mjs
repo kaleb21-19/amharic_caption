@@ -3313,6 +3313,13 @@ console.log('\n:: 1.10.7 free minutes via Telegram');
   assert.ok(said(n, U2).includes('free minutes are ready'), 'the person is told when approved');
   ok('free minutes: suspicious requests wait for the owner (Approve / Refuse card, admins only)');
 
+  // 1.90.2: one computer asking again and again (several videos in the queue)
+  // is ONE computer — not held for the owner's OK (@tujjaar_tg asked 30 times in 3 minutes)
+  const QMID = '7777aaaabbbbcccc';
+  for (let i = 0; i < 30; i++) await reqLink(QMID, '7a7a0001', { 'CF-Connecting-IP': '196.188.42.7' });
+  assert.equal(row(env, "SELECT MAX(flagged) AS f FROM trial_requests WHERE machine_id=?", QMID).f, 0, 'one computer, 30 asks: never flagged');
+  ok('free minutes: one computer asking 30 times is not "suspicious"; 11 different computers from one address still are');
+
   // owner screen + tools
   n = OUTBOUND.length;
   await cb(env, { id: Number(ADMIN_ID) }, 'admin:trials');

@@ -226,6 +226,22 @@ res = json.loads(out.getvalue().strip().splitlines()[-1])
 check("warm worker batch: one 90 s budget across the clips", Stub.heard == 90 * 16000 and res.get("trial_cut") == 90.0)
 E.end_permit()
 
+# 1.90.2: the ID has a second copy; a home-folder file that cannot be kept
+# (141 new IDs in a week on one computer) no longer loses it
+HOME2 = tempfile.mkdtemp(prefix="amh_gate_home2_")
+_prev = os.environ["AMH_MACHINE_HOME"]
+os.environ["AMH_MACHINE_HOME"] = HOME2
+mid2 = lic.get_or_create_machine_id()
+alt = os.path.join(HOME2, ".amharic_captions_machine.alt.json")
+check("a new ID is written to both places", os.path.exists(lic._machine_path()) and json.load(open(alt, encoding="utf-8"))["id"] == mid2)
+os.remove(lic._machine_path())
+check("the home-folder file gone: the second copy gives the same ID", lic.machine_id_if_any() == mid2 and lic.get_or_create_machine_id() == mid2)
+check("...and the home-folder file is written back", json.load(open(lic._machine_path(), encoding="utf-8"))["id"] == mid2)
+os.environ["AMH_MACHINE_HOME"] = _prev
+check("a test never writes the real app-data copy", lic._machine_alt_path().startswith(_prev))
+shutil_ok = True
+import shutil  # noqa: E402
+shutil.rmtree(HOME2, ignore_errors=True)
 import shutil  # noqa: E402
 shutil.rmtree(HOME, ignore_errors=True)
 print("\nALL PASS" if fails == 0 else "\n%d FAILED" % fails)

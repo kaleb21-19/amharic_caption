@@ -5273,7 +5273,7 @@ const EVENT_NAMES = new Set([
   'trial_starter', 'trial_more', 'gate_none', 'gate_used', 'gate_expired', 'gate_pending', 'gate_offline', 'gate_blocked',
   'err_av_blocked', 'err_too_short', 'err_no_speech', 'err_no_clips', 'err_no_clip', 'err_no_media',
   'err_media_unreadable', 'err_no_audio', 'err_disk_full', 'err_engine', 'err_runtime', 'err_license', 'err_other',
-  'err_memory', 'err_engine_hang', 'err_clock', 'report_sent', 'feedback_sent',
+  'err_memory', 'err_engine_hang', 'err_clock', 'err_id_unsaved', 'report_sent', 'feedback_sent',
   // the editor a Studio user says they use (1.38)
   'editor_capcut', 'editor_davinci', 'editor_premiere', 'editor_other',
 ]);
@@ -5282,6 +5282,7 @@ const ERROR_LABELS = {
   err_media_unreadable: 'media file unreadable', err_no_audio: 'clip has no sound', err_no_speech: 'no speech found', err_too_short: 'clip too short',
   err_engine: 'engine stopped', err_runtime: 'runtime missing', err_av_blocked: 'antivirus / Windows blocked',
   err_memory: 'out of memory', err_engine_hang: 'engine stopped responding', err_clock: 'computer clock wrong',
+  err_id_unsaved: 'ID file blocked (a license would not stay)',
   err_disk_full: 'disk full', err_license: 'no license / free captions used up', err_other: 'other',
 };
 
@@ -7170,7 +7171,13 @@ export default {
       // A computer-only start still gets a link: Telegram adds the rest.
       if (state.status !== 'none' && !state.starter) return json(state);
       // Many links from one internet address in a day: the owner approves.
-      const flagged = await rlHit('rl:ip:' + clientIp() + ':treqday', 10, 86400);
+      // 1.90.2: count COMPUTERS per address, not requests — one person with
+      // several videos in the queue asked 30 times in 3 minutes and was held
+      // for the owner's OK (@tujjaar_tg). A computer counts once a day.
+      const seenKey = 'treq:' + clientIp() + ':' + mid;
+      const seen = await kvGet(seenKey);
+      const flagged = seen ? seen === '2' : await rlHit('rl:ip:' + clientIp() + ':treqday', 10, 86400);
+      if (!seen) await kvPut(seenKey, flagged ? '2' : '1', 86400);
       if (state.status === 'none' && body && body.starter === true && hf && !flagged && (await giveStarterGrant(mid, hf))) {
         state = Object.assign(await trialMinutesState(mid), { started: true });
       }
