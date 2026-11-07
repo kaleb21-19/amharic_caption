@@ -658,6 +658,11 @@ const AM_TEXT = {
 
 // Parameterised English → Amharic ($1.. are the regex groups).
 const AM_PATTERNS = [
+  // 1.93.1 one-click cut: Premiere did not take the piece out
+  [/^Premiere made the cut lines but kept the piece between them \((\d+) clip\(s\)\)\. Select that piece on the timeline and press Shift\+Delete\. Then send a problem report so we can fix this for your Premiere version\.$/,
+    'Premiere የመቁረጫ መስመሮቹን ሰራ፣ በመካከላቸው ያለውን ቁራጭ ግን አላወጣም ($1 ክሊፕ)። ያንን ቁራጭ በታይምላይኑ ላይ መርጠው Shift+Delete ይጫኑ። ከዚያ ለእርስዎ Premiere እንድናስተካክለው «ችግር ሪፖርት ላክ»ን ይጫኑ።'],
+  [/^Premiere did not cut at (.+) \(nothing was found between the cut lines\)\. Press Ctrl\+Z in Premiere if a cut line appeared somewhere else, then send a problem report so we can fix this for your Premiere version\.$/,
+    'Premiere በ$1 ላይ አልቆረጠም (በመቁረጫ መስመሮቹ መካከል ምንም አልተገኘም)። የመቁረጫ መስመር ሌላ ቦታ ከታየ በPremiere Ctrl+Z ይጫኑ፣ ከዚያ ለእርስዎ Premiere እንድናስተካክለው «ችግር ሪፖርት ላክ»ን ይጫኑ።'],
   [/^ERROR: The clip at the playhead is only ([\d.]+) s long — select the clip you want on the timeline \(click it\), or choose Work area or Whole edit, then press Generate again\.$/,
     'ስህተት፦ ማጫወቻው ያለበት ክሊፕ $1 ሰከንድ ብቻ ነው — የሚፈልጉትን ክሊፕ በታይምላይኑ ላይ ይጫኑት (ይምረጡት)፣ ወይም Work area ወይም Whole edit ይምረጡ፣ ከዚያ «ካፕሽን ፍጠር»ን እንደገና ይጫኑ።'],
   [/^Plain: (.+)'s own captions — you can edit and restyle them there\.$/, 'መደበኛ፦ የ$1 የራሱ ካፕሽን — እዚያው ማስተካከልና ማስዋብ ይችላሉ።'],

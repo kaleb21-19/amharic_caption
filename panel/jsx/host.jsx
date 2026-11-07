@@ -1609,6 +1609,77 @@ function amhCleanupFirstAfter(clips, t) {
 // One cut [a, b] on the open sequence, every track: razor both edges, take
 // out what lies inside (ripple closes the gap), and if a track's later clips
 // did not move with it (a Premiere version that leaves the gap), move them.
+// The clips of a track that lie inside [a, b] (after the razor), last first.
+function amhCleanupInside(cl, a, b, eps) {
+    var inside = [], next = null;
+    for (var k = amhCleanupFirstAfter(cl, a + eps); k < cl.numItems; k++) {
+        var it = cl[k];
+        var s = Number(it.start.seconds), e = Number(it.end.seconds);
+        if (s >= b - eps) { next = { name: amhClipName(it), s: s }; break; }
+        if (s >= a - eps && e <= b + eps) { inside.push(it); }
+    }
+    return { inside: inside, next: next };
+}
+
+// 1.93.1 (owner: "it cuts but does not remove the cut - I have to delete that
+// part myself"): the razor worked, the piece stayed. Take it out and CHECK it
+// is gone; when Premiere's remove() did nothing, use Premiere's own ripple
+// delete on that piece (QE), the same as selecting it and pressing
+// Shift+Delete. Returns how many pieces went and how many are still there.
+function amhQeSecs(t) {
+    if (t === undefined || t === null) { return NaN; }
+    if (typeof t === "number") { return t; }
+    if (t.secs !== undefined) { return Number(t.secs); }
+    if (t.seconds !== undefined) { return Number(t.seconds); }
+    if (t.ticks !== undefined) { return Number(t.ticks) / 254016000000; }
+    return Number(t);
+}
+// QE pieces of a track that lie inside [a, b]: Premiere's own timeline view
+// (the one that made the razor cuts, so it always sees the new pieces).
+function amhQeInside(qt, a, b, eps) {
+    var out = [], n = 0;
+    try { n = Number(qt.numItems); } catch (e) { return null; }
+    if (!(n >= 0)) { return null; }
+    for (var j = 0; j < n; j++) {
+        var q = null;
+        try { q = qt.getItemAt(j); } catch (e) {}
+        if (!q) { continue; }
+        var ty = "";
+        try { ty = String(q.type || ""); } catch (e) {}
+        if (ty === "Empty") { continue; }
+        var qs = amhQeSecs(q.start), qe2 = amhQeSecs(q.end);
+        if (qs >= a - eps && qe2 <= b + eps && qe2 - qs > eps) { out.push(q); }
+    }
+    return out;
+}
+function amhCleanupTakeOut(seq, qseq, kind, i, a, b, eps) {
+    var trackOf = function () {
+        var sq = app.project.activeSequence || seq;   // fresh: an old handle may not see the razor
+        return kind === "v" ? sq.videoTracks[i] : sq.audioTracks[i];
+    };
+    var qt = null;
+    try { qt = kind === "v" ? qseq.getVideoTrackAt(i) : qseq.getAudioTrackAt(i); } catch (e) {}
+    var found = amhCleanupInside(trackOf().clips, a, b, eps);
+    var qBefore = qt ? amhQeInside(qt, a, b, eps) : null;
+    var want = Math.max(found.inside.length, qBefore ? qBefore.length : 0);
+    if (!want) { return { removed: 0, left: 0, next: found.next }; }
+    for (var r = found.inside.length - 1; r >= 0; r--) {
+        try { found.inside[r].remove(true, true); } catch (e) {}
+    }
+    // still there (Premiere ignored remove(), or the script view was out of date)?
+    // Premiere's own ripple delete on each piece, last first = Shift+Delete
+    var qLeft = qt ? amhQeInside(qt, a, b, eps) : null;
+    if (qLeft && qLeft.length) {
+        for (var k = qLeft.length - 1; k >= 0; k--) {
+            try { if (qLeft[k].rippleDelete) { qLeft[k].rippleDelete(); } else { qLeft[k].remove(true, true); } } catch (e) {}
+        }
+        qLeft = amhQeInside(qt, a, b, eps);
+    }
+    var dLeft = amhCleanupInside(trackOf().clips, a, b, eps).inside.length;
+    var left = Math.max(dLeft, qLeft ? qLeft.length : 0);
+    return { removed: want - left, left: left, next: found.next };
+}
+
 function amhCleanupOne(seq, a, b, fps) {
     var eps = 0.5 / fps, len = b - a;
     app.enableQE();
@@ -1618,21 +1689,14 @@ function amhCleanupOne(seq, a, b, fps) {
     for (var vi = 0; vi < vN; vi++) { try { qseq.getVideoTrackAt(vi).razor(tcB); qseq.getVideoTrackAt(vi).razor(tcA); } catch (e) {} }
     for (var ai = 0; ai < aN; ai++) { try { qseq.getAudioTrackAt(ai).razor(tcB); qseq.getAudioTrackAt(ai).razor(tcA); } catch (e) {} }
     var tracks = amhCleanupTracks(seq);
-    var removed = 0, moved = 0;
+    var removed = 0, moved = 0, left = 0;
     for (var t = 0; t < tracks.length; t++) {
         var track = tracks[t].track;
-        var cl = track.clips;
-        var inside = [], next = null;
-        for (var k = amhCleanupFirstAfter(cl, a + eps); k < cl.numItems; k++) {
-            var it = cl[k];
-            var s = Number(it.start.seconds), e = Number(it.end.seconds);
-            if (s >= b - eps) { next = { name: amhClipName(it), s: s }; break; }
-            if (s >= a - eps && e <= b + eps) { inside.push(it); }
-        }
-        for (var r = inside.length - 1; r >= 0; r--) {
-            try { inside[r].remove(true, true); removed++; } catch (e) {}
-        }
-        if (!next) { continue; }
+        var out = amhCleanupTakeOut(seq, qseq, tracks[t].kind, tracks[t].i, a, b, eps);
+        removed += out.removed; left += out.left;
+        var next = out.next;
+        var cl;
+        if (!next || out.left) { continue; }      // a piece still there: never slide clips over it
         cl = track.clips;
         var j = amhCleanupFirstAfter(cl, next.s - eps);
         if (j < cl.numItems && Math.abs(Number(cl[j].start.seconds) - next.s) < eps && amhClipName(cl[j]) === next.name) {
@@ -1643,7 +1707,7 @@ function amhCleanupOne(seq, a, b, fps) {
             }
         }
     }
-    return { removed: removed, moved: moved, len: len };
+    return { removed: removed, moved: moved, len: len, left: left, tc: tcA + "-" + tcB };
 }
 
 // Step 1: checks, then copy the sequence and open the copy. Nothing is cut
@@ -1776,10 +1840,17 @@ function amh_textCutNow(argsJSON) {
                 try { app.project.openSequence(seq.sequenceID); } catch (e) {}
             }
         }
-        var removed = 0, total = 0;
+        var removed = 0, total = 0, left = 0, miss = "";
         for (var n = cuts.length - 1; n >= 0; n--) {             // last first: earlier times stay valid
             var o = amhCleanupOne(seq, cuts[n][0], cuts[n][1], fps);
-            removed += o.removed; total += o.len;
+            removed += o.removed; total += o.len; left += o.left;
+            if (!o.removed && !o.left && !miss) { miss = cuts[n][0].toFixed(2) + "-" + cuts[n][1].toFixed(2) + " s = " + o.tc; }
+        }
+        if (miss) {
+            return amhErr("Premiere did not cut at " + miss + " (nothing was found between the cut lines). Press Ctrl+Z in Premiere if a cut line appeared somewhere else, then send a problem report so we can fix this for your Premiere version.");
+        }
+        if (left) {
+            return amhErr("Premiere made the cut lines but kept the piece between them (" + left + " clip(s)). Select that piece on the timeline and press Shift+Delete. Then send a problem report so we can fix this for your Premiere version.");
         }
         return amhOk({ sequence: name, kept: kept, list: cuts, removed: removed, removedSeconds: Math.round(total * 1000) / 1000 });
     });
