@@ -611,6 +611,8 @@ const AM_TEXT = {
 
 // Parameterised English → Amharic ($1.. are the regex groups).
 const AM_PATTERNS = [
+  [/^ERROR: The clip at the playhead is only ([\d.]+) s long — select the clip you want on the timeline \(click it\), or choose Work area or Whole edit, then press Generate again\.$/,
+    'ስህተት፦ ማጫወቻው ያለበት ክሊፕ $1 ሰከንድ ብቻ ነው — የሚፈልጉትን ክሊፕ በታይምላይኑ ላይ ይጫኑት (ይምረጡት)፣ ወይም Work area ወይም Whole edit ይምረጡ፣ ከዚያ «ካፕሽን ፍጠር»ን እንደገና ይጫኑ።'],
   [/^Plain: (.+)'s own captions — you can edit and restyle them there\.$/, 'መደበኛ፦ የ$1 የራሱ ካፕሽን — እዚያው ማስተካከልና ማስዋብ ይችላሉ።'],
   [/^⏳ (.+) (\d+)%$/, function (m, a, n) { return '⏳ ' + T(a) + ' ' + n + '%'; }],
   [/^until (\d{4}-\d{2}-\d{2})$/, 'እስከ $1'],
