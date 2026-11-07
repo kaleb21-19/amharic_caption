@@ -496,6 +496,7 @@ const WHATS_NEW = {
       { am: 'ቃላትን ብቻ፦ ቃላቱን መርጠው ✂ ወይም Ctrl+D', en: 'Only some words: select them, then ✂ or Ctrl+D' },
       { am: 'Shift+✂፦ ከመጨረሻው ✂ እስከዚህ ያሉት ካፕሽኖች በአንድ ቁርጥ', en: 'Shift+✂: every caption from the last ✂ to here in one cut' },
       { am: 'ሁለተኛ ቁልፍ የለም፤ የመጀመሪያው ሴክዌንስዎ «… - before text edit» ተብሎ ይቀመጣል', en: 'No second button; your original sequence is kept as «… - before text edit»' },
+      { am: '🎨 በታይምላይኑ ላይ ስታይል፦ ስታይል ያለውን ካፕሽን በታይምላይኑ ላይ ይጫኑ፣ «🎨» — የሚቀይሩት ሁሉ በዚያው ካፕሽን ላይ ወዲያው ይታያል', en: '🎨 Style on the timeline: click a styled caption on the timeline, then 🎨 — every change shows on that caption at once' },
       { am: 'ቀለል ያለ ፓነል፦ ምንጭ፣ አማራጮች እና ካፕሽን ፍጠር ብቻ', en: 'A simpler panel: only Source, Options and Generate' },
     ],
   },
@@ -5084,6 +5085,7 @@ function removeTempCaptionArtifact(filePath) {
 }
 
 function closeReview(keepArtifact) {
+  tlStop();
   hideTiming();
   stopHearing();
   CLEAN = null;
@@ -7143,14 +7145,22 @@ async function checkSelectedCaption() {
     const dist = (c) => (t < Number(c.start) ? Number(c.start) - t : (t > Number(c.end) ? t - Number(c.end) : 0));
     const cue = rec.cues.reduce((best, c) => (dist(c) < dist(best) ? c : best), rec.cues[0]);
     bar.textContent = '';
+    // 1.93 🎨 the look of the captions, seen on the timeline while it changes
+    const look = document.createElement('button');
+    look.type = 'button';
+    look.className = 'btn btn-primary sel-cap-btn';
+    look.textContent = '🎨 ' + L('Style on the timeline');
+    look.addEventListener('click', () => styleSelectedCaption(rec, t));
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = 'btn btn-primary sel-cap-btn';
-    b.textContent = '✎ ' + L('Edit the selected caption');
+    b.className = 'btn btn-neutral sel-cap-btn';
+    b.textContent = '✎ ' + L('Text');
+    b.title = L('Edit the selected caption');
     b.addEventListener('click', () => editSelectedCaption(rec, t));
     const txt = document.createElement('span');
     txt.className = 'sel-cap-text';
     txt.textContent = '“' + String(cue.text || '').replace(/[*~]/g, '').slice(0, 40) + '”';
+    bar.appendChild(look);
     bar.appendChild(b);
     bar.appendChild(txt);
     bar.style.display = '';
@@ -7166,6 +7176,83 @@ async function editSelectedCaption(rec, t) {
   (reviewCues || []).forEach((c, i) => { if (Math.abs((c.start + c.end) / 2 - t) < Math.abs((reviewCues[best].start + reviewCues[best].end) / 2 - t)) best = i; });
   if (typeof focusReviewCue === 'function' && reviewCues && reviewCues.length) focusReviewCue(best, 0);
 }
+// ── 🎨 Style on the timeline (1.93) ─────────────────────────────────────
+// The owner: "show the selected caption style and customize it on the
+// timeline". A styled caption selected on the Premiere timeline → 🎨: the
+// look controls open, the playhead goes to that caption, and every change
+// redraws THAT caption on the timeline (~1 s, seen in the Program monitor).
+// ✓ Place gives every caption the look; Discard puts that caption back.
+const TL = { on: false, i: -1, timer: 0, busy: false, again: false, dirty: false, base: 0, prefix: '', track: null, orig: null };
+function tlCueIndex(t) {
+  let best = 0;
+  (reviewCues || []).forEach((c, i) => { if (Math.abs((c.start + c.end) / 2 - t) < Math.abs((reviewCues[best].start + reviewCues[best].end) / 2 - t)) best = i; });
+  return best;
+}
+async function styleSelectedCaption(rec, t) {
+  const bar = $('selCapBar');
+  if (bar) bar.style.display = 'none';
+  if (!rec || !rec.placed || rec.placed.mode !== 'cut') return false;
+  if (!(await reopenHistory(rec))) return false;
+  const i = tlCueIndex(t);
+  Object.assign(TL, { on: true, i, busy: false, again: false, dirty: false, base: Number(rec.startSeconds) || 0,
+    prefix: rec.placed.prefix, track: rec.placed.track, orig: { style: rec.placed.style, opts: rec.placed.opts } });
+  STYLE_CUSTOM_OPEN = true;
+  renderStyleStrip();
+  try { focusReviewCue(i, 0); } catch (e) {}
+  const strip = $('styleStrip');
+  if (strip && strip.scrollIntoView) { try { strip.scrollIntoView({ block: 'start' }); } catch (e) {} }
+  const c = reviewCues[i];
+  if (c) { try { await seekPlayhead(TL.base + (c.start + c.end) / 2); } catch (e) {} }
+  textCutNote('🎬 ' + L('Change the look — the selected caption on the timeline shows it at once. ✓ Place gives every caption this look.'));
+  return true;
+}
+function tlSchedule() {
+  if (!TL.on) return;
+  clearTimeout(TL.timer);
+  TL.timer = setTimeout(() => { tlRedraw(false); }, 700);
+}
+// Draw one caption in a look and put it in its place on the timeline
+// (replacing what is there). restore = back to the look it was placed with.
+async function tlRedraw(restore, cueArg) {
+  const cue = cueArg || reviewCues[TL.i];
+  if (!cue || !TL.prefix) return false;
+  if (TL.busy) { if (!restore) TL.again = true; return false; }
+  const style = restore ? TL.orig.style : STYLE;
+  const opts = restore ? TL.orig.opts : styleOpts(STYLE);
+  if (!restore && style === 'plain') {
+    textCutNote(L('Choose a styled look to see it on the timeline (Plain is Premiere’s own captions).'));
+    return false;
+  }
+  TL.busy = true;
+  if (!restore) textCutNote('⏳ ' + L('Showing it on the timeline…'));
+  try {
+    const fr = await evalScript('amharic_getFrame()');
+    if (!fr || !fr.ok) throw new Error((fr && fr.error) || 'could not read the sequence frame size');
+    const out = path.join(ensureCaptionsDir(), TL.prefix + style + '_' + Date.now() + '.mov');
+    const r = await renderStyled({ cues: styleCues([cue]), style, opts, width: fr.width, height: fr.height, fps: fr.fps, out, mode: 'overlay', tag: !LICENSED });
+    if (!Array.isArray(r.spans) || !r.spans.length) throw new Error('nothing to place');
+    const from = TL.base + cue.start - 0.05, to = TL.base + cue.end + 0.6;
+    const prep = await hostCall('amh_overlayPrepare', { path: r.out, rangeStart: Math.min(from, TL.base + (r.t0 || 0)),
+      rangeEnd: Math.max(to, TL.base + (r.t0 || 0) + (r.duration || 0)), replacePrefix: TL.prefix, preferTrack: TL.track });
+    if (!prep || !prep.ok) throw new Error((prep && prep.error) || HOST_NAME + ' did not take the caption');
+    TL.track = prep.track;
+    await placeSpans(r.out, r.spans, TL.base + (r.t0 || 0), prep, null, 0, 0);
+    TL.dirty = !restore;
+    if (!restore) textCutNote('🎬 ' + L('On the timeline now.') + ' ' + L('✓ Place gives every caption this look.'));
+    return true;
+  } catch (e) {
+    textCutNote(L('Could not show it on the timeline') + ': ' + L((e && e.message) || String(e)), true);
+    return false;
+  } finally {
+    TL.busy = false;
+    if (TL.again) { TL.again = false; if (TL.on) tlSchedule(); }
+  }
+}
+function tlStop() {
+  clearTimeout(TL.timer);
+  TL.on = false;
+}
+
 // asked when the editor comes back to the panel (no polling while it is away)
 function selCapSoon() {
   if (IS_AE || Date.now() - SELCAP_AT < 1500) return;
@@ -7653,6 +7740,7 @@ async function loadStyleFrame() {
   } catch (e) {}
 }
 function schedulePreview() {
+  if (TL.on) tlSchedule();           // 1.93: the caption on the timeline follows
   if (PREVIEW_TIMER) clearTimeout(PREVIEW_TIMER);
   PREVIEW_TIMER = setTimeout(renderPreview, 300);
 }
@@ -7731,6 +7819,10 @@ async function placeReview() {
     // Premiere's caption item links to this file. Deleting it triggers a
     // "Locate file" prompt on every project open.
     log('Captions saved to ' + dest + '  (Premiere keeps a file link to this).');
+    // 1.93: plain captions are Premiere's own captions — styled right on the timeline
+    if (!IS_AE && !IS_APP_MODE()) {
+      setSuccess('✓ ' + L('Captions on the timeline — click one and change its font, size and colour in Essential Graphics (Window → Essential Graphics).'));
+    }
     track('placed');
     saveHistory(dest);
     closeReview(true);
@@ -7880,6 +7972,12 @@ function discardReview() {
     try { if (warmChild && !warmChild.killed) warmChild.kill(); } catch (e) {}
   }
   log('Discarded — nothing was placed on the timeline.');
+  if (TL.on && TL.dirty) {
+    const cue = reviewCues[TL.i] ? Object.assign({}, reviewCues[TL.i]) : null;
+    tlStop();
+    if (cue) tlRedraw(true, cue).then((ok) => { if (ok) log('The caption on the timeline is back to its look.'); });
+  }
+  tlStop();
   closeReview();
 }
 

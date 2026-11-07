@@ -167,6 +167,16 @@ const AM_STATIC = {
 
 // ── dynamic text from main.js / core.js (keyed by the English string) ───────
 const AM_TEXT = {
+  // 1.93 🎨 style on the timeline
+  'Style on the timeline': 'በታይምላይኑ ላይ ስታይል',
+  'Text': 'ጽሑፍ',
+  'Change the look — the selected caption on the timeline shows it at once. ✓ Place gives every caption this look.': 'ስታይሉን ይቀይሩ — በታይምላይኑ ላይ የተመረጠው ካፕሽን ወዲያው ያሳያል። ✓ «በታይምላይን ላይ አስቀምጥ» ለሁሉም ካፕሽኖች ይህን ስታይል ይሰጣል።',
+  'Choose a styled look to see it on the timeline (Plain is Premiere’s own captions).': 'በታይምላይኑ ላይ ለማየት ስታይል ያለው ይምረጡ (መደበኛው የPremiere የራሱ ካፕሽን ነው)።',
+  'Showing it on the timeline…': 'በታይምላይኑ ላይ በማሳየት ላይ…',
+  'On the timeline now.': 'አሁን በታይምላይኑ ላይ ነው።',
+  '✓ Place gives every caption this look.': '✓ «በታይምላይን ላይ አስቀምጥ» ለሁሉም ካፕሽኖች ይህን ስታይል ይሰጣል።',
+  'Could not show it on the timeline': 'በታይምላይኑ ላይ ማሳየት አልተቻለም',
+  'Captions on the timeline — click one and change its font, size and colour in Essential Graphics (Window → Essential Graphics).': 'ካፕሽኖቹ በታይምላይኑ ላይ ናቸው — አንዱን ይጫኑ፣ ፊደሉን፣ መጠኑንና ቀለሙን በEssential Graphics ውስጥ ይቀይሩ (Window → Essential Graphics)።',
   // 1.93 ✂ one click = cut (Premiere)
   '✂ Cut this caption out of the timeline now — picture and sound (Shift: every caption from the last ✂ to here). Select words first to cut only them.': '✂ ይህን ካፕሽን አሁኑኑ ከታይምላይኑ ቁረጥ — ምስልና ድምፅ (Shift፦ ከመጨረሻው ✂ እስከዚህ ያሉትን በሙሉ)። ቃላትን ብቻ ለመቁረጥ መጀመሪያ ቃላቱን ይምረጡ።',
   'captions': 'ካፕሽኖች',

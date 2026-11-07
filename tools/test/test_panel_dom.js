@@ -1815,8 +1815,38 @@ await t('4i2. styled captions you can edit (1.27.0): one clip per caption, an ed
     host.selected = { name: 'amhstyle_' + p.evalVm('safeFileName("interview.mp4")') + '__bold_2.mov', start: 12 + 30 + 2.2, end: 12 + 30 + 3.2 };
     await p.evalVm('checkSelectedCaption()');
     assert.strictEqual(p.els('selCapBar').style.display, '', 'the bar shows');
-    has(p.els('selCapBar').children[1].textContent, 'ተቀይሯል');
-    has(p.els('selCapBar').children[0].textContent, 'Edit the selected caption');
+    has(p.els('selCapBar').children[2].textContent, 'ተቀይሯል');
+    has(p.els('selCapBar').children[0].textContent, 'Style on the timeline');
+    has(p.els('selCapBar').children[1].textContent, 'Text');
+
+    // 1.93 🎨 style on the timeline: the look controls open on that caption, the
+    // playhead goes there, a change redraws ONLY that caption in its place
+    evalLog.length = 0;
+    p.els('selCapBar').children[0].fire('click');
+    await flush(10);
+    assert.strictEqual(p.evalVm('reviewOpen'), true);
+    assert.strictEqual(p.evalVm('TL.on && STYLE_CUSTOM_OPEN'), true, 'the look controls are open');
+    assert.strictEqual(p.evalVm('reviewCues[TL.i].text'), 'ተቀይሯል', 'on the selected caption');
+    assert.ok(calls(/amharic_seekPlayhead\(/).length === 1, 'the playhead goes to it');
+    const nJobs = p.evalVm('__jobs.length');
+    p.evalVm('STYLE = "neon"; schedulePreview();');
+    p.evalVm('setStyleOpt("color", "#2F80ED");');          // two quick changes: drawn once
+    await new Promise((r) => setTimeout(r, 900));
+    await flush(10);
+    const tj = JSON.parse(p.evalVm('JSON.stringify(__jobs.slice(' + nJobs + '))'));
+    assert.strictEqual(tj.length, 1, 'two quick changes are drawn once');
+    assert.deepStrictEqual([tj[0].style, tj[0].cues.map((c) => c[0])], ['neon', ['ተቀይሯል']], 'only that caption, in the new look');
+    const tp = argsOf(calls(/amh_overlayPrepare\(/).pop(), 'amh_overlayPrepare');
+    assert.ok(tp.rangeStart >= 12 + 32.2 - 0.3 && tp.rangeEnd <= 12 + 33.2 + 0.7, 'only its place on the timeline: ' + JSON.stringify(tp));
+    assert.strictEqual(tp.preferTrack, 2);
+    has(p.els('textCutNote').textContent, 'On the timeline now');
+    // Discard: that caption goes back to the look it was placed with
+    p.evalVm('discardReview()');
+    await flush(10);
+    const back = JSON.parse(p.evalVm('JSON.stringify(__jobs[__jobs.length - 1])'));
+    assert.deepStrictEqual([back.style, back.cues.map((c) => c[0])], ['bold', ['ተቀይሯል']], 'put back on Discard');
+    assert.strictEqual(p.evalVm('TL.on'), false);
+    p.evalVm('STYLE = "bold";');
     host.selected = null;
     await p.evalVm('checkSelectedCaption()');
     assert.strictEqual(p.els('selCapBar').style.display, 'none', 'nothing of ours selected: no bar');
