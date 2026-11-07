@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.90.1';
+const APP_VERSION = '1.90.2';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -171,6 +171,36 @@ function machineFilePath() {
   return identityFile('.amharic_captions_machine.json');
 }
 
+// 1.90.2: a second copy of the Machine ID in the system's app-data folder
+// (amh_license.py reads the same two places). On one computer the home-folder
+// file could not be kept — 141 new IDs in a week, one per start — and a
+// license is tied to the ID, so it would have stopped at the next start.
+function machineAltPath() {
+  const env = (typeof process !== 'undefined' && process.env) || {};
+  if (env.AMH_MACHINE_HOME) return identityFile('.amharic_captions_machine.alt.json');
+  if (!nodeOs || !nodePath || !nodePath.join) return null;
+  const home = nodeOs.homedir && nodeOs.homedir();
+  const plat = nodeOs.platform && nodeOs.platform();
+  const base = plat === 'win32' ? (env.APPDATA || (home && nodePath.join(home, 'AppData', 'Roaming')))
+    : plat === 'darwin' ? (home && nodePath.join(home, 'Library', 'Application Support'))
+      : (home && nodePath.join(home, '.config'));
+  return base ? nodePath.join(base, 'AmharicCaptions', 'machine.json') : null;
+}
+function saveMachineAlt(id, host) {
+  const a = machineAltPath();
+  if (!a || !nodeFs) return false;
+  try {
+    nodeFs.mkdirSync(nodePath.dirname(a), { recursive: true });
+    nodeFs.writeFileSync(a, JSON.stringify({ id: id, host: host || null, hv: HOST_FP_VERSION }), { encoding: 'utf8' });
+    return !!parseMachineRecord(nodeFs.readFileSync(a, 'utf8'));
+  } catch (e) { return false; }
+}
+function loadMachineAlt() {
+  const a = machineAltPath();
+  if (!a || !nodeFs) return null;
+  try { return parseMachineRecord(nodeFs.readFileSync(a, 'utf8')); } catch (e) { return null; }
+}
+
 // The license lives in the HOME DIRECTORY, not just localStorage. CEP's
 // localStorage is per-extension AND per-host-version — the real cache path is
 //   ~/Library/Caches/CSXS/cep_cache/PPRO_<ver>_com.amharic.captions.panel/
@@ -261,10 +291,20 @@ function loadMachineRecord() {
       return backup;
     }
   } catch (e) {}
+  // 1.90.2: the second copy, when the home-folder file is gone or unreadable
+  const alt = loadMachineAlt();
+  if (alt) {
+    saveMachineRecord(alt.id, alt.host);
+    return alt;
+  }
   return null;
 }
 
 function saveMachineRecord(id, host) {
+  const altOk = saveMachineAlt(id, host);
+  return saveMachinePrimary(id, host) || altOk;
+}
+function saveMachinePrimary(id, host) {
   const p = machineFilePath();
   if (!p || !nodeFs) return false;
   const tmp = p + '.tmp-' + process.pid + '-' + Date.now();
@@ -296,23 +336,28 @@ function saveMachineRecord(id, host) {
   }
 }
 
+// 1.90.2: true when neither copy could be kept (the warning under the license)
+let MACHINE_ID_UNSAVED = false;
 function getOrCreateMachineId() {
   // 1) Node-persisted record is the source of truth.
   const rec = loadMachineRecord();
   if (rec) {
     try { localStorage.setItem('amh.machineId', rec.id); } catch (e) {}
+    // keep the second copy the same (installs from before 1.90.2 have none)
+    const alt = loadMachineAlt();
+    if (!alt || alt.id !== rec.id) saveMachineAlt(rec.id, rec.host);
     return rec.id;
   }
   // 2) A legacy localStorage id migrates into the Node file so existing
   //    license holders keep the same machine (no re-key after this update).
   const legacy = localStorage.getItem('amh.machineId');
   if (legacy && (/^[0-9a-f]{8}$/.test(legacy) || new RegExp('^[0-9a-f]{' + MACHINE_ID_LENGTH + '}$').test(legacy))) {
-    saveMachineRecord(legacy, hostFingerprint());
+    if (!saveMachineRecord(legacy, hostFingerprint()) && NODE) MACHINE_ID_UNSAVED = true;
     return legacy;
   }
   // 3) Brand-new machine.
   const id = randomMachineId();
-  saveMachineRecord(id, hostFingerprint());
+  if (!saveMachineRecord(id, hostFingerprint()) && NODE) MACHINE_ID_UNSAVED = true;
   try { localStorage.setItem('amh.machineId', id); } catch (e) {}
   return id;
 }
@@ -338,6 +383,7 @@ const MACHINE_HOST_MISMATCH = (() => {
 })();
 
 const MACHINE_ID = getOrCreateMachineId();
+if (MACHINE_ID_UNSAVED) { try { setTimeout(() => track('err_id_unsaved'), 0); } catch (e) {} }
 
 // Boot ping: announce {version, mid} so support can tell which build a machine
 // is running. Fire-and-forget, and genuinely once per day.
@@ -2797,6 +2843,8 @@ function updateLicenseUI() {
     if (midSectionU) midSectionU.style.display = '';
     const mmEl = document.getElementById('machineMismatch');
     if (mmEl) mmEl.style.display = MACHINE_HOST_MISMATCH ? '' : 'none';
+    const unsEl = document.getElementById('machineUnsaved');
+    if (unsEl) unsEl.style.display = MACHINE_ID_UNSAVED ? '' : 'none';
     const licNoteU = document.getElementById('licensedNote');
     if (licNoteU) licNoteU.style.display = 'none';
     const rem = trialRemaining();

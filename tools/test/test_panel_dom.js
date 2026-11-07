@@ -240,7 +240,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.90.1');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.90.2');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1250,6 +1250,41 @@ await t('4j. 1.80 one-tap update: only a package signed by our server is install
     assert.strictEqual(p.els('updateNow').textContent, '🔄 አሁን አሻሽል');
     p.evalVm('AMH_LANG = "en";');
   } finally { p.close(); }
+});
+
+await t('4l. 1.90.2 the ID survives a home folder that cannot keep its file (141 new IDs in a week on one computer); a warning when nothing can be kept', async () => {
+  // the home-folder file cannot be written (a folder stands in its place): the second copy keeps the ID
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_dom_blocked_'));
+  fs.mkdirSync(path.join(home, '.amharic_captions_machine.json'));
+  let first = null;
+  let p = loadPanel({ machineHome: home });
+  try {
+    await flush(5);
+    first = p.evalVm('MACHINE_ID');
+    assert.strictEqual(p.evalVm('MACHINE_ID_UNSAVED'), false, 'kept in the second copy');
+    const alt = JSON.parse(fs.readFileSync(path.join(home, '.amharic_captions_machine.alt.json'), 'utf8'));
+    assert.strictEqual(alt.id, first);
+    assert.strictEqual(p.els('machineUnsaved').style.display, 'none');
+  } finally { p.close(); }
+  // the next start (a fresh store, as the Studio's can be): the same ID
+  p = loadPanel({ machineHome: home });
+  try {
+    await flush(5);
+    assert.strictEqual(p.evalVm('MACHINE_ID'), first, 'the same computer at the next start');
+  } finally { p.close(); }
+  // nothing can be kept: the program says so (a license would not stay)
+  const home2 = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_dom_blocked2_'));
+  fs.mkdirSync(path.join(home2, '.amharic_captions_machine.json'));
+  fs.mkdirSync(path.join(home2, '.amharic_captions_machine.alt.json'));
+  p = loadPanel({ machineHome: home2 });
+  try {
+    await flush(5);
+    assert.strictEqual(p.evalVm('MACHINE_ID_UNSAVED'), true);
+    p.evalVm('updateLicenseUI()');
+    assert.strictEqual(p.els('machineUnsaved').style.display, '', 'the warning shows');
+  } finally { p.close(); }
+  fs.rmSync(home, { recursive: true, force: true });
+  fs.rmSync(home2, { recursive: true, force: true });
 });
 
 await t('4k. 1.80.1 the program and the engine always mean the same computer: a wrong ID is caught before charging', async () => {

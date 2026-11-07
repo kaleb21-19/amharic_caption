@@ -175,7 +175,7 @@ const KNOWN = [
   'updateBanner', 'updateText', 'updateGo', 'updateLater', 'updateCheck',
   'whatsNew', 'wnTitle', 'wnList', 'wnTry', 'wnClose', 'wnHint',
   // license
-  'machineIdSection', 'machineIdDisplay', 'machineIdCopy', 'machineMismatch',
+  'machineIdSection', 'machineIdDisplay', 'machineIdCopy', 'machineMismatch', 'machineUnsaved',
   'licensedNote', 'licenseInput', 'licenseActivate', 'licenseStatus', 'trialBanner',
   'buyBtn', 'buyPending', 'bankDetails', 'bankBox', 'buyQrCard', 'buyQr', 'buyQrStatus', 'buyQrPc', 'buyQrClose',
   'revUndo', 'revMemory', 'memoryPanel',
