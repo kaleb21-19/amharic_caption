@@ -676,6 +676,46 @@ function cutRanges(text) {
   while ((m = re.exec(t)) !== null) out.push({ start: m.index, end: m.index + m[0].length });
   return out;
 }
+// 1.94 🎬 templates: a caption's text over a template's N text lines. The
+// editor's own line breaks (Shift+Enter) decide; more breaks than lines join
+// on the last line; no breaks = the words shared out evenly (balanced by
+// letters, never an empty line while words are left). ★ / ✂ marks removed.
+function mogrtParts(text, n) {
+  n = Math.max(1, Number(n) || 1);
+  const clean = String(text || '').replace(/[*~]/g, '');
+  let lines = clean.split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  if (lines.length > 1) {
+    while (lines.length > n) { const last = lines.pop(); lines[lines.length - 1] += ' ' + last; }
+  } else {
+    const words = (lines[0] || '').split(' ').filter(Boolean);
+    const k = Math.min(n, Math.max(1, words.length));
+    const total = words.reduce((a, w) => a + w.length, 0);
+    lines = [];
+    let cur = [], len = 0, done = 0;
+    words.forEach((w, i) => {
+      const left = words.length - i;
+      const want = (total - done) / (k - lines.length);
+      if (cur.length && lines.length < k - 1 && (len + w.length / 2 > want || left <= k - 1 - lines.length)) {
+        lines.push(cur.join(' ')); done += len; cur = []; len = 0;
+      }
+      cur.push(w); len += w.length;
+    });
+    if (cur.length) lines.push(cur.join(' '));
+  }
+  while (lines.length < n) lines.push(' ');
+  return lines;
+}
+// Which template for a caption: one with exactly as many lines as the
+// caption's own line breaks, else the chosen one.
+function mogrtFor(list, chosenId, text) {
+  const chosen = (list || []).find((t) => t.id === chosenId) || (list || [])[0] || null;
+  const breaks = String(text || '').split('\n').filter((l) => l.trim()).length;
+  if (breaks > 1) {
+    const same = (list || []).find((t) => t.lines === breaks && t.id === chosenId) || (list || []).find((t) => t.lines === breaks);
+    if (same) return same;
+  }
+  return chosen;
+}
 // 1.91 ▶ hear the edit: where the sound goes next from time t — the end of the
 // cut it is in (or about to enter, `lead` seconds early), else null
 function skipTarget(t, cuts, lead) {
@@ -1082,7 +1122,7 @@ function wordsFromCues(cues) {
 
 // Node (tests) — no-op in the CEP browser where `module` is undefined.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { skipTarget, wholeStruck,
+  module.exports = { mogrtParts, mogrtFor, skipTarget, wholeStruck,
     parseSrt, formatSrtTs, cleanCueLines, AMH_PUNCT_CHARS,
     detectSpeaker, normalizeCues,
     speakerPrefix, noEmph, srtTextFromCues, displaySrtTextFromCues, vttTextFromCues, txtTextFromCues,

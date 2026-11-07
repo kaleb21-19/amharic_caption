@@ -485,6 +485,22 @@ t('text cuts: until cut from the video, the words stay in every subtitle file (o
   assert.strictEqual(core.findRepeats([{ text: '~ዛሬ ስለ ቡና~ ዛሬ ስለ ቡና ታሪክ', start: 0, end: 4 }]).length, 1);
 });
 
+t('1.94 🎬 templates: a caption over the template lines; the editor line breaks pick the template', () => {
+  assert.deepStrictEqual(core.mogrtParts('ሰላም ለሁላችሁ እንኳን ደህና መጣችሁ', 2), ['ሰላም ለሁላችሁ', 'እንኳን ደህና መጣችሁ'], 'balanced by letters');
+  assert.deepStrictEqual(core.mogrtParts('ሰላም ለሁላችሁ\nእንኳን ደህና\nመጣችሁ', 2), ['ሰላም ለሁላችሁ', 'እንኳን ደህና መጣችሁ'], 'more breaks than lines: joined on the last');
+  assert.deepStrictEqual(core.mogrtParts('ሀ\nለ\nሐ', 3), ['ሀ', 'ለ', 'ሐ'], 'the editor\'s own breaks');
+  assert.deepStrictEqual(core.mogrtParts('አንድ', 3), ['አንድ', ' ', ' '], 'a line with nothing is a space (never the template\'s own words)');
+  assert.deepStrictEqual(core.mogrtParts('*ቡና* ~ጣፋጭ~ ነው', 1), ['ቡና ጣፋጭ ነው'], 'marks removed');
+  assert.deepStrictEqual(core.mogrtParts('a b c d e f', 3).length, 3);
+  assert.ok(core.mogrtParts('a b c d e f', 3).every((x) => x.trim()), 'no empty line while words are left');
+  const L = [{ id: 'one', lines: 1 }, { id: 'two', lines: 2 }, { id: 'three', lines: 3 }];
+  assert.strictEqual(core.mogrtFor(L, 'one', 'ሀ ለ').id, 'one', 'no breaks: the chosen one');
+  assert.strictEqual(core.mogrtFor(L, 'one', 'ሀ\nለ').id, 'two', 'two lines: a 2-line template');
+  assert.strictEqual(core.mogrtFor(L, 'two', 'ሀ\nለ\nሐ').id, 'three');
+  assert.strictEqual(core.mogrtFor(L, 'two', 'ሀ\nለ\nሐ\nመ').id, 'two', 'no 4-line template: the chosen one');
+  assert.strictEqual(core.mogrtFor([], 'x', 'ሀ'), null);
+});
+
 t('1.91 ✂ whole captions and ▶ hear the edit: a struck caption is one cut; the sound jumps over every cut', () => {
   assert.strictEqual(core.wholeStruck('~ይህንን ቁረጡ~'), true);
   assert.strictEqual(core.wholeStruck('ዛሬ ~ስለ ቡና~'), false, 'only some words');

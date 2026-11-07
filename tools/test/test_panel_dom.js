@@ -243,7 +243,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.93.3');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1288,6 +1288,84 @@ await t('4l. 1.90.2 the ID survives a home folder that cannot keep its file (141
   } finally { p.close(); }
   fs.rmSync(home, { recursive: true, force: true });
   fs.rmSync(home2, { recursive: true, force: true });
+});
+
+await t('4n4. 1.94 🎬 templates: add a .mogrt (its name, lines, picture), choose it, Place = one graphic per caption; the free version places 3', async () => {
+  // a small .mogrt: definition.json (two text controls) + thumb.png, stored
+  const zlib = require('zlib');
+  const mkZip = (files) => {
+    const parts = [], central = [];
+    let off = 0;
+    for (const [name, data] of files) {
+      const nb = Buffer.from(name), crc = zlib.crc32(data);
+      const h = Buffer.alloc(30); h.writeUInt32LE(0x04034b50, 0); h.writeUInt16LE(20, 4); h.writeUInt32LE(crc, 14); h.writeUInt32LE(data.length, 18); h.writeUInt32LE(data.length, 22); h.writeUInt16LE(nb.length, 26);
+      parts.push(h, nb, data);
+      const c = Buffer.alloc(46); c.writeUInt32LE(0x02014b50, 0); c.writeUInt16LE(20, 4); c.writeUInt16LE(20, 6); c.writeUInt32LE(crc, 16); c.writeUInt32LE(data.length, 20); c.writeUInt32LE(data.length, 24); c.writeUInt16LE(nb.length, 28); c.writeUInt32LE(off, 42);
+      central.push(c, nb);
+      off += 30 + nb.length + data.length;
+    }
+    const cd = Buffer.concat(central);
+    const e = Buffer.alloc(22); e.writeUInt32LE(0x06054b50, 0); e.writeUInt16LE(files.length, 8); e.writeUInt16LE(files.length, 10); e.writeUInt32LE(cd.length, 12); e.writeUInt32LE(off, 16);
+    return Buffer.concat(parts.concat([cd, e]));
+  };
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_mogrt_'));
+  const def = { capsuleNameLocalized: { strDB: [{ localeString: 'en_US', str: 'Reels Two' }] },
+    clientControls: [{ type: 10 }, { type: 6 }, { type: 2 }, { type: 6 }, { type: 5 }] };
+  const file = path.join(dir, 'reels two.mogrt');
+  fs.writeFileSync(file, mkZip([['definition.json', Buffer.from(JSON.stringify(def))], ['thumb.png', Buffer.from([137, 80, 78, 71])]]));
+  const calls = [];
+  const answers = (jsx) => {
+    if (/amh_mogrtPlace\(/.test(jsx)) {
+      const a = JSON.parse(JSON.parse(/amh_mogrtPlace\((.*)\)/.exec(jsx)[1]));
+      calls.push(a);
+      return JSON.stringify({ ok: true, track: 2, added: false, removed: 0, placed: a.items.length, noText: 0, errors: [] });
+    }
+    if (/amharic_getFrame\(/.test(jsx)) return JSON.stringify({ ok: true, width: 1080, height: 1920, fps: 25 });
+    return '{"ok":true}';
+  };
+  const p = loadPanel({ csiRaw: answers });
+  try {
+    await flush(10);
+    p.evalVm('ensureCaptionsDir = () => ' + JSON.stringify(dir) + '; STYLE_OK = true; installFonts = async () => ({ ok: true }); renderPreview = async () => {}; reviewTrialCharged = true;');
+    const added = JSON.parse(p.evalVm('JSON.stringify(mogrtAddFiles([' + JSON.stringify(file) + ']))'));
+    assert.deepStrictEqual(added, { added: 1, bad: 0 });
+    const lib = JSON.parse(p.evalVm('JSON.stringify(mogrtList())'));
+    assert.deepStrictEqual([lib[0].name, lib[0].lines, /^data:image\/png;base64,/.test(lib[0].thumb)], ['Reels Two', 2, true], 'name, 2 text lines, its picture');
+    assert.strictEqual(p.evalVm('mogrtActive() && mogrtActive().id'), lib[0].id, 'the first template added is chosen');
+    // 8 captions; one with the editor's own line break
+    const cues = [];
+    for (let k = 0; k < 8; k++) cues.push({ start: k * 2, end: k * 2 + 1.8, text: k === 1 ? 'ሰላም ለሁላችሁ\nእንኳን ደህና መጣችሁ' : 'ቃል' + k + ' ሁለት ሦስት' });
+    p.evalVm('lastCues = ' + JSON.stringify(cues) + ';');
+    const srt = path.join(dir, 'r.srt');
+    fs.writeFileSync(srt, '1\n00:00:00,000 --> 00:00:01,000\nx\n');
+    await p.evalVm('openReview(' + JSON.stringify(srt) + ', "talk.mp4", 10, {})');
+    const row = p.els('mogrtRow');
+    assert.notStrictEqual(row.style.display, 'none', 'the template row shows in Premiere');
+    // licensed: every caption, in groups of 8, at the sequence time, the words over 2 lines
+    p.evalVm('LICENSED = true;');
+    await p.evalVm('placeReview()');
+    assert.strictEqual(calls.length, 1);
+    const a = calls[0];
+    assert.deepStrictEqual([a.first, a.items.length, a.rangeStart, a.rangeEnd], [true, 8, 10, 10 + 15.8]);
+    assert.deepStrictEqual(a.items[1].parts, ['ሰላም ለሁላችሁ', 'እንኳን ደህና መጣችሁ'], 'the editor\'s line break');
+    assert.deepStrictEqual([a.items[0].start, a.items[0].end, a.items[0].font, a.items[0].path], [10, 11.8, 'NotoSansEthiopic-Bold', file]);
+    assert.match(a.tag, /^amhmogrt_talk/);
+    assert.strictEqual(p.evalVm('reviewOpen'), false, 'placed');
+    // the free version: the first 3 only
+    calls.length = 0;
+    p.evalVm('LICENSED = false; lastCues = ' + JSON.stringify(cues) + ';');
+    await p.evalVm('openReview(' + JSON.stringify(srt) + ', "talk.mp4", 10, {})');
+    await p.evalVm('placeReview()');
+    assert.strictEqual(calls[0].items.length, 3, 'free: 3 captions show the look');
+    has(p.els('logBox').textContent, '3 of 8 captions placed as the template');
+    // a style chip leaves the template
+    p.evalVm('lastCues = ' + JSON.stringify(cues) + ';');
+    await p.evalVm('openReview(' + JSON.stringify(srt) + ', "talk.mp4", 10, {})');
+    const chip = Array.from(p.els('styleChips').children).find((b) => b.dataset.style === 'glide');
+    chip.fire('click');
+    assert.strictEqual(p.evalVm('mogrtActive()'), null, 'a style was chosen: no template');
+    p.evalVm('closeReview()');
+  } finally { p.close(); try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {} }
 });
 
 await t('4n3. 1.93 ✂ one click on a caption cuts the Premiere timeline at once; the captions after it move up', async () => {

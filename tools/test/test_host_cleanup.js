@@ -356,6 +356,74 @@ test('1.93.2 a Premiere without the QE playhead: the old timecode way still work
   const r = nowCut(pp, { cuts: [[10, 12]], media: [VIDEO] });
   assert.ok(r.ok, JSON.stringify(r));
 });
+// 1.94 templates: a fake importMGT — a template clip with two text lines and a colour
+function withMgt(pp) {
+  const s = pp.seqs[0];
+  pp.ctx.File = function (f) { this.fsName = f; this.exists = true; };
+  s.importMGT = (p, ticks, track) => {
+    const t0 = Number(ticks) / 254016000000;
+    const list = s.vt[track].list;
+    const txt = (v) => JSON.stringify({ capPropTextRunCount: 2, fontEditValue: ['Inter-Regular', 'Inter-Bold'], fontSizeEditValue: [100, 120], fontTextRunLength: [5, 3], textEditValue: v });
+    const vals = ['a0b2cdff-97d3-4720-ad53-9cd44a9705c0;07cd4fe6-c326-49cc-be58-defc2f07bd9f;', '#FFFFFF', txt('It rewards'), txt('strategy')];
+    const props = vals.map((v, i) => ({ displayName: ['Group', 'Color', 'Text', 'Text'][i], getValue: () => vals[i], setValue: (x) => { vals[i] = x; } }));
+    const c = { name: 'Template', start: { seconds: t0 }, end: { seconds: t0 + 5 }, projectItem: { name: 'Template', getMediaPath: () => '' },
+      remove() { const i = list.indexOf(c); if (i >= 0) list.splice(i, 1); }, getMGTComponent: () => ({ properties: coll(props, 'numItems') }), vals };
+    list.push(c);
+    list.sort((x, y) => x.start.seconds - y.start.seconds);
+    return c;
+  };
+  return s;
+}
+const mgtCall = (pp, fn, a) => JSON.parse(vm.runInContext(fn + '(' + JSON.stringify(JSON.stringify(a)) + ')', pp.ctx));
+
+test('templates: each caption one graphic on a free track, its words over the lines, in the Amharic font, named to be found again', () => {
+  const pp = makePremiere(base());
+  const s = withMgt(pp);
+  const items = [{ n: 1, path: 'C:/t/two.mogrt', start: 1, end: 3, parts: ['ሰላም ለሁላችሁ', 'እንኳን ደህና መጣችሁ'], font: 'NotoSansEthiopic-Bold' },
+    { n: 2, path: 'C:/t/two.mogrt', start: 3, end: 5.5, parts: ['ዛሬ', ' '], font: 'NotoSansEthiopic-Bold' }];
+  const r = mgtCall(pp, 'amh_mogrtPlace', { tag: 'amhmogrt_talk_', items, first: true, rangeStart: 1, rangeEnd: 5.5 });
+  assert.ok(r.ok && r.placed === 2, JSON.stringify(r));
+  assert.strictEqual(r.track, 1, 'V2 is free there (the title is at 40-45 s)');
+  const clips = s.vt[1].list.filter((c) => /^amhmogrt_talk_/.test(c.name));
+  assert.deepStrictEqual(clips.map((c) => [c.name, c.start.seconds, c.end.seconds]), [['amhmogrt_talk_1', 1, 3], ['amhmogrt_talk_2', 3, 5.5]]);
+  const t1 = JSON.parse(clips[0].vals[2]), t2 = JSON.parse(clips[0].vals[3]);
+  assert.deepStrictEqual([t1.textEditValue, t1.fontEditValue, t1.fontTextRunLength, t1.capPropTextRunCount, t1.fontSizeEditValue], ['ሰላም ለሁላችሁ', ['NotoSansEthiopic-Bold'], [9], 1, [100]]);
+  assert.strictEqual(t2.textEditValue, 'እንኳን ደህና መጣችሁ');
+  // placed again (an edit): the earlier ones in that range go, the new ones come
+  const r2 = mgtCall(pp, 'amh_mogrtPlace', { tag: 'amhmogrt_talk_', items: items.slice(0, 1), first: true, rangeStart: 1, rangeEnd: 5.5 });
+  assert.ok(r2.ok && r2.removed === 2 && r2.placed === 1, JSON.stringify(r2));
+  assert.strictEqual(s.vt.reduce((n, t) => n + t.list.filter((c) => /^amhmogrt_/.test(c.name)).length, 0), 1);
+});
+test('templates: Apply to all copies the selected caption\'s look (colour, font, size) and keeps every caption\'s own words', () => {
+  const pp = makePremiere(base());
+  const s = withMgt(pp);
+  const items = [1, 2, 3].map((n) => ({ n, path: 'C:/t/two.mogrt', start: n * 2, end: n * 2 + 2, parts: ['ቃል' + n, 'ሁለት' + n], font: 'NotoSansEthiopic-Bold' }));
+  mgtCall(pp, 'amh_mogrtPlace', { tag: 'amhmogrt_talk_', items, first: true, rangeStart: 2, rangeEnd: 8 });
+  const ours = s.vt[1].list.filter((c) => /^amhmogrt_/.test(c.name));
+  // the editor changes caption 2 in Essential Graphics: yellow, Menbere, bigger
+  ours[1].vals[1] = '#FFD400';
+  const o = JSON.parse(ours[1].vals[2]); o.fontEditValue = ['Menbere-Bold']; o.fontSizeEditValue = [140]; ours[1].vals[2] = JSON.stringify(o);
+  s.getSelection = () => [ours[1]];
+  const sel = JSON.parse(vm.runInContext('amh_mogrtSelected()', pp.ctx));
+  assert.deepStrictEqual([sel.ok, sel.tag], [true, 'amhmogrt_talk_']);
+  const r = mgtCall(pp, 'amh_mogrtApplyLook', { tag: sel.tag });
+  assert.ok(r.ok && r.changed === 2, JSON.stringify(r));
+  for (const c of [ours[0], ours[2]]) {
+    assert.strictEqual(c.vals[1], '#FFD400', 'the colour');
+    const t = JSON.parse(c.vals[2]);
+    assert.deepStrictEqual([t.fontEditValue, t.fontSizeEditValue], [['Menbere-Bold'], [140]], 'the font and size');
+    assert.ok(/^ቃል[13]$/.test(t.textEditValue), 'its own words stay: ' + t.textEditValue);
+    assert.deepStrictEqual(t.fontTextRunLength, [t.textEditValue.length]);
+  }
+  s.getSelection = () => [];
+  assert.match(mgtCall(pp, 'amh_mogrtApplyLook', { tag: sel.tag }).error, /Select one of the template captions/);
+});
+test('templates: a Premiere without importMGT says so (nothing placed)', () => {
+  const pp = makePremiere(base());
+  const r = mgtCall(pp, 'amh_mogrtPlace', { tag: 'amhmogrt_x_', items: [], first: true, rangeStart: 0, rangeEnd: 1 });
+  assert.match(r.error, /cannot place Motion Graphics templates/);
+});
+
 test('1.93.1 the razor lands somewhere else (nothing between the lines): says so with the times, never "cut"', () => {
   const pp = makePremiere(base());
   const off = (tr) => ({ razor: (tc) => tr.razor(Number(tc) + 30), get numItems() { return tr.list.length; }, getItemAt: () => null });
