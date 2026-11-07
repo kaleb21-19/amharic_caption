@@ -58,16 +58,33 @@ try {
   r = await run(home);
   assert.equal(r.mid, first, 'id survives localStorage clear');
 
-  // 3) legacy localStorage id migrates into the node file and stays
+  // 1.90.2: a second copy of the id is kept beside the home-folder file
+  const ALT = join(home, '.amharic_captions_machine.alt.json');
+  assert.equal(JSON.parse(readFileSync(ALT, 'utf8')).id, first, 'the second copy holds the same id');
+  // the home-folder file gone (141 new ids in a week on one computer): the copy gives the id back
   rmSync(r.file);
+  r = await run(home);
+  assert.equal(r.mid, first, 'the second copy keeps the id when the home-folder file is lost');
+  assert.equal(JSON.parse(readFileSync(r.file, 'utf8')).id, first, 'and the home-folder file is written back');
+
+  // 3) legacy localStorage id migrates into the node file and stays
+  //    (only when no file copy exists at all — the files come first)
+  rmSync(r.file);
+  rmSync(ALT);
   r = await run(home, 'cafebabe');
   assert.equal(r.mid, 'cafebabe', 'legacy id adopted');
   assert.ok(existsSync(r.file), 'legacy id persisted to node file');
+  assert.equal(JSON.parse(readFileSync(ALT, 'utf8')).id, 'cafebabe', 'and to the second copy');
   r = await run(home);
   assert.equal(r.mid, 'cafebabe', 'migrated id survives reload');
 
-  // 4) corrupt node file -> fresh id, never crashes
+  // 4) corrupt node file, a good second copy -> the copy's id, primary healed
   writeFileSync(r.file, '{oops');
+  r = await run(home);
+  assert.equal(r.mid, 'cafebabe', 'a corrupt home-folder file is recovered from the second copy');
+  // corrupt node file and no copy -> fresh id, never crashes
+  writeFileSync(r.file, '{oops');
+  rmSync(ALT);
   r = await run(home);
   assert.match(r.mid, /^[0-9a-f]{16}$/, 'corrupt file falls through to fresh id');
 
