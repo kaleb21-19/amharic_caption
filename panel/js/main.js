@@ -497,6 +497,7 @@ const WHATS_NEW = {
       { am: 'Shift+✂፦ ከመጨረሻው ✂ እስከዚህ ያሉት ካፕሽኖች በአንድ ቁርጥ', en: 'Shift+✂: every caption from the last ✂ to here in one cut' },
       { am: 'ሁለተኛ ቁልፍ የለም፤ የመጀመሪያው ሴክዌንስዎ «… - before text edit» ተብሎ ይቀመጣል', en: 'No second button; your original sequence is kept as «… - before text edit»' },
       { am: 'ቀለል ያለ ፓነል፦ ምንጭ፣ አማራጮች እና ካፕሽን ፍጠር ብቻ', en: 'A simpler panel: only Source, Options and Generate' },
+      { am: '🎨 የካፕሽን ስታይሎች ተመርጠዋል፦ 14 የተለያዩ ስታይሎች፣ 8 በደንብ የሚነበቡ ፊደሎች፣ 8 ግልጽ እንቅስቃሴዎች', en: '🎨 Caption looks cleaned up: 14 distinct styles, 8 easy-to-read fonts, 8 clear animations' },
     ],
   },
   '1.91.0': {
@@ -6815,7 +6816,19 @@ const TEMPLATE_FONTS = {
 const LOOK_LIST = STYLE_LIST.concat(TEMPLATE_LIST);
 const isTemplate = (id) => TEMPLATE_LIST.indexOf(id) >= 0;
 // the newest looks get a small NEW mark on their button
-const STYLE_NEW = ['reels', 'reelsgold', 'kinetic', 'kineticpop', 'bouncy', 'flicker', 'snap'];   // 1.73
+const STYLE_NEW = [];
+// 1.93 (owner: "the text customization is not professional — remove what is
+// not needed"): 41 looks in one long strip, many nearly the same (Bounce /
+// Bouncy, Neon / Neon Glow, Pop / Bold Pop / Kinetic Pop, eight templates that
+// were one small word on black). One short strip of distinct looks; the
+// others stay hidden — a look the editor already chose (or saved in My
+// styles) still works and still shows.
+const STYLE_SHOWN = ['plain', 'glide', 'karaoke', 'highlight', 'spotlight', 'bounce', 'bold', 'word', 'clean', 'habesha', 'neon', 'duo', 'reels', 'kinetic'];
+const ANIM_SHOWN = ['auto', 'none', 'fade', 'slide', 'pop', 'zoom', 'typewriter', 'bounce'];
+// fonts that read well as captions (Brush, Handwritten, Ornate and the wide
+// typewriter face are hard to read on a moving picture)
+const FONT_SHOWN = ['sans', 'menbere', 'serif', 'abyssinica', 'yebse', 'washra', 'agbalumo', 'jiret'];
+const shownOr = (list, keep, current) => list.filter((x) => keep.indexOf(x[0]) >= 0 || x[0] === current);
 const STYLE_NAMES = {
   plain: 'Plain', glide: 'Glide', spotlight: 'Spotlight', bounce: 'Bounce', karaoke: 'Karaoke', fill: 'Fill', highlight: 'Highlight', bold: 'Bold', podcast: 'Podcast',
   reveal: 'Reveal', typewriter: 'Typewriter', pop: 'Pop', word: 'Word', impact: 'Impact', neon: 'Neon',
@@ -6977,13 +6990,9 @@ function renderStyleStrip() {
     b.appendChild(del);
     chips.appendChild(b);
   });
-  STYLE_LIST.slice(1).forEach(builtIn);
-  // 1.66: the templates in their own group
-  const grp = document.createElement('span');
-  grp.className = 'style-group';
-  grp.textContent = L('Templates');
-  chips.appendChild(grp);
-  TEMPLATE_LIST.forEach(builtIn);
+  // 1.93: one short strip in this order; a hidden look shows only while chosen
+  STYLE_SHOWN.slice(1).forEach(builtIn);
+  if (STYLE !== 'plain' && STYLE_SHOWN.indexOf(STYLE) < 0 && (STYLE_LIST.indexOf(STYLE) >= 0 || TEMPLATE_LIST.indexOf(STYLE) >= 0)) builtIn(STYLE);
   const note = $('styleNote');
   if (note) note.textContent = L(styleNote());
   renderStyleCustom();
@@ -7478,7 +7487,7 @@ function renderStyleCustom() {
   if (!open) return;
   const o = styleOpts(STYLE);
   opts.textContent = '';
-  const fontRow = segRow(opts, 'Font', STYLE_FONTS.map(([id, name]) => [id, L(name)]), o.font, 'font', true);
+  const fontRow = segRow(opts, 'Font', shownOr(STYLE_FONTS, FONT_SHOWN, o.font).map(([id, name]) => [id, L(name)]), o.font, 'font', true);
   if (fontRow) {
     fontRow.className = (fontRow.className || '') + ' wrap';
     const inst = document.createElement('button');
@@ -7517,7 +7526,7 @@ function renderStyleCustom() {
   const popRow = opts.lastChild;            // the hint sits inside the Pop words row
   if (popRow) { popRow.className = (popRow.className || '') + ' wrap'; popRow.appendChild(popHint); }
   switchRow(opts, 'Box', o.box, 'box');
-  segRow(opts, 'Animation', STYLE_ANIMS.map(([id, name]) => [id, L(name)]), o.anim, 'anim', true);
+  segRow(opts, 'Animation', shownOr(STYLE_ANIMS, ANIM_SHOWN, o.anim).map(([id, name]) => [id, L(name)]), o.anim, 'anim', true);
   segRow(opts, 'Lines', [[1, '1'], [2, '2']], o.lines, 'lines');
   segRow(opts, 'Words per caption', [[0, L('Auto')], [1, '1'], [2, '2'], [3, '3'], [4, '4'], [5, '5']], o.words, 'words');
   if (!document.documentElement.classList.contains('amh-studio')) fontSamples(opts.firstChild);
