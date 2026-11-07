@@ -1950,16 +1950,41 @@ function amh_mogrtTest(argsJSON) {
                             if (typeof v2 === "string" && !/^-?[\d.]+$/.test(v2) && v2.length > 0 && v2.length < 4000) { textProp = p2; textName = "#" + k2 + " " + n2; break; }
                         }
                     }
-                    if (textProp) {
+                    // round 3: EVERY text line of the template gets a part of the
+                    // caption (a two-line look: first half / second half), in an
+                    // Amharic font, one style run as long as the new text
+                    var jsonProps = [];
+                    for (var k3 = 0; k3 < props.numItems; k3++) {
+                        var v3 = "";
+                        try { v3 = String(props[k3].getValue()); } catch (e11) {}
+                        if (v3.indexOf("textEditValue") >= 0) { jsonProps.push({ p: props[k3], i: k3 }); }
+                    }
+                    if (jsonProps.length) {
+                        var words = String(cues[c].text).split(/\s+/), parts = [], per = Math.ceil(words.length / jsonProps.length);
+                        for (var q = 0; q < jsonProps.length; q++) { parts.push(words.slice(q * per, (q + 1) * per).join(" ") || " "); }
+                        var font = args.font || "NotoSansEthiopic-Bold";
+                        rep.set = ""; rep.after = "";
+                        for (var q2 = 0; q2 < jsonProps.length; q2++) {
+                            try {
+                                var o3 = JSON.parse(String(jsonProps[q2].p.getValue()));
+                                for (var key in o3) {
+                                    if (o3.hasOwnProperty(key) && o3[key] instanceof Array && o3[key].length > 1) { o3[key] = [o3[key][0]]; }
+                                }
+                                o3.textEditValue = parts[q2];
+                                o3.fontTextRunLength = [parts[q2].length];
+                                o3.capPropTextRunCount = 1;
+                                o3.fontEditValue = [font];
+                                jsonProps[q2].p.setValue(JSON.stringify(o3), true);
+                                rep.set += (rep.set ? ", " : "") + "#" + jsonProps[q2].i;
+                                var back = String(jsonProps[q2].p.getValue());
+                                var mt = back.indexOf("textEditValue");
+                                rep.after += (rep.after ? " | " : "") + back.substring(mt, mt + 120) + " / font " + (back.indexOf(font) >= 0 ? "set" : "NOT set");
+                            } catch (e12) { rep.setError = (rep.setError ? rep.setError + "; " : "") + "#" + jsonProps[q2].i + ": " + e12; }
+                        }
+                    } else if (textProp) {
                         try {
-                            if (jsonMode) {
-                                var o = JSON.parse(String(textProp.getValue()));
-                                o.textEditValue = cues[c].text;
-                                textProp.setValue(JSON.stringify(o), true);
-                            } else {
-                                textProp.setValue(cues[c].text, true);
-                            }
-                            rep.set = textName + (jsonMode ? " (json)" : " (plain)");
+                            textProp.setValue(cues[c].text, true);
+                            rep.set = textName + " (plain)";
                         } catch (e9) { rep.setError = String(e9); }
                         try { rep.after = String(textProp.getValue()).substring(0, 200); } catch (e10) {}
                     } else {
