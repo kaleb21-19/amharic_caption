@@ -1721,6 +1721,70 @@ function amh_cleanupSome(argsJSON) {
     });
 }
 
+// 1.93 one-click cut: the panel's scissors cut the OPEN sequence at once,
+// picture and sound on every track (ripple). The first cut on a sequence
+// keeps an untouched copy in the project ("<name> - before text edit"), so
+// nothing is ever lost. args = { cuts: [[start, end]], media: [paths] }.
+function amhCleanupBlocked(seq, cuts, want) {
+    if (want && want.length) {
+        var wantSet = {};
+        for (var m = 0; m < want.length; m++) { wantSet[amhCleanupKey(want[m])] = true; }
+        if (!amhCleanupHasMedia(seq, wantSet, 0)) {
+            return "The open sequence is not the one these captions were made from. Open that sequence, then press the scissors again.";
+        }
+        var bad = amhCleanupCheckCuts(seq, cuts, wantSet);
+        if (bad) {
+            return "The cut at " + bad.at + " would remove part of " + (bad.other ? "\"" + bad.other + "\"" : "an empty part of the timeline") +
+                   ", not the clip these captions were made from. Nothing was cut. Transcribe the clip again (select it, then Generate) and try again.";
+        }
+    }
+    var tracks = amhCleanupTracks(seq);
+    for (var L = 0; L < tracks.length; L++) {
+        var locked = false;
+        try { locked = tracks[L].track.isLocked(); } catch (e) {}
+        if (locked) { return "A track is locked. Unlock all tracks (the lock icons), then press the scissors again."; }
+    }
+    return "";
+}
+function amh_textCutNow(argsJSON) {
+    return amhGuard(function () {
+        var args = JSON.parse(argsJSON);
+        if (!app || !app.project) { return amhErr("No project is open."); }
+        var seq = app.project.activeSequence;
+        if (!seq) { return amhErr("No active sequence. Open one first."); }
+        var fps = amhCleanupFps();
+        var cuts = amhCleanupFrames(args.cuts, fps);
+        if (!cuts.length) { return amhErr("Too short to cut (under 2 frames)."); }
+        var why = amhCleanupBlocked(seq, cuts, args.media || []);
+        if (why) { return amhErr(why); }
+        // the untouched copy, once per sequence (never opened: the editor stays here)
+        var name = String(seq.name), keepName = name + " - before text edit", kept = "";
+        var have = false;
+        for (var q = 0; q < app.project.sequences.numSequences; q++) {
+            if (String(app.project.sequences[q].name) === keepName) { have = true; break; }
+        }
+        if (!have && name.indexOf(" - before text edit") < 0) {
+            var before = {};
+            for (var b = 0; b < app.project.sequences.numSequences; b++) { before[String(app.project.sequences[b].sequenceID)] = true; }
+            try { seq.clone(); } catch (e) {}
+            for (var r = 0; r < app.project.sequences.numSequences; r++) {
+                var sq = app.project.sequences[r];
+                if (!before[String(sq.sequenceID)]) { try { sq.name = keepName; } catch (e) {} kept = keepName; }
+            }
+            if (!kept) { return amhErr("Premiere could not keep a copy of the sequence first. Nothing was cut."); }
+            if (String(app.project.activeSequence.sequenceID) !== String(seq.sequenceID)) {
+                try { app.project.openSequence(seq.sequenceID); } catch (e) {}
+            }
+        }
+        var removed = 0, total = 0;
+        for (var n = cuts.length - 1; n >= 0; n--) {             // last first: earlier times stay valid
+            var o = amhCleanupOne(seq, cuts[n][0], cuts[n][1], fps);
+            removed += o.removed; total += o.len;
+        }
+        return amhOk({ sequence: name, kept: kept, list: cuts, removed: removed, removedSeconds: Math.round(total * 1000) / 1000 });
+    });
+}
+
 // Everything in one call (older panels).
 function amh_cleanupCut(argsJSON) {
     return amhGuard(function () {

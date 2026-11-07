@@ -240,7 +240,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.92.0');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.93.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1325,6 +1325,46 @@ await t('4n. 1.92 🎙 podcast card: read the sequence, map mics to cameras, fin
     assert.ok(/Ep 12 - podcast/.test(body()) && /2 \/ 2/.test(body()), body());
   } finally { p.close && p.close(); }
 });
+await t('4n3. 1.93 ✂ one click on a caption cuts the Premiere timeline at once; the captions after it move up', async () => {
+  const log = [];
+  const p = loadPanel({ evalLog: log, csiRaw: (jsx) => {
+    if (/amh_textCutNow/.test(jsx)) {
+      const a = JSON.parse(JSON.parse(jsx.slice(jsx.indexOf('(') + 1, jsx.lastIndexOf(')'))));
+      return JSON.stringify({ ok: true, sequence: 'Talk', kept: log.filter((j) => /amh_textCutNow/.test(j)).length === 1 ? 'Talk - before text edit' : '',
+        list: a.cuts, removedSeconds: a.cuts.reduce((n, c) => n + c[1] - c[0], 0) });
+    }
+    return JSON.stringify({ ok: true });
+  } });
+  try {
+    await flush(5);
+    p.evalVm(`setPreviewMedia([{ path: 'C:/v/talk.mp4', offset: 0 }]);
+      reviewCues = [{ text: 'ሀ ለ', start: 0, end: 1 }, { text: 'መጥፎ ቴክ', start: 1, end: 2.5 }, { text: 'ሰ ቀ በ', start: 2.5, end: 4, wt: [[2.5, 3], [3, 3.5], [3.5, 4]] }];
+      schedulePreview = () => {}; renderReview();`);
+    const find = (n, cls) => { if ((n.className || '') === cls) return n; for (const c of (n.children || [])) { const x = find(c, cls); if (x) return x; } return null; };
+    const btn = find(p.els('reviewList').children[1], 'cut-word');
+    assert.ok(btn, 'the scissors are on the caption');
+    btn.fire('mousedown', { preventDefault() {}, shiftKey: false });
+    await flush(10);
+    const call = log.find((j) => /amh_textCutNow/.test(j));
+    assert.ok(call && /\[\[1,2\.5\]\]/.test(call.split(String.fromCharCode(92)).join('')), call);
+    const cues = JSON.parse(p.evalVm('JSON.stringify(reviewCues.map((c) => [c.text, c.start, c.end]))'));
+    assert.deepStrictEqual(cues, [['ሀ ለ', 0, 1], ['ሰ ቀ በ', 1, 2.5]], 'the caption is gone, the next one moved up');
+    assert.ok(/Talk - before text edit/.test(p.els('textCutNote').textContent), p.els('textCutNote').textContent);
+    assert.notStrictEqual(p.els('textCutNote').style.display, 'none');
+    // selected words only: the middle word (exact engine times)
+    p.evalVm('cutWordsNow(1, 2, 3)');
+    await flush(10);
+    const c2 = JSON.parse(p.evalVm('JSON.stringify(reviewCues.map((c) => [c.text, c.start, c.end]))'));
+    assert.deepStrictEqual(c2, [['ሀ ለ', 0, 1], ['ሰ በ', 1, 2]], JSON.stringify(c2));
+    // Premiere says no: the captions stay, the reason is shown in red
+    p.evalVm(`evalScript = async () => ({ ok: false, error: 'A track is locked. Unlock all tracks (the lock icons), then press the scissors again.' });`);
+    p.evalVm('cutCaptionsNow(0, false)');
+    await flush(10);
+    assert.strictEqual(p.evalVm('reviewCues.length'), 2);
+    assert.ok(/bad/.test(p.els('textCutNote').className) && /locked|ተቆልፏል/.test(p.els('textCutNote').textContent));
+    assert.strictEqual(p.els('revCleanup').style.display, 'none', 'no second step to press');
+  } finally { p.close(); }
+});
 await t('4n2. 🎙 podcast card is hidden in After Effects', async () => {
   const q = loadPanel({ hostApp: 'AEFT' });
   try { await flush(5); assert.strictEqual(q.els('podCard').style.display, 'none'); } finally { q.close && q.close(); }
@@ -1967,7 +2007,9 @@ await t('4l. ✂ clean up (1.16.20): pauses from the footage, repeats and እ so
     fs.writeFileSync(tmp, '1\n00:00:01,000 --> 00:00:02,000\nx\n');
     await p.evalVm('openReview(' + JSON.stringify(tmp) + ', "talk.mp4", 0, {})');
     p.evalVm('setPreviewMedia([{ path: ' + JSON.stringify(ff ? wav : 'C:/v/talk.mp4') + ', offset: 0 }])');
-    assert.notStrictEqual(p.els('revCleanup').style.display, 'none', 'the ✂ button is in the review header (Premiere)');
+    // 1.93: in Premiere the ✂ on each caption cuts at once — no 'Edit with text' list; 🔇 Clean silence stays
+    assert.strictEqual(p.els('revCleanup').style.display, 'none', 'no Edit-with-text step in Premiere (the scissors cut at once)');
+    assert.notStrictEqual(p.els('revSilence').style.display, 'none', '🔇 Clean silence is in the review header (Premiere)');
     p.els('cleanupPanel').style.display = '';
     await p.evalVm('analyzeCleanup(' + JSON.stringify(ff || null) + ')');
     const items = JSON.parse(p.evalVm('JSON.stringify(CLEAN.items.map((x) => [x.kind, Math.round(x.start * 100) / 100, Math.round(x.end * 100) / 100, x.on]))'));
@@ -2167,7 +2209,7 @@ await t('4o. panel polish (1.16.25): what will be captioned, the review step bar
     const tmp = path.join(os.tmpdir(), 'amh_review_' + Date.now() + '.srt');
     fs.writeFileSync(tmp, '1\n00:00:01,000 --> 00:00:02,000\nx\n');
     await p.evalVm('openReview(' + JSON.stringify(tmp) + ', "talk.mp4", 0, {})');
-    p.evalVm('syncReviewSteps()');
+    p.evalVm('instantCutOn = () => false; syncReviewSteps()');   // the marking mode (before 1.93)
     const txt = (id) => p.els(id).textContent;
     // 1.54: no numbered steps — Text and Clean up on top, Zoom an icon;
     // Style and Place only at the bottom (the style row, the Place button)

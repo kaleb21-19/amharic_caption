@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.92.0';
+const APP_VERSION = '1.93.0';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -486,6 +486,18 @@ setTimeout(() => { if (FIRST_OPEN) track('first_open'); track('open'); }, 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
+  '1.93.0': {
+    banner: {
+      am: '⬆ ✂ በጽሑፍ ኤዲት፦ መቀሱን ሲጫኑ ወዲያው ከታይምላይኑ ይቆረጣል — ምስልና ድምፅ፣ በአንድ ንክኪ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
+      en: '⬆ ✂ Edit with text: press the scissors and it is cut from the timeline at once — picture and sound, one click — your license stays the same.',
+    },
+    items: [
+      { am: '✂ በካፕሽን ላይ ያለውን መቀስ ይጫኑ — ካፕሽኑ ወዲያው ከPremiere ታይምላይን ይቆረጣል (ምስልና ድምፅ፣ ክፍተቱ ይዘጋል)', en: '✂ Press the scissors on a caption — it is cut from the Premiere timeline at once (picture and sound, the gap closes)' },
+      { am: 'ቃላትን ብቻ፦ ቃላቱን መርጠው ✂ ወይም Ctrl+D', en: 'Only some words: select them, then ✂ or Ctrl+D' },
+      { am: 'Shift+✂፦ ከመጨረሻው ✂ እስከዚህ ያሉት ካፕሽኖች በአንድ ቁርጥ', en: 'Shift+✂: every caption from the last ✂ to here in one cut' },
+      { am: 'ሁለተኛ ቁልፍ የለም፤ የመጀመሪያው ሴክዌንስዎ «… - before text edit» ተብሎ ይቀመጣል', en: 'No second button; your original sequence is kept as «… - before text edit»' },
+    ],
+  },
   '1.92.0': {
     banner: {
       am: '⬆ 🎙 ፖድካስት፦ ካሜራው ወደሚናገረው ሰው በራሱ ይቀየራል (Premiere) — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -5558,11 +5570,20 @@ function renderReview(force) {
     cutBtn.type = 'button';
     cutBtn.className = 'cut-word';
     cutBtn.textContent = '✂';
-    cutBtn.title = L('✂ Cut this caption from the video (Shift: every caption from the last ✂ to here). With the cursor in the text: the word at the cursor or the selected words — ✂ again: keep it') + ' — ' + SHORTCUT_MOD + 'D';
+    cutBtn.title = instantCutOn()
+      ? L('✂ Cut this caption out of the timeline now — picture and sound (Shift: every caption from the last ✂ to here). Select words first to cut only them.') + ' — ' + SHORTCUT_MOD + 'D'
+      : L('✂ Cut this caption from the video (Shift: every caption from the last ✂ to here). With the cursor in the text: the word at the cursor or the selected words — ✂ again: keep it') + ' — ' + SHORTCUT_MOD + 'D';
     cutBtn.addEventListener('mousedown', (e) => {
       if (e && e.preventDefault) e.preventDefault();
+      const words = document.activeElement === ta && !(e && e.shiftKey);
+      // 1.93 Premiere: one click cuts the timeline at once (no list, no second button)
+      if (instantCutOn()) {
+        if (words && ta.selectionEnd > ta.selectionStart) cutWordsNow(i, ta.selectionStart, ta.selectionEnd);
+        else cutCaptionsNow(i, !!(e && e.shiftKey));
+        return;
+      }
       // 1.91: typing in this caption = its words; otherwise the whole caption
-      if (document.activeElement === ta && !(e && e.shiftKey)) toggleTextCut(i, ta.selectionStart, ta.selectionEnd);
+      if (words) toggleTextCut(i, ta.selectionStart, ta.selectionEnd);
       else toggleWholeCut(i, !!(e && e.shiftKey));
     });
     if (textCutAvailable()) textBox.appendChild(cutBtn);   // where something can cut (Premiere Clean up, Studio export)
@@ -5591,6 +5612,7 @@ function renderReview(force) {
           cue.text = ta.value;
           const at = ta.selectionEnd;
           if (k === 'b') toggleEmphasis(i, ta.selectionStart, ta.selectionEnd);
+          else if (instantCutOn()) { cutWordsNow(i, ta.selectionStart, ta.selectionEnd); return; }
           else toggleTextCut(i, ta.selectionStart, ta.selectionEnd);
           focusReviewCue(i, at + 1);
           return;
@@ -5756,6 +5778,102 @@ function toggleTextCut(i, from, to) {
   schedulePreview();
   return true;
 }
+// ── 1.93 ✂ one click = cut (Premiere) ───────────────────────────────────
+// The owner: "no button — when they click the cut icon it cuts from the
+// timeline, not 2 steps". The scissors on a caption cut it out of the OPEN
+// sequence at once — picture and sound on every track, the gap closed — and
+// the captions after it move up. Words selected in the text: only those words.
+// The first cut keeps an untouched copy in the project ("… - before text
+// edit"). Clicks wait their turn (one Premiere edit at a time).
+const TEXTCUT = { chain: Promise.resolve(), busy: 0, note: '', bad: false };
+function instantCutOn() { return cleanupAvailable(); }
+function textCutNote(text, bad) {
+  TEXTCUT.note = text || ''; TEXTCUT.bad = !!bad;
+  const n = $('textCutNote');
+  if (!n) return;
+  n.textContent = TEXTCUT.note;
+  n.className = 'textcut-note' + (bad ? ' bad' : '');
+  n.style.display = TEXTCUT.note ? '' : 'none';
+}
+// The whole word(s) a selection touches, struck: the same rule as toggleTextCut
+function markWordsCut(text, from, to) {
+  text = String(text || '');
+  let a = Math.max(0, Math.min(Number(from) || 0, text.length));
+  let b = Math.max(a, Math.min(Number(to) || a, text.length));
+  while (a > 0 && !/\s/.test(text[a - 1])) a--;
+  while (b < text.length && !/\s/.test(text[b])) b++;
+  while (a < b && /\s/.test(text[a])) a++;
+  while (b > a && /\s/.test(text[b - 1])) b--;
+  if (a === b) return null;
+  return text.slice(0, a).replace(/~/g, '') + '~' + text.slice(a, b).replace(/~/g, '') + '~' + text.slice(b).replace(/~/g, '');
+}
+function cutCaptionsNow(i, range) {
+  if (!reviewCues[i]) return false;
+  let a = i, b = i;
+  if (range && WHOLE_LAST >= 0 && WHOLE_LAST < reviewCues.length) { a = Math.min(WHOLE_LAST, i); b = Math.max(WHOLE_LAST, i); }
+  WHOLE_LAST = -1;
+  const drop = [];
+  for (let j = a; j <= b; j++) {
+    const n = String(reviewCues[j].text || '').replace(/\n/g, ' ').split(/\s+/).filter(Boolean).length;
+    for (let k = 0; k < n; k++) drop.push([j, k]);
+  }
+  const what = b > a ? (b - a + 1) + ' ' + L('captions') : '“' + String(reviewCues[a].text || '').replace(/[~*]/g, '').trim().slice(0, 40) + '”';
+  return queueTextCut([{ start: Number(reviewCues[a].start), end: Number(reviewCues[b].end) }], drop, what, a);
+}
+function cutWordsNow(i, from, to) {
+  const cue = reviewCues[i];
+  if (!cue) return false;
+  const marked = markWordsCut(cue.text, from, to);
+  if (!marked) return false;
+  const found = findTextCuts([Object.assign({}, cue, { text: marked })]);
+  if (!found.length) return false;
+  if (found[0].whole) return cutCaptionsNow(i, false);
+  const env = cleanupEnvAt(found[0].start);
+  const r = found[0].exact ? 0.06 : 0.15;
+  const ranges = found.map((c) => ({ start: snapQuiet(c.start, env, r), end: snapQuiet(c.end, env, r) }));
+  const drop = [];
+  found.forEach((c) => c.words.forEach((w) => drop.push([i, w[1]])));
+  return queueTextCut(ranges, drop, '“' + found.map((c) => c.text).join(' … ') + '”', i);
+}
+function queueTextCut(ranges, drop, what, focusAt) {
+  TEXTCUT.busy++;
+  textCutNote('✂ ' + L('Cutting') + ' ' + what + '…');
+  // times are read when the turn comes: an earlier cut moves everything after it
+  const job = { ranges, drop, what, focusAt, cues: reviewCues };
+  TEXTCUT.chain = TEXTCUT.chain.then(() => runTextCut(job)).catch(() => {}).then(() => { TEXTCUT.busy--; });
+  return true;
+}
+async function runTextCut(job) {
+  // the captions changed under a waiting click (an earlier cut): skip it, never cut the wrong place
+  if (job.cues !== reviewCues) { textCutNote(L('Press the scissors again — the captions moved after the last cut.'), true); return null; }
+  const media = Array.from(new Set(PREVIEW_MEDIA.map((m) => m.path)));
+  const cuts = mergeRanges(job.ranges.filter((c) => c.end - c.start > 0.03));
+  if (!cuts.length) return null;
+  const r = await evalScript('amh_textCutNow(' + escJson(JSON.stringify({ cuts: cuts.map((c) => [c.start, c.end]), media })) + ')', 120000);
+  if (!r || !r.ok) {
+    const msg = L((r && r.error) || 'Premiere did not answer.');
+    log('✂ Cut: ' + ((r && r.error) || 'no answer'));
+    textCutNote(msg, true);
+    return null;
+  }
+  const done = (r.list || []).map((c) => ({ start: c[0], end: c[1] })).sort((x, y) => x.start - y.start);
+  hideTiming();
+  clearRowHint();
+  reviewCues = remapCuesAfterCut(reviewCues, done, job.drop);
+  setPreviewMedia(remapMediaAfterCut(PREVIEW_MEDIA, done));
+  REVIEW_UNDO.length = 0;             // the old captions no longer match the timeline
+  syncReviewUndo();
+  if (CLEAN) CLEAN.envs = [];         // the sound is measured again next time
+  renderReview();
+  schedulePreview();
+  const sec = (Number(r.removedSeconds) || 0).toFixed(1);
+  log('✂ Cut ' + job.what + ' — ' + sec + ' s out of "' + r.sequence + '"' + (r.kept ? ' (kept a copy: "' + r.kept + '")' : ''));
+  textCutNote('✂ ' + L('Cut from the timeline') + ': ' + job.what + ' · ' + sec + ' s' +
+    (r.kept ? ' — ' + L('your original is kept as') + ' “' + r.kept + '”' : ''));
+  if (job.focusAt != null) { try { focusReviewCue(Math.min(job.focusAt, reviewCues.length - 1), 0); } catch (e) {} }
+  return r;
+}
+
 // 1.91 ✂ a whole caption in one click (a bad take, a story you do not want);
 // Shift: every caption from the last ✂ to this one, all struck (or all kept
 // when this one was struck). Struck = ~the whole text~, as before.
@@ -6506,7 +6624,7 @@ function syncReviewSteps() {
   const steps = [
     ['stepText', true, L('Text') + (doubts ? ' · ⚠ ' + doubts : ' ✓'), doubts ? 'warn' : 'done'],
     ['revSilence', tools, '🔇 ' + L('Clean silence'), ''],
-    ['revCleanup', tools, '✂ ' + L('Edit with text') + (marked ? ' · ' + marked : '') + (CLEAN && CLEAN.done ? ' ✓' : ''), marked ? 'warn' : (CLEAN && CLEAN.done ? 'done' : '')],
+    ['revCleanup', tools && !instantCutOn(), '✂ ' + L('Edit with text') + (marked ? ' · ' + marked : '') + (CLEAN && CLEAN.done ? ' ✓' : ''), marked ? 'warn' : (CLEAN && CLEAN.done ? 'done' : '')],
     ['revZoom', tools, '🔍', ZOOM && ZOOM.done ? 'done rzoom' : 'rzoom'],
     ['stepStyle', false, '', ''],
     ['stepPlace', false, '', ''],
@@ -8051,8 +8169,8 @@ function initReview() {
   if (cliBtn) cliBtn.addEventListener('click', toggleClientPanel);
   const cleanBtn = $('revCleanup');
   if (cleanBtn) {
-    if (cleanupAvailable()) cleanBtn.addEventListener('click', () => toggleCleanupPanel('text'));
-    else cleanBtn.style.display = 'none';                   // Premiere only
+    if (cleanupAvailable() && !instantCutOn()) cleanBtn.addEventListener('click', () => toggleCleanupPanel('text'));
+    else cleanBtn.style.display = 'none';                   // 1.93: in Premiere the ✂ on each caption cuts at once
   }
   const silenceBtn = $('revSilence');
   if (silenceBtn) {

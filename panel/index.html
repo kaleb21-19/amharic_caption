@@ -621,6 +621,9 @@
   .src-line.warn { color: var(--warn); white-space: normal; }
   /* 1.16.25: the review step bar */
   .review-steps { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 6px; }
+  .textcut-note { margin: 4px 0 6px; padding: 6px 9px; border-radius: 6px; font-size: 11px; line-height: 1.4;
+    background: rgba(46, 204, 113, .12); border: 1px solid rgba(46, 204, 113, .35); }
+  .textcut-note.bad { background: rgba(231, 76, 60, .12); border-color: rgba(231, 76, 60, .45); }
   .review-steps .rstep { border: 1px solid var(--border); background: var(--bg-card); color: var(--text-secondary);
     border-radius: 999px; padding: 3px 9px; font-size: var(--font-s); cursor: pointer; white-space: nowrap; }
   .review-steps .rstep:hover { color: var(--text-primary); border-color: var(--accent); }
@@ -1205,7 +1208,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.92.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.93.0</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
@@ -1275,6 +1278,7 @@
       <button type="button" class="rstep" id="stepPlace" title="Put the captions on the timeline" data-i18n-title="step.placeTitle"></button>
       <button type="button" class="rstep rfiles" id="reviewExport" title="Save SRT, VTT and TXT to a folder you choose" data-i18n="rev.export" data-i18n-title="rev.exportTitle">⬇ Files</button>
     </div>
+    <div class="textcut-note" id="textCutNote" style="display:none;" role="status" aria-live="polite"></div>
     <div class="memory-panel" id="memoryPanel" style="display:none;"></div>
     <div class="memory-panel client-panel" id="clientPanel" style="display:none;"></div>
     <div class="memory-panel cleanup-panel" id="cleanupPanel" style="display:none;"></div>

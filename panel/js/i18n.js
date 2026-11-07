@@ -169,6 +169,17 @@ const AM_STATIC = {
 
 // ── dynamic text from main.js / core.js (keyed by the English string) ───────
 const AM_TEXT = {
+  // 1.93 ✂ one click = cut (Premiere)
+  '✂ Cut this caption out of the timeline now — picture and sound (Shift: every caption from the last ✂ to here). Select words first to cut only them.': '✂ ይህን ካፕሽን አሁኑኑ ከታይምላይኑ ቁረጥ — ምስልና ድምፅ (Shift፦ ከመጨረሻው ✂ እስከዚህ ያሉትን በሙሉ)። ቃላትን ብቻ ለመቁረጥ መጀመሪያ ቃላቱን ይምረጡ።',
+  'captions': 'ካፕሽኖች',
+  'Cutting': 'በመቁረጥ ላይ',
+  'Cut from the timeline': 'ከታይምላይኑ ተቆርጧል',
+  'your original is kept as': 'የመጀመሪያው ቅጂዎ ተቀምጧል፦',
+  'Press the scissors again — the captions moved after the last cut.': 'መቀሱን እንደገና ይጫኑ — ካፕሽኖቹ ከቀደመው ቁርጥ በኋላ ተንቀሳቅሰዋል።',
+  'Too short to cut (under 2 frames).': 'ለመቁረጥ በጣም አጭር ነው (ከ2 ፍሬም በታች)።',
+  'Premiere could not keep a copy of the sequence first. Nothing was cut.': 'Premiere መጀመሪያ የሴክዌንሱን ቅጂ ማስቀመጥ አልቻለም። ምንም አልተቆረጠም።',
+  'The open sequence is not the one these captions were made from. Open that sequence, then press the scissors again.': 'የተከፈተው ሴክዌንስ እነዚህ ካፕሽኖች የተሰሩበት አይደለም። ያንን ሴክዌንስ ከፍተው መቀሱን እንደገና ይጫኑ።',
+  'A track is locked. Unlock all tracks (the lock icons), then press the scissors again.': 'አንድ ትራክ ተቆልፏል። ሁሉንም ትራኮች ይክፈቱ (የቁልፍ ምልክቶቹ)፣ ከዚያ መቀሱን እንደገና ይጫኑ።',
   // 1.92 🎙 podcast camera switcher
   'Each speaker needs their own microphone (an audio track) and camera (a video track). It works on a copy — your sequence stays as it is. No minutes are used.': 'እያንዳንዱ ተናጋሪ የራሱ ማይክ (የድምፅ ትራክ) እና ካሜራ (የቪዲዮ ትራክ) ያስፈልገዋል። የሚሰራው በቅጂ ላይ ነው — ሴክዌንስዎ እንዳለ ይቆያል። ምንም ደቂቃ አይቀነስም።',
   'Reading the sequence…': 'ሴክዌንሱን በማንበብ ላይ…',

@@ -272,6 +272,42 @@ test('1.74 several clips: a cut on the transcribed clip cuts there; a cut on ano
   assert.ok(r.ok, JSON.stringify(r));
 });
 
+// ── 1.93 ✂ one click = cut, on the open sequence
+const nowCut = (pp, a) => JSON.parse(vm.runInContext('amh_textCutNow(' + JSON.stringify(JSON.stringify(a)) + ')', pp.ctx));
+test('one-click cut: the OPEN sequence loses the part on every track at once; an untouched copy is kept once', () => {
+  const pp = makePremiere(base());
+  const r = nowCut(pp, { cuts: [[10, 12]], media: [VIDEO] });
+  assert.ok(r.ok, JSON.stringify(r));
+  const s = pp.project.activeSequence;
+  assert.strictEqual(s, pp.seqs[0], 'the editor stays in their own sequence');
+  assert.deepStrictEqual(s.vt[0].snap(), [[0, 10, 'interview.mp4'], [10, 58, 'interview.mp4']]);
+  assert.deepStrictEqual(s.at[0].snap(), [[0, 10, 'interview.mp4'], [10, 58, 'interview.mp4']], 'the sound is cut too');
+  assert.deepStrictEqual(s.at[1].snap().slice(-1)[0][1], 58, 'music moves with it');
+  assert.deepStrictEqual(s.vt[1].snap(), [[38, 43, 'title']], 'a title later on moves with the cut');
+  assert.strictEqual(r.kept, 'Interview - before text edit');
+  const keep = pp.seqs.find((q) => q.name === 'Interview - before text edit');
+  assert.ok(keep && keep.vt[0].snap().length === 1 && keep.vt[0].snap()[0][1] === 60, 'the copy is untouched');
+  assert.strictEqual(r.removedSeconds, 2);
+  const r2 = nowCut(pp, { cuts: [[20, 21]], media: [VIDEO] });
+  assert.ok(r2.ok && !r2.kept, 'the copy is made once');
+  assert.strictEqual(pp.seqs.length, 2);
+  assert.strictEqual(s.vt[0].snap().slice(-1)[0][1], 57);
+});
+test('one-click cut: wrong sequence, a locked track, or under 2 frames: nothing cut, no copy', () => {
+  let pp = makePremiere(base());
+  let r = nowCut(pp, { cuts: [[10, 12]], media: ['C:/v/other.mp4'] });
+  assert.match(r.error, /not the one these captions were made from/);
+  assert.strictEqual(pp.seqs.length, 1);
+  assert.strictEqual(pp.seqs[0].vt[0].snap().length, 1);
+  pp = makePremiere(Object.assign(base(), { locked: true }));
+  r = nowCut(pp, { cuts: [[10, 12]], media: [VIDEO] });
+  assert.match(r.error, /locked/);
+  assert.strictEqual(pp.seqs.length, 1);
+  pp = makePremiere(base());
+  r = nowCut(pp, { cuts: [[10, 10.03]], media: [VIDEO] });
+  assert.match(r.error, /Too short/);
+});
+
 // ── 1.92 🎙 podcast camera switcher
 const POD = () => ({
   v: [[[0, 60, 'wide.mp4', 'C:/v/wide.mp4']], [[0, 60, 'camA.mp4', 'C:/v/camA.mp4']], [[0, 60, 'camB.mp4', 'C:/v/camB.mp4']]],
