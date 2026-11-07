@@ -120,13 +120,6 @@
   .field:last-child { margin-bottom: 0; }
   /* 1.75 🔎 footage search: closed until its head is clicked */
   .search-card .card-head { cursor: pointer; margin-bottom: 0; }
-  .pod-row { display: flex; align-items: center; gap: 6px; margin: 4px 0; font-size: 11px; }
-  .pod-row > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .pod-row select { flex: 0 0 52%; background: var(--panel-2, #222); color: inherit; border: 1px solid var(--line, #3a3a3a); border-radius: 4px; font-size: 11px; padding: 2px; }
-  .pod-bar { display: flex; height: 12px; border-radius: 4px; overflow: hidden; margin: 6px 0; background: #222; }
-  .pod-bar i { display: block; height: 100%; }
-  .pod-keys { display: flex; flex-wrap: wrap; gap: 8px; font-size: 10px; color: var(--text-secondary); }
-  .pod-keys b { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 3px; vertical-align: 0; }
   .search-card .card-head::after { content: '▸'; color: var(--text-secondary); margin-left: 6px; }
   .search-card.open .card-head { margin-bottom: 7px; }
   .search-card.open .card-head::after { content: '▾'; }
@@ -1051,15 +1044,6 @@
         </div>
       </div>
 
-    </div>
-
-    <!-- 1.92: 🎙 Podcast camera switcher (Premiere) — the camera of whoever speaks -->
-    <div class="card search-card pod-card" id="podCard" style="display:none">
-      <div class="card-head" id="podHead" role="button" tabindex="0">
-        <span class="card-title" data-i18n="pod.title">🎙 Podcast: switch cameras</span>
-        <span class="card-hint" data-i18n="pod.hint">to whoever speaks</span>
-      </div>
-      <div class="search-body" id="podBody"></div>
     </div>
 
     <!-- 1.75: 🔎 Footage search — every word said in the editor's footage -->

@@ -1287,44 +1287,6 @@ await t('4l. 1.90.2 the ID survives a home folder that cannot keep its file (141
   fs.rmSync(home2, { recursive: true, force: true });
 });
 
-await t('4n. 1.92 🎙 podcast card: read the sequence, map mics to cameras, find who speaks, switch on a copy in groups', async () => {
-  const log = [];
-  const scan = { ok: true, name: 'Ep 12', sequenceID: '7', fps: 25,
-    video: [{ i: 0, name: 'Video 1', clips: 1, start: 0, end: 60 }, { i: 1, name: 'Host', clips: 1, start: 0, end: 60 }, { i: 2, name: 'Guest', clips: 1, start: 0, end: 60 }],
-    audio: [{ i: 0, name: 'Audio 1', clips: [{ start: 0, end: 60, sourceIn: 0, path: 'C:/v/a.wav' }] }, { i: 1, name: 'Audio 2', clips: [{ start: 0, end: 60, sourceIn: 0, path: 'C:/v/b.wav' }] }, { i: 2, name: 'Music', clips: [] }] };
-  const p = loadPanel({ evalLog: log, csiRaw: (jsx) => {
-    if (/amh_podcastScan/.test(jsx)) return JSON.stringify(scan);
-    if (/amh_podcastPrepare/.test(jsx)) return JSON.stringify({ ok: true, sequence: 'Ep 12 - podcast', sequenceID: '8', original: 'Ep 12', fps: 25 });
-    if (/amh_podcastSome/.test(jsx)) return JSON.stringify({ ok: true, segs: 1, lifted: 1 });
-    return JSON.stringify({ ok: true });
-  } });
-  try {
-    await flush(5);
-    assert.notStrictEqual(p.els('podCard').style.display, 'none', 'shown in Premiere');
-    p.els('podHead').click();
-    await flush(5);
-    assert.ok(log.some((j) => /amh_podcastScan/.test(j)));
-    // the first guess: mic 1 -> V1, mic 2 -> V2; the editor sets Host / Guest and the wide shot
-    p.evalVm(`POD.map = { 0: '1', 1: '2' }; POD.wide = '0';
-      audioEnvelope = async (m, from, to) => { const db = []; for (let t = from; t < to; t += 0.02) {
-        const host = t < 30; db.push(/a\.wav/.test(m.path) ? (host ? -20 : -45) : (host ? -42 : -24)); } return { t0: from, step: 0.02, db }; };
-      renderPodcast();`);
-    const deep = (e) => (e._text || '') + ' ' + (e.value || '') + ' ' + (e.children || []).map(deep).join(' ');
-    const body = () => deep(p.els('podBody'));
-    assert.ok(/Ep 12/.test(body()) && /A1/.test(body()) && /V2 · Host/.test(body()), body());
-    await p.evalVm('podAnalyze()');
-    await flush(5);
-    const plan = JSON.parse(p.evalVm('JSON.stringify(POD.plan.segs)'));
-    assert.deepStrictEqual(plan.map((s) => s.cam), [1, 2], JSON.stringify(plan));
-    assert.ok(/1 camera switches/.test(body()), body());
-    await p.evalVm('podApply()');
-    await flush(5);
-    const prep = log.find((j) => /amh_podcastPrepare/.test(j));
-    assert.ok(prep && /\[1,2,0\]/.test(prep.replace(/\\/g, '')), prep);
-    assert.ok(log.some((j) => /amh_podcastSome/.test(j) && /"8"|\\"8\\"/.test(j)), 'the copy is switched, not the original');
-    assert.ok(/Ep 12 - podcast/.test(body()) && /2 \/ 2/.test(body()), body());
-  } finally { p.close && p.close(); }
-});
 await t('4n3. 1.93 ✂ one click on a caption cuts the Premiere timeline at once; the captions after it move up', async () => {
   const log = [];
   const p = loadPanel({ evalLog: log, csiRaw: (jsx) => {
@@ -1365,11 +1327,6 @@ await t('4n3. 1.93 ✂ one click on a caption cuts the Premiere timeline at once
     assert.strictEqual(p.els('revCleanup').style.display, 'none', 'no second step to press');
   } finally { p.close(); }
 });
-await t('4n2. 🎙 podcast card is hidden in After Effects', async () => {
-  const q = loadPanel({ hostApp: 'AEFT' });
-  try { await flush(5); assert.strictEqual(q.els('podCard').style.display, 'none'); } finally { q.close && q.close(); }
-});
-
 await t('4m. 1.91 ✂ a whole caption in one click; Shift+✂ = every caption in between; ✂ again keeps them', async () => {
   const p = loadPanel({});
   try {
@@ -1858,8 +1815,38 @@ await t('4i2. styled captions you can edit (1.27.0): one clip per caption, an ed
     host.selected = { name: 'amhstyle_' + p.evalVm('safeFileName("interview.mp4")') + '__bold_2.mov', start: 12 + 30 + 2.2, end: 12 + 30 + 3.2 };
     await p.evalVm('checkSelectedCaption()');
     assert.strictEqual(p.els('selCapBar').style.display, '', 'the bar shows');
-    has(p.els('selCapBar').children[1].textContent, 'ተቀይሯል');
-    has(p.els('selCapBar').children[0].textContent, 'Edit the selected caption');
+    has(p.els('selCapBar').children[2].textContent, 'ተቀይሯል');
+    has(p.els('selCapBar').children[0].textContent, 'Style on the timeline');
+    has(p.els('selCapBar').children[1].textContent, 'Text');
+
+    // 1.93 🎨 style on the timeline: the look controls open on that caption, the
+    // playhead goes there, a change redraws ONLY that caption in its place
+    evalLog.length = 0;
+    p.els('selCapBar').children[0].fire('click');
+    await flush(10);
+    assert.strictEqual(p.evalVm('reviewOpen'), true);
+    assert.strictEqual(p.evalVm('TL.on && STYLE_CUSTOM_OPEN'), true, 'the look controls are open');
+    assert.strictEqual(p.evalVm('reviewCues[TL.i].text'), 'ተቀይሯል', 'on the selected caption');
+    assert.ok(calls(/amharic_seekPlayhead\(/).length === 1, 'the playhead goes to it');
+    const nJobs = p.evalVm('__jobs.length');
+    p.evalVm('STYLE = "neon"; schedulePreview();');
+    p.evalVm('setStyleOpt("color", "#2F80ED");');          // two quick changes: drawn once
+    await new Promise((r) => setTimeout(r, 900));
+    await flush(10);
+    const tj = JSON.parse(p.evalVm('JSON.stringify(__jobs.slice(' + nJobs + '))'));
+    assert.strictEqual(tj.length, 1, 'two quick changes are drawn once');
+    assert.deepStrictEqual([tj[0].style, tj[0].cues.map((c) => c[0])], ['neon', ['ተቀይሯል']], 'only that caption, in the new look');
+    const tp = argsOf(calls(/amh_overlayPrepare\(/).pop(), 'amh_overlayPrepare');
+    assert.ok(tp.rangeStart >= 12 + 32.2 - 0.3 && tp.rangeEnd <= 12 + 33.2 + 0.7, 'only its place on the timeline: ' + JSON.stringify(tp));
+    assert.strictEqual(tp.preferTrack, 2);
+    has(p.els('textCutNote').textContent, 'On the timeline now');
+    // Discard: that caption goes back to the look it was placed with
+    p.evalVm('discardReview()');
+    await flush(10);
+    const back = JSON.parse(p.evalVm('JSON.stringify(__jobs[__jobs.length - 1])'));
+    assert.deepStrictEqual([back.style, back.cues.map((c) => c[0])], ['bold', ['ተቀይሯል']], 'put back on Discard');
+    assert.strictEqual(p.evalVm('TL.on'), false);
+    p.evalVm('STYLE = "bold";');
     host.selected = null;
     await p.evalVm('checkSelectedCaption()');
     assert.strictEqual(p.els('selCapBar').style.display, 'none', 'nothing of ours selected: no bar');

@@ -496,18 +496,8 @@ const WHATS_NEW = {
       { am: 'ቃላትን ብቻ፦ ቃላቱን መርጠው ✂ ወይም Ctrl+D', en: 'Only some words: select them, then ✂ or Ctrl+D' },
       { am: 'Shift+✂፦ ከመጨረሻው ✂ እስከዚህ ያሉት ካፕሽኖች በአንድ ቁርጥ', en: 'Shift+✂: every caption from the last ✂ to here in one cut' },
       { am: 'ሁለተኛ ቁልፍ የለም፤ የመጀመሪያው ሴክዌንስዎ «… - before text edit» ተብሎ ይቀመጣል', en: 'No second button; your original sequence is kept as «… - before text edit»' },
-    ],
-  },
-  '1.92.0': {
-    banner: {
-      am: '⬆ 🎙 ፖድካስት፦ ካሜራው ወደሚናገረው ሰው በራሱ ይቀየራል (Premiere) — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
-      en: '⬆ 🎙 Podcast: the camera switches to whoever speaks, by itself (Premiere) — your license stays the same.',
-    },
-    items: [
-      { am: '🎙 «ፖድካስት፦ ካሜራ በራሱ ይቀየራል»ን ይክፈቱ — ለእያንዳንዱ ማይክ የተናጋሪውን ካሜራ ይምረጡ', en: '🎙 Open «Podcast: switch cameras» — choose the camera of each microphone' },
-      { am: '«ማን እንደሚናገር ፈልግ» — ማይኮቹን አዳምጦ ማን መቼ እንደሚናገር ያሳያል፤ ሁለት ሰው በአንድ ጊዜ ሲናገር ሰፊውን ሾት ይጠቀማል', en: '«Find who speaks» — it listens to the microphones and shows who speaks when; two voices at once use the wide shot' },
-      { am: 'አጭሩ ሾት 1/2/3/5 ሰከንድ — «አዎ» ያለ አጭር ቃል ካሜራውን አያስቀይርም', en: 'Shortest shot 1/2/3/5 s — a short «yes» does not jump the camera' },
-      { am: 'በሴክዌንሱ ቅጂ ላይ ይሰራል፣ ድምፁ አይነካም፣ ምንም ደቂቃ አይቀነስም', en: 'It works on a copy of the sequence, the sound is untouched, no minutes are used' },
+      { am: '🎨 በታይምላይኑ ላይ ስታይል፦ ስታይል ያለውን ካፕሽን በታይምላይኑ ላይ ይጫኑ፣ «🎨» — የሚቀይሩት ሁሉ በዚያው ካፕሽን ላይ ወዲያው ይታያል', en: '🎨 Style on the timeline: click a styled caption on the timeline, then 🎨 — every change shows on that caption at once' },
+      { am: 'ቀለል ያለ ፓነል፦ ምንጭ፣ አማራጮች እና ካፕሽን ፍጠር ብቻ', en: 'A simpler panel: only Source, Options and Generate' },
     ],
   },
   '1.91.0': {
@@ -2239,6 +2229,9 @@ function openSearch(on) {
 function initSearch() {
   const q = $('searchQ');
   if (!q) return;
+  // 1.93 (owner: "remove unnecessary things"): Premiere / After Effects show
+  // only Source, Options and Generate; the Studio keeps its 🔎 search sheet
+  if (!IS_APP_MODE()) { const card = $('searchCard'); if (card) card.style.display = 'none'; return; }
   let t = 0;
   q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { SEARCH_Q = q.value; runSearch(); }, 180); });
   const f = $('searchFolderBtn');
@@ -2252,218 +2245,10 @@ function initSearch() {
   setTimeout(() => { if (LICENSED && loadSettings().searchOn) idxRefresh(); }, 15000);
 }
 
-// ── 🎙 Podcast camera switcher (1.92, Premiere) ─────────────────────────
-// Each speaker: a microphone on an audio track and a camera on a video track
-// (maybe a wide shot too). The panel measures each microphone (the same sound
-// reader as Clean up), podcastPlan (core.js) decides who speaks when, and
-// host amh_podcastSome keeps only that camera in each stretch — on a copy of
-// the sequence, in small groups (progress, Stop). No transcription, no minutes.
-const POD = { scan: null, map: {}, wide: '', minShot: 2, tracks: null, grid: null, plan: null, busy: '', done: null, error: '', stop: false, progress: null };
-const POD_COLORS = ['#2ECC71', '#3498DB', '#E67E22', '#9B59B6', '#F1C40F', '#E74C3C', '#1ABC9C', '#95A5A6'];
-function initPodcast() {
-  const card = $('podCard');
-  if (!card) return;
-  if (!cleanupAvailable()) { card.style.display = 'none'; return; }
-  card.style.display = '';
-  const head = $('podHead');
-  if (head) head.addEventListener('click', () => {
-    const on = !card.classList.contains('open');
-    card.classList.toggle('open', on);
-    if (on && !POD.scan && !POD.busy) podScan();
-    renderPodcast();
-  });
-}
-const podCamName = (v) => 'V' + (v.i + 1) + (v.name && !/^Video \d+$/i.test(v.name) ? ' · ' + v.name : '');
-const podMicName = (a) => 'A' + (a.i + 1) + (a.name && !/^Audio \d+$/i.test(a.name) ? ' · ' + a.name : '');
-async function podScan() {
-  POD.busy = 'scan'; POD.error = ''; POD.plan = null; POD.tracks = null; POD.done = null;
-  renderPodcast();
-  let r = null;
-  try { r = await evalScript('amh_podcastScan()', 60000); } catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
-  POD.busy = '';
-  if (!r || !r.ok) { POD.scan = null; POD.error = L((r && r.error) || 'Premiere did not answer.'); renderPodcast(); return; }
-  POD.scan = r;
-  // a first guess the editor can change: the n-th microphone with sound -> the n-th camera
-  const mics = r.audio.filter((a) => a.clips.length), cams = r.video.filter((v) => v.clips > 0);
-  POD.map = {};
-  mics.forEach((a, k) => { POD.map[a.i] = cams[k] ? String(cams[k].i) : ''; });
-  POD.wide = '';
-  renderPodcast();
-}
-function podCams() {
-  const set = [];
-  Object.keys(POD.map).forEach((k) => { const v = POD.map[k]; if (v !== '' && set.indexOf(Number(v)) < 0) set.push(Number(v)); });
-  if (POD.wide !== '' && set.indexOf(Number(POD.wide)) < 0) set.push(Number(POD.wide));
-  return set;
-}
-function podReplan() {
-  if (!POD.tracks || !POD.grid) return;
-  POD.plan = podcastPlan(POD.tracks, { wide: POD.wide === '' ? null : Number(POD.wide), minShot: POD.minShot,
-    t0: POD.grid.t0, step: POD.grid.step, start: POD.grid.t0, end: POD.grid.t1 });
-}
-async function podAnalyze() {
-  const sc = POD.scan;
-  if (!sc || POD.busy) return;
-  const mics = Object.keys(POD.map).filter((k) => POD.map[k] !== '').map(Number);
-  if (mics.length < 2 || podCams().length < 2) { POD.error = L('Give at least two microphones their own camera.'); renderPodcast(); return; }
-  let t0 = Infinity, t1 = 0;
-  sc.video.forEach((v) => { if (v.clips) { t0 = Math.min(t0, v.start); t1 = Math.max(t1, v.end); } });
-  mics.forEach((ai) => (sc.audio.find((x) => x.i === ai) || { clips: [] }).clips.forEach((c) => { t0 = Math.min(t0, c.start); t1 = Math.max(t1, c.end); }));
-  if (!(t1 > t0)) { POD.error = L('The sequence is empty.'); renderPodcast(); return; }
-  POD.busy = 'listen'; POD.error = ''; POD.plan = null; POD.done = null;
-  const step = 0.02, n = Math.ceil((t1 - t0) / step);
-  const tracks = [];
-  POD.progress = { done: 0, total: mics.length };
-  renderPodcast();
-  for (const ai of mics) {
-    const db = new Array(n).fill(-120);
-    const a = sc.audio.find((x) => x.i === ai);
-    for (const c of (a ? a.clips : [])) {
-      // in 10-minute pieces: a two-hour recording never meets the reader's time limit
-      for (let from = c.start; from < c.end - 0.2; from += 600) {
-        const env = await audioEnvelope({ path: c.path, offset: c.sourceIn - c.start }, from, Math.min(c.end, from + 600));
-        if (!env) continue;
-        const k0 = Math.round((env.t0 - t0) / step);
-        for (let k = 0; k < env.db.length; k++) { const j = k0 + k; if (j >= 0 && j < n && env.db[k] > db[j]) db[j] = env.db[k]; }
-      }
-    }
-    tracks.push({ cam: Number(POD.map[ai]), db });
-    POD.progress.done++;
-    renderPodcast();
-  }
-  POD.tracks = tracks;
-  POD.grid = { t0, t1, step };
-  POD.busy = '';
-  podReplan();
-  if (POD.plan && !POD.plan.segs.length) POD.error = L('No speech was found on these microphones.');
-  renderPodcast();
-}
-async function podApply() {
-  const plan = POD.plan;
-  if (!plan || !plan.segs.length || POD.busy) return;
-  const cams = podCams();
-  POD.busy = 'cut'; POD.stop = false; POD.error = ''; POD.done = null;
-  POD.progress = { done: 0, total: plan.segs.length };
-  renderPodcast();
-  const p = await evalScript('amh_podcastPrepare(' + escJson(JSON.stringify({ cams, sequenceID: POD.scan.sequenceID })) + ')', 120000);
-  if (!p || !p.ok) { POD.busy = ''; POD.error = L((p && p.error) || 'Premiere did not answer.'); renderPodcast(); return; }
-  const segs = plan.segs.map((s2) => [s2.start, s2.end, s2.cam]);
-  const CH = 20;
-  let done = 0, err = '';
-  for (let k = 0; k < segs.length && !POD.stop; k += CH) {
-    const chunk = segs.slice(k, k + CH);
-    const r = await evalScript('amh_podcastSome(' + escJson(JSON.stringify({ sequenceID: p.sequenceID, fps: p.fps, cams, segs: chunk })) + ')', 120000);
-    if (!r || !r.ok) { err = L((r && r.error) || 'Premiere did not answer.'); break; }
-    done += chunk.length;
-    POD.progress.done = done;
-    renderPodcast();
-  }
-  POD.busy = '';
-  POD.done = { sequence: p.sequence, done, total: segs.length };
-  POD.error = err;
-  log('🎙 Podcast: ' + done + ' of ' + segs.length + ' shot(s) — "' + p.sequence + '"');
-  renderPodcast();
-}
-function renderPodcast() {
-  const body = $('podBody');
-  if (!body) return;
-  body.textContent = '';
-  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-  const button = (cls, text, fn) => { const b = el('button', cls, text); b.type = 'button'; b.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); fn(); }); return b; };
-  body.appendChild(el('div', 'hint', L('Each speaker needs their own microphone (an audio track) and camera (a video track). It works on a copy — your sequence stays as it is. No minutes are used.')));
-  if (POD.busy === 'scan') { body.appendChild(el('div', 'hint', L('Reading the sequence…'))); return; }
-  if (POD.error) body.appendChild(el('div', 'clean-err', POD.error));
-  const sc = POD.scan;
-  if (!sc) { body.appendChild(button('btn btn-neutral', '↻ ' + L('Read the sequence'), podScan)); return; }
-  const cams = sc.video.filter((v) => v.clips > 0);
-  const mics = sc.audio.filter((a) => a.clips.length);
-  const head = el('div', 'pod-row');
-  head.appendChild(el('span', '', '🎬 ' + sc.name));
-  head.appendChild(button('btn btn-neutral', '↻ ' + L('Read again'), podScan));
-  body.appendChild(head);
-  if (cams.length < 2 || mics.length < 2) {
-    body.appendChild(el('div', 'clean-err', L('This needs at least two camera tracks and two microphone tracks in the open sequence.')));
-    return;
-  }
-  const lock = POD.busy === 'listen' || POD.busy === 'cut';
-  const pick = (value, opts, onChange) => {
-    const sel = el('select', '');
-    opts.forEach(([v, t]) => { const o = el('option', '', t); o.value = v; if (String(v) === String(value)) o.selected = true; sel.appendChild(o); });
-    sel.disabled = lock;
-    sel.addEventListener('change', () => onChange(sel.value));
-    return sel;
-  };
-  const camOpts = [['', L('— not a speaker')]].concat(cams.map((v) => [String(v.i), '🎥 ' + podCamName(v)]));
-  mics.forEach((a) => {
-    const row = el('div', 'pod-row');
-    row.appendChild(el('span', '', '🎙 ' + podMicName(a)));
-    row.appendChild(pick(POD.map[a.i] == null ? '' : POD.map[a.i], camOpts, (v) => { POD.map[a.i] = v; POD.plan = null; POD.tracks = null; renderPodcast(); }));
-    body.appendChild(row);
-  });
-  const wrow = el('div', 'pod-row');
-  wrow.appendChild(el('span', '', L('Two voices at once')));
-  wrow.appendChild(pick(POD.wide, [['', L('keep the camera')]].concat(cams.map((v) => [String(v.i), '🎥 ' + podCamName(v) + ' (' + L('wide') + ')'])),
-    (v) => { POD.wide = v; podReplan(); renderPodcast(); }));
-  body.appendChild(wrow);
-  const srow = el('div', 'clean-opt');
-  srow.appendChild(el('span', '', L('Shortest shot')));
-  [1, 2, 3, 5].forEach((v) => {
-    const b = button('sc-opt' + (POD.minShot === v ? ' active' : ''), v + ' s', () => { POD.minShot = v; podReplan(); renderPodcast(); });
-    b.disabled = lock;
-    srow.appendChild(b);
-  });
-  body.appendChild(srow);
-  if (POD.busy === 'listen') {
-    body.appendChild(el('div', 'hint', L('Listening to the microphones…') + ' ' + POD.progress.done + ' / ' + POD.progress.total));
-    return;
-  }
-  if (!POD.plan) { body.appendChild(button('btn btn-primary clean-go', '▶ ' + L('Find who speaks'), podAnalyze)); return; }
-  const plan = POD.plan;
-  if (plan.segs.length) {
-    const total = Math.max(0.001, POD.grid.t1 - POD.grid.t0);
-    const bar = el('div', 'pod-bar');
-    const color = (cam) => POD_COLORS[cams.findIndex((v) => v.i === cam) % POD_COLORS.length] || '#777';
-    plan.segs.forEach((g) => { const i2 = el('i'); i2.style.width = ((g.end - g.start) / total * 100) + '%'; i2.style.background = color(g.cam); bar.appendChild(i2); });
-    body.appendChild(bar);
-    const keys = el('div', 'pod-keys');
-    cams.forEach((v) => {
-      if (!plan.time[v.i]) return;
-      const k = el('span');
-      const sw = el('b'); sw.style.background = color(v.i);
-      k.appendChild(sw);
-      k.appendChild(el('span', '', podCamName(v) + ' ' + Math.round(plan.time[v.i] / total * 100) + '%'));
-      keys.appendChild(k);
-    });
-    body.appendChild(keys);
-    body.appendChild(el('div', 'clean-sum', plan.switches + ' ' + L('camera switches') + ' · ' + fmtDur(total)));
-  }
-  if (POD.busy === 'cut') {
-    const pr = POD.progress;
-    const pb = el('div', 'clean-progress');
-    const fill = el('i');
-    fill.style.width = (pr.total ? Math.round(pr.done / pr.total * 100) : 0) + '%';
-    pb.appendChild(fill);
-    body.appendChild(pb);
-    body.appendChild(el('div', 'clean-sum', POD.stop ? L('Stopping…') : L('Switching') + ' ' + pr.done + ' / ' + pr.total + '…'));
-    const st = button('btn btn-neutral clean-go', '✕ ' + L('Stop'), () => { POD.stop = true; renderPodcast(); });
-    st.disabled = !!POD.stop;
-    body.appendChild(st);
-    return;
-  }
-  if (POD.done) {
-    body.appendChild(el('div', 'clean-done', L('Done') + ': “' + POD.done.sequence + '” ' + L('is open') + ' — ' + POD.done.done + ' / ' + POD.done.total + ' ' +
-      L('shots. Watch it; your original sequence is unchanged.')));
-    return;
-  }
-  if (plan.segs.length) body.appendChild(button('btn btn-primary clean-go', '🎙 ' + L('Switch cameras on a copy of the sequence'), podApply));
-  body.appendChild(button('btn btn-neutral clean-go', '↻ ' + L('Listen again'), podAnalyze));
-}
-
 function initBuy() {
   initFeedback();
   initReport();
   initSearch();
-  initPodcast();
   initTrialCard();
   initFreeMinutes();
   const b = document.getElementById('buyBtn');
@@ -5300,6 +5085,7 @@ function removeTempCaptionArtifact(filePath) {
 }
 
 function closeReview(keepArtifact) {
+  tlStop();
   hideTiming();
   stopHearing();
   CLEAN = null;
@@ -7359,14 +7145,22 @@ async function checkSelectedCaption() {
     const dist = (c) => (t < Number(c.start) ? Number(c.start) - t : (t > Number(c.end) ? t - Number(c.end) : 0));
     const cue = rec.cues.reduce((best, c) => (dist(c) < dist(best) ? c : best), rec.cues[0]);
     bar.textContent = '';
+    // 1.93 🎨 the look of the captions, seen on the timeline while it changes
+    const look = document.createElement('button');
+    look.type = 'button';
+    look.className = 'btn btn-primary sel-cap-btn';
+    look.textContent = '🎨 ' + L('Style on the timeline');
+    look.addEventListener('click', () => styleSelectedCaption(rec, t));
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = 'btn btn-primary sel-cap-btn';
-    b.textContent = '✎ ' + L('Edit the selected caption');
+    b.className = 'btn btn-neutral sel-cap-btn';
+    b.textContent = '✎ ' + L('Text');
+    b.title = L('Edit the selected caption');
     b.addEventListener('click', () => editSelectedCaption(rec, t));
     const txt = document.createElement('span');
     txt.className = 'sel-cap-text';
     txt.textContent = '“' + String(cue.text || '').replace(/[*~]/g, '').slice(0, 40) + '”';
+    bar.appendChild(look);
     bar.appendChild(b);
     bar.appendChild(txt);
     bar.style.display = '';
@@ -7382,6 +7176,83 @@ async function editSelectedCaption(rec, t) {
   (reviewCues || []).forEach((c, i) => { if (Math.abs((c.start + c.end) / 2 - t) < Math.abs((reviewCues[best].start + reviewCues[best].end) / 2 - t)) best = i; });
   if (typeof focusReviewCue === 'function' && reviewCues && reviewCues.length) focusReviewCue(best, 0);
 }
+// ── 🎨 Style on the timeline (1.93) ─────────────────────────────────────
+// The owner: "show the selected caption style and customize it on the
+// timeline". A styled caption selected on the Premiere timeline → 🎨: the
+// look controls open, the playhead goes to that caption, and every change
+// redraws THAT caption on the timeline (~1 s, seen in the Program monitor).
+// ✓ Place gives every caption the look; Discard puts that caption back.
+const TL = { on: false, i: -1, timer: 0, busy: false, again: false, dirty: false, base: 0, prefix: '', track: null, orig: null };
+function tlCueIndex(t) {
+  let best = 0;
+  (reviewCues || []).forEach((c, i) => { if (Math.abs((c.start + c.end) / 2 - t) < Math.abs((reviewCues[best].start + reviewCues[best].end) / 2 - t)) best = i; });
+  return best;
+}
+async function styleSelectedCaption(rec, t) {
+  const bar = $('selCapBar');
+  if (bar) bar.style.display = 'none';
+  if (!rec || !rec.placed || rec.placed.mode !== 'cut') return false;
+  if (!(await reopenHistory(rec))) return false;
+  const i = tlCueIndex(t);
+  Object.assign(TL, { on: true, i, busy: false, again: false, dirty: false, base: Number(rec.startSeconds) || 0,
+    prefix: rec.placed.prefix, track: rec.placed.track, orig: { style: rec.placed.style, opts: rec.placed.opts } });
+  STYLE_CUSTOM_OPEN = true;
+  renderStyleStrip();
+  try { focusReviewCue(i, 0); } catch (e) {}
+  const strip = $('styleStrip');
+  if (strip && strip.scrollIntoView) { try { strip.scrollIntoView({ block: 'start' }); } catch (e) {} }
+  const c = reviewCues[i];
+  if (c) { try { await seekPlayhead(TL.base + (c.start + c.end) / 2); } catch (e) {} }
+  textCutNote('🎬 ' + L('Change the look — the selected caption on the timeline shows it at once. ✓ Place gives every caption this look.'));
+  return true;
+}
+function tlSchedule() {
+  if (!TL.on) return;
+  clearTimeout(TL.timer);
+  TL.timer = setTimeout(() => { tlRedraw(false); }, 700);
+}
+// Draw one caption in a look and put it in its place on the timeline
+// (replacing what is there). restore = back to the look it was placed with.
+async function tlRedraw(restore, cueArg) {
+  const cue = cueArg || reviewCues[TL.i];
+  if (!cue || !TL.prefix) return false;
+  if (TL.busy) { if (!restore) TL.again = true; return false; }
+  const style = restore ? TL.orig.style : STYLE;
+  const opts = restore ? TL.orig.opts : styleOpts(STYLE);
+  if (!restore && style === 'plain') {
+    textCutNote(L('Choose a styled look to see it on the timeline (Plain is Premiere’s own captions).'));
+    return false;
+  }
+  TL.busy = true;
+  if (!restore) textCutNote('⏳ ' + L('Showing it on the timeline…'));
+  try {
+    const fr = await evalScript('amharic_getFrame()');
+    if (!fr || !fr.ok) throw new Error((fr && fr.error) || 'could not read the sequence frame size');
+    const out = path.join(ensureCaptionsDir(), TL.prefix + style + '_' + Date.now() + '.mov');
+    const r = await renderStyled({ cues: styleCues([cue]), style, opts, width: fr.width, height: fr.height, fps: fr.fps, out, mode: 'overlay', tag: !LICENSED });
+    if (!Array.isArray(r.spans) || !r.spans.length) throw new Error('nothing to place');
+    const from = TL.base + cue.start - 0.05, to = TL.base + cue.end + 0.6;
+    const prep = await hostCall('amh_overlayPrepare', { path: r.out, rangeStart: Math.min(from, TL.base + (r.t0 || 0)),
+      rangeEnd: Math.max(to, TL.base + (r.t0 || 0) + (r.duration || 0)), replacePrefix: TL.prefix, preferTrack: TL.track });
+    if (!prep || !prep.ok) throw new Error((prep && prep.error) || HOST_NAME + ' did not take the caption');
+    TL.track = prep.track;
+    await placeSpans(r.out, r.spans, TL.base + (r.t0 || 0), prep, null, 0, 0);
+    TL.dirty = !restore;
+    if (!restore) textCutNote('🎬 ' + L('On the timeline now.') + ' ' + L('✓ Place gives every caption this look.'));
+    return true;
+  } catch (e) {
+    textCutNote(L('Could not show it on the timeline') + ': ' + L((e && e.message) || String(e)), true);
+    return false;
+  } finally {
+    TL.busy = false;
+    if (TL.again) { TL.again = false; if (TL.on) tlSchedule(); }
+  }
+}
+function tlStop() {
+  clearTimeout(TL.timer);
+  TL.on = false;
+}
+
 // asked when the editor comes back to the panel (no polling while it is away)
 function selCapSoon() {
   if (IS_AE || Date.now() - SELCAP_AT < 1500) return;
@@ -7869,6 +7740,7 @@ async function loadStyleFrame() {
   } catch (e) {}
 }
 function schedulePreview() {
+  if (TL.on) tlSchedule();           // 1.93: the caption on the timeline follows
   if (PREVIEW_TIMER) clearTimeout(PREVIEW_TIMER);
   PREVIEW_TIMER = setTimeout(renderPreview, 300);
 }
@@ -7947,6 +7819,10 @@ async function placeReview() {
     // Premiere's caption item links to this file. Deleting it triggers a
     // "Locate file" prompt on every project open.
     log('Captions saved to ' + dest + '  (Premiere keeps a file link to this).');
+    // 1.93: plain captions are Premiere's own captions — styled right on the timeline
+    if (!IS_AE && !IS_APP_MODE()) {
+      setSuccess('✓ ' + L('Captions on the timeline — click one and change its font, size and colour in Essential Graphics (Window → Essential Graphics).'));
+    }
     track('placed');
     saveHistory(dest);
     closeReview(true);
@@ -8096,6 +7972,12 @@ function discardReview() {
     try { if (warmChild && !warmChild.killed) warmChild.kill(); } catch (e) {}
   }
   log('Discarded — nothing was placed on the timeline.');
+  if (TL.on && TL.dirty) {
+    const cue = reviewCues[TL.i] ? Object.assign({}, reviewCues[TL.i]) : null;
+    tlStop();
+    if (cue) tlRedraw(true, cue).then((ok) => { if (ok) log('The caption on the timeline is back to its look.'); });
+  }
+  tlStop();
   closeReview();
 }
 

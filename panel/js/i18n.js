@@ -107,8 +107,6 @@ const AM_STATIC = {
   'fb.sub':           'ሀሳብ፣ ችግር ወይም ጥያቄ — በቀጥታ አማርኛ ካፕሽንን ለሚሰሩት ሰዎች ይደርሳል።',
   'fb.placeholder':   'እዚህ ይጻፉ…',
   // 1.75 🔎 footage search
-  'pod.title':        '🎙 ፖድካስት፦ ካሜራ በራሱ ይቀየራል',
-  'pod.hint':         'ወደሚናገረው ሰው',
   'search.title':     '🔎 የተነገረውን ፈልግ',
   'search.hint':      'በሁሉም ቪዲዮዎችዎ ውስጥ',
   'search.ph':        'ቃል ወይም ዓረፍተ ነገር ይጻፉ…',
@@ -169,6 +167,16 @@ const AM_STATIC = {
 
 // ── dynamic text from main.js / core.js (keyed by the English string) ───────
 const AM_TEXT = {
+  // 1.93 🎨 style on the timeline
+  'Style on the timeline': 'በታይምላይኑ ላይ ስታይል',
+  'Text': 'ጽሑፍ',
+  'Change the look — the selected caption on the timeline shows it at once. ✓ Place gives every caption this look.': 'ስታይሉን ይቀይሩ — በታይምላይኑ ላይ የተመረጠው ካፕሽን ወዲያው ያሳያል። ✓ «በታይምላይን ላይ አስቀምጥ» ለሁሉም ካፕሽኖች ይህን ስታይል ይሰጣል።',
+  'Choose a styled look to see it on the timeline (Plain is Premiere’s own captions).': 'በታይምላይኑ ላይ ለማየት ስታይል ያለው ይምረጡ (መደበኛው የPremiere የራሱ ካፕሽን ነው)።',
+  'Showing it on the timeline…': 'በታይምላይኑ ላይ በማሳየት ላይ…',
+  'On the timeline now.': 'አሁን በታይምላይኑ ላይ ነው።',
+  '✓ Place gives every caption this look.': '✓ «በታይምላይን ላይ አስቀምጥ» ለሁሉም ካፕሽኖች ይህን ስታይል ይሰጣል።',
+  'Could not show it on the timeline': 'በታይምላይኑ ላይ ማሳየት አልተቻለም',
+  'Captions on the timeline — click one and change its font, size and colour in Essential Graphics (Window → Essential Graphics).': 'ካፕሽኖቹ በታይምላይኑ ላይ ናቸው — አንዱን ይጫኑ፣ ፊደሉን፣ መጠኑንና ቀለሙን በEssential Graphics ውስጥ ይቀይሩ (Window → Essential Graphics)።',
   // 1.93 ✂ one click = cut (Premiere)
   '✂ Cut this caption out of the timeline now — picture and sound (Shift: every caption from the last ✂ to here). Select words first to cut only them.': '✂ ይህን ካፕሽን አሁኑኑ ከታይምላይኑ ቁረጥ — ምስልና ድምፅ (Shift፦ ከመጨረሻው ✂ እስከዚህ ያሉትን በሙሉ)። ቃላትን ብቻ ለመቁረጥ መጀመሪያ ቃላቱን ይምረጡ።',
   'captions': 'ካፕሽኖች',
@@ -180,32 +188,6 @@ const AM_TEXT = {
   'Premiere could not keep a copy of the sequence first. Nothing was cut.': 'Premiere መጀመሪያ የሴክዌንሱን ቅጂ ማስቀመጥ አልቻለም። ምንም አልተቆረጠም።',
   'The open sequence is not the one these captions were made from. Open that sequence, then press the scissors again.': 'የተከፈተው ሴክዌንስ እነዚህ ካፕሽኖች የተሰሩበት አይደለም። ያንን ሴክዌንስ ከፍተው መቀሱን እንደገና ይጫኑ።',
   'A track is locked. Unlock all tracks (the lock icons), then press the scissors again.': 'አንድ ትራክ ተቆልፏል። ሁሉንም ትራኮች ይክፈቱ (የቁልፍ ምልክቶቹ)፣ ከዚያ መቀሱን እንደገና ይጫኑ።',
-  // 1.92 🎙 podcast camera switcher
-  'Each speaker needs their own microphone (an audio track) and camera (a video track). It works on a copy — your sequence stays as it is. No minutes are used.': 'እያንዳንዱ ተናጋሪ የራሱ ማይክ (የድምፅ ትራክ) እና ካሜራ (የቪዲዮ ትራክ) ያስፈልገዋል። የሚሰራው በቅጂ ላይ ነው — ሴክዌንስዎ እንዳለ ይቆያል። ምንም ደቂቃ አይቀነስም።',
-  'Reading the sequence…': 'ሴክዌንሱን በማንበብ ላይ…',
-  'Read the sequence': 'ሴክዌንሱን አንብብ',
-  'Read again': 'እንደገና አንብብ',
-  'This needs at least two camera tracks and two microphone tracks in the open sequence.': 'ይህ በተከፈተው ሴክዌንስ ውስጥ ቢያንስ ሁለት የካሜራ ትራኮችና ሁለት የማይክ ትራኮች ይፈልጋል።',
-  '— not a speaker': '— ተናጋሪ አይደለም',
-  'Two voices at once': 'ሁለት ሰው በአንድ ጊዜ ሲናገር',
-  'keep the camera': 'ካሜራው ይቆይ',
-  'wide': 'ሰፊ',
-  'Shortest shot': 'አጭሩ ሾት',
-  'Listening to the microphones…': 'ማይኮቹን በማዳመጥ ላይ…',
-  'Find who speaks': 'ማን እንደሚናገር ፈልግ',
-  'camera switches': 'የካሜራ ቅያሪዎች',
-  'Switching': 'በመቀየር ላይ',
-  'is open': 'ተከፍቷል',
-  'shots. Watch it; your original sequence is unchanged.': 'ሾቶች። ይመልከቱት፤ የመጀመሪያው ሴክዌንስዎ አልተነካም።',
-  'Switch cameras on a copy of the sequence': 'በሴክዌንሱ ቅጂ ላይ ካሜራዎቹን ቀይር',
-  'Listen again': 'እንደገና አዳምጥ',
-  'Give at least two microphones their own camera.': 'ቢያንስ ለሁለት ማይኮች የራሳቸውን ካሜራ ይምረጡ።',
-  'The sequence is empty.': 'ሴክዌንሱ ባዶ ነው።',
-  'No speech was found on these microphones.': 'በእነዚህ ማይኮች ላይ ንግግር አልተገኘም።',
-  'No active sequence. Open your podcast sequence first.': 'የተከፈተ ሴክዌንስ የለም። መጀመሪያ የፖድካስት ሴክዌንስዎን ይክፈቱ።',
-  'The open sequence changed. Press Read the sequence again.': 'የተከፈተው ሴክዌንስ ተቀይሯል። «ሴክዌንሱን አንብብ»ን እንደገና ይጫኑ።',
-  'A camera track is locked. Unlock it (the lock icon), then press Switch again.': 'አንድ የካሜራ ትራክ ተቆልፏል። ይክፈቱት (የቁልፍ ምልክቱ)፣ ከዚያ እንደገና ይጫኑ።',
-  'The podcast copy is no longer the open sequence. Open it, then press Switch again.': 'የፖድካስቱ ቅጂ የተከፈተው ሴክዌንስ አይደለም። ይክፈቱት፣ ከዚያ እንደገና ይጫኑ።',
   // 1.91 ✂ Edit with text
   '✂ Cut this caption from the video (Shift: every caption from the last ✂ to here). With the cursor in the text: the word at the cursor or the selected words — ✂ again: keep it': '✂ ይህን ካፕሽን በሙሉ ከቪዲዮው ቁረጥ (Shift፦ ከመጨረሻው ✂ እስከዚህ ያሉትን በሙሉ)። ጠቋሚው በጽሑፉ ውስጥ ሲሆን፦ ያለበትን ቃል ወይም የተመረጡትን ቃላት — ✂ እንደገና፦ ይቆይ',
   'Click ✂ on a caption to cut all of it (Shift+click: every caption up to it), or put the cursor on words and press ✂ / Ctrl+D. ▶ hear it first — then it is cut on a copy of your sequence.': 'ካፕሽኑን በሙሉ ለመቁረጥ በላዩ ያለውን ✂ ይጫኑ (Shift+✂፦ እስከሱ ያሉትን በሙሉ)፣ ወይም ጠቋሚውን በቃላቱ ላይ አድርገው ✂ / Ctrl+D ይጫኑ። መጀመሪያ ▶ ያዳምጡ — ከዚያ በሴክዌንሱ ቅጂ ላይ ይቆረጣል።',
@@ -658,6 +640,11 @@ const AM_TEXT = {
 
 // Parameterised English → Amharic ($1.. are the regex groups).
 const AM_PATTERNS = [
+  // 1.93.1 one-click cut: Premiere did not take the piece out
+  [/^Premiere made the cut lines but kept the piece between them \((\d+) clip\(s\)\)\. Select that piece on the timeline and press Shift\+Delete\. Then send a problem report so we can fix this for your Premiere version\.$/,
+    'Premiere የመቁረጫ መስመሮቹን ሰራ፣ በመካከላቸው ያለውን ቁራጭ ግን አላወጣም ($1 ክሊፕ)። ያንን ቁራጭ በታይምላይኑ ላይ መርጠው Shift+Delete ይጫኑ። ከዚያ ለእርስዎ Premiere እንድናስተካክለው «ችግር ሪፖርት ላክ»ን ይጫኑ።'],
+  [/^Premiere did not cut at (.+) \(nothing was found between the cut lines\)\. Press Ctrl\+Z in Premiere if a cut line appeared somewhere else, then send a problem report so we can fix this for your Premiere version\.$/,
+    'Premiere በ$1 ላይ አልቆረጠም (በመቁረጫ መስመሮቹ መካከል ምንም አልተገኘም)። የመቁረጫ መስመር ሌላ ቦታ ከታየ በPremiere Ctrl+Z ይጫኑ፣ ከዚያ ለእርስዎ Premiere እንድናስተካክለው «ችግር ሪፖርት ላክ»ን ይጫኑ።'],
   [/^ERROR: The clip at the playhead is only ([\d.]+) s long — select the clip you want on the timeline \(click it\), or choose Work area or Whole edit, then press Generate again\.$/,
     'ስህተት፦ ማጫወቻው ያለበት ክሊፕ $1 ሰከንድ ብቻ ነው — የሚፈልጉትን ክሊፕ በታይምላይኑ ላይ ይጫኑት (ይምረጡት)፣ ወይም Work area ወይም Whole edit ይምረጡ፣ ከዚያ «ካፕሽን ፍጠር»ን እንደገና ይጫኑ።'],
   [/^Plain: (.+)'s own captions — you can edit and restyle them there\.$/, 'መደበኛ፦ የ$1 የራሱ ካፕሽን — እዚያው ማስተካከልና ማስዋብ ይችላሉ።'],

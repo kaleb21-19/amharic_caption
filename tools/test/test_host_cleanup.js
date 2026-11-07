@@ -28,12 +28,14 @@ function makePremiere(spec, opts) {
   let nextId = 1;
   function mkTrack(clips, locked) {
     const list = [];
-    const track = { list, clips: coll(list, 'numItems'), isLocked: () => !!locked };
+    const frozen = list;   // opts.domBlind: the script view never sees new pieces (an old handle)
+    const track = { list, get clips() { return coll(opts.domBlind ? frozen.slice(0, frozen._n == null ? frozen.length : frozen._n) : list, 'numItems'); }, isLocked: () => !!locked };
     const add = (s, e, name, media) => {
       const c = {
         name, start: { seconds: s }, end: { seconds: e },
         projectItem: { name, getMediaPath: () => media || '' },
-        remove(ripple) {
+        remove(ripple, align, viaQe) {
+          if (opts.domRemoveNoop && !viaQe) return;          // a Premiere that ignores remove()
           const i = list.indexOf(c);
           if (i < 0) return;
           list.splice(i, 1);
@@ -48,6 +50,7 @@ function makePremiere(spec, opts) {
       return c;
     };
     clips.forEach((c) => add(c[0], c[1], c[2], c[3]));
+    list._n = list.length;
     track.razor = (t) => {
       const c = list.find((o) => o.start.seconds < t - 1e-6 && o.end.seconds > t + 1e-6);
       if (!c) return;
@@ -90,8 +93,12 @@ function makePremiere(spec, opts) {
     app: { project, enableQE() {} },
     qe: { project: { getActiveSequence: () => {
       const s = project.activeSequence;
-      return { getVideoTrackAt: (i) => ({ razor: (tc) => s.vt[i].razor(Number(tc)) }),
-               getAudioTrackAt: (i) => ({ razor: (tc) => s.at[i].razor(Number(tc)) }) };
+      // QE: razor, and the pieces as Premiere's own timeline sees them (ripple delete)
+      const qt = (tr) => ({ razor: (tc) => tr.razor(Number(tc)),
+        get numItems() { return tr.list.length; },
+        getItemAt: (j) => { const c = tr.list.slice().sort((x, y) => x.start.seconds - y.start.seconds)[j];
+          return c && { type: 'Clip', start: { secs: c.start.seconds }, end: { secs: c.end.seconds }, rippleDelete: () => c.remove(true, true, true) }; } });
+      return { getVideoTrackAt: (i) => qt(s.vt[i]), getAudioTrackAt: (i) => qt(s.at[i]) };
     } } },
   };
   vm.createContext(ctx);
@@ -308,58 +315,35 @@ test('one-click cut: wrong sequence, a locked track, or under 2 frames: nothing 
   assert.match(r.error, /Too short/);
 });
 
-// ── 1.92 🎙 podcast camera switcher
-const POD = () => ({
-  v: [[[0, 60, 'wide.mp4', 'C:/v/wide.mp4']], [[0, 60, 'camA.mp4', 'C:/v/camA.mp4']], [[0, 60, 'camB.mp4', 'C:/v/camB.mp4']]],
-  a: [[[0, 60, 'micA.wav', 'C:/v/micA.wav']], [[0, 60, 'micB.wav', 'C:/v/micB.wav']]],
-});
-const podCall = (pp, fn, a) => JSON.parse(vm.runInContext(fn + '(' + (a === undefined ? '' : JSON.stringify(JSON.stringify(a))) + ')', pp.ctx));
-
-test('podcast: read the sequence — camera tracks and microphone clips with their files', () => {
-  const pp = makePremiere(POD());
-  const r = podCall(pp, 'amh_podcastScan');
+test('1.93.1 Premiere ignores remove(): the piece still goes (its own ripple delete), the cut is real', () => {
+  const pp = makePremiere(base(), { domRemoveNoop: true });
+  const r = nowCut(pp, { cuts: [[10, 12]], media: [VIDEO] });
   assert.ok(r.ok, JSON.stringify(r));
-  assert.strictEqual(r.video.length, 3);
-  assert.deepStrictEqual(r.video.map((v) => [v.i, v.clips, v.start, v.end]), [[0, 1, 0, 60], [1, 1, 0, 60], [2, 1, 0, 60]]);
-  assert.deepStrictEqual(r.audio.map((a) => a.clips.map((c) => [c.start, c.end, c.path])), [[[0, 60, 'C:/v/micA.wav']], [[0, 60, 'C:/v/micB.wav']]]);
-  assert.strictEqual(r.fps, 25);
+  const s = pp.seqs[0];
+  assert.deepStrictEqual(s.vt[0].snap(), [[0, 10, 'interview.mp4'], [10, 58, 'interview.mp4']]);
+  assert.deepStrictEqual(s.at[0].snap(), [[0, 10, 'interview.mp4'], [10, 58, 'interview.mp4']]);
+});
+test('1.93.1 the script view does not see the razor pieces: Premiere own view finds and removes them', () => {
+  const pp = makePremiere(base(), { domBlind: true });
+  const r = nowCut(pp, { cuts: [[10, 12]], media: [VIDEO] });
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.deepStrictEqual(pp.seqs[0].at[0].snap(), [[0, 10, 'interview.mp4'], [10, 58, 'interview.mp4']]);
+});
+test('1.93.1 a piece that cannot be removed at all: says so (never "cut"), and nothing slides over it', () => {
+  const pp = makePremiere(base(), { domRemoveNoop: true });
+  pp.ctx.qe.project.getActiveSequence = () => ({ getVideoTrackAt: (i) => ({ razor: (tc) => pp.seqs[0].vt[i].razor(Number(tc)) }),
+    getAudioTrackAt: (i) => ({ razor: (tc) => pp.seqs[0].at[i].razor(Number(tc)) }) });
+  const r = nowCut(pp, { cuts: [[10, 12]], media: [VIDEO] });
+  assert.match(r.error, /kept the piece between them/);
+  assert.deepStrictEqual(pp.seqs[0].vt[0].snap(), [[0, 10, 'interview.mp4'], [10, 12, 'interview.mp4'], [12, 60, 'interview.mp4']]);
 });
 
-test('podcast: on a COPY only the speaking camera stays in each stretch; sound and length untouched', () => {
-  const pp = makePremiere(POD());
-  const p = podCall(pp, 'amh_podcastPrepare', { cams: [1, 2, 0], sequenceID: pp.seqs[0].sequenceID });
-  assert.ok(p.ok, JSON.stringify(p));
-  assert.match(p.sequence, /- podcast$/);
-  const segs = [[0, 11.013, 1], [11.013, 30, 2], [30, 35, 0], [35, 60, 1]];
-  const a = podCall(pp, 'amh_podcastSome', { sequenceID: p.sequenceID, fps: p.fps, cams: [1, 2, 0], segs: segs.slice(2) });
-  const b = podCall(pp, 'amh_podcastSome', { sequenceID: p.sequenceID, fps: p.fps, cams: [1, 2, 0], segs: segs.slice(0, 2) });
-  assert.ok(a.ok && b.ok, JSON.stringify([a, b]));
-  const s = pp.project.activeSequence;
-  assert.notStrictEqual(s, pp.seqs[0]);
-  assert.deepStrictEqual(s.vt[1].snap(), [[0, 11, 'camA.mp4'], [35, 60, 'camA.mp4']], 'edges on frames (11.013 -> 11)');
-  assert.deepStrictEqual(s.vt[2].snap(), [[11, 30, 'camB.mp4']]);
-  assert.deepStrictEqual(s.vt[0].snap(), [[30, 35, 'wide.mp4']]);
-  assert.deepStrictEqual(s.at[0].snap(), [[0, 60, 'micA.wav']], 'the sound is not touched');
-  assert.deepStrictEqual(s.at[1].snap(), [[0, 60, 'micB.wav']]);
-  // the original stays as it was
-  assert.deepStrictEqual(pp.seqs[0].vt.map((t) => t.snap().length), [1, 1, 1]);
-});
-
-test('podcast: a locked camera track, a changed sequence, or the copy not open: nothing is changed', () => {
-  let pp = makePremiere(Object.assign(POD(), { locked: true }));
-  let r = podCall(pp, 'amh_podcastPrepare', { cams: [0, 1, 2] });
-  assert.match(r.error, /locked/);
-  assert.strictEqual(pp.seqs.length, 1, 'no copy made');
-  pp = makePremiere(POD());
-  r = podCall(pp, 'amh_podcastPrepare', { cams: [1, 2], sequenceID: 'other' });
-  assert.match(r.error, /changed/);
-  r = podCall(pp, 'amh_podcastPrepare', { cams: [1] });
-  assert.match(r.error, /two cameras/);
-  const p = podCall(pp, 'amh_podcastPrepare', { cams: [1, 2] });
-  pp.project.activeSequence = pp.seqs[0];
-  r = podCall(pp, 'amh_podcastSome', { sequenceID: p.sequenceID, fps: 25, cams: [1, 2], segs: [[0, 30, 1]] });
-  assert.match(r.error, /no longer the open sequence/);
-  assert.deepStrictEqual(pp.seqs[0].vt.map((t) => t.snap().length), [1, 1, 1]);
+test('1.93.1 the razor lands somewhere else (nothing between the lines): says so with the times, never "cut"', () => {
+  const pp = makePremiere(base());
+  const off = (tr) => ({ razor: (tc) => tr.razor(Number(tc) + 30), get numItems() { return tr.list.length; }, getItemAt: () => null });
+  pp.ctx.qe.project.getActiveSequence = () => ({ getVideoTrackAt: (i) => off(pp.seqs[0].vt[i]), getAudioTrackAt: (i) => off(pp.seqs[0].at[i]) });
+  const r = nowCut(pp, { cuts: [[10, 12]], media: [VIDEO] });
+  assert.match(r.error, /did not cut at 10\.00-12\.00 s = 10-12/);
 });
 
 console.log('ALL PASS  (' + passed + ' tests)');

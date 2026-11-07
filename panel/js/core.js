@@ -676,67 +676,6 @@ function cutRanges(text) {
   while ((m = re.exec(t)) !== null) out.push({ start: m.index, end: m.index + m[0].length });
   return out;
 }
-// 1.92 🎙 podcast: who speaks when -> which camera.
-// tracks: [{ cam, db: [...] }] on ONE grid (t0, step; the same length), one
-// per microphone. opts: { wide: a camera for two voices at once (or null =
-// keep the camera), minShot (s), start, end, t0, step }.
-// Each microphone is judged by its own levels (a loud host and a soft guest
-// both count); a voice that only leaks into the other microphone loses to its
-// own (6 dB louder, each against its own speaking level); pauses keep the
-// camera; no shot is shorter than minShot.
-function podcastPlan(tracks, opts) {
-  opts = opts || {};
-  const minShot = Math.max(0.5, Number(opts.minShot) || 2);
-  const wide = opts.wide == null || opts.wide === '' ? null : Number(opts.wide);
-  const step = Number(opts.step) || 0.02, t0 = Number(opts.t0) || 0;
-  const list = (tracks || []).filter((t) => t && t.db && t.db.length);
-  if (list.length < 2) return { segs: [], switches: 0, time: {} };
-  const n = Math.min.apply(null, list.map((t) => t.db.length));
-  const W = Math.max(1, Math.round(0.3 / step));          // 0.3 s smoothing
-  const prep = list.map((t) => {
-    const sm = new Array(n);
-    let acc = 0;
-    for (let i = 0; i < n; i++) { acc += t.db[i]; if (i >= W) acc -= t.db[i - W]; sm[i] = acc / Math.min(i + 1, W); }
-    const sorted = sm.filter((v) => v > -119).sort((a, b) => a - b);
-    const q = (p) => (sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] : -120);
-    const floor = q(0.2), loud = q(0.95);
-    return { cam: Number(t.cam), sm, loud, thr: Math.max(floor + 0.45 * (loud - floor), loud - 22), ok: loud - floor > 6 };
-  });
-  const lab = new Array(n).fill(null);
-  for (let i = 0; i < n; i++) {
-    const on = [];
-    for (const p of prep) if (p.ok && p.sm[i] > p.thr) on.push({ cam: p.cam, rel: p.sm[i] - p.loud });
-    if (!on.length) continue;
-    if (on.length === 1) { lab[i] = on[0].cam; continue; }
-    on.sort((a, b) => b.rel - a.rel);
-    lab[i] = on[0].rel - on[1].rel >= 6 ? on[0].cam : 'both';
-  }
-  // pauses keep what came before (the very start takes the first voice)
-  const first = lab.find((x) => x !== null);
-  let last = first === undefined ? (wide != null ? wide : prep[0].cam) : first;
-  for (let i = 0; i < n; i++) { if (lab[i] === null) lab[i] = last; else last = lab[i]; }
-  // runs -> shots: two voices = the wide shot (or the camera stays); a run
-  // shorter than minShot stays on the shot before
-  const segs = [];
-  let a = 0;
-  for (let i = 1; i <= n; i++) {
-    if (i < n && lab[i] === lab[a]) continue;
-    const prev = segs.length ? segs[segs.length - 1] : null;
-    let cam = lab[a] === 'both' ? (wide != null ? wide : (prev ? prev.cam : prep[0].cam)) : lab[a];
-    if (!prev) segs.push({ a, b: i, cam });
-    else if (cam === prev.cam || (i - a) * step < minShot) prev.b = i;
-    else segs.push({ a, b: i, cam });
-    a = i;
-  }
-  const out = segs.map((s) => ({ start: Math.round((t0 + s.a * step) * 1000) / 1000, end: Math.round((t0 + s.b * step) * 1000) / 1000, cam: s.cam }));
-  if (out.length) {
-    if (opts.start != null) out[0].start = Number(opts.start);
-    if (opts.end != null) out[out.length - 1].end = Number(opts.end);
-  }
-  const time = {};
-  out.forEach((s) => { time[s.cam] = Math.round(((time[s.cam] || 0) + s.end - s.start) * 1000) / 1000; });
-  return { segs: out, switches: Math.max(0, out.length - 1), time };
-}
 // 1.91 ▶ hear the edit: where the sound goes next from time t — the end of the
 // cut it is in (or about to enter, `lead` seconds early), else null
 function skipTarget(t, cuts, lead) {
@@ -1143,7 +1082,7 @@ function wordsFromCues(cues) {
 
 // Node (tests) — no-op in the CEP browser where `module` is undefined.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { podcastPlan, skipTarget, wholeStruck,
+  module.exports = { skipTarget, wholeStruck,
     parseSrt, formatSrtTs, cleanCueLines, AMH_PUNCT_CHARS,
     detectSpeaker, normalizeCues,
     speakerPrefix, noEmph, srtTextFromCues, displaySrtTextFromCues, vttTextFromCues, txtTextFromCues,
