@@ -1439,9 +1439,9 @@ await t('4f. caption styles (1.11): strip, choice remembered, styled layer place
     p.evalVm('STYLE_OK = true; renderStyleStrip();');
     assert.strictEqual(p.els('styleStrip').style.display, '', 'shown when it can');
     const chips = p.els('styleChips').children;
-    // 1.93: one short strip of distinct looks (was 41 in one long row)
-    assert.deepStrictEqual(Array.from(chips).map((b) => b.dataset.style), JSON.parse(p.evalVm('JSON.stringify(STYLE_SHOWN)')), 'the short strip');
-    assert.strictEqual(chips.length, 14);
+    // Plain + the 18 styles + the templates group + the 14 templates (1.66)
+    const wantChips = p.evalVm('STYLE_LIST.length') + 1 + p.evalVm('TEMPLATE_LIST.length');
+    assert.strictEqual(chips.length, wantChips, 'Plain + 18 styles + the templates');
     assert.strictEqual(chips[0].dataset.style, 'plain');
     assert.ok(chips[0].classList.contains('active'), 'Plain is the default');
     assert.match(p.els('styleNote').textContent, /own captions/);
@@ -1452,12 +1452,12 @@ await t('4f. caption styles (1.11): strip, choice remembered, styled layer place
     assert.strictEqual(JSON.parse(storage.getItem('amh.settings')).style, 'karaoke', 'the choice is remembered');
     assert.match(p.els('styleNote').textContent, /video layer/);
     // the templates (1.66): their own group, their own font, the choice is remembered
-    const tpl = Array.from(chips).find((b) => b.dataset.style === 'duo');
+    const tpl = Array.from(chips).find((b) => b.dataset.style === 'boldpop');
     assert.ok(tpl, 'the templates are in the strip');
-    assert.strictEqual(p.evalVm('styleOpts("duo").font'), 'yebse', 'a template starts on its own font');
+    assert.strictEqual(p.evalVm('styleOpts("boldpop").font'), 'yebse', 'a template starts on its own font');
     tpl.fire('click');
-    assert.strictEqual(p.evalVm('STYLE'), 'duo');
-    assert.strictEqual(JSON.parse(storage.getItem('amh.settings')).style, 'duo', 'the template is remembered');
+    assert.strictEqual(p.evalVm('STYLE'), 'boldpop');
+    assert.strictEqual(JSON.parse(storage.getItem('amh.settings')).style, 'boldpop', 'the template is remembered');
     assert.ok(tpl.classList.contains('active'), 'the template is the one in use');
     p.evalVm('STYLE = "karaoke"; renderStyleStrip();');
 
@@ -1551,7 +1551,7 @@ await t('4g. customize (1.12): colour, size, position, words, box remembered per
     const rows = p.els('styleOpts').children;
     const pick = (row, value) => Array.from(rows[row].children[1].children).find((b) => b.dataset.value === value).fire('click');
     assert.deepStrictEqual(Array.from(rows[0].children[1].children).map((b) => b.dataset.value),
-      ['sans', 'menbere', 'serif', 'abyssinica', 'yebse', 'washra', 'agbalumo', 'jiret'], '1.93: the 8 fonts that read well as captions');
+      ['sans', 'menbere', 'serif', 'abyssinica', 'yebse', 'washra', 'agbalumo', 'tint', 'fantuwua', 'jiret', 'hibur', 'gothic'], '12 Amharic fonts (1.28.0)');
     assert.ok(/^sc-seg pills/.test(rows[0].children[1].className), 'the fonts wrap as pills');
     // 1.58: four tabs; only the open tab's rows show; Font first
     const tabs = Array.from(p.els('styleTabs').children);
@@ -1566,7 +1566,7 @@ await t('4g. customize (1.12): colour, size, position, words, box remembered per
     assert.strictEqual(shown(), '7,10', 'Motion: animations');
     Array.from(p.els('styleTabs').children)[0].fire('click');
     assert.deepStrictEqual(Array.from(rows[7].children[1].children).map((b) => b.dataset.value),
-      ['auto', 'none', 'fade', 'slide', 'pop', 'zoom', 'typewriter', 'bounce'], '1.93: 8 clear animations (was 19)');
+      ['auto', 'none', 'fade', 'slide', 'drop', 'pop', 'zoom', 'blur', 'typewriter', 'wave', 'slidecolor', 'shake', 'glow', 'blurzoom', 'bounce', 'flicker', 'snap', 'rampup', 'fadeup']);
     assert.ok(rows[7].children[1].className === 'sc-seg pills', 'animations wrap as pills');
     assert.deepStrictEqual(Array.from(rows[5].children[1].children).map((b) => b.dataset.value), ['auto', 'off'], 'emphasis: numbers & ★ / ★ only');
     // ⬇ Install these fonts on this PC (1.28.0)
@@ -1662,10 +1662,14 @@ await t('4h. My styles (1.13): save a look under a name, one click to use it aga
     const mine = () => chips().filter((b) => b.dataset.my);
     assert.strictEqual(chips()[0].dataset.style, 'plain', 'Plain first');
     assert.strictEqual(chips()[1].dataset.my, saved[0].id, 'then My styles');
-    assert.strictEqual(chips().length, 1 + 1 + 13, 'Plain + 1 saved + the short strip: ' + chips().map((b) => b.dataset.my ? 'MY' : b.dataset.style).join(','));
-    assert.deepStrictEqual(chips().slice(2, 5).map((b) => b.dataset.style), ['glide', 'karaoke', 'highlight']);
+    const wantChips = 1 + 1 + (p.evalVm('STYLE_LIST.length') - 1) + 1 + p.evalVm('TEMPLATE_LIST.length');
+    assert.strictEqual(chips().length, wantChips, 'Plain + 1 saved + 18 styles + the templates: ' + chips().map((b) => b.dataset.my ? 'MY' : b.dataset.style).join(','));
+    // the modern styles (1.16) come first after the saved looks; only the
+    // 1.73 kinetic pack carries a NEW mark
+    assert.deepStrictEqual(chips().slice(2, 5).map((b) => b.dataset.style), ['glide', 'spotlight', 'bounce']);
     const isNew = (b) => b.children.some((c) => c.className === 'style-new');
-    assert.deepStrictEqual(chips().filter(isNew).map((b) => b.dataset.style), [], '1.93: no NEW marks left');
+    assert.deepStrictEqual(chips().filter(isNew).map((b) => b.dataset.style), ['reels', 'reelsgold', 'kinetic', 'kineticpop', 'bouncy', 'flicker', 'snap'],
+      'NEW: only the 1.73 kinetic pack');
     assert.ok(mine()[0].classList.contains('active'), 'the saved look is the one in use');
     assert.ok(!chips().find((b) => b.dataset.style === 'bold' && !b.dataset.my).classList.contains('active'));
     // change the look: the saved one is no longer "in use"; one click brings it back
@@ -1674,10 +1678,6 @@ await t('4h. My styles (1.13): save a look under a name, one click to use it aga
     assert.ok(!mine()[0].classList.contains('active'));
     mine()[0].fire('click');
     assert.strictEqual(p.evalVm('STYLE'), 'bold');
-    // a hidden look the editor chose before still shows (and works) while chosen
-    p.evalVm('STYLE = "bouncy"; document.getElementById("styleChips").dataset.sig = "x"; renderStyleStrip();');
-    assert.ok(Array.from(p.els('styleChips').children).some((b) => b.dataset.style === 'bouncy' && b.classList.contains('active')), 'a chosen hidden look stays visible');
-    p.evalVm('STYLE = "bold"; document.getElementById("styleChips").dataset.sig = "x"; renderStyleStrip();');
     assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(styleOpts("bold"))')).color, '#FF3B30', 'the look comes back');
     assert.ok(mine()[0].classList.contains('active'));
     // same name again replaces; an empty name saves nothing; Plain cannot be saved

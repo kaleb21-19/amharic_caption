@@ -238,8 +238,6 @@ const AM_TEXT = {
   'left alone: that clip already has your own Scale animation.': 'አልተነኩም፦ ያ ክሊፕ የራስዎ የScale እንቅስቃሴ አለው።',
   'left alone: no video clip there.': 'አልተነኩም፦ እዚያ የቪዲዮ ክሊፕ የለም።',
   'Zoom': 'ዙም',
-  'Fade': 'ቀስ ብሎ',
-  'Pop': 'ብቅ',
   'Smooth': 'ቀስ ብሎ',
   'Punch': 'በድንገት',
   'Strength': 'መጠን',
