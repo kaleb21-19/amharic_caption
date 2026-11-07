@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.90.0';
+const APP_VERSION = '1.90.1';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -8654,7 +8654,12 @@ async function runSelectedClip() {
     (c.sourceIn > 0.05 ? ' (from ' + fmtClipTime(c.sourceIn) + ' of the file)' : ''));
   log('Listening to ' + c.duration.toFixed(1) + 's of audio…');
 
-  if (c.duration <= 0) { log('ERROR: Selected clip has zero duration.'); return; }
+  // 2026-11: a sliver (a leftover of a razor cut) — say what to do, before any
+  // free minute is touched or the engine starts
+  if (c.duration < 0.5) {
+    log(L('ERROR: The clip at the playhead is only ' + c.duration.toFixed(2) + ' s long — select the clip you want on the timeline (click it), or choose Work area or Whole edit, then press Generate again.'));
+    return;
+  }
 
   // Clean base name WITHOUT any media extension ("mehari", not "mehari.mp3").
   // Embedding ".mp3" in the temp SRT filename confuses Premiere's media-type

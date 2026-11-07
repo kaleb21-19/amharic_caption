@@ -313,6 +313,11 @@ function amharic_getSelectedClip() {
             var playhead = null;
             try { playhead = seq.getPlayerPosition().seconds; } catch (e) { playhead = null; }
             if (playhead !== null && playhead !== undefined) {
+                // 2026-11 (problem report): a 0.02 s sliver left by a razor cut
+                // sat under the playhead and was taken ("audio too short").
+                // First pass: a real clip (half a second or more) that really
+                // covers the playhead; the old, looser rule only when none does.
+                for (var pass = 0; pass < 2 && !picked; pass++) {
                 for (var k2 = 0; k2 < collections.length && !picked; k2++) {
                     try {
                         for (var t2 = 0; t2 < collections[k2].numTracks && !picked; t2++) {
@@ -322,7 +327,9 @@ function amharic_getSelectedClip() {
                                 try {
                                     var cs = clip2.start.seconds;
                                     var cd = clip2.duration.seconds;
-                                    if (playhead >= cs && playhead <= cs + cd + 0.05 && clip2.projectItem) {
+                                    var covers = pass === 0 ? (cd >= 0.5 && playhead >= cs && playhead < cs + cd)
+                                                            : (playhead >= cs && playhead <= cs + cd + 0.05);
+                                    if (covers && clip2.projectItem) {
                                         if (amhListenPath(clip2.projectItem)) {
                                             picked = clip2;
                                             pickedVia = "playhead (no explicit selection found)";
@@ -334,6 +341,7 @@ function amharic_getSelectedClip() {
                             }
                         }
                     } catch (e) {}
+                }
                 }
             }
         }

@@ -149,6 +149,22 @@ t('a selected nested sequence part -> the clip inside; a silent video inside get
   assert.strictEqual(r.audioAlt.sourcePath, 'C:/rec/voice.wav');
 });
 
+// 2026-11 problem report: a 0.02 s sliver left by a razor cut sat under the
+// playhead and was taken ("audio too short (320 samples)").
+t('a razor sliver at the playhead is skipped: the real clip after it is used', () => {
+  const r = pick([[clip('C:/cam/sliver.mp4', 4.98, 0.02), clip('C:/cam/talk.mp4', 5, 10)]], [], 5);
+  assert.strictEqual(r.sourcePath, 'C:/cam/talk.mp4', JSON.stringify(r));
+  assert.ok(r.duration >= 9.9);
+});
+t('a real clip just before the playhead (inside the old 0.05 s slack) loses to the clip that covers it', () => {
+  const r = pick([[clip('C:/cam/before.mp4', 0, 5), clip('C:/cam/after.mp4', 5, 8)]], [], 5.02);
+  assert.strictEqual(r.sourcePath, 'C:/cam/after.mp4');
+});
+t('only a sliver under the playhead: still found (the panel then asks for a real clip)', () => {
+  const r = pick([[clip('C:/cam/sliver.mp4', 4.98, 0.02)]], [], 4.99);
+  assert.strictEqual(r.sourcePath, 'C:/cam/sliver.mp4');
+});
+
 t('no clip anywhere: a clear "no clip found" answer', () => {
   const r = pick([[]], [[]], 3);
   assert.strictEqual(r.ok, false);
