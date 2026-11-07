@@ -240,7 +240,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.90.2');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.91.0');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1285,6 +1285,25 @@ await t('4l. 1.90.2 the ID survives a home folder that cannot keep its file (141
   } finally { p.close(); }
   fs.rmSync(home, { recursive: true, force: true });
   fs.rmSync(home2, { recursive: true, force: true });
+});
+
+await t('4m. 1.91 ✂ a whole caption in one click; Shift+✂ = every caption in between; ✂ again keeps them', async () => {
+  const p = loadPanel({});
+  try {
+    await flush(5);
+    p.evalVm(`reviewCues = [{ text: 'ሀ ለ', start: 0, end: 1 }, { text: 'መ ረ', start: 1, end: 2 }, { text: 'ሰ ቀ', start: 2, end: 3 }, { text: 'በ ተ', start: 3, end: 4 }];
+      renderReview = () => {}; schedulePreview = () => {}; WHOLE_LAST = -1;`);
+    p.evalVm('toggleWholeCut(0, false)');
+    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(reviewCues.map((c) => c.text))')), ['~ሀ ለ~', 'መ ረ', 'ሰ ቀ', 'በ ተ'], 'one click: the whole caption');
+    p.evalVm('toggleWholeCut(2, true)');
+    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(reviewCues.map((c) => c.text))')), ['~ሀ ለ~', '~መ ረ~', '~ሰ ቀ~', 'በ ተ'], 'Shift: every caption from the last ✂ to here');
+    p.evalVm('toggleWholeCut(1, true)');
+    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(reviewCues.map((c) => c.text))')), ['~ሀ ለ~', 'መ ረ', 'ሰ ቀ', 'በ ተ'], 'Shift on a struck one: keeps them again');
+    // words struck inside a caption become part of the whole cut, no double marks
+    p.evalVm(`reviewCues[3].text = 'በ ~ተ~'; toggleWholeCut(3, false);`);
+    assert.strictEqual(p.evalVm('reviewCues[3].text'), '~በ ተ~');
+    assert.strictEqual(p.evalVm('findTextCuts(reviewCues).length'), 2, 'two cuts: caption 1 and caption 4');
+  } finally { p.close(); }
 });
 
 await t('4k. 1.80.1 the program and the engine always mean the same computer: a wrong ID is caught before charging', async () => {

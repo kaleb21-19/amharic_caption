@@ -676,6 +676,18 @@ function cutRanges(text) {
   while ((m = re.exec(t)) !== null) out.push({ start: m.index, end: m.index + m[0].length });
   return out;
 }
+// 1.91 ▶ hear the edit: where the sound goes next from time t — the end of the
+// cut it is in (or about to enter, `lead` seconds early), else null
+function skipTarget(t, cuts, lead) {
+  const x = Number(t) + (Number(lead) || 0);
+  for (const c of cuts || []) if (x >= c.start - 0.005 && x < c.end) return c.end;
+  return null;
+}
+// 1.91 ✂ a whole caption: is all of it struck (~…~)?
+function wholeStruck(text) {
+  const s = String(text || '').trim();
+  return s.length > 2 && s[0] === '~' && s[s.length - 1] === '~' && s.indexOf('~', 1) === s.length - 1;
+}
 function findTextCuts(cues) {
   const out = [];
   (cues || []).forEach((c, ci) => {
@@ -1070,7 +1082,7 @@ function wordsFromCues(cues) {
 
 // Node (tests) — no-op in the CEP browser where `module` is undefined.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = {
+  module.exports = { skipTarget, wholeStruck,
     parseSrt, formatSrtTs, cleanCueLines, AMH_PUNCT_CHARS,
     detectSpeaker, normalizeCues,
     speakerPrefix, noEmph, srtTextFromCues, displaySrtTextFromCues, vttTextFromCues, txtTextFromCues,
