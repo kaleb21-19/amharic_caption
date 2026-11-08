@@ -1310,6 +1310,20 @@ await t('4n3s. 1.94.2 the Studio List: ✂ on a caption cuts the Studio timeline
   } finally { p.close(); }
 });
 
+await t('4n3c. 1.94.2 ■ Stop for the Studio Make captions: the engine stops (like Cancel); nothing when nothing runs', async () => {
+  const p = loadPanel({});
+  try {
+    await flush(5);
+    p.evalVm('globalThis.__k = 0; activeChild = { kill: () => { __k++; } }; runInProgress = false;');
+    assert.strictEqual(p.evalVm('window.__amhCancelCaptions()'), false, 'nothing running: nothing to stop');
+    p.evalVm('runInProgress = true; cancelRequested = false;');
+    assert.strictEqual(p.evalVm('window.__amhCancelCaptions()'), true);
+    assert.strictEqual(p.evalVm('cancelRequested'), true, 'free minutes are given back on a cancelled run');
+    assert.strictEqual(p.evalVm('__k'), 1, 'the engine is stopped');
+    p.evalVm('runInProgress = false; activeChild = null;');
+  } finally { p.close(); }
+});
+
 await t('4n3. 1.93 ✂ one click on a caption cuts the Premiere timeline at once; the captions after it move up', async () => {
   const log = [];
   const p = loadPanel({ evalLog: log, csiRaw: (jsx) => {

@@ -9476,6 +9476,16 @@ async function runFile(filePath, fileName) {
 // The same engine and the same rules as a normal run (runtime, model,
 // license or free minutes, refund when it fails), but the open review, its
 // captions and its file are left exactly as they are. -> the captions.
+// 1.94.2 (owner: "the user can not cancel" Make captions in the Studio): ■ Stop
+// there = the panel's Cancel — the engine stops, free minutes are given back.
+function cancelCaptions() {
+  if (!runInProgress) return false;
+  cancelRequested = true;
+  try { if (activeChild) activeChild.kill(); } catch (e) {}
+  try { if (warmChild && !warmChild.killed) warmChild.kill(); } catch (e) {}
+  return true;
+}
+if (typeof window !== 'undefined') window.__amhCancelCaptions = cancelCaptions;
 async function transcribeExtra(filePath) {
   if (runInProgress || runStartInProgress) throw new Error(L('Captions are already being made — wait for them to finish.'));
   if (!RUNTIME || !PYTHON || !FFMPEG || !fs.existsSync(PYTHON) || !fs.existsSync(FFMPEG)) {
