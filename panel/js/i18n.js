@@ -182,6 +182,8 @@ const AM_TEXT = {
   'captions': 'ካፕሽኖች',
   'Cutting': 'በመቁረጥ ላይ',
   'Cut from the timeline': 'ከታይምላይኑ ተቆርጧል',
+  'The cut did not work': 'መቁረጡ አልሰራም',
+  '↶ Undo brings it back': '↶ «መልስ» ይመልሰዋል',
   'your original is kept as': 'የመጀመሪያው ቅጂዎ ተቀምጧል፦',
   'Press the scissors again — the captions moved after the last cut.': 'መቀሱን እንደገና ይጫኑ — ካፕሽኖቹ ከቀደመው ቁርጥ በኋላ ተንቀሳቅሰዋል።',
   'Too short to cut (under 2 frames).': 'ለመቁረጥ በጣም አጭር ነው (ከ2 ፍሬም በታች)።',

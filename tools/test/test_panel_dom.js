@@ -1294,6 +1294,22 @@ await t('4l. 1.90.2 the ID survives a home folder that cannot keep its file (141
   fs.rmSync(home2, { recursive: true, force: true });
 });
 
+await t('4n3s. 1.94.2 the Studio List: ✂ on a caption cuts the Studio timeline at once (its editor, with Undo)', async () => {
+  const p = loadPanel({});
+  try {
+    await flush(5);
+    p.evalVm(`globalThis.__cuts = []; IS_APP_MODE = () => true; window.__amhEditor = { cutRanges: (r) => { __cuts.push(r); } };
+      reviewCues = [{ text: 'ሀ ለ', start: 0, end: 1 }, { text: 'መጥፎ ቴክ', start: 1, end: 2.5 }, { text: 'ሰ ቀ በ', start: 2.5, end: 4, wt: [[2.5, 3], [3, 3.5], [3.5, 4]] }];
+      schedulePreview = () => {}; renderReview();`);
+    assert.strictEqual(p.evalVm('instantCutOn()'), true, 'the Studio cuts at once');
+    p.evalVm('cutCaptionsNow(1, false)');
+    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(__cuts)')), [[{ start: 1, end: 2.5 }]], 'the caption’s time, to the Studio editor');
+    assert.match(p.els('textCutNote').textContent, /Cut from the timeline|ከታይምላይኑ ተቆርጧል/);
+    p.evalVm('cutWordsNow(2, 2, 3)');
+    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(__cuts[1])')), [{ start: 3, end: 3.5 }], 'selected words only (exact times)');
+  } finally { p.close(); }
+});
+
 await t('4n3. 1.93 ✂ one click on a caption cuts the Premiere timeline at once; the captions after it move up', async () => {
   const log = [];
   const p = loadPanel({ evalLog: log, csiRaw: (jsx) => {

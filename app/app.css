@@ -852,3 +852,9 @@ html.amh-studio .st-pick { display: none; }
 
 /* 1.90 many shots: the Media card's main button */
 .ed-maddtl { width: 100%; margin-top: 4px; }
+
+/* 1.94.2 the Media card: the buttons had no space between them (".ed-mitem
+   .st-btn" set margin 0 and won) and were the same green — one main action */
+.ed-mitem .ed-mcapbtn { margin-top: 8px; }
+.ed-mitem .ed-maddtl { margin-top: 6px; }
+.ed-mitem .ed-madd { margin-top: 6px; }

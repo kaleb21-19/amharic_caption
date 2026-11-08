@@ -908,6 +908,9 @@
   html:not(.amh-studio) #trialGate { padding: 9px 10px; border-width: 1px; font-size: 10.5px; }
   html:not(.amh-studio) #trialGate .tg-title { font-size: 12px; margin-bottom: 4px; }
   html:not(.amh-studio) #trialGate .btn { height: 28px; padding: 0 10px; font-size: 11px; margin-top: 6px; }
+  /* the Studio list: ✂ is always there (faint), not only on hover */
+  html.amh-studio .review-row .text-box .cut-word { opacity: .45; }
+  html.amh-studio .review-row .text-box .cut-word:hover { opacity: 1; }
   html:not(.amh-studio) #styleCustomToggle { width: 22px; height: 20px; padding: 0; font-size: 12px; line-height: 1; }
 </style>
 </head>

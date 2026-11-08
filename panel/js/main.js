@@ -5573,7 +5573,11 @@ function toggleTextCut(i, from, to) {
 // The first cut keeps an untouched copy in the project ("… - before text
 // edit"). Clicks wait their turn (one Premiere edit at a time).
 const TEXTCUT = { chain: Promise.resolve(), busy: 0, note: '', bad: false };
-function instantCutOn() { return cleanupAvailable(); }
+// 1.94.2 (owner: "edit with text does not work in the List" — in the Studio
+// ✂ only struck the words and the cut came at export): the Studio has its
+// own timeline, so ✂ cuts there at once too (the editor's cutRanges, with ↶ Undo).
+function studioCutHere() { return !!(IS_APP_MODE() && window.__amhEditor && typeof window.__amhEditor.cutRanges === 'function'); }
+function instantCutOn() { return cleanupAvailable() || studioCutHere(); }
 function textCutNote(text, bad) {
   TEXTCUT.note = text || ''; TEXTCUT.bad = !!bad;
   const n = $('textCutNote');
@@ -5623,6 +5627,16 @@ function cutWordsNow(i, from, to) {
   return queueTextCut(ranges, drop, '“' + found.map((c) => c.text).join(' … ') + '”', i);
 }
 function queueTextCut(ranges, drop, what, focusAt) {
+  if (studioCutHere()) {
+    // the Studio: cut its own timeline now; the captions follow the clips
+    const cuts = mergeRanges(ranges.filter((c) => c.end - c.start > 0.03));
+    if (!cuts.length) return false;
+    try { window.__amhEditor.cutRanges(cuts); } catch (e) { textCutNote(L('The cut did not work') + ': ' + (e && e.message ? e.message : e), true); return false; }
+    const sec = cuts.reduce((n, c) => n + c.end - c.start, 0).toFixed(1);
+    textCutNote('✂ ' + L('Cut from the timeline') + ': ' + what + ' · ' + sec + ' s — ' + L('↶ Undo brings it back'));
+    if (focusAt != null) { try { focusReviewCue(Math.min(focusAt, reviewCues.length - 1), 0); } catch (e) {} }
+    return true;
+  }
   TEXTCUT.busy++;
   textCutNote('✂ ' + L('Cutting') + ' ' + what + '…');
   // times are read when the turn comes: an earlier cut moves everything after it
