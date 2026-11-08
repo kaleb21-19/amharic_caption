@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.1';
+const APP_VERSION = '1.94.2';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -7553,10 +7553,22 @@ function switchRow(parent, label, on, key) {
   row.appendChild(b);
   row.className += ' sc-inline';
 }
+// 1.94.2 (owner: "an extension for Premiere, not editing software — remove
+// the caption customization"): in Premiere and After Effects the look is
+// chosen with one tap on a style, no Customize box. The Studio keeps it.
+let PANEL_CUSTOMIZE = null;      // tests: true = the Customize box in the panel too
+function customizeHere() { return PANEL_CUSTOMIZE !== null ? !!PANEL_CUSTOMIZE : IS_APP_MODE(); }
 function renderStyleCustom() {
   const wrap = $('styleCustom');
   const opts = $('styleOpts');
   if (!wrap || !opts) return;
+  if (!customizeHere()) {
+    STYLE_CUSTOM_OPEN = false;
+    const t0 = $('styleCustomToggle');
+    if (t0) t0.style.display = 'none';
+    wrap.style.display = 'none';
+    return;
+  }
   const styled = STYLE_OK && STYLE !== 'plain';
   const open = styled && STYLE_CUSTOM_OPEN;
   const tog = $('styleCustomToggle');

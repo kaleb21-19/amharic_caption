@@ -198,6 +198,10 @@ function loadPanel(opts) {
     vm.runInContext('engineAuth = async () => ({ lease: "test" });', ctx);
   }
 
+  // 1.94.2: the Customize box is the Studio's only; the tests of its
+  // controls switch it on in the panel (opts.realPanel keeps the real panel)
+  if (!opts.realPanel) vm.runInContext('PANEL_CUSTOMIZE = true;', ctx);
+
   let mid = null;
   try {
     const rec = JSON.parse(fs.readFileSync(path.join(machineHome,'.amharic_captions_machine.json'),'utf8'));
@@ -243,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.1');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.2');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1418,6 +1422,18 @@ await t('4e. free week (1.10.20): the panel shows until when, and says when the 
     assert.strictEqual(p.evalVm('humanError("trial used up")'), 'Your free week has ended. Buy a license to keep making captions.');
     p.evalVm('AMH_LANG = "am"; setTrialState({ mode: "minutes", status: "active", minutes: 30, seconds_total: 1800, seconds_left: 1500, expires: "2026-10-19" }); updateLicenseUI();');
     has(p.els('licenseStatus').textContent, 'እስከ 2026-10-19');
+  } finally { p.close(); }
+});
+
+await t('4f0. 1.94.2 the Premiere panel has no Customize box: a style is one tap, then Place', async () => {
+  const p = loadPanel({ realPanel: true });
+  try {
+    await flush(10);
+    p.evalVm('STYLE_OK = true; STYLE = "bounce"; STYLE_CUSTOM_OPEN = true; renderStyleStrip();');
+    assert.strictEqual(p.els('styleCustomToggle').style.display, 'none', 'no Customize button');
+    assert.strictEqual(p.els('styleCustom').style.display, 'none', 'no Customize box');
+    assert.strictEqual(p.evalVm('STYLE_CUSTOM_OPEN'), false);
+    assert.ok(Array.from(p.els('styleChips').children).length > 1, 'the styles are still there to choose');
   } finally { p.close(); }
 });
 
