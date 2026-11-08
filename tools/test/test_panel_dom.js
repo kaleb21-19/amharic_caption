@@ -198,6 +198,10 @@ function loadPanel(opts) {
     vm.runInContext('engineAuth = async () => ({ lease: "test" });', ctx);
   }
 
+  // 1.94.2: the Customize box is the Studio's only; the tests of its
+  // controls switch it on in the panel (opts.realPanel keeps the real panel)
+  if (!opts.realPanel) vm.runInContext('PANEL_CUSTOMIZE = true;', ctx);
+
   let mid = null;
   try {
     const rec = JSON.parse(fs.readFileSync(path.join(machineHome,'.amharic_captions_machine.json'),'utf8'));
@@ -243,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.1');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.2');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1290,6 +1294,22 @@ await t('4l. 1.90.2 the ID survives a home folder that cannot keep its file (141
   fs.rmSync(home2, { recursive: true, force: true });
 });
 
+await t('4n3s. 1.94.2 the Studio List: ✂ on a caption cuts the Studio timeline at once (its editor, with Undo)', async () => {
+  const p = loadPanel({});
+  try {
+    await flush(5);
+    p.evalVm(`globalThis.__cuts = []; IS_APP_MODE = () => true; window.__amhEditor = { cutRanges: (r) => { __cuts.push(r); } };
+      reviewCues = [{ text: 'ሀ ለ', start: 0, end: 1 }, { text: 'መጥፎ ቴክ', start: 1, end: 2.5 }, { text: 'ሰ ቀ በ', start: 2.5, end: 4, wt: [[2.5, 3], [3, 3.5], [3.5, 4]] }];
+      schedulePreview = () => {}; renderReview();`);
+    assert.strictEqual(p.evalVm('instantCutOn()'), true, 'the Studio cuts at once');
+    p.evalVm('cutCaptionsNow(1, false)');
+    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(__cuts)')), [[{ start: 1, end: 2.5 }]], 'the caption’s time, to the Studio editor');
+    assert.match(p.els('textCutNote').textContent, /Cut from the timeline|ከታይምላይኑ ተቆርጧል/);
+    p.evalVm('cutWordsNow(2, 2, 3)');
+    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(__cuts[1])')), [{ start: 3, end: 3.5 }], 'selected words only (exact times)');
+  } finally { p.close(); }
+});
+
 await t('4n3. 1.93 ✂ one click on a caption cuts the Premiere timeline at once; the captions after it move up', async () => {
   const log = [];
   const p = loadPanel({ evalLog: log, csiRaw: (jsx) => {
@@ -1418,6 +1438,38 @@ await t('4e. free week (1.10.20): the panel shows until when, and says when the 
     assert.strictEqual(p.evalVm('humanError("trial used up")'), 'Your free week has ended. Buy a license to keep making captions.');
     p.evalVm('AMH_LANG = "am"; setTrialState({ mode: "minutes", status: "active", minutes: 30, seconds_total: 1800, seconds_left: 1500, expires: "2026-10-19" }); updateLicenseUI();');
     has(p.els('licenseStatus').textContent, 'እስከ 2026-10-19');
+  } finally { p.close(); }
+});
+
+await t('4f0. 1.94.2 the panel Customize is one compact block: ⚙ opens six short lines; a pick changes the look', async () => {
+  const p = loadPanel({ realPanel: true });
+  try {
+    await flush(10);
+    p.evalVm('STYLE_OK = true; STYLE = "bounce"; STYLE_CUSTOM_OPEN = false; renderStyleStrip();');
+    assert.notStrictEqual(p.els('styleCustomToggle').style.display, 'none', 'the ⚙ button is there');
+    assert.strictEqual(p.els('styleCustom').style.display, 'none', 'closed until ⚙');
+    p.els('styleCustomToggle').fire('click');
+    assert.notStrictEqual(p.els('styleCustom').style.display, 'none', 'open');
+    const rows = Array.from(p.els('styleOpts').children).filter((r) => r.className === 'cc-row');
+    const label = (r) => r.children[0].textContent;
+    assert.strictEqual(rows.length, 6, 'six short lines');
+    // Size L
+    const sizeBtn = rows[0].children[1].children.find((b) => b.dataset.value === 'l');
+    sizeBtn.fire('click');
+    assert.strictEqual(p.evalVm('styleOpts("bounce").size'), 1.25);
+    // Position Top
+    p.els('styleCustomToggle').fire('click'); p.els('styleCustomToggle').fire('click');
+    const rows2 = Array.from(p.els('styleOpts').children).filter((r) => r.className === 'cc-row');
+    rows2[1].children[1].children.find((b) => b.dataset.value === 'top').fire('click');
+    assert.strictEqual(p.evalVm('styleOpts("bounce").pos'), 'top');
+    // a colour dot
+    const rows3 = Array.from(p.els('styleOpts').children).filter((r) => r.className === 'cc-row');
+    rows3[2].children[1].children.find((b) => b.dataset.value === '#FF3B30').fire('click');
+    assert.strictEqual(p.evalVm('styleOpts("bounce").color'), '#FF3B30');
+    // no preview picture and no tabs in the panel
+    assert.strictEqual(p.els('styleTabs').style.display, 'none');
+    assert.strictEqual(p.els('stylePreview').style.display, 'none');
+    void label;
   } finally { p.close(); }
 });
 

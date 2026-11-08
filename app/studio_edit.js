@@ -2433,7 +2433,8 @@
       }
       const row = el('div', 'ed-madd');
       // 🎬 1.90: the one thing most people want, said plainly
-      if (m.video && !m.image) it.appendChild(btn('st-btn primary ed-maddtl', '＋ ' + tx('ወደ ጊዜ መስመሩ', 'Add to the timeline'), tx('ከማጫወቻው ክፍል በኋላ (ማጫወቻው መጨረሻ ላይ ከሆነ በመጨረሻ) — ወይም ወደ ጊዜ መስመሩ ይጎትቱት', 'After the shot at the playhead (at the end when the playhead is there) — or drag it onto the timeline'), () => { addToTimeline(id); renderMedia(); }));
+      const capShown = !!it.querySelector('.ed-mcapbtn');
+      if (m.video && !m.image) it.appendChild(btn('st-btn ed-maddtl' + (capShown || used ? '' : ' primary'), '＋ ' + tx('ወደ ጊዜ መስመሩ', 'Add to the timeline'), tx('ከማጫወቻው ክፍል በኋላ (ማጫወቻው መጨረሻ ላይ ከሆነ በመጨረሻ) — ወይም ወደ ጊዜ መስመሩ ይጎትቱት', 'After the shot at the playhead (at the end when the playhead is there) — or drag it onto the timeline'), () => { addToTimeline(id); renderMedia(); }));
       if (m.video) row.appendChild(btn('st-btn', '＋ ' + tx('ከላይ', 'On top'), tx('ከዋናው ቪዲዮ በላይ (ተደራቢ)፣ ማጫወቻው ባለበት', 'Above the main video (overlay), at the playhead'), () => addOverlay(id)));
       if (m.audio && !m.image) row.appendChild(btn('st-btn', '＋ ♪ ' + tx('ሙዚቃ', 'Music'), tx('ከዋናው መስመር በታች፣ ሰው ሲናገር ይቀንሳል', 'Under the main track; quieter while someone speaks'), () => addMusic(id)));
       it.appendChild(row);
@@ -4954,6 +4955,7 @@
     renderReview();
     await seek(0);
     after(); renderMedia(); syncUndo();
+    setLeft(!(reviewCues && reviewCues.length));     // 1.94.2: no captions yet → 📁 Media (Make captions)
     // the other files dropped with it
     const more = pendingFiles; pendingFiles = [];
     for (const p of more) { try { await addAndPlace(p); } catch (e) {} }
@@ -4976,6 +4978,7 @@
       reviewCues = E.deriveCaptions(clips, SRC);
       renderReview();
       seek(0); after(); renderMedia(); syncUndo();
+      setLeft(!(reviewCues && reviewCues.length));   // 1.94.2: no captions yet → 📁 Media (Make captions)
       setTimeout(() => maybeGuide(false), 600);
     } else {
       built = false; media = {}; clips = []; ovl = []; txt = []; mus = []; snd = SND_NEW(); zm = []; trk = { tx: [], ov: [], au: [] }; SRC = {}; mk = []; io = null;

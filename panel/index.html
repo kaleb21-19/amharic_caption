@@ -866,6 +866,52 @@
   /* 1.54: the caption being heard; ■ Stop on top */
   .review-row.hearing { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
   .rstep.hearstop { border-color: var(--accent); color: var(--accent); }
+  /* 1.94.2 (owner: "our controls are too big, not professional — the small
+     template row is perfect"): the panel at Premiere's own scale — 11 px
+     text, 22 px controls, tighter cards. The Amharic caption text stays
+     12.5 px so it reads easily. The Studio (its own layout) is untouched. */
+  html:not(.amh-studio) {
+    --font-s: 10px; --font-m: 11px; --font-l: 12.5px;
+    --control-h: 22px; --radius: 6px; --radius-sm: 4px; --gap: 6px;
+  }
+  html:not(.amh-studio) .card { padding: 7px 8px; margin-bottom: 6px; }
+  html:not(.amh-studio) .card-head { margin-bottom: 5px; gap: 6px; }
+  html:not(.amh-studio) .step-num { width: 15px; height: 15px; font-size: 9px; }
+  html:not(.amh-studio) .card-head .card-hint, html:not(.amh-studio) .hint { font-size: 9px; }
+  html:not(.amh-studio) .btn { padding: 0 10px; }
+  html:not(.amh-studio) .btn-primary { height: 28px; box-shadow: 0 1px 5px rgba(52,192,125,.25); }
+  html:not(.amh-studio) .review-row .text-box textarea, html:not(.amh-studio) .review-row .text-box .hl-back { font-size: 12.5px; }
+  html:not(.amh-studio) .review-head { margin-bottom: 7px; }
+  /* 1.94.2 compact Customize (the panel): a short line per setting */
+  .style-custom.sc-compact { max-height: none; min-height: 0; padding: 6px 8px; margin-top: 6px; }
+  .sc-compact .cc-row { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+  .sc-compact .cc-row + .cc-row { border-top: 1px solid var(--divider); }
+  .sc-compact .cc-label { flex: 0 0 64px; font-size: 10px; color: var(--text-secondary); }
+  .sc-compact .cc-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+  .sc-compact .cc-opt { height: 20px; padding: 0 8px; border: 0; background: var(--bg-card); color: var(--text-secondary); font-size: 10px; cursor: pointer; }
+  .sc-compact .cc-seg .cc-opt + .cc-opt { border-left: 1px solid var(--border); }
+  .sc-compact .cc-opt.active { background: var(--accent); color: #06251a; font-weight: 600; }
+  .sc-compact .cc-box { margin-left: auto; border: 1px solid var(--border); border-radius: 4px; }
+  .sc-compact .cc-dots { display: inline-flex; gap: 5px; }
+  .sc-compact .cc-dot { width: 15px; height: 15px; padding: 0; border-radius: 50%; border: 1px solid rgba(255,255,255,.25); cursor: pointer; }
+  .sc-compact .cc-dot.auto { background: conic-gradient(#ffe500, #ff3b30, #2f80ed, #39ff14, #ffe500); }
+  .sc-compact .cc-dot.active { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .sc-compact .cc-select { width: auto; flex: 1; max-width: 170px; height: 20px; padding: 0 4px; font-size: 10.5px; }
+  .sc-compact .cc-foot { display: flex; justify-content: flex-end; padding-top: 3px; }
+  .sc-compact .cc-reset { border: 0; background: none; color: var(--text-secondary); font-size: 10px; cursor: pointer; padding: 2px 0; }
+  .sc-compact .cc-reset:hover { color: var(--text-primary); }
+  /* the status pill never pushes the title: one line, cut with …, the whole text on hover */
+  #statusPill { max-width: 52vw; min-width: 0; overflow: hidden; }
+  #statusText { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .brand { min-width: 0; }
+  /* the free-minutes / connection box at the panel's scale */
+  html:not(.amh-studio) #trialGate { padding: 9px 10px; border-width: 1px; font-size: 10.5px; }
+  html:not(.amh-studio) #trialGate .tg-title { font-size: 12px; margin-bottom: 4px; }
+  html:not(.amh-studio) #trialGate .btn { height: 28px; padding: 0 10px; font-size: 11px; margin-top: 6px; }
+  /* the Studio list: ✂ is always there (faint), not only on hover */
+  html.amh-studio .review-row .text-box .cut-word { opacity: .45; }
+  html.amh-studio .review-row .text-box .cut-word:hover { opacity: 1; }
+  html:not(.amh-studio) #styleCustomToggle { width: 22px; height: 20px; padding: 0; font-size: 12px; line-height: 1; }
 </style>
 </head>
 <body>
@@ -1192,7 +1238,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.94.1</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.94.2</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
