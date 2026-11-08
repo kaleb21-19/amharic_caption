@@ -154,6 +154,14 @@
       const sec = Math.round((Date.now() - st.t0) / 1000);
       card.appendChild(el('div', 'st-capcard-t', '⏳ ' + tx('ጽሑፍ እየተሰራ ነው…', 'Transcribing…') + (st.n > 1 ? ' ' + (st.done + 1) + '/' + st.n : '') + ' · ' + Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0')));
       card.appendChild(el('div', 'st-capcard-s', tx('ኤዲቲንጉን መቀጠል ይችላሉ — ሲያልቅ ጽሑፉ እዚህ ይመጣል።', 'Keep editing — the text comes here when it is done.')));
+      // 1.94.2: ■ Stop (the engine stops, free minutes come back)
+      if (ed.stopCaptions) {
+        const stop = el('button', 'st-btn st-capcard-b', st.stop ? tx('በማቆም ላይ…', 'Stopping…') : '■ ' + tx('አቁም', 'Stop'));
+        stop.type = 'button';
+        stop.disabled = !!st.stop;
+        stop.addEventListener('click', () => { ed.stopCaptions(); });
+        card.appendChild(stop);
+      }
       capTick = setTimeout(renderSoon, 1000);
     } else if (st.state === 'model') {
       const tot = typeof MODEL_TOTAL_BYTES !== 'undefined' ? MODEL_TOTAL_BYTES : 0, got = typeof MODEL_UI !== 'undefined' ? Number(MODEL_UI.done) || 0 : 0;

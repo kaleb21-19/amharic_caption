@@ -2425,8 +2425,13 @@
       if (!caps && m.audio && !m.image && !onlyMusic) {
         const job = CAPJOBS[id];
         if (job && job.busy) {
-          it.appendChild(el('div', 'ed-mcap busy', '⏳ ' + tx('ካፕሽን እየተሰራ ነው… ', 'Making captions… ') + S.fmtClock((Date.now() - job.t0) / 1000)));
+          it.appendChild(el('div', 'ed-mcap busy', '⏳ ' + (job.stopping ? tx('በማቆም ላይ…', 'Stopping…') : tx('ካፕሽን እየተሰራ ነው… ', 'Making captions… ') + S.fmtClock((Date.now() - job.t0) / 1000))));
+          // 1.94.2: it can be stopped (the engine stops, free minutes come back)
+          const stop = btn('st-btn ed-mcapbtn', '■ ' + tx('አቁም', 'Stop'), tx('ካፕሽን መስራቱን አቁም — ነጻ ደቂቃዎች ይመለሳሉ', 'Stop making captions — free minutes are given back'), () => stopCaptions());
+          stop.disabled = !!job.stopping;
+          it.appendChild(stop);
         } else {
+          if (job && job.note) it.appendChild(el('div', 'ed-mcap', job.note));
           if (job && job.err) it.appendChild(el('div', 'ed-mcap err', job.err));
           it.appendChild(btn('st-btn primary ed-mcapbtn', '💬 ' + tx('ካፕሽን ይስሩ', 'Make captions'), tx('ይህን ፋይል ወደ ጽሑፍ ቀይር', 'Turn this file\'s speech into captions'), () => makeCaptions(id)));
         }
@@ -2465,9 +2470,19 @@
       change('captions', () => { SRC[id] = clean; });
       log(tx('✓ ካፕሽን ተሰራ፦ ', '✓ Captions made: ') + m.name + ' (' + clean.length + ')');
     } catch (e) {
-      CAPJOBS[id] = { busy: false, err: (e && e.message) ? e.message : String(e) };
+      CAPJOBS[id] = (CAPJOBS[id] && CAPJOBS[id].stopping)
+        ? { busy: false, note: '■ ' + tx('ቆሟል — ምንም ደቂቃ አልተቀነሰም።', 'Stopped — no minutes were used.') }
+        : { busy: false, err: (e && e.message) ? e.message : String(e) };
     }
     renderMedia();
+  }
+  // ■ Stop: the file being transcribed now, and the rest of "Transcribe all"
+  function stopCaptions() {
+    if (capAll) capAll.stop = true;
+    Object.keys(CAPJOBS).forEach((k) => { if (CAPJOBS[k].busy) CAPJOBS[k].stopping = true; });
+    if (window.__amhCancelCaptions) window.__amhCancelCaptions();
+    renderMedia();
+    capSoon();
   }
 
   // 📝 1.88: captions when the editor asks for them — each file of the main
@@ -2496,6 +2511,7 @@
         capSoon();
       }
       await makeCaptions(id);
+      if (capAll && capAll.stop) { capAll = null; capSoon(); return; }
       const j = CAPJOBS[id] || {};
       if (j.err && !(SRC[id] || []).length && ids.length === 1) { capAll = { state: 'err', msg: j.err }; capSoon(); return; }
       capAll = Object.assign({}, capAll, { done: capAll.done + 1 });
@@ -5043,5 +5059,5 @@
     queueExports, stopExport, clearDone, detectGpu, gpuName: (e) => GPU_NAMES[e] || '', queue: () => QUEUE, onQueue: (f) => qWatch.push(f),
     setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } });
   window.__amhEditor = { renderJob, snapshot, open, copySel, paste, duplicate, togglePick, selected, state: () => ({ clips, ovl, txt, mus, snd, zm, media, SRC, fmt, sel, built }), addOverlay, addText, addZoom, autoZooms, addBroll, brollPicker, findFaces, followFaces, frameClips, useSoundFolder, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, moveRange, total, redo,
-    select: (id) => { sel = id; picks = []; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, transcribeAll, capCard, sourceShort, addToTimeline, insertMain, insertFound, startCrop, endCrop, cropState: () => cropEdit, setCropView: (v) => { if (cropEdit) { cropEdit.v = v; frame(); } }, freezeFrame, reverseClip, rampClip, guide: () => maybeGuide(true), queueExports, kinds, queue: () => QUEUE, markedPart, toggleMarker, markIO, clearIO, setShuttle, markers: () => mk, addToMedia, findFile, missingFiles, checkFiles, render, exportVideo, frame, setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } };
+    select: (id) => { sel = id; picks = []; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, transcribeAll, stopCaptions, capCard, sourceShort, addToTimeline, insertMain, insertFound, startCrop, endCrop, cropState: () => cropEdit, setCropView: (v) => { if (cropEdit) { cropEdit.v = v; frame(); } }, freezeFrame, reverseClip, rampClip, guide: () => maybeGuide(true), queueExports, kinds, queue: () => QUEUE, markedPart, toggleMarker, markIO, clearIO, setShuttle, markers: () => mk, addToMedia, findFile, missingFiles, checkFiles, render, exportVideo, frame, setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } };
 })();
