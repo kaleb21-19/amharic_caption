@@ -866,6 +866,22 @@
   /* 1.54: the caption being heard; ■ Stop on top */
   .review-row.hearing { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
   .rstep.hearstop { border-color: var(--accent); color: var(--accent); }
+  /* 1.94.2 (owner: "our controls are too big, not professional — the small
+     template row is perfect"): the panel at Premiere's own scale — 11 px
+     text, 22 px controls, tighter cards. The Amharic caption text stays
+     12.5 px so it reads easily. The Studio (its own layout) is untouched. */
+  html:not(.amh-studio) {
+    --font-s: 10px; --font-m: 11px; --font-l: 12.5px;
+    --control-h: 22px; --radius: 6px; --radius-sm: 4px; --gap: 6px;
+  }
+  html:not(.amh-studio) .card { padding: 7px 8px; margin-bottom: 6px; }
+  html:not(.amh-studio) .card-head { margin-bottom: 5px; gap: 6px; }
+  html:not(.amh-studio) .step-num { width: 15px; height: 15px; font-size: 9px; }
+  html:not(.amh-studio) .card-head .card-hint, html:not(.amh-studio) .hint { font-size: 9px; }
+  html:not(.amh-studio) .btn { padding: 0 10px; }
+  html:not(.amh-studio) .btn-primary { height: 28px; box-shadow: 0 1px 5px rgba(52,192,125,.25); }
+  html:not(.amh-studio) .review-row .text-box textarea, html:not(.amh-studio) .review-row .text-box .hl-back { font-size: 12.5px; }
+  html:not(.amh-studio) .review-head { margin-bottom: 7px; }
 </style>
 </head>
 <body>
