@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.0';
+const APP_VERSION = '1.94.1';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -486,19 +486,6 @@ setTimeout(() => { if (FIRST_OPEN) track('first_open'); track('open'); }, 1200);
 // cannot know what a release newer than itself contains, so `banner` must also
 // stay true of any later update. Amharic first, then English.
 const WHATS_NEW = {
-  '1.94.0': {
-    banner: {
-      am: '⬆ 🎬 ቴምፕሌቶች (Premiere)፦ ካፕሽኖችዎን በራስዎ .mogrt ቴምፕሌት — በEssential Graphics ያስተካክሉ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
-      en: '⬆ 🎬 Templates (Premiere): your captions in your own .mogrt templates — customize them in Essential Graphics — your license stays the same.',
-    },
-    items: [
-      { am: '🎬 «.mogrt ጨምር»፦ ያለዎትን Motion Graphics ቴምፕሌት ይምረጡ — ስሙ፣ ምስሉና የመስመሩ ብዛት ይታያል', en: '🎬 «Add .mogrt»: choose the Motion Graphics templates you have — their name, picture and number of lines show' },
-      { am: '«በታይምላይን ላይ አስቀምጥ»፦ እያንዳንዱ ካፕሽን አንድ ቴምፕሌት ይሆናል፣ ቃላቱ በቴምፕሌቱ መስመሮች ላይ፣ በአማርኛ ፊደል', en: '«Place»: every caption becomes one template, its words over the lines of the template, in an Amharic font' },
-      { am: '2 ወይም 3 መስመር፦ በካፕሽኑ ውስጥ Shift+Enter ይጫኑ — ያን ያህል መስመር ያለው ቴምፕሌት ይጠቀማል', en: '2 or 3 lines: press Shift+Enter inside a caption — a template with that many lines is used' },
-      { am: 'አንዱን ካፕሽን በEssential Graphics ይቀይሩ፣ «🎨 ይህን ስታይል ለሁሉም ስጥ» — ሁሉም ካፕሽኖች ያንን መልክ ያገኛሉ', en: 'Change one caption in Essential Graphics, then «🎨 Apply this look to all captions» — every caption gets it' },
-      { am: 'በPremiere ውስጥ የሚስተካከሉ ካፕሽኖች ብቻ፦ መደበኛ (የPremiere የራሱ ካፕሽን) እና ቴምፕሌቶች — የተሳሉት ስታይሎች በAfter Effects እና በስቱዲዮ ይቀጥላሉ', en: 'In Premiere only captions you can change: Plain (Premiere’s own) and Templates — the drawn styles stay in After Effects and the Studio' },
-    ],
-  },
   '1.93.0': {
     banner: {
       am: '⬆ ✂ በጽሑፍ ኤዲት፦ መቀሱን ሲጫኑ ወዲያው ከታይምላይኑ ይቆረጣል — ምስልና ድምፅ፣ በአንድ ንክኪ — ፈቃድዎ እንደቀድሞው ይቀጥላል።',
@@ -6926,13 +6913,6 @@ function styleChip(id, label, img, onClick) {
   b.addEventListener('click', onClick);
   return b;
 }
-// 1.94 (owner): in Premiere only captions the editor can change — Plain
-// (Premiere's own captions, Essential Graphics) and 🎬 Templates. Our drawn
-// styles stay in After Effects and the Studio (they cannot use templates).
-// A style chosen before is kept in the settings (After Effects / the Studio
-// still use it); Premiere simply places Plain or the template.
-let PANEL_STYLES = null;          // tests: true = show the drawn styles here too
-function stylesInPanel() { return PANEL_STYLES !== null ? !!PANEL_STYLES : !cleanupAvailable(); }
 function renderStyleStrip() {
   syncReviewSteps();
   const strip = $('styleStrip');
@@ -6940,22 +6920,20 @@ function renderStyleStrip() {
   if (!strip || !chips) return;
   strip.style.display = STYLE_OK ? '' : 'none';
   if (!STYLE_OK) return;
-  if (!stylesInPanel() && STYLE !== 'plain') STYLE = 'plain';
   const mine = activeMyStyle();
   const list = myStyles();
   // Rebuilt only when the saved looks change: rebuilding on every click
   // would also jump the strip back to the start after scrolling to a style.
-  const sig = JSON.stringify([stylesInPanel()].concat(list.map((m) => [m.id, m.name, m.style, m.opts && m.opts.color])));
+  const sig = JSON.stringify(list.map((m) => [m.id, m.name, m.style, m.opts && m.opts.color]));
   if (chips.dataset.sig === sig && chips.children.length) {
     for (const b of Array.from(chips.children)) {
-      const on = !mogrtActive() && (b.dataset.my ? !!mine && mine.id === b.dataset.my : b.dataset.style === STYLE && !mine);
+      const on = b.dataset.my ? !!mine && mine.id === b.dataset.my : b.dataset.style === STYLE && !mine;
       b.classList.toggle('active', on);
       b.setAttribute('aria-pressed', on ? 'true' : 'false');
     }
     const n0 = $('styleNote');
     if (n0) n0.textContent = L(styleNote());
     renderStyleCustom();
-    renderMogrtRow();
     return;
   }
   chips.dataset.sig = sig;
@@ -6963,7 +6941,7 @@ function renderStyleStrip() {
   const builtIn = (id) => {
     const b = styleChip(id, TEMPLATE_NAMES[id] || STYLE_NAMES[id], id, () => {
       STYLE = id;
-      saveSettings({ style: id, mogrtPick: '' });
+      saveSettings({ style: id });
       renderStyleStrip();
       schedulePreview();
     });
@@ -6974,19 +6952,12 @@ function renderStyleStrip() {
       tag.textContent = L('NEW');
       b.appendChild(tag);
     }
-    const on = id === STYLE && !mine && !mogrtActive();
+    const on = id === STYLE && !mine;
     b.classList.toggle('active', on);
     b.setAttribute('aria-pressed', on ? 'true' : 'false');
     chips.appendChild(b);
   };
   builtIn('plain');
-  if (!stylesInPanel()) {
-    const note = $('styleNote');
-    if (note) note.textContent = L(styleNote());
-    renderStyleCustom();
-    renderMogrtRow();
-    return;
-  }
   list.forEach((m) => {
     const b = styleChip(m.id, m.name, m.style, () => applyMyStyle(m.id));
     b.classList.add('mine');
@@ -7018,7 +6989,6 @@ function renderStyleStrip() {
   const note = $('styleNote');
   if (note) note.textContent = L(styleNote());
   renderStyleCustom();
-  renderMogrtRow();
 }
 function styleCues(cues) {
   return (cues || []).filter((c) => (c.text || '').trim()).map((c) => [String(c.text).replace(/~/g, '').replace(/\s+/g, ' ').trim(), c.start, c.end]);
@@ -7172,27 +7142,7 @@ async function checkSelectedCaption() {
   try {
     const r = await evalScript('amh_selectedStyled()', 5000);
     const rec = r && r.ok && !r.none ? findStyledRecent(r) : null;
-    if (!rec) {
-      // 1.94: one of our template captions → its look to all of them
-      const m = mogrtAvailable() ? await evalScript('amh_mogrtSelected()', 5000) : null;
-      if (m && m.ok && !m.none && m.tag) {
-        bar.textContent = '';
-        const ab = document.createElement('button');
-        ab.type = 'button';
-        ab.className = 'btn btn-primary sel-cap-btn';
-        ab.textContent = '🎨 ' + L('Apply this look to all captions');
-        ab.addEventListener('click', () => mogrtApplyLook(m.tag));
-        const tx = document.createElement('span');
-        tx.className = 'sel-cap-text';
-        tx.textContent = L('Change it in Essential Graphics first');
-        bar.appendChild(ab);
-        bar.appendChild(tx);
-        bar.style.display = '';
-        return;
-      }
-      bar.style.display = 'none';
-      return;
-    }
+    if (!rec) { bar.style.display = 'none'; return; }
     const t = (Number(r.start) + Number(r.end)) / 2 - (Number(rec.startSeconds) || 0);
     const dist = (c) => (t < Number(c.start) ? Number(c.start) - t : (t > Number(c.end) ? t - Number(c.end) : 0));
     const cue = rec.cues.reduce((best, c) => (dist(c) < dist(best) ? c : best), rec.cues[0]);
@@ -7212,7 +7162,7 @@ async function checkSelectedCaption() {
     const txt = document.createElement('span');
     txt.className = 'sel-cap-text';
     txt.textContent = '“' + String(cue.text || '').replace(/[*~]/g, '').slice(0, 40) + '”';
-    if (stylesInPanel()) bar.appendChild(look);
+    bar.appendChild(look);
     bar.appendChild(b);
     bar.appendChild(txt);
     bar.style.display = '';
@@ -7313,195 +7263,6 @@ async function tlRedraw(restore, cueArg) {
 function tlStop() {
   clearTimeout(TL.timer);
   TL.on = false;
-}
-
-// ── 🎬 Templates (1.94, Premiere) ────────────────────────────────────────
-// The owner: captions in Motion Graphics templates the editor can customize
-// (Essential Graphics) — a 2- or 3-line look per caption. The editor adds
-// .mogrt files once (their own: we ship none); each caption becomes one
-// graphic with its words over the template's lines (core mogrtParts — the
-// editor's Shift+Enter line breaks decide, and a template with that many
-// lines is used when there is one), in an Amharic font. "Apply to all" copies
-// the look of the caption selected on the timeline to the others.
-const MOGRT_FONTS = { sans: 'NotoSansEthiopic-Bold', menbere: 'Menbere-Bold', serif: 'NotoSerifEthiopic-Bold', abyssinica: 'AbyssinicaSIL-Regular',
-  yebse: 'EthiopicYebse', washra: 'EthiopicWashRaBold', jiret: 'EthiopiaJiret', tint: 'EthiopicTint', fantuwua: 'EthiopicFantuwua', gothic: 'EthiopicYigezuBisratGothic' };
-const MOGRT_FREE = 3;            // captions a free version places (a preview of the look)
-let MOGRT_FONTS_DONE = false;
-function mogrtAvailable() { return cleanupAvailable(); }
-function mogrtList() { const l = loadSettings().mogrts; return Array.isArray(l) ? l.filter((t) => t && t.id && t.path) : []; }
-function mogrtActive() {
-  if (!mogrtAvailable()) return null;
-  const id = loadSettings().mogrtPick;
-  return id ? mogrtList().find((t) => t.id === id) || null : null;
-}
-// One file out of a zip (a .mogrt is one): the central directory, then the
-// entry, stored or deflated. null when it is not there.
-function zipEntry(file, name) {
-  const zlib = nodeRequire('zlib');
-  const b = fs.readFileSync(file);
-  let e = b.length - 22;
-  while (e >= 0 && b.readUInt32LE(e) !== 0x06054b50) e--;
-  if (e < 0) return null;
-  let p = b.readUInt32LE(e + 16);
-  const n = b.readUInt16LE(e + 10);
-  for (let i = 0; i < n && p + 46 <= b.length; i++) {
-    if (b.readUInt32LE(p) !== 0x02014b50) return null;
-    const method = b.readUInt16LE(p + 10), csize = b.readUInt32LE(p + 20);
-    const nl = b.readUInt16LE(p + 28), xl = b.readUInt16LE(p + 30), cl = b.readUInt16LE(p + 32);
-    const off = b.readUInt32LE(p + 42);
-    const nm = b.slice(p + 46, p + 46 + nl).toString('utf8');
-    if (nm === name) {
-      const lnl = b.readUInt16LE(off + 26), lxl = b.readUInt16LE(off + 28);
-      const data = b.slice(off + 30 + lnl + lxl, off + 30 + lnl + lxl + csize);
-      return method === 0 ? data : (method === 8 ? zlib.inflateRawSync(data) : null);
-    }
-    p += 46 + nl + xl + cl;
-  }
-  return null;
-}
-// What a .mogrt is: its name, how many text lines (text controls), its picture.
-function mogrtInfo(file) {
-  const def = JSON.parse(String(zipEntry(file, 'definition.json') || '').replace(/^\uFEFF/, ''));
-  let lines = 0;
-  (def.clientControls || []).forEach((c) => { if (c && Number(c.type) === 6) lines++; });
-  let name = path.basename(file, path.extname(file));
-  try { const s = def.capsuleNameLocalized && def.capsuleNameLocalized.strDB && def.capsuleNameLocalized.strDB[0] && def.capsuleNameLocalized.strDB[0].str; if (s) name = String(s); } catch (e) {}
-  let thumb = '';
-  try { const t = zipEntry(file, 'thumb.png'); if (t && t.length < 400000) thumb = 'data:image/png;base64,' + t.toString('base64'); } catch (e) {}
-  return { name: name.slice(0, 40), lines: Math.max(1, lines), thumb };
-}
-function mogrtAddFiles(files) {
-  const list = mogrtList();
-  let added = 0, bad = 0;
-  (files || []).forEach((f) => {
-    if (!/\.mogrt$/i.test(f) || list.some((t) => t.path === f)) return;
-    try {
-      const info = mogrtInfo(f);
-      list.push({ id: 'm' + Date.now().toString(36) + Math.floor(Math.random() * 1e4), path: f, name: info.name, lines: info.lines, thumb: info.thumb });
-      added++;
-    } catch (e) { bad++; log('Template not readable (' + path.basename(f) + '): ' + (e && e.message ? e.message : e)); }
-  });
-  const s = { mogrts: list };
-  if (added && !mogrtActive()) s.mogrtPick = list[list.length - 1].id;
-  saveSettings(s);
-  renderMogrtRow();
-  return { added, bad };
-}
-function mogrtPickFiles() {
-  try {
-    const r = window.cep.fs.showOpenDialog(true, false, L('Choose Motion Graphics templates (.mogrt)'), '', ['mogrt']);
-    if (!r || r.err !== 0 || !r.data || !r.data.length) return;
-    mogrtAddFiles(r.data);
-  } catch (e) { log('Could not open the file dialog: ' + e); }
-}
-function mogrtUse(id) {
-  saveSettings({ mogrtPick: id || '' });
-  renderStyleStrip();
-}
-function mogrtRemove(id) {
-  const list = mogrtList().filter((t) => t.id !== id);
-  const s = { mogrts: list };
-  if (loadSettings().mogrtPick === id) s.mogrtPick = '';
-  saveSettings(s);
-  renderStyleStrip();
-}
-function renderMogrtRow() {
-  const row = $('mogrtRow');
-  if (!row) return;
-  row.textContent = '';
-  if (!mogrtAvailable()) { row.style.display = 'none'; return; }
-  row.style.display = '';
-  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-  const head = el('div', 'mogrt-head');
-  head.appendChild(el('b', '', '🎬 ' + L('Templates')));
-  head.appendChild(el('span', '', L('your own .mogrt — customize each caption in Essential Graphics')));
-  row.appendChild(head);
-  const chips = el('div', 'mogrt-chips');
-  const act = mogrtActive();
-  mogrtList().forEach((t) => {
-    const b = el('button', 'style-chip mogrt-chip' + (act && act.id === t.id ? ' active' : ''));
-    b.type = 'button';
-    b.title = t.path;
-    const pic = el('img');
-    pic.alt = '';
-    if (t.thumb) pic.src = t.thumb;
-    b.appendChild(pic);
-    b.appendChild(el('span', '', t.name));
-    b.appendChild(el('i', 'mogrt-lines', t.lines + ' ' + L(t.lines === 1 ? 'line' : 'lines')));
-    const del = el('i', 'my-del', '✕');
-    del.title = L('Delete');
-    del.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); mogrtRemove(t.id); });
-    b.appendChild(del);
-    b.addEventListener('click', () => mogrtUse(act && act.id === t.id ? '' : t.id));
-    chips.appendChild(b);
-  });
-  const add = el('button', 'style-chip mogrt-add', '＋ ' + L('Add .mogrt'));
-  add.type = 'button';
-  add.addEventListener('click', mogrtPickFiles);
-  chips.appendChild(add);
-  row.appendChild(chips);
-  if (act) {
-    const fonts = el('div', 'mogrt-fonts');
-    fonts.appendChild(el('span', '', L('Amharic font')));
-    const cur = loadSettings().mogrtFont || 'sans';
-    STYLE_FONTS.filter(([id]) => MOGRT_FONTS[id]).forEach(([id, name]) => {
-      const fb = el('button', 'sc-opt' + (cur === id ? ' active' : ''), L(name));
-      fb.type = 'button';
-      fb.addEventListener('click', () => { saveSettings({ mogrtFont: id }); renderMogrtRow(); });
-      fonts.appendChild(fb);
-    });
-    row.appendChild(fonts);
-    row.appendChild(el('div', 'hint', L('2 or 3 lines in one caption: press Shift+Enter where a line should break — a template with that many lines is used.') +
-      (LICENSED ? '' : ' ' + L('Free version: the first 3 captions show the look; a license places them all.'))));
-  }
-}
-async function placeMogrt(cues, label, startSeconds) {
-  const list = mogrtList(), act = mogrtActive();
-  if (!act) throw new Error('no template chosen');
-  const base0 = Number(startSeconds) || 0;
-  const fontKey = loadSettings().mogrtFont || 'sans';
-  const font = MOGRT_FONTS[fontKey] || MOGRT_FONTS.sans;
-  const btn = $('reviewPlace');
-  if (btn && btn.dataset.styleLabel === undefined) btn.dataset.styleLabel = btn.textContent;
-  const show = (t) => { if (btn) btn.textContent = '⏳ ' + t; };
-  // the Amharic fonts must be on this computer for Premiere's text to use them
-  if (!MOGRT_FONTS_DONE) {
-    show(L('Installing the Amharic fonts…'));
-    try { await installFonts(); } catch (e) { log('The Amharic fonts could not be installed (' + (e && e.message ? e.message : e) + ') — the template font may show instead.'); }
-    MOGRT_FONTS_DONE = true;
-  }
-  const all = cues.filter((c) => String(c.text || '').replace(/[*~]/g, '').trim());
-  const use = LICENSED ? all : all.slice(0, MOGRT_FREE);
-  const tag = 'amhmogrt_' + safeFileName(label || 'captions').slice(0, 40) + '_';
-  const items = use.map((c, i) => {
-    const t = mogrtFor(list, act.id, c.text) || act;
-    return { n: i + 1, path: t.path, start: base0 + Number(c.start), end: base0 + Number(c.end), parts: mogrtParts(c.text, t.lines), font };
-  });
-  const rangeStart = base0 + Math.min.apply(null, all.map((c) => Number(c.start)));
-  const rangeEnd = base0 + Math.max.apply(null, all.map((c) => Number(c.end)));
-  const CH = 8;
-  let track = -1, placed = 0, noText = 0, removed = 0, added = false;
-  for (let k = 0; k < items.length; k += CH) {
-    show(L('Placing captions') + ' ' + Math.min(items.length, k + CH) + '/' + items.length);
-    const r = await hostCall('amh_mogrtPlace', { tag, items: items.slice(k, k + CH), first: k === 0, rangeStart, rangeEnd, track }, 180000);
-    if (!r || !r.ok) throw new Error((r && r.error) || HOST_NAME + ' did not place the template');
-    if (k === 0) { track = r.track; removed = r.removed || 0; added = !!r.added; }
-    placed += r.placed || 0;
-    noText += r.noText || 0;
-    if (r.errors && r.errors.length) log('Template: ' + r.errors.join(' | '));
-  }
-  if (!placed) throw new Error('Premiere placed none of the template captions');
-  STYLED_LAST = { mode: 'mogrt', tag, style: STYLE, track, start: base0, template: act.id };
-  return { placed, total: all.length, track, added, removed, noText, limited: use.length < all.length };
-}
-async function mogrtApplyLook(tag) {
-  const bar = $('selCapBar');
-  const r = await hostCall('amh_mogrtApplyLook', { tag }, 180000);
-  if (!r || !r.ok) { log('Apply to all: ' + ((r && r.error) || 'no answer')); setStatus('err', L((r && r.error) || 'Premiere did not answer.')); return r; }
-  log('🎨 The look went to ' + r.changed + ' caption(s)' + (r.skipped ? ' (' + r.skipped + ' use another template)' : '') + '.');
-  setSuccess('✓ ' + L('The look is on every caption') + ' (' + r.changed + ')');
-  if (bar) bar.style.display = 'none';
-  return r;
 }
 
 // asked when the editor comes back to the panel (no polling while it is away)
@@ -8045,27 +7806,7 @@ async function placeReview() {
     removeTempCaptionArtifact(originalReviewSrt);
     REVIEW.outSrt = dest;
     lastSrtPath = dest;
-    if (mogrtActive()) {
-      const tp = mogrtActive();
-      log('Placing your captions as the template "' + tp.name + '" (' + reviewCues.length + ')…');
-      try {
-        const m = await placeMogrt(reviewCues, REVIEW.label || 'captions', REVIEW.startSeconds);
-        log('✓ ' + m.placed + ' template caption(s) on track V' + (m.track + 1) + (m.added ? ' (a new track)' : '') +
-          (m.removed ? ' — replaced ' + m.removed + ' earlier one(s)' : '') + '. Click one and change it in Essential Graphics; "Apply to all" copies its look.');
-        if (m.noText) log(m.noText + ' template caption(s) have no text the panel can fill — that template is a picture only.');
-        if (m.limited) log('Free version: ' + m.placed + ' of ' + m.total + ' captions placed as the template — a license places them all.');
-        setSuccess('✓ ' + L('Template captions on the timeline — click one, change it in Essential Graphics'));
-        track('placed');
-        saveHistory(dest);
-        closeReview(true);
-        return;
-      } catch (e) {
-        log('The template could not be used (' + (e && e.message ? e.message : String(e)) + ').');
-        setStatus('err', L('The template could not be used') + ': ' + L((e && e.message) || String(e)));
-        return;
-      }
-    }
-    if (STYLE !== 'plain' && STYLE_OK && stylesInPanel()) {
+    if (STYLE !== 'plain' && STYLE_OK) {
       log('Placing your captions in the "' + STYLE_NAMES[STYLE] + '" style (' + reviewCues.length + ')…');
       try {
         const st = await placeStyled(reviewCues, REVIEW.label || 'captions', REVIEW.startSeconds);

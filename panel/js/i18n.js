@@ -167,24 +167,6 @@ const AM_STATIC = {
 
 // ── dynamic text from main.js / core.js (keyed by the English string) ───────
 const AM_TEXT = {
-  // 1.94 🎬 templates
-  'Templates': 'ቴምፕሌቶች',
-  'your own .mogrt — customize each caption in Essential Graphics': 'የራስዎ .mogrt — እያንዳንዱን ካፕሽን በEssential Graphics ያስተካክሉ',
-  'Add .mogrt': '.mogrt ጨምር',
-  'line': 'መስመር',
-  'lines': 'መስመሮች',
-  'Amharic font': 'የአማርኛ ፊደል',
-  '2 or 3 lines in one caption: press Shift+Enter where a line should break — a template with that many lines is used.': 'በአንድ ካፕሽን 2 ወይም 3 መስመር፦ መስመሩ እንዲሰበር በሚፈልጉበት ቦታ Shift+Enter ይጫኑ — ያን ያህል መስመር ያለው ቴምፕሌት ይጠቀማል።',
-  'Free version: the first 3 captions show the look; a license places them all.': 'ነጻ ስሪት፦ የመጀመሪያዎቹ 3 ካፕሽኖች ስታይሉን ያሳያሉ፤ ፈቃድ ሁሉንም ያስቀምጣል።',
-  'Choose Motion Graphics templates (.mogrt)': 'Motion Graphics ቴምፕሌቶችን (.mogrt) ይምረጡ',
-  'Installing the Amharic fonts…': 'የአማርኛ ፊደሎችን በመጫን ላይ…',
-  'Template captions on the timeline — click one, change it in Essential Graphics': 'የቴምፕሌት ካፕሽኖች በታይምላይኑ ላይ ናቸው — አንዱን ይጫኑ፣ በEssential Graphics ይቀይሩት',
-  'The template could not be used': 'ቴምፕሌቱን መጠቀም አልተቻለም',
-  'Apply this look to all captions': 'ይህን ስታይል ለሁሉም ካፕሽኖች ስጥ',
-  'Change it in Essential Graphics first': 'መጀመሪያ በEssential Graphics ይቀይሩት',
-  'The look is on every caption': 'ስታይሉ በሁሉም ካፕሽኖች ላይ ነው',
-  'No free video track for the captions. Add an empty video track at the top, then press Place again.': 'ለካፕሽኖቹ ባዶ የቪዲዮ ትራክ የለም። ከላይ ባዶ የቪዲዮ ትራክ ጨምረው እንደገና ይጫኑ።',
-  'Select one of the template captions on the timeline first.': 'መጀመሪያ በታይምላይኑ ላይ ከቴምፕሌት ካፕሽኖቹ አንዱን ይምረጡ።',
   // 1.93 🎨 style on the timeline
   'Style on the timeline': 'በታይምላይኑ ላይ ስታይል',
   'Text': 'ጽሑፍ',
