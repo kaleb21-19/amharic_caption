@@ -3442,6 +3442,7 @@ function setStatus(state, text) {
   if (state) pill.classList.add(state);
   STATUS_EN = text || '';
   txt.textContent = L(STATUS_EN);
+  pill.title = txt.textContent;            // a long message: the whole text on hover
 }
 function setSuccess(text) {
   // Green "ready" pill, but with a concrete outcome so the user sees success
@@ -7558,17 +7559,97 @@ function switchRow(parent, label, on, key) {
 // chosen with one tap on a style, no Customize box. The Studio keeps it.
 let PANEL_CUSTOMIZE = null;      // tests: true = the Customize box in the panel too
 function customizeHere() { return PANEL_CUSTOMIZE !== null ? !!PANEL_CUSTOMIZE : IS_APP_MODE(); }
+// 1.94.2 (owner: "add the customization back, a professional design, not
+// much space"): the panel's Customize is one compact block — a short line
+// each for Size, Position, Colour, Text, Font and Animation, closed until ⚙.
+// No preview picture, no tabs, nothing to save: the look shows on the
+// timeline after Place. The same settings as the Studio's big box.
+const SIZE_PICK = [['s', 'S', 0.8], ['m', 'M', 1], ['l', 'L', 1.25], ['xl', 'XL', 1.5]];
+function renderCompactCustom(wrap, opts) {
+  const styled = STYLE_OK && STYLE !== 'plain';
+  const open = styled && STYLE_CUSTOM_OPEN;
+  const tog = $('styleCustomToggle');
+  if (tog) {
+    tog.style.display = styled ? '' : 'none';
+    tog.textContent = '⚙';
+    tog.title = L('Customize');
+    tog.classList.toggle('open', open);
+    if (!tog.dataset.wired) {
+      tog.dataset.wired = '1';
+      tog.addEventListener('click', () => { STYLE_CUSTOM_OPEN = !STYLE_CUSTOM_OPEN; renderStyleCustom(); });
+    }
+  }
+  wrap.classList.add('sc-compact');
+  wrap.style.display = open ? '' : 'none';
+  ['stylePreview', 'stylePreviewNote', 'styleTabs'].forEach((id) => { const e = $(id); if (e) e.style.display = 'none'; });
+  const stage = wrap.querySelector ? wrap.querySelector('.sc-stage') : null;
+  if (stage) stage.style.display = 'none';
+  if (!open) return;
+  const o = styleOpts(STYLE);
+  opts.textContent = '';
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const line = (label) => { const r = el('div', 'cc-row'); r.appendChild(el('span', 'cc-label', L(label))); opts.appendChild(r); return r; };
+  const seg = (row, items, current, onPick) => {
+    const box = el('span', 'cc-seg');
+    items.forEach(([v, t]) => {
+      const b = el('button', 'cc-opt' + (String(v) === String(current) ? ' active' : ''), t);
+      b.type = 'button';
+      b.dataset.value = v;
+      b.addEventListener('click', () => onPick(v));
+      box.appendChild(b);
+    });
+    row.appendChild(box);
+    return box;
+  };
+  const dots = (row, list, current, key) => {
+    const box = el('span', 'cc-dots');
+    list.forEach((c) => {
+      const b = el('button', 'cc-dot' + (c === current ? ' active' : '') + (c ? '' : ' auto'));
+      b.type = 'button';
+      b.dataset.value = c;
+      b.title = c || L('Style colour');
+      if (c) b.style.background = c;
+      b.addEventListener('click', () => setStyleOpt(key, c));
+      box.appendChild(b);
+    });
+    row.appendChild(box);
+    return box;
+  };
+  const pick = (row, items, current, key) => {
+    const sel = el('select', 'cc-select');
+    items.forEach(([v, t]) => { const op = el('option', '', t); op.value = v; if (v === current) op.selected = true; sel.appendChild(op); });
+    sel.addEventListener('change', () => setStyleOpt(key, sel.value));
+    row.appendChild(sel);
+    return sel;
+  };
+  // the size nearest to the one in use
+  const sz = sizeNum(o.size);
+  let near = SIZE_PICK[0];
+  SIZE_PICK.forEach((p) => { if (Math.abs(p[2] - sz) < Math.abs(near[2] - sz)) near = p; });
+  seg(line('Size'), SIZE_PICK.map((p) => [p[0], p[1]]), near[0], (v) => setStyleOpt('size', SIZE_PICK.find((p) => p[0] === v)[2]));
+  seg(line('Position'), [['bottom', L('Bottom')], ['middle', L('Middle')], ['top', L('Top')], ['safe', 'TikTok']], o.y === null ? o.pos : '',
+    (v) => setStyleOpt('pos', v));
+  dots(line('Colour'), STYLE_COLORS, o.color, 'color');
+  const tr = line('Text');
+  dots(tr, TEXT_COLORS, o.text, 'text');
+  const bx = el('button', 'cc-opt cc-box' + (o.box ? ' active' : ''), L('Box'));
+  bx.type = 'button';
+  bx.addEventListener('click', () => setStyleOpt('box', !o.box));
+  tr.appendChild(bx);
+  pick(line('Font'), STYLE_FONTS.map(([id, name]) => [id, L(name)]), o.font, 'font');
+  pick(line('Animation'), STYLE_ANIMS.map(([id, name]) => [id, L(name)]), o.anim, 'anim');
+  const foot = el('div', 'cc-foot');
+  const reset = el('button', 'cc-reset', '↺ ' + L('Reset'));
+  reset.type = 'button';
+  reset.addEventListener('click', resetStyleOpts);
+  foot.appendChild(reset);
+  opts.appendChild(foot);
+}
 function renderStyleCustom() {
   const wrap = $('styleCustom');
   const opts = $('styleOpts');
   if (!wrap || !opts) return;
-  if (!customizeHere()) {
-    STYLE_CUSTOM_OPEN = false;
-    const t0 = $('styleCustomToggle');
-    if (t0) t0.style.display = 'none';
-    wrap.style.display = 'none';
-    return;
-  }
+  if (!customizeHere()) { renderCompactCustom(wrap, opts); return; }
   const styled = STYLE_OK && STYLE !== 'plain';
   const open = styled && STYLE_CUSTOM_OPEN;
   const tog = $('styleCustomToggle');
@@ -7773,6 +7854,7 @@ async function renderPreview() {
   const img = $('stylePreview');
   const note = $('stylePreviewNote');
   if (!img || !STYLE_OK || STYLE === 'plain' || !reviewOpen || !STYLE_CUSTOM_OPEN) return;
+  if (!customizeHere()) return;             // 1.94.2: the compact panel block has no preview picture
   const cues = styleCues(reviewCues);
   if (!cues.length) return;
   const seq = ++PREVIEW_SEQ;

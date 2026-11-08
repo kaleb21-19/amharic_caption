@@ -1425,15 +1425,35 @@ await t('4e. free week (1.10.20): the panel shows until when, and says when the 
   } finally { p.close(); }
 });
 
-await t('4f0. 1.94.2 the Premiere panel has no Customize box: a style is one tap, then Place', async () => {
+await t('4f0. 1.94.2 the panel Customize is one compact block: ⚙ opens six short lines; a pick changes the look', async () => {
   const p = loadPanel({ realPanel: true });
   try {
     await flush(10);
-    p.evalVm('STYLE_OK = true; STYLE = "bounce"; STYLE_CUSTOM_OPEN = true; renderStyleStrip();');
-    assert.strictEqual(p.els('styleCustomToggle').style.display, 'none', 'no Customize button');
-    assert.strictEqual(p.els('styleCustom').style.display, 'none', 'no Customize box');
-    assert.strictEqual(p.evalVm('STYLE_CUSTOM_OPEN'), false);
-    assert.ok(Array.from(p.els('styleChips').children).length > 1, 'the styles are still there to choose');
+    p.evalVm('STYLE_OK = true; STYLE = "bounce"; STYLE_CUSTOM_OPEN = false; renderStyleStrip();');
+    assert.notStrictEqual(p.els('styleCustomToggle').style.display, 'none', 'the ⚙ button is there');
+    assert.strictEqual(p.els('styleCustom').style.display, 'none', 'closed until ⚙');
+    p.els('styleCustomToggle').fire('click');
+    assert.notStrictEqual(p.els('styleCustom').style.display, 'none', 'open');
+    const rows = Array.from(p.els('styleOpts').children).filter((r) => r.className === 'cc-row');
+    const label = (r) => r.children[0].textContent;
+    assert.strictEqual(rows.length, 6, 'six short lines');
+    // Size L
+    const sizeBtn = rows[0].children[1].children.find((b) => b.dataset.value === 'l');
+    sizeBtn.fire('click');
+    assert.strictEqual(p.evalVm('styleOpts("bounce").size'), 1.25);
+    // Position Top
+    p.els('styleCustomToggle').fire('click'); p.els('styleCustomToggle').fire('click');
+    const rows2 = Array.from(p.els('styleOpts').children).filter((r) => r.className === 'cc-row');
+    rows2[1].children[1].children.find((b) => b.dataset.value === 'top').fire('click');
+    assert.strictEqual(p.evalVm('styleOpts("bounce").pos'), 'top');
+    // a colour dot
+    const rows3 = Array.from(p.els('styleOpts').children).filter((r) => r.className === 'cc-row');
+    rows3[2].children[1].children.find((b) => b.dataset.value === '#FF3B30').fire('click');
+    assert.strictEqual(p.evalVm('styleOpts("bounce").color'), '#FF3B30');
+    // no preview picture and no tabs in the panel
+    assert.strictEqual(p.els('styleTabs').style.display, 'none');
+    assert.strictEqual(p.els('stylePreview').style.display, 'none');
+    void label;
   } finally { p.close(); }
 });
 
