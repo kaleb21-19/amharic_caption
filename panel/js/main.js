@@ -7034,6 +7034,7 @@ function renderStyleStrip() {
     }
     const n0 = $('styleNote');
     if (n0) n0.textContent = L(styleNote());
+    syncStyleMore(chips);
     renderStyleCustom();
     return;
   }
@@ -7107,7 +7108,34 @@ function renderStyleStrip() {
   TEMPLATE_LIST.forEach(builtIn);
   const note = $('styleNote');
   if (note) note.textContent = L(styleNote());
+  syncStyleMore(chips);
   renderStyleCustom();
+}
+// 1.94.5 (owner: "64 styles is a lot — show the good ones, with More styles"):
+// in the Studio 8 good looks come first (and the editor's own saved looks, and
+// the one in use); "+ More styles" shows the rest. Premiere keeps its strip.
+const STUDIO_TOP_STYLES = ['bold', 'highlight', 'glide', 'boldpop', 'reels', 'kineticpop', 'luxgold', 'hotpink'];
+let STYLE_MORE = false;
+function syncStyleMore(chips) {
+  const more = $('styleMore');
+  if (!IS_APP_MODE()) { if (more) more.style.display = 'none'; chips.classList.remove('st-few'); return; }
+  let extra = 0;
+  Array.from(chips.children).forEach((b) => {
+    if (b.dataset && b.dataset.my) { b.style.order = '-30'; return; }
+    if (!b.dataset || !b.dataset.style) return;
+    const top = STUDIO_TOP_STYLES.indexOf(b.dataset.style);
+    b.style.order = top >= 0 ? String(top - 20) : '';
+    b.classList.toggle('st-extra', top < 0);
+    if (top < 0) extra++;
+  });
+  chips.classList.toggle('st-few', !STYLE_MORE);
+  if (!more) return;
+  more.style.display = extra ? '' : 'none';
+  more.textContent = STYLE_MORE ? '− ' + L('Fewer styles') : '＋ ' + L('More styles') + ' (' + extra + ')';
+  if (!more.dataset.wired) {
+    more.dataset.wired = '1';
+    more.addEventListener('click', () => { STYLE_MORE = !STYLE_MORE; syncStyleMore($('styleChips')); });
+  }
 }
 function styleCues(cues) {
   return (cues || []).filter((c) => (c.text || '').trim()).map((c) => [String(c.text).replace(/~/g, '').replace(/\s+/g, ' ').trim(), c.start, c.end]);

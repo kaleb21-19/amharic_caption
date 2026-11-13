@@ -897,3 +897,10 @@ html.amh-studio .st-cappane:not(.st-capedit) .style-head { position: sticky; top
 
 /* 1.94.5 Simple: the freelancers' client word list only in Pro */
 html.amh-simple .st-thead .st-ico[data-client] { display: none; }
+
+/* 1.94.5 8 good styles first; + More styles shows the rest (the one in use always shows) */
+html.amh-studio .style-chips.st-few .style-chip.st-extra:not(.active),
+html.amh-studio .style-chips.st-few .style-group { display: none; }
+html.amh-studio .style-more { display: block; width: 100%; margin: 10px 0 4px; padding: 9px 0; border: 1px dashed var(--border); border-radius: 10px;
+  background: none; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+html.amh-studio .style-more:hover { border-color: var(--accent); background: rgba(46,204,113,.06); }
