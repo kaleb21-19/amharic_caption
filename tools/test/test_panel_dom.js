@@ -1359,6 +1359,29 @@ await t('4n3z. 1.94.3 opened from inside the downloaded zip: said at once, no jo
   } finally { p.close(); }
 });
 
+await t('4n3f. 1.94.3 the Studio job WAITS for a new computer’s first minutes (it used to fail at once with "No free minutes left")', async () => {
+  let answer = { mode: 'minutes', status: 'active', seconds_left: 300, seconds_total: 300, minutes: 30, starter: true, started: true };
+  const asked = [];
+  const p = loadPanel({ fetch: async (url, o) => {
+    if (/\/api\/trial\/request/.test(url)) { asked.push(JSON.parse(o.body)); return { ok: true, status: 200, json: async () => answer, text: async () => JSON.stringify(answer) }; }
+    return { ok: true, status: 200, json: async () => ({ ok: true }), text: async () => '{}' };
+  } });
+  try {
+    await flush(5);
+    p.evalVm(`LICENSED = false; STARTER_ASKED = false; TRIAL_MIN = { status: 'none', minutes: 30, seconds_left: 0, seconds_total: 0 };`);
+    assert.strictEqual(await p.evalVm('starterBeforeJob()'), true, 'the minutes came, and the job can go on');
+    assert.ok(asked.length === 1 && asked[0].starter === true, 'asked once, for the first minutes');
+    assert.strictEqual(p.evalVm('trialRemaining()'), 300);
+    // the server says no (this computer had them before): not "buy", but the way to get free minutes
+    answer = { mode: 'minutes', status: 'none', minutes: 30, seconds_left: 0, seconds_total: 0 };
+    p.evalVm(`STARTER_ASKED = false; TRIAL_MIN = { status: 'none', minutes: 30, seconds_left: 0, seconds_total: 0 };
+      refreshTrialFromServer = async () => {};`);
+    assert.strictEqual(await p.evalVm('starterBeforeJob()'), false);
+    assert.strictEqual(await p.evalVm('starterBeforeJob()'), false, 'asked only once per run');
+    assert.strictEqual(asked.length, 2);
+  } finally { p.close(); }
+});
+
 await t('4n3. 1.93 ✂ one click on a caption cuts the Premiere timeline at once; the captions after it move up', async () => {
   const log = [];
   const p = loadPanel({ evalLog: log, csiRaw: (jsx) => {

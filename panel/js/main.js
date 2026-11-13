@@ -2673,6 +2673,27 @@ function assertCanRun(resume) {
   }
   return false;
 }
+// 1.94.3: the first minutes for a job that cannot wait on a card (the
+// Studio's Make captions / Transcribe): ask, WAIT for the answer, true when
+// minutes are there. Asked once per run of the program, like the panel.
+async function starterBeforeJob() {
+  if (LICENSED || trialRemaining() > 0) return true;
+  const st = TRIAL_MIN ? TRIAL_MIN.status : null;
+  if (st !== 'none' || STARTER_ASKED) return false;
+  STARTER_ASKED = true;
+  let r = null;
+  try { r = await apiPost('/api/trial/request', { mid: MACHINE_ID, hf: hostFingerprint() || undefined, starter: true }); } catch (e) { r = null; }
+  if (r && r.mode === 'minutes') setTrialState(r);
+  else STARTER_ASKED = false;           // no answer: ask again next time
+  updateLicenseUI();
+  if (trialRemaining() > 0) {
+    if (r && r.started) track('trial_starter');
+    log('🎁 ' + fmtMinSec(trialRemaining()) + ' free minutes on this computer — your captions start now.');
+    return true;
+  }
+  return false;
+}
+if (typeof window !== 'undefined') window.__amhGetFreeMinutes = () => startFreeMinutes();
 // 1.77: the first free minutes on this computer, without Telegram (the
 // server gives them once per computer). Then the job that was asked for
 // starts; when the server says no, the usual Telegram card.
@@ -9525,7 +9546,19 @@ async function transcribeExtra(filePath) {
   if (!modelReadyForRun(null)) throw new Error(L('The Amharic model is downloading — try again when it is ready.'));
   runStartInProgress = true;
   try { await refreshTrialFromServer(); } finally { runStartInProgress = false; }
-  if (!assertCanRun(null)) throw new Error(L('No free minutes left — a license makes captions for every video.'));
+  // 1.94.3: a new computer's first minutes (without Telegram) — WAIT for them.
+  // Before, the request went out and the job failed at once with "No free
+  // minutes left"; the minutes arrived a moment later, the editor had left
+  // (Studio, 30 days: ~100 stopped at "none yet", ~10 got the first minutes).
+  await starterBeforeJob();
+  if (!assertCanRun(null)) {
+    const st = TRIAL_MIN ? TRIAL_MIN.status : null;
+    throw new Error(L(st === 'none' || (st && trialMoreMinutes())
+      ? 'Get your free minutes first: press 🎁 Get free minutes — Telegram opens, press START there.'
+      : !st ? 'Connect to the internet for the free trial (a license works offline).'
+        : st === 'expired' ? 'Your free trial time has ended. Buy a license to keep making captions.'
+          : 'No free minutes left — a license makes captions for every video.'));
+  }
   const keep = { cues: lastCues, srt: lastSrtPath, charged: reviewTrialCharged };
   const outSrt = path.join(os.tmpdir(), 'amh_extra_' + Date.now() + '.srt');
   cancelRequested = false;

@@ -1107,6 +1107,21 @@
       await openReview(tmp, c.name, 0, { projectId: c.name });
       reviewCues = [];
     } finally { running = false; }
+    // 1.94.3: a new video from the home screen — the captions start by
+    // themselves once the editor is ready (the Media card shows ⏳ and ■ Stop)
+    autoCaptions();
+  }
+  function autoCaptions() {
+    let tries = 0;
+    const t = setInterval(() => {
+      const ed = window.__amhEditor;
+      const st = ed && ed.state ? ed.state() : null;
+      if (st && st.built) {
+        clearInterval(t);
+        const none = !((typeof reviewCues !== 'undefined' && reviewCues) || []).some((q) => String(q.text || '').trim());
+        if (none && ed.transcribeAll) ed.transcribeAll();
+      } else if (++tries > 100) clearInterval(t);
+    }, 200);
   }
   window.__amhOpenLicense = () => openLicense();
   function startTranscribe() {

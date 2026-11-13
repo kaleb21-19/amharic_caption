@@ -169,6 +169,7 @@ const AM_STATIC = {
 
 // ── dynamic text from main.js / core.js (keyed by the English string) ───────
 const AM_TEXT = {
+  'Get your free minutes first: press 🎁 Get free minutes — Telegram opens, press START there.': 'መጀመሪያ ነጻ ደቂቃዎችዎን ያግኙ፦ «🎁 ነጻ ደቂቃ ያግኙ»ን ይጫኑ — ቴሌግራም ይከፈታል፣ እዚያ START ይጫኑ።',
   'The program was opened from inside the zip file. Right-click the zip → Extract All → Extract, then open «Make Amharic Captions» from the extracted folder.': 'ፕሮግራሙ ከzip ፋይሉ ውስጥ በቀጥታ ተከፍቷል። zip ፋይሉን በቀኝ ጠቅ ያድርጉ → Extract All → Extract፣ ከዚያ ከተፈታው ፎልደር «Make Amharic Captions»ን ይክፈቱ።',
   // 1.93 🎨 style on the timeline
   'Style on the timeline': 'በታይምላይኑ ላይ ስታይል',
