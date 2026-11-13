@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.4');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.5');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1419,6 +1419,24 @@ await t('4n3h. 1.94.4 the chosen style has its own ⚙: Customize opens without 
     q.evalVm('STYLE_OK = true; STYLE = "neon"; renderStyleStrip();');
     assert.ok(!q.els('styleChips').children.some((c) => (c.children || []).some((x) => x.className === 'style-gear')), 'not in Premiere / After Effects');
   } finally { q.close(); }
+});
+
+await t('4n3i. 1.94.5 a new Studio editor starts with a real style (Bold) and 3 words; a Plain they never chose does not count', async () => {
+  const p = loadPanel();
+  try {
+    await flush(5);
+    const look = (settings, app) => p.evalVm(`IS_APP_MODE = () => ${app}; localStorage.setItem('amh.settings', ${JSON.stringify(JSON.stringify(settings))}); applySettings(); JSON.stringify([STYLE, CAP, GROUP_SIZE])`);
+    assert.strictEqual(look({}, true), '["bold","grouped",3]', 'new in the Studio: Bold, 3 words (an exported video has captions)');
+    assert.strictEqual(look({ style: 'plain' }, true), '["bold","grouped",3]', 'Plain saved by an older Studio, never chosen');
+    assert.strictEqual(look({ style: 'plain', plainChosen: true, cap: 'words' }, true), '["plain","words",3]', 'Plain the editor chose stays');
+    assert.strictEqual(look({ style: 'reels', cap: 'grouped', group: 4 }, true), '["reels","grouped",4]', 'their own choice stays');
+    assert.strictEqual(look({}, false), '["plain","words",3]', 'Premiere / After Effects unchanged');
+    // tapping Plain marks it as chosen
+    p.evalVm(`IS_APP_MODE = () => true; localStorage.setItem('amh.settings', '{}'); applySettings(); STYLE_OK = true; renderStyleStrip();`);
+    const plain = Array.from(p.els('styleChips').children).find((c) => c.dataset.style === 'plain');
+    plain.fire('click');
+    assert.strictEqual(p.evalVm(`JSON.parse(localStorage.getItem('amh.settings')).plainChosen`), true);
+  } finally { p.close(); }
 });
 
 await t('4n3. 1.93 ✂ one click on a caption cuts the Premiere timeline at once; the captions after it move up', async () => {

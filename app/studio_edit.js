@@ -2482,8 +2482,10 @@
       });
       CAPJOBS[id] = { busy: false };
       if (!clean.length) { CAPJOBS[id].err = tx('በዚህ ፋይል ንግግር አልተገኘም።', 'No speech was found in this file.'); renderMedia(); return; }
+      const first = !((typeof reviewCues !== 'undefined' && reviewCues) || []).some((q) => String(q.text || '').trim());
       change('captions', () => { SRC[id] = clean; });
       log(tx('✓ ካፕሽን ተሰራ፦ ', '✓ Captions made: ') + m.name + ' (' + clean.length + ')');
+      if (first) captionsReady(((typeof reviewCues !== 'undefined' && reviewCues) || []).length || clean.length);
     } catch (e) {
       CAPJOBS[id] = (CAPJOBS[id] && CAPJOBS[id].stopping)
         ? { busy: false, note: '■ ' + tx('ቆሟል — ምንም ደቂቃ አልተቀነሰም።', 'Stopped — no minutes were used.') }
@@ -2491,6 +2493,28 @@
     }
     renderMedia();
   }
+  // 1.94.5: the first captions of a project are ready — say so, show the
+  // text next to the video, offer ▶ (nothing said it before: the card
+  // changed quietly and a new editor did not know what to do next)
+  let readyEl = null, readyT = 0;
+  function captionsReady(n) {
+    if (!review.classList.contains('show')) return;
+    if (review.classList.contains('ed-mediamode')) setLeft(false);
+    if (readyEl) readyEl.remove();
+    readyEl = el('div', 'st-toast ed-ready');
+    readyEl.appendChild(el('span', '', '✓ ' + n + ' ' + tx('ካፕሽኖች ዝግጁ ናቸው', 'captions are ready')));
+    const w = btn('', '▶ ' + tx('ይመልከቱ', 'Watch'), '', () => { hideReady(); seek(0).then(() => play()); });
+    readyEl.appendChild(w);
+    readyEl.appendChild(btn('', '✕', tx('ዝጋ', 'Close'), hideReady));
+    review.appendChild(readyEl);
+    const r = stage.getBoundingClientRect();     // over the video
+    readyEl.style.left = Math.round(r.left + r.width / 2) + 'px';
+    readyEl.style.top = Math.round(r.top + 12) + 'px';
+    clearTimeout(readyT);
+    readyT = setTimeout(hideReady, 15000);
+    setTimeout(() => maybeGuide(false), 1600);
+  }
+  function hideReady() { clearTimeout(readyT); if (readyEl) { readyEl.remove(); readyEl = null; } }
   // ■ Stop: the file being transcribed now, and the rest of "Transcribe all"
   function stopCaptions() {
     if (capAll) capAll.stop = true;
@@ -5046,6 +5070,10 @@
     let done = false;
     try { done = localStorage.getItem(GUIDE_KEY) === '1'; } catch (e) {}
     if ((done && !force) || guideEl || !built) return;
+    // 1.94.5: not while the first captions are being made (it covered the
+    // timeline and the styles); it comes when they are ready
+    const hasWords = ((typeof reviewCues !== 'undefined' && reviewCues) || []).some((q) => String(q.text || '').trim());
+    if (!force && !hasWords) return;
     guideEl = el('div', 'ed-guide');
     const head = el('div', 'ed-guide-h');
     head.appendChild(el('b', '', '👋 ' + tx('እንኳን ደህና መጡ — 3 ቀላል ደረጃዎች', 'Welcome — 3 easy steps')));

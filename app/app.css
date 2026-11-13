@@ -891,3 +891,6 @@ html.amh-studio .style-chip .style-gear .amh-ic { width: 14px; height: 14px; mar
 html.amh-studio .style-chip.active .style-gear { display: flex; }
 html.amh-studio .style-chip .style-gear:hover { background: var(--accent); color: #06110c; }
 html.amh-studio .st-cappane:not(.st-capedit) .style-head { position: sticky; top: -12px; z-index: 3; background: var(--bg-elev); margin: -12px -12px 6px; padding: 14px 12px 8px; }
+
+/* 1.94.5 the first captions are ready: a note over the video with ▶ Watch */
+.st-toast.ed-ready { transform: translateX(-50%); padding: 9px 8px 9px 14px; border-color: var(--accent); font-size: 14px; font-weight: 600; }

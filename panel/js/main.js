@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.4';
+const APP_VERSION = '1.94.5';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3653,10 +3653,17 @@ function applySettings() {
   SOURCE = s.source || 'clip';
   CAP = s.cap || 'words';
   GROUP_SIZE = s.group || 3;
+  // 1.94.5: in the Studio a new editor starts with 3 words per caption (one
+  // word flashing was hard to read: 27 s of talk = 53 captions)
+  if (IS_APP_MODE() && !s.cap) CAP = 'grouped';
   // Old settings stored a raw number; 25 or fewer meant short captions.
   FORMAT = s.format === 'v' || s.format === 'h' ? s.format : ((s.chars && s.chars <= 25) ? 'v' : 'h');
   MAX_CHARS = FORMAT_CHARS[FORMAT];
-  STYLE = LOOK_LIST.indexOf(s.style) >= 0 ? s.style : 'plain';
+  // 1.94.5: and with a real caption style — Plain is captions for another
+  // editor (.srt), so a new Studio editor's exported video had NO captions
+  // (earlier Studios saved Plain for everyone: Plain counts only when the
+  // editor tapped it — plainChosen)
+  STYLE = LOOK_LIST.indexOf(s.style) >= 0 && !studioUnchosenPlain(s.style) ? s.style : (IS_APP_MODE() ? STUDIO_FIRST_STYLE : 'plain');
   document.querySelectorAll('#srcSeg button').forEach((b) => {
     b.classList.toggle('active', b.dataset.src === SOURCE);
   });
@@ -6903,6 +6910,11 @@ const TEMPLATE_FONTS = {
 const LOOK_LIST = STYLE_LIST.concat(TEMPLATE_LIST);
 const isTemplate = (id) => TEMPLATE_LIST.indexOf(id) >= 0;
 // the newest looks get a small NEW mark on their button
+const STUDIO_FIRST_STYLE = 'bold';   // 1.94.5: the Studio's look until the editor picks one
+function studioUnchosenPlain(st) {
+  if (st !== 'plain' || !IS_APP_MODE()) return false;
+  try { return !loadSettings().plainChosen; } catch (e) { return true; }
+}
 const STYLE_NEW = ['luxgold', 'goldbox', 'royal', 'goldword', 'sweep', 'limepunch', 'hotpink', 'ocean', 'fire', 'ice', 'retrowave', 'hacker', 'minimal', 'documentary', 'newsbar', 'sticker', 'candychips', 'goldchips', 'archgold', 'kineticice', 'reelsblue', 'duogold', 'brush', 'handwritten'];   // 1.94.4 pack
 const STYLE_NAMES = {
   plain: 'Plain', glide: 'Glide', spotlight: 'Spotlight', bounce: 'Bounce', karaoke: 'Karaoke', fill: 'Fill', highlight: 'Highlight', bold: 'Bold', podcast: 'Podcast',
@@ -7028,7 +7040,7 @@ function renderStyleStrip() {
   const builtIn = (id) => {
     const b = styleChip(id, TEMPLATE_NAMES[id] || STYLE_NAMES[id], id, () => {
       STYLE = id;
-      saveSettings({ style: id });
+      saveSettings(id === 'plain' ? { style: id, plainChosen: true } : { style: id });
       renderStyleStrip();
       schedulePreview();
     });
