@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.5';
+const APP_VERSION = '1.94.6';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3653,9 +3653,10 @@ function applySettings() {
   SOURCE = s.source || 'clip';
   CAP = s.cap || 'words';
   GROUP_SIZE = s.group || 3;
-  // 1.94.5: in the Studio a new editor starts with 3 words per caption (one
-  // word flashing was hard to read: 27 s of talk = 53 captions)
-  if (IS_APP_MODE() && !s.cap) CAP = 'grouped';
+  // 1.94.5: a new editor starts with 3 words per caption (one word flashing
+  // was hard to read: 27 s of talk = 53 captions) — 1.94.6: in Premiere and
+  // After Effects too (a caption track of single words)
+  if (!s.cap) CAP = 'grouped';
   // Old settings stored a raw number; 25 or fewer meant short captions.
   FORMAT = s.format === 'v' || s.format === 'h' ? s.format : ((s.chars && s.chars <= 25) ? 'v' : 'h');
   MAX_CHARS = FORMAT_CHARS[FORMAT];
@@ -7106,7 +7107,8 @@ function renderStyleStrip() {
   grp.textContent = L('Templates');
   chips.appendChild(grp);
   TEMPLATE_LIST.forEach(builtIn);
-  if (IS_APP_MODE()) {
+  {
+    // (1.94.6: in Premiere / After Effects too)
     const sg = document.createElement('span');
     sg.className = 'style-group st-shortgrp';
     sg.textContent = L('For short clips (Reels, TikTok hooks) — 2-3 lines');
@@ -7129,12 +7131,13 @@ const STACKED_STYLES = ['reels', 'reelsgold', 'kinetic', 'kineticpop', 'duo', 'k
 let STYLE_MORE = false;
 function syncStyleMore(chips) {
   const more = $('styleMore');
-  if (!IS_APP_MODE()) { if (more) more.style.display = 'none'; chips.classList.remove('st-few'); return; }
   let extra = 0;
   Array.from(chips.children).forEach((b) => {
     if (b.dataset && b.dataset.my) { b.style.order = '-30'; return; }
     if (b.classList.contains('st-shortgrp')) { b.style.order = '999'; return; }
     if (!b.dataset || !b.dataset.style) return;
+    // Premiere / After Effects: Plain (their own editable captions) is first and always there
+    if (b.dataset.style === 'plain' && !IS_APP_MODE()) { b.style.order = '-40'; b.classList.remove('st-extra'); return; }
     const top = STUDIO_TOP_STYLES.indexOf(b.dataset.style);
     const stacked = STACKED_STYLES.indexOf(b.dataset.style);
     b.style.order = top >= 0 ? String(top - 20) : stacked >= 0 ? String(1000 + stacked) : '';
@@ -8652,6 +8655,11 @@ function renderMemoryPanel() {
 function syncClientButton() {
   const b = $('revClient');
   if (!b) return;
+  // 1.94.6: a freelancer's word list per client — in the Premiere / After
+  // Effects review only when it is in use (one button less in the header)
+  let has = !!ACTIVE_CLIENT;
+  if (!has) { try { has = Object.keys(loadClients().clients || {}).length > 0; } catch (e) {} }
+  b.style.display = IS_APP_MODE() || has ? '' : 'none';
   const n = ACTIVE_CLIENT ? clientWordCount(ACTIVE_CLIENT) : 0;
   b.textContent = '👤 ' + (ACTIVE_CLIENT || L('Client')) + (n ? ' (' + n + ')' : '');
   b.title = ACTIVE_CLIENT

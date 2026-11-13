@@ -911,6 +911,11 @@
   /* the Studio list: ✂ is always there (faint), not only on hover */
   html.amh-studio .review-row .text-box .cut-word { opacity: .45; }
   html.amh-studio .review-row .text-box .cut-word:hover { opacity: 1; }
+  /* 1.94.6 the 8 good styles first; + More styles for the rest (the one in use always shows) */
+  .style-chips.st-few .style-chip.st-extra:not(.active), .style-chips.st-few .style-group { display: none; }
+  html:not(.amh-studio) .style-more { display: block; width: 100%; margin: 4px 0 2px; padding: 3px 0; border: 1px dashed var(--border); border-radius: 6px;
+    background: none; color: var(--accent); font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; }
+  html:not(.amh-studio) .style-more:hover { border-color: var(--accent); }
   html:not(.amh-studio) #styleCustomToggle { width: 22px; height: 20px; padding: 0; font-size: 12px; line-height: 1; }
 </style>
 </head>
@@ -969,7 +974,7 @@
       </div>
       <div class="ob-step">
         <div class="ob-step-num">2</div>
-        <div data-i18n-html="ob.style"><b>Choose your style</b><span>Pick a caption look — 40+ styles, one tap each.</span></div>
+        <div data-i18n-html="ob.style"><b>Choose your style</b><span>Pick a caption look — 60+ styles, one tap each.</span></div>
       </div>
       <div class="ob-step">
         <div class="ob-step-num">3</div>
@@ -1243,7 +1248,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.94.5</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.94.6</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
