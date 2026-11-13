@@ -86,7 +86,7 @@
     const raw = path.join(os.tmpdir(), 'amh_peaks_' + Date.now() + '_' + id + '.raw');
     execFile(FFMPEG, ['-v', 'error', '-y', '-i', m.path, '-vn', '-ac', '1', '-ar', '2000', '-f', 's16le', raw], { timeout: 30 * 60 * 1000 }, (err) => {
       peaking[id] = false;
-      if (err) return;
+      if (err || media[id] !== m) return;          // (1.94.6: another project opened meanwhile)
       try { PEAKS[id] = APP.call('peaks', [raw, 2000, 50]); } catch (e) { PEAKS[id] = null; }
       drawSoon();
     });
@@ -5061,7 +5061,12 @@
     Object.keys(TXEL).forEach((id) => { TXEL[id].remove(); delete TXEL[id]; });
     Object.keys(OVEL).forEach((id) => { OVEL[id].remove(); delete OVEL[id]; });
     Object.keys(MUEL).forEach((id) => { MUEL[id].pause(); MUEL[id].remove(); delete MUEL[id]; });
-    const v = V(); if (v) delete v.dataset.m;
+    const v = V(); if (v) { delete v.dataset.m; v.removeAttribute('src'); }
+    // 1.94.6: a new project's video is "m1" again — the player's file, the
+    // second player and the wave were kept per id, so after Home and a new
+    // video the player showed the OLD video and ✂ Clean up read the old wave
+    [urls, OFFLINE, PEAKS, peaking].forEach((o) => Object.keys(o).forEach((k) => { delete o[k]; }));
+    resetTwin();
     setLeft(false);
     if (guideEl) { guideEl.remove(); guideEl = null; }
   }

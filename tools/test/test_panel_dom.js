@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.5');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.6');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -265,10 +265,13 @@ await t('2. settings: defaults, live toggles, persistence across reload', async 
 
   const p = loadPanel({ storage, machineHome: homeDir });
   try {
-    assert.strictEqual(p.els('capWords').classList.contains('active'), true);
-    assert.strictEqual(p.els('capGroup').classList.contains('active'), false);
-    assert.strictEqual(p.els('groupSize').disabled, true, 'groupSize disabled in words mode');
+    // 1.94.6: a new editor starts with 3 words per caption (grouped)
+    assert.strictEqual(p.els('capGroup').classList.contains('active'), true);
+    assert.strictEqual(p.els('capWords').classList.contains('active'), false);
     assert.strictEqual(p.els('srcClip').classList.contains('active'), true);
+    p.els('capWords').fire('click');
+    assert.strictEqual(p.els('capWords').classList.contains('active'), true);
+    assert.strictEqual(p.els('groupSize').disabled, true, 'groupSize disabled in words mode');
 
     p.els('capGroup').fire('click');
     assert.strictEqual(p.els('capGroup').classList.contains('active'), true);
@@ -1430,7 +1433,8 @@ await t('4n3i. 1.94.5 a new Studio editor starts with a real style (Bold) and 3 
     assert.strictEqual(look({ style: 'plain' }, true), '["bold","grouped",3]', 'Plain saved by an older Studio, never chosen');
     assert.strictEqual(look({ style: 'plain', plainChosen: true, cap: 'words' }, true), '["plain","words",3]', 'Plain the editor chose stays');
     assert.strictEqual(look({ style: 'reels', cap: 'grouped', group: 4 }, true), '["reels","grouped",4]', 'their own choice stays');
-    assert.strictEqual(look({}, false), '["plain","words",3]', 'Premiere / After Effects unchanged');
+    assert.strictEqual(look({}, false), '["plain","grouped",3]', 'Premiere / After Effects: Plain (their own captions), 3 words (1.94.6)');
+    assert.strictEqual(look({ cap: 'words' }, false), '["plain","words",3]', 'a chosen 1 word stays');
     // tapping Plain marks it as chosen
     p.evalVm(`IS_APP_MODE = () => true; localStorage.setItem('amh.settings', '{}'); applySettings(); STYLE_OK = true; renderStyleStrip();`);
     const plain = Array.from(p.els('styleChips').children).find((c) => c.dataset.style === 'plain');
@@ -1439,7 +1443,7 @@ await t('4n3i. 1.94.5 a new Studio editor starts with a real style (Bold) and 3 
   } finally { p.close(); }
 });
 
-await t('4n3j. 1.94.5 the Studio shows 8 good styles first; + More styles shows the rest; Premiere keeps the whole strip', async () => {
+await t('4n3j. 1.94.5 the Studio shows 8 good styles first; + More styles shows the rest (1.94.6: Premiere too)', async () => {
   const p = loadPanel();
   try {
     await flush(5);
@@ -1462,9 +1466,13 @@ await t('4n3j. 1.94.5 the Studio shows 8 good styles first; + More styles shows 
   const q = loadPanel({ realPanel: true });
   try {
     await flush(5);
-    q.evalVm('STYLE_OK = true; renderStyleStrip();');
-    assert.strictEqual(q.els('styleMore').style.display, 'none', 'Premiere / After Effects: the whole strip, no button');
-    assert.ok(!q.els('styleChips').classList.contains('st-few'));
+    q.evalVm('STYLE_OK = true; STYLE_MORE = false; renderStyleStrip();');
+    assert.notStrictEqual(q.els('styleMore').style.display, 'none', '1.94.6: Premiere / After Effects too — 8 first, + More styles');
+    assert.ok(q.els('styleChips').classList.contains('st-few'));
+    const plainQ = q.els('styleChips').children.find((c) => c.dataset.style === 'plain');
+    assert.ok(!plainQ.classList.contains('st-extra') && plainQ.style.order === '-40', 'Premiere: Plain first, never hidden');
+    q.evalVm('syncClientButton();');
+    assert.strictEqual(q.els('revClient').style.display, 'none', '1.94.6: no 👤 Client in the Premiere review until someone has clients');
   } finally { q.close(); }
 });
 
@@ -1656,7 +1664,7 @@ await t('4f. caption styles (1.11): strip, choice remembered, styled layer place
     assert.strictEqual(p.els('styleStrip').style.display, '', 'shown when it can');
     const chips = p.els('styleChips').children;
     // Plain + the 18 styles + the templates group + the 14 templates (1.66)
-    const wantChips = p.evalVm('STYLE_LIST.length') + 1 + p.evalVm('TEMPLATE_LIST.length');
+    const wantChips = p.evalVm('STYLE_LIST.length') + 1 + p.evalVm('TEMPLATE_LIST.length') + 1;   // + the "short clips" heading (1.94.6)
     assert.strictEqual(chips.length, wantChips, 'Plain + 18 styles + the templates');
     assert.strictEqual(chips[0].dataset.style, 'plain');
     assert.ok(chips[0].classList.contains('active'), 'Plain is the default');
@@ -1878,7 +1886,7 @@ await t('4h. My styles (1.13): save a look under a name, one click to use it aga
     const mine = () => chips().filter((b) => b.dataset.my);
     assert.strictEqual(chips()[0].dataset.style, 'plain', 'Plain first');
     assert.strictEqual(chips()[1].dataset.my, saved[0].id, 'then My styles');
-    const wantChips = 1 + 1 + (p.evalVm('STYLE_LIST.length') - 1) + 1 + p.evalVm('TEMPLATE_LIST.length');
+    const wantChips = 1 + 1 + (p.evalVm('STYLE_LIST.length') - 1) + 1 + p.evalVm('TEMPLATE_LIST.length') + 1;   // + "short clips" heading
     assert.strictEqual(chips().length, wantChips, 'Plain + 1 saved + 18 styles + the templates: ' + chips().map((b) => b.dataset.my ? 'MY' : b.dataset.style).join(','));
     // the modern styles (1.16) come first after the saved looks; only the
     // newest pack (1.94.4) carries a NEW mark
@@ -2494,7 +2502,7 @@ await t('4p. exact word times (1.16.26): <srt>.words.json from the engine reache
 await t('5. review: cache-hit transcribe -> edit -> export (speaker tags) -> nudge -> add -> discard', async () => {
   const fixture = path.join(REPO, 'tools', 'test', 'fixtures', 'twospeaker.wav');
   assert.ok(fs.existsSync(fixture), 'fixture present');
-  const key = cacheKeyFor(fixture, { cap:'words', group:3, chars:42, speakers:false });
+  const key = cacheKeyFor(fixture, { cap:'grouped', group:3, chars:42, speakers:false })   // 1.94.6: 3 words is the default;
   const snap = snapshotCache();
   try {
     const base = snap !== null ? JSON.parse(snap) : {};
@@ -2566,7 +2574,7 @@ await t('5. review: cache-hit transcribe -> edit -> export (speaker tags) -> nud
 
 await t('5b. review: Premiere placement=false keeps review open and reports failure', async () => {
   const fixture = path.join(REPO, 'tools', 'test', 'fixtures', 'twospeaker.wav');
-  const key = cacheKeyFor(fixture, { cap:'words', group:3, chars:42, speakers:false });
+  const key = cacheKeyFor(fixture, { cap:'grouped', group:3, chars:42, speakers:false })   // 1.94.6: 3 words is the default;
   const snap = snapshotCache();
   try {
     const base = snap !== null ? JSON.parse(snap) : {};
@@ -2615,7 +2623,7 @@ await t('5c. trial: a charge the server denies stops the engine (no ticket, noth
 
 await t('5d. after a free caption: next-step card (group while one is left, Buy after the last); never on a denied charge', async () => {
   const fixture = path.join(REPO, 'tools', 'test', 'fixtures', 'twospeaker.wav');
-  const key = cacheKeyFor(fixture, { cap:'words', group:3, chars:42, speakers:false });
+  const key = cacheKeyFor(fixture, { cap:'grouped', group:3, chars:42, speakers:false })   // 1.94.6: 3 words is the default;
   const snap = snapshotCache();
   try {
     const base = snap !== null ? JSON.parse(snap) : {};
@@ -2917,7 +2925,7 @@ await t('8. review: empty list renders (no ReferenceError) after deleting every 
   // rendered zero rows — a filter with no matches, or every cue deleted.
   // No existing test hit the zero-row path, so it shipped unnoticed.
   const fixture = path.join(REPO, 'tools', 'test', 'fixtures', 'twospeaker.wav');
-  const key = cacheKeyFor(fixture, { cap:'words', group:3, chars:42, speakers:false });
+  const key = cacheKeyFor(fixture, { cap:'grouped', group:3, chars:42, speakers:false })   // 1.94.6: 3 words is the default;
   const snap = snapshotCache();
   try {
     const base = snap !== null ? JSON.parse(snap) : {};
