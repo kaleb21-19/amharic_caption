@@ -7,6 +7,7 @@ around) that the captions are really drawn where they belong.
 
   python tools/test/test_templates.py
 """
+import io
 import os
 import re
 import shutil
@@ -167,6 +168,16 @@ for tid in A.template_ids():
     check(0 < p[1] < 1920 and 0 < p[0] <= 540, "%s: the caption sits inside the frame %s" % (tid, p))
     p = pos_of(A.build(W, tid, 1080, 1920, opts={"pos": "top"}))
     check(p is None or p[1] < 1920 * 0.35, "%s: the top position is near the top" % tid)
+
+# 1.94.5: the Studio groups the stacked looks (2-3 lines) last - its list is
+# exactly the templates that stack (mode reels / kinetic, or rows > 1)
+_js = io.open(os.path.join(REPO, "panel", "js", "main.js"), encoding="utf-8").read()
+_m = re.search(r"const STACKED_STYLES = \[([^\]]*)\]", _js)
+_panel_stacked = sorted(re.findall(r"'([a-z0-9]+)'", _m.group(1))) if _m else []
+_real_stacked = sorted(t for t in A.template_ids() if A.template(t)["mode"] in ("reels", "kinetic") or int(A.template(t).get("rows") or 1) > 1)
+check(_panel_stacked == _real_stacked, "the Studio's stacked group = the stacked templates (%s)" % ",".join(_real_stacked))
+_t = re.search(r"const STUDIO_TOP_STYLES = \[([^\]]*)\]", _js)
+check(_t and not set(re.findall(r"'([a-z0-9]+)'", _t.group(1))) & set(_real_stacked), "the Studio's top styles are one-line looks")
 
 # 1.94.4: no hidden mark is ever drawn (a template whose OWN animation is
 # letter by letter showed a box and a number before the words)

@@ -169,6 +169,7 @@ const AM_STATIC = {
 
 // ── dynamic text from main.js / core.js (keyed by the English string) ───────
 const AM_TEXT = {
+  'For short clips (Reels, TikTok hooks) — 2-3 lines': 'ለአጭር ቅንጥቶች (Reels፣ TikTok hook) — 2-3 መስመሮች',
   'More styles': 'ተጨማሪ ስታይሎች',
   'Fewer styles': 'ያነሱ ስታይሎች',
   'Plain: the exported video has no captions — only the .srt file.': 'መደበኛ፦ የሚላከው ቪዲዮ ካፕሽን የለውም — .srt ፋይሉ ብቻ።',

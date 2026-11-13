@@ -7106,6 +7106,12 @@ function renderStyleStrip() {
   grp.textContent = L('Templates');
   chips.appendChild(grp);
   TEMPLATE_LIST.forEach(builtIn);
+  if (IS_APP_MODE()) {
+    const sg = document.createElement('span');
+    sg.className = 'style-group st-shortgrp';
+    sg.textContent = L('For short clips (Reels, TikTok hooks) — 2-3 lines');
+    chips.appendChild(sg);
+  }
   const note = $('styleNote');
   if (note) note.textContent = L(styleNote());
   syncStyleMore(chips);
@@ -7114,7 +7120,12 @@ function renderStyleStrip() {
 // 1.94.5 (owner: "64 styles is a lot — show the good ones, with More styles"):
 // in the Studio 8 good looks come first (and the editor's own saved looks, and
 // the one in use); "+ More styles" shows the rest. Premiere keeps its strip.
-const STUDIO_TOP_STYLES = ['bold', 'highlight', 'glide', 'boldpop', 'reels', 'kineticpop', 'luxgold', 'hotpink'];
+// (only one-line looks: the owner — a stacked 2-3 line look on a whole video
+// covers the picture and tires; those are for short clips, grouped last)
+const STUDIO_TOP_STYLES = ['bold', 'highlight', 'glide', 'boldpop', 'creator', 'sweep', 'luxgold', 'hotpink'];
+// the stacked looks (2-3 lines: Reels emphasis, kinetic, two lines) — the same
+// list as amh_styles.py (mode reels / kinetic or rows > 1; test_templates checks)
+const STACKED_STYLES = ['reels', 'reelsgold', 'kinetic', 'kineticpop', 'duo', 'kineticice', 'reelsblue', 'duogold'];
 let STYLE_MORE = false;
 function syncStyleMore(chips) {
   const more = $('styleMore');
@@ -7122,9 +7133,11 @@ function syncStyleMore(chips) {
   let extra = 0;
   Array.from(chips.children).forEach((b) => {
     if (b.dataset && b.dataset.my) { b.style.order = '-30'; return; }
+    if (b.classList.contains('st-shortgrp')) { b.style.order = '999'; return; }
     if (!b.dataset || !b.dataset.style) return;
     const top = STUDIO_TOP_STYLES.indexOf(b.dataset.style);
-    b.style.order = top >= 0 ? String(top - 20) : '';
+    const stacked = STACKED_STYLES.indexOf(b.dataset.style);
+    b.style.order = top >= 0 ? String(top - 20) : stacked >= 0 ? String(1000 + stacked) : '';
     b.classList.toggle('st-extra', top < 0);
     if (top < 0) extra++;
   });

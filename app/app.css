@@ -904,3 +904,4 @@ html.amh-studio .style-chips.st-few .style-group { display: none; }
 html.amh-studio .style-more { display: block; width: 100%; margin: 10px 0 4px; padding: 9px 0; border: 1px dashed var(--border); border-radius: 10px;
   background: none; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
 html.amh-studio .style-more:hover { border-color: var(--accent); background: rgba(46,204,113,.06); }
+html.amh-studio .style-chips .st-shortgrp { grid-column: 1 / -1; margin-top: 10px; }
