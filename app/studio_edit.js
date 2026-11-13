@@ -1247,7 +1247,7 @@
     const gone = ranges.reduce((n, r) => n + r.end - r.start, 0);
     return { ranges, gone, n: items.length, clean: !snd.clean, loud: snd.loud !== 'web', zooms: zoomMoments(ranges).length, sfx: !snd.sfx };
   }
-  let PRO = { cuts: true, clean: true, loud: true, zoom: true, sfx: true };
+  let PRO = { cuts: true, clean: true, loud: true, zoom: true };
   function openPro(done) {
     pmenu.textContent = '';
     pmenu.style.display = '';
@@ -1266,7 +1266,8 @@
       ['loud', '🔊 ' + tx('እንደ TikTok እና YouTube ጮክ አድርግ', 'Loud like TikTok and YouTube'), P.loud ? '−14 LUFS' : tx('✓ አስቀድሞ በርቷል', '✓ Already on'), P.loud],
       ['zoom', '🔍 ' + tx('አስፈላጊ ቃላት ላይ ዙም', 'Zoom on the important words'),
         P.zooms ? P.zooms + ' ' + tx('ቦታዎች — ★ ቃላት፣ ቁጥሮች፣ ገንዘብ', 'places — ★ words, numbers, money') : tx('★ ቃል ወይም ቁጥር አልተገኘም', 'No ★ word or number found'), P.zooms > 0],
-      ['sfx', '🔊 ' + tx('የድምፅ ውጤቶች ጨምር', 'Add sound effects'), P.sfx ? tx('በዙም ዉሽ፣ በርዕስ ፖፕ፣ በሽግግር ስዊሽ', 'Whoosh on zooms, pop on titles, swish on transitions') : tx('✓ አስቀድሞ በርቷል', '✓ Already on'), P.sfx],
+      // (1.94.5: no 'Add sound effects' step — a whoosh on every zoom, a pop on
+      // every title: the owner found it boring and cheap; 🔊 Sound still has them)
     ];
     let any = false;
     steps.forEach(([k, name, sub, can]) => {
@@ -1285,7 +1286,7 @@
     pmenu.appendChild(go);
   }
   function doPro(P) {
-    const cut = PRO.cuts && P.n > 0, clean = PRO.clean && P.clean, loud = PRO.loud && P.loud, zoomOn = PRO.zoom && P.zooms > 0, sfxOn = PRO.sfx && P.sfx;
+    const cut = PRO.cuts && P.n > 0, clean = PRO.clean && P.clean, loud = PRO.loud && P.loud, zoomOn = PRO.zoom && P.zooms > 0, sfxOn = false;
     if (!cut && !clean && !loud && !zoomOn && !sfxOn) return;
     let nz = 0;
     const list = cut ? P.ranges.slice().sort((a, b) => b.start - a.start) : [];
@@ -1303,7 +1304,7 @@
     if (cut) said.push('✂ −' + P.gone.toFixed(1) + ' ' + tx('ሰከንድ', 's'));
     if (clean) said.push('🎙 ' + tx('ድምፁ ጸድቷል', 'voice cleaned'));
     if (loud) said.push('🔊 −14 LUFS');
-    if (nz) said.push('🔍 ' + nz + ' ' + tx('ዙሞች', 'zooms'));
+    if (nz) said.push('🔍 ' + nz + ' ' + tx('ዙሞች', nz === 1 ? 'zoom' : 'zooms'));
     if (sfxOn) said.push('🔊 ' + tx('የድምፅ ውጤቶች', 'sound effects'));
     openPro('✓ ' + said.join(' · '));
     if (clean || loud) log(tx('ድምፅ ማጽዳትና loudness ሲላክ ይሠራሉ።', 'Voice cleaning and loudness are applied when you export.'));
