@@ -1342,6 +1342,23 @@ await t('4n3b. 1.94.3 Buy: the phone code carries _q; "open again" and closing a
   } finally { p.close(); }
 });
 
+await t('4n3z. 1.94.3 opened from inside the downloaded zip: said at once, no job starts', async () => {
+  const p = loadPanel({});
+  try {
+    await flush(5);
+    const z = "C:/Users/a/AppData/Local/Temp/Temp1_amharic-captions-win-x64.zip/com.amharic.captions/runtime";
+    assert.strictEqual(p.evalVm('runningFromZip(' + JSON.stringify([z]) + ')'), true, 'the Temp1_….zip path');
+    assert.strictEqual(p.evalVm('runningFromZip(["C:/Users/a/AppData/Roaming/Adobe/CEP/extensions/com.amharic.captions"])'), false, 'an installed program');
+    assert.strictEqual(p.evalVm('runningFromZip()'), false, 'the test install is not in a zip');
+    assert.strictEqual(p.els('zipWarn').style.display, 'none', 'no warning when installed');
+    p.evalVm('runningFromZip = () => true; showZipWarning();');
+    assert.notStrictEqual(p.els('zipWarn').style.display, 'none', 'the warning shows');
+    let err = '';
+    try { await p.evalVm('transcribe("C:/v/a.mp4", "C:/v/a.srt")'); } catch (e) { err = String(e && e.message); }
+    assert.match(err, /inside the zip|zip ፋይሉ ውስጥ/, 'no engine error: the plain instruction');
+  } finally { p.close(); }
+});
+
 await t('4n3. 1.93 ✂ one click on a caption cuts the Premiere timeline at once; the captions after it move up', async () => {
   const log = [];
   const p = loadPanel({ evalLog: log, csiRaw: (jsx) => {
@@ -1465,9 +1482,10 @@ await t('4e. free week (1.10.20): the panel shows until when, and says when the 
     assert.strictEqual(p.els('licenseStatus').textContent, 'Free trial: 25:00 minutes left', 'only a real date is shown');
     p.evalVm('setTrialState({ mode: "minutes", status: "expired", minutes: 30, seconds_total: 1800, seconds_left: 0, expires: "2026-10-19" }); updateLicenseUI();');
     assert.strictEqual(p.evalVm('assertCanRun()'), false);
-    has(p.els('logBox').textContent, 'Your free week has ended.');
+    has(p.els('logBox').textContent, 'Your free trial time has ended.');
+    assert.match(p.els('trialBanner').innerHTML, /free trial time has ended/, '1.94.3: the box says the time ended (not "used up")');
     assert.strictEqual(p.els('trialBanner').style.display, 'block', 'the buy banner shows');
-    assert.strictEqual(p.evalVm('humanError("trial used up")'), 'Your free week has ended. Buy a license to keep making captions.');
+    assert.strictEqual(p.evalVm('humanError("trial used up")'), 'Your free trial time has ended. Buy a license to keep making captions.');
     p.evalVm('AMH_LANG = "am"; setTrialState({ mode: "minutes", status: "active", minutes: 30, seconds_total: 1800, seconds_left: 1500, expires: "2026-10-19" }); updateLicenseUI();');
     has(p.els('licenseStatus').textContent, 'እስከ 2026-10-19');
   } finally { p.close(); }

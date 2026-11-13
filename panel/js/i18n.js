@@ -129,7 +129,9 @@ const AM_STATIC = {
   'lic.keyPlaceholder': 'K7QD-3MXP  ·  AMH-…',
   'lic.activate':     'አግብር',
   'lic.checking':     'ፈቃድ በመፈተሽ ላይ…',
-  'lic.trialBanner':  '<b>ነጻ ሙከራዎቹ አልቀዋል</b> — ካፕሽን መስራት ለመቀጠል ከታች ፈቃድ ይግዙ።',
+  'lic.trialBanner':  '<b>ነጻ ደቂቃዎችዎ አልቀዋል</b> — ካፕሽን መስራት ለመቀጠል ከታች ፈቃድ ይግዙ።',
+  'zip.warn':         '⚠️ <b>መጀመሪያ zip ፋይሉን ይፍቱ (Extract)።</b> ፕሮግራሙ ከወረደው zip ፋይል ውስጥ በቀጥታ ስለተከፈተ ካፕሽን መስራት አይችልም። zip ፋይሉን በቀኝ ጠቅ ያድርጉ → <b>Extract All</b> → <b>Extract</b>፣ ከዚያ ከተፈታው ፎልደር <b>«Make Amharic Captions»</b>ን ይክፈቱ።',
+  'lic.trialEnded':   '<b>የነጻ ሙከራ ጊዜዎ አብቅቷል</b> — ካፕሽን መስራት ለመቀጠል ከታች ፈቃድ ይግዙ።',
 
   'log.toggle':       'ለድጋፍ ዝርዝር መረጃ',
   'log.initial':      'ምንጭ ይምረጡ፣ አማራጮችን ያስተካክሉ፣ ከዚያ «ካፕሽን ፍጠር» ይጫኑ።',
@@ -167,6 +169,7 @@ const AM_STATIC = {
 
 // ── dynamic text from main.js / core.js (keyed by the English string) ───────
 const AM_TEXT = {
+  'The program was opened from inside the zip file. Right-click the zip → Extract All → Extract, then open «Make Amharic Captions» from the extracted folder.': 'ፕሮግራሙ ከzip ፋይሉ ውስጥ በቀጥታ ተከፍቷል። zip ፋይሉን በቀኝ ጠቅ ያድርጉ → Extract All → Extract፣ ከዚያ ከተፈታው ፎልደር «Make Amharic Captions»ን ይክፈቱ።',
   // 1.93 🎨 style on the timeline
   'Style on the timeline': 'በታይምላይኑ ላይ ስታይል',
   'Text': 'ጽሑፍ',
@@ -449,8 +452,8 @@ const AM_TEXT = {
   'Drawn as a video layer on an empty track above your video.': 'ከቪዲዮዎ በላይ ባለ ባዶ ትራክ ላይ እንደ ቪዲዮ ንብርብር ይቀመጣል።',
   'Saves the video with these captions drawn in, next to your video. Free version: a small "Amharic Captions Pro" tag is added — a license removes it.': 'ካፕሽኑ የተጻፈበትን ቪዲዮ ከቪዲዮዎ አጠገብ ያስቀምጣል። በነጻ ስሪቱ ትንሽ «Amharic Captions Pro» ምልክት ይጨመራል — ፈቃድ ሲገዙ ይጠፋል።',
   'Drawn as a video layer on an empty track above your video. Free version: a small "Amharic Captions Pro" tag is added — a license removes it.': 'ከቪዲዮዎ በላይ ባለ ባዶ ትራክ ላይ እንደ ቪዲዮ ንብርብር ይቀመጣል። በነጻ ስሪቱ ትንሽ «Amharic Captions Pro» ምልክት ይጨመራል — ፈቃድ ሲገዙ ይጠፋል።',
-  'Your free week has ended.': 'የነጻ ሙከራ ሳምንትዎ አብቅቷል።',
-  'Your free week has ended. Buy a license to keep making captions.': 'የነጻ ሙከራ ሳምንትዎ አብቅቷል። ካፕሽን መስራት ለመቀጠል ፈቃድ ይግዙ።',
+  'Your free trial time has ended.': 'የነጻ ሙከራ ጊዜዎ አብቅቷል።',
+  'Your free trial time has ended. Buy a license to keep making captions.': 'የነጻ ሙከራ ጊዜዎ አብቅቷል። ካፕሽን መስራት ለመቀጠል ፈቃድ ይግዙ።',
   'Connecting…': 'በመገናኘት ላይ…',
   '✓ Model ready — starting your captions.': '✓ ሞዴሉ ዝግጁ ነው — ካፕሽኑ እየጀመረ ነው።',
   'Press Generate (or "Download the Amharic model" at the top). It is a': '«ካፕሽን ፍጠር»ን ይጫኑ (ወይም ከላይ «የአማርኛ ሞዴሉን አውርድ»)። ይህ',

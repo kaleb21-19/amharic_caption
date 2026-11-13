@@ -2246,6 +2246,7 @@ function initSearch() {
 }
 
 function initBuy() {
+  showZipWarning();
   initFeedback();
   initReport();
   initSearch();
@@ -2664,7 +2665,7 @@ function assertCanRun(resume) {
   } else if (st === 'pending') {
     log('Your free-minutes request is being checked — we will tell you in Telegram.');
   } else if (st === 'expired') {
-    log('Your free week has ended.');
+    log('Your free trial time has ended.');
     log('Buy a license (below) to keep making captions.');
   } else {
     log('Your free minutes are used up.');
@@ -2898,8 +2899,19 @@ function updateLicenseUI() {
       if (licStatus) licStatus.style.display = 'none';
       if (runBtn) runBtn.disabled = false;
     } else {
-      // Trial used up: make the path to purchase unmistakable.
-      if (banner) banner.style.display = 'block';
+      // Trial used up: make the path to purchase unmistakable — and say
+      // which (1.94.3: an ended free time read "Free trials used up" and the
+      // customer thought it was a mistake)
+      if (banner) {
+        const key = st === 'expired' ? 'lic.trialEnded' : 'lic.trialBanner';
+        const en = st === 'expired'
+          ? '<b>Your free trial time has ended</b> — buy a license below to keep making captions.'
+          : '<b>Your free minutes are used up</b> — buy a license below to keep making captions.';
+        banner.setAttribute('data-i18n-html', key);
+        banner.__i18nEn = en;
+        banner.innerHTML = (typeof AMH_LANG !== 'undefined' && AMH_LANG === 'am' && typeof AM_STATIC !== 'undefined' && AM_STATIC[key]) ? AM_STATIC[key] : en;
+        banner.style.display = 'block';
+      }
       if (banner && typeof banner.scrollIntoView === 'function' && !LICENSED_REFRESH) {
         try { banner.scrollIntoView({ block: 'center' }); } catch (e) {}
       }
@@ -4136,7 +4148,24 @@ function finishWork(work, outSrt) {
 
 // Transcribe a single source (already a file path). range = {sourceIn, duration};
 // offset shifts cue times to the timeline. Result: { outSrt, cues, transcript }.
+// 1.94.3: opened from INSIDE the downloaded zip (Windows unpacks only part of
+// it into …\Temp\Temp1_….zip\…): the engine's files are missing and it
+// failed with a DLL error. Said plainly at start, and no job starts.
+function runningFromZip(dirs) {
+  dirs = dirs || [typeof EXT_DIR !== 'undefined' ? EXT_DIR : '', typeof RUNTIME !== 'undefined' ? RUNTIME : ''];
+  return dirs.some((d) => /\.zip[\\/]/i.test(String(d || '')) || /[\\/]Temp\d+_[^\\/]*\.zip/i.test(String(d || '')));
+}
+const ZIP_HELP = 'The program was opened from inside the zip file. Right-click the zip → Extract All → Extract, then open «Make Amharic Captions» from the extracted folder.';
+function showZipWarning() {
+  const box = document.getElementById('zipWarn');
+  const zip = runningFromZip();
+  if (box) box.style.display = zip ? '' : 'none';
+  if (!box || !zip) return false;
+  log('⚠ ' + ZIP_HELP);
+  return true;
+}
 async function transcribe(sourcePath, outSrt, range, offset) {
+  if (runningFromZip()) throw new Error(L(ZIP_HELP));
   workerDllError = false;
   const key = cacheKey(sourcePath, range, offset);
   const hit = cacheLookup(key);
@@ -8965,7 +8994,7 @@ function humanError(raw) {
     return TRIAL_MIN && TRIAL_MIN.status === 'none'
       ? 'Get your free minutes in Telegram first (the button above the license).'
       : TRIAL_MIN && TRIAL_MIN.status === 'expired'
-        ? 'Your free week has ended. Buy a license to keep making captions.'
+        ? 'Your free trial time has ended. Buy a license to keep making captions.'
         : 'Your free minutes are used up. Buy a license to keep making captions.';
   }
   if (t.includes('free caption needs internet')) return 'Connect to the internet for the free trial (a license works offline).';
