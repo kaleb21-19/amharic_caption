@@ -1474,3 +1474,11 @@ html:not([data-lang="en"]) :is(h1, h2, h3, h4) .l-am { font-weight: 700; }
   .showcase-row { overflow-x: auto; }
   .steps-line i { transition: none; transform: scaleX(1); }
 }
+
+/* the real Studio at work: a framed recording that rises in a little */
+.demo-frame { max-width: 1040px; margin: var(--s-6) auto 0; border: 1px solid var(--line); border-radius: 16px; overflow: hidden;
+  background: #0b100e; box-shadow: 0 30px 80px rgba(0,0,0,.5), 0 0 0 1px rgba(61,220,138,.08), 0 0 70px rgba(61,220,138,.07);
+  transform: perspective(1400px) rotateX(4deg) scale(.97); transition: transform .9s cubic-bezier(.2,.7,.2,1); }
+.demo-frame:hover { transform: perspective(1400px) rotateX(0) scale(1); }
+.demo-frame video { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; background: #0b100e; }
+@media (prefers-reduced-motion: reduce) { .demo-frame { transform: none; transition: none; } }

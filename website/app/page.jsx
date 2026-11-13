@@ -4,6 +4,7 @@ import Reveal from "@/components/Reveal";
 import BuySafely from "@/components/BuySafely";
 import StudioMock from "@/components/StudioMock";
 import StyleShowcase from "@/components/StyleShowcase";
+import DemoVideo from "@/components/DemoVideo";
 import Tx from "@/components/Tx";
 import {
   BOT_URL, ACCT_NAME, PRICE, PRICE_AM, PRICE_NUM, PRICE_OLD_NUM, PRICE_M1_NUM, PRICE_M2_NUM,
@@ -336,6 +337,8 @@ export default function HomePage() {
           </ul>
         </div>
       </section>
+
+      <DemoVideo />
 
       <StyleShowcase />
 
