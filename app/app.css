@@ -394,7 +394,7 @@ html.amh-studio #review.ed-mediamode .st-script, html.amh-studio #review.ed-medi
 .ed-cname { font-weight: 700; margin-bottom: 12px; overflow-wrap: anywhere; }
 .ed-sec { font-size: 12px; letter-spacing: .03em; text-transform: uppercase; color: var(--text-secondary); margin: 14px 0 8px; }
 .ed-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.ed-lab { width: 56px; font-size: var(--font-s); color: var(--text-secondary); }
+.ed-lab { width: 76px; flex: 0 0 76px; font-size: var(--font-s); color: var(--text-secondary); line-height: 1.25; overflow-wrap: anywhere; }
 .ed-row input[type=range] { flex: 1; accent-color: var(--accent); }
 .ed-val { width: 44px; text-align: right; font-variant-numeric: tabular-nums; font-size: var(--font-s); }
 .ed-clip .st-row { margin-top: 14px; }

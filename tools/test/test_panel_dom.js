@@ -1518,6 +1518,8 @@ await t('4f0. 1.94.2 the panel Customize is one compact block: ⚙ opens six sho
   const p = loadPanel({ realPanel: true });
   try {
     await flush(10);
+    // 1.93 owner: no 🔎 Search card in Premiere / After Effects (the Studio keeps it)
+    assert.strictEqual(p.els('searchCard').style.display, 'none', 'no Search card in the panel');
     p.evalVm('STYLE_OK = true; STYLE = "bounce"; STYLE_CUSTOM_OPEN = false; renderStyleStrip();');
     assert.notStrictEqual(p.els('styleCustomToggle').style.display, 'none', 'the ⚙ button is there');
     assert.strictEqual(p.els('styleCustom').style.display, 'none', 'closed until ⚙');

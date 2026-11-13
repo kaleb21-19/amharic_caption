@@ -37,6 +37,7 @@ if (typeof i18nOnChange === 'function') {
         const pl = document.getElementById('progLabel');
         if (pl && PROGRESS_EN) pl.textContent = L(PROGRESS_EN);
       },
+      () => renderStyleStrip(),   // 1.94.4: the NEW tags follow the language
     ];
     steps.forEach((step) => { try { step(); } catch (e) {} });
   });
@@ -6991,7 +6992,8 @@ function renderStyleStrip() {
   const list = myStyles();
   // Rebuilt only when the saved looks change: rebuilding on every click
   // would also jump the strip back to the start after scrolling to a style.
-  const sig = JSON.stringify(list.map((m) => [m.id, m.name, m.style, m.opts && m.opts.color]));
+  // (1.94.4: the language too — the NEW tag stayed «አዲስ» in English)
+  const sig = JSON.stringify([typeof AMH_LANG !== 'undefined' ? AMH_LANG : ''].concat(list.map((m) => [m.id, m.name, m.style, m.opts && m.opts.color])));
   if (chips.dataset.sig === sig && chips.children.length) {
     for (const b of Array.from(chips.children)) {
       const on = b.dataset.my ? !!mine && mine.id === b.dataset.my : b.dataset.style === STYLE && !mine;

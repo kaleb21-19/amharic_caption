@@ -5037,6 +5037,8 @@
   const GUIDE_KEY = 'amh_guide_done';
   let guideEl = null;
   function pulse(x) { if (!x) return; x.classList.remove('ed-pulse'); void x.offsetWidth; x.classList.add('ed-pulse'); setTimeout(() => x.classList.remove('ed-pulse'), 2600); }
+  // 1.94.4: open while the language changes — written again in the new one
+  if (typeof i18nOnChange === 'function') i18nOnChange(() => setTimeout(() => { if (guideEl) { guideEl.remove(); guideEl = null; maybeGuide(true); } }, 0));
   function closeGuide() { if (guideEl) { guideEl.remove(); guideEl = null; } try { localStorage.setItem(GUIDE_KEY, '1'); } catch (e) {} }
   function maybeGuide(force) {
     let done = false;

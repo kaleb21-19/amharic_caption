@@ -34,7 +34,7 @@ const AM_STATIC = {
   'status.idle':      'በመጠባበቅ ላይ',
 
   'ob.pick':          '<b>ክሊፕ ይምረጡ</b><span>በታይምላይኑ ላይ ማንኛውንም ክሊፕ ይምረጡ፣ ወይም ዎርክ ኤሪያ / ሙሉ ኤዲት ይጠቀሙ።</span>',
-  'ob.style':         '<b>የካፕሽን አይነት ይምረጡ</b><span>ካራኦኬ (አንድ ቃል በአንድ ጊዜ) ወይም በቡድን (በአንድ ካፕሽን 3 ቃላት)።</span>',
+  'ob.style':         '<b>የካፕሽን ስታይል ይምረጡ</b><span>የካፕሽን መልክ በአንድ ንክኪ ይምረጡ — ከ40 በላይ ስታይሎች።</span>',
   'ob.generate':      '<b>ካፕሽን ይፍጠሩ</b><span>ካፕሽኖቹ በታይምላይኑ ላይ (Premiere) ወይም እንደ ቴክስት ሌየር (After Effects) ይቀመጣሉ — ሙሉ በሙሉ ያለ ኢንተርኔት፣ በኮምፒውተርዎ ላይ።</span>',
   'ob.health':        'መስተካከል ያለበት ነገር አለ',
   'ob.start':         'ካፕሽን መስራት ይጀምሩ',
@@ -746,7 +746,10 @@ function i18nApplyStatic(root) {
     if (el.__i18nEn === undefined) el.__i18nEn = el.textContent;
     const target = am && AM_STATIC[key] ? AM_STATIC[key] : el.__i18nEn;
     const known = [el.__i18nEn, AM_STATIC[key]];
-    if (known.indexOf(el.textContent) >= 0) el.textContent = target;
+    // 1.94.4: icons.js turns a leading emoji (🎨 ✂ …) into a drawn icon, so the
+    // text no longer matched and these labels kept the old language
+    const bare = (x) => String(x == null ? '' : x).replace(/^\s*[^\s\wሀ-፿]️?\s?/u, '');
+    if (known.indexOf(el.textContent) >= 0 || known.map(bare).indexOf(el.textContent) >= 0) el.textContent = target;
   });
   each('data-i18n-html', (el, key) => {
     if (el.__i18nEn === undefined) el.__i18nEn = el.innerHTML;

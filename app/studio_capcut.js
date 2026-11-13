@@ -404,6 +404,8 @@
   if (review) new MutationObserver(() => { if (!review.classList.contains('show')) setTimeout(homeCard, 50); })
     .observe(review, { attributes: true, attributeFilter: ['class'] });
   window.addEventListener('focus', () => { if (!busy && (!review || !review.classList.contains('show'))) homeCard(); });
+  // 1.94.4: English / Amharic switch — this card was written once and stayed in the old language
+  if (typeof i18nOnChange === 'function') i18nOnChange(() => setTimeout(() => { if (!busy) homeCard(); }, 0));
   setTimeout(homeCard, 400);
 
   // copy the chosen CapCut animation to every caption of ours (1.37)
