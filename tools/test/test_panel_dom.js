@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.2');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.3');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -455,11 +455,11 @@ await t('3.7 simple buying: Buy link carries a secret, the panel activates itsel
     // prices, and keeps the QR code for paying on the phone (the same link)
     assert.ok(p.els('buyQrCard').classList.contains('show'), 'the card shows');
     const qrUrl = p.els('buyQr').dataset.url;
-    assert.strictEqual(p.evalVm('__opened'), qrUrl, 'Telegram opened on this computer at once');
+    assert.strictEqual(p.evalVm('__opened') + '_q', qrUrl, 'Telegram opened on this computer at once (the phone code is the same link, marked _q)');
     assert.ok(/^<svg[\s\S]*<\/svg>$/.test(String(p.els('buyQr').innerHTML).trim()), 'the QR code for the phone');
     p.evalVm('__opened = null;');
     p.els('buyQrPc').fire('click');
-    assert.strictEqual(p.evalVm('__opened'), qrUrl, '"open it again" opens the same link');
+    assert.strictEqual(p.evalVm('__opened') + '_q', qrUrl, '"open it again" opens the same link');
     assert.ok(p.els('buyQrCard').classList.contains('show'), 'the card stays as the guide');
     const opened = p.evalVm('__opened');
     assert.match(opened, new RegExp('^https://t\\.me/AmharicCaptionsBot\\?start=m_' + p.mid + '_[A-Za-z0-9]{16}$'), 'deep link: ' + opened);
@@ -472,7 +472,7 @@ await t('3.7 simple buying: Buy link carries a secret, the panel activates itsel
     assert.deepStrictEqual(calls.filter((c) => c.u.includes('/api/license')).at(-1).body, { mid: p.mid, nonce }, 'asks with its own secret');
     p.els('buyBtn').fire('click', { preventDefault() {} });
     await flush(5);
-    assert.strictEqual(p.els('buyQr').dataset.url, opened, 'a second tap reuses the same secret (no orphaned order)');
+    assert.strictEqual(p.els('buyQr').dataset.url, opened + '_q', 'a second tap reuses the same secret (no orphaned order)');
     p.els('buyQrClose').fire('click');
     assert.ok(!p.els('buyQrCard').classList.contains('show'), 'Close closes it');
     licState = 'approved';
@@ -1324,6 +1324,64 @@ await t('4n3c. 1.94.2 ■ Stop for the Studio Make captions: the engine stops (l
   } finally { p.close(); }
 });
 
+await t('4n3b. 1.94.3 Buy: the phone code carries _q; "open again" and closing are counted', async () => {
+  const sent = [];
+  const p = loadPanel({ fetch: async (url, o) => { if (/\/api\/event/.test(url)) { sent.push(JSON.parse(o.body).e); } return { ok: true, status: 200, json: async () => ({ ok: true }), text: async () => '{}' }; } });
+  try {
+    await flush(5);
+    p.evalVm('LICENSED = false; globalThis.__opened = []; openUrl = (u) => __opened.push(u); try { localStorage.clear(); } catch (e) {}');
+    p.els('buyBtn').fire('click', { preventDefault() {} });
+    await flush(5);
+    const opened = JSON.parse(p.evalVm('JSON.stringify(__opened)'));
+    assert.ok(opened[0] && !/_q$/.test(opened[0]), 'this computer: the plain link');
+    assert.match(p.els('buyQr').dataset.url, /_q$/, 'the phone code: marked _q');
+    p.els('buyQrPc').fire('click', { preventDefault() {} });
+    p.els('buyQrClose').fire('click', { preventDefault() {} });
+    await flush(5);
+    assert.ok(sent.includes('buy_click') && sent.includes('buy_again') && sent.includes('buy_close'), JSON.stringify(sent));
+  } finally { p.close(); }
+});
+
+await t('4n3z. 1.94.3 opened from inside the downloaded zip: said at once, no job starts', async () => {
+  const p = loadPanel({});
+  try {
+    await flush(5);
+    const z = "C:/Users/a/AppData/Local/Temp/Temp1_amharic-captions-win-x64.zip/com.amharic.captions/runtime";
+    assert.strictEqual(p.evalVm('runningFromZip(' + JSON.stringify([z]) + ')'), true, 'the Temp1_….zip path');
+    assert.strictEqual(p.evalVm('runningFromZip(["C:/Users/a/AppData/Roaming/Adobe/CEP/extensions/com.amharic.captions"])'), false, 'an installed program');
+    assert.strictEqual(p.evalVm('runningFromZip()'), false, 'the test install is not in a zip');
+    assert.strictEqual(p.els('zipWarn').style.display, 'none', 'no warning when installed');
+    p.evalVm('runningFromZip = () => true; showZipWarning();');
+    assert.notStrictEqual(p.els('zipWarn').style.display, 'none', 'the warning shows');
+    let err = '';
+    try { await p.evalVm('transcribe("C:/v/a.mp4", "C:/v/a.srt")'); } catch (e) { err = String(e && e.message); }
+    assert.match(err, /inside the zip|zip ፋይሉ ውስጥ/, 'no engine error: the plain instruction');
+  } finally { p.close(); }
+});
+
+await t('4n3f. 1.94.3 the Studio job WAITS for a new computer’s first minutes (it used to fail at once with "No free minutes left")', async () => {
+  let answer = { mode: 'minutes', status: 'active', seconds_left: 300, seconds_total: 300, minutes: 30, starter: true, started: true };
+  const asked = [];
+  const p = loadPanel({ fetch: async (url, o) => {
+    if (/\/api\/trial\/request/.test(url)) { asked.push(JSON.parse(o.body)); return { ok: true, status: 200, json: async () => answer, text: async () => JSON.stringify(answer) }; }
+    return { ok: true, status: 200, json: async () => ({ ok: true }), text: async () => '{}' };
+  } });
+  try {
+    await flush(5);
+    p.evalVm(`LICENSED = false; STARTER_ASKED = false; TRIAL_MIN = { status: 'none', minutes: 30, seconds_left: 0, seconds_total: 0 };`);
+    assert.strictEqual(await p.evalVm('starterBeforeJob()'), true, 'the minutes came, and the job can go on');
+    assert.ok(asked.length === 1 && asked[0].starter === true, 'asked once, for the first minutes');
+    assert.strictEqual(p.evalVm('trialRemaining()'), 300);
+    // the server says no (this computer had them before): not "buy", but the way to get free minutes
+    answer = { mode: 'minutes', status: 'none', minutes: 30, seconds_left: 0, seconds_total: 0 };
+    p.evalVm(`STARTER_ASKED = false; TRIAL_MIN = { status: 'none', minutes: 30, seconds_left: 0, seconds_total: 0 };
+      refreshTrialFromServer = async () => {};`);
+    assert.strictEqual(await p.evalVm('starterBeforeJob()'), false);
+    assert.strictEqual(await p.evalVm('starterBeforeJob()'), false, 'asked only once per run');
+    assert.strictEqual(asked.length, 2);
+  } finally { p.close(); }
+});
+
 await t('4n3. 1.93 ✂ one click on a caption cuts the Premiere timeline at once; the captions after it move up', async () => {
   const log = [];
   const p = loadPanel({ evalLog: log, csiRaw: (jsx) => {
@@ -1447,9 +1505,10 @@ await t('4e. free week (1.10.20): the panel shows until when, and says when the 
     assert.strictEqual(p.els('licenseStatus').textContent, 'Free trial: 25:00 minutes left', 'only a real date is shown');
     p.evalVm('setTrialState({ mode: "minutes", status: "expired", minutes: 30, seconds_total: 1800, seconds_left: 0, expires: "2026-10-19" }); updateLicenseUI();');
     assert.strictEqual(p.evalVm('assertCanRun()'), false);
-    has(p.els('logBox').textContent, 'Your free week has ended.');
+    has(p.els('logBox').textContent, 'Your free trial time has ended.');
+    assert.match(p.els('trialBanner').innerHTML, /free trial time has ended/, '1.94.3: the box says the time ended (not "used up")');
     assert.strictEqual(p.els('trialBanner').style.display, 'block', 'the buy banner shows');
-    assert.strictEqual(p.evalVm('humanError("trial used up")'), 'Your free week has ended. Buy a license to keep making captions.');
+    assert.strictEqual(p.evalVm('humanError("trial used up")'), 'Your free trial time has ended. Buy a license to keep making captions.');
     p.evalVm('AMH_LANG = "am"; setTrialState({ mode: "minutes", status: "active", minutes: 30, seconds_total: 1800, seconds_left: 1500, expires: "2026-10-19" }); updateLicenseUI();');
     has(p.els('licenseStatus').textContent, 'እስከ 2026-10-19');
   } finally { p.close(); }

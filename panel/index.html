@@ -1144,9 +1144,14 @@
       </div>
     </div>
 
+    <!-- 1.94.3: opened from inside the zip (the engine cannot start) -->
+    <div id="zipWarn" style="display:none;margin-bottom:8px;padding:9px 12px;border:1px solid var(--err);border-radius:var(--radius);background:var(--err-soft);font-size:11px;line-height:1.45;" data-i18n-html="zip.warn">
+      ⚠️ <b>Extract the zip first.</b> The program was opened from inside the downloaded zip, so it cannot make captions.
+      Right-click the zip → <b>Extract All</b> → <b>Extract</b>, then open <b>«Make Amharic Captions»</b> from the extracted folder.
+    </div>
     <div id="trialBanner"
          style="display:none;margin-bottom:8px;padding:9px 12px;border:1px solid var(--warn);border-radius:var(--radius);background:var(--warn-soft);font-size:11px;line-height:1.45;" data-i18n-html="lic.trialBanner">
-      <b>Free trials used up</b> — buy a license below to keep making captions.
+      <b>Your free minutes are used up</b> — buy a license below to keep making captions.
     </div>
 
     <!-- Free trial (1.10.7): free minutes from our Telegram bot. -->
@@ -1238,7 +1243,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.94.2</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.94.3</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
@@ -1260,7 +1265,7 @@
       <!-- 1.82: 11 computers pressed Buy in 7 days, 2 reached the bot — the
            card asked for a phone scan first. Telegram now opens on this
            computer at once; the prices are here; the phone is the second way. -->
-      <div class="tc-title" id="buyQrTitle" data-i18n="bq.title">💳 Telegram is opening on this computer</div>
+      <div class="tc-title" id="buyQrTitle" data-i18n="bq.title">💳 Buy in Telegram</div>
       <div class="bq-prices" data-i18n-html="bq.prices"><b>1 month</b> ETB 500 · <b>2 months</b> ETB 900 · <b>Forever</b> ETB 2,500</div>
       <ol class="bq-steps">
         <li data-i18n="bq.s1">In Telegram: choose your plan and pay</li>
@@ -1268,8 +1273,8 @@
         <li data-i18n="bq.s3">This computer unlocks by itself — nothing to copy</li>
       </ol>
       <div class="tc-sub bq-status" id="buyQrStatus"></div>
-      <button type="button" id="buyQrPc" class="btn btn-primary bq-again" data-i18n="bq.pc">💻 Telegram did not open? Open it again</button>
-      <div class="tc-sub bq-phone" data-i18n="bq.sub">📱 Paying on your phone instead? Scan this with the camera:</div>
+      <button type="button" id="buyQrPc" class="btn btn-primary bq-again" data-i18n="bq.pc">💻 Open Telegram on this computer</button>
+      <div class="tc-sub bq-phone" data-i18n="bq.sub">📱 Or on your phone: open the camera and point it at this code — Telegram opens there:</div>
       <div id="buyQr" class="bq-code" aria-label="QR code"></div>
       <button type="button" id="buyQrClose" class="tc-later" data-i18n="bq.close">Close</button>
     </div>

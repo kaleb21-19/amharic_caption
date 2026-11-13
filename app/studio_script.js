@@ -174,7 +174,11 @@
       const again = el('button', 'st-btn primary', '📝 ' + tx('እንደገና ይሞክሩ', 'Try again')); again.type = 'button';
       again.addEventListener('click', () => { ed.transcribeAll(); });
       row.appendChild(again);
-      if (/minutes|ደቂቃ|license|ፈቃድ/i.test(st.msg || '') && window.__amhOpenLicense) {
+      if (/free minutes first|ነጻ ደቂቃዎችዎን ያግኙ/i.test(st.msg || '') && window.__amhGetFreeMinutes) {
+        const fm = el('button', 'st-btn primary', '🎁 ' + tx('ነጻ ደቂቃ ያግኙ', 'Get free minutes')); fm.type = 'button';
+        fm.addEventListener('click', () => window.__amhGetFreeMinutes());
+        row.insertBefore(fm, row.firstChild);
+      } else if (/minutes|ደቂቃ|license|ፈቃድ/i.test(st.msg || '') && window.__amhOpenLicense) {
         const lic = el('button', 'st-btn', '🔑 ' + tx('ፈቃድ ያግኙ', 'Get a license')); lic.type = 'button';
         lic.addEventListener('click', () => window.__amhOpenLicense());
         row.appendChild(lic);

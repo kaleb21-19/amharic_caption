@@ -2354,8 +2354,11 @@ async function handleMessage(msg, env) {
       } else {
         // The panel's Buy button: m_<MachineID>_<secret>. Telegram keeps a
         // /start payload through the START tap (a pre-typed message is lost).
-        const buy = startArg && /^m_([0-9a-fA-F]{16}|[0-9a-fA-F]{8})(?:_([A-Za-z0-9]{12,32}))?$/.exec(startArg[1]);
+        // 1.94.3: "_q" = it came from the panel's QR code (the phone), so the
+        // owner sees which way buyers arrive (13 pressed Buy, 4 reached the bot)
+        const buy = startArg && /^m_([0-9a-fA-F]{16}|[0-9a-fA-F]{8})(?:_([A-Za-z0-9]{12,32}))?(_q)?$/.exec(startArg[1]);
         if (buy) {
+          if (buy[3]) await addFunnel(uid, 'panel_buy_qr');
           await startPanelPurchase(uid, chatId, buy[1].toLowerCase(), buy[2] || null, null);
           return;
         }
@@ -5262,7 +5265,7 @@ async function adminSales(chatId, messageId) {
 const EVENT_NAMES = new Set([
   'open', 'model_needed', 'model_dl_start', 'model_dl_ok', 'model_dl_fail',
   'run_click', 'blocked_model', 'blocked_trial', 'blocked_runtime', 'run_ok', 'placed',
-  'buy_click', 'activate_ok', 'activate_fail', 'trial_link',
+  'buy_click', 'buy_again', 'buy_close', 'activate_ok', 'activate_fail', 'trial_link',
   // 1.77: the free-minutes step, by reason, and the first minutes on the computer
   // 1.78: a computer's first time ever; a finished run (not a reopened project)
   'first_open', 'cap_new',
@@ -5324,11 +5327,14 @@ async function adminUsage(chatId, messageId, days = 7) {
   const otherOpen = other.by.open || 0;
   // 1.82: how many of those who pressed Buy in the program got to the bot
   // (the program's Buy link carries m_<Machine ID>; counted per person, all countries)
-  let reachedBot = null;
+  let reachedBot = null, reachedQr = 0;
   try {
     const rb = await DB.prepare("SELECT COUNT(DISTINCT uid) AS n FROM funnel WHERE event = 'panel_buy' AND ts > datetime('now', ?)")
       .bind('-' + days + ' days').first();
     reachedBot = rb ? rb.n : 0;
+    const rq = await DB.prepare("SELECT COUNT(DISTINCT uid) AS n FROM funnel WHERE event = 'panel_buy_qr' AND ts > datetime('now', ?)")
+      .bind('-' + days + ' days').first();
+    reachedQr = rq ? rq.n : 0;
   } catch (e) { /* older table: leave it out */ }
   const gates = [['gate_none', 'none yet'], ['gate_used', 'used up'], ['gate_expired', 'week ended'],
     ['gate_pending', 'waiting for OK'], ['gate_offline', 'no internet'], ['gate_blocked', 'blocked']]
@@ -5366,8 +5372,11 @@ async function adminUsage(chatId, messageId, days = 7) {
     (c('update_start') ? `🔄 One-tap updates: ${c('update_start')} · ✅ ${c('update_ok')} · ❌ ${c('update_fail')}\n` : '') +
     (c('report_sent') ? `📨 Problem reports sent: ${c('report_sent')}\n` : '') +
     (c('feedback_sent') ? `💡 Feedback sent: ${c('feedback_sent')}\n` : '') +
-    `💳 Pressed Buy: ${c('buy_click')}` + (reachedBot !== null ? ` → reached the bot: <b>${reachedBot}</b>` : '') +
+    `💳 Pressed Buy: ${c('buy_click')}` + (reachedBot !== null ? ` → reached the bot: <b>${reachedBot}</b>` +
+      (reachedQr ? ` (📱 by phone: ${reachedQr})` : '') : '') +
     ` · 🔑 Activated: ${c('activate_ok')}` +
+    (c('buy_again') || c('buy_close')
+      ? `\n   └ 💻 "Telegram did not open — open again": ${c('buy_again')} · closed without going on: ${c('buy_close')}` : '') +
     (c('activate_fail') ? ` · activation failed: ${c('activate_fail')}` : '') + '\n\n' +
     `<i>Outside Ethiopia (mostly our test machines): opened ${otherOpen}.</i>`;
   const kb = [
@@ -5541,7 +5550,7 @@ const trialBuyKb = () => [
 ];
 function trialReadyText(minutes, until) {
   const valid = until
-    ? `📅 እስከ <b>${until}</b> ድረስ ይጠቀሙባቸው።\n<i>Use them by <b>${until}</b> (7 days).</i>\n\n`
+    ? `📅 እስከ <b>${until}</b> ድረስ ይጠቀሙባቸው።\n<i>Use them by <b>${until}</b>.</i>\n\n`
     : '';
   return `✅ <b>${minutes} ደቂቃ ነጻ ሙከራ ተዘጋጅቷል!</b>\n` +
     'ወደ ፕሮግራሙ ይመለሱ — በራሱ ይዘመናል — ከዚያ ካፕሽን ይፍጠሩ።\n' +
@@ -5561,7 +5570,7 @@ function trialStatusText(g) {
     return '⛔ <b>ለዚህ ኮምፒውተር ነጻ ደቂቃዎች አልተሰጡም።</b>\n<i>Free minutes are not available for this computer.</i>';
   }
   if (left <= 0) return '🎬 <b>ነጻ ደቂቃዎችዎን ተጠቅመዋል።</b>\n<i>You have used your free minutes.</i>';
-  if (trialExpired(g)) return '⌛ <b>የነጻ ሙከራ ሳምንትዎ አብቅቷል።</b>\n<i>Your free week has ended.</i>';
+  if (trialExpired(g)) return '⌛ <b>የነጻ ሙከራ ጊዜዎ አብቅቷል።</b>\n<i>Your free trial time has ended.</i>';
   return `🎁 <b>ቀሪ ነጻ ደቂቃዎች፦ ${fmtMin(left)}</b>\n<i>Free minutes left: ${fmtMin(left)} — go back to the program and make your captions.</i>`;
 }
 
@@ -5708,9 +5717,9 @@ async function remindTrialWeek() {
       const left = fmtMin(g.seconds_total - g.seconds_used);
       if (ended) {
         await sendText(g.uid,
-          '⌛ <b>የነጻ ሙከራ ሳምንትዎ አብቅቷል።</b>\n' +
+          '⌛ <b>የነጻ ሙከራ ጊዜዎ አብቅቷል።</b>\n' +
           `ካፕሽኖቹ ከወደዱት፦ 1 ወር ETB ${money(PLANS.m1.etb)} · 2 ወር ETB ${money(PLANS.m2.etb)} · ለዘለቄታው ETB ${money(PRICE_ETB)}።\n` +
-          `<i>Your free week has ended. If you liked the captions: 1 month ETB ${money(PLANS.m1.etb)} · 2 months ETB ${money(PLANS.m2.etb)} · forever ETB ${money(PRICE_ETB)}.</i>`,
+          `<i>Your free trial time has ended. If you liked the captions: 1 month ETB ${money(PLANS.m1.etb)} · 2 months ETB ${money(PLANS.m2.etb)} · forever ETB ${money(PRICE_ETB)}.</i>`,
           trialBuyKb());
       } else {
         await sendText(g.uid,
@@ -5842,6 +5851,13 @@ async function adminTrials(chatId, messageId, offset = 0) {
     { text: terms.starter ? `🖥 first ${terms.starter} min without Telegram` : '🖥 without Telegram: off', callback_data: 'admin:trials' },
     { text: '+ 1', callback_data: 'admin:tstart:1' },
   ]);
+  // 1.94.3: how long the free minutes last (8 people a week came back after
+  // their week had ended — the minutes are limited anyway)
+  kb.push([
+    { text: '− days', callback_data: 'admin:tdays:-1' },
+    { text: `📅 valid ${terms.days} days`, callback_data: 'admin:trials' },
+    { text: '+ days', callback_data: 'admin:tdays:1' },
+  ]);
   kb.push([{ text: terms.on ? '⏸ Turn free trials OFF' : '▶ Turn free trials ON', callback_data: 'admin:ttoggle' }]);
   kb.push([{ text: '📜 Before 1.10.7 (2 free captions)', callback_data: 'admin:trialsold' }, { text: '🛠 Admin', callback_data: 'admin:panel' }]);
   if (messageId && !offset) await editText(chatId, messageId, text, kb);
@@ -5856,6 +5872,20 @@ async function adminTrialAction(chatId, messageId, cbId, fromUid, act, arg) {
     await setSetting('trial_free_minutes', next);
     await audit(fromUid, 'trial_minutes', String(next));
     await answerCb(cbId, `New trials get ${next} minutes`);
+    await adminTrials(chatId, messageId, 0);
+    return;
+  }
+  if (act === 'tdays') {
+    // 7 → 14 → 30 → 60 (and back): the usual choices, one tap each
+    const STEPS = [3, 7, 14, 30, 60, 90];
+    const terms = trialTerms(await getSettings());
+    let i = STEPS.indexOf(terms.days);
+    if (i < 0) i = STEPS.findIndex((d) => d > terms.days) - 1;
+    i = Math.min(Math.max(i + ((parseInt(arg, 10) || 0) > 0 ? 1 : -1), 0), STEPS.length - 1);
+    const next = STEPS[i];
+    await setSetting('trial_days', next);
+    await audit(fromUid, 'trial_days', String(next));
+    await answerCb(cbId, `New free minutes last ${next} days`);
     await adminTrials(chatId, messageId, 0);
     return;
   }
@@ -6598,7 +6628,7 @@ async function handleCallback(cb) {
     else if (action === 'usage') await adminUsage(chatId, messageId, parseInt(parts[2] || '7', 10));
     else if (action === 'trials') await adminTrials(chatId, messageId, Math.max(0, parseInt(parts[2] || '0', 10) || 0));
     else if (action === 'trialsold') await adminTrialsOld(chatId, messageId, Math.max(0, parseInt(parts[2] || '0', 10) || 0));
-    else if (['tgok', 'tgno', 'tgblk', 'tgunb', 'tgadd', 'tmin', 'tstart', 'ttoggle'].includes(action)) {
+    else if (['tgok', 'tgno', 'tgblk', 'tgunb', 'tgadd', 'tmin', 'tstart', 'tdays', 'ttoggle'].includes(action)) {
       await adminTrialAction(chatId, messageId, cbId, fromUid, action, parts[2]);
     }
     else if (action === 'tgcard') { await answerCb(cbId, ''); await adminTrialCard(chatId, messageId, String(parts[2] || '').toLowerCase()); }

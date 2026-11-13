@@ -2549,6 +2549,20 @@ console.log('\n:: scenario 23 — simple buying: no Machine ID for the customer'
     return row(env, 'SELECT * FROM orders WHERE id=?', o.id);
   };
 
+  // A0. 1.94.3: the panel's QR (phone) link ends in _q — the same purchase, counted apart
+  {
+    const Q = '890000077', QMID = '3f9a1c7e5b2d4099', QN = 'Q7wErTy12345zzzz';
+    OUTBOUND.length = 0;
+    await say(Q, `/start m_${QMID}_${QN}_q`);
+    const tq = lastTo(Q);
+    assert.ok(tq.body.text.includes('computer is connected') && tq.body.text.includes('ETB 2,500'), 'the QR link opens the same purchase');
+    const f = env.DB.prepare("SELECT event FROM funnel WHERE uid=? ORDER BY id").bind(Q).all().results.map((r) => r.event);
+    assert.deepEqual(f.filter((e) => /panel_buy/.test(e)), ['panel_buy_qr', 'panel_buy'], 'counted as the phone way too');
+    const fq = row(env, 'SELECT nonce, mid FROM fsm WHERE uid=?', Q);
+    assert.ok(fq && fq.nonce === QN && fq.mid === QMID, 'the secret is kept without the _q mark');
+    ok('panel Buy by phone (QR, _q): the same purchase, counted apart');
+  }
+
   // A. From the panel's Buy button: nothing to type, the panel activates itself.
   const P = '890000001';
   const PMID = '3f9a1c7e5b2d4086';
@@ -3243,7 +3257,7 @@ console.log('\n:: 1.10.7 free minutes via Telegram');
   const gW = row(env, 'SELECT expires_at FROM trial_grants WHERE machine_id=?', MIDW);
   const days = (Date.parse(gW.expires_at.replace(' ', 'T') + 'Z') - Date.now()) / 86400000;
   assert.ok(days > 6.9 && days < 7.1, 'valid for 7 days: ' + gW.expires_at);
-  assert.ok(said(n, UW).includes('Use them by') && said(n, UW).includes('(7 days)'), 'the bot says until when');
+  assert.ok(said(n, UW).includes('Use them by') && !said(n, UW).includes('(7 days)'), 'the bot says until when');
   j = await state(MIDW);
   assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(j.expires), 'the panel gets the last day: ' + j.expires);
   assert.equal(await use(MIDW, 'run-week-000001', 60).then((x) => x.charged), true, 'usable during the week');
@@ -3264,7 +3278,7 @@ console.log('\n:: 1.10.7 free minutes via Telegram');
   n = OUTBOUND.length;
   await worker.scheduled({ cron: '0 */6 * * *' }, env);
   await worker.scheduled({ cron: '0 */6 * * *' }, env);
-  assert.equal(OUTBOUND.slice(n).filter((x) => String(x.body.chat_id) === String(UW) && /Your free week has ended/.test(x.body.text || '')).length, 1, 'one "week ended" message');
+  assert.equal(OUTBOUND.slice(n).filter((x) => String(x.body.chat_id) === String(UW) && /Your free trial time has ended/.test(x.body.text || '')).length, 1, 'one "week ended" message');
   // the owner's +minutes gives a fresh week
   await cb(env, { id: Number(ADMIN_ID) }, 'admin:tgadd:' + MIDW);
   j = await state(MIDW);
@@ -3386,6 +3400,13 @@ console.log('\n:: 1.10.7 free minutes via Telegram');
   ok('free minutes: ✉️ Message to a free-trial user from the card; their reply comes back to the owner');
   await cb(env, { id: Number(ADMIN_ID) }, 'admin:tmin:5');
   assert.equal((await state('0000111122223333')).minutes, 25, 'owner changes the free minutes');
+  // 1.94.3: how long they last — 7 → 14 → 30 days, one tap each; back down too
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:tdays:1');
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:tdays:1');
+  assert.equal(row(env, "SELECT value FROM settings WHERE key='trial_days'").value, '30', 'free minutes now last 30 days');
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:tdays:-1');
+  assert.equal(row(env, "SELECT value FROM settings WHERE key='trial_days'").value, '14', 'and back to 14');
+  await cb(env, { id: Number(ADMIN_ID) }, 'admin:tdays:-1');
   await cb(env, { id: Number(ADMIN_ID) }, 'admin:ttoggle');
   assert.equal((await state('0000111122223333')).status, 'off', 'free trials OFF');
   j = await reqLink('0000111122223333', 'cafe0001');

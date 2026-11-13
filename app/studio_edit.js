@@ -2432,7 +2432,13 @@
           it.appendChild(stop);
         } else {
           if (job && job.note) it.appendChild(el('div', 'ed-mcap', job.note));
-          if (job && job.err) it.appendChild(el('div', 'ed-mcap err', job.err));
+          if (job && job.err) {
+            it.appendChild(el('div', 'ed-mcap err', job.err));
+            // 1.94.3: no free minutes yet → the way to get them, right here
+            if (/free minutes|ነጻ ደቂቃ/i.test(job.err) && window.__amhGetFreeMinutes) {
+              it.appendChild(btn('st-btn ed-mcapbtn', '🎁 ' + tx('ነጻ ደቂቃ ያግኙ', 'Get free minutes'), tx('ቴሌግራም ይከፈታል — START ይጫኑ', 'Telegram opens — press START'), () => window.__amhGetFreeMinutes()));
+            }
+          }
           it.appendChild(btn('st-btn primary ed-mcapbtn', '💬 ' + tx('ካፕሽን ይስሩ', 'Make captions'), tx('ይህን ፋይል ወደ ጽሑፍ ቀይር', 'Turn this file\'s speech into captions'), () => makeCaptions(id)));
         }
       }

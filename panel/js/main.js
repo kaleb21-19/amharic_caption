@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.2';
+const APP_VERSION = '1.94.3';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -2246,6 +2246,7 @@ function initSearch() {
 }
 
 function initBuy() {
+  showZipWarning();
   initFeedback();
   initReport();
   initSearch();
@@ -2264,15 +2265,17 @@ function initBuy() {
       setPendingBuy(p);
       // 1.41: buy on the PHONE — the bank app, the screenshot and Telegram
       // are all there; this computer still unlocks itself (the same link).
-      showBuyQr(buyUrl(p));
+      showBuyQr(buyUrl(p) + '_q');    // 1.94.3: the phone's link is marked (the bot counts it apart)
       openUrl(buyUrl(p));          // 1.82: Telegram on this computer at once
       startBuyPoll();
     });
   }
   const pc = document.getElementById('buyQrPc');
-  if (pc) pc.addEventListener('click', () => { const p = getPendingBuy(); if (p) openUrl(buyUrl(p)); });
+  // 1.94.3: which way buyers get stuck — Telegram did not open on this
+  // computer (they press it again), or they closed the window (the price?)
+  if (pc) pc.addEventListener('click', () => { track('buy_again'); const p = getPendingBuy(); if (p) openUrl(buyUrl(p)); });
   const close = document.getElementById('buyQrClose');
-  if (close) close.addEventListener('click', hideBuyQr);
+  if (close) close.addEventListener('click', () => { if (!LICENSED) track('buy_close'); hideBuyQr(); });
   // A purchase started earlier (the panel was closed meanwhile): keep checking.
   if (getPendingBuy()) startBuyPoll();
   if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
@@ -2662,7 +2665,7 @@ function assertCanRun(resume) {
   } else if (st === 'pending') {
     log('Your free-minutes request is being checked — we will tell you in Telegram.');
   } else if (st === 'expired') {
-    log('Your free week has ended.');
+    log('Your free trial time has ended.');
     log('Buy a license (below) to keep making captions.');
   } else {
     log('Your free minutes are used up.');
@@ -2670,6 +2673,27 @@ function assertCanRun(resume) {
   }
   return false;
 }
+// 1.94.3: the first minutes for a job that cannot wait on a card (the
+// Studio's Make captions / Transcribe): ask, WAIT for the answer, true when
+// minutes are there. Asked once per run of the program, like the panel.
+async function starterBeforeJob() {
+  if (LICENSED || trialRemaining() > 0) return true;
+  const st = TRIAL_MIN ? TRIAL_MIN.status : null;
+  if (st !== 'none' || STARTER_ASKED) return false;
+  STARTER_ASKED = true;
+  let r = null;
+  try { r = await apiPost('/api/trial/request', { mid: MACHINE_ID, hf: hostFingerprint() || undefined, starter: true }); } catch (e) { r = null; }
+  if (r && r.mode === 'minutes') setTrialState(r);
+  else STARTER_ASKED = false;           // no answer: ask again next time
+  updateLicenseUI();
+  if (trialRemaining() > 0) {
+    if (r && r.started) track('trial_starter');
+    log('🎁 ' + fmtMinSec(trialRemaining()) + ' free minutes on this computer — your captions start now.');
+    return true;
+  }
+  return false;
+}
+if (typeof window !== 'undefined') window.__amhGetFreeMinutes = () => startFreeMinutes();
 // 1.77: the first free minutes on this computer, without Telegram (the
 // server gives them once per computer). Then the job that was asked for
 // starts; when the server says no, the usual Telegram card.
@@ -2896,8 +2920,19 @@ function updateLicenseUI() {
       if (licStatus) licStatus.style.display = 'none';
       if (runBtn) runBtn.disabled = false;
     } else {
-      // Trial used up: make the path to purchase unmistakable.
-      if (banner) banner.style.display = 'block';
+      // Trial used up: make the path to purchase unmistakable — and say
+      // which (1.94.3: an ended free time read "Free trials used up" and the
+      // customer thought it was a mistake)
+      if (banner) {
+        const key = st === 'expired' ? 'lic.trialEnded' : 'lic.trialBanner';
+        const en = st === 'expired'
+          ? '<b>Your free trial time has ended</b> — buy a license below to keep making captions.'
+          : '<b>Your free minutes are used up</b> — buy a license below to keep making captions.';
+        banner.setAttribute('data-i18n-html', key);
+        banner.__i18nEn = en;
+        banner.innerHTML = (typeof AMH_LANG !== 'undefined' && AMH_LANG === 'am' && typeof AM_STATIC !== 'undefined' && AM_STATIC[key]) ? AM_STATIC[key] : en;
+        banner.style.display = 'block';
+      }
       if (banner && typeof banner.scrollIntoView === 'function' && !LICENSED_REFRESH) {
         try { banner.scrollIntoView({ block: 'center' }); } catch (e) {}
       }
@@ -4134,7 +4169,24 @@ function finishWork(work, outSrt) {
 
 // Transcribe a single source (already a file path). range = {sourceIn, duration};
 // offset shifts cue times to the timeline. Result: { outSrt, cues, transcript }.
+// 1.94.3: opened from INSIDE the downloaded zip (Windows unpacks only part of
+// it into …\Temp\Temp1_….zip\…): the engine's files are missing and it
+// failed with a DLL error. Said plainly at start, and no job starts.
+function runningFromZip(dirs) {
+  dirs = dirs || [typeof EXT_DIR !== 'undefined' ? EXT_DIR : '', typeof RUNTIME !== 'undefined' ? RUNTIME : ''];
+  return dirs.some((d) => /\.zip[\\/]/i.test(String(d || '')) || /[\\/]Temp\d+_[^\\/]*\.zip/i.test(String(d || '')));
+}
+const ZIP_HELP = 'The program was opened from inside the zip file. Right-click the zip → Extract All → Extract, then open «Make Amharic Captions» from the extracted folder.';
+function showZipWarning() {
+  const box = document.getElementById('zipWarn');
+  const zip = runningFromZip();
+  if (box) box.style.display = zip ? '' : 'none';
+  if (!box || !zip) return false;
+  log('⚠ ' + ZIP_HELP);
+  return true;
+}
 async function transcribe(sourcePath, outSrt, range, offset) {
+  if (runningFromZip()) throw new Error(L(ZIP_HELP));
   workerDllError = false;
   const key = cacheKey(sourcePath, range, offset);
   const hit = cacheLookup(key);
@@ -8963,7 +9015,7 @@ function humanError(raw) {
     return TRIAL_MIN && TRIAL_MIN.status === 'none'
       ? 'Get your free minutes in Telegram first (the button above the license).'
       : TRIAL_MIN && TRIAL_MIN.status === 'expired'
-        ? 'Your free week has ended. Buy a license to keep making captions.'
+        ? 'Your free trial time has ended. Buy a license to keep making captions.'
         : 'Your free minutes are used up. Buy a license to keep making captions.';
   }
   if (t.includes('free caption needs internet')) return 'Connect to the internet for the free trial (a license works offline).';
@@ -9494,7 +9546,19 @@ async function transcribeExtra(filePath) {
   if (!modelReadyForRun(null)) throw new Error(L('The Amharic model is downloading — try again when it is ready.'));
   runStartInProgress = true;
   try { await refreshTrialFromServer(); } finally { runStartInProgress = false; }
-  if (!assertCanRun(null)) throw new Error(L('No free minutes left — a license makes captions for every video.'));
+  // 1.94.3: a new computer's first minutes (without Telegram) — WAIT for them.
+  // Before, the request went out and the job failed at once with "No free
+  // minutes left"; the minutes arrived a moment later, the editor had left
+  // (Studio, 30 days: ~100 stopped at "none yet", ~10 got the first minutes).
+  await starterBeforeJob();
+  if (!assertCanRun(null)) {
+    const st = TRIAL_MIN ? TRIAL_MIN.status : null;
+    throw new Error(L(st === 'none' || (st && trialMoreMinutes())
+      ? 'Get your free minutes first: press 🎁 Get free minutes — Telegram opens, press START there.'
+      : !st ? 'Connect to the internet for the free trial (a license works offline).'
+        : st === 'expired' ? 'Your free trial time has ended. Buy a license to keep making captions.'
+          : 'No free minutes left — a license makes captions for every video.'));
+  }
   const keep = { cues: lastCues, srt: lastSrtPath, charged: reviewTrialCharged };
   const outSrt = path.join(os.tmpdir(), 'amh_extra_' + Date.now() + '.srt');
   cancelRequested = false;

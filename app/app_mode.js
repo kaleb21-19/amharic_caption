@@ -45,9 +45,14 @@
       ? '<div class="app-drop-icon">🎬</div><div class="app-drop-name"></div>' +
         '<div class="app-drop-sub">' + tx('ሌላ ቪዲዮ ለመምረጥ እዚህ ይጫኑ ወይም ይጎትቱ', 'Click or drop another video to change') + '</div>'
       : document.documentElement.classList.contains('amh-studio')
-        ? '<div class="app-drop-icon">⬇</div><div class="app-drop-title">' +
-          tx('ቪዲዮዎችንና ምስሎችን እዚህ ይጎትቱ — ኤዲቲንግ ይጀምሩ', 'Drop your videos and pictures here — start editing') + '</div><div class="app-drop-sub">' +
-          tx('ወይም ቪዲዮ ለመምረጥ ይጫኑ · ካፕሽን ሲፈልጉ በኤዲተሩ ውስጥ 📝 ጽሑፍ ይስሩ', 'or click to choose a video · captions when you want them: 📝 Transcribe in the editor') + '</div>'
+        // 1.94.3: people come for Amharic captions — say it first (most new
+        // Studio users never made one when this said "start editing")
+        ? '<div class="app-drop-icon">🎙</div><div class="app-drop-title">' +
+          tx('የአማርኛ ካፕሽን ይስሩ', 'Make Amharic captions') + '</div><div class="app-drop-sub">' +
+          tx('ቪዲዮዎን ይምረጡ — ካፕሽኑ በራሱ ይጀምራል', 'Choose your video — the captions start by themselves') + '</div>' +
+          '<span class="app-drop-cta">🎬 ' + tx('ቪዲዮ ይምረጡ', 'Choose a video') + '</span>' +
+          '<div class="app-drop-or">' + tx('ወይም ቪዲዮውን እዚህ ይጎትቱ', 'or drop the video here') + '</div>' +
+          '<div class="app-drop-feats"><span>✓ ' + tx('ያለ ኢንተርኔት', 'Works offline') + '</span><span>✂ ' + tx('በጽሑፍ ኤዲት', 'Edit by text') + '</span><span>🎨 ' + tx('40+ ስታይሎች', '40+ styles') + '</span><span>⬆ TikTok · YouTube · CapCut</span></div>'
         : '<div class="app-drop-icon">⬇</div><div class="app-drop-title">' +
           tx('ቪዲዮዎን እዚህ ይጎትቱ', 'Drag your video here') + '</div><div class="app-drop-sub">' +
           tx('ወይም ለመምረጥ ይጫኑ', 'or click to choose a file') + '</div>';

@@ -858,3 +858,21 @@ html.amh-studio .st-pick { display: none; }
 .ed-mitem .ed-mcapbtn { margin-top: 8px; }
 .ed-mitem .ed-maddtl { margin-top: 6px; }
 .ed-mitem .ed-madd { margin-top: 6px; }
+
+/* 1.94.3 the Studio's home: one clear start — Make Amharic captions */
+html.amh-studio .st-dropcard .app-drop:not(.has-file) {
+  border: 1px solid rgba(52,199,132,.35); border-radius: 16px; padding: 34px 24px 26px;
+  background: radial-gradient(120% 140% at 50% 0%, rgba(52,199,132,.16) 0%, rgba(52,199,132,.04) 45%, transparent 75%), var(--bg-card);
+  box-shadow: 0 10px 30px rgba(0,0,0,.25);
+}
+html.amh-studio .st-dropcard .app-drop:not(.has-file):hover { border-color: var(--accent); }
+html.amh-studio .st-dropcard .app-drop.drag { border-style: dashed; background: var(--accent-soft); }
+html.amh-studio .st-dropcard .app-drop-icon { font-size: 30px; margin-bottom: 6px; }
+html.amh-studio .st-dropcard .app-drop-title { font-size: 22px; font-weight: 800; letter-spacing: .01em; }
+html.amh-studio .st-dropcard .app-drop-sub { font-size: 13px; margin-top: 6px; }
+.app-drop-cta { display: inline-block; margin-top: 16px; padding: 10px 26px; border-radius: 10px; background: var(--accent); color: #06110c;
+  font-weight: 800; font-size: 14px; box-shadow: 0 4px 14px rgba(52,199,132,.35); }
+.app-drop:hover .app-drop-cta { filter: brightness(1.08); }
+.app-drop-or { margin-top: 8px; font-size: 11px; color: var(--text-secondary); }
+.app-drop-feats { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 16px; }
+.app-drop-feats span { font-size: 11px; color: var(--text-secondary); padding: 3px 9px; border: 1px solid var(--border); border-radius: 20px; background: rgba(255,255,255,.02); }
