@@ -1382,6 +1382,23 @@ await t('4n3f. 1.94.3 the Studio job WAITS for a new computer’s first minutes 
   } finally { p.close(); }
 });
 
+await t('4n3g. 1.94.4 the Studio job is counted: cap_new when captions come, the error type when it fails', async () => {
+  const p = loadPanel();
+  try {
+    await flush(5);
+    if (!p.evalVm('!!(RUNTIME && PYTHON && FFMPEG && fs.existsSync(PYTHON) && fs.existsSync(FFMPEG))')) { console.log('        (skipped: no engine files here)'); return; }
+    p.evalVm(`globalThis.__tr = []; track = (e) => __tr.push(e); LICENSED = true; MODEL_MISSING = false;
+      refreshTrialFromServer = async () => {}; starterBeforeJob = async () => true;
+      transcribe = async () => ({ cues: [{ text: 'ሀ', start: 0, end: 1 }] });`);
+    const cues = await p.evalVm(`transcribeExtra('C:/v/a.mp4')`);
+    assert.strictEqual(cues.length, 1);
+    assert.strictEqual(p.evalVm('JSON.stringify(__tr)'), '["run_click","cap_new"]');
+    p.evalVm(`__tr.length = 0; transcribe = async () => { throw new Error('No result from After Effects (x)'); };`);
+    await assert.rejects(p.evalVm(`transcribeExtra('C:/v/a.mp4')`));
+    assert.strictEqual(p.evalVm('JSON.stringify(__tr)'), '["run_click","err_host_empty"]');
+  } finally { p.close(); }
+});
+
 await t('4n3. 1.93 ✂ one click on a caption cuts the Premiere timeline at once; the captions after it move up', async () => {
   const log = [];
   const p = loadPanel({ evalLog: log, csiRaw: (jsx) => {
@@ -3132,6 +3149,13 @@ await t('10f2. a failed run: error types, and "Send problem report" (scrubbed, o
     p.evalVm('WORKER_TAIL = [];');
     assert.strictEqual(p.evalVm('errorStep("worker timeout")'), 'err_engine_hang');
     assert.strictEqual(p.evalVm('errorStep("Python failed: Command failed ... license required: x")'), 'err_license', 'a license refusal is not an engine crash');
+    // 1.94.4: Premiere / After Effects not answering is its own type (not "other")
+    assert.strictEqual(p.evalVm('errorStep("No result from After Effects (the host did not answer a test either)")'), 'err_host_empty');
+    assert.strictEqual(p.evalVm('errorStep("script error in After Effects (x)")'), 'err_host_empty');
+    assert.strictEqual(p.evalVm('errorStep("After Effects script timed out")'), 'err_host_timeout');
+    // an Amharic message is classified by its English words
+    assert.strictEqual(p.evalVm('errorStep(AM_TEXT["Select a clip on the timeline (or put the playhead on it), then try again."])'), 'err_no_clip');
+    assert.strictEqual(p.evalVm('errorStep("ያልታወቀ ስህተት")'), 'err_other', 'unknown Amharic text stays other');
 
     // the offer appears only after a failure, sends only on tap
     assert.strictEqual(p.els('reportBox').style.display, 'none');

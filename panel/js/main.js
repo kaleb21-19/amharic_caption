@@ -442,13 +442,27 @@ const MEMORY_RE = /memoryerror|bad_alloc|out of memory|not enough memory|cannot 
 // ffmpeg found no sound in the file (a stock video without audio)
 const NO_AUDIO_RE = /does not contain any stream|matches no streams|no audio stream|contains no audio/i;
 const BLOCKED_RE = /access is denied|permissionerror|\[winerror 5\]|operation not permitted|winerror 225|virus/i;
+// 1.94.4: an Amharic message (L() of an English one) is classified by its
+// English words — in the Amharic panel these all fell into "other"
+let AM_TO_EN = null;
+function errorEnglish(raw) {
+  const s = String(raw || '');
+  if (!/[ሀ-፿]/.test(s) || typeof AM_TEXT === 'undefined') return s;
+  if (!AM_TO_EN) { AM_TO_EN = {}; Object.keys(AM_TEXT).forEach((k) => { AM_TO_EN[AM_TEXT[k]] = k; }); }
+  return AM_TO_EN[s] || s;
+}
 function errorStep(raw) {
+  raw = errorEnglish(raw);
   const t = String(raw || '').toLowerCase();
   const tail = WORKER_TAIL.join('\n');
   if (workerDllError || t.includes('dll load failed')) return 'err_av_blocked';
   if (MEMORY_RE.test(t) || MEMORY_RE.test(tail)) return 'err_memory';
   if (BLOCKED_RE.test(t) || BLOCKED_RE.test(tail)) return 'err_av_blocked';
   if (t.includes('worker timeout')) return 'err_engine_hang';
+  // 1.94.4: Premiere / After Effects itself did not answer (After Effects:
+  // 7 computers pressed Make captions in 30 days, 0 captions, 6 "other")
+  if (t.includes('script timed out')) return 'err_host_timeout';
+  if (t.includes('no result from') || t.includes('script error in') || t.includes('did not answer')) return 'err_host_empty';
   if (t.includes('audio too short')) return 'err_too_short';
   if (t.includes('no speech')) return 'err_no_speech';
   if (t.includes('audio-bearing')) return 'err_no_clips';
@@ -9570,9 +9584,13 @@ async function transcribeExtra(filePath) {
   track('run_click');
   try {
     const r = await transcribe(filePath, outSrt);
+    // 1.94.4: the Studio's captions were never counted (nor its errors) —
+    // the 30-day report showed 16 for 434 Studio computers
+    track('cap_new');
     return (r.cues || []).map((c) => Object.assign({}, c));
   } catch (e) {
     runFailed = true;
+    if (!cancelRequested) { const step = errorStep(e && e.message || e); if (step) track(step); }
     throw e;
   } finally {
     if (TRIAL_CHARGED_RUN && (cancelRequested || runFailed)) refundTrialRun();
