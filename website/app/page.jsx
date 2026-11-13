@@ -1,7 +1,7 @@
 import Link from "next/link";
 import Reveal from "@/components/Reveal";
 import BuySafely from "@/components/BuySafely";
-import PanelMock from "@/components/PanelMock";
+import StudioMock from "@/components/StudioMock";
 import Tx from "@/components/Tx";
 import {
   BOT_URL, ACCT_NAME, PRICE, PRICE_AM, PRICE_NUM, PRICE_OLD_NUM, PRICE_M1_NUM, PRICE_M2_NUM,
@@ -257,7 +257,7 @@ export default function HomePage() {
           <div className="hero-grid">
             <div className="hero-copy">
               <p className="eyebrow">
-                <Tx am="Premiere Pro · After Effects · CapCut · DaVinci Resolve" en="Premiere Pro · After Effects · CapCut · DaVinci Resolve" />
+                <Tx am="ስቱዲዮ (ለብቻው) · Premiere Pro · After Effects · CapCut · DaVinci" en="Studio app (on its own) · Premiere Pro · After Effects · CapCut · DaVinci" />
               </p>
 
               <h1>
@@ -269,8 +269,8 @@ export default function HomePage() {
 
               <p className="hero-sub">
                 <Tx
-                  am="እያንዳንዱን መስመር በእጅ መጻፍ ይቅር፦ ፕሮግራሙ በስታይል ያሉ፣ የሚታረሙ የአማርኛ ካፕሽኖችን ይጽፍልዎታል — በPremiere እና After Effects ታይምላይን ላይ፣ በCapCut ፕሮጀክትዎ ውስጥ፣ ወይም በDaVinci (ነፃውም) እንደ Text+። ያለ ኢንተርኔት።"
-                  en="Stop typing every line by hand: get styled, editable Amharic captions — on your Premiere and After Effects timeline, inside your CapCut project, or as Text+ in DaVinci Resolve (the free one too). Fully offline."
+                  am="እያንዳንዱን መስመር በእጅ መጻፍ ይቅር፦ ፕሮግራሙ በስታይል ያሉ፣ የሚታረሙ የአማርኛ ካፕሽኖችን ይጽፍልዎታል። Adobe አያስፈልግም — የአማርኛ ካፕሽን ስቱዲዮ ብቻውን ካፕሽን ይሰራል፣ ቪዲዮ ያስተካክላል፣ ለTikTok እና YouTube ይልካል። ደግሞም በPremiere እና After Effects ታይምላይን ላይ፣ በCapCut ወይም በDaVinci ውስጥ። ያለ ኢንተርኔት።"
+                  en="Stop typing every line by hand: get styled, editable Amharic captions. No Adobe needed — the Amharic Captions Studio app makes the captions, edits the video and exports it for TikTok and YouTube on its own. Or use it on your Premiere and After Effects timeline, in CapCut or DaVinci Resolve. Fully offline."
                 />
               </p>
 
@@ -300,7 +300,7 @@ export default function HomePage() {
                 the largest paint on the page. Fading it in delays the one thing
                 a visitor came to see, for an effect they never scrolled to. */}
             <div className="hero-visual">
-              <PanelMock />
+              <StudioMock />
             </div>
           </div>
         </div>

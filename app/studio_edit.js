@@ -1222,7 +1222,16 @@
   pmenu.style.display = 'none';
   const pdrop = el('span', 'ed-tdrop');
   pdrop.appendChild(bPro); pdrop.appendChild(pmenu);
-  [pdrop, bSplit, bDel, bDup, bTrans, bZoom, tdrop, bUndo, bRedo, hint, el('span', 'st-flex'), modeSw, zOut, zIn, zFit].forEach((x) => tbar.appendChild(x));
+  // 1.94.4 (owner: "the UI is not interesting" — 7 tools in a row): the
+  // everyday ones stay; Duplicate, Transition and Zoom go under ⋯ More
+  const bMore = btn('ed-tool ed-tool-more', '', '', () => { moreMenu.style.display = moreMenu.style.display === 'none' ? '' : 'none'; });
+  const moreMenu = el('div', 'ed-moremenu');
+  moreMenu.style.display = 'none';
+  [bDup, bTrans, bZoom].forEach((b) => { moreMenu.appendChild(b); b.addEventListener('click', () => { moreMenu.style.display = 'none'; }); });
+  const moreDrop = el('span', 'ed-tdrop');
+  moreDrop.appendChild(bMore); moreDrop.appendChild(moreMenu);
+  document.addEventListener('mousedown', (e) => { if (moreMenu.style.display !== 'none' && !moreDrop.contains(e.target)) moreMenu.style.display = 'none'; });
+  [pdrop, bSplit, bDel, tdrop, moreDrop, bUndo, bRedo, hint, el('span', 'st-flex'), modeSw, zOut, zIn, zFit].forEach((x) => tbar.appendChild(x));
   document.addEventListener('mousedown', (e) => { if (pmenu.style.display !== 'none' && !pdrop.contains(e.target)) pmenu.style.display = 'none'; });
   document.addEventListener('mousedown', (e) => { if (tmenu.style.display !== 'none' && !tdrop.contains(e.target)) tmenu.style.display = 'none'; });
   // ✨ Make it pro (1.59, owner's friend: "no keyframes, a junior editor does a
@@ -4940,6 +4949,8 @@
     bDup.textContent = '⧉ ' + tx('ድገም', 'Duplicate');
     bDup.title = tx('ቅጂ ከተመረጠው በኋላ (Ctrl+D) · ቅዳ Ctrl+C · ለጥፍ Ctrl+V · ብዙ ለመምረጥ Shift + ጠቅ', 'A copy right after it (Ctrl+D) · Copy Ctrl+C · Paste Ctrl+V · Shift + click to select several');
     bTrans.textContent = '⧓ ' + tx('ሽግግር', 'Transition');
+    bMore.textContent = '⋯ ' + tx('ተጨማሪ', 'More');
+    bMore.title = tx('ድገም፣ ሽግግር፣ ዙም', 'Duplicate, Transition, Zoom');
     bZoom.textContent = '🔍 ' + tx('ዙም', 'Zoom');
     bZoom.title = tx('በማጫወቻው ቦታ ለስላሳ ዙም — ስታይሉን በ⚙ ይምረጡ', 'A smooth zoom at the playhead — choose its style in ⚙');
     bTrans.title = tx('ከማጫወቻው አጠገብ ባለው ቁርጥ ላይ ሽግግር', 'A transition on the cut nearest the playhead');
