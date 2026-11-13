@@ -1238,6 +1238,19 @@
     box: { name: ['በሳጥን', 'On a box'], v: { ow: 0, sd: 0, sb: 0, bg: 'box', accent: '#111111', color: '#FFFFFF' } },
     pill: { name: ['ካፕሱል', 'Pill'], v: { ow: 0, sd: 0, sb: 0, bg: 'pill', accent: '#FFD60A', color: '#111111' } },
     marker: { name: ['ማርከር', 'Marker'], v: { ow: 0, sd: 0, sb: 0, bg: 'mark', accent: '#2ECC71', color: '#FFFFFF' } },
+    // 1.94.4 pack: our own looks (gold / luxury in the spirit of the owner's Luxury titles)
+    luxury: { name: ['ቅንጦት', 'Luxury'], v: { ow: 1, oc: '#5C3D00', sd: 0, sb: 14, shc: '#B8860B', sha: 0.85, bg: 'none', color: '#E9C46A', font: 'serif', lsp: 6 } },
+    goldbar: { name: ['የወርቅ መስመር', 'Gold bar'], v: { ow: 0, sd: 3, sb: 4, bg: 'line', accent: '#F5C542', color: '#FFFFFF', font: 'serif' } },
+    fire: { name: ['እሳት', 'Fire'], v: { ow: 3, oc: '#7A0000', sd: 0, sb: 14, shc: '#FF3D00', sha: 0.9, bg: 'none', color: '#FFB020', font: 'yebse' } },
+    ice: { name: ['በረዶ', 'Ice'], v: { ow: 2, oc: '#0B3A55', sd: 0, sb: 14, shc: '#38BDF8', sha: 0.9, bg: 'none', color: '#EAF6FF' } },
+    pinkpill: { name: ['ሮዝ ካፕሱል', 'Pink pill'], v: { ow: 0, sd: 0, sb: 0, bg: 'pill', accent: '#FF3EA5', color: '#FFFFFF', font: 'menbere' } },
+    news: { name: ['ዜና', 'News'], v: { ow: 0, sd: 0, sb: 0, bg: 'box', accent: '#C8102E', color: '#FFFFFF', font: 'washra' } },
+    sticker: { name: ['ስቲከር', 'Sticker'], v: { ow: 0, sd: 6, sb: 6, shc: '#000000', sha: 0.45, bg: 'pill', accent: '#FFFFFF', color: '#111111', font: 'agbalumo' } },
+    hacker: { name: ['ሀከር', 'Hacker'], v: { ow: 0, sd: 0, sb: 10, shc: '#00FF41', sha: 0.9, bg: 'none', color: '#39FF14', font: 'hibur' } },
+    brush: { name: ['ብሩሽ', 'Brush'], v: { ow: 2, oc: '#000000', sd: 6, sb: 2, bg: 'none', color: '#FFFFFF', font: 'tint' } },
+    minimal: { name: ['ቀላል', 'Minimal'], v: { ow: 0, sd: 2, sb: 3, bg: 'none', color: '#FFFFFF', lsp: 10, font: 'sans' } },
+    comic: { name: ['ኮሚክ', 'Comic'], v: { ow: 9, oc: '#000000', sd: 8, sb: 0, bg: 'none', color: '#FFE000', font: 'washra' } },
+    royal: { name: ['ንጉሣዊ', 'Royal'], v: { ow: 2, oc: '#3B2A00', sd: 4, sb: 6, bg: 'none', color: '#F3E3B5', font: 'abyssinica' } },
   };
   function titleLook(name) { const L = TITLE_LOOKS[name]; return L ? Object.assign({ oc: '#000000', shc: '#000000' }, L.v) : null; }
   // layers in canvas px: { kind, x, y (centre), w, h, r, color, a, text, S, font, bold, ob (outline), oc, sh,

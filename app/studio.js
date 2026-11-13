@@ -518,6 +518,7 @@
     searchB.title = tx('🔎 በሁሉም ቪዲዮዎችዎ የተነገረውን ፈልግ', '🔎 Search what was said in all your footage');
     undoB.title = tx('መልስ (Ctrl+Z)', 'Undo (Ctrl+Z)');
     savedEl.title = tx('🕘 የቀድሞ ቅጂዎች — ስራዎ በየ5 ደቂቃው ይቀዳል', '🕘 Earlier versions — your work is copied every 5 minutes');
+    if (/^✓ /.test(savedEl.textContent)) savedEl.textContent = '✓ ' + tx('ተቀምጧል', 'Saved');   // 1.94.4
     langB.textContent = AMH_LANG === 'am' ? 'EN' : 'አማ';
     exportB.textContent = '⬆ ' + tx('ይላኩ', 'Export');
     exportB.title = tx('ይላኩ (Ctrl+E)', 'Export (Ctrl+E)');
@@ -962,7 +963,7 @@
   }
   function libCard(p) {
     const missing = !fs.existsSync(p.video);
-    const card = btn('studio-proj st-lib-card' + (missing ? ' missing' : ''), '', '', () => { if (!missing) openProject(p); });
+    const card = btn('studio-proj st-lib-card' + (missing ? ' missing' : ''), '', '', () => { if (!missing) openProject(p); else libRelink(p); });   // 1.94.4: a moved video — the click finds it (it did nothing)
     const pic = el('div', 'st-thumb');
     const img = el('img'); img.alt = '';
     pic.appendChild(img);

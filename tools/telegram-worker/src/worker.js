@@ -5277,6 +5277,7 @@ const EVENT_NAMES = new Set([
   'err_av_blocked', 'err_too_short', 'err_no_speech', 'err_no_clips', 'err_no_clip', 'err_no_media',
   'err_media_unreadable', 'err_no_audio', 'err_disk_full', 'err_engine', 'err_runtime', 'err_license', 'err_other',
   'err_memory', 'err_engine_hang', 'err_clock', 'err_id_unsaved', 'report_sent', 'feedback_sent',
+  'err_host_empty', 'err_host_timeout',
   // the editor a Studio user says they use (1.38)
   'editor_capcut', 'editor_davinci', 'editor_premiere', 'editor_other',
 ]);
@@ -5287,6 +5288,7 @@ const ERROR_LABELS = {
   err_memory: 'out of memory', err_engine_hang: 'engine stopped responding', err_clock: 'computer clock wrong',
   err_id_unsaved: 'ID file blocked (a license would not stay)',
   err_disk_full: 'disk full', err_license: 'no license / free captions used up', err_other: 'other',
+  err_host_empty: 'Premiere / After Effects did not answer', err_host_timeout: 'Premiere / After Effects took too long',
 };
 
 async function usageCounts(days, cc) {

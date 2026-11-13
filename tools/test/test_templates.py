@@ -168,6 +168,13 @@ for tid in A.template_ids():
     p = pos_of(A.build(W, tid, 1080, 1920, opts={"pos": "top"}))
     check(p is None or p[1] < 1920 * 0.35, "%s: the top position is near the top" % tid)
 
+# 1.94.4: no hidden mark is ever drawn (a template whose OWN animation is
+# letter by letter showed a box and a number before the words)
+for tid in A.template_ids():
+    for an in ({}, {"anim": "wave"}, {"anim": "typewriter"}):
+        t = A.build(W, tid, 1080, 1920, opts=an)
+        check(not any(c in t for c in ""), "%s %s: no hidden mark left in the captions" % (tid, an))
+
 # a very long word still fits
 long = [("ድርባታይንጥርጥመንፈጥባይንጥርጥመን", 0.0, 2.0)]
 for tid in A.template_ids():

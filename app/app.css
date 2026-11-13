@@ -324,7 +324,7 @@ html.amh-studio .st-pill { white-space: nowrap; flex: 0 0 auto; }
 .st-cut-t { color: var(--text-secondary); font-variant-numeric: tabular-nums; min-width: 48px; }
 .st-cut-w { flex: 1; font-family: var(--review-font, 'Abyssinica SIL', serif); font-size: 13px; }
 .st-cut-w:hover { color: var(--accent); }
-.st-cutsum { font-weight: 700; margin: 4px 0 10px; color: #ff8a8a; }
+.st-cutsum { font-weight: 600; margin: 4px 0 10px; padding: 7px 10px; border-radius: 8px; background: rgba(255,255,255,.05); border: 1px solid var(--border); color: var(--text-primary); }
 .st-wide { width: 100%; height: 34px; }
 .st-cutnote { margin: -2px 0 10px; padding: 8px 10px; border-radius: 9px; background: rgba(231,76,60,.12); color: #ffb3b3; font-size: var(--font-s); }
 .st-link { display: block; margin-top: 8px; border: 0; background: none; padding: 0; color: var(--text-secondary); font-size: var(--font-s); text-decoration: underline; cursor: pointer; }
@@ -394,7 +394,7 @@ html.amh-studio #review.ed-mediamode .st-script, html.amh-studio #review.ed-medi
 .ed-cname { font-weight: 700; margin-bottom: 12px; overflow-wrap: anywhere; }
 .ed-sec { font-size: 12px; letter-spacing: .03em; text-transform: uppercase; color: var(--text-secondary); margin: 14px 0 8px; }
 .ed-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.ed-lab { width: 56px; font-size: var(--font-s); color: var(--text-secondary); }
+.ed-lab { width: 76px; flex: 0 0 76px; font-size: var(--font-s); color: var(--text-secondary); line-height: 1.25; overflow-wrap: anywhere; }
 .ed-row input[type=range] { flex: 1; accent-color: var(--accent); }
 .ed-val { width: 44px; text-align: right; font-variant-numeric: tabular-nums; font-size: var(--font-s); }
 .ed-clip .st-row { margin-top: 14px; }
@@ -876,3 +876,18 @@ html.amh-studio .st-dropcard .app-drop-sub { font-size: 13px; margin-top: 6px; }
 .app-drop-or { margin-top: 8px; font-size: 11px; color: var(--text-secondary); }
 .app-drop-feats { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-top: 16px; }
 .app-drop-feats span { font-size: 11px; color: var(--text-secondary); padding: 3px 9px; border: 1px solid var(--border); border-radius: 20px; background: rgba(255,255,255,.02); }
+
+/* 1.94.4 ⋯ More (Duplicate, Transition, Zoom) */
+.ed-moremenu { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 30; display: flex; flex-direction: column; gap: 4px; min-width: 170px; padding: 6px;
+  background: #121a17; border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+.ed-moremenu .ed-tool { width: 100%; justify-content: flex-start; text-align: left; }
+
+/* 1.94.4 Customize where you are: ⚙ on the chosen style; the head stays on top while scrolling */
+html.amh-studio .st-pane .style-chip { position: relative; }
+html.amh-studio .style-chip .style-gear { display: none; position: absolute; top: 6px; right: 6px; z-index: 2; width: 26px; height: 26px;
+  align-items: center; justify-content: center; border-radius: 7px; background: rgba(0,0,0,.72); border: 1px solid var(--accent);
+  color: #fff; font-size: 13px; cursor: pointer; }
+html.amh-studio .style-chip .style-gear .amh-ic { width: 14px; height: 14px; margin: 0; }
+html.amh-studio .style-chip.active .style-gear { display: flex; }
+html.amh-studio .style-chip .style-gear:hover { background: var(--accent); color: #06110c; }
+html.amh-studio .st-cappane:not(.st-capedit) .style-head { position: sticky; top: -12px; z-index: 3; background: var(--bg-elev); margin: -12px -12px 6px; padding: 14px 12px 8px; }

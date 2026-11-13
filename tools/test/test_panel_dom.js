@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.3');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.4');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1382,6 +1382,45 @@ await t('4n3f. 1.94.3 the Studio job WAITS for a new computer’s first minutes 
   } finally { p.close(); }
 });
 
+await t('4n3g. 1.94.4 the Studio job is counted: cap_new when captions come, the error type when it fails', async () => {
+  const p = loadPanel();
+  try {
+    await flush(5);
+    if (!p.evalVm('!!(RUNTIME && PYTHON && FFMPEG && fs.existsSync(PYTHON) && fs.existsSync(FFMPEG))')) { console.log('        (skipped: no engine files here)'); return; }
+    p.evalVm(`globalThis.__tr = []; track = (e) => __tr.push(e); LICENSED = true; MODEL_MISSING = false;
+      refreshTrialFromServer = async () => {}; starterBeforeJob = async () => true;
+      transcribe = async () => ({ cues: [{ text: 'ሀ', start: 0, end: 1 }] });`);
+    const cues = await p.evalVm(`transcribeExtra('C:/v/a.mp4')`);
+    assert.strictEqual(cues.length, 1);
+    assert.strictEqual(p.evalVm('JSON.stringify(__tr)'), '["run_click","cap_new"]');
+    p.evalVm(`__tr.length = 0; transcribe = async () => { throw new Error('No result from After Effects (x)'); };`);
+    await assert.rejects(p.evalVm(`transcribeExtra('C:/v/a.mp4')`));
+    assert.strictEqual(p.evalVm('JSON.stringify(__tr)'), '["run_click","err_host_empty"]');
+  } finally { p.close(); }
+});
+
+await t('4n3h. 1.94.4 the chosen style has its own ⚙: Customize opens without going up', async () => {
+  const p = loadPanel();
+  try {
+    await flush(5);
+    p.evalVm('STYLE_OK = true; STYLE = "neon"; STYLE_CUSTOM_OPEN = false; renderStyleStrip();');
+    const chips = p.els('styleChips').children;
+    const neon = chips.find((c) => c.dataset.style === 'neon');
+    const gear = neon.children.find((c) => c.className === 'style-gear');
+    assert.ok(gear, 'the style has its ⚙');
+    assert.ok(!chips.find((c) => c.dataset.style === 'plain').children.find((c) => c.className === 'style-gear'), 'Plain has nothing to customize');
+    gear.fire('click');
+    assert.strictEqual(p.evalVm('STYLE_CUSTOM_OPEN'), true, 'Customize is open');
+    assert.strictEqual(p.evalVm('STYLE'), 'neon');
+  } finally { p.close(); }
+  const q = loadPanel({ realPanel: true });
+  try {
+    await flush(5);
+    q.evalVm('STYLE_OK = true; STYLE = "neon"; renderStyleStrip();');
+    assert.ok(!q.els('styleChips').children.some((c) => (c.children || []).some((x) => x.className === 'style-gear')), 'not in Premiere / After Effects');
+  } finally { q.close(); }
+});
+
 await t('4n3. 1.93 ✂ one click on a caption cuts the Premiere timeline at once; the captions after it move up', async () => {
   const log = [];
   const p = loadPanel({ evalLog: log, csiRaw: (jsx) => {
@@ -1518,6 +1557,8 @@ await t('4f0. 1.94.2 the panel Customize is one compact block: ⚙ opens six sho
   const p = loadPanel({ realPanel: true });
   try {
     await flush(10);
+    // 1.93 owner: no 🔎 Search card in Premiere / After Effects (the Studio keeps it)
+    assert.strictEqual(p.els('searchCard').style.display, 'none', 'no Search card in the panel');
     p.evalVm('STYLE_OK = true; STYLE = "bounce"; STYLE_CUSTOM_OPEN = false; renderStyleStrip();');
     assert.notStrictEqual(p.els('styleCustomToggle').style.display, 'none', 'the ⚙ button is there');
     assert.strictEqual(p.els('styleCustom').style.display, 'none', 'closed until ⚙');
@@ -1793,11 +1834,13 @@ await t('4h. My styles (1.13): save a look under a name, one click to use it aga
     const wantChips = 1 + 1 + (p.evalVm('STYLE_LIST.length') - 1) + 1 + p.evalVm('TEMPLATE_LIST.length');
     assert.strictEqual(chips().length, wantChips, 'Plain + 1 saved + 18 styles + the templates: ' + chips().map((b) => b.dataset.my ? 'MY' : b.dataset.style).join(','));
     // the modern styles (1.16) come first after the saved looks; only the
-    // 1.73 kinetic pack carries a NEW mark
+    // newest pack (1.94.4) carries a NEW mark
     assert.deepStrictEqual(chips().slice(2, 5).map((b) => b.dataset.style), ['glide', 'spotlight', 'bounce']);
     const isNew = (b) => b.children.some((c) => c.className === 'style-new');
-    assert.deepStrictEqual(chips().filter(isNew).map((b) => b.dataset.style), ['reels', 'reelsgold', 'kinetic', 'kineticpop', 'bouncy', 'flicker', 'snap'],
-      'NEW: only the 1.73 kinetic pack');
+    assert.strictEqual(JSON.stringify(chips().filter(isNew).map((b) => b.dataset.style)), JSON.stringify(p.evalVm('STYLE_NEW.slice()')),
+      'NEW: only the newest pack');
+    assert.strictEqual(p.evalVm('STYLE_NEW.length'), 24, 'the 1.94.4 pack: 24 looks');
+    assert.ok(p.evalVm('STYLE_NEW.every((id) => TEMPLATE_LIST.indexOf(id) >= 0 && TEMPLATE_NAMES[id] && TEMPLATE_FONTS[id])'), 'every new look is listed, named and has its font');
     assert.ok(mine()[0].classList.contains('active'), 'the saved look is the one in use');
     assert.ok(!chips().find((b) => b.dataset.style === 'bold' && !b.dataset.my).classList.contains('active'));
     // change the look: the saved one is no longer "in use"; one click brings it back
@@ -3130,6 +3173,13 @@ await t('10f2. a failed run: error types, and "Send problem report" (scrubbed, o
     p.evalVm('WORKER_TAIL = [];');
     assert.strictEqual(p.evalVm('errorStep("worker timeout")'), 'err_engine_hang');
     assert.strictEqual(p.evalVm('errorStep("Python failed: Command failed ... license required: x")'), 'err_license', 'a license refusal is not an engine crash');
+    // 1.94.4: Premiere / After Effects not answering is its own type (not "other")
+    assert.strictEqual(p.evalVm('errorStep("No result from After Effects (the host did not answer a test either)")'), 'err_host_empty');
+    assert.strictEqual(p.evalVm('errorStep("script error in After Effects (x)")'), 'err_host_empty');
+    assert.strictEqual(p.evalVm('errorStep("After Effects script timed out")'), 'err_host_timeout');
+    // an Amharic message is classified by its English words
+    assert.strictEqual(p.evalVm('errorStep(AM_TEXT["Select a clip on the timeline (or put the playhead on it), then try again."])'), 'err_no_clip');
+    assert.strictEqual(p.evalVm('errorStep("ያልታወቀ ስህተት")'), 'err_other', 'unknown Amharic text stays other');
 
     // the offer appears only after a failure, sends only on tap
     assert.strictEqual(p.els('reportBox').style.display, 'none');

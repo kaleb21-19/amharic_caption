@@ -1222,7 +1222,16 @@
   pmenu.style.display = 'none';
   const pdrop = el('span', 'ed-tdrop');
   pdrop.appendChild(bPro); pdrop.appendChild(pmenu);
-  [pdrop, bSplit, bDel, bDup, bTrans, bZoom, tdrop, bUndo, bRedo, hint, el('span', 'st-flex'), modeSw, zOut, zIn, zFit].forEach((x) => tbar.appendChild(x));
+  // 1.94.4 (owner: "the UI is not interesting" — 7 tools in a row): the
+  // everyday ones stay; Duplicate, Transition and Zoom go under ⋯ More
+  const bMore = btn('ed-tool ed-tool-more', '', '', () => { moreMenu.style.display = moreMenu.style.display === 'none' ? '' : 'none'; });
+  const moreMenu = el('div', 'ed-moremenu');
+  moreMenu.style.display = 'none';
+  [bDup, bTrans, bZoom].forEach((b) => { moreMenu.appendChild(b); b.addEventListener('click', () => { moreMenu.style.display = 'none'; }); });
+  const moreDrop = el('span', 'ed-tdrop');
+  moreDrop.appendChild(bMore); moreDrop.appendChild(moreMenu);
+  document.addEventListener('mousedown', (e) => { if (moreMenu.style.display !== 'none' && !moreDrop.contains(e.target)) moreMenu.style.display = 'none'; });
+  [pdrop, bSplit, bDel, tdrop, moreDrop, bUndo, bRedo, hint, el('span', 'st-flex'), modeSw, zOut, zIn, zFit].forEach((x) => tbar.appendChild(x));
   document.addEventListener('mousedown', (e) => { if (pmenu.style.display !== 'none' && !pdrop.contains(e.target)) pmenu.style.display = 'none'; });
   document.addEventListener('mousedown', (e) => { if (tmenu.style.display !== 'none' && !tdrop.contains(e.target)) tmenu.style.display = 'none'; });
   // ✨ Make it pro (1.59, owner's friend: "no keyframes, a junior editor does a
@@ -4131,7 +4140,9 @@
     };
     thumbRaf = requestAnimationFrame(loop);
   }
-  const TITLE_LOOK_ANIM = { clean: 'rise', outline: 'pop', yellow: 'slam', neon: 'blur', gold: 'spread', box: 'wipe', pill: 'jelly', marker: 'wrise' };
+  const TITLE_LOOK_ANIM = { clean: 'rise', outline: 'pop', yellow: 'slam', neon: 'blur', gold: 'spread', box: 'wipe', pill: 'jelly', marker: 'wrise',
+    luxury: 'lfade', goldbar: 'wipe', fire: 'slam', ice: 'lblur', pinkpill: 'jelly', news: 'left', sticker: 'pop', hacker: 'type',
+    brush: 'wrise', minimal: 'spread', comic: 'wslam', royal: 'lzoom' };
   const TPL_LEN = { subscribe: 3.2, cta: 4, banner: 5, price: 3, holiday: 5, cinema: 4.5 };
   function addTemplate(spec) {
     const D = E.TEMPLATES[spec.tpl];
@@ -4940,6 +4951,8 @@
     bDup.textContent = '⧉ ' + tx('ድገም', 'Duplicate');
     bDup.title = tx('ቅጂ ከተመረጠው በኋላ (Ctrl+D) · ቅዳ Ctrl+C · ለጥፍ Ctrl+V · ብዙ ለመምረጥ Shift + ጠቅ', 'A copy right after it (Ctrl+D) · Copy Ctrl+C · Paste Ctrl+V · Shift + click to select several');
     bTrans.textContent = '⧓ ' + tx('ሽግግር', 'Transition');
+    bMore.textContent = '⋯ ' + tx('ተጨማሪ', 'More');
+    bMore.title = tx('ድገም፣ ሽግግር፣ ዙም', 'Duplicate, Transition, Zoom');
     bZoom.textContent = '🔍 ' + tx('ዙም', 'Zoom');
     bZoom.title = tx('በማጫወቻው ቦታ ለስላሳ ዙም — ስታይሉን በ⚙ ይምረጡ', 'A smooth zoom at the playhead — choose its style in ⚙');
     bTrans.title = tx('ከማጫወቻው አጠገብ ባለው ቁርጥ ላይ ሽግግር', 'A transition on the cut nearest the playhead');
@@ -5026,6 +5039,8 @@
   const GUIDE_KEY = 'amh_guide_done';
   let guideEl = null;
   function pulse(x) { if (!x) return; x.classList.remove('ed-pulse'); void x.offsetWidth; x.classList.add('ed-pulse'); setTimeout(() => x.classList.remove('ed-pulse'), 2600); }
+  // 1.94.4: open while the language changes — written again in the new one
+  if (typeof i18nOnChange === 'function') i18nOnChange(() => setTimeout(() => { if (guideEl) { guideEl.remove(); guideEl = null; maybeGuide(true); } }, 0));
   function closeGuide() { if (guideEl) { guideEl.remove(); guideEl = null; } try { localStorage.setItem(GUIDE_KEY, '1'); } catch (e) {} }
   function maybeGuide(force) {
     let done = false;

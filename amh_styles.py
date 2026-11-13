@@ -688,8 +688,10 @@ def _build_template(words, style, width, height, font=FONT, opts=None):
         lines = [_two_lines(x) for x in lines]
     anim = o["anim"] if o["anim"] != "auto" else look["anim"]
     lines = _entrances(lines, anim, st, width, height)
-    if o["anim"] in LETTER_ANIMS:
-        lines = _letters(lines, o["anim"])
+    # (1.94.4: the template's OWN letter animation too - its marks were drawn
+    # as a box and a number when only the editor's choice was looked at)
+    if anim in LETTER_ANIMS:
+        lines = _letters(lines, anim)
     script = _header(width, height, st) + "\n".join(_smooth_fades(lines)) + "\n"
     script = _apply_layout(script, style, width, height, o)
     return script.replace("[Events]\n", "; amh-bottom: %.4f\n[Events]\n" % caption_bottom(script, style, width, height, o), 1)
@@ -1297,6 +1299,106 @@ TEMPLATES = {
         "font": "yebse", "size": 1.12, "text": "#FFFFFF", "accent": "#7CFFCB",
         "outline": "#000000", "outline_w": 0.075, "shadow": "#000000", "shadow_w": 0.05,
         "hl": "colour", "mode": "word", "words": 1, "anim": "snap"}},
+    # 1.94.4 pack: our own looks — gold / luxury (in the spirit of the owner's
+    # Luxury titles), the creator favourites, colour, chips and letter looks
+    "luxgold": {"name": "Luxury Gold", "look": {
+        "font": "serif", "size": 0.95, "spacing": 0.04, "text": "#E9C46A", "accent": "#FFF4C2",
+        "glow": "#8A5A00", "glow_w": 0.14, "shadow": "#000000", "shadow_w": 0.03,
+        "hl": "colour", "mode": "reveal", "words": 3, "anim": "fadeup"}},
+    "goldbox": {"name": "Gold Box", "look": {
+        "font": "sans", "size": 0.95, "text": "#FFFFFF", "accent": "#F5C542",
+        "box": "#0A0A0A", "box_a": 0.85, "box_r": 0.18,
+        "hl": "colour", "mode": "line", "words": 3, "anim": "slide"}},
+    "royal": {"name": "Royal", "look": {
+        "font": "abyssinica", "size": 1.05, "text": "#F3E3B5", "accent": "#FFD54F",
+        "outline": "#3B2A00", "outline_w": 0.04, "shadow": "#000000", "shadow_w": 0.04,
+        "hl": "colour", "mode": "reveal", "words": 3, "anim": "blur"}},
+    "goldword": {"name": "Gold Word", "look": {
+        "font": "yebse", "size": 1.2, "text": "#FFD54F", "accent": "#FFF3C4",
+        "glow": "#9C6B00", "glow_w": 0.16, "outline": "#000000", "outline_w": 0.05,
+        "hl": "colour", "mode": "word", "words": 1, "anim": "zoom"}},
+    "sweep": {"name": "Sweep", "look": {
+        "font": "yebse", "size": 1.05, "text": "#FFFFFF", "accent": "#22D3EE",
+        "outline": "#000000", "outline_w": 0.07, "shadow": "#000000", "shadow_w": 0.04,
+        "hl": "fill", "mode": "line", "words": 3, "anim": "pop"}},
+    "limepunch": {"name": "Lime Punch", "look": {
+        "font": "washra", "size": 1.12, "text": "#FFFFFF", "accent": "#A3FF12",
+        "outline": "#000000", "outline_w": 0.085, "shadow": "#000000", "shadow_w": 0.05,
+        "hl": "colour", "mode": "line", "words": 2, "anim": "snap"}},
+    "hotpink": {"name": "Hot Pink", "look": {
+        "font": "yebse", "size": 1.05, "text": "#FFFFFF", "accent": "#FF3EA5",
+        "glow": "#FF3EA5", "glow_w": 0.12, "outline": "#000000", "outline_w": 0.05,
+        "hl": "colour", "mode": "line", "words": 3, "anim": "bounce"}},
+    "ocean": {"name": "Ocean", "look": {
+        "font": "washra", "size": 1.05, "text": "#FFFFFF", "accent": "#FFFFFF",
+        "grad_a": "#00E0FF", "grad_b": "#2563EB", "outline": "#001A33", "outline_w": 0.05,
+        "hl": "none", "mode": "line", "words": 3, "anim": "fadeup"}},
+    "fire": {"name": "Fire", "look": {
+        "font": "yebse", "size": 1.1, "text": "#FFFFFF", "accent": "#FFFFFF",
+        "grad_a": "#FFE14D", "grad_b": "#FF3D00", "glow": "#FF3D00", "glow_w": 0.12,
+        "outline": "#2A0000", "outline_w": 0.04,
+        "hl": "none", "mode": "line", "words": 2, "anim": "rampup"}},
+    "ice": {"name": "Ice", "look": {
+        "font": "sans", "size": 1.0, "text": "#EAF6FF", "accent": "#7DD3FC",
+        "glow": "#38BDF8", "glow_w": 0.22, "outline": "#0B3A55", "outline_w": 0.02,
+        "hl": "colour", "mode": "line", "words": 3, "anim": "blurzoom"}},
+    "retrowave": {"name": "Retro Wave", "look": {
+        "font": "washra", "size": 1.05, "text": "#FFFFFF", "accent": "#FFFFFF",
+        "grad_a": "#FF4FD8", "grad_b": "#4FE3FF", "glow": "#8B5CF6", "glow_w": 0.20,
+        "hl": "none", "mode": "line", "words": 3, "anim": "glow"}},
+    "hacker": {"name": "Hacker", "look": {
+        "font": "hibur", "size": 0.9, "text": "#39FF14", "accent": "#CCFFCC",
+        "glow": "#00FF41", "glow_w": 0.12,
+        "hl": "colour", "mode": "line", "words": 4, "anim": "typewriter"}},
+    "minimal": {"name": "Minimal", "look": {
+        "font": "sans", "size": 0.82, "text": "#FFFFFF", "accent": "#FFFFFF",
+        "shadow": "#000000", "shadow_w": 0.025,
+        "hl": "none", "mode": "reveal", "words": 5, "anim": "fade"}},
+    "documentary": {"name": "Documentary", "look": {
+        "font": "serif", "size": 0.85, "text": "#FFFFFF", "accent": "#E8C36A",
+        "box": "#000000", "box_a": 0.55, "box_r": 0.0,
+        "hl": "colour", "mode": "line", "words": 5, "anim": "fade"}},
+    "newsbar": {"name": "News Bar", "look": {
+        "font": "washra", "size": 0.9, "text": "#FFFFFF", "accent": "#FFE14D",
+        "box": "#C8102E", "box_a": 0.95, "box_r": 0.04,
+        "hl": "colour", "mode": "line", "words": 4, "anim": "slide"}},
+    "sticker": {"name": "Sticker", "look": {
+        "font": "agbalumo", "size": 1.0, "text": "#111111", "accent": "#E11D48",
+        "box": "#FFFFFF", "box_a": 0.97, "box_r": 0.35,
+        "hl": "colour", "mode": "line", "words": 3, "anim": "pop"}},
+    "candychips": {"name": "Candy Chips", "look": {
+        "font": "menbere", "size": 0.95, "text": "#FFFFFF", "accent": "#7C3AED",
+        "box": "#FF5FA2", "box_a": 0.95, "box_r": 0.45,
+        "hl": "colour", "mode": "chip", "words": 3, "anim": "bounce"}},
+    "goldchips": {"name": "Gold Chips", "look": {
+        "font": "sans", "size": 0.95, "text": "#FFFFFF", "accent": "#B8860B",
+        "box": "#1A1407", "box_a": 0.92, "box_r": 0.30,
+        "hl": "colour", "mode": "chip", "words": 3, "anim": "pop"}},
+    "archgold": {"name": "Arch Gold", "look": {
+        "font": "yebse", "size": 1.1, "text": "#FFFFFF", "accent": "#FFD54F",
+        "outline": "#3B2A00", "outline_w": 0.06, "shadow": "#000000", "shadow_w": 0.04,
+        "hl": "colour", "mode": "arch", "arc": 13.0, "words": 3, "anim": "pop"}},
+    "kineticice": {"name": "Kinetic Ice", "look": {
+        "font": "washra", "size": 1.0, "text": "#FFFFFF", "accent": "#7DD3FC",
+        "shadow": "#000000", "shadow_w": 0.035, "outline": "#000000", "outline_w": 0.02,
+        "hl": "none", "mode": "kinetic", "words": 4, "anim": "auto"}},
+    "reelsblue": {"name": "Reels Blue", "look": {
+        "font": "yebse", "size": 1.0, "text": "#FFFFFF", "accent": "#3B82F6",
+        "glow": "#0B3D91", "glow_w": 0.11, "shadow": "#000000", "shadow_w": 0.03,
+        "hl": "none", "mode": "reels", "words": 4, "anim": "auto"}},
+    "duogold": {"name": "Two Line Gold", "look": {
+        "font": "yebse", "size": 1.02, "text": "#FFFFFF", "accent": "#F5C542",
+        "outline": "#000000", "outline_w": 0.075, "shadow": "#000000", "shadow_w": 0.045,
+        "hl": "colour", "mode": "line", "words": 5, "rows": 2, "anim": "fadeup",
+        "wrap": 0.72, "line_gap": 1.16, "stagger": 0.09, "exit": 90}},
+    "brush": {"name": "Brush", "look": {
+        "font": "tint", "size": 1.1, "text": "#FFFFFF", "accent": "#FFB020",
+        "outline": "#000000", "outline_w": 0.03, "shadow": "#000000", "shadow_w": 0.05,
+        "hl": "colour", "mode": "line", "words": 3, "anim": "wave"}},
+    "handwritten": {"name": "Handwritten", "look": {
+        "font": "fantuwua", "size": 1.05, "text": "#FFFFFF", "accent": "#FF8FAB",
+        "shadow": "#000000", "shadow_w": 0.04,
+        "hl": "colour", "mode": "reveal", "words": 4, "anim": "fade"}},
 }
 
 

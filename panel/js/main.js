@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.3';
+const APP_VERSION = '1.94.4';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -37,6 +37,7 @@ if (typeof i18nOnChange === 'function') {
         const pl = document.getElementById('progLabel');
         if (pl && PROGRESS_EN) pl.textContent = L(PROGRESS_EN);
       },
+      () => renderStyleStrip(),   // 1.94.4: the NEW tags follow the language
     ];
     steps.forEach((step) => { try { step(); } catch (e) {} });
   });
@@ -441,13 +442,27 @@ const MEMORY_RE = /memoryerror|bad_alloc|out of memory|not enough memory|cannot 
 // ffmpeg found no sound in the file (a stock video without audio)
 const NO_AUDIO_RE = /does not contain any stream|matches no streams|no audio stream|contains no audio/i;
 const BLOCKED_RE = /access is denied|permissionerror|\[winerror 5\]|operation not permitted|winerror 225|virus/i;
+// 1.94.4: an Amharic message (L() of an English one) is classified by its
+// English words — in the Amharic panel these all fell into "other"
+let AM_TO_EN = null;
+function errorEnglish(raw) {
+  const s = String(raw || '');
+  if (!/[ሀ-፿]/.test(s) || typeof AM_TEXT === 'undefined') return s;
+  if (!AM_TO_EN) { AM_TO_EN = {}; Object.keys(AM_TEXT).forEach((k) => { AM_TO_EN[AM_TEXT[k]] = k; }); }
+  return AM_TO_EN[s] || s;
+}
 function errorStep(raw) {
+  raw = errorEnglish(raw);
   const t = String(raw || '').toLowerCase();
   const tail = WORKER_TAIL.join('\n');
   if (workerDllError || t.includes('dll load failed')) return 'err_av_blocked';
   if (MEMORY_RE.test(t) || MEMORY_RE.test(tail)) return 'err_memory';
   if (BLOCKED_RE.test(t) || BLOCKED_RE.test(tail)) return 'err_av_blocked';
   if (t.includes('worker timeout')) return 'err_engine_hang';
+  // 1.94.4: Premiere / After Effects itself did not answer (After Effects:
+  // 7 computers pressed Make captions in 30 days, 0 captions, 6 "other")
+  if (t.includes('script timed out')) return 'err_host_timeout';
+  if (t.includes('no result from') || t.includes('script error in') || t.includes('did not answer')) return 'err_host_empty';
   if (t.includes('audio too short')) return 'err_too_short';
   if (t.includes('no speech')) return 'err_no_speech';
   if (t.includes('audio-bearing')) return 'err_no_clips';
@@ -6866,12 +6881,15 @@ const STYLE_LIST = ['plain', 'glide', 'spotlight', 'bounce', 'karaoke', 'fill', 
 const TEMPLATE_LIST = ['modern', 'boldpop', 'creator', 'comic', 'gradient', 'neonglow', 'glass',
   'subtitle', 'arch', 'editorial', 'chips', 'paperink', 'story', 'duo',
   // 1.73 kinetic pack (our own Reels-emphasis and kinetic-typography looks)
-  'reels', 'reelsgold', 'kinetic', 'kineticpop', 'bouncy', 'flicker', 'snap'];
+  'reels', 'reelsgold', 'kinetic', 'kineticpop', 'bouncy', 'flicker', 'snap',
+  // 1.94.4 pack (our own: gold / luxury, creator favourites, colour, chips, letters)
+  'luxgold', 'goldbox', 'royal', 'goldword', 'sweep', 'limepunch', 'hotpink', 'ocean', 'fire', 'ice', 'retrowave', 'hacker', 'minimal', 'documentary', 'newsbar', 'sticker', 'candychips', 'goldchips', 'archgold', 'kineticice', 'reelsblue', 'duogold', 'brush', 'handwritten'];
 const TEMPLATE_NAMES = {
   modern: 'Modern', boldpop: 'Bold Pop', creator: 'Creator', comic: 'Comic', gradient: 'Gradient',
   neonglow: 'Neon Glow', glass: 'Glass Box', subtitle: 'Subtitle', arch: 'Arch',
   editorial: 'Editorial', chips: 'Chips', paperink: 'Paper', story: 'Story', duo: 'Two Line',
   reels: 'Reels', reelsgold: 'Reels Gold', kinetic: 'Kinetic', kineticpop: 'Kinetic Pop', bouncy: 'Bouncy', flicker: 'Flicker', snap: 'Snap',
+  luxgold: 'Luxury Gold', goldbox: 'Gold Box', royal: 'Royal', goldword: 'Gold Word', sweep: 'Sweep', limepunch: 'Lime Punch', hotpink: 'Hot Pink', ocean: 'Ocean', fire: 'Fire', ice: 'Ice', retrowave: 'Retro Wave', hacker: 'Hacker', minimal: 'Minimal', documentary: 'Documentary', newsbar: 'News Bar', sticker: 'Sticker', candychips: 'Candy Chips', goldchips: 'Gold Chips', archgold: 'Arch Gold', kineticice: 'Kinetic Ice', reelsblue: 'Reels Blue', duogold: 'Two Line Gold', brush: 'Brush', handwritten: 'Handwritten',
 };
 // the font each template comes with (the editor's font choice starts there)
 const TEMPLATE_FONTS = {
@@ -6879,12 +6897,13 @@ const TEMPLATE_FONTS = {
   neonglow: 'sans', glass: 'sans', subtitle: 'sans', arch: 'yebse', editorial: 'serif',
   chips: 'sans', paperink: 'serif', story: 'jiret', duo: 'yebse',
   reels: 'yebse', reelsgold: 'yebse', kinetic: 'yebse', kineticpop: 'washra', bouncy: 'yebse', flicker: 'sans', snap: 'yebse',
+  luxgold: 'serif', goldbox: 'sans', royal: 'abyssinica', goldword: 'yebse', sweep: 'yebse', limepunch: 'washra', hotpink: 'yebse', ocean: 'washra', fire: 'yebse', ice: 'sans', retrowave: 'washra', hacker: 'hibur', minimal: 'sans', documentary: 'serif', newsbar: 'washra', sticker: 'agbalumo', candychips: 'menbere', goldchips: 'sans', archgold: 'yebse', kineticice: 'washra', reelsblue: 'yebse', duogold: 'yebse', brush: 'tint', handwritten: 'fantuwua',
 };
 // every look the editor can pick (the old styles and the templates)
 const LOOK_LIST = STYLE_LIST.concat(TEMPLATE_LIST);
 const isTemplate = (id) => TEMPLATE_LIST.indexOf(id) >= 0;
 // the newest looks get a small NEW mark on their button
-const STYLE_NEW = ['reels', 'reelsgold', 'kinetic', 'kineticpop', 'bouncy', 'flicker', 'snap'];   // 1.73
+const STYLE_NEW = ['luxgold', 'goldbox', 'royal', 'goldword', 'sweep', 'limepunch', 'hotpink', 'ocean', 'fire', 'ice', 'retrowave', 'hacker', 'minimal', 'documentary', 'newsbar', 'sticker', 'candychips', 'goldchips', 'archgold', 'kineticice', 'reelsblue', 'duogold', 'brush', 'handwritten'];   // 1.94.4 pack
 const STYLE_NAMES = {
   plain: 'Plain', glide: 'Glide', spotlight: 'Spotlight', bounce: 'Bounce', karaoke: 'Karaoke', fill: 'Fill', highlight: 'Highlight', bold: 'Bold', podcast: 'Podcast',
   reveal: 'Reveal', typewriter: 'Typewriter', pop: 'Pop', word: 'Word', impact: 'Impact', neon: 'Neon',
@@ -6991,7 +7010,8 @@ function renderStyleStrip() {
   const list = myStyles();
   // Rebuilt only when the saved looks change: rebuilding on every click
   // would also jump the strip back to the start after scrolling to a style.
-  const sig = JSON.stringify(list.map((m) => [m.id, m.name, m.style, m.opts && m.opts.color]));
+  // (1.94.4: the language too — the NEW tag stayed «አዲስ» in English)
+  const sig = JSON.stringify([typeof AMH_LANG !== 'undefined' ? AMH_LANG : ''].concat(list.map((m) => [m.id, m.name, m.style, m.opts && m.opts.color])));
   if (chips.dataset.sig === sig && chips.children.length) {
     for (const b of Array.from(chips.children)) {
       const on = b.dataset.my ? !!mine && mine.id === b.dataset.my : b.dataset.style === STYLE && !mine;
@@ -7013,6 +7033,24 @@ function renderStyleStrip() {
       schedulePreview();
     });
     b.dataset.style = id;
+    // 1.94.4 (owner: "the user has to go up for Customize"): the chosen
+    // style's own small ⚙ opens Customize where you are (shown by CSS on the
+    // active tile, the Studio only)
+    if (id !== 'plain' && customizeHere()) {
+      const g = document.createElement('span');
+      g.className = 'style-gear';
+      g.setAttribute('role', 'button');
+      g.textContent = '⚙';
+      g.title = L('Customize');
+      g.addEventListener('click', (e) => {
+        if (e && e.stopPropagation) e.stopPropagation();
+        if (STYLE !== id) { b.click(); }
+        if (!STYLE_CUSTOM_OPEN) { const tog = $('styleCustomToggle'); if (tog) tog.click(); }
+        const sc = b.closest ? b.closest('.st-panes') : null;   // the settings from their top
+        if (sc) sc.scrollTop = 0;
+      });
+      b.appendChild(g);
+    }
     if (STYLE_NEW.indexOf(id) >= 0) {
       const tag = document.createElement('i');
       tag.className = 'style-new';
@@ -9568,9 +9606,13 @@ async function transcribeExtra(filePath) {
   track('run_click');
   try {
     const r = await transcribe(filePath, outSrt);
+    // 1.94.4: the Studio's captions were never counted (nor its errors) —
+    // the 30-day report showed 16 for 434 Studio computers
+    track('cap_new');
     return (r.cues || []).map((c) => Object.assign({}, c));
   } catch (e) {
     runFailed = true;
+    if (!cancelRequested) { const step = errorStep(e && e.message || e); if (step) track(step); }
     throw e;
   } finally {
     if (TRIAL_CHARGED_RUN && (cancelRequested || runFailed)) refundTrialRun();

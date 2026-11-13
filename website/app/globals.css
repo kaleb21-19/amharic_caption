@@ -1351,3 +1351,29 @@ html:not([data-lang="en"]) :is(h1, h2, h3, h4) .l-am { font-weight: 700; }
   background: rgba(61,220,138,0.04);
 }
 .legal-summary ul { margin: var(--s-3) 0 0; padding-left: 1.1rem; display: grid; gap: 6px; }
+
+/* the Studio picture (hero) */
+.hero-visual:has(.smock) { max-width: 440px; }
+.smock { border: 1px solid var(--line, #22302a); border-radius: 16px; overflow: hidden; background: #0f1513; box-shadow: 0 24px 60px rgba(0,0,0,.45); }
+.smock-body { padding: 14px; display: grid; gap: 10px; }
+.smock-video { position: relative; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden;
+  background: radial-gradient(70% 90% at 30% 35%, #3b5d50 0%, #1c2b26 45%, #0b100e 100%); display: flex; align-items: flex-end; justify-content: center; padding-bottom: 8%; }
+.smock-video::before { content: ""; position: absolute; left: 50%; top: 18%; width: 22%; aspect-ratio: 1; transform: translateX(-50%); border-radius: 50%; background: rgba(255,255,255,.08); box-shadow: 0 70px 0 30px rgba(255,255,255,.05); }
+.smock-ratio { position: absolute; top: 8px; right: 10px; font-size: 10px; color: rgba(255,255,255,.55); }
+.smock-cap { position: relative; font-weight: 800; font-size: clamp(15px, 2.2vw, 20px); color: #fff; text-shadow: 0 2px 6px rgba(0,0,0,.8); }
+.smock-cap b, .smock-row b { color: #0b100e; background: #ffd400; border-radius: 4px; padding: 0 4px; }
+.smock-list { display: grid; gap: 5px; }
+.smock-row { display: flex; align-items: center; gap: 10px; padding: 6px 9px; border: 1px solid #1f2b26; border-radius: 8px; background: #121a17; font-size: 13px; }
+.smock-row time { font-size: 11px; color: var(--accent, #34c784); font-variant-numeric: tabular-nums; }
+.smock-row span { flex: 1; }
+.smock-row i { font-style: normal; color: #6f8377; font-size: 12px; }
+.smock-row.on { border-color: var(--accent, #34c784); }
+.smock-row.cut span { text-decoration: line-through; color: #8a5a5a; }
+.smock-row.cut i { color: #e5484d; }
+.smock-tl { display: grid; gap: 4px; padding: 6px; border-radius: 8px; background: #0c1210; }
+.smock-tl-caps { display: flex; gap: 4px; }
+.smock-tl-caps i { flex: 1; height: 10px; border-radius: 3px; background: #1f3a2f; }
+.smock-tl-caps i.on { background: var(--accent, #34c784); }
+.smock-tl-wave { height: 22px; border-radius: 4px; background: repeating-linear-gradient(90deg, #22465e 0 3px, #1a3446 3px 6px); }
+.smock-foot { display: flex; justify-content: flex-end; }
+.smock-btn { font-size: 12px; font-weight: 700; color: #06110c; background: var(--accent, #34c784); padding: 7px 12px; border-radius: 8px; }
