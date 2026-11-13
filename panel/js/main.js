@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.2';
+const APP_VERSION = '1.94.3';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -2264,15 +2264,17 @@ function initBuy() {
       setPendingBuy(p);
       // 1.41: buy on the PHONE — the bank app, the screenshot and Telegram
       // are all there; this computer still unlocks itself (the same link).
-      showBuyQr(buyUrl(p));
+      showBuyQr(buyUrl(p) + '_q');    // 1.94.3: the phone's link is marked (the bot counts it apart)
       openUrl(buyUrl(p));          // 1.82: Telegram on this computer at once
       startBuyPoll();
     });
   }
   const pc = document.getElementById('buyQrPc');
-  if (pc) pc.addEventListener('click', () => { const p = getPendingBuy(); if (p) openUrl(buyUrl(p)); });
+  // 1.94.3: which way buyers get stuck — Telegram did not open on this
+  // computer (they press it again), or they closed the window (the price?)
+  if (pc) pc.addEventListener('click', () => { track('buy_again'); const p = getPendingBuy(); if (p) openUrl(buyUrl(p)); });
   const close = document.getElementById('buyQrClose');
-  if (close) close.addEventListener('click', hideBuyQr);
+  if (close) close.addEventListener('click', () => { if (!LICENSED) track('buy_close'); hideBuyQr(); });
   // A purchase started earlier (the panel was closed meanwhile): keep checking.
   if (getPendingBuy()) startBuyPoll();
   if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {

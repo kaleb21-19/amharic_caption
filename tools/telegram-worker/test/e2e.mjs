@@ -2549,6 +2549,20 @@ console.log('\n:: scenario 23 — simple buying: no Machine ID for the customer'
     return row(env, 'SELECT * FROM orders WHERE id=?', o.id);
   };
 
+  // A0. 1.94.3: the panel's QR (phone) link ends in _q — the same purchase, counted apart
+  {
+    const Q = '890000077', QMID = '3f9a1c7e5b2d4099', QN = 'Q7wErTy12345zzzz';
+    OUTBOUND.length = 0;
+    await say(Q, `/start m_${QMID}_${QN}_q`);
+    const tq = lastTo(Q);
+    assert.ok(tq.body.text.includes('computer is connected') && tq.body.text.includes('ETB 2,500'), 'the QR link opens the same purchase');
+    const f = env.DB.prepare("SELECT event FROM funnel WHERE uid=? ORDER BY id").bind(Q).all().results.map((r) => r.event);
+    assert.deepEqual(f.filter((e) => /panel_buy/.test(e)), ['panel_buy_qr', 'panel_buy'], 'counted as the phone way too');
+    const fq = row(env, 'SELECT nonce, mid FROM fsm WHERE uid=?', Q);
+    assert.ok(fq && fq.nonce === QN && fq.mid === QMID, 'the secret is kept without the _q mark');
+    ok('panel Buy by phone (QR, _q): the same purchase, counted apart');
+  }
+
   // A. From the panel's Buy button: nothing to type, the panel activates itself.
   const P = '890000001';
   const PMID = '3f9a1c7e5b2d4086';

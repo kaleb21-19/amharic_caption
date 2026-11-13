@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.2');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.3');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -455,11 +455,11 @@ await t('3.7 simple buying: Buy link carries a secret, the panel activates itsel
     // prices, and keeps the QR code for paying on the phone (the same link)
     assert.ok(p.els('buyQrCard').classList.contains('show'), 'the card shows');
     const qrUrl = p.els('buyQr').dataset.url;
-    assert.strictEqual(p.evalVm('__opened'), qrUrl, 'Telegram opened on this computer at once');
+    assert.strictEqual(p.evalVm('__opened') + '_q', qrUrl, 'Telegram opened on this computer at once (the phone code is the same link, marked _q)');
     assert.ok(/^<svg[\s\S]*<\/svg>$/.test(String(p.els('buyQr').innerHTML).trim()), 'the QR code for the phone');
     p.evalVm('__opened = null;');
     p.els('buyQrPc').fire('click');
-    assert.strictEqual(p.evalVm('__opened'), qrUrl, '"open it again" opens the same link');
+    assert.strictEqual(p.evalVm('__opened') + '_q', qrUrl, '"open it again" opens the same link');
     assert.ok(p.els('buyQrCard').classList.contains('show'), 'the card stays as the guide');
     const opened = p.evalVm('__opened');
     assert.match(opened, new RegExp('^https://t\\.me/AmharicCaptionsBot\\?start=m_' + p.mid + '_[A-Za-z0-9]{16}$'), 'deep link: ' + opened);
@@ -472,7 +472,7 @@ await t('3.7 simple buying: Buy link carries a secret, the panel activates itsel
     assert.deepStrictEqual(calls.filter((c) => c.u.includes('/api/license')).at(-1).body, { mid: p.mid, nonce }, 'asks with its own secret');
     p.els('buyBtn').fire('click', { preventDefault() {} });
     await flush(5);
-    assert.strictEqual(p.els('buyQr').dataset.url, opened, 'a second tap reuses the same secret (no orphaned order)');
+    assert.strictEqual(p.els('buyQr').dataset.url, opened + '_q', 'a second tap reuses the same secret (no orphaned order)');
     p.els('buyQrClose').fire('click');
     assert.ok(!p.els('buyQrCard').classList.contains('show'), 'Close closes it');
     licState = 'approved';
@@ -1321,6 +1321,24 @@ await t('4n3c. 1.94.2 ■ Stop for the Studio Make captions: the engine stops (l
     assert.strictEqual(p.evalVm('cancelRequested'), true, 'free minutes are given back on a cancelled run');
     assert.strictEqual(p.evalVm('__k'), 1, 'the engine is stopped');
     p.evalVm('runInProgress = false; activeChild = null;');
+  } finally { p.close(); }
+});
+
+await t('4n3b. 1.94.3 Buy: the phone code carries _q; "open again" and closing are counted', async () => {
+  const sent = [];
+  const p = loadPanel({ fetch: async (url, o) => { if (/\/api\/event/.test(url)) { sent.push(JSON.parse(o.body).e); } return { ok: true, status: 200, json: async () => ({ ok: true }), text: async () => '{}' }; } });
+  try {
+    await flush(5);
+    p.evalVm('LICENSED = false; globalThis.__opened = []; openUrl = (u) => __opened.push(u); try { localStorage.clear(); } catch (e) {}');
+    p.els('buyBtn').fire('click', { preventDefault() {} });
+    await flush(5);
+    const opened = JSON.parse(p.evalVm('JSON.stringify(__opened)'));
+    assert.ok(opened[0] && !/_q$/.test(opened[0]), 'this computer: the plain link');
+    assert.match(p.els('buyQr').dataset.url, /_q$/, 'the phone code: marked _q');
+    p.els('buyQrPc').fire('click', { preventDefault() {} });
+    p.els('buyQrClose').fire('click', { preventDefault() {} });
+    await flush(5);
+    assert.ok(sent.includes('buy_click') && sent.includes('buy_again') && sent.includes('buy_close'), JSON.stringify(sent));
   } finally { p.close(); }
 });
 
