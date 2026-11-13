@@ -7029,6 +7029,24 @@ function renderStyleStrip() {
       schedulePreview();
     });
     b.dataset.style = id;
+    // 1.94.4 (owner: "the user has to go up for Customize"): the chosen
+    // style's own small ⚙ opens Customize where you are (shown by CSS on the
+    // active tile, the Studio only)
+    if (id !== 'plain' && customizeHere()) {
+      const g = document.createElement('span');
+      g.className = 'style-gear';
+      g.setAttribute('role', 'button');
+      g.textContent = '⚙';
+      g.title = L('Customize');
+      g.addEventListener('click', (e) => {
+        if (e && e.stopPropagation) e.stopPropagation();
+        if (STYLE !== id) { b.click(); }
+        if (!STYLE_CUSTOM_OPEN) { const tog = $('styleCustomToggle'); if (tog) tog.click(); }
+        const sc = b.closest ? b.closest('.st-panes') : null;   // the settings from their top
+        if (sc) sc.scrollTop = 0;
+      });
+      b.appendChild(g);
+    }
     if (STYLE_NEW.indexOf(id) >= 0) {
       const tag = document.createElement('i');
       tag.className = 'style-new';

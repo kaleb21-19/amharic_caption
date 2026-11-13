@@ -1399,6 +1399,28 @@ await t('4n3g. 1.94.4 the Studio job is counted: cap_new when captions come, the
   } finally { p.close(); }
 });
 
+await t('4n3h. 1.94.4 the chosen style has its own ⚙: Customize opens without going up', async () => {
+  const p = loadPanel();
+  try {
+    await flush(5);
+    p.evalVm('STYLE_OK = true; STYLE = "neon"; STYLE_CUSTOM_OPEN = false; renderStyleStrip();');
+    const chips = p.els('styleChips').children;
+    const neon = chips.find((c) => c.dataset.style === 'neon');
+    const gear = neon.children.find((c) => c.className === 'style-gear');
+    assert.ok(gear, 'the style has its ⚙');
+    assert.ok(!chips.find((c) => c.dataset.style === 'plain').children.find((c) => c.className === 'style-gear'), 'Plain has nothing to customize');
+    gear.fire('click');
+    assert.strictEqual(p.evalVm('STYLE_CUSTOM_OPEN'), true, 'Customize is open');
+    assert.strictEqual(p.evalVm('STYLE'), 'neon');
+  } finally { p.close(); }
+  const q = loadPanel({ realPanel: true });
+  try {
+    await flush(5);
+    q.evalVm('STYLE_OK = true; STYLE = "neon"; renderStyleStrip();');
+    assert.ok(!q.els('styleChips').children.some((c) => (c.children || []).some((x) => x.className === 'style-gear')), 'not in Premiere / After Effects');
+  } finally { q.close(); }
+});
+
 await t('4n3. 1.93 ✂ one click on a caption cuts the Premiere timeline at once; the captions after it move up', async () => {
   const log = [];
   const p = loadPanel({ evalLog: log, csiRaw: (jsx) => {

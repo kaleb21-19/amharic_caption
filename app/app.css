@@ -881,3 +881,13 @@ html.amh-studio .st-dropcard .app-drop-sub { font-size: 13px; margin-top: 6px; }
 .ed-moremenu { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 30; display: flex; flex-direction: column; gap: 4px; min-width: 170px; padding: 6px;
   background: #121a17; border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.45); }
 .ed-moremenu .ed-tool { width: 100%; justify-content: flex-start; text-align: left; }
+
+/* 1.94.4 Customize where you are: ⚙ on the chosen style; the head stays on top while scrolling */
+html.amh-studio .st-pane .style-chip { position: relative; }
+html.amh-studio .style-chip .style-gear { display: none; position: absolute; top: 6px; right: 6px; z-index: 2; width: 26px; height: 26px;
+  align-items: center; justify-content: center; border-radius: 7px; background: rgba(0,0,0,.72); border: 1px solid var(--accent);
+  color: #fff; font-size: 13px; cursor: pointer; }
+html.amh-studio .style-chip .style-gear .amh-ic { width: 14px; height: 14px; margin: 0; }
+html.amh-studio .style-chip.active .style-gear { display: flex; }
+html.amh-studio .style-chip .style-gear:hover { background: var(--accent); color: #06110c; }
+html.amh-studio .st-cappane:not(.st-capedit) .style-head { position: sticky; top: -12px; z-index: 3; background: var(--bg-elev); margin: -12px -12px 6px; padding: 14px 12px 8px; }
