@@ -1834,11 +1834,13 @@ await t('4h. My styles (1.13): save a look under a name, one click to use it aga
     const wantChips = 1 + 1 + (p.evalVm('STYLE_LIST.length') - 1) + 1 + p.evalVm('TEMPLATE_LIST.length');
     assert.strictEqual(chips().length, wantChips, 'Plain + 1 saved + 18 styles + the templates: ' + chips().map((b) => b.dataset.my ? 'MY' : b.dataset.style).join(','));
     // the modern styles (1.16) come first after the saved looks; only the
-    // 1.73 kinetic pack carries a NEW mark
+    // newest pack (1.94.4) carries a NEW mark
     assert.deepStrictEqual(chips().slice(2, 5).map((b) => b.dataset.style), ['glide', 'spotlight', 'bounce']);
     const isNew = (b) => b.children.some((c) => c.className === 'style-new');
-    assert.deepStrictEqual(chips().filter(isNew).map((b) => b.dataset.style), ['reels', 'reelsgold', 'kinetic', 'kineticpop', 'bouncy', 'flicker', 'snap'],
-      'NEW: only the 1.73 kinetic pack');
+    assert.strictEqual(JSON.stringify(chips().filter(isNew).map((b) => b.dataset.style)), JSON.stringify(p.evalVm('STYLE_NEW.slice()')),
+      'NEW: only the newest pack');
+    assert.strictEqual(p.evalVm('STYLE_NEW.length'), 24, 'the 1.94.4 pack: 24 looks');
+    assert.ok(p.evalVm('STYLE_NEW.every((id) => TEMPLATE_LIST.indexOf(id) >= 0 && TEMPLATE_NAMES[id] && TEMPLATE_FONTS[id])'), 'every new look is listed, named and has its font');
     assert.ok(mine()[0].classList.contains('active'), 'the saved look is the one in use');
     assert.ok(!chips().find((b) => b.dataset.style === 'bold' && !b.dataset.my).classList.contains('active'));
     // change the look: the saved one is no longer "in use"; one click brings it back

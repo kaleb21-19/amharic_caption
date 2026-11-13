@@ -4140,7 +4140,9 @@
     };
     thumbRaf = requestAnimationFrame(loop);
   }
-  const TITLE_LOOK_ANIM = { clean: 'rise', outline: 'pop', yellow: 'slam', neon: 'blur', gold: 'spread', box: 'wipe', pill: 'jelly', marker: 'wrise' };
+  const TITLE_LOOK_ANIM = { clean: 'rise', outline: 'pop', yellow: 'slam', neon: 'blur', gold: 'spread', box: 'wipe', pill: 'jelly', marker: 'wrise',
+    luxury: 'lfade', goldbar: 'wipe', fire: 'slam', ice: 'lblur', pinkpill: 'jelly', news: 'left', sticker: 'pop', hacker: 'type',
+    brush: 'wrise', minimal: 'spread', comic: 'wslam', royal: 'lzoom' };
   const TPL_LEN = { subscribe: 3.2, cta: 4, banner: 5, price: 3, holiday: 5, cinema: 4.5 };
   function addTemplate(spec) {
     const D = E.TEMPLATES[spec.tpl];
