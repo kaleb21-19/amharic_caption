@@ -1,7 +1,9 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import Reveal from "@/components/Reveal";
 import BuySafely from "@/components/BuySafely";
 import StudioMock from "@/components/StudioMock";
+import StyleShowcase from "@/components/StyleShowcase";
 import Tx from "@/components/Tx";
 import {
   BOT_URL, ACCT_NAME, PRICE, PRICE_AM, PRICE_NUM, PRICE_OLD_NUM, PRICE_M1_NUM, PRICE_M2_NUM,
@@ -28,8 +30,8 @@ const steps = [
     n: "3",
     title: { am: "ያርሙ፣ ስታይል ይምረጡ፣ ይላኩ", en: "Fix, style, send" },
     text: {
-      am: "አጠራጣሪ ቃላትን አንድ በአንድ ያረጋግጡ፣ ከ19 ስታይሎች አንዱን ይምረጡ፣ ከዚያ ወደ Premiere ታይምላይን፣ ወደ CapCut ወይም ወደ DaVinci ይላኩ — ወይም ካፕሽኑ የተጻፈበት MP4 ቪዲዮ ያውጡ።",
-      en: "Check the doubtful words one by one, pick one of 19 styles, then send the captions to your Premiere timeline, CapCut or DaVinci — or export an MP4 with the captions burned in.",
+      am: "አጠራጣሪ ቃላትን አንድ በአንድ ያረጋግጡ፣ ከ60 በላይ ስታይሎች አንዱን ይምረጡ፣ ከዚያ ወደ Premiere ታይምላይን፣ ወደ CapCut ወይም ወደ DaVinci ይላኩ — ወይም ካፕሽኑ የተጻፈበት MP4 ቪዲዮ ያውጡ።",
+      en: "Check the doubtful words one by one, pick one of 60+ styles, then send the captions to your Premiere timeline, CapCut or DaVinci — or export an MP4 with the captions burned in.",
     },
   },
 ];
@@ -70,7 +72,7 @@ const editors = [
 const features = [
   {
     icon: "Aa",
-    title: { am: "19 ስታይሎች · 12 የአማርኛ ፎንቶች", en: "19 styles · 12 Amharic fonts" },
+    title: { am: "ከ60 በላይ ስታይሎች · 12 የአማርኛ ፎንቶች", en: "60+ styles · 12 Amharic fonts" },
     text: {
       am: "ካራኦኬ፣ Bounce፣ Neon፣ Habesha… Typewriter እና Wave አኒሜሽን፣ በአንድ ወይም በሁለት መስመር። የራስዎን ስታይል አስቀምጠው በአንድ ጠቅታ ይጠቀሙ።",
       en: "Karaoke, Bounce, Neon, Habesha… Typewriter and Wave animation, on one line or two. Save your own look and reuse it in one click.",
@@ -221,6 +223,14 @@ export const metadata = {
   alternates: { canonical: "/" },
 };
 
+// the hero headline: each word its own span (a short rise, one after the other)
+function Words({ text, from = 0 }) {
+  // (the space stays OUTSIDE the inline-block word, or it collapses)
+  return text.split(" ").map((w, i) => (
+    <Fragment key={i}><span className="hw" style={{ "--i": from + i }}>{w}</span>{" "}</Fragment>
+  ));
+}
+
 export default function HomePage() {
   const priceLbl = Number(PRICE_NUM).toLocaleString("en-US");
   const oldLbl = Number(PRICE_OLD_NUM).toLocaleString("en-US");
@@ -260,10 +270,10 @@ export default function HomePage() {
                 <Tx am="ስቱዲዮ (ለብቻው) · Premiere Pro · After Effects · CapCut · DaVinci" en="Studio app (on its own) · Premiere Pro · After Effects · CapCut · DaVinci" />
               </p>
 
-              <h1>
+              <h1 className="hero-title">
                 <Tx
-                  am="የአማርኛ ካፕሽን በደቂቃዎች — በሰዓታት አይደለም።"
-                  en={<>Amharic subtitles in minutes,<br className="hide-sm" /> not hours.</>}
+                  am={<Words text="የአማርኛ ካፕሽን በደቂቃዎች — በሰዓታት አይደለም።" />}
+                  en={<><Words text="Amharic subtitles in minutes," /><br className="hide-sm" /> <Words text="not hours." from={5} /></>}
                 />
               </h1>
 
@@ -327,6 +337,8 @@ export default function HomePage() {
         </div>
       </section>
 
+      <StyleShowcase />
+
       {/* ------------------------------------------------------ how it works */}
       <section className="section" id="how" style={{ background: "var(--bg-soft)" }}>
         <div className="container">
@@ -336,6 +348,8 @@ export default function HomePage() {
               <h2><Tx am="በሶስት ደረጃ ኤዲት ማድረግ ይጀምራሉ።" en="Three steps, then you're editing." /></h2>
             </div>
           </Reveal>
+          <Reveal className="steps-wrap">
+          <span className="steps-line" aria-hidden="true"><i /></span>
           <div className="steps">
             {steps.map((s, i) => (
               <Reveal key={s.n} delay={i * 110}>
@@ -347,6 +361,7 @@ export default function HomePage() {
               </Reveal>
             ))}
           </div>
+          </Reveal>
         </div>
       </section>
 
@@ -495,7 +510,7 @@ export default function HomePage() {
                 <li><Tx am="ያልተገደበ ካፕሽን — የፈለጉትን ያህል" en="Unlimited captions — caption as much as you like" /></li>
                 <li><Tx am="Premiere Pro እና After Effects 2022+ — በቀጥታ ታይምላይኑ ላይ" en="Premiere Pro & After Effects 2022+ — straight onto the timeline" /></li>
                 <li><Tx am="CapCut እና DaVinci Resolve — Amharic Captions Studio፦ የሚታረሙ ካፕሽኖች በፕሮጀክትዎ ውስጥ፣ MP4 ለTikTok፣ .srt" en="CapCut & DaVinci Resolve — Amharic Captions Studio: editable captions inside your project, MP4 for TikTok, .srt" /></li>
-                <li><Tx am="19 ስታይሎች፣ 12 የአማርኛ ፎንቶች፣ አኒሜሽን — ሁሉም ባህሪያት ተካትተዋል" en="19 styles, 12 Amharic fonts, animation — every feature included" /></li>
+                <li><Tx am="ከ60 በላይ ስታይሎች፣ 12 የአማርኛ ፎንቶች፣ አኒሜሽን — ሁሉም ባህሪያት ተካትተዋል" en="60+ styles, 12 Amharic fonts, animation — every feature included" /></li>
                 <li><Tx am="Windows 10/11 እና macOS (Intel ወይም M1/M2/M3)" en="Windows 10/11 & macOS (Intel or Apple silicon)" /></li>
                 <li><Tx am="በአማርኛ ወይም በእንግሊዝኛ" en="In Amharic or English" /></li>
                 <li><Tx am="በቴሌግራም ድጋፍ — ከሰሩት ሰዎች በቀጥታ" en="Support on Telegram from the people who built it" /></li>
