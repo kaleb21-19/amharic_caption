@@ -169,6 +169,11 @@ const AM_STATIC = {
 
 // ── dynamic text from main.js / core.js (keyed by the English string) ───────
 const AM_TEXT = {
+  'For short clips (Reels, TikTok hooks) — 2-3 lines': 'ለአጭር ቅንጥቶች (Reels፣ TikTok hook) — 2-3 መስመሮች',
+  'More styles': 'ተጨማሪ ስታይሎች',
+  'Fewer styles': 'ያነሱ ስታይሎች',
+  'Plain: the exported video has no captions — only the .srt file.': 'መደበኛ፦ የሚላከው ቪዲዮ ካፕሽን የለውም — .srt ፋይሉ ብቻ።',
+  'Free version adds a small tag — a license removes it.': 'ነጻው ስሪት ትንሽ ምልክት ይጨምራል — ፈቃድ ሲገዙ ይጠፋል።',
   'Get your free minutes first: press 🎁 Get free minutes — Telegram opens, press START there.': 'መጀመሪያ ነጻ ደቂቃዎችዎን ያግኙ፦ «🎁 ነጻ ደቂቃ ያግኙ»ን ይጫኑ — ቴሌግራም ይከፈታል፣ እዚያ START ይጫኑ።',
   'The program was opened from inside the zip file. Right-click the zip → Extract All → Extract, then open «Make Amharic Captions» from the extracted folder.': 'ፕሮግራሙ ከzip ፋይሉ ውስጥ በቀጥታ ተከፍቷል። zip ፋይሉን በቀኝ ጠቅ ያድርጉ → Extract All → Extract፣ ከዚያ ከተፈታው ፎልደር «Make Amharic Captions»ን ይክፈቱ።',
   // 1.93 🎨 style on the timeline

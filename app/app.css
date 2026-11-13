@@ -891,3 +891,17 @@ html.amh-studio .style-chip .style-gear .amh-ic { width: 14px; height: 14px; mar
 html.amh-studio .style-chip.active .style-gear { display: flex; }
 html.amh-studio .style-chip .style-gear:hover { background: var(--accent); color: #06110c; }
 html.amh-studio .st-cappane:not(.st-capedit) .style-head { position: sticky; top: -12px; z-index: 3; background: var(--bg-elev); margin: -12px -12px 6px; padding: 14px 12px 8px; }
+
+/* 1.94.5 the first captions are ready: a note over the video with ▶ Watch */
+.st-toast.ed-ready { transform: translateX(-50%); padding: 9px 8px 9px 14px; border-color: var(--accent); font-size: 14px; font-weight: 600; }
+
+/* 1.94.5 Simple: the freelancers' client word list only in Pro */
+html.amh-simple .st-thead .st-ico[data-client] { display: none; }
+
+/* 1.94.5 8 good styles first; + More styles shows the rest (the one in use always shows) */
+html.amh-studio .style-chips.st-few .style-chip.st-extra:not(.active),
+html.amh-studio .style-chips.st-few .style-group { display: none; }
+html.amh-studio .style-more { display: block; width: 100%; margin: 10px 0 4px; padding: 9px 0; border: 1px dashed var(--border); border-radius: 10px;
+  background: none; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+html.amh-studio .style-more:hover { border-color: var(--accent); background: rgba(46,204,113,.06); }
+html.amh-studio .style-chips .st-shortgrp { grid-column: 1 / -1; margin-top: 10px; }

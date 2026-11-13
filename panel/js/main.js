@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.4';
+const APP_VERSION = '1.94.5';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3653,10 +3653,17 @@ function applySettings() {
   SOURCE = s.source || 'clip';
   CAP = s.cap || 'words';
   GROUP_SIZE = s.group || 3;
+  // 1.94.5: in the Studio a new editor starts with 3 words per caption (one
+  // word flashing was hard to read: 27 s of talk = 53 captions)
+  if (IS_APP_MODE() && !s.cap) CAP = 'grouped';
   // Old settings stored a raw number; 25 or fewer meant short captions.
   FORMAT = s.format === 'v' || s.format === 'h' ? s.format : ((s.chars && s.chars <= 25) ? 'v' : 'h');
   MAX_CHARS = FORMAT_CHARS[FORMAT];
-  STYLE = LOOK_LIST.indexOf(s.style) >= 0 ? s.style : 'plain';
+  // 1.94.5: and with a real caption style — Plain is captions for another
+  // editor (.srt), so a new Studio editor's exported video had NO captions
+  // (earlier Studios saved Plain for everyone: Plain counts only when the
+  // editor tapped it — plainChosen)
+  STYLE = LOOK_LIST.indexOf(s.style) >= 0 && !studioUnchosenPlain(s.style) ? s.style : (IS_APP_MODE() ? STUDIO_FIRST_STYLE : 'plain');
   document.querySelectorAll('#srcSeg button').forEach((b) => {
     b.classList.toggle('active', b.dataset.src === SOURCE);
   });
@@ -6903,6 +6910,11 @@ const TEMPLATE_FONTS = {
 const LOOK_LIST = STYLE_LIST.concat(TEMPLATE_LIST);
 const isTemplate = (id) => TEMPLATE_LIST.indexOf(id) >= 0;
 // the newest looks get a small NEW mark on their button
+const STUDIO_FIRST_STYLE = 'bold';   // 1.94.5: the Studio's look until the editor picks one
+function studioUnchosenPlain(st) {
+  if (st !== 'plain' || !IS_APP_MODE()) return false;
+  try { return !loadSettings().plainChosen; } catch (e) { return true; }
+}
 const STYLE_NEW = ['luxgold', 'goldbox', 'royal', 'goldword', 'sweep', 'limepunch', 'hotpink', 'ocean', 'fire', 'ice', 'retrowave', 'hacker', 'minimal', 'documentary', 'newsbar', 'sticker', 'candychips', 'goldchips', 'archgold', 'kineticice', 'reelsblue', 'duogold', 'brush', 'handwritten'];   // 1.94.4 pack
 const STYLE_NAMES = {
   plain: 'Plain', glide: 'Glide', spotlight: 'Spotlight', bounce: 'Bounce', karaoke: 'Karaoke', fill: 'Fill', highlight: 'Highlight', bold: 'Bold', podcast: 'Podcast',
@@ -6932,9 +6944,11 @@ function checkStyles() {
 }
 function styleNote() {
   if (STYLE === 'plain') {
-    return IS_APP_MODE() ? 'Plain: the .srt file only — style it in your editor.'
+    return IS_APP_MODE() ? 'Plain: the exported video has no captions — only the .srt file.'
       : 'Plain: ' + HOST_NAME + '\'s own captions — you can edit and restyle them there.';
   }
+  // 1.94.5: the Studio says it in one short line (it was three)
+  if (IS_APP_MODE()) return LICENSED ? '' : 'Free version adds a small tag — a license removes it.';
   const what = IS_APP_MODE() ? 'Saves the video with these captions drawn in, next to your video.'
     : 'Drawn as a video layer on an empty track above your video.';
   return LICENSED ? what : what + ' Free version: a small "Amharic Captions Pro" tag is added — a license removes it.';
@@ -7020,6 +7034,7 @@ function renderStyleStrip() {
     }
     const n0 = $('styleNote');
     if (n0) n0.textContent = L(styleNote());
+    syncStyleMore(chips);
     renderStyleCustom();
     return;
   }
@@ -7028,7 +7043,7 @@ function renderStyleStrip() {
   const builtIn = (id) => {
     const b = styleChip(id, TEMPLATE_NAMES[id] || STYLE_NAMES[id], id, () => {
       STYLE = id;
-      saveSettings({ style: id });
+      saveSettings(id === 'plain' ? { style: id, plainChosen: true } : { style: id });
       renderStyleStrip();
       schedulePreview();
     });
@@ -7091,9 +7106,49 @@ function renderStyleStrip() {
   grp.textContent = L('Templates');
   chips.appendChild(grp);
   TEMPLATE_LIST.forEach(builtIn);
+  if (IS_APP_MODE()) {
+    const sg = document.createElement('span');
+    sg.className = 'style-group st-shortgrp';
+    sg.textContent = L('For short clips (Reels, TikTok hooks) — 2-3 lines');
+    chips.appendChild(sg);
+  }
   const note = $('styleNote');
   if (note) note.textContent = L(styleNote());
+  syncStyleMore(chips);
   renderStyleCustom();
+}
+// 1.94.5 (owner: "64 styles is a lot — show the good ones, with More styles"):
+// in the Studio 8 good looks come first (and the editor's own saved looks, and
+// the one in use); "+ More styles" shows the rest. Premiere keeps its strip.
+// (only one-line looks: the owner — a stacked 2-3 line look on a whole video
+// covers the picture and tires; those are for short clips, grouped last)
+const STUDIO_TOP_STYLES = ['bold', 'highlight', 'glide', 'boldpop', 'creator', 'sweep', 'luxgold', 'hotpink'];
+// the stacked looks (2-3 lines: Reels emphasis, kinetic, two lines) — the same
+// list as amh_styles.py (mode reels / kinetic or rows > 1; test_templates checks)
+const STACKED_STYLES = ['reels', 'reelsgold', 'kinetic', 'kineticpop', 'duo', 'kineticice', 'reelsblue', 'duogold'];
+let STYLE_MORE = false;
+function syncStyleMore(chips) {
+  const more = $('styleMore');
+  if (!IS_APP_MODE()) { if (more) more.style.display = 'none'; chips.classList.remove('st-few'); return; }
+  let extra = 0;
+  Array.from(chips.children).forEach((b) => {
+    if (b.dataset && b.dataset.my) { b.style.order = '-30'; return; }
+    if (b.classList.contains('st-shortgrp')) { b.style.order = '999'; return; }
+    if (!b.dataset || !b.dataset.style) return;
+    const top = STUDIO_TOP_STYLES.indexOf(b.dataset.style);
+    const stacked = STACKED_STYLES.indexOf(b.dataset.style);
+    b.style.order = top >= 0 ? String(top - 20) : stacked >= 0 ? String(1000 + stacked) : '';
+    b.classList.toggle('st-extra', top < 0);
+    if (top < 0) extra++;
+  });
+  chips.classList.toggle('st-few', !STYLE_MORE);
+  if (!more) return;
+  more.style.display = extra ? '' : 'none';
+  more.textContent = STYLE_MORE ? '− ' + L('Fewer styles') : '＋ ' + L('More styles') + ' (' + extra + ')';
+  if (!more.dataset.wired) {
+    more.dataset.wired = '1';
+    more.addEventListener('click', () => { STYLE_MORE = !STYLE_MORE; syncStyleMore($('styleChips')); });
+  }
 }
 function styleCues(cues) {
   return (cues || []).filter((c) => (c.text || '').trim()).map((c) => [String(c.text).replace(/~/g, '').replace(/\s+/g, ' ').trim(), c.start, c.end]);
