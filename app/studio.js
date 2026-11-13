@@ -44,7 +44,8 @@
   const keysB = btn('st-chip st-keysb', '?', '', () => openKeys());
   // 🔎 1.75: search what was said in all the footage
   const searchB = btn('st-chip st-searchb', '🔎', '', () => openSearchSheet());
-  [homeB, logo, brandEl, projEl, undoB, savedEl, el('span', 'st-flex'), searchB, keysB, chip, langB, exportB, sendB].forEach((x) => top.appendChild(x));
+  // 1.94.5: ↶ lives in the editor bar (the same Undo was here twice)
+  [homeB, logo, brandEl, projEl, savedEl, el('span', 'st-flex'), searchB, keysB, chip, langB, exportB, sendB].forEach((x) => top.appendChild(x));
   review.insertBefore(top, review.firstChild);
 
   // ── text column head ──────────────────────────────────────────────────
@@ -54,6 +55,7 @@
   const doubtB = btn('st-pill warn', '', '', () => { if (typeof goFirstDoubtStudio === 'function') goFirstDoubtStudio(); });
   const memB = btn('st-ico', '🧠', '', () => { if (typeof toggleMemoryPanel === 'function') toggleMemoryPanel(); });
   const cliB = btn('st-ico', '👤', '', () => { if (typeof toggleClientPanel === 'function') toggleClientPanel(); });
+  cliB.setAttribute('data-client', '1');   // 1.94.5: Pro only (a freelancer's word list per client)
   const addB = btn('st-ico', '＋', '', () => { if (typeof addReviewCue === 'function') { const j = addReviewCue(-1); focusReviewCue(j, 0); } });
   [tTitle, tCount, el('span', 'st-flex'), doubtB, memB, cliB, addB].forEach((x) => thead.appendChild(x));
   const list = $('reviewList');
@@ -849,7 +851,7 @@
   // "Which editor do you use?" (1.38): asked once on the home screen; the
   // Studio then shows that editor's way first (CapCut: its projects card on
   // top, CapCut first in Export). One anonymous count per answer (/api/event).
-  const EDITORS = [['capcut', 'CapCut'], ['davinci', 'DaVinci'], ['premiere', 'Premiere'], ['other', tx('ሌላ', 'Other')]];
+  const EDITORS_NOW = () => [['capcut', 'CapCut'], ['davinci', 'DaVinci'], ['premiere', 'Premiere'], ['other', tx('ሌላ', 'Other')]];
   const editorNow = () => { try { return (typeof loadSettings === 'function' && loadSettings().editor) || ''; } catch (e) { return ''; } };
   const pickBox = el('div', 'card st-pick');
   if (dropCard) dropCard.after(pickBox);
@@ -857,7 +859,7 @@
     const now = editorNow();
     pickBox.textContent = '';
     if (now) {
-      const n = (EDITORS.find((e) => e[0] === now) || ['', now])[1];
+      const n = (EDITORS_NOW().find((e) => e[0] === now) || ['', now])[1];
       const line = el('div', 'st-sub st-pick-now', tx('ኤዲተርዎ፦ ', 'Your editor: ') + n + ' · ');
       line.appendChild(btn('st-link', tx('ቀይር', 'change'), '', () => { saveSettings({ editor: '' }); renderPick(); }));
       pickBox.appendChild(line);
@@ -872,7 +874,7 @@
     }
     pickBox.appendChild(el('div', 'st-home-h', tx('በየትኛው ኤዲተር ይሰራሉ?', 'Which editor do you use?')));
     const row = el('div', 'st-row st-pick-row');
-    EDITORS.forEach(([id, name]) => row.appendChild(btn('st-btn', name, '', () => {
+    EDITORS_NOW().forEach(([id, name]) => row.appendChild(btn('st-btn', name, '', () => {
       saveSettings({ editor: id });
       if (typeof track === 'function') track('editor_' + id);
       renderPick();

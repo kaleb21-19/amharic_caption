@@ -6944,9 +6944,11 @@ function checkStyles() {
 }
 function styleNote() {
   if (STYLE === 'plain') {
-    return IS_APP_MODE() ? 'Plain: the .srt file only — style it in your editor.'
+    return IS_APP_MODE() ? 'Plain: the exported video has no captions — only the .srt file.'
       : 'Plain: ' + HOST_NAME + '\'s own captions — you can edit and restyle them there.';
   }
+  // 1.94.5: the Studio says it in one short line (it was three)
+  if (IS_APP_MODE()) return LICENSED ? '' : 'Free version adds a small tag — a license removes it.';
   const what = IS_APP_MODE() ? 'Saves the video with these captions drawn in, next to your video.'
     : 'Drawn as a video layer on an empty track above your video.';
   return LICENSED ? what : what + ' Free version: a small "Amharic Captions Pro" tag is added — a license removes it.';

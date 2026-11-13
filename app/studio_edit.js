@@ -1199,6 +1199,7 @@
     try { saveSettings({ studioMode: v }); } catch (e) {}
     document.documentElement.classList.toggle('amh-simple', v === 'simple');
     renderModeSw();
+    drawSoon();          // the rows Simple hides
   }
   function renderModeSw() {
     const v = studioMode();
@@ -1310,7 +1311,8 @@
   // 🔍 Zoom (1.60): smooth, After Effects-like zooms without keyframes. Add
   // one at the playhead (or on a word in the Script view), pick a style
   // (each card shows its motion), strength, speed and focus in ⚙.
-  const ZOOM_NAMES = {
+  // 1.94.5: built when used, so the names follow the language switch
+  const ZOOM_NAMES_NOW = () => ({
     push: [tx('ለስላሳ ግፊት', 'Smooth push'), tx('ቀስ ብሎ ይቀርባል፣ ይመለሳል', 'Eases in, holds, eases out')],
     punch: [tx('ፈጣን ዝላይ', 'Punch'), tx('በቅጽበት ይቀርባል — TikTok', 'Snaps in — TikTok style')],
     creep: [tx('ቀስ ያለ ጉዞ', 'Slow creep'), tx('ሙሉ ጊዜ ቀስ ብሎ ይቀርባል', 'Creeps in the whole time')],
@@ -1318,8 +1320,8 @@
     pulse: [tx('የልብ ምት', 'Pulse'), tx('አንድ ፈጣን ምት', 'One quick beat')],
     reveal: [tx('መግለጥ', 'Reveal'), tx('ከቅርብ ጀምሮ ይርቃል', 'Starts close, opens out')],
     impact: [tx('ኃይለኛ', 'Impact'), tx('ዝላይ ከመንቀጥቀጥ ጋር', 'Punch with a camera shake')],
-  };
-  const zoomName = (st) => (ZOOM_NAMES[st] || ZOOM_NAMES.push)[0];
+  });
+  const zoomName = (st) => (ZOOM_NAMES_NOW()[st] || ZOOM_NAMES_NOW().push)[0];
   const ZOOM_LEN = { push: 2, punch: 1.2, creep: 3, bounce: 1.6, pulse: 0.6, reveal: 1.5, impact: 1.2 };
   function zoomLast() {
     let z = {};
@@ -1395,14 +1397,14 @@
     clipPane.appendChild(el('div', 'ed-sec', tx('ስታይል', 'Style')));
     const grid = el('div', 'zm-grid');
     Object.keys(E.ZOOM_STYLES).forEach((st) => {
-      const b = btn('zm-card' + (now.style === st ? ' on' : ''), '', ZOOM_NAMES[st][1], () => setZ({ style: st }));
+      const b = btn('zm-card' + (now.style === st ? ' on' : ''), '', ZOOM_NAMES_NOW()[st][1], () => setZ({ style: st }));
       const demo = el('span', 'zm-demo');
       const pic = el('span', 'zm-pic zm-a-' + st);
       pic.appendChild(el('i', 'zm-face'));
       demo.appendChild(pic);
       b.appendChild(demo);
-      b.appendChild(el('b', '', ZOOM_NAMES[st][0]));
-      b.appendChild(el('span', '', ZOOM_NAMES[st][1]));
+      b.appendChild(el('b', '', ZOOM_NAMES_NOW()[st][0]));
+      b.appendChild(el('span', '', ZOOM_NAMES_NOW()[st][1]));
       grid.appendChild(b);
     });
     clipPane.appendChild(grid);
@@ -1496,7 +1498,7 @@
   // is its `row` (0 = T1 / V2 / A1); a higher track is drawn above a lower one
   // (in the picture too). trk = { tx, ov, au: [{ hide | mute, lock }] }.
   const RULER = 20, CAP = 28, TXT = 26, OVL = 28, ZM = 18, MAIN = 48, MUS = 28, GAP = 6, RG = 3;
-  let capTop = 0, txTop = 0, ovTop = 0, zmTop = 0, mainTop = 0, musTop = 0, LH = 240, NT = 1, NO = 1, NA = 1;
+  let capTop = 0, txTop = 0, ovTop = 0, zmTop = 0, mainTop = 0, musTop = 0, LH = 240, NT = 1, NO = 1, NA = 1, ZMON = true;
   const rowOf = (it) => Math.max(0, Math.floor(Number(it && it.row) || 0));
   const KIND_LIST = { tx: () => txt, ov: () => ovl, au: () => mus };
   const tkOf = (kind, r) => ((trk[kind] || [])[r]) || {};
@@ -1505,11 +1507,17 @@
   function relayout() {
     const n = (kind) => Math.max(1, (trk[kind] || []).length, KIND_LIST[kind]().reduce((m, it) => Math.max(m, rowOf(it) + 1), 0));
     NT = n('tx'); NO = n('ov'); NA = n('au');
+    // 1.94.5 Simple: an empty text / picture / zoom row is not shown (7 rows
+    // for a beginner who uses 3); it comes back as soon as something is on it
+    const simple = document.documentElement.classList.contains('amh-simple');
+    if (simple && !txt.length) NT = 0;
+    if (simple && !ovl.length) NO = 0;
+    ZMON = !(simple && !zm.length);
     capTop = RULER + 4;
     txTop = capTop + CAP + GAP;
-    ovTop = txTop + NT * (TXT + RG) - RG + GAP;
-    zmTop = ovTop + NO * (OVL + RG) - RG + GAP;
-    mainTop = zmTop + ZM + GAP;
+    ovTop = txTop + (NT ? NT * (TXT + RG) - RG + GAP : 0);
+    zmTop = ovTop + (NO ? NO * (OVL + RG) - RG + GAP : 0);
+    mainTop = zmTop + (ZMON ? ZM + GAP : 0);
     musTop = mainTop + MAIN + GAP;
     LH = musTop + NA * (MUS + RG) - RG + 8;
   }
@@ -1602,7 +1610,7 @@
     lab(CAP + GAP, null, 0, '💬 ' + tx('ካፕሽን', 'Captions'));
     for (let r = NT - 1; r >= 0; r--) lab(TXT + (r === 0 ? GAP : RG), 'tx', r, 'T' + (r + 1), r === NT - 1 ? add('tx') : null);
     for (let r = NO - 1; r >= 0; r--) lab(OVL + (r === 0 ? GAP : RG), 'ov', r, 'V' + (r + 2), r === NO - 1 ? add('ov') : null);
-    lab(ZM + GAP, null, 0, '🔍 ' + tx('ዙም', 'Zoom'));
+    if (ZMON) lab(ZM + GAP, null, 0, '🔍 ' + tx('ዙም', 'Zoom'));
     lab(MAIN + GAP, null, 0, '🎬 V1 ' + tx('ዋና', 'Main'));
     for (let r = 0; r < NA; r++) lab(MUS + RG, 'au', r, '♪ A' + (r + 1), r === NA - 1 ? add('au') : null);
   }
@@ -1837,7 +1845,7 @@
   }
   function xy(e) { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
   function hitAt(p) {
-    if (p.y >= zmTop && p.y <= zmTop + ZM) {
+    if (ZMON && p.y >= zmTop && p.y <= zmTop + ZM) {
       for (let k = zm.length - 1; k >= 0; k--) {
         const o = zm[k];
         const x0 = S.timeToX(o.start, view), x1 = S.timeToX(o.start + E.ovLen(o), view);
@@ -3218,7 +3226,8 @@
   // finished in a few clicks — layout, how it comes in and goes, motion inside.
   // Added from a word in the Script view (its word or its sentence), by
   // dragging media onto a word, or from Media (＋ Overlay).
-  const BR_LAYOUTS = {
+  // 1.94.5: built when used, so the names follow the language switch
+  const BR_LAYOUTS_NOW = () => ({
     full: [tx('ሙሉ ገጽ', 'Full screen'), tx('ሙሉውን ይሞላል', 'Fills the frame')],
     blur: [tx('ደብዛዛ ጀርባ', 'Blurred back'), tx('ሙሉ ስዕሉ፣ ጀርባው ደብዛዛ', 'Whole picture on a blur')],
     whole: [tx('ሙሉውን', 'Whole'), tx('ሙሉ ስዕሉ፣ ጥቁር ጠርዝ', 'Whole picture, black bars')],
@@ -3226,7 +3235,7 @@
     top: [tx('የላይ ግማሽ', 'Top half'), tx('ለ TikTok ጥሩ', 'Great for TikTok')],
     bottom: [tx('የታች ግማሽ', 'Bottom half'), tx('ተናጋሪው ከላይ ይታያል', 'The speaker stays on top')],
     free: [tx('ነፃ', 'Free'), tx('በእጅ ይጎትቱ፣ መጠኑን ይምረጡ', 'Drag it, set its size')],
-  };
+  });
   const BR_IN = { none: tx('የለም', 'None'), fade: tx('ደብዝዞ', 'Fade'), left: '← ' + tx('ከግራ', 'From left'), right: tx('ከቀኝ', 'From right') + ' →',
     up: '↑ ' + tx('ከታች', 'From below'), down: '↓ ' + tx('ከላይ', 'From above') };
   const BR_OUT = { none: tx('የለም', 'None'), fade: tx('ደብዝዞ', 'Fade'), left: '← ' + tx('ወደ ግራ', 'To the left'), right: tx('ወደ ቀኝ', 'To the right') + ' →',
@@ -3325,12 +3334,12 @@
     clipPane.appendChild(el('div', 'ed-sec', tx('አቀማመጥ', 'Layout')));
     const grid = el('div', 'br-grid');
     ['full', 'blur', 'whole', 'pip', 'top', 'bottom', 'free'].forEach((lay) => {
-      const b = btn('br-card' + (L.layout === lay ? ' on' : '') + (lay === 'free' && L.layout !== 'free' ? ' pro-only' : ''), '', BR_LAYOUTS[lay][1], () => setO({ layout: lay }));
+      const b = btn('br-card' + (L.layout === lay ? ' on' : '') + (lay === 'free' && L.layout !== 'free' ? ' pro-only' : ''), '', BR_LAYOUTS_NOW()[lay][1], () => setO({ layout: lay }));
       const d = el('span', 'br-d br-d-' + lay);
       d.appendChild(el('i', 'br-d-main'));
       d.appendChild(el('i', 'br-d-pic'));
       b.appendChild(d);
-      b.appendChild(el('b', '', BR_LAYOUTS[lay][0]));
+      b.appendChild(el('b', '', BR_LAYOUTS_NOW()[lay][0]));
       grid.appendChild(b);
     });
     clipPane.appendChild(grid);
