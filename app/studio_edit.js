@@ -2331,6 +2331,28 @@
   }
   // a song under the whole edit: from the start (or the playhead, if there is
   // music already), as long as the edit, fades and ducking on
+  // a sound effect where the playhead is: its own short item on the sound
+  // track — full volume, no fades, the music is not ducked under it
+  async function addSfxAt(name) {
+    const s2 = sfxSource(name);
+    if (s2.own) playFile(s2.file, 0.8); else sfxPlay(name, 0.8);
+    if (!built) return;
+    const norm = (x) => String(x || '').split(String.fromCharCode(92)).join('/').toLowerCase();
+    let id = Object.keys(media).find((k) => media[k].sfx && norm(media[k].path) === norm(s2.file));
+    if (!id) {
+      id = await addMedia(s2.file);
+      if (!id) return;
+      media[id].sfx = true;
+    }
+    const m = media[id];
+    const at = Math.max(0, Math.min(time(), total() - 0.05));
+    const len = Math.max(0.05, Math.min(m.dur || 0.5, total() - at));
+    const sid = newId();
+    change('add sound effect', () => { mus = mus.concat([{ id: sid, m: id, in: 0, out: Math.round(len * 1000) / 1000, start: Math.round(at * 1000) / 1000, volume: 0.9, fadeIn: 0, fadeOut: 0, duck: 0 }]); });
+    hint.textContent = '🔊 ' + (SFXNAME()[name] || name) + ' · ' + S.fmtClock(at);
+    setTimeout(() => { if (/🔊/.test(hint.textContent)) hint.textContent = ''; }, 3000);
+    after(); drawSoon();
+  }
   function addMusic(id, atT) {
     const m = media[id];
     const at = atT != null ? Math.min(atT, Math.max(0, total() - 0.5)) : mus.length ? Math.min(time(), Math.max(0, total() - 0.5)) : 0;
@@ -2418,6 +2440,7 @@
     const grid = el('div', 'ed-mgrid');
     Object.keys(media).forEach((id) => {
       const m = media[id];
+      if (m.sfx) return;            // a sound effect (＋ in 🔊 Sound) is not a file the editor brought
       const it = el('div', 'ed-mitem');
       {
         it.draggable = true;
@@ -3966,9 +3989,12 @@
       soundPane.appendChild(el('div', 'st-note', n ? n + ' ' + tx('የድምፅ ውጤቶች በዚህ ቪዲዮ ውስጥ (በጊዜ መስመሩ ላይ 🔊)።', 'sound effects in this video (🔊 on the timeline).')
         : tx('ዙም፣ B-roll፣ ቴምፕሌት ወይም ሽግግር ሲጨምሩ ድምፁ ራሱ ይገባል።', 'Add a zoom, B-roll, template or transition — its sound comes by itself.')));
     }
+    // 1.94.10 (owner: "I can't add a sound effect"): a tap puts the sound at
+    // the playhead on the sound track (and plays it once); ↶ takes it back
+    soundPane.appendChild(el('div', 'st-note', tx('ድምፅ ይንኩ — መጫወቻው ባለበት ቦታ ይገባል (↶ ይመልሳል)።', 'Tap a sound — it is added where the playhead is (↶ takes it back).')));
     const tryRow = el('div', 'br-chips');
     const N = SFXNAME();
-    E.SFX.forEach((k) => tryRow.appendChild(btn('br-chip', '▶ ' + N[k], tx('ያዳምጡ', 'Listen'), () => { const s2 = sfxSource(k); if (s2.own) playFile(s2.file, 0.8); else sfxPlay(k, 0.8); })));
+    E.SFX.forEach((k) => tryRow.appendChild(btn('br-chip', '＋ ' + N[k], tx('በመጫወቻው ቦታ ይገባል', 'Add at the playhead'), () => addSfxAt(k))));
     soundPane.appendChild(tryRow);
     renderMySounds();
     soundPane.appendChild(el('div', 'ed-sec', '♪ ' + tx('ሙዚቃ', 'Music')));
