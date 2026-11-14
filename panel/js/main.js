@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.8';
+const APP_VERSION = '1.94.9';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -9177,12 +9177,26 @@ function clockHelp() {
     : 'Your computer’s clock is wrong. Open Settings → Time & language → Date & time, turn on “Set time automatically” and “Set time zone automatically” (or choose (UTC+03:00) Nairobi), press “Sync now”, then try again.';
 }
 
+// 1.94.9: a mistake the editor fixes in a second (no clip selected, clip too
+// short or silent, the clock, no license) is not a failure of the program:
+// only the friendly message — no "see Details", no technical Log opened, no
+// "Send problem report" (5 of the 30-day report's errors were "no clip")
+const USER_FIXABLE = ['err_no_clip', 'err_no_clips', 'err_too_short', 'err_no_audio', 'err_no_speech', 'err_no_media', 'err_clock', 'err_license'];
 function failRun(raw) {
   runFailed = true;
   const step = errorStep(raw);
   if (step) track(step);
   removeTempCaptionArtifact(lastSrtPath);
   const msg = humanError(raw);
+  if (USER_FIXABLE.indexOf(step) >= 0) {
+    setStatus('err', 'check the message');
+    setProgress(0, msg);
+    const disc = document.getElementById('logDisc');
+    if (disc) disc.classList.remove('open');
+    LAST_FAIL = null;
+    showReportOffer(false);
+    return;
+  }
   setStatus('err', 'failed');
   // progLabel is an aria-live region, so this is announced as well as shown.
   setProgress(0, msg + ' See “Details for support” below.');

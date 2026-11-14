@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.8');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.9');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1491,6 +1491,21 @@ await t('4n3k. 1.94.8 the Studio job reports how far it is (and cleans up after 
     p.evalVm(`transcribe = async () => ({ cues: [] });`);
     assert.strictEqual((await p.evalVm(`transcribeExtra('C:/v/a.mp4')`)).length, 0);
     assert.strictEqual(p.evalVm('startExtraPoll("x")'), null, 'no poll without a listener');
+  } finally { p.close(); }
+});
+
+await t('4n3l. 1.94.9 a mistake the editor fixes (no clip) gets only the friendly message; a real failure still offers the report', async () => {
+  const p = loadPanel();
+  try {
+    await flush(5);
+    p.evalVm(`track = () => {}; failRun('No clip found. Select a clip on the timeline (or put the playhead on it), then try again.');`);
+    assert.strictEqual(p.els('reportBox').style.display, 'none', 'no problem report for a missing clip');
+    assert.ok(!/Details for support/.test(p.els('progLabel').textContent), 'no "see Details" either');
+    assert.ok(!p.els('logDisc').classList.contains('open'), 'the technical log stays closed');
+    assert.strictEqual(p.evalVm('LAST_FAIL'), null);
+    p.evalVm(`failRun('Python failed: worker exited with code 3221225477');`);
+    assert.notStrictEqual(p.els('reportBox').style.display, 'none', 'a crash still offers the report');
+    assert.match(p.els('progLabel').textContent, /Details for support/);
   } finally { p.close(); }
 });
 
@@ -3720,9 +3735,10 @@ await t('14d. Work Area finds nothing: the message says why and what to do (1.10
     const p = loadPanel({ csiRaw: (jsx) => /getSequenceInfo/.test(jsx) ? JSON.stringify(info) : '{"ok":true}' });
     try {
       await flush(5);
-      await p.evalVm('runWorkArea().catch((e) => failRun(e.message))');
+      await p.evalVm('globalThis.__tr = []; track = (e) => __tr.push(e); runWorkArea().catch((e) => failRun(e.message))');
       assert.match(p.evalVm('PROGRESS_EN'), en);
-      assert.strictEqual(p.evalVm('LAST_FAIL.step'), 'err_no_clips', 'still counted as err_no_clips');
+      assert.ok(p.evalVm('__tr').indexOf('err_no_clips') >= 0, 'still counted as err_no_clips');
+      assert.strictEqual(p.els('reportBox').style.display, 'none', '1.94.9: the editor fixes it — no problem report');
       p.evalVm('AMH_LANG = "am"');
       assert.match(p.evalVm('T(PROGRESS_EN)'), am, 'Amharic text');
     } finally { p.close(); }
