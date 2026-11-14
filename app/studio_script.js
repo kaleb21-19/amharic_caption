@@ -152,8 +152,14 @@
       card.appendChild(b);
     } else if (st.state === 'run') {
       const sec = Math.round((Date.now() - st.t0) / 1000);
-      card.appendChild(el('div', 'st-capcard-t', '⏳ ' + tx('ጽሑፍ እየተሰራ ነው…', 'Transcribing…') + (st.n > 1 ? ' ' + (st.done + 1) + '/' + st.n : '') + ' · ' + Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0')));
-      card.appendChild(el('div', 'st-capcard-s', tx('ኤዲቲንጉን መቀጠል ይችላሉ — ሲያልቅ ጽሑፉ እዚህ ይመጣል።', 'Keep editing — the text comes here when it is done.')));
+      card.appendChild(el('div', 'st-capcard-t', '⏳ ' + tx('ጽሑፍ እየተሰራ ነው…', 'Transcribing…') + (st.n > 1 ? ' ' + (st.done + 1) + '/' + st.n : '') + ' · ' + Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0') + (ed.capLeft ? ed.capLeft(st) : '')));
+      if (st.pct != null) {
+        const bar = el('div', 'st-capbar'); const fill = el('i'); fill.style.width = Math.round(st.pct * 100) + '%'; bar.appendChild(fill);
+        card.appendChild(bar);
+      }
+      card.appendChild(el('div', 'st-capcard-s', st.pct != null
+        ? tx('የተጻፈው እስካሁን ከታች ይታያል — ሲያልቅ ማረም ይችላሉ።', 'What is written so far shows below — you can edit it when it is done.')
+        : tx('ኤዲቲንጉን መቀጠል ይችላሉ — ሲያልቅ ጽሑፉ እዚህ ይመጣል።', 'Keep editing — the text comes here when it is done.')));
       // 1.94.2: ■ Stop (the engine stops, free minutes come back)
       if (ed.stopCaptions) {
         const stop = el('button', 'st-btn st-capcard-b', st.stop ? tx('በማቆም ላይ…', 'Stopping…') : '■ ' + tx('አቁም', 'Stop'));
