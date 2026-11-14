@@ -169,6 +169,7 @@ const AM_STATIC = {
 
 // ── dynamic text from main.js / core.js (keyed by the English string) ───────
 const AM_TEXT = {
+  'check the message': 'መልእክቱን ይመልከቱ',
   'For short clips (Reels, TikTok hooks) — 2-3 lines': 'ለአጭር ቅንጥቶች (Reels፣ TikTok hook) — 2-3 መስመሮች',
   'More styles': 'ተጨማሪ ስታይሎች',
   'Fewer styles': 'ያነሱ ስታይሎች',
