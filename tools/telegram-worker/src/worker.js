@@ -2113,14 +2113,14 @@ async function messageTrialUser(chatId, mid, text) {
   await sendText(chatId, r && r.ok
     ? `✅ Sent to <b>${esc(g.name || g.uid)}</b>. Their reply comes here.`
     : '⚠️ Telegram could not deliver it (they may have blocked the bot).',
-  [[{ text: '👤 Trial card', callback_data: 'admin:tgcard:' + mid }]]);
+  [[{ text: '👤 Trial card', callback_data: 'admin:tgcardn:' + mid }]]);
 }
 async function forwardFromTrialUser(mid, chatId, text, from) {
   const name = (from && (from.username ? '@' + from.username : from.first_name)) || '';
   for (const adm of adminUids()) {
     await sendText(adm,
       `📨 <b>Reply from ${esc(name || 'a free-trial user')}</b> · <code>${esc(mid)}</code>\n\n${esc(text)}`,
-      [[{ text: '✉️ Reply', callback_data: 'admin:tgmsg:' + mid }, { text: '👤 Trial card', callback_data: 'admin:tgcard:' + mid }]]);
+      [[{ text: '✉️ Reply', callback_data: 'admin:tgmsg:' + mid }, { text: '👤 Trial card', callback_data: 'admin:tgcardn:' + mid }]]);
   }
   await sendText(chatId, '✅ መልዕክትዎ ለቡድኑ ደርሷል።\n<i>Your message was sent to the team.</i>');
 }
@@ -6634,6 +6634,9 @@ async function handleCallback(cb) {
       await adminTrialAction(chatId, messageId, cbId, fromUid, action, parts[2]);
     }
     else if (action === 'tgcard') { await answerCb(cbId, ''); await adminTrialCard(chatId, messageId, String(parts[2] || '').toLowerCase()); }
+    // 1.94.7: from a problem report / feedback — the card as a NEW message (it
+    // used to replace the report, and its error text was gone)
+    else if (action === 'tgcardn') { await answerCb(cbId, ''); await adminTrialCard(chatId, 0, String(parts[2] || '').toLowerCase()); }
     else if (action === 'tgmsg') {
       const tmid = String(parts[2] || '').toLowerCase();
       const tg = isValidMid(tmid) ? await trialGrant(tmid) : null;
@@ -7142,7 +7145,7 @@ export default {
         `${who}\n` +
         `💻 <code>${esc(mid)}</code> · v${esc(clip(b.v, 12))} · ${esc(clip(b.host, 8))} · ` +
         (b.licensed ? '💰 licensed' : `🎁 ${esc(clip(b.trial, 40)) || 'no license'}`);
-      const kb = g ? [[{ text: '✉️ Message', callback_data: 'admin:tgmsg:' + mid }, { text: '👤 Trial card', callback_data: 'admin:tgcard:' + mid }]] : null;
+      const kb = g ? [[{ text: '✉️ Message', callback_data: 'admin:tgmsg:' + mid }, { text: '👤 Trial card', callback_data: 'admin:tgcardn:' + mid }]] : null;
       for (const adm of adminUids()) {
         const r = await sendText(adm, msgText, kb);
         if (!r || !r.ok) await sendText(adm, '💡 Feedback: ' + esc(text) + '\n' + who, kb);
@@ -7181,7 +7184,7 @@ export default {
       let body = (tail ? '\n\n<b>Engine said</b>\n<pre>' + esc(tail.slice(-1400)) + '</pre>' : '') +
         (logTxt ? '\n\n<b>Log (end)</b>\n<pre>' + esc(logTxt.slice(-(3400 - Math.min(tail.length, 1400)))) + '</pre>' : '');
       if (head.length + body.length > 4000) body = body.slice(body.length - (4000 - head.length));
-      const kb = g ? [[{ text: '✉️ Message', callback_data: 'admin:tgmsg:' + mid }, { text: '👤 Trial card', callback_data: 'admin:tgcard:' + mid }]] : null;
+      const kb = g ? [[{ text: '✉️ Message', callback_data: 'admin:tgmsg:' + mid }, { text: '👤 Trial card', callback_data: 'admin:tgcardn:' + mid }]] : null;
       for (const adm of adminUids()) {
         const r = await sendText(adm, head + body, kb);
         if (!r || !r.ok) await sendText(adm, head, kb);     // a broken <pre> never hides the report
