@@ -905,3 +905,16 @@ html.amh-studio .style-more { display: block; width: 100%; margin: 10px 0 4px; p
   background: none; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
 html.amh-studio .style-more:hover { border-color: var(--accent); background: rgba(46,204,113,.06); }
 html.amh-studio .style-chips .st-shortgrp { grid-column: 1 / -1; margin-top: 10px; }
+
+/* 1.94.8 captions as they are written: read, not edit yet; a bar on the card */
+#review.ed-caplive .st-script, #review.ed-caplive #reviewList { pointer-events: none; }
+#review.ed-caplive .st-capcard { pointer-events: auto; }
+.st-capbar { height: 6px; margin: 8px 0 6px; border-radius: 4px; background: rgba(255,255,255,.08); overflow: hidden; }
+.st-capbar i { display: block; height: 100%; border-radius: 4px; background: var(--accent); transition: width .6s ease; }
+/* the Export window: the video first, the rest folded */
+.st-more { margin-top: 10px; }
+.st-more > summary { cursor: pointer; padding: 9px 4px; color: var(--text-secondary); font-size: var(--font-s); list-style: none; }
+.st-more > summary::before { content: '▸ '; }
+.st-more[open] > summary::before { content: '▾ '; }
+.st-more > summary:hover { color: var(--accent); }
+.st-more > .st-card { margin-top: 8px; }

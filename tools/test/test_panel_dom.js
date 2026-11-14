@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.7');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.8');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1474,6 +1474,24 @@ await t('4n3j. 1.94.5 the Studio shows 8 good styles first; + More styles shows 
     q.evalVm('syncClientButton();');
     assert.strictEqual(q.els('revClient').style.display, 'none', '1.94.6: no 👤 Client in the Premiere review until someone has clients');
   } finally { q.close(); }
+});
+
+await t('4n3k. 1.94.8 the Studio job reports how far it is (and cleans up after itself)', async () => {
+  const p = loadPanel();
+  try {
+    await flush(5);
+    if (!p.evalVm('!!(RUNTIME && PYTHON && FFMPEG && fs.existsSync(PYTHON) && fs.existsSync(FFMPEG))')) { console.log('        (skipped: no engine files here)'); return; }
+    p.evalVm(`globalThis.__pg = []; track = () => {}; LICENSED = true; MODEL_MISSING = false;
+      refreshTrialFromServer = async () => {}; starterBeforeJob = async () => true;
+      transcribe = async () => { windowProgress(1, 4); windowProgress(2, 4); windowProgress(4, 4); return { cues: [{ text: 'ሀ', start: 0, end: 1 }] }; };`);
+    await p.evalVm(`transcribeExtra('C:/v/a.mp4', { onProgress: (f, left) => __pg.push([f, left >= 0]) })`);
+    assert.strictEqual(p.evalVm('JSON.stringify(__pg)'), '[[0.25,true],[0.5,true],[1,true]]', 'the fraction of each step');
+    assert.strictEqual(p.evalVm('String(windowProgress) + String(EXTRA_HOOKS)'), 'nullnull', 'nothing left behind for the next job');
+    // a job without hooks (older callers) still works
+    p.evalVm(`transcribe = async () => ({ cues: [] });`);
+    assert.strictEqual((await p.evalVm(`transcribeExtra('C:/v/a.mp4')`)).length, 0);
+    assert.strictEqual(p.evalVm('startExtraPoll("x")'), null, 'no poll without a listener');
+  } finally { p.close(); }
 });
 
 await t('4n3. 1.93 ✂ one click on a caption cuts the Premiere timeline at once; the captions after it move up', async () => {

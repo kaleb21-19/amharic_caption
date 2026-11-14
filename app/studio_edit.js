@@ -2443,7 +2443,7 @@
       if (!caps && m.audio && !m.image && !onlyMusic) {
         const job = CAPJOBS[id];
         if (job && job.busy) {
-          it.appendChild(el('div', 'ed-mcap busy', '⏳ ' + (job.stopping ? tx('በማቆም ላይ…', 'Stopping…') : tx('ካፕሽን እየተሰራ ነው… ', 'Making captions… ') + S.fmtClock((Date.now() - job.t0) / 1000))));
+          it.appendChild(el('div', 'ed-mcap busy', '⏳ ' + (job.stopping ? tx('በማቆም ላይ…', 'Stopping…') : tx('ካፕሽን እየተሰራ ነው… ', 'Making captions… ') + S.fmtClock((Date.now() - job.t0) / 1000) + capLeft(job))));
           // 1.94.2: it can be stopped (the engine stops, free minutes come back)
           const stop = btn('st-btn ed-mcapbtn', '■ ' + tx('አቁም', 'Stop'), tx('ካፕሽን መስራቱን አቁም — ነጻ ደቂቃዎች ይመለሳሉ', 'Stop making captions — free minutes are given back'), () => stopCaptions());
           stop.disabled = !!job.stopping;
@@ -2482,7 +2482,18 @@
     renderMedia();
     if (!capTimer) capTimer = setInterval(() => { if (Object.keys(CAPJOBS).some((k) => CAPJOBS[k].busy)) { if (review.classList.contains('ed-mediamode')) renderMedia(); } else { clearInterval(capTimer); capTimer = 0; } }, 1000);
     try {
-      const cues = await transcribeExtra(m.path);
+      const cues = await transcribeExtra(m.path, {
+        // 1.94.8: how far it is, and the captions as they are written
+        onProgress: (frac, left) => {
+          const j = CAPJOBS[id];
+          if (!j || !j.busy) return;
+          j.pct = frac; j.left = left;
+          if (capAll && capAll.state === 'run') capAll = Object.assign({}, capAll, { pct: frac, left });
+          capSoon();
+        },
+        onPartial: (part) => livePartial(id, part),
+      });
+      endLive(id);
       if (!media[id]) return;                     // the project was closed meanwhile
       const clean = cues.filter((c) => String(c.text || '').trim()).map((c) => {
         const o = { start: Number(c.start), end: Number(c.end), text: String(c.text) };
@@ -2496,12 +2507,44 @@
       log(tx('✓ ካፕሽን ተሰራ፦ ', '✓ Captions made: ') + m.name + ' (' + clean.length + ')');
       if (first) captionsReady(((typeof reviewCues !== 'undefined' && reviewCues) || []).length || clean.length);
     } catch (e) {
+      endLive(id);
       CAPJOBS[id] = (CAPJOBS[id] && CAPJOBS[id].stopping)
         ? { busy: false, note: '■ ' + tx('ቆሟል — ምንም ደቂቃ አልተቀነሰም።', 'Stopped — no minutes were used.') }
         : { busy: false, err: (e && e.message) ? e.message : String(e) };
     }
     renderMedia();
   }
+  // 1.94.8: while a long video is transcribed, what is written so far shows
+  // in the text and on the video (to read, not to edit yet — the finished
+  // captions replace it; Stop takes it away again, the minutes come back)
+  const LIVE = {};
+  function livePartial(id, part) {
+    const j = CAPJOBS[id];
+    if (!media[id] || !j || !j.busy || j.stopping || !review.classList.contains('show')) return;
+    if (!(id in LIVE)) LIVE[id] = SRC[id] || null;
+    SRC[id] = part.filter((c) => String(c.text || '').trim()).map((c) => ({ start: Number(c.start), end: Number(c.end), text: String(c.text) }));
+    reviewCues = E.deriveCaptions(clips, SRC);
+    review.classList.add('ed-caplive');
+    if (review.classList.contains('ed-mediamode')) setLeft(false);
+    renderReview();
+    drawSoon();
+  }
+  function endLive(id) {
+    if (!(id in LIVE)) return;
+    if (LIVE[id]) SRC[id] = LIVE[id]; else delete SRC[id];
+    delete LIVE[id];
+    if (!Object.keys(LIVE).length) review.classList.remove('ed-caplive');
+    reviewCues = E.deriveCaptions(clips, SRC);
+    renderReview();
+    drawSoon();
+  }
+  const capLeft = (j) => {
+    if (!j || j.pct == null) return '';
+    const pc = Math.round(j.pct * 100) + '%';
+    const s = Number(j.left) || 0;
+    if (s <= 0) return ' · ' + pc;
+    return ' · ' + pc + ' · ' + (s >= 60 ? tx('ወደ ' + Math.ceil(s / 60) + ' ደቂቃ ቀርቷል', 'about ' + Math.ceil(s / 60) + ' min left') : tx('ወደ ' + s + ' ሰከንድ ቀርቷል', 'about ' + s + ' s left'));
+  };
   // 1.94.5: the first captions of a project are ready — say so, show the
   // text next to the video, offer ▶ (nothing said it before: the card
   // changed quietly and a new editor did not know what to do next)
@@ -5123,5 +5166,5 @@
     queueExports, stopExport, clearDone, detectGpu, gpuName: (e) => GPU_NAMES[e] || '', queue: () => QUEUE, onQueue: (f) => qWatch.push(f),
     setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } });
   window.__amhEditor = { renderJob, snapshot, open, copySel, paste, duplicate, togglePick, selected, state: () => ({ clips, ovl, txt, mus, snd, zm, media, SRC, fmt, sel, built }), addOverlay, addText, addZoom, autoZooms, addBroll, brollPicker, findFaces, followFaces, frameClips, useSoundFolder, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, moveRange, total, redo,
-    select: (id) => { sel = id; picks = []; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, transcribeAll, stopCaptions, capCard, sourceShort, addToTimeline, insertMain, insertFound, startCrop, endCrop, cropState: () => cropEdit, setCropView: (v) => { if (cropEdit) { cropEdit.v = v; frame(); } }, freezeFrame, reverseClip, rampClip, guide: () => maybeGuide(true), queueExports, kinds, queue: () => QUEUE, markedPart, toggleMarker, markIO, clearIO, setShuttle, markers: () => mk, addToMedia, findFile, missingFiles, checkFiles, render, exportVideo, frame, setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } };
+    select: (id) => { sel = id; picks = []; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, transcribeAll, stopCaptions, capCard, captionsReady, capLeft, sourceShort, addToTimeline, insertMain, insertFound, startCrop, endCrop, cropState: () => cropEdit, setCropView: (v) => { if (cropEdit) { cropEdit.v = v; frame(); } }, freezeFrame, reverseClip, rampClip, guide: () => maybeGuide(true), queueExports, kinds, queue: () => QUEUE, markedPart, toggleMarker, markIO, clearIO, setShuttle, markers: () => mk, addToMedia, findFile, missingFiles, checkFiles, render, exportVideo, frame, setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } };
 })();

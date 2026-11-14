@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.7';
+const APP_VERSION = '1.94.8';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -4223,6 +4223,7 @@ async function transcribe(sourcePath, outSrt, range, offset) {
 
   const wav = await extractToWav(sourcePath, range);
   let livePoll = null;
+  let extraPoll = null;
   let finished = false;
   try {
     if (!warmStart()) {
@@ -4236,6 +4237,7 @@ async function transcribe(sourcePath, outSrt, range, offset) {
     const auth = await engineAuth(wavSeconds(wav));
     const work = resumeWorkPath(key);
     livePoll = startLivePoll(work);
+    extraPoll = startExtraPoll(work);
     const r = await warmSend(Object.assign({
       wav, out_srt: work, offset: offset || 0
     }, warmStyle(), auth));
@@ -4260,6 +4262,7 @@ async function transcribe(sourcePath, outSrt, range, offset) {
     return await transcribeOneShot(sourcePath, outSrt, range, offset, wav);
   } finally {
     if (livePoll) clearInterval(livePoll);
+    if (extraPoll) clearInterval(extraPoll);
     // Stopped before the end with a live review open: keep what is written.
     if (!finished && REVIEW_LIVE) {
       if (LIVE_OPENING) { try { await LIVE_OPENING; } catch (e) {} }
@@ -4334,13 +4337,29 @@ function authArgs(auth) {
 // `onProgress` used to be a parameter here that every caller passed as an empty
 // function and nothing ever invoked. Progress now flows the same way as on the
 // warm path — parsed off the child's stderr — so the dead parameter is gone.
+// 1.94.8: the Studio's job shows the captions as they are written (the engine
+// keeps a valid partial .srt of a long video in `file`)
+function startExtraPoll(file) {
+  if (!EXTRA_HOOKS || !EXTRA_HOOKS.onPartial) return null;
+  const hooks = EXTRA_HOOKS;
+  let seen = 0;
+  return setInterval(() => {
+    try {
+      if (hooks !== EXTRA_HOOKS || cancelRequested || !fs.existsSync(file)) return;
+      const part = normalizeCues(parseSrt(fs.readFileSync(file, 'utf8')));
+      if (part.length > seen) { seen = part.length; hooks.onPartial(part); }
+    } catch (e) {}
+  }, LIVE_POLL_MS);
+}
 async function transcribeOneShot(sourcePath, outSrt, range, offset, wav) {
   const auth = await engineAuth(wavSeconds(wav));
   return new Promise((resolve, reject) => {
     const pyArgs = [SCRIPT, wav, outSrt].concat(pyFlags(), authArgs(auth));
     if (offset && offset !== 0) pyArgs.push('--offset', String(offset));
+    const xpoll = startExtraPoll(outSrt);
     activeChild = execFile(PYTHON, pyArgs, { maxBuffer: 32 * 1024 * 1024, env: AMH_ENV, timeout: 4 * 60 * 60 * 1000 }, (perr, stdout) => {
       activeChild = null;
+      if (xpoll) clearInterval(xpoll);
       if (cancelRequested) { reject(new Error('Cancelled')); return; }
       if (perr) { reject(new Error('Python failed: ' + (perr.message || perr))); return; }
       const transcript = extractTranscripts(stdout).join('\n');
@@ -9639,7 +9658,9 @@ function cancelCaptions() {
   return true;
 }
 if (typeof window !== 'undefined') window.__amhCancelCaptions = cancelCaptions;
-async function transcribeExtra(filePath) {
+// hooks (1.94.8): onProgress(fraction 0-1, seconds left or 0), onPartial(cues so far)
+let EXTRA_HOOKS = null;
+async function transcribeExtra(filePath, hooks) {
   if (runInProgress || runStartInProgress) throw new Error(L('Captions are already being made — wait for them to finish.'));
   if (!RUNTIME || !PYTHON || !FFMPEG || !fs.existsSync(PYTHON) || !fs.existsSync(FFMPEG)) {
     throw new Error(L('The transcription runtime is missing — reinstall the app.'));
@@ -9667,6 +9688,18 @@ async function transcribeExtra(filePath) {
   activeRunId = newRunId();
   runInProgress = true;
   track('run_click');
+  EXTRA_HOOKS = hooks || null;
+  if (hooks && hooks.onProgress) {
+    // the engine's "[progress] done/total" lines (one per 20 s of a long video)
+    let first = null;
+    const t0 = Date.now();
+    windowProgress = (done, total) => {
+      let left = 0;
+      if (!first) first = { done, at: done > 0 ? t0 : Date.now() };
+      if (done > first.done && done < total) left = Math.round(((Date.now() - first.at) / (done - first.done)) * (total - done) / 1000);
+      try { hooks.onProgress(Math.max(0, Math.min(1, done / total)), left); } catch (e) {}
+    };
+  }
   try {
     const r = await transcribe(filePath, outSrt);
     // 1.94.4: the Studio's captions were never counted (nor its errors) —
@@ -9678,6 +9711,8 @@ async function transcribeExtra(filePath) {
     if (!cancelRequested) { const step = errorStep(e && e.message || e); if (step) track(step); }
     throw e;
   } finally {
+    EXTRA_HOOKS = null;
+    windowProgress = null;
     if (TRIAL_CHARGED_RUN && (cancelRequested || runFailed)) refundTrialRun();
     else TRIAL_CHARGED_RUN = null;
     lastCues = keep.cues;

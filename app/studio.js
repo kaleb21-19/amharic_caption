@@ -294,6 +294,16 @@
     // 4. more subtitle files (SRT + VTT + TXT, a folder you choose)
     const m = card('📄', tx('ሌሎች ፋይሎች (SRT · VTT · TXT)', 'More files (SRT · VTT · TXT)'), tx('እርስዎ በሚመርጡት ፎልደር', 'To a folder you choose'));
     m.h.appendChild(btn('st-btn', tx('ይምረጡ…', 'Choose…'), '', () => { if (typeof exportReviewFiles === 'function') exportReviewFiles(); }));
+    // 1.94.8: one clear thing first — the video; the files and the other
+    // editors are folded under "More ways" (the editor's own program stays up)
+    box.insertBefore(v.c, head.nextSibling);
+    const pref = eds[editorNow()];
+    if (pref) box.insertBefore(pref.c, head.nextSibling);
+    const more = el('details', 'st-more');
+    more.appendChild(el('summary', '', tx('ተጨማሪ መንገዶች — .srt፣ CapCut፣ DaVinci፣ ፋይሎች', 'More ways — .srt, CapCut, DaVinci, files')));
+    [a.c, eds.capcut && eds.capcut.c, eds.davinci && eds.davinci.c, m.c].forEach((c) => { if (c && c !== (pref && pref.c)) more.appendChild(c); });
+    box.appendChild(more);
+    if (opts.focus) more.open = true;
     sheet.appendChild(box);
     sheet.style.display = '';
     const f = eds[opts.focus];
@@ -1122,17 +1132,25 @@
     } finally { running = false; }
     // 1.94.3: a new video from the home screen — the captions start by
     // themselves once the editor is ready (the Media card shows ⏳ and ■ Stop)
-    autoCaptions();
+    autoCaptions(c.path);
   }
-  function autoCaptions() {
+  // 1.94.8: wait until the editor shows THIS video. After another project and
+  // Home, the editor still held the old project for a moment ("built", with
+  // its captions), so the second video of a session never started by itself.
+  function autoCaptions(want) {
     let tries = 0;
+    const norm = (x) => String(x || '').split(String.fromCharCode(92)).join('/').toLowerCase();
     const t = setInterval(() => {
       const ed = window.__amhEditor;
       const st = ed && ed.state ? ed.state() : null;
-      if (st && st.built) {
+      const ms = st && st.media ? Object.keys(st.media).map((k) => st.media[k]) : [];
+      const here = ms.length === 1 && norm(ms[0] && ms[0].path) === norm(want);
+      if (st && st.built && here) {
         clearInterval(t);
-        const none = !((typeof reviewCues !== 'undefined' && reviewCues) || []).some((q) => String(q.text || '').trim());
-        if (none && ed.transcribeAll) ed.transcribeAll();
+        const have = ((typeof reviewCues !== 'undefined' && reviewCues) || []).filter((q) => String(q.text || '').trim()).length;
+        if (!have && ed.transcribeAll) ed.transcribeAll();
+        // 1.94.8: this video's captions were made before — say they are here
+        else if (have && ed.captionsReady) ed.captionsReady(have);
       } else if (++tries > 100) clearInterval(t);
     }, 200);
   }
