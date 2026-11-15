@@ -349,7 +349,9 @@
     try { ed = (typeof loadSettings === 'function' && loadSettings().editor) || ''; } catch (e) {}
     if (ed === 'capcut') { if (card.nextSibling !== anchor) anchor.before(card); }
     else if (card.previousSibling !== anchor) anchor.after(card);
-    const list = allProjects(6);
+    // 1.94.10 (owner: "the CapCut projects are not necessary"): only for an
+    // editor who said they use CapCut; others send captions from Export
+    const list = ed === 'capcut' ? allProjects(6) : [];
     card.textContent = '';
     card.style.display = list && list.length ? '' : 'none';
     if (!list || !list.length) return;
