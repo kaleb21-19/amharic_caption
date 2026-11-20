@@ -59,6 +59,16 @@ PORT = 0
 
 
 # ── child processes (ffmpeg, the engine) ─────────────────────────────────────
+def child_env(env):
+    """Page-spawned children inherit the real server environment: boot.js only
+    exposes the whitelisted keys to page scripts, but Python/ffmpeg still need
+    PATH, TEMP, SYSTEMROOT, ... (1.94.13)."""
+    out = dict(os.environ)
+    if env:
+        out.update({str(k): str(v) for k, v in env.items()})
+    return out
+
+
 class Child:
     """One spawned process. Its output is turned into an ordered list of events
     the page collects with /__api/poll (long-poll)."""
@@ -70,7 +80,7 @@ class Child:
         flags = 0x08000000 if IS_WIN else 0   # CREATE_NO_WINDOW: no console flashes
         self.p = subprocess.Popen(
             [cmd] + list(args), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, env=env, cwd=cwd or None, creationflags=flags)
+            stderr=subprocess.PIPE, env=child_env(env), cwd=cwd or None, creationflags=flags)
         self._open = 2
         for name, stream in (("stdout", self.p.stdout), ("stderr", self.p.stderr)):
             threading.Thread(target=self._pump, args=(name, stream), daemon=True).start()
@@ -487,6 +497,16 @@ def media_url(path):
     return "/__media/%s/%s" % (mid, urllib.parse.quote(os.path.basename(path)))
 
 
+# Only these env keys reach page scripts as process.env through boot.js. The
+# rest of os.environ can hold tokens the editor never asked a web page to see
+# (1.94.13). Keep this in step with process.env reads in panel/js and app/.
+APP_ENV_KEYS = (
+    "AMH_MACHINE_HOME", "AMH_CAPTIONS_DIR", "AMH_CACHE_FILE",
+    "AMH_MODEL_HOME", "AMH_MODEL_DIR",
+    "APPDATA", "LOCALAPPDATA", "WINDIR", "XDG_DATA_HOME",
+)
+
+
 def env_info():
     """What Node's process / os modules would report (node_shim.js)."""
     import getpass
@@ -505,7 +525,7 @@ def env_info():
         release = ""
     return {"platform": sys.platform,                       # win32 / darwin, as Node
             "arch": "arm64" if machine in ("arm64", "aarch64") else "x64",
-            "pid": os.getpid(), "env": dict(os.environ),
+            "pid": os.getpid(), "env": {k: os.environ[k] for k in APP_ENV_KEYS if k in os.environ},
             "home": os.path.expanduser("~"),
             "tmp": tempfile.gettempdir().rstrip("\\/"),
             "hostname": platform.node(), "username": user, "sep": os.sep,
