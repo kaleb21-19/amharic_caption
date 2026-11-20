@@ -2578,6 +2578,16 @@
     if (readyEl) readyEl.remove();
     readyEl = el('div', 'st-toast ed-ready');
     readyEl.appendChild(el('span', '', '✓ ' + n + ' ' + tx('ካፕሽኖች ዝግጁ ናቸው', 'captions are ready')));
+    // 1.94.15: say what comes next and put the export button right there. The
+    // old "next step" bar in studio.js was never shown; a new editor only saw
+    // "captions are ready" and did not know how to get them into CapCut.
+    let ed = '';
+    try { ed = (typeof loadSettings === 'function' && loadSettings().editor) || ''; } catch (e) {}
+    const nx = S.readyNext(ed);
+    readyEl.appendChild(el('span', '', tx(nx.am, nx.en)));
+    readyEl.appendChild(btn('', (ed === 'capcut' ? '✂️ ' : '⬆ ') + tx('ይላኩ', 'Export'), '', () => {
+      hideReady(); ST.openExport({ focus: ed, run: true });
+    }));
     const w = btn('', '▶ ' + tx('ይመልከቱ', 'Watch'), '', () => { hideReady(); seek(0).then(() => play()); });
     readyEl.appendChild(w);
     readyEl.appendChild(btn('', '✕', tx('ዝጋ', 'Close'), hideReady));

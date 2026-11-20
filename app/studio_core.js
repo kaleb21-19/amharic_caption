@@ -232,6 +232,15 @@
     });
   }
 
+  // 1.94.15: what the editor does after the first captions arrive. The
+  // chosen editor is the last step; Amharic first, as everywhere in the app.
+  function readyNext(ed) {
+    const where = ed === 'capcut' ? ['ወደ CapCut ይላኩ', 'send to CapCut']
+      : ed === 'davinci' ? ['ወደ DaVinci ይላኩ', 'send to DaVinci'] : ['ይላኩ', 'export'];
+    return { am: 'ቃላቱን ያረጋግጡ → ስታይል ይምረጡ → ' + where[0],
+             en: 'Check the words → choose a style → ' + where[1] };
+  }
+
   // ── Clean up on export (1.19.0) ───────────────────────────────────────────
   // The stretches of the video that stay: everything outside the cuts
   // (merged, sorted), dropping slivers shorter than `minKeep`.
@@ -272,7 +281,7 @@
 
   const api = { MAX_PPS, minPps, clampView, fitView, timeToX, xToTime, zoomAt, follow, hitCaption, ticks, fmtClock,
     projectId, projectFileName, makeProject, parseProject, recentProjects, libraryMatch, libraryList, libraryGroups, VERSIONS_KEEP, VERSION_EVERY, versionName, versionTime, versionsSorted, versionsToDrop, firstProject, scriptParagraphs, wordRanges, wordAt, selectionByCaption,
-    keepRanges, cutFilter, keptLength, editDistance, checkSuggest };
+    keepRanges, cutFilter, keptLength, editDistance, checkSuggest, readyNext };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhStudio = api;
 })(typeof window !== 'undefined' ? window : this);
