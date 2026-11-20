@@ -44,7 +44,10 @@
     const f = FONTS[o.font] || FONTS.sans;
     const k = typeof o.size === 'number' ? o.size : (SIZES[o.size] || 1);
     const y = typeof o.y === 'number' ? o.y : (typeof capY === 'number' ? capY : null);
-    return { font: f[0], style: f[1], k: Math.round(k * 100) / 100, color: rgb(o.text || '#FFFFFF'),
+    // 1.94.18: the Customize box colour must reach DaVinci; without one the
+    // Lua script keeps its old black box.
+    const boxColor = o.color && /^#?[0-9a-f]{6}$/i.test(String(o.color)) ? rgb(o.color) : null;
+    return { font: f[0], style: f[1], k: Math.round(k * 100) / 100, color: rgb(o.text || '#FFFFFF'), boxColor,
       pos: ['bottom', 'middle', 'top', 'safe'].indexOf(o.pos) >= 0 ? o.pos : 'bottom', y, box: !!o.box, outline: !o.box,
       lines: Number(o.lines) === 2 ? 2 : 1 };
   }
@@ -57,7 +60,9 @@
       '  look = { font = ' + luaStr(L.font || 'Noto Sans Ethiopic') + ', style = ' + luaStr(L.style || 'Bold') + ', k = ' + num(L.k || 1) +
         ', color = { ' + (L.color || [1, 1, 1]).map(num).join(', ') + ' }, pos = ' + luaStr(L.pos || 'bottom') +
         (L.lines === 2 ? ', lines = 2' : '') +
-        (typeof L.y === 'number' ? ', y = ' + num(L.y) : '') + ', box = ' + (L.box ? 'true' : 'false') + ', outline = ' + (L.outline === false ? 'false' : 'true') + ' },',
+        (typeof L.y === 'number' ? ', y = ' + num(L.y) : '') +
+        (L.boxColor ? ', boxColor = { ' + L.boxColor.map(num).join(', ') + ' }' : '') +
+        ', box = ' + (L.box ? 'true' : 'false') + ', outline = ' + (L.outline === false ? 'false' : 'true') + ' },',
       '  videos = {'];
     let n = 0;
     (items || []).forEach((it) => {

@@ -41,6 +41,18 @@ test('the style -> font family, size, colour, place', () => {
   assert.strictEqual(V.lookFor('x', { font: 'yebse' }).style, 'Regular', 'one-file fonts are Regular');
 });
 
+test('1.94.18: the Customize box colour reaches DaVinci (black when not chosen)', () => {
+  const l = V.lookFor('karaoke', { color: '#FF6600', text: '#FFE500', box: true });
+  assert.deepStrictEqual(l.boxColor, [1, 0.4, 0]);
+  assert.strictEqual(V.lookFor('plain', {}).boxColor, null, 'no chosen colour: the old black box');
+  const r = V.dataLua([{ path: 'a.mp4', cues: [{ start: 0, end: 1, text: 'x' }] }], l, 'en');
+  assert.ok(r.text.includes('boxColor = { 1, 0.4, 0 }'), r.text);
+  assert.ok(!V.dataLua([], V.lookFor('plain', {}), 'en').text.includes('boxColor'), 'no stale colour in the file');
+  assert.ok(LUA.includes('L.boxColor or { 0, 0, 0 }'), 'the script falls back to black');
+  assert.ok(LUA.includes('Red4", bc[1]') && LUA.includes('Green4", bc[2]') && LUA.includes('Blue4", bc[3]'),
+    'the script paints the box with the colour from the file, not a hard-coded 0');
+});
+
 test('the captions file: every video, file seconds, bad cues left out', () => {
   const look = V.lookFor('plain', { font: 'sans' });
   const r = V.dataLua([

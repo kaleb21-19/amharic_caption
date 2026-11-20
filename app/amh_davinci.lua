@@ -285,7 +285,8 @@ local function style(tool, text)
   tool:SetInput("Red1", c[1]); tool:SetInput("Green1", c[2]); tool:SetInput("Blue1", c[3])
   tool:SetInput("Center", { 0.5, 1 - middle(n) })   -- Text+ counts from the bottom
   if L.box then
-    tool:SetInput("Enabled4", 1); tool:SetInput("Red4", 0); tool:SetInput("Green4", 0); tool:SetInput("Blue4", 0); tool:SetInput("Alpha4", 0.6)
+    local bc = L.boxColor or { 0, 0, 0 }
+    tool:SetInput("Enabled4", 1); tool:SetInput("Red4", bc[1]); tool:SetInput("Green4", bc[2]); tool:SetInput("Blue4", bc[3]); tool:SetInput("Alpha4", 0.6)
   elseif L.outline ~= false then
     tool:SetInput("Enabled2", 1); tool:SetInput("Thickness2", 0.08)
     tool:SetInput("Red2", 0); tool:SetInput("Green2", 0); tool:SetInput("Blue2", 0)
