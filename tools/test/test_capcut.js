@@ -139,6 +139,29 @@ test('1.36: a project with several videos — each video once, pictures skipped;
   assert.strictEqual(C.ourTracks(out).length, 1, 'one track for all videos');
 });
 
+// 1.94.14: two cues that overlap used to make the earlier caption short, and
+// its last words disappeared from CapCut. Keep all the words in one caption.
+test('overlapping captions are joined: no words, highlights or word times are lost', () => {
+  const p = project();
+  const built = C.buildTrackAll(p, [{ video: 'C:/Users/me/Videos/talk.mp4', cues: [
+    { start: 12, end: 14, text: 'ሰላም *ለሁላችሁ*', wt: [[12, 12.5], [12.5, 14]] },
+    { start: 13.5, end: 15, text: '*እንኳን* ደህና', wt: [[13.5, 14], [14, 15]] },
+  ] }], look, { rand });
+  assert.strictEqual(built.placed, 1, 'the two overlapping cues became one caption');
+  const sg = built.track.segments[0];
+  assert.deepStrictEqual([sg.target_timerange.start, sg.target_timerange.duration], [7e6, 3e6], 'the caption covers both cues');
+  const mat = built.texts[0], c = JSON.parse(mat.content);
+  assert.strictEqual(c.text, 'ሰላም ለሁላችሁ እንኳን ደህና', 'every word survived');
+  assert.strictEqual(mat.base_content, mat.content, 'the saved original stays in step');
+  const at = c.text.indexOf('እንኳን');
+  assert.ok(c.styles.some((s) => s.range[0] === at && s.range[1] === at + 'እንኳን'.length), 'the second caption\'s highlight moved with its text');
+  assert.strictEqual(c.styles[c.styles.length - 1].range[1], c.text.length, 'the styles cover the joined text');
+  assert.deepStrictEqual(mat.words.text, ['ሰላም', ' ', 'ለሁላችሁ', 'እንኳን', ' ', 'ደህና']);
+  assert.strictEqual(mat.words.start_time.length, mat.words.text.length);
+  assert.ok(mat.words.end_time.every((ms) => ms <= 3000), 'every word fits inside the caption');
+  assert.strictEqual(C.addTrack(p, built).tracks.filter((t) => t.name === 'Amharic Captions').length, 1, 'still one caption track');
+});
+
 test('1.37: the animation the editor gave ONE caption in CapCut goes on all, fitted to each; Update keeps it; text edits stay', () => {
   const p = project();
   const built = C.buildTrack(p, 'C:/Users/me/Videos/talk.mp4', [{ start: 12, end: 14, text: 'ሀ' }, { start: 15, end: 15.5, text: 'ለ' }, { start: 20, end: 23, text: 'ሐ' }], look, { rand });
