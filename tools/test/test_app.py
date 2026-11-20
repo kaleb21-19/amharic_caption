@@ -142,6 +142,23 @@ def t_index():
     assert boot["info"]["platform"] == sys.platform and boot["info"]["tmp"]
     # the problem report's system line (1.69)
     assert boot["info"]["totalmem"] > 1e8 and boot["info"]["cpus"] >= 1 and boot["info"]["release"], boot["info"]
+    # 1.94.13: boot.js is readable by every page script - only the env keys the
+    # panel/app actually use may leave the server, never a stray secret.
+    os.environ["AMH_TEST_SECRET"] = "never-show-this"
+    old_local = os.environ.get("LOCALAPPDATA")
+    os.environ["LOCALAPPDATA"] = os.path.join(EXT, "local")
+    try:
+        st, js = req("GET", "/__app/boot.js", token=False)
+        boot = json.loads(js[js.index("=") + 1:].rstrip(";"))
+        env = boot["info"]["env"]
+        assert "AMH_TEST_SECRET" not in env and "AMH_API_URL" not in env, env
+        assert env.get("LOCALAPPDATA") == os.path.join(EXT, "local"), "the keys the panel uses still pass"
+    finally:
+        del os.environ["AMH_TEST_SECRET"]
+        if old_local is None:
+            os.environ.pop("LOCALAPPDATA", None)
+        else:
+            os.environ["LOCALAPPDATA"] = old_local
     for f in ("node_shim.js", "app_mode.js", "app.css", "studio_core.js", "studio.js", "studio_script.js", "studio_cuts.js", "studio_edit_core.js", "studio_edit.js", "studio_subs.js"):
         assert req("GET", "/__app/" + f, token=False)[0] == 200, f
     assert html.find("/__app/studio_cuts.js") < html.find("/__app/studio_subs.js"), "the live caption style last"
@@ -260,10 +277,17 @@ def t_timeout():
 
 
 def t_env():
-    cid = sync("spawn", sys.executable, ["-c", "import os; print(os.environ.get('AMH_X'))"],
-               dict(os.environ, AMH_X="ok42"), WORK, 0)["result"]
-    out = "".join(e["d"] for e in poll_all(cid) if e["t"] == "stdout")
-    assert "ok42" in out, out
+    # 1.94.13: the page sends only its own keys; the child must still inherit
+    # the server's real environment (PATH, TEMP, SYSTEMROOT, ...).
+    os.environ["AMH_PARENT_MARK"] = "parent"
+    try:
+        cid = sync("spawn", sys.executable,
+                   ["-c", "import os; print(os.environ.get('AMH_X'), os.environ.get('AMH_PARENT_MARK'))"],
+                   {"AMH_X": "ok42"}, WORK, 0)["result"]
+        out = "".join(e["d"] for e in poll_all(cid) if e["t"] == "stdout")
+        assert "ok42 parent" in out, out
+    finally:
+        del os.environ["AMH_PARENT_MARK"]
 
 
 def t_proxy():

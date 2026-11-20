@@ -313,13 +313,21 @@
     } finally { busy = false; }
     if (!items.length) { say(tx('ምንም ካፕሽን አልተሰራም።', 'No captions were made.'), 'st-warn'); return; }
     if (!(await untilClosed(out))) return;      // the captions are made while CapCut is still open
+    // 1.94.13: CapCut saves its own changes when it closes. Writing the draft
+    // we read before transcribing erased those edits and used the old clip
+    // positions; re-read it now and only write videos still in the project.
+    const fresh = readDraft(p.dir);
+    if (!fresh) { say(tx('ፕሮጀክቱ ሊነበብ አልቻለም።', 'The project could not be read.'), 'st-warn'); return; }
+    const still = C.videosOf(fresh).map((v) => C.normPath(v));
+    const live = items.filter((it) => still.indexOf(C.normPath(it.video)) >= 0);
+    if (!live.length) { say(tx('ቪዲዮው ከፕሮጀክቱ ውስጥ አልተገኘም።', 'The video is no longer in the project.'), 'st-warn'); return; }
     const style = typeof STYLE !== 'undefined' ? STYLE : 'plain';
     const o = typeof styleOpts === 'function' ? styleOpts(style) : {};
-    const cv = d.canvas_config || {};
+    const cv = fresh.canvas_config || {};
     const portrait = (cv.height || 1920) > (cv.width || 1080);
     const look = withAnim(C.lookFor(style, o, await fontPath(o.font || 'sans'), portrait));
     let r;
-    try { r = writeProject(p, d, items, look); } catch (e) { say(tx('አልተሳካም፦ ', 'Failed: ') + (e && e.message ? e.message : e), 'st-warn'); return; }
+    try { r = writeProject(p, fresh, live, look); } catch (e) { say(tx('አልተሳካም፦ ', 'Failed: ') + (e && e.message ? e.message : e), 'st-warn'); return; }
     const built = r.built;
     if (!built.placed) { say(tx('በፕሮጀክቱ ውስጥ ካፕሽን የሚገባበት ቦታ አልተገኘም።', 'No place for captions was found in the project.'), 'st-warn'); return; }
     out.textContent = '';
