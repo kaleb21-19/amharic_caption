@@ -2585,6 +2585,25 @@
     try { ed = (typeof loadSettings === 'function' && loadSettings().editor) || ''; } catch (e) {}
     const nx = S.readyNext(ed);
     readyEl.appendChild(el('span', '', tx(nx.am, nx.en)));
+    // 1.94.17: Quick mode is drop -> Save SRT. That button used to be buried
+    // under the Export sheet's "More ways", so put it right in the toast.
+    const srtBtn = btn('', '💾 ' + tx('SRT አስቀምጥ', 'Save SRT'), '', () => {
+      if (typeof REVIEW_LIVE !== 'undefined' && REVIEW_LIVE) return;   // still writing
+      const X = window.__amhAppExport;
+      if (!X || typeof X.srt !== 'function') return;
+      try {
+        const r = X.srt();
+        let name = '';
+        try { name = ' ' + APP.path.basename(r.file); } catch (e) {}
+        srtBtn.textContent = '✓ ' + tx('SRT ተቀምጧል', 'SRT saved') + name;
+        srtBtn.disabled = true;
+        clearTimeout(readyT);
+        readyT = setTimeout(hideReady, 8000);
+      } catch (e) {
+        srtBtn.textContent = '⚠ ' + (e && e.message ? e.message : String(e));
+      }
+    });
+    readyEl.appendChild(srtBtn);
     readyEl.appendChild(btn('', (ed === 'capcut' ? '✂️ ' : '⬆ ') + tx('ይላኩ', 'Export'), '', () => {
       hideReady(); ST.openExport({ focus: ed, run: true });
     }));
