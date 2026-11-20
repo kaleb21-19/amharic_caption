@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.11');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.12');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -4279,6 +4279,66 @@ await t('13b. language: an unset preference defaults to Amharic; unknown text fa
     assert.strictEqual(p.evalVm("T('For this client')"), 'ለዚህ ደንበኛ');
     assert.strictEqual(p.evalVm("T('Saved on this computer only — nothing is uploaded.')"), 'በዚህ ኮምፒውተር ላይ ብቻ ይቀመጣል — ወደ ኢንተርኔት አይላክም።');
   } finally { p.close(); }
+});
+
+await t('styled render: silent renderer is killed, stderr is drained, error is Amharic', async () => {
+  // main.js destructures spawn from the cached child_process module at load
+  // time; install the fake BEFORE loadPanel so renderStyled() picks it up.
+  const cp = require('child_process');
+  const realSpawn = cp.spawn;
+  cp.spawn = () => {
+    const c = {
+      stdout: { on: (e, f) => { if (e === 'data') c.__out = f; } },
+      stderr: { on: (e, f) => { if (e === 'data') c.__err = f; } },
+      on: (e, f) => { c['__' + e] = f; },
+      kill: () => { c.__killed = true; },
+      killed: false
+    };
+    process.__amhTestChild = c;   // process is shared with the panel VM
+    return c;
+  };
+  const storage = makeLocalStorage();
+  storage.setItem('amh.lang', 'am');
+  const p = loadPanel({ storage });
+  try {
+    assert.strictEqual(p.evalVm('STYLE_SEND_TIMEOUT_MS'), 5 * 60 * 1000,
+      '5 min without output, not a total render limit');
+    const beats = await p.evalVm(`(async () => {
+      let fired = 0;
+      const w = silenceWatchdog(() => { fired++; }, 20);
+      w.beat();
+      await new Promise(r => setTimeout(r, 8));
+      w.beat();
+      const early = fired;
+      await new Promise(r => setTimeout(r, 45));
+      const after = fired;
+      w.clear();
+      await new Promise(r => setTimeout(r, 45));
+      return [early, after, fired];
+    })()`);
+    assert.strictEqual(JSON.stringify(beats), '[0,1,1]', 'output re-arms the kill timer; clear cancels it');
+
+    const out = await p.evalVm(`(async () => {
+      globalThis.__styleLog = [];
+      globalThis.__oldLog = log;
+      log = (s) => { __styleLog.push(String(s)); };
+      let msg = '';
+      const pending = renderStyled({ cues: [], style: 'clean', width: 1080, height: 1920 });
+      const c = process.__amhTestChild;
+      c.__err('Traceback from the style renderer');
+      c.__out('{bad json}\\n');
+      c.__close();
+      try { await pending; } catch (e) { msg = e.message; }
+      const logged = __styleLog.filter(x => x.indexOf('Style renderer:') === 0);
+      log = __oldLog;
+      return { msg, logged };
+    })()`);
+    assert.ok(out.msg.indexOf('could not be drawn') >= 0, 'a failed render still rejects with the usual message');
+    assert.ok(out.logged.some(x => x.indexOf('Traceback') >= 0), 'stderr tail reaches the diagnostic log');
+    const msg = p.evalVm("humanError('the styled captions timed out')");
+    assert.strictEqual(msg, 'The styled captions took too long. Try a shorter clip or close other programs.');
+    assert.notStrictEqual(p.evalVm('T(' + JSON.stringify(msg) + ')'), msg, 'the timeout error is translated to Amharic');
+  } finally { p.close(); cp.spawn = realSpawn; delete process.__amhTestChild; }
 });
 
 await t('the real license / machine-ID files in the home folder were never touched', async () => {

@@ -373,6 +373,7 @@ const AM_TEXT = {
   'Your captions start by themselves when it is ready.': 'ሲጨርስ ካፕሽኑ በራሱ ይጀምራል።',
   'Try now': 'አሁን ሞክር',
   'Styling captions…': 'ካፕሽኑን በማስዋብ ላይ…',
+  'The styled captions took too long. Try a shorter clip or close other programs.': 'የካፕሽን ማስዋብ ረጅሙ ጊዜ ወስዷል። እባክዎ አጭር ክሊፕ ይሞክሩ ወይም ሌሎች ፕሮግራሞችን ይዝጉ።',
   'Colour': 'ቀለም',
   'Customize': 'አስተካክል',
   'Templates': 'ቅርጾሮች',
