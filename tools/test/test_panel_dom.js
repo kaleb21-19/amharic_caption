@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.10');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.11');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1506,6 +1506,44 @@ await t('4n3l. 1.94.9 a mistake the editor fixes (no clip) gets only the friendl
     p.evalVm(`failRun('Python failed: worker exited with code 3221225477');`);
     assert.notStrictEqual(p.els('reportBox').style.display, 'none', 'a crash still offers the report');
     assert.match(p.els('progLabel').textContent, /Details for support/);
+  } finally { p.close(); }
+});
+
+await t('4n3m. 1.94.11 several selected clips go through the one-pass path, each at its own place', async () => {
+  const p = loadPanel();
+  try {
+    await flush(5);
+    p.evalVm(`globalThis.__wa = null; runWorkArea = async (g) => { __wa = g; };
+      getSelectedClip = async () => ({ ok: true, name: 'a.mp4', sourcePath: 'C:/v/a.mp4', sourceIn: 10, duration: 5, timelineStart: 0, timelineEnd: 5,
+        sequence: 'Interview', skippedRetimed: 1,
+        others: [{ name: 'b.wav', sourcePath: 'C:/v/b.wav', sourceIn: 0, duration: 3, timelineStart: 8, timelineEnd: 11 },
+                 { name: 'sliver.mp4', sourcePath: 'C:/v/s.mp4', sourceIn: 0, duration: 0.2, timelineStart: 12, timelineEnd: 12.2 }] });`);
+    await p.evalVm('runSelectedClip()');
+    const g = p.evalVm('JSON.stringify(__wa)');
+    const w = JSON.parse(g);
+    assert.ok(w, 'the Work-Area path ran');
+    assert.strictEqual(JSON.stringify(w.clips.map((c) => [c.sourcePath, c.timelineStart, c.sourceIn])), JSON.stringify([['C:/v/a.mp4', 0, 10], ['C:/v/b.wav', 8, 0]]), 'both real clips, a sliver left out');
+    assert.strictEqual(w.sequence, 'Interview');
+    assert.match(w.label, /2 selected clips/);
+    // one clip only: the single-clip path as before (no Work-Area run)
+    p.evalVm(`__wa = null; getSelectedClip = async () => ({ ok: false, error: 'No clip found.' });`);
+    await assert.rejects(p.evalVm('runSelectedClip()'));
+    assert.strictEqual(p.evalVm('__wa'), null);
+  } finally { p.close(); }
+});
+
+await t('4n3n. 1.94.11 after Premiere captions: the Amharic font note only when the fonts are missing; "Not needed" hides it for good', async () => {
+  const p = loadPanel({ realPanel: true });
+  try {
+    await flush(5);
+    p.evalVm(`amhFontsHere = () => false;`);
+    assert.strictEqual(p.evalVm('showFontNote()'), true);
+    assert.notStrictEqual(p.els('fontNote').style.display, 'none', 'shown');
+    p.els('fontNoteClose').fire('click');
+    assert.strictEqual(p.els('fontNote').style.display, 'none');
+    assert.strictEqual(p.evalVm('showFontNote()'), false, 'not again');
+    p.evalVm(`saveSettings({ fontNoteDone: false }); amhFontsHere = () => true;`);
+    assert.strictEqual(p.evalVm('showFontNote()'), false, 'fonts there: nothing to say');
   } finally { p.close(); }
 });
 

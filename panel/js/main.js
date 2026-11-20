@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.10';
+const APP_VERSION = '1.94.11';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -7514,6 +7514,45 @@ function makeAmhDict() {
     });
   } catch (e) { AMH_DICT_BUSY = false; }
 }
+// 1.94.11: Premiere's own captions use the editor's caption font — the panel
+// cannot choose it. Without an Amharic font they show boxes. After the first
+// plain captions on a computer without our fonts: one note, install in one
+// tap, then which font to choose. "Not needed" hides it for good.
+function amhFontDirs() {
+  if (process.platform === 'win32') {
+    return [path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'Windows', 'Fonts'), path.join(process.env.WINDIR || 'C:\\Windows', 'Fonts')];
+  }
+  return [path.join(os.homedir(), 'Library', 'Fonts'), '/Library/Fonts'];
+}
+function amhFontsHere() {
+  const names = ['NotoSansEthiopic-Regular.ttf', 'NotoSansEthiopic-Bold.ttf'];
+  return amhFontDirs().some((d) => names.some((n) => { try { return fs.existsSync(path.join(d, n)); } catch (e) { return false; } }));
+}
+function showFontNote() {
+  const box = $('fontNote');
+  if (!box) return false;
+  let done = false;
+  try { done = !!loadSettings().fontNoteDone; } catch (e) {}
+  if (done || amhFontsHere()) { box.style.display = 'none'; return false; }
+  box.style.display = '';
+  const b = $('fontNoteBtn'), x = $('fontNoteClose');
+  if (b && !b.dataset.wired) {
+    b.dataset.wired = '1';
+    b.addEventListener('click', async () => {
+      await installFontsClick(b);
+      if (/✓/.test(b.textContent)) {
+        saveSettings({ fontNoteDone: true });
+        const t = $('fontNoteText');
+        if (t) t.textContent = L('Fonts installed. Restart Premiere, then click a caption and choose Noto Sans Ethiopic in Essential Graphics.');
+      }
+    });
+  }
+  if (x && !x.dataset.wired) {
+    x.dataset.wired = '1';
+    x.addEventListener('click', () => { saveSettings({ fontNoteDone: true }); box.style.display = 'none'; });
+  }
+  return true;
+}
 async function installFontsClick(btn) {
   if (!btn || btn.disabled) return;
   btn.disabled = true;
@@ -8109,6 +8148,7 @@ async function placeReview() {
     // 1.93: plain captions are Premiere's own captions — styled right on the timeline
     if (!IS_AE && !IS_APP_MODE()) {
       setSuccess('✓ ' + L('Captions on the timeline — click one and change its font, size and colour in Essential Graphics (Window → Essential Graphics).'));
+      showFontNote();
     }
     track('placed');
     saveHistory(dest);
@@ -9326,6 +9366,18 @@ async function runSelectedClip() {
   log('Checking your selected clip…');
   const c = await getSelectedClip();
   if (!c.ok || !c.sourcePath) throw new Error(c.error || 'No selected clip.');
+  // 1.94.11: several clips selected -> all of them, in one pass
+  if (Array.isArray(c.others) && c.others.length) {
+    const all = [c].concat(c.others).map((x) => ({ name: x.name, sourcePath: x.sourcePath, sourceIn: Number(x.sourceIn) || 0,
+      duration: Number(x.duration) || 0, timelineStart: Number(x.timelineStart) || 0, timelineEnd: Number(x.timelineEnd) || 0 }))
+      .filter((x) => x.duration >= 0.5)
+      .sort((a, b) => a.timelineStart - b.timelineStart);
+    log('✓ ' + all.length + ' selected clips: ' + all.map((x) => x.name).slice(0, 6).join(', ') + (all.length > 6 ? '…' : ''));
+    if (c.skippedRetimed) log('Skipping ' + c.skippedRetimed + ' selected clip(s) with a speed change or reverse.');
+    await runWorkArea({ ok: true, clips: all, unsupported: [], inPoint: 0, outPoint: 1e12, sequence: c.sequence || '',
+      label: all.length + ' selected clips' });
+    return;
+  }
   setPreviewMedia([{ path: c.sourcePath, offset: c.sourceIn - c.timelineStart, from: c.timelineStart,
     to: c.timelineStart + c.duration }]);
   log('✓ Clip: ' + c.name + (c.via ? ('  [' + c.via + ']') : ''));
@@ -9422,10 +9474,12 @@ function noClipsHelp(info, unsupportedCount) {
                : 'There are no clips on this timeline. Open the sequence with your video, then try again.';
 }
 
-async function runWorkArea() {
+// `given` (1.94.11): several selected clips, already read — the same proven
+// path as the Work Area (one pass, each clip's captions at its own place)
+async function runWorkArea(given) {
   NO_CLIPS_HELP = '';
-  log('Reading your edit area…');
-  const info = await getSequenceInfo(SOURCE === 'whole');
+  if (!given) log('Reading your edit area…');
+  const info = given || await getSequenceInfo(SOURCE === 'whole');
   if (!info.ok || !info.clips) throw new Error(info.error || 'No sequence info.');
   const unsupported = Array.isArray(info.unsupported) ? info.unsupported : [];
   if (unsupported.length) {
@@ -9441,7 +9495,7 @@ async function runWorkArea() {
     throw new Error('No audio-bearing clips with a resolvable source in this range.');
   }
   // Whole-edit mode: ignore the work-area bounds (transcribe every clip).
-  const rangeLabel = (SOURCE === 'whole')
+  const rangeLabel = given ? given.label : (SOURCE === 'whole')
     ? 'whole edit (all clips)'
     : 'work area ' + info.inPoint.toFixed(2) + 's → ' +
       (info.outPoint >= 1e10 ? 'end' : info.outPoint.toFixed(2)) + 's';

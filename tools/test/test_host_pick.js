@@ -165,6 +165,34 @@ t('only a sliver under the playhead: still found (the panel then asks for a real
   assert.strictEqual(r.sourcePath, 'C:/cam/sliver.mp4');
 });
 
+// 1.94.11: several clips selected -> all of them (only the first was captioned)
+function clipAt(file, start, dur, srcIn, selected, outDur) {
+  const c = clip(file, start, dur, selected);
+  c.inPoint = T(srcIn); c.outPoint = T(srcIn + (outDur == null ? dur : outDur));
+  return c;
+}
+t('several selected clips: every one comes back, in timeline order, a linked video+audio pair once', () => {
+  const v = [[clipAt('C:/cam/talk.mp4', 0, 5, 10, true), clipAt('C:/cam/talk.mp4', 20, 4, 40, true)]];
+  const a = [[clipAt('C:/cam/talk.mp4', 0, 5, 10, true), clipAt('C:/rec/intro.wav', 8, 3, 0, true), clipAt('C:/rec/unsel.wav', 12, 3, 0, false)]];
+  const r = pick(v, a, 0);
+  assert.strictEqual(r.ok, true, JSON.stringify(r));
+  assert.strictEqual(r.sourcePath, 'C:/cam/talk.mp4');
+  assert.strictEqual(r.timelineStart, 0);
+  const o = r.others.map((x) => [x.sourcePath, x.timelineStart, x.sourceIn, x.duration]);
+  assert.deepStrictEqual(o, [['C:/rec/intro.wav', 8, 0, 3], ['C:/cam/talk.mp4', 20, 40, 4]], JSON.stringify(o));
+});
+t('several selected: a sped-up clip and our own caption layer are left out (the sped-up one is counted)', () => {
+  const v = [[clipAt('C:/cam/a.mp4', 0, 5, 0, true), clipAt('C:/cam/fast.mp4', 6, 2, 0, true, 4)]];
+  const cap = clipAt('C:/tmp/amhstyle_x.mov', 0, 5, 0, true); cap.projectItem.name = 'amhstyle_x.mov';
+  const r = pick(v.concat([[cap]]), [], 0);
+  assert.strictEqual(r.others.length, 0, JSON.stringify(r.others));
+  assert.strictEqual(r.skippedRetimed, 1);
+});
+t('nothing selected (playhead): no "others"', () => {
+  const r = pick([[clip('C:/cam/talk.mp4', 0, 10), clip('C:/cam/b.mp4', 10, 10)]], [], 3);
+  assert.strictEqual(r.others.length, 0);
+});
+
 t('no clip anywhere: a clear "no clip found" answer', () => {
   const r = pick([[]], [[]], 3);
   assert.strictEqual(r.ok, false);
