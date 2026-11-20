@@ -13,7 +13,8 @@ pins a number goes stale the moment he changes it again, so this test checks:
      old numbers on purpose are exempt — see DEV_DOCS below);
   3. the panel builds that promise from the LIVE number (never a literal, and
      the translations use a (\d+) pattern);
-  4. the in-zip guide says where the free minutes come from (the Telegram bot).
+  4. the in-zip guide says where the free minutes come from (the Telegram bot),
+      and still lists all three license prices (1.94.16: ETB 900 was missing).
 
 The bot's own texts are computed from the setting; that side is covered by
 tools/telegram-worker/test/e2e.mjs (the "trial_free_minutes = 30" scenario).
@@ -136,6 +137,11 @@ def main():
     elif not any("ቴሌግራም" in l or "Telegram" in l for l in trial_lines):
         problems.append("START HERE.html promises free minutes without saying they come "
                         "from the Telegram bot")
+
+    # all three plans must be visible in the in-zip guide, in both languages
+    for price in ("500 ብር", "900 ብር", "2,500 ብር", "ETB 500", "ETB 900", "ETB 2,500"):
+        if price not in guide:
+            problems.append("tools/installers/START HERE.html no longer shows the price %r" % price)
 
     if problems:
         print("FAILURES (%d):" % len(problems))
