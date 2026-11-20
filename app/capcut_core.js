@@ -199,9 +199,36 @@
     const track = Object.assign(clone(TEMPLATE.track), { id: uuid(rand), name: NAME, is_default_name: false, segments: segs });
     return { track, texts, animations, placed: segs.length, skipped, found: pl.length };
   }
+  // 1.94.14: CapCut's one text track cannot hold two captions at the same
+  // time. Shortening the earlier segment cut its last words off; join the two
+  // into ONE caption instead - all the text, both highlight ranges and both
+  // word timings stay (a later one that starts inside an earlier one).
+  function joinOverlap(prev, x) {
+    const p = prev.sg.target_timerange, q = x.sg.target_timerange;
+    const pEnd = p.start + p.duration, qEnd = q.start + q.duration;
+    const at = Math.max(0, q.start - p.start) / 1000;   // µs -> ms
+    try {
+      const a = JSON.parse(prev.text.content), b = JSON.parse(x.text.content);
+      const split = a.text.length + 1;
+      a.text += ' ' + b.text;
+      (b.styles || []).forEach((s) => { if (Array.isArray(s.range)) s.range = [s.range[0] + split, s.range[1] + split]; });
+      a.styles = (a.styles || []).concat(b.styles || []);
+      const content = JSON.stringify(a);
+      prev.text.content = content;
+      prev.text.base_content = content;
+    } catch (e) {}
+    const pw = prev.text.words, xw = x.text.words;
+    if (pw && xw && (xw.text || []).length) {
+      ['start_time', 'end_time'].forEach((k) => {
+        pw[k] = (pw[k] || []).concat((xw[k] || []).map((ms) => Math.round(ms + at)));
+      });
+      pw.text = (pw.text || []).concat(xw.text);
+    }
+    p.duration = Math.round(Math.max(pEnd, qEnd) - p.start);
+  }
   // A project with several videos (1.36): every video's captions, one track.
-  // items: [{ video, cues }] (cues in that file's own seconds). Captions of
-  // different videos never overlap on the timeline: the later one wins.
+  // items: [{ video, cues }] (cues in that file's own seconds). Captions that
+  // overlap on the timeline are joined, so no spoken words are lost.
   function buildTrackAll(draft, items, look, opts) {
     const parts = (items || []).map((it) => buildTrack(draft, it.video, it.cues, look, opts));
     if (!parts.length) return buildTrack(draft, '', [], look, opts);
@@ -213,8 +240,7 @@
       const prev = kept[kept.length - 1];
       if (prev) {
         const pEnd = prev.sg.target_timerange.start + prev.sg.target_timerange.duration;
-        if (x.sg.target_timerange.start < pEnd) prev.sg.target_timerange.duration = Math.max(0, x.sg.target_timerange.start - prev.sg.target_timerange.start);
-        if (prev.sg.target_timerange.duration < 50000) kept.pop();
+        if (x.sg.target_timerange.start < pEnd) { joinOverlap(prev, x); return; }
       }
       kept.push(x);
     });
