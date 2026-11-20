@@ -1155,53 +1155,10 @@
     }, 200);
   }
   window.__amhOpenLicense = () => openLicense();
-  function startTranscribe() {
-    const run = $('runBtn');
-    if (!run || run.disabled) return;
-    running = true;
-    review.classList.add('show', 'st-working');
-    syncHead();
-    run.click();
-    watchRun();
-  }
-  function watchRun() {
-    const t = setInterval(() => {
-      const bar = $('progBar'), lbl = $('progLabel');
-      const pct = bar && bar.style.width ? bar.style.width : '0%';
-      busy.querySelector('i').style.width = pct;
-      busy.querySelector('.st-busy-lbl').textContent = (lbl && lbl.textContent) || '';
-      const isBusy = $('runBtn') && $('runBtn').disabled;
-      if (reviewOpen) { clearInterval(t); running = false; review.classList.remove('st-working'); afterOpen(); readyBar(); return; }
-      if (!isBusy) {          // stopped without captions: back home, where the reason is shown
-        clearInterval(t); running = false;
-        review.classList.remove('st-working', 'show');
-      }
-    }, 300);
-  }
-  // the captions are made (1.47): what next, and the editor's button right
-  // there — a new user goes from video to captions in CapCut / DaVinci
-  const ready = el('div', 'st-ready');
-  ready.style.display = 'none';
-  review.appendChild(ready);
-  let readyT = 0;
-  function readyBar() {
-    const n = (typeof reviewCues !== 'undefined' && reviewCues) ? reviewCues.length : 0;
-    if (!n) return;
-    const ed = editorNow();
-    ready.textContent = '';
-    ready.appendChild(el('b', '', '✓ ' + n + ' ' + tx('ካፕሽኖች ዝግጁ ናቸው', 'captions are ready')));
-    ready.appendChild(el('span', '', tx('ቃላቱን ያረጋግጡ → ስታይል ይምረጡ → ', 'Check the words → choose a style → ') +
-      (ed === 'capcut' ? tx('ወደ CapCut ይላኩ', 'send to CapCut') : ed === 'davinci' ? tx('ወደ DaVinci ይላኩ', 'send to DaVinci') : tx('ይላኩ', 'export'))));
-    if (sendB.style.display !== 'none') ready.appendChild(btn('st-btn primary', (ed === 'capcut' ? '✂️ ' : '🎞️ ') + sendB.textContent.trim(), '', () => { hide(); sendB.click(); }));
-    else ready.appendChild(btn('st-btn primary', '⬆ ' + tx('ይላኩ', 'Export'), '', () => { hide(); openExport(); }));
-    ready.appendChild(btn('st-ico', '✕', tx('ዝጋ', 'Close'), () => hide()));
-    ready.style.display = '';
-    clearTimeout(readyT);
-    readyT = setTimeout(hide, 20000);
-    function hide() { ready.style.display = 'none'; clearTimeout(readyT); }
-  }
+  // 1.94.15: the old "next step" bar (startTranscribe / watchRun / readyBar)
+  // was never shown after the Studio became an editor first. The live
+  // captions-ready toast in studio_edit.js carries that guidance now.
   function goHome() {
-    ready.style.display = 'none';
     closeSheet();
     if (running) return;
     if (reviewOpen) { saveProject(true); closeReview(); }
@@ -1244,5 +1201,5 @@
   }
   window.__amhStudio = { draw, drawSoon, saveProject, saveSoon, listProjects, openProject, renderRecent, openExport, closeSheet, showTab, regroup, goHome,
     addTab: (id, label, pane) => { addTab(id, label, pane); relabel(); showTab(tabNow); }, overlays, seek, dur, peaks,
-    attachEditor: (e) => { editor = e; if (e.onQueue) e.onQueue(onQueue); }, relabel, savedEl, projDir, chosenVideo, tx, thumbFor, openKeys, readyBar };
+    attachEditor: (e) => { editor = e; if (e.onQueue) e.onQueue(onQueue); }, relabel, savedEl, projDir, chosenVideo, tx, thumbFor, openKeys };
 })();
