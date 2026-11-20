@@ -479,6 +479,50 @@ function amharic_getSelectedClip() {
             }
         } catch (e) { audioAlt = null; }
 
+        // 1.94.11: several clips selected -> all of them (only the first was
+        // captioned). Same rules as the first: a media file, no speed change;
+        // a linked video+audio pair of the same media counts once; our own
+        // caption layers are skipped. Timeline order.
+        var others = [];
+        var skippedRetimed = 0;
+        if (pickedVia === "selected") {
+            var seenKeys = {};
+            var keyOf = function (p, s, i) { return p + "|" + Math.round(s * 100) + "|" + Math.round((i - s) * 100); };
+            seenKeys[keyOf(src, tlStart, sourceIn)] = true;
+            for (var k3 = 0; k3 < collections.length; k3++) {
+                try {
+                    for (var t3 = 0; t3 < collections[k3].numTracks; t3++) {
+                        var track3 = collections[k3][t3];
+                        for (var c3 = 0; c3 < track3.clips.numItems; c3++) {
+                            var o = track3.clips[c3];
+                            var oSel = false;
+                            try { oSel = !!o.selected; } catch (e) {}
+                            if (!oSel || o === picked || !o.projectItem) { continue; }
+                            var oName = String(o.projectItem.name || "");
+                            if (oName.indexOf("amhstyle_") === 0) { continue; }
+                            var oPath = amhListenPath(o.projectItem);
+                            if (!oPath) { continue; }
+                            var oS = toSec(o.start), oE = toSec(o.end), oI = toSec(o.inPoint), oO = toSec(o.outPoint);
+                            if (oS === null || oE === null || !(oE > oS)) { continue; }
+                            if (oI === null) { oI = 0; }
+                            if (oO === null) { oO = oI + (oE - oS); }
+                            var oRev = false;
+                            try { oRev = (typeof o.isReverse === "function") ? !!o.isReverse() : !!o.isReverse; } catch (e) {}
+                            if (oRev || Math.abs((oO - oI) - (oE - oS)) > 0.05) { skippedRetimed++; continue; }
+                            var kk = keyOf(oPath, oS, oI);
+                            if (seenKeys[kk]) { continue; }
+                            seenKeys[kk] = true;
+                            others.push({ sourcePath: oPath, sourceIn: oI, duration: oE - oS,
+                                          timelineStart: oS, timelineEnd: oE, name: oName });
+                        }
+                    }
+                } catch (e) {}
+            }
+            others.sort(function (a, b) { return a.timelineStart - b.timelineStart; });
+        }
+        var seqName = "";
+        try { seqName = String(seq.name || ""); } catch (e) {}
+
         return amhOk({
             sourcePath: src,
             sourceIn: sourceIn,
@@ -489,7 +533,10 @@ function amharic_getSelectedClip() {
             name: picked.projectItem.name,
             mode: "clip",
             via: pickedVia,
-            audioAlt: audioAlt
+            audioAlt: audioAlt,
+            others: others,
+            skippedRetimed: skippedRetimed,
+            sequence: seqName
         });
     });
 }

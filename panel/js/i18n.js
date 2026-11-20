@@ -130,6 +130,9 @@ const AM_STATIC = {
   'lic.activate':     'አግብር',
   'lic.checking':     'ፈቃድ በመፈተሽ ላይ…',
   'lic.trialBanner':  '<b>ነጻ ደቂቃዎችዎ አልቀዋል</b> — ካፕሽን መስራት ለመቀጠል ከታች ፈቃድ ይግዙ።',
+  'fontnote.text':    'ካፕሽኖቹ ከአማርኛ ፊደላት ፋንታ <b>ሳጥኖች</b> ያሳያሉ? የአማርኛ ፊደሎችን ይጫኑ፣ Premiereን ዘግተው ይክፈቱ፣ ከዚያ ካፕሽን ጠቅ አድርገው Essential Graphics ውስጥ <b>Noto Sans Ethiopic</b> ይምረጡ።',
+  'fontnote.btn':     '⬇ የአማርኛ ፊደሎችን ጫን',
+  'fontnote.close':   'አያስፈልግም',
   'zip.warn':         '⚠️ <b>መጀመሪያ zip ፋይሉን ይፍቱ (Extract)።</b> ፕሮግራሙ ከወረደው zip ፋይል ውስጥ በቀጥታ ስለተከፈተ ካፕሽን መስራት አይችልም። zip ፋይሉን በቀኝ ጠቅ ያድርጉ → <b>Extract All</b> → <b>Extract</b>፣ ከዚያ ከተፈታው ፎልደር <b>«Make Amharic Captions»</b>ን ይክፈቱ።',
   'lic.trialEnded':   '<b>የነጻ ሙከራ ጊዜዎ አብቅቷል</b> — ካፕሽን መስራት ለመቀጠል ከታች ፈቃድ ይግዙ።',
 
@@ -169,6 +172,7 @@ const AM_STATIC = {
 
 // ── dynamic text from main.js / core.js (keyed by the English string) ───────
 const AM_TEXT = {
+  'Fonts installed. Restart Premiere, then click a caption and choose Noto Sans Ethiopic in Essential Graphics.': 'ፊደሎች ተጭነዘዋል። Premiereን ዘግተው ይክፈቱ፣ ከዚያ ካፕሽን ጠቅ አድርገው Essential Graphics ውስጥ Noto Sans Ethiopic ይምረጡ።',
   'check the message': 'መልእክቱን ይመልከቱ',
   'For short clips (Reels, TikTok hooks) — 2-3 lines': 'ለአጭር ቅንጥቶች (Reels፣ TikTok hook) — 2-3 መስመሮች',
   'More styles': 'ተጨማሪ ስታይሎች',
