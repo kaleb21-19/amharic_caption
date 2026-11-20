@@ -45,6 +45,7 @@ new; merge duplicates; keep < 80 lines.
 - libass fakes bold on variable fonts -> ship static Regular/Bold files.
 - CEP CSP allows `img-src 'self' data:` only -> show generated images as data: URIs.
 - The desktop app bridge `readFileSync` is text-only -> use `readBase64` for images.
+- A style option that reaches one editor but not another is lost in the hand-off, not in the style picker: `styleOpts().color` reached the MP4 but not DaVinci (1.94.18) -> follow it through the pure look -> data file -> Lua script and test each hop; a colour hard-coded in the script silently wins.
 - A button hidden inside a collapsed "More ways" section is missing for Quick mode (1.94.17: Save SRT) -> put the one action the editor came for on the first visible surface (the captions-ready toast), not only in the Export sheet.
 - A price LEFT OUT of a customer text is as bad as a stale one: the in-zip `START HERE.html` showed 500 and 2,500 but not the 900 plan (1.94.16) -> `tools/test/test_trial_texts.py` now checks all three prices in Amharic and English.
 - One changed setting = one stale text somewhere. A customer-visible number lives in worker.js, website/*.jsx, the in-zip tools/installers/START HERE.html AND the bot's hand-set profile (DEPLOY.md `/setdescription`, `/setabouttext`) -> grep the literal old value in all four and update the bot profile by hand. tools/telegram/bot.py is DECOMMISSIONED (DEPLOY.md) - never "fix" its texts.
