@@ -446,6 +446,8 @@ def build(words, style, width, height, font=FONT, opts=None):
     words = _mark_emphasis([(_clean(w[0]), float(w[1]), float(w[2])) for w in words if _clean(w[0])], o["emph"])
     h = float(height)
     portrait = height > width
+    if style not in SELF_PLACED:
+        K *= _legacy_fit(words, font, round(K * h * 0.06), width, NW, o)
     lines = []
     if style in ("karaoke", "fill"):
         size = round(K * h * (0.050 if portrait else 0.060))
@@ -968,6 +970,23 @@ def _text_w(text, font, size, bold=True):
         return len(text) * size * 0.52             # no metrics: a fair guess
     adv, fb = f["adv"], f["fallback"]
     return sum(adv.get(str(ord(ch)), fb) for ch in text) * size / float(f["em"])
+
+
+def _legacy_fit(words, font, size, width, NW, o):
+    """Legacy styles draw with WrapStyle 2 (no auto-wrap). Shrink them when a
+    whole phrase would be wider than the frame, the way the self-placed and
+    template styles already do — otherwise Amharic captions are cut off at
+    both ends on portrait video (1.94.12). Ordinary phrases are untouched."""
+    widest = 1.0
+    for g in _phrases(words, NW or 5, o):
+        w = sum(_text_w(x[0].lstrip(EM), font, size) *
+                (EMPH_SCALE / 100.0 if x[0].startswith(EM) else 1.0) for x in g)
+        w += _text_w(" ", font, size) * (len(g) - 1)
+        if w > widest:
+            widest = w
+    # Only the frame edge clips here (WrapStyle 2 ignores the side margins).
+    # A smaller 0.86 aesthetic limit would shrink ordinary larger sizes too.
+    return 1.0 if widest <= width * 0.98 else width * 0.98 / widest
 
 
 def _ink_offset(font, size, bold=True):

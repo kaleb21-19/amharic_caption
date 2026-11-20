@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.11';
+const APP_VERSION = '1.94.12';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -7177,6 +7177,29 @@ function styleCues(cues) {
 }
 // Runs runtime/amh_styles.py render: "[style] 0.42" progress lines, then one
 // JSON line {ok, out, t0, duration}.
+// ffmpeg reports progress twice a second. Only a renderer that has gone
+// COMPLETELY silent is hung (odd codec, blocked pipe); kill it instead of
+// leaving "Styling captions…" spinning forever (1.94.12).
+const STYLE_SEND_TIMEOUT_MS = 5 * 60 * 1000;
+function silenceWatchdog(kill, ms) {
+  let timer = null;
+  let done = false;
+  return {
+    beat() {
+      if (done) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (done) return;
+        done = true;
+        kill();
+      }, ms);
+    },
+    clear() {
+      done = true;
+      if (timer) { clearTimeout(timer); timer = null; }
+    }
+  };
+}
 function renderStyled(job, onProgress) {
   return new Promise((resolve, reject) => {
     const jobPath = path.join(os.tmpdir(), 'amh_style_job_' + Date.now() + '_' + Math.floor(Math.random() * 1e5) + '.json');
@@ -7189,8 +7212,22 @@ function renderStyled(job, onProgress) {
     } catch (e) { drop(); reject(e); return; }
     activeChild = child;
     let out = '';
+    let err = '';
     let result = null;
+    let timedOut = false;
+    const watchdog = silenceWatchdog(() => {
+      timedOut = true;
+      try { child.kill(); } catch (e) {}
+    }, STYLE_SEND_TIMEOUT_MS);
+    const settle = (fn, value) => {
+      watchdog.clear();
+      if (activeChild === child) activeChild = null;
+      drop();
+      fn(value);
+    };
+    watchdog.beat();
     child.stdout.on('data', (buf) => {
+      watchdog.beat();
       out += buf.toString('utf8');
       let nl;
       while ((nl = out.indexOf('\n')) >= 0) {
@@ -7201,14 +7238,19 @@ function renderStyled(job, onProgress) {
         if (line.charAt(0) === '{') { try { result = JSON.parse(line); } catch (e) {} }
       }
     });
-    child.stderr.on('data', () => {});
-    child.on('close', () => {
-      if (activeChild === child) activeChild = null;
-      drop();
-      if (result && result.ok) resolve(result);
-      else reject(new Error((result && result.error) || 'the styled captions could not be drawn'));
+    // Drain stderr (a full pipe deadlocks the renderer) and keep the tail for
+    // the diagnostic log. Never put it in the message humanError() reads.
+    child.stderr.on('data', (buf) => {
+      watchdog.beat();
+      err = (err + buf.toString('utf8')).slice(-2000);
     });
-    child.on('error', (e) => { if (activeChild === child) activeChild = null; drop(); reject(e); });
+    child.on('close', () => {
+      if (result && result.ok) { settle(resolve, result); return; }
+      if (err.trim()) log('Style renderer: ' + err.trim().slice(-300));
+      settle(reject, new Error(timedOut ? 'the styled captions timed out'
+        : ((result && result.error) || 'the styled captions could not be drawn')));
+    });
+    child.on('error', (e) => settle(reject, e));
   });
 }
 // Premiere / After Effects: render the transparent layer at the sequence's
@@ -9200,6 +9242,9 @@ function humanError(raw) {
   }
   if (NO_AUDIO_RE.test(t)) {
     return 'This clip has no sound. Select the clip with the voice (usually on an audio track, A1), then try again.';
+  }
+  if (t.includes('styled captions timed out')) {
+    return 'The styled captions took too long. Try a shorter clip or close other programs.';
   }
   if (t.includes('ffmpeg')) return 'Could not read that media file.';
   if (t.includes('enospc') || t.includes('no space')) return 'Your disk is full.';

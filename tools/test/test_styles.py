@@ -170,6 +170,17 @@ long = [("ኢትዮጵያውያንንናንንናንንንን", 0.0, 1.0)]
 t = A.build(long, "glide", 1080, 1920, opts={"size": "xl"})
 size = float([l for l in t.splitlines() if l.startswith("Style: S,")][0].split(",")[2])
 check(A._text_w(long[0][0], "Noto Sans Ethiopic", size) <= 1080 * 0.86 + 1, "a very long word still fits: the text gets smaller")
+# legacy styles use WrapStyle 2 (no auto-wrap): a whole crowded phrase must
+# shrink to fit a portrait frame instead of running off both edges (1.94.12)
+crowded = [(w, i * 0.2, i * 0.2 + 0.18) for i, w in enumerate(
+    ("ኢትዮጵያውያንንናንንናንንንን", "አስተዳደር", "መረጃዎችን", "ማግኘት", "እንችላለን"))]
+style_size = lambda txt: float([l for l in txt.splitlines() if l.startswith("Style:")][0].split(",")[2])
+for st in A.STYLES:
+    if st in A.SELF_PLACED:
+        continue
+    normal = style_size(A.build(W, st, 1080, 1920))
+    tight = style_size(A.build(crowded, st, 1080, 1920))
+    check(tight < normal, "%s: a crowded phrase shrinks instead of being cut off (%s < %s)" % (st, tight, normal))
 t = A.build(W, "glide", 1080, 1920, opts={"color": "#FF3B30"})
 check("&H00303BFF" in t and A.VIOLET not in t, "the colour option paints the glide pill")
 t = A.build(W, "spotlight", 1080, 1920, opts={"color": "#FF3B30"})
