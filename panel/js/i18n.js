@@ -269,6 +269,8 @@ const AM_TEXT = {
   'Follow Premiere': 'ፕሪሚየርን ተከተል',
   'Mark the caption and the word under Premiere’s playhead while it plays': 'ፕሪሚየር ሲያጫውት የሚሰማውን ካፕሽንና ቃል ይጠቋሙ',
   'Undo last cut': 'የመጨረሻውን ቁርጥ መልስ',
+  'All cuts': 'ሁሉም ቁርጦች',
+  'Undo this cut': 'ይህን ቁርጥ መልስ',
   'Undoing': 'እየተመለሰ ነው፦',
   'Cut undone': 'ቁርጡ ተመልሷል',
   'your sequence before the undo is kept as': 'ከመመለሱ በፊት የነበረው ሴኩዌንስዎ እንደዚህ ተቀምጧል፦',

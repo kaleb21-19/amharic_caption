@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.45');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.46');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1601,6 +1601,60 @@ await t('4n3. 1.93 ✂ one click on a caption cuts the Premiere timeline at once
     assert.strictEqual(p.evalVm('reviewCues.length'), 2);
     assert.ok(/bad/.test(p.els('textCutNote').className) && /locked|ተቆልፏል/.test(p.els('textCutNote').textContent));
     assert.strictEqual(p.els('revCleanup').style.display, 'none', 'no second step to press');
+  } finally { p.close(); }
+});
+await t('4n3v. 1.94.46 V8 undo ANY cut: "All cuts" lists every cut, ↶ on the first one rebuilds Premiere with the others and brings only its caption back', async () => {
+  const log = [];
+  let n = 0;
+  const p = loadPanel({ evalLog: log, csiRaw: (jsx) => {
+    if (/amh_textCutNow/.test(jsx)) {
+      const a = JSON.parse(JSON.parse(jsx.slice(jsx.indexOf('(') + 1, jsx.lastIndexOf(')'))));
+      n++;
+      return JSON.stringify({ ok: true, sequence: 'Talk', sequenceID: 's1', kept: n === 1 ? 'Talk - before text edit' : '', list: a.cuts, removedSeconds: a.cuts.reduce((x, c) => x + c[1] - c[0], 0) });
+    }
+    if (/amh_textUncut/.test(jsx)) return JSON.stringify({ ok: true, sequence: 'Talk', sequenceID: 's2', old: 'Talk - undone 1', cuts: 2 });
+    return JSON.stringify({ ok: true });
+  } });
+  try {
+    await flush(5);
+    p.evalVm(`setPreviewMedia([{ path: 'C:/v/talk.mp4', offset: 0 }]);
+      reviewCues = [{ text: 'አንድ', start: 0, end: 1 }, { text: 'ሁለት', start: 1, end: 2 }, { text: 'ሶስት', start: 2, end: 3 }, { text: 'አራት', start: 3, end: 4 }, { text: 'አምስት', start: 4, end: 5 }];
+      schedulePreview = () => {}; renderReview();`);
+    const texts = () => JSON.parse(p.evalVm('JSON.stringify(reviewCues.map((c) => [c.text, c.start, c.end]))'));
+    p.evalVm('cutCaptionsNow(1, false)');              // ሁለት (1-2 s)
+    await flush(10);
+    p.evalVm('cutCaptionsNow(2, false)');              // አራት (now 2-3 s, originally 3-4)
+    await flush(10);
+    p.evalVm('cutCaptionsNow(0, false)');              // አንድ
+    await flush(10);
+    assert.deepStrictEqual(texts(), [['ሶስት', 0, 1], ['አምስት', 1, 2]]);
+    // a fix the editor makes after the cuts
+    p.evalVm("reviewCues[1].text = 'አምስት!'; renderReview();");
+    const more = p.els('textCutMore');
+    assert.notStrictEqual(more.style.display, 'none', '"All cuts" once there are two or more');
+    assert.strictEqual(p.els('textCutList').style.display, 'none', 'closed until pressed');
+    more.fire('click', { stopPropagation() {} });
+    const list = p.els('textCutList');
+    assert.notStrictEqual(list.style.display, 'none');
+    assert.strictEqual(list.children.length, 3, 'every cut');
+    assert.match(list.children[0].children[0].textContent, /^3\. ✂ “አንድ” · 1\.0 s$/, 'newest first: ' + JSON.stringify(list.children[0].children[0].textContent));
+    assert.match(list.children[2].children[0].textContent, /^1\. ✂ “ሁለት”/);
+    list.children[2].children[1].fire('click', { stopPropagation() {} });      // ↶ on the FIRST cut
+    await flush(10);
+    const uc = log.filter((j) => /amh_textUncut/.test(j)).pop().split(String.fromCharCode(92)).join('');
+    assert.ok(/"cuts":\[\[0,1\],\[3,4\]\]/.test(uc), 'Premiere rebuilt with the two other cuts, original times: ' + uc);
+    assert.ok(/"media":\["C:\/v\/talk.mp4"\]/.test(uc), uc);
+    assert.deepStrictEqual(texts(), [['ሁለት', 0, 1], ['ሶስት', 1, 2], ['አምስት!', 2, 3]], 'only ሁለት back; the fix kept');
+    assert.strictEqual(p.evalVm('TEXTCUT.hist.steps.length'), 2);
+    assert.strictEqual(list.children.length, 2, 'the list follows');
+    assert.ok(/\(2\)/.test(p.els('textCutUndo').textContent));
+    // undo the last after that: the order of the rest is right
+    p.els('textCutUndo').fire('click', { stopPropagation() {} });
+    await flush(10);
+    const uc2 = log.filter((j) => /amh_textUncut/.test(j)).pop().split(String.fromCharCode(92)).join('');
+    assert.ok(/"cuts":\[\[3,4\]\]/.test(uc2), uc2);
+    assert.deepStrictEqual(texts(), [['አንድ', 0, 1], ['ሁለት', 1, 2], ['ሶስት', 2, 3], ['አምስት!', 3, 4]]);
+    assert.strictEqual(more.style.display, 'none', 'one cut left: no list');
   } finally { p.close(); }
 });
 await t('4n4. 1.94.31 Follow Premiere: the caption and the word under the playhead are marked; off by default; off = no reads', async () => {

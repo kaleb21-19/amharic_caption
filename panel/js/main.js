@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.45';
+const APP_VERSION = '1.94.46';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -5846,7 +5846,7 @@ function toggleTextCut(i, from, to) {
 // the captions after it move up. Words selected in the text: only those words.
 // The first cut keeps an untouched copy in the project ("… - before text
 // edit"). Clicks wait their turn (one Premiere edit at a time).
-const TEXTCUT = { chain: Promise.resolve(), busy: 0, note: '', bad: false, hist: null };
+const TEXTCUT = { chain: Promise.resolve(), busy: 0, note: '', bad: false, hist: null, listOpen: false };
 // 1.94.29 undo: this session's text cuts on one sequence, in the ORIGINAL
 // times (the "- before text edit" copy), with the captions as they were
 // before each cut. hist = { keepName, sequenceID, steps: [{ what, cuts, cues, media }] }
@@ -5876,20 +5876,57 @@ function syncTextCutUndo() {
     b.__amhBound = true;
     b.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); undoTextCut(); });
   }
+  // 1.94.46 (V8): every cut of this review, each with its own ↶ (not only the last)
+  const more = $('textCutMore'), list = $('textCutList');
+  if (!more || !list) return;
+  const many = on && H.steps.length > 1;
+  more.style.display = many ? '' : 'none';
+  more.disabled = TEXTCUT.busy > 0;
+  more.textContent = (TEXTCUT.listOpen && many ? '▴ ' : '▾ ') + L('All cuts');
+  if (!more.__amhBound) {
+    more.__amhBound = true;
+    more.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); TEXTCUT.listOpen = !TEXTCUT.listOpen; syncTextCutUndo(); });
+  }
+  list.style.display = many && TEXTCUT.listOpen ? '' : 'none';
+  list.textContent = '';
+  if (!many || !TEXTCUT.listOpen) return;
+  for (let k = H.steps.length - 1; k >= 0; k--) {
+    const step = H.steps[k];
+    const row = document.createElement('div');
+    row.className = 'textcut-row';
+    const txt = document.createElement('span');
+    const sec = step.cuts.reduce((n, c) => n + c.end - c.start, 0);
+    txt.textContent = (k + 1) + '. ✂ ' + step.what + ' · ' + sec.toFixed(1) + ' s';
+    const ub = document.createElement('button');
+    ub.type = 'button';
+    ub.className = 'btn btn-neutral textcut-one';
+    ub.textContent = '↶';
+    ub.title = L('Undo this cut');
+    ub.disabled = TEXTCUT.busy > 0;
+    ub.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); undoTextCut(step); });
+    row.appendChild(txt);
+    row.appendChild(ub);
+    list.appendChild(row);
+  }
 }
-function undoTextCut() {
+// step: the cut to undo (default the last one)
+function undoTextCut(step) {
   const H = TEXTCUT.hist;
   if (!H || !H.steps.length || TEXTCUT.busy) return false;
+  const st = step && H.steps.indexOf(step) >= 0 ? step : H.steps[H.steps.length - 1];
   TEXTCUT.busy++;
-  textCutNote('↶ ' + L('Undoing') + ' ' + H.steps[H.steps.length - 1].what + '…');
-  TEXTCUT.chain = TEXTCUT.chain.then(() => runTextUncut()).catch(() => {}).then(() => { TEXTCUT.busy--; syncTextCutUndo(); });
+  textCutNote('↶ ' + L('Undoing') + ' ' + st.what + '…');
+  TEXTCUT.chain = TEXTCUT.chain.then(() => runTextUncut(st)).catch(() => {}).then(() => { TEXTCUT.busy--; syncTextCutUndo(); });
   return true;
 }
-async function runTextUncut() {
+async function runTextUncut(which) {
   const H = TEXTCUT.hist;
-  const step = H.steps[H.steps.length - 1];
-  const rest = mergeRanges([].concat(...H.steps.slice(0, -1).map((s) => s.cuts)));
-  const media = Array.from(new Set(step.media.map((m) => m.path)));
+  const k = which ? H.steps.indexOf(which) : H.steps.length - 1;
+  if (k < 0) return null;
+  const step = H.steps[k];
+  // Premiere: rebuilt from the untouched copy with every cut but this one
+  const rest = mergeRanges([].concat(...H.steps.filter((s, i) => i !== k).map((s) => s.cuts)));
+  const media = Array.from(new Set((H.baseMedia || step.media).map((m) => m.path)));
   const r = await evalScript('amh_textUncut(' + escJson(JSON.stringify({ sequenceID: H.sequenceID, keepName: H.keepName,
     cuts: rest.map((c) => [c.start, c.end]), media, fade: cutFadesOn(), keepMusic: cutKeepMusic() })) + ')', 300000);
   if (!r || !r.ok) {
@@ -5897,12 +5934,15 @@ async function runTextUncut() {
     textCutNote(L((r && r.error) || 'Premiere did not answer.'), true);
     return null;
   }
-  H.steps.pop();
+  // the captions: as they are now, with the ones this cut touched brought back
+  const cues = H.base ? undoCutCues(H.base, H.steps.map((s) => s.cuts), k, reviewCues) : step.cues;
+  const med = H.baseMedia ? remapMediaAfterCut(H.baseMedia, rest) : step.media;
+  H.steps.splice(k, 1);
   H.sequenceID = r.sequenceID;
   hideTiming();
   clearRowHint();
-  reviewCues = step.cues;
-  setPreviewMedia(step.media);
+  reviewCues = cues;
+  setPreviewMedia(med);
   REVIEW_UNDO.length = 0;
   syncReviewUndo();
   if (CLEAN) CLEAN.envs = [];
@@ -5988,11 +6028,16 @@ async function runTextCut(job) {
   logMusic(r);
   const done = (r.list || []).map((c) => ({ start: c[0], end: c[1] })).sort((x, y) => x.start - y.start);
   // 1.94.29 undo: remember this cut (original times) and the captions before it
-  if (r.kept) TEXTCUT.hist = { keepName: r.kept, sequenceID: r.sequenceID, steps: [] };
+  if (r.kept) TEXTCUT.hist = { keepName: r.kept, sequenceID: r.sequenceID, steps: [],
+    // 1.94.46: the captions and footage before the first cut (any cut can be undone)
+    base: JSON.parse(JSON.stringify(reviewCues)), baseMedia: PREVIEW_MEDIA.map((m) => Object.assign({}, m)) };
   const H = TEXTCUT.hist;
   if (H && r.sequenceID && H.sequenceID === r.sequenceID) {
     const prev = mergeRanges([].concat(...H.steps.map((s) => s.cuts)));
-    H.steps.push({ what: job.what, cuts: done.map((c) => ({ start: uncutTime(c.start, prev), end: uncutTime(c.end, prev) })),
+    // (1.94.46: a cut's END belongs to what comes before it - at a join it used to
+    // reach over the earlier cut, so undoing that earlier cut alone left it cut)
+    const back = (t, end) => Math.round((end ? uncutTime(t - 1e-6, prev) + 1e-6 : uncutTime(t, prev)) * 1000) / 1000;
+    H.steps.push({ what: job.what, cuts: done.map((c) => ({ start: back(c.start, false), end: back(c.end, true) })),
       cues: JSON.parse(JSON.stringify(reviewCues)), media: PREVIEW_MEDIA.map((m) => Object.assign({}, m)) });
   }
   hideTiming();

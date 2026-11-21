@@ -695,6 +695,53 @@ function remapCuesAfterCut(cues, cuts, drop) {
   return out;
 }
 
+// 1.94.46 (V8) undo ANY text cut, not only the last. base: the captions before
+// the first cut (original times); stepCuts: each cut's ranges in original times;
+// k: the cut undone; current: the captions now (after every cut, maybe edited).
+// Captions away from cut k stay exactly as they are now (edits kept, times
+// moved); the captions cut k touched come back from `base` with the other cuts
+// applied (their words inside another cut stay out). -> captions on the
+// timeline that has every cut but k.
+function undoCutCues(base, stepCuts, k, current) {
+  const all = mergeRanges([].concat(...(stepCuts || [])));
+  const rest = mergeRanges([].concat(...(stepCuts || []).filter((x, i) => i !== k)));
+  const undone = mergeRanges((stepCuts || [])[k] || []);
+  const zone = undone.map((u) => ({ start: u.start, end: u.end }));
+  (base || []).forEach((c) => {
+    const s = Number(c.start), e = Number(c.end);
+    if (undone.some((u) => u.start < e && u.end > s)) zone.push({ start: s, end: e });
+  });
+  const Z = mergeRanges(zone);
+  // by the middle of the caption: one that only TOUCHES the zone stays out (both lists alike)
+  const inZ = (s, e) => Z.some((z) => (s + e) / 2 > z.start && (s + e) / 2 < z.end);
+  const back = (t, end) => (end ? uncutTime(t - 0.001, all) + 0.001 : uncutTime(t, all));
+  const orig = [];
+  (current || []).forEach((c) => {
+    const s = back(Number(c.start), false), e = back(Number(c.end), true);
+    if (inZ(s, e)) return;
+    const q = Object.assign({}, c, { start: s, end: e });
+    if (Array.isArray(c.wt)) q.wt = c.wt.map((x) => [back(Number(x[0]), false), back(Number(x[1]), true)]);
+    orig.push(q);
+  });
+  (base || []).forEach((c, ci) => {
+    const s = Number(c.start), e = Number(c.end);
+    if (!inZ(s, e)) return;
+    const words = cleanupWords([c]);
+    const out = rest.length ? words.filter((w) => !rest.some((r) => (w.s + w.e) / 2 > r.start && (w.s + w.e) / 2 < r.end)) : words;
+    if (!out.length) return;
+    const q = Object.assign({}, c, { text: out.map((w) => w.w).join(' ') });
+    delete q.wt;
+    if (exactWordTimes(c, words.length)) q.wt = out.map((w) => [w.s, w.e]);
+    orig.push(q);
+  });
+  const fwd = (t) => Math.round(cutTime(t, rest) * 1000) / 1000;
+  return orig.map((c) => {
+    const q = Object.assign({}, c, { start: fwd(Number(c.start)), end: fwd(Number(c.end)) });
+    if (Array.isArray(c.wt)) q.wt = c.wt.map((x) => [fwd(x[0]), fwd(x[1])]);
+    return q;
+  }).filter((c) => c.end - c.start >= 0.05).sort((a, b) => a.start - b.start);
+}
+
 // The footage list after the cut: each kept stretch keeps pointing at the
 // same second of its file (source = timeline + offset).
 function remapMediaAfterCut(media, cuts) {
@@ -1189,7 +1236,7 @@ if (typeof module !== 'undefined' && module.exports) {
     validateLicense,
     englishStarter, englishBase, ENGLISH_WORDS, ENGLISH_WORD_RE,
     cleanupWords, silenceLevels, findSilences, findRepeats, findFillers, snapQuiet, mergeRanges, cutTime, uncutTime,
-    remapCuesAfterCut, remapMediaAfterCut, CLEANUP_FILLERS, CLEANUP_FILLER_WORDS,
+    remapCuesAfterCut, undoCutCues, remapMediaAfterCut, CLEANUP_FILLERS, CLEANUP_FILLER_WORDS,
     findZoomMoments, cutRanges, findTextCuts, exactWordTimes, regroupCues,
     LICENSE_TOKEN_PUBKEY_PEM, licenseTokenParse, verifyLicenseToken,
     amhType, amhRowOf, styledUpdatePlan,

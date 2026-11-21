@@ -485,6 +485,76 @@ t('1.94.43 write it in English: names only, prefixes, the ambiguous and ordinary
   assert.deepStrictEqual(core.learnFixes([{ _id: 1, text: 'ሰላም' }], [{ _id: 1, text: '12:30' }]), [], 'not a word');
 });
 
+t('1.94.46 V8 undo any cut: the captions equal cutting everything but that one from the start; edits elsewhere stay', () => {
+  // 12 captions of 3 words with engine times; 10 cuts (single words or whole captions) made one after another
+  let seed = 7;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  const W = ['ሀ', 'ለ', 'ሐ', 'መ', 'ሠ', 'ረ', 'ሰ', 'ሸ', 'ቀ', 'በ', 'ተ', 'ቸ'];
+  for (let round = 0; round < 25; round++) {
+    const base = [];
+    let t0 = 0;
+    for (let i = 0; i < 12; i++) {
+      const wt = [];
+      const words = [];
+      for (let k = 0; k < 3; k++) { const d = 0.3 + Math.round(rnd() * 40) / 100; wt.push([t0, Math.round((t0 + d) * 1000) / 1000]); t0 = Math.round((t0 + d) * 1000) / 1000; words.push(W[(i + k) % 12] + i); }
+      base.push({ text: words.join(' '), start: wt[0][0], end: wt[2][1], wt });
+      t0 = Math.round((t0 + (rnd() < 0.5 ? 0 : 0.4)) * 1000) / 1000;
+    }
+    // pick 10 cuts in ORIGINAL times: whole words / whole captions never cut twice
+    const used = new Set();
+    const steps = [];
+    while (steps.length < 10) {
+      const i = Math.floor(rnd() * 12);
+      if (rnd() < 0.25) {
+        if ([0, 1, 2].some((k) => used.has(i + ':' + k))) continue;
+        [0, 1, 2].forEach((k) => used.add(i + ':' + k));
+        steps.push([{ start: base[i].start, end: base[i].end }]);
+      } else {
+        const k = Math.floor(rnd() * 3);
+        if (used.has(i + ':' + k)) continue;
+        used.add(i + ':' + k);
+        steps.push([{ start: base[i].wt[k][0], end: base[i].wt[k][1] }]);
+      }
+    }
+    // the forward way, as the panel cuts: each cut in the timeline of its moment
+    const forward = (list) => {
+      let cur = JSON.parse(JSON.stringify(base));
+      let done = [];
+      list.forEach((cuts) => {
+        const here = cuts.map((c) => ({ start: core.cutTime(c.start, done), end: core.cutTime(c.end, done) }));
+        const drop = [];
+        cur.forEach((c, ci) => (c.wt || []).forEach((x, k) => { const m = (x[0] + x[1]) / 2; if (here.some((h) => m > h.start && m < h.end)) drop.push([ci, k]); }));
+        cur = core.remapCuesAfterCut(cur, here, drop);
+        done = core.mergeRanges(done.concat(cuts));
+      });
+      return cur;
+    };
+    const now = forward(steps);
+    const k = round % 10;
+    const got = core.undoCutCues(base, steps, k, now);
+    const want = forward(steps.filter((x, i) => i !== k));
+    const flat = (cs) => cs.map((c) => [c.text, c.start, c.end]);
+    assert.strictEqual(got.length, want.length, 'round ' + round + ': ' + JSON.stringify([flat(got), flat(want)]));
+    got.forEach((c, i) => {
+      assert.strictEqual(c.text, want[i].text, 'round ' + round + ' text ' + i);
+      assert.ok(Math.abs(c.start - want[i].start) < 0.003 && Math.abs(c.end - want[i].end) < 0.003, 'round ' + round + ' times ' + JSON.stringify([c, want[i]]));
+      assert.strictEqual((c.wt || []).length, (want[i].wt || []).length, 'word times kept');
+    });
+    // an edit made after the cuts, far from cut k, is kept
+    if (round === 3) {
+      const z = steps[k][0];
+      const far = now.findIndex((c) => Math.abs(core.uncutTime(c.start, core.mergeRanges([].concat(...steps))) - z.start) > 3);
+      const edited = JSON.parse(JSON.stringify(now));
+      edited[far].text = 'የተስተካከለ ' + edited[far].text;
+      delete edited[far].wt;
+      const g2 = core.undoCutCues(base, steps, k, edited);
+      assert.ok(g2.some((c) => c.text === edited[far].text), 'the editor\'s fix survives the undo');
+    }
+  }
+  // nothing to undo / out of range: the captions as they are
+  assert.deepStrictEqual(core.undoCutCues([], [], 0, []), []);
+});
+
 t('clean up: captions and footage follow the cut', () => {
   const cuts = core.mergeRanges([{ start: 8, end: 9 }, { start: 3, end: 4 }, { start: 3.5, end: 4.2 }]);
   assert.deepStrictEqual(cuts, [{ start: 3, end: 4.2 }, { start: 8, end: 9 }]);
