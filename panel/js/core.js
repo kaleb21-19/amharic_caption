@@ -579,6 +579,18 @@ function cutTime(t, cuts) {
   return t - shift;
 }
 
+// 1.94.29 undo: where a second of the CUT timeline was before the cuts
+// (cuts merged and sorted, in the original times) - the opposite of cutTime.
+// A second exactly at a join belongs to what follows it.
+function uncutTime(t, cuts) {
+  let u = t;
+  for (const c of cuts || []) {
+    if (c.start <= u + 1e-9) u += c.end - c.start;
+    else break;
+  }
+  return u;
+}
+
 // The captions after the cut: times follow the timeline; the words of a cut
 // repeat / filler leave the text (`drop` = [[cue, wordIndex], ...]); a caption
 // with nothing left goes.
@@ -1097,7 +1109,7 @@ if (typeof module !== 'undefined' && module.exports) {
     speakerPrefix, noEmph, srtTextFromCues, displaySrtTextFromCues, vttTextFromCues, txtTextFromCues,
     speakerSummary, aeHostCall, replaceWords, learnFixes, applyFixes, doubtRanges, splitTextAt,
     validateLicense,
-    cleanupWords, silenceLevels, findSilences, findRepeats, findFillers, snapQuiet, mergeRanges, cutTime,
+    cleanupWords, silenceLevels, findSilences, findRepeats, findFillers, snapQuiet, mergeRanges, cutTime, uncutTime,
     remapCuesAfterCut, remapMediaAfterCut, CLEANUP_FILLERS, CLEANUP_FILLER_WORDS,
     findZoomMoments, cutRanges, findTextCuts, exactWordTimes, regroupCues,
     LICENSE_TOKEN_PUBKEY_PEM, licenseTokenParse, verifyLicenseToken,

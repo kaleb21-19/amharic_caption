@@ -450,6 +450,14 @@ t('1.94.28 clean up: dead air at the very start and end goes completely; music a
   assert.strictEqual(core.silenceLevels({ t0: 0, step: 0.02, db }).flat, false);
 });
 
+t('1.94.29 undo: uncutTime is the opposite of cutTime (a second at a join belongs to what follows)', () => {
+  const cuts = [{ start: 10, end: 12 }, { start: 20, end: 25 }];
+  [0, 9.5, 12, 15, 19.9, 25, 40].forEach((t) => assert.strictEqual(core.uncutTime(core.cutTime(t, cuts), cuts), t, 'at ' + t));
+  assert.strictEqual(core.uncutTime(10, cuts), 12, 'the join: after the cut');
+  assert.strictEqual(core.uncutTime(18, cuts), 25);
+  assert.strictEqual(core.uncutTime(5, []), 5);
+});
+
 t('clean up: captions and footage follow the cut', () => {
   const cuts = core.mergeRanges([{ start: 8, end: 9 }, { start: 3, end: 4 }, { start: 3.5, end: 4.2 }]);
   assert.deepStrictEqual(cuts, [{ start: 3, end: 4.2 }, { start: 8, end: 9 }]);
