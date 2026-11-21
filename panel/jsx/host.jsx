@@ -1875,18 +1875,90 @@ function amh_fadeProbe() {
     });
 }
 
-function amhCleanupOne(seq, a, b, fps, fade) {
+// ------------------------------------------------- keep music (1.94.27)
+// A cut used to go through every track, so background music got a hole at
+// each cut. With keep (the set of transcribed files), an audio clip that runs
+// across the whole cut and is NOT the transcribed sound (music, ambience) is
+// not cut: its end is shortened by the cut's length, so the track keeps the
+// same timing after it (later clips move left like a ripple) and the music
+// plays on without a jump. Picture and the voice are cut as before. If
+// Premiere does not accept the shorter end, that track is cut the old way.
+function amhBedAt(track, a, b, eps, keep) {
+    var cl = track.clips;
+    var k = amhCleanupFirstAfter(cl, a + eps);
+    if (k >= cl.numItems) { return null; }
+    var it = cl[k];
+    var s = Number(it.start.seconds), e = Number(it.end.seconds);
+    if (!(s <= a + eps && e >= b - eps)) { return null; }      // not one clip across the whole cut
+    var item = null;
+    try { item = it.projectItem; } catch (e1) {}
+    if (amhNestedSequence(item)) { return null; }              // a nested sequence may hold the voice
+    var mp = amhMediaPath(item);
+    if (!mp || keep[amhCleanupKey(mp)]) { return null; }      // the voice (or unknown): cut it
+    return it;
+}
+// shorten the music clip's end by len; true when Premiere took it
+function amhBedTrim(it, len, eps) {
+    var e0 = Number(it.end.seconds);
+    try { var t = new Time(); t.seconds = e0 - len; it.end = t; } catch (e) { return false; }
+    var e1 = NaN;
+    try { e1 = Number(it.end.seconds); } catch (e2) {}
+    return Math.abs(e1 - (e0 - len)) < eps;
+}
+function amhSlideAfter(track, next, len, eps) {
+    var moved = 0, cl = track.clips;
+    var j = amhCleanupFirstAfter(cl, next.s - eps);
+    if (j < cl.numItems && Math.abs(Number(cl[j].start.seconds) - next.s) < eps && amhClipName(cl[j]) === next.name) {
+        for (var m = j; m < cl.numItems; m++) {
+            var shift = new Time();
+            shift.seconds = -len;
+            try { cl[m].move(shift); moved++; } catch (e) {}
+        }
+    }
+    return moved;
+}
+
+function amhCleanupOne(seq, a, b, fps, fade, keep) {
     var eps = 0.5 / fps, len = b - a;
     app.enableQE();
     var qseq = qe.project.getActiveSequence();
     var tcA = amhCleanupTc(seq, a), tcB = amhCleanupTc(seq, b);
     var vN = seq.videoTracks.numTracks, aN = seq.audioTracks.numTracks;
+    var beds = {}, kept = 0, keepErr = "";
+    if (keep) {
+        for (var bi = 0; bi < aN; bi++) {
+            var bd = null;
+            try { bd = amhBedAt(seq.audioTracks[bi], a, b, eps, keep); } catch (e) {}
+            if (bd) { beds[bi] = bd; }
+        }
+    }
     for (var vi = 0; vi < vN; vi++) { try { qseq.getVideoTrackAt(vi).razor(tcB); qseq.getVideoTrackAt(vi).razor(tcA); } catch (e) {} }
-    for (var ai = 0; ai < aN; ai++) { try { qseq.getAudioTrackAt(ai).razor(tcB); qseq.getAudioTrackAt(ai).razor(tcA); } catch (e) {} }
+    for (var ai = 0; ai < aN; ai++) { if (beds[ai]) { continue; } try { qseq.getAudioTrackAt(ai).razor(tcB); qseq.getAudioTrackAt(ai).razor(tcA); } catch (e) {} }
     var tracks = amhCleanupTracks(seq);
     var removed = 0, moved = 0, left = 0;
     for (var t = 0; t < tracks.length; t++) {
         var track = tracks[t].track;
+        var bed = tracks[t].kind === "a" ? beds[tracks[t].i] : null;
+        if (bed) {
+            var be = Number(bed.end.seconds), nx = null, bcl = track.clips;
+            var nk = amhCleanupFirstAfter(bcl, be + eps);
+            if (nk < bcl.numItems) { nx = { name: amhClipName(bcl[nk]), s: Number(bcl[nk].start.seconds) }; }
+            if (amhBedTrim(bed, len, eps)) {
+                kept++;
+                if (nx) { moved += amhSlideAfter(track, nx, len, eps); }
+                if (fade) {          // the music now ends earlier: no click at its new end
+                    try {
+                        var bp = amhLevelProp(bed), bci = amhSec(bed.inPoint), bco = amhSec(bed.outPoint);
+                        if (bci === null) { bci = 0; }
+                        if (bco === null) { bco = bci + Number(bed.end.seconds) - Number(bed.start.seconds); }
+                        if (bp && bco - bci > 3 * AMH_FADE_S) { amhLevelKeys(bp, [[bco - AMH_FADE_S, 1], [bco, 0]]); }
+                    } catch (e) {}
+                }
+                continue;
+            }
+            if (!keepErr) { keepErr = "Premiere did not shorten the music clip; that track was cut"; }
+            try { qseq.getAudioTrackAt(tracks[t].i).razor(tcB); qseq.getAudioTrackAt(tracks[t].i).razor(tcA); } catch (e) {}
+        }
         var out = amhCleanupTakeOut(seq, qseq, tracks[t].kind, tracks[t].i, a, b, eps);
         removed += out.removed; left += out.left;
         var next = out.next;
@@ -1914,7 +1986,7 @@ function amhCleanupOne(seq, a, b, fps, fade) {
     }
     var fd = null;
     if (fade && removed > 0 && !left) { try { fd = amhJoinFades(seq, a, fps); } catch (e) { fd = { faded: 0, skipped: 0, error: String(e.message || e) }; } }
-    return { removed: removed, moved: moved, len: len, left: left, tc: tcA + "-" + tcB, fades: fd };
+    return { removed: removed, moved: moved, len: len, left: left, tc: tcA + "-" + tcB, fades: fd, kept: kept, keepError: keepErr };
 }
 
 // Step 1: checks, then copy the sequence and open the copy. Nothing is cut
@@ -1974,6 +2046,12 @@ function amh_cleanupPrepare(argsJSON) {
 
 // Step 2 (called again and again, so the panel can show progress and stop):
 // some of the cuts, on the copy only. args = { sequenceID, fps, cuts }.
+function amhKeepSet(args) {
+    if (!args.keepMusic || !args.media || !args.media.length) { return null; }
+    var k = {};
+    for (var m = 0; m < args.media.length; m++) { k[amhCleanupKey(args.media[m])] = true; }
+    return k;
+}
 function amh_cleanupSome(argsJSON) {
     return amhGuard(function () {
         var args = JSON.parse(argsJSON);
@@ -1983,14 +2061,15 @@ function amh_cleanupSome(argsJSON) {
         }
         var fps = Number(args.fps) > 0 ? Number(args.fps) : amhCleanupFps();
         var cuts = args.cuts || [];
-        var removed = 0, moved = 0, total = 0, faded = 0, fadeErr = "";
+        var removed = 0, moved = 0, total = 0, faded = 0, fadeErr = "", kept = 0, keepErr = "", keep = amhKeepSet(args);
         for (var n = cuts.length - 1; n >= 0; n--) {          // last first: earlier times stay valid
-            var r = amhCleanupOne(seq, Number(cuts[n][0]), Number(cuts[n][1]), fps, !!args.fade);
-            removed += r.removed; moved += r.moved; total += r.len;
+            var r = amhCleanupOne(seq, Number(cuts[n][0]), Number(cuts[n][1]), fps, !!args.fade, keep);
+            removed += r.removed; moved += r.moved; total += r.len; kept += r.kept;
             if (r.fades) { faded += r.fades.faded; if (r.fades.error && !fadeErr) { fadeErr = r.fades.error; } }
+            if (r.keepError && !keepErr) { keepErr = r.keepError; }
         }
         return amhOk({ cuts: cuts.length, removed: removed, moved: moved, removedSeconds: Math.round(total * 1000) / 1000,
-                       faded: faded, fadeError: fadeErr });
+                       faded: faded, fadeError: fadeErr, musicKept: kept, musicError: keepErr });
     });
 }
 
@@ -2031,7 +2110,7 @@ function amh_textCutNow(argsJSON) {
         var why = amhCleanupBlocked(seq, cuts, args.media || []);
         if (why) { return amhErr(why); }
         // the untouched copy, once per sequence (never opened: the editor stays here)
-        var name = String(seq.name), keepName = name + " - before text edit", kept = "";
+        var name = String(seq.name), keepName = name + " - before text edit", keptName = "";
         var have = false;
         for (var q = 0; q < app.project.sequences.numSequences; q++) {
             if (String(app.project.sequences[q].name) === keepName) { have = true; break; }
@@ -2042,18 +2121,19 @@ function amh_textCutNow(argsJSON) {
             try { seq.clone(); } catch (e) {}
             for (var r = 0; r < app.project.sequences.numSequences; r++) {
                 var sq = app.project.sequences[r];
-                if (!before[String(sq.sequenceID)]) { try { sq.name = keepName; } catch (e) {} kept = keepName; }
+                if (!before[String(sq.sequenceID)]) { try { sq.name = keepName; } catch (e) {} keptName = keepName; }
             }
-            if (!kept) { return amhErr("Premiere could not keep a copy of the sequence first. Nothing was cut."); }
+            if (!keptName) { return amhErr("Premiere could not keep a copy of the sequence first. Nothing was cut."); }
             if (String(app.project.activeSequence.sequenceID) !== String(seq.sequenceID)) {
                 try { app.project.openSequence(seq.sequenceID); } catch (e) {}
             }
         }
-        var removed = 0, total = 0, left = 0, miss = "", faded = 0, fadeErr = "";
+        var removed = 0, total = 0, left = 0, miss = "", faded = 0, fadeErr = "", kept = 0, keepErr = "", keep = amhKeepSet(args);
         for (var n = cuts.length - 1; n >= 0; n--) {             // last first: earlier times stay valid
-            var o = amhCleanupOne(seq, cuts[n][0], cuts[n][1], fps, !!args.fade);
-            removed += o.removed; total += o.len; left += o.left;
+            var o = amhCleanupOne(seq, cuts[n][0], cuts[n][1], fps, !!args.fade, keep);
+            removed += o.removed; total += o.len; left += o.left; kept += o.kept;
             if (o.fades) { faded += o.fades.faded; if (o.fades.error && !fadeErr) { fadeErr = o.fades.error; } }
+            if (o.keepError && !keepErr) { keepErr = o.keepError; }
             if (!o.removed && !o.left && !miss) { miss = cuts[n][0].toFixed(2) + "-" + cuts[n][1].toFixed(2) + " s = " + o.tc; }
         }
         if (miss) {
@@ -2062,8 +2142,8 @@ function amh_textCutNow(argsJSON) {
         if (left) {
             return amhErr("Premiere made the cut lines but kept the piece between them (" + left + " clip(s)). Select that piece on the timeline and press Shift+Delete. Then send a problem report so we can fix this for your Premiere version.");
         }
-        return amhOk({ sequence: name, kept: kept, list: cuts, removed: removed, removedSeconds: Math.round(total * 1000) / 1000,
-                       faded: faded, fadeError: fadeErr });
+        return amhOk({ sequence: name, kept: keptName, list: cuts, removed: removed, removedSeconds: Math.round(total * 1000) / 1000,
+                       faded: faded, fadeError: fadeErr, musicKept: kept, musicError: keepErr });
     });
 }
 

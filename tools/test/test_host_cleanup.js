@@ -48,6 +48,10 @@ function makePremiere(spec, opts) {
         },
         move(t) { c.start.seconds += t.seconds; c.end.seconds += t.seconds; },
       };
+      if (opts.noTrim) {          // a Premiere that ignores a new end time
+        const endObj = c.end;
+        Object.defineProperty(c, 'end', { get: () => endObj, set: () => {}, enumerable: true });
+      }
       if (opts.volume) {
         // Volume > Level (1.94.23 smooth joins): keys at source times, like Premiere
         const lv = { displayName: 'Level', tv: !!keys, keys: keys ? keys.map((k) => k.slice()) : [], v: opts.volume,
@@ -455,6 +459,64 @@ test('fade probe (Run diagnostics) reads only: it reports Level and the function
   pp.project.activeSequence.at.forEach((t) => t.list.forEach((c) => assert.strictEqual(c.level.tv, false)));
   const none = makePremiere(base());
   assert.strictEqual(JSON.parse(vm.runInContext('amh_fadeProbe()', none.ctx)).fade, 'no Volume > Level');
+});
+
+
+// -- 1.94.27 keep music: a clip that runs across the cut and is not the transcribed sound plays on
+const MUSIC = 'C:/v/music.mp3';
+const musicSpec = () => ({
+  v: [[[0, 60, 'interview.mp4', VIDEO]]],
+  a: [[[0, 60, 'interview.mp4', VIDEO]], [[0, 50, 'music.mp3', MUSIC], [52, 53, 'whoosh.wav', 'C:/v/whoosh.wav']]],
+});
+test('keep music OFF (the default): every track is cut, music too', () => {
+  const pp = makePremiere(musicSpec());
+  const r = nowCut(pp, { cuts: [[10, 12]], media: [VIDEO] });
+  assert.ok(r.ok && !r.musicKept, JSON.stringify(r));
+  assert.deepStrictEqual(pp.project.activeSequence.at[1].snap(), [[0, 10, 'music.mp3'], [10, 48, 'music.mp3'], [50, 51, 'whoosh.wav']]);
+});
+test('keep music ON: picture and voice are cut; the music is one piece that ends 2 s earlier; the sound after it stays in sync', () => {
+  const pp = makePremiere(musicSpec());
+  const r = nowCut(pp, { cuts: [[10, 12]], media: [VIDEO], keepMusic: true });
+  assert.ok(r.ok, JSON.stringify(r));
+  const s = pp.project.activeSequence;
+  assert.deepStrictEqual(s.vt[0].snap(), [[0, 10, 'interview.mp4'], [10, 58, 'interview.mp4']]);
+  assert.deepStrictEqual(s.at[0].snap(), [[0, 10, 'interview.mp4'], [10, 58, 'interview.mp4']], 'the voice is cut');
+  assert.deepStrictEqual(s.at[1].snap(), [[0, 48, 'music.mp3'], [50, 51, 'whoosh.wav']], 'music uncut, whoosh moved with the picture');
+  assert.strictEqual(r.musicKept, 1);
+  assert.strictEqual(r.musicError, '');
+});
+test('keep music: several cuts, step-by-step clean-up too; music stays one piece', () => {
+  const pp = makePremiere(musicSpec());
+  const call = (fn, a) => JSON.parse(vm.runInContext(fn + '(' + JSON.stringify(JSON.stringify(a)) + ')', pp.ctx));
+  const p = call('amh_cleanupPrepare', { cuts: [[10, 12], [20, 21], [30, 33]], media: [VIDEO] });
+  const r = call('amh_cleanupSome', { sequenceID: p.sequenceID, fps: p.fps, cuts: p.list, media: [VIDEO], keepMusic: true });
+  assert.ok(r.ok && r.musicKept === 3, JSON.stringify(r));
+  const s = pp.project.activeSequence;
+  assert.deepStrictEqual(s.at[1].snap(), [[0, 44, 'music.mp3'], [46, 47, 'whoosh.wav']]);
+  assert.strictEqual(s.vt[0].snap().slice(-1)[0][1], 54);
+});
+test('keep music: a sound effect that only partly covers the cut is cut as before (only whole-cut clips play on)', () => {
+  const spec = musicSpec();
+  spec.a[1] = [[11, 14, 'whoosh.wav', 'C:/v/whoosh.wav']];
+  const pp = makePremiere(spec);
+  const r = nowCut(pp, { cuts: [[10, 12]], media: [VIDEO], keepMusic: true });
+  assert.ok(r.ok && r.musicKept === 0, JSON.stringify(r));
+  assert.deepStrictEqual(pp.project.activeSequence.at[1].snap(), [[10, 12, 'whoosh.wav']], 'cut as before, and in sync (1.94.26)');
+});
+test('keep music: a Premiere that refuses the shorter end cuts that track the old way, and says so', () => {
+  const pp = makePremiere(musicSpec(), { noTrim: true });
+  const r = nowCut(pp, { cuts: [[10, 12]], media: [VIDEO], keepMusic: true });
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.strictEqual(r.musicKept, 0);
+  assert.match(r.musicError, /did not shorten the music/);
+  assert.deepStrictEqual(pp.project.activeSequence.at[1].snap(), [[0, 10, 'music.mp3'], [10, 48, 'music.mp3'], [50, 51, 'whoosh.wav']]);
+});
+test('keep music + smooth joins: the voice fades at the join, the music gets a fade at its new end only', () => {
+  const pp = makePremiere(musicSpec(), { volume: 1 });
+  const r = nowCut(pp, { cuts: [[10, 12]], media: [VIDEO], keepMusic: true, fade: true });
+  assert.ok(r.ok && r.faded === 2, JSON.stringify(r));
+  const m = pp.project.activeSequence.at[1].list.find((c) => c.name === 'music.mp3');
+  assert.deepStrictEqual(lvKeys(m), [[47.97, 1], [48, 0]]);
 });
 
 console.log('ALL PASS  (' + passed + ' tests)');

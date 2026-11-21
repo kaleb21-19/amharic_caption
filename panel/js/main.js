@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.26';
+const APP_VERSION = '1.94.27';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3615,6 +3615,12 @@ function loadSettings() {
 // "Smooth joins": ready, all keyframe functions there). Setting cutFades:
 // false switches it off.
 function cutFadesOn() { try { return loadSettings().cutFades !== false; } catch (e) { return true; } }
+// 1.94.27 keep music: music / ambience under a cut plays on (only picture and
+// the voice are cut). Off until checked in a real Premiere.
+function cutKeepMusic() { try { return loadSettings().cutKeepMusic === true; } catch (e) { return false; } }
+function logMusic(r) {
+  if (r && (r.musicKept || r.musicError)) log('🎵 Music kept playing at ' + (r.musicKept || 0) + ' cut(s)' + (r.musicError ? ' — ' + r.musicError : ''));
+}
 function saveSettings(over) {
   const s = loadSettings();
   for (const k in over) s[k] = over[k];
@@ -5749,7 +5755,7 @@ async function runTextCut(job) {
   const media = Array.from(new Set(PREVIEW_MEDIA.map((m) => m.path)));
   const cuts = mergeRanges(job.ranges.filter((c) => c.end - c.start > 0.03));
   if (!cuts.length) return null;
-  const r = await evalScript('amh_textCutNow(' + escJson(JSON.stringify({ cuts: cuts.map((c) => [c.start, c.end]), media, fade: cutFadesOn() })) + ')', 120000);
+  const r = await evalScript('amh_textCutNow(' + escJson(JSON.stringify({ cuts: cuts.map((c) => [c.start, c.end]), media, fade: cutFadesOn(), keepMusic: cutKeepMusic() })) + ')', 120000);
   if (!r || !r.ok) {
     const msg = L((r && r.error) || 'Premiere did not answer.');
     log('✂ Cut: ' + ((r && r.error) || 'no answer'));
@@ -5757,6 +5763,7 @@ async function runTextCut(job) {
     return null;
   }
   if (r.faded || r.fadeError) log('✂ Smooth joins: ' + (r.faded || 0) + ' faded' + (r.fadeError ? ' — ' + r.fadeError : ''));
+  logMusic(r);
   const done = (r.list || []).map((c) => ({ start: c[0], end: c[1] })).sort((x, y) => x.start - y.start);
   hideTiming();
   clearRowHint();
@@ -6222,6 +6229,18 @@ function renderCleanupPanel() {
     p.appendChild(seg);
     if (!CLEAN.envs.length) p.appendChild(el('div', 'mem-sub', L('Pauses: your footage could not be read here — repeats and sounds only.')));
   }
+  // 1.94.27 music under the cuts: plays on, or is cut with the voice
+  const mus = el('div', 'clean-opt');
+  mus.appendChild(el('span', '', '🎵 ' + L('Background music')));
+  [[true, L('Keep playing')], [false, L('Cut it too')]].forEach(([v, text]) => {
+    const b = el('button', 'sc-opt' + (v === cutKeepMusic() ? ' active' : ''), text);
+    b.type = 'button';
+    b.title = v ? L('Music and other sounds that run across a cut keep playing; only the picture and your voice are cut.')
+                : L('Every track is cut, music too.');
+    b.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); saveSettings({ cutKeepMusic: v }); renderCleanupPanel(); });
+    mus.appendChild(b);
+  });
+  p.appendChild(mus);
   const names = { text: '✂ ' + L('Your cut'), pause: L('Pause'), repeat: L('Repeated take'), filler: L('Sound'), word: L('Filler word?') };
   const list = el('div', 'clean-list');
   const shown = cleanupShown();
@@ -6317,16 +6336,18 @@ async function applyCleanup() {
   const list = p.list || [];
   CLEAN.progress.total = list.length;
   const applied = [];
-  let removedSeconds = 0, faded = 0, fadeErr = "";
+  let removedSeconds = 0, faded = 0, fadeErr = "", musicKept = 0, musicErr = "";
   let err = null;
   for (let end = list.length; end > 0 && !CLEAN.stop; end -= CLEAN_CHUNK) {
     const chunk = list.slice(Math.max(0, end - CLEAN_CHUNK), end);
-    const r = await evalScript('amh_cleanupSome(' + escJson(JSON.stringify({ sequenceID: p.sequenceID, fps: p.fps, cuts: chunk, fade: cutFadesOn() })) + ')', 120000);
+    const r = await evalScript('amh_cleanupSome(' + escJson(JSON.stringify({ sequenceID: p.sequenceID, fps: p.fps, cuts: chunk, fade: cutFadesOn(), media, keepMusic: cutKeepMusic() })) + ')', 120000);
     if (!r || !r.ok) { err = r || { error: 'Premiere did not answer.' }; break; }
     applied.push(...chunk);
     removedSeconds += Number(r.removedSeconds) || 0;
     faded += Number(r.faded) || 0;
     if (r.fadeError && !fadeErr) fadeErr = r.fadeError;
+    musicKept += Number(r.musicKept) || 0;
+    if (r.musicError && !musicErr) musicErr = r.musicError;
     CLEAN.progress.done = applied.length;
     renderCleanupPanel();
   }
@@ -6352,6 +6373,7 @@ async function applyCleanup() {
     error: err ? L(err.error || 'Premiere did not answer.') : '' };
   log('✂ Clean up: removed ' + fmtDur(removedSeconds) + ' in ' + applied.length + ' of ' + list.length + ' cut(s) — "' + p.sequence + '"');
   if (faded || fadeErr) log('✂ Smooth joins: ' + faded + ' faded' + (fadeErr ? ' — ' + fadeErr : ''));
+  logMusic({ musicKept, musicError: musicErr });
   renderCleanupPanel();
   return CLEAN.done;
 }

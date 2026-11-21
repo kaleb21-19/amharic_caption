@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.26');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.27');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -4349,6 +4349,10 @@ await t('1.94.24 smooth joins are on by default; the cutFades: false setting swi
     assert.strictEqual(p.evalVm('cutFadesOn()'), true);
     p.evalVm("saveSettings({ cutFades: false })");
     assert.strictEqual(p.evalVm('cutFadesOn()'), false);
+    // 1.94.27 keep music: off until checked in Premiere; the panel's toggle saves it
+    assert.strictEqual(p.evalVm('cutKeepMusic()'), false);
+    p.evalVm("saveSettings({ cutKeepMusic: true })");
+    assert.strictEqual(p.evalVm('cutKeepMusic()'), true);
   } finally { p.close(); }
 });
 
