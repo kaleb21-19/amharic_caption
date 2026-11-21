@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.34';
+const APP_VERSION = '1.94.35';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3737,7 +3737,10 @@ function applySettings() {
   // editor (.srt), so a new Studio editor's exported video had NO captions
   // (earlier Studios saved Plain for everyone: Plain counts only when the
   // editor tapped it — plainChosen)
-  STYLE = LOOK_LIST.indexOf(s.style) >= 0 && !studioUnchosenPlain(s.style) ? s.style : (IS_APP_MODE() ? STUDIO_FIRST_STYLE : 'plain');
+  // 1.94.35 (UI audit: a first Premiere result was Premiere's grey captions):
+  // Premiere / After Effects start on the same strong look as the Studio too.
+  // Only a look never picked changes - an editor who chose Plain keeps Plain.
+  STYLE = LOOK_LIST.indexOf(s.style) >= 0 && !studioUnchosenPlain(s.style) ? s.style : STUDIO_FIRST_STYLE;
   document.querySelectorAll('#srcSeg button').forEach((b) => {
     b.classList.toggle('active', b.dataset.src === SOURCE);
   });
@@ -5942,9 +5945,30 @@ function toggleWholeCut(i, range) {
   if (CLEAN && CLEAN_MODE === 'text') { try { cleanupFindAll(); renderCleanupPanel(); } catch (e) {} }
   return true;
 }
+// 1.94.35 (UI audit: word emphasis was invisible until hover): one short tip
+// above the captions until the editor makes a word pop once, or closes it
+function starTipShown() {
+  try { if (loadSettings().starTipDone) return false; } catch (e) {}
+  return !!(STYLE_OK && STYLE !== 'plain');
+}
+function syncStarTip() {
+  const t = $('starTip');
+  if (!t) return;
+  const on = reviewOpen && starTipShown();
+  t.style.display = on ? '' : 'none';
+  if (!on) return;
+  if (!t.dataset.wired) {
+    t.dataset.wired = '1';
+    const x = $('starTipClose');
+    if (x) x.addEventListener('click', () => { saveSettings({ starTipDone: true }); syncStarTip(); });
+  }
+  const txt = $('starTipText');
+  if (txt) txt.textContent = L('Tip: put the cursor on a word and press ★ — that word pops (bigger, in colour).');
+}
 function toggleEmphasis(i, from, to) {
   const cue = reviewCues[i];
   if (!cue) return false;
+  try { if (!loadSettings().starTipDone) { saveSettings({ starTipDone: true }); syncStarTip(); } } catch (e) {}
   const text = String(cue.text || '');
   let a = Math.max(0, Math.min(Number(from) || 0, text.length));
   let b = Math.max(a, Math.min(Number(to) || a, text.length));
@@ -7295,6 +7319,7 @@ function styleChip(id, label, img, onClick) {
 }
 function renderStyleStrip() {
   syncReviewSteps();
+  syncStarTip();
   const strip = $('styleStrip');
   const chips = $('styleChips');
   if (!strip || !chips) return;
@@ -8093,7 +8118,7 @@ function renderCompactCustom(wrap, opts) {
   const tog = $('styleCustomToggle');
   if (tog) {
     tog.style.display = styled ? '' : 'none';
-    tog.textContent = '⚙';
+    tog.textContent = (open ? '▾ ' : '⚙ ') + L('Customize');     // 1.94.35: words, not a bare icon
     tog.title = L('Customize');
     tog.classList.toggle('open', open);
     if (!tog.dataset.wired) {
@@ -8165,6 +8190,20 @@ function renderCompactCustom(wrap, opts) {
   reset.type = 'button';
   reset.addEventListener('click', resetStyleOpts);
   foot.appendChild(reset);
+  // 1.94.35: keep a look for the next video (it becomes a ★ tile at the start of the strip)
+  const name = el('input', 'cc-name');
+  name.type = 'text';
+  name.id = 'myStyleName';
+  name.maxLength = 24;
+  name.placeholder = L('Name, e.g. My channel');
+  const save = el('button', 'cc-save', '★ ' + L('Save as My style'));
+  save.type = 'button';
+  save.id = 'myStyleSave';
+  const doSave = () => { if (saveMyStyle(name.value)) name.value = ''; else if (name.focus) name.focus(); };
+  save.addEventListener('click', doSave);
+  name.addEventListener('keydown', (e) => { if (e && e.key === 'Enter') { if (e.preventDefault) e.preventDefault(); doSave(); } });
+  foot.appendChild(name);
+  foot.appendChild(save);
   opts.appendChild(foot);
 }
 function renderStyleCustom() {
