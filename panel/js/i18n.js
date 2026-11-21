@@ -178,6 +178,7 @@ const AM_TEXT = {
   'Editable Amharic templates (MOGRT) — type in Essential Graphics': 'የሚስተካከሉ የአማርኛ ቅጾች (MOGRT) — ጽሑፉን በEssential Graphics ይተይፉ',
   'No MOGRT templates found in the product folder.': 'በምርቱ ፎልደር ውስጥ የMOGRT ቅጾች አልተገኙም።',
   'Type your Amharic text in Essential Graphics (Window → Essential Graphics).': 'አማርኛ ጽሑፍዎን በEssential Graphics ውስጥ ይተይፉ (Window → Essential Graphics)።',
+  '① Click a template below — it goes on the timeline. ② Click that clip — type Amharic in Caption text (Essential Graphics).': '① ከታች ቅጽ ይምረጡ — በታይምላይን ላይ ይቀመጣል። ② ክሊፑን ጠቅ ያድርጉ — አማርኛ ጽሑፍዎን በEssential Graphics «Caption text» ውስጥ ይተይፉ።',
   'Template on the timeline — type your Amharic text in Essential Graphics (Window → Essential Graphics).': 'ቅጹ በታይምላይኑ ላይ ነው — አማርኛ ጽሑፍዎን በEssential Graphics ውስጥ ይተይፉ (Window → Essential Graphics)።',
   'More styles': 'ተጨማሪ ስታይሎች',
   'Fewer styles': 'ያነሱ ስታይሎች',

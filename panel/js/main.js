@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.20';
+const APP_VERSION = '1.94.21';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -6963,7 +6963,7 @@ function checkStyles() {
   });
 }
 function styleNote() {
-  if (MOGRT_ONLY) return 'Type your Amharic text in Essential Graphics (Window → Essential Graphics).';
+  if (MOGRT_ONLY) return '① Click a template below — it goes on the timeline. ② Click that clip — type Amharic in Caption text (Essential Graphics).';
   if (STYLE === 'plain') {
     return IS_APP_MODE() ? 'Plain: the exported video has no captions — only the .srt file.'
       : 'Plain: ' + HOST_NAME + '\'s own captions — you can edit and restyle them there.';
@@ -6981,7 +6981,26 @@ function IS_APP_MODE() { return typeof window !== 'undefined' && !!window.__amhA
 // the old strip set window.__amhKeepOldStyles before the panel loads.
 const MOGRT_ONLY = !IS_AE && !IS_APP_MODE() && !(typeof window !== 'undefined' && window.__amhKeepOldStyles === true);
 let MOGRT_LAST = '';
-function mogrtDir() { try { return path.join(EXT_DIR, 'mogrt'); } catch (e) { return ''; } }
+let MOGRT_DIR = null;
+// 1.94.21: CEP's __dirname is not the same on every build: it may be the
+// extension root OR its js/ folder (pickRuntime() already probes both). Look
+// in every plausible place before saying the product has no templates.
+function mogrtDir() {
+  if (MOGRT_DIR !== null) return MOGRT_DIR;
+  const tries = [];
+  try {
+    const here = (typeof __dirname !== 'undefined' && __dirname) ? __dirname : '';
+    if (here) { tries.push(path.join(here, 'mogrt'), path.join(path.dirname(here), 'mogrt')); }
+    tries.push(path.join(EXT_DIR, 'mogrt'));
+    const rt = pickRuntime();
+    if (rt) tries.push(path.join(path.dirname(rt), 'mogrt'));
+  } catch (e) {}
+  for (const d of tries) {
+    if (d) { try { if (fs.existsSync(d)) { MOGRT_DIR = d; return d; } } catch (e) {} }
+  }
+  MOGRT_DIR = '';
+  return MOGRT_DIR;
+}
 function mogrtFiles() {
   try { return fs.readdirSync(mogrtDir()).filter((f) => /\.mogrt$/i.test(f)).sort(); } catch (e) { return []; }
 }
