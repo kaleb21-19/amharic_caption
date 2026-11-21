@@ -77,6 +77,143 @@ FONTS = {
     "gothic": "Ethiopic Yigezu Bisrat Gothic",  # ornate
 }
 
+# ----------------------------------------------- English letters (1.94.37)
+# Ethiopic fonts draw English badly: Noto Sans Ethiopic has no English
+# letters at all (libass falls back to whatever the computer has), and the
+# Senamirmir fonts carry monospaced, typewriter-like English. Every English /
+# number run in a caption is drawn - and measured - in a matching partner
+# font instead, sized so its capitals sit at the height of the Amharic
+# letters (factor = 0.96 x Ethiopic letter height / partner cap height, the
+# balance Lato already has next to Noto Sans Ethiopic). One line per font:
+# (partner family, size factor), or None = the font's own English is right
+# (proportional, or the typewriter look on purpose). All partners are OFL,
+# shipped unmodified in runtime/fonts.
+LATIN_PARTNER = {
+    "Noto Sans Ethiopic": ("Lato", 1.0),
+    "Menbere": None,
+    "Noto Serif Ethiopic": None,
+    "Abyssinica SIL": None,
+    "Ethiopic Yebse": ("Lato", 1.41),
+    "Ethiopic WashRa Bold": ("Lato", 1.23),
+    "Agbalumo": None,
+    "Ethiopic Tint": ("Caveat Brush", 1.34),
+    "Ethiopic Fantuwua": ("Patrick Hand", 1.36),
+    "Ethiopia Jiret": ("Noto Serif Ethiopic", 1.11),
+    "Hibur Mono": None,                                   # typewriter: monospaced English IS the look
+    "Ethiopic Yigezu Bisrat Gothic": ("Noto Serif Ethiopic", 1.36),
+}
+# the files of each family libass may be asked for (renders copy only the
+# fonts a caption uses: fewer files for libass to read on every preview)
+FAMILY_FILES = {
+    "Noto Sans Ethiopic": ("NotoSansEthiopic-Regular.ttf", "NotoSansEthiopic-Bold.ttf"),
+    "Menbere": ("Menbere-Regular.ttf", "Menbere-Bold.ttf"),
+    "Noto Serif Ethiopic": ("NotoSerifEthiopic-Regular.ttf", "NotoSerifEthiopic-Bold.ttf"),
+    "Abyssinica SIL": ("AbyssinicaSIL-Regular.ttf",),
+    "Ethiopic Yebse": ("yebse.ttf",),
+    "Ethiopic WashRa Bold": ("washrab.ttf",),
+    "Agbalumo": ("Agbalumo-Regular.ttf",),
+    "Ethiopic Tint": ("tint.ttf",),
+    "Ethiopic Fantuwua": ("fantuwua.ttf",),
+    "Ethiopia Jiret": ("jiret.ttf",),
+    "Hibur Mono": ("HiburMono-Regular.ttf",),
+    "Ethiopic Yigezu Bisrat Gothic": ("yigezubisratgothic.ttf",),
+    "Lato": ("Lato-Regular.ttf", "Lato-Bold.ttf"),
+    "Caveat Brush": ("CaveatBrush-Regular.ttf",),
+    "Patrick Hand": ("PatrickHand-Regular.ttf",),
+}
+
+
+def fonts_used(script):
+    """The font files a script needs (its styles' fonts and every \\fn), or
+    None when a family is not known here - then every font is copied."""
+    fams = set()
+    for ln in script.split("\n"):
+        if ln.startswith("Style: "):
+            f = ln[7:].split(",")
+            if len(f) > 1:
+                fams.add(f[1].strip())
+    for m in re.finditer(r"\\fn([^\\}]+)", script):
+        fams.add(m.group(1).strip())
+    files = set()
+    for fam in fams:
+        if fam not in FAMILY_FILES:
+            return None
+        files.update(FAMILY_FILES[fam])
+    return files
+
+
+# an English / number run: starts and ends on a letter or digit (trailing
+# . , ! ? % allowed), spaces only between two such words
+LATIN_RUN = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9'\u2019&$#@+/\-]|[.,:;!?%](?![A-Za-z0-9])|[.,:;](?=[A-Za-z0-9])| (?=[A-Za-z0-9]))*")
+
+
+def _fs_num(x):
+    return ("%.1f" % x).rstrip("0").rstrip(".")
+
+
+def _latin_plain(seg, font, size, drawing):
+    part = LATIN_PARTNER.get(font)
+    if drawing or not part or not seg:
+        return seg
+    pf, k = part
+    out = []
+    for piece in re.split(r"(\\[Nnh])", seg):              # ASS line breaks / hard spaces stay as they are
+        if piece.startswith("\\"):
+            out.append(piece)
+            continue
+        out.append(LATIN_RUN.sub(lambda m: "{\\fn%s\\fs%s}%s{\\fn%s\\fs%s}" % (pf, _fs_num(size * k), m.group(0), font, _fs_num(size)), piece))
+    return "".join(out)
+
+
+def _latin_text(text, font, size):
+    """One Dialogue text: English runs in the partner font. Follows the line's
+    own \\fn / \\fs / \\p (vector drawings are never touched) / \\r."""
+    res, pos = [], 0
+    cur_font, cur_size, drawing = font, size, False
+    for m in re.finditer(r"\{[^}]*\}", text):
+        res.append(_latin_plain(text[pos:m.start()], cur_font, cur_size, drawing))
+        blk = m.group(0)
+        res.append(blk)
+        for t in re.finditer(r"\\(fn|fs|p|r)([^\\}]*)", blk):
+            tag, val = t.group(1), t.group(2)
+            if tag == "fn" and val.strip():
+                cur_font = val.strip()
+            elif tag == "fs":
+                mm = re.match(r"(\d+(?:\.\d+)?)", val)
+                if mm:
+                    cur_size = float(mm.group(1))
+            elif tag == "p":
+                mm = re.match(r"(\d+)", val)
+                if mm:
+                    drawing = int(mm.group(1)) > 0
+            elif tag == "r" and not re.match(r"[a-z]", val):
+                cur_font, cur_size = font, size
+        pos = m.end()
+    res.append(_latin_plain(text[pos:], cur_font, cur_size, drawing))
+    return "".join(res)
+
+
+def _latin_partners(script):
+    """The whole script: every Dialogue line's English runs in its style
+    font's partner (see LATIN_PARTNER)."""
+    styles, out = {}, []
+    for ln in script.split("\n"):
+        if ln.startswith("Style: "):
+            f = ln[7:].split(",")
+            if len(f) > 2:
+                try:
+                    styles[f[0]] = (f[1], float(f[2]))
+                except ValueError:
+                    pass
+        elif ln.startswith("Dialogue: "):
+            parts = ln.split(",", 9)
+            if len(parts) == 10 and parts[3] in styles:
+                parts[9] = _latin_text(parts[9], *styles[parts[3]])
+                ln = ",".join(parts)
+        out.append(ln)
+    return "\n".join(out)
+
+
 # "Install Amharic fonts on this PC" (1.28.0): the shipped files and the
 # names Windows lists them under, so Premiere's own titles, CapCut and
 # DaVinci can use them too
@@ -669,7 +806,7 @@ def build(words, style, width, height, font=FONT, opts=None):
             script = script.replace(c, o["color"])
     if o["text"]:
         script = script.replace(WHITE, o["text"])
-    script = _apply_layout(script, style, width, height, o)
+    script = _latin_partners(_apply_layout(script, style, width, height, o))
     return script.replace("[Events]\n", "; amh-bottom: %.4f\n[Events]\n" % caption_bottom(script, style, width, height, o), 1)
 
 
@@ -695,7 +832,7 @@ def _build_template(words, style, width, height, font=FONT, opts=None):
     if anim in LETTER_ANIMS:
         lines = _letters(lines, anim)
     script = _header(width, height, st) + "\n".join(_smooth_fades(lines)) + "\n"
-    script = _apply_layout(script, style, width, height, o)
+    script = _latin_partners(_apply_layout(script, style, width, height, o))
     return script.replace("[Events]\n", "; amh-bottom: %.4f\n[Events]\n" % caption_bottom(script, style, width, height, o), 1)
 
 
@@ -963,13 +1100,26 @@ def _face(font, bold=True):
     return m.get("%s|%d" % (font, 1 if bold else 0)) or m.get("%s|0" % font)
 
 
+def _run_w(text, f, size):
+    adv, fb = f["adv"], f["fallback"]
+    return sum(adv.get(str(ord(ch)), fb) for ch in text) * size / float(f["em"])
+
+
 def _text_w(text, font, size, bold=True):
-    """Width in pixels of `text` at ASS font size `size`, as libass draws it."""
+    """Width in pixels of `text` at ASS font size `size`, as libass draws it
+    (1.94.37: English runs measured in the partner font they are drawn in)."""
     f = _face(font, bold)
     if not f:
         return len(text) * size * 0.52             # no metrics: a fair guess
-    adv, fb = f["adv"], f["fallback"]
-    return sum(adv.get(str(ord(ch)), fb) for ch in text) * size / float(f["em"])
+    part = LATIN_PARTNER.get(font)
+    pf = _face(part[0], bold) if part else None
+    if not pf:
+        return _run_w(text, f, size)
+    w, pos = 0.0, 0
+    for m in LATIN_RUN.finditer(text):
+        w += _run_w(text[pos:m.start()], f, size) + _run_w(m.group(0), pf, size * part[1])
+        pos = m.end()
+    return w + _run_w(text[pos:], f, size)
 
 
 def _legacy_fit(words, font, size, width, NW, o):
@@ -2091,8 +2241,9 @@ def render(job, progress=None):
         with open(os.path.join(tmp, "band.ass"), "w", encoding="utf-8") as f:
             f.write(captions_only)          # the preview strip is found without the free tag
         os.makedirs(os.path.join(tmp, "fonts"))
+        need = fonts_used(script)               # 1.94.37: only the fonts this caption uses
         for name in os.listdir(job["fonts"]):
-            if name.lower().endswith((".ttf", ".otf")):
+            if name.lower().endswith((".ttf", ".otf")) and (need is None or name in need):
                 shutil.copy(os.path.join(job["fonts"], name), os.path.join(tmp, "fonts", name))
         out = os.path.abspath(job["out"])
         if mode == "burn":
