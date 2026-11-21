@@ -254,6 +254,18 @@ need = A.fonts_used(bs)
 check(need is not None and "Lato-Bold.ttf" in need and "NotoSansEthiopic-Bold.ttf" in need and "yebse.ttf" not in need,
       "a render copies only the fonts its caption uses (Bold: Noto Sans Ethiopic + Lato)")
 check(A.fonts_used("Style: S,Some Other Font,40\n") is None, "an unknown font: every font is copied, as before")
+# 1.94.42 the live canvas's style process: the same script as "render ... mode script"
+import io as _io
+import json as _json
+_req = [{"id": 1, "cues": [[u"ሰላም Premiere", 1.0, 3.0]], "style": "bold", "opts": {"size": 1.2}, "width": 1280, "height": 720, "tag": True},
+        {"id": 2, "cues": [], "style": "bold"}]
+_out = _io.StringIO()
+A.serve(_io.StringIO("\n".join(_json.dumps(r) for r in _req) + "\n"), _out)
+_ans = [_json.loads(l) for l in _out.getvalue().splitlines()]
+_want = A.build(A.words_from_cues(_req[0]["cues"]), "bold", 1280, 720, opts={"size": 1.2}) + A._tag_line(1280, 720, 0, 3.5) + "\n"
+check(_ans[0]["ok"] and _ans[0]["id"] == 1 and _ans[0]["script"] == _want, "serve: the exact script the export draws (with the free tag)")
+check("Lato-Bold.ttf" in (_ans[0]["fonts"] or []), "serve: says which font files the canvas needs")
+check(_ans[1]["ok"] is False and _ans[1]["id"] == 2, "serve: a bad request answers an error, the process keeps going")
 check(all(n in shipped for n in ("OFL.txt", "OFL-Menbere.txt", "OFL-NotoSerifEthiopic.txt", "OFL-AbyssinicaSIL.txt",
                                  "OFL-Agbalumo.txt", "OFL-HiburMono.txt", "OFL-Senamirmir.txt", "FONTLOG-Senamirmir.txt")),
       "every font's license is shipped")

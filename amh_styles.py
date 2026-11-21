@@ -2379,7 +2379,50 @@ def supported(ffmpeg):
         return False
 
 
+def serve(stream_in=None, stream_out=None):
+    """1.94.42 live canvas: one long-lived process answers style requests, one
+    JSON line in, one JSON line out, so every change in Customize costs the
+    script (well under a millisecond) instead of a new Python each time. The
+    script is exactly what "render ... mode script" writes (the same build()
+    + the free version's tag), so the panel's canvas draws what the export
+    draws. Request: {id, cues: [[text, start, end]], style, opts, width,
+    height, duration, tag} -> {id, ok, script, fonts} or {id, ok: false, error}."""
+    fin = stream_in or sys.stdin
+    fout = stream_out or sys.stdout
+    for line in fin:
+        line = line.strip()
+        if not line:
+            continue
+        rid = None
+        try:
+            req = json.loads(line)
+            rid = req.get("id")
+            w, h = int(req.get("width") or 1920), int(req.get("height") or 1080)
+            words = words_from_cues(req.get("cues") or [])
+            if not words:
+                raise ValueError("no captions to style")
+            dur = float(req.get("duration") or (words[-1][2] + 0.5))
+            script = build(words, req.get("style") or "bold", w, h, opts=req.get("opts"))
+            if req.get("tag"):
+                script += _tag_line(w, h, 0, dur) + "\n"
+            used = fonts_used(script)
+            out = {"id": rid, "ok": True, "script": script, "fonts": sorted(used) if used else None}
+        except Exception as e:
+            out = {"id": rid, "ok": False, "error": str(e)}
+        fout.write(json.dumps(out, ensure_ascii=False) + "\n")
+        fout.flush()
+
+
 if __name__ == "__main__":
+    # python amh_styles.py serve  -> the live canvas's style process (1.94.42)
+    if len(sys.argv) == 2 and sys.argv[1] == "serve":
+        for _s in (sys.stdin, sys.stdout):
+            try:
+                _s.reconfigure(encoding="utf-8")
+            except (AttributeError, ValueError):
+                pass
+        serve()
+        sys.exit(0)
     # python amh_styles.py render job.json  -> "[style] <0..1>" lines, then one JSON line
     if len(sys.argv) == 3 and sys.argv[1] == "render":
         try:
