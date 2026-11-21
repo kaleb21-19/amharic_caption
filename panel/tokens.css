@@ -1,0 +1,169 @@
+/*
+ * tokens.css — the design tokens of the panel (1.94.47, UI plan U1).
+ *
+ * Every colour, size, space, radius, shadow, duration and layer the panel's
+ * stylesheet uses comes from here. A new value means a new token here first;
+ * tools/test/test_ui_tokens.js fails the build when a hard-coded one comes
+ * back. Contrast measured on the panel's own backgrounds (WCAG 2.2):
+ * text-primary 17.1:1, text-secondary 6.8:1, accent 7.4:1, danger 4.9:1 (on a card),
+ * border-control 3.2-3.5:1 (a control's edge), white on danger-solid 5.0:1.
+ * Dark only (1.13.0): the panel looks the same in every host theme.
+ */
+:root {
+  color-scheme: dark;
+
+  /* ── colour: surfaces ───────────────────────────────────────────────── */
+  --color-bg-base:      #0b1110;   /* the panel */
+  --color-bg-raised:    #141d1a;   /* cards, menus, dialogs */
+  --color-bg-sunken:    #0e1614;   /* fields, segmented controls */
+  --color-bg-hover:     #1a2622;
+  --color-bg-selected:  #1c3a2c;
+  --color-bg-disabled:  #131c19;
+  --color-neutral:        #2d3a33; /* scrollbar thumbs */
+  --color-neutral-strong: #3d4d44; /* scrollbar hover, waveform bars, an "off" badge */
+  --color-preview-backdrop: #253244; /* behind caption style previews */
+
+  /* ── colour: borders ────────────────────────────────────────────────── */
+  --color-border-subtle:  #223029; /* dividers and card edges (decorative) */
+  --color-border-control: #5a6f63; /* the edge of a control: 3:1 */
+
+  /* ── colour: text ───────────────────────────────────────────────────── */
+  --color-text-primary:   #eef4f0;
+  --color-text-secondary: #94a79c;
+  --color-text-disabled:  #6f8377;
+  --color-text-on-accent: #06251a;
+  --color-text-on-danger: #ffffff;
+
+  /* ── colour: brand and status ───────────────────────────────────────── */
+  --color-accent:         #34c07d;
+  --color-accent-hover:   #3cd48a;
+  --color-accent-pressed: #2aa86c;
+  --color-accent-soft:    rgba(52, 192, 125, .14);
+  --color-accent-mark:    rgba(52, 192, 125, .24); /* found words, a selected stretch */
+  --color-accent-border:  rgba(52, 192, 125, .42);
+  --color-accent-glow:    rgba(52, 192, 125, .55);
+  --color-success:        #34c07d;
+  --color-success-soft:   rgba(52, 192, 125, .12);
+  --color-warning:        #e8a83d;
+  --color-warning-soft:   rgba(232, 168, 61, .12);
+  --color-warning-mark:   rgba(232, 168, 61, .34);
+  --color-warning-border: rgba(232, 168, 61, .42);
+  --color-danger:         #e8575b; /* text on any surface 4.9:1+ (was #e5484d: 4.4 on a card) */
+  --color-danger-solid:   #c93b40; /* a filled danger button: white text 5.0:1 */
+  --color-danger-soft:    rgba(229, 72, 77, .12);
+  --color-danger-mark:    rgba(229, 72, 77, .22);
+  --color-danger-border:  rgba(229, 72, 77, .42);
+  --color-highlight:        #ffd60a; /* the ★ of a word that pops */
+  --color-highlight-soft:   rgba(255, 214, 10, .10);
+  --color-highlight-border: rgba(255, 214, 10, .35);
+  --color-info:           #5b9cf6;
+  --color-focus-ring:     #3cd48a;
+
+  /* ── colour: fixed (the same whatever the theme) ────────────────────── */
+  --color-static-white:   #ffffff; /* a QR code's ground, a switch knob */
+  --color-static-black:   #000000; /* behind a video */
+  --color-scrim:          rgba(0, 0, 0, .58); /* behind a dialog */
+  --color-overlay:        rgba(0, 0, 0, .7);  /* a label on a colour swatch */
+  --color-swatch-ring:    rgba(255, 255, 255, .22);
+  --color-tint-white:     rgba(255, 255, 255, .03);
+
+  /* ── type ───────────────────────────────────────────────────────────── */
+  --font-family-ui: "Adobe Clean", "Segoe UI", -apple-system, "Helvetica Neue", Arial,
+    "Ebrima", "Nyala", "Kefa", "Abyssinica SIL", "Noto Sans Ethiopic", sans-serif;
+  --font-family-caption: 'Abyssinica SIL', 'Kefa', serif;
+  --font-family-mono: ui-monospace, Menlo, Consolas, monospace;
+  --font-size-micro: 9px;   /* only a badge inside a graphic, never a sentence */
+  --font-size-xs: 11px;     /* help and meta lines: the smallest readable Ethiopic */
+  --font-size-sm: 12px;     /* controls */
+  --font-size-md: 13px;     /* body, captions */
+  --font-size-lg: 15px;     /* titles */
+  --font-size-xl: 18px;     /* dialog titles */
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+  --font-weight-regular: 400;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* ── space (4 px steps) ─────────────────────────────────────────────── */
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --space-5: 12px;
+  --space-6: 16px;
+  --space-7: 24px;
+
+  /* ── radius ─────────────────────────────────────────────────────────── */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-pill: 999px;
+  --radius-round: 50%;
+
+  /* ── elevation and rings ────────────────────────────────────────────── */
+  --elevation-raised: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 14px rgba(0, 0, 0, .18);
+  --elevation-menu:   0 8px 24px rgba(0, 0, 0, .4);
+  --elevation-dialog: 0 10px 30px rgba(0, 0, 0, .45);
+  --elevation-accent: 0 2px 8px rgba(52, 192, 125, .3);
+  --ring-width: 2px;
+
+  /* ── size ───────────────────────────────────────────────────────────── */
+  --control-height-sm: 24px;
+  --control-height-md: 28px;
+  --control-height-lg: 32px;
+  --target-min: 24px;
+  --icon-size-sm: 14px;
+  --icon-size-md: 16px;
+
+  /* ── motion ─────────────────────────────────────────────────────────── */
+  --duration-instant: 80ms;
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --duration-slow: 320ms;
+  --ease-standard: cubic-bezier(.2, 0, 0, 1);
+  --ease-enter: cubic-bezier(0, 0, 0, 1);
+  --ease-exit: cubic-bezier(.3, 0, 1, 1);
+
+  /* ── layers ─────────────────────────────────────────────────────────── */
+  --z-sticky: 10;
+  --z-menu: 100;
+  --z-dialog: 200;
+  --z-toast: 300;
+  --z-badge: 400;
+
+  /* ── the names before 1.94.47 (the Studio's app/app.css still uses them) */
+  --bg-panel: var(--color-bg-base);
+  --bg-elev: var(--color-bg-raised);
+  --bg-card: var(--color-bg-raised);
+  --bg-field: var(--color-bg-sunken);
+  --bg-hover: var(--color-bg-selected);
+  --bg-disabled: var(--color-bg-disabled);
+  --text-primary: var(--color-text-primary);
+  --text-secondary: var(--color-text-secondary);
+  --text-disabled: var(--color-text-disabled);
+  --accent: var(--color-accent);
+  --accent-hover: var(--color-accent-hover);
+  --accent-active: var(--color-accent-pressed);
+  --accent-soft: var(--color-accent-soft);
+  --border: var(--color-border-subtle);
+  --divider: var(--color-border-subtle);
+  --ok: var(--color-success);
+  --ok-soft: var(--color-success-soft);
+  --ok-mark: var(--color-accent-mark);
+  --warn: var(--color-warning);
+  --warn-soft: var(--color-warning-soft);
+  --warn-mark: var(--color-warning-mark);
+  --err: var(--color-danger);
+  --err-soft: var(--color-danger-soft);
+  --font-s: var(--font-size-xs);
+  --font-m: var(--font-size-md);
+  --font-l: var(--font-size-lg);
+  --control-h: 26px;
+  --radius: var(--radius-md);
+  --gap: var(--space-3);
+  --shadow: var(--elevation-raised);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --duration-instant: 0ms; --duration-fast: 0ms; --duration-normal: 0ms; --duration-slow: 0ms; }
+}
