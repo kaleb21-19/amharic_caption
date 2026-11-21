@@ -934,6 +934,198 @@
   .font-note-row .btn { width: auto; min-width: 0; flex: 1 1 auto; padding: var(--space-2) var(--space-4); font-size: var(--font-size-xs); height: auto; white-space: normal; }
   .font-note-row #fontNoteClose { flex: 0 0 auto; }
   html:not(.amh-studio) #styleCustomToggle { width: 24px; height: 24px; padding: 0; font-size: var(--font-size-sm); line-height: 1; }
+
+  /* ═══ 1.94.50 component layer (panel UI plan U4) ═════════════════════════
+     One look per component. The older rules above keep each control's place
+     (margins, flex, position); every LOOK - height, padding, corners, text,
+     colours, border - comes from here. The Studio has its own layout and is
+     not touched. Components: Button (primary / secondary / ghost / add /
+     danger), menu item, Chip, Segmented, IconButton (close ✕ is one),
+     Disclosure, Notice. Style cards are content tiles and keep their look. */
+
+  /* Button · primary - the one main action of a screen */
+  html:not(.amh-studio) .btn-primary,
+  html:not(.amh-studio) .sc-save,
+  html:not(.amh-studio) .row-hint .hint-btn.primary {
+    height: var(--control-height-md); padding: 0 var(--space-5); border: 1px solid transparent; border-radius: var(--radius-md);
+    background: linear-gradient(135deg, var(--color-accent), var(--color-accent-hover)); color: var(--color-text-on-accent);
+    font-size: var(--font-size-md); font-weight: var(--font-weight-bold); box-shadow: var(--elevation-accent); cursor: pointer;
+  }
+  html:not(.amh-studio) .sc-save,
+  html:not(.amh-studio) .row-hint .hint-btn.primary { height: var(--control-height-sm); font-size: var(--font-size-sm); box-shadow: none; }
+  html:not(.amh-studio) .btn-primary:hover:not(:disabled),
+  html:not(.amh-studio) .sc-save:hover:not(:disabled),
+  html:not(.amh-studio) .row-hint .hint-btn.primary:hover:not(:disabled) { background: var(--color-accent-hover); }
+  html:not(.amh-studio) .btn-primary:active:not(:disabled),
+  html:not(.amh-studio) .sc-save:active:not(:disabled) { background: var(--color-accent-pressed); }
+  html:not(.amh-studio) .btn-primary:disabled,
+  html:not(.amh-studio) .sc-save:disabled { background: var(--color-bg-disabled); color: var(--color-text-disabled); box-shadow: none; cursor: not-allowed; }
+
+  /* Button · secondary */
+  html:not(.amh-studio) .btn-neutral,
+  html:not(.amh-studio) .cc-save,
+  html:not(.amh-studio) .client-panel .cli-save,
+  html:not(.amh-studio) .client-panel .cli-cancel,
+  html:not(.amh-studio) .row-hint .hint-btn,
+  html:not(.amh-studio) .chk-card .btn {
+    height: var(--control-height-sm); padding: 0 var(--space-4); border: 1px solid var(--color-border-control); border-radius: var(--radius-md);
+    background: var(--color-bg-raised); color: var(--color-text-primary); font-size: var(--font-size-sm); font-weight: var(--font-weight-regular);
+    box-shadow: none; cursor: pointer;
+  }
+  html:not(.amh-studio) #reviewDiscard,
+  html:not(.amh-studio) #buyBtn.btn-neutral,
+  html:not(.amh-studio) .tc-box .btn-neutral { height: var(--control-height-md); font-size: var(--font-size-md); }
+  html:not(.amh-studio) .btn-neutral:hover:not(:disabled),
+  html:not(.amh-studio) .cc-save:hover:not(:disabled),
+  html:not(.amh-studio) .client-panel .cli-save:hover,
+  html:not(.amh-studio) .client-panel .cli-cancel:hover,
+  html:not(.amh-studio) .row-hint .hint-btn:hover { background: var(--color-bg-hover); border-color: var(--color-accent); }
+  html:not(.amh-studio) .btn-neutral:disabled,
+  html:not(.amh-studio) .cc-save:disabled { background: var(--color-bg-disabled); color: var(--color-text-disabled); border-color: var(--color-border-subtle); cursor: not-allowed; }
+  html:not(.amh-studio) .row-hint .hint-btn.danger { color: var(--color-danger); }
+
+  /* Button · ghost - a quiet action in words */
+  html:not(.amh-studio) .tc-later,
+  html:not(.amh-studio) .update-later,
+  html:not(.amh-studio) .cc-reset,
+  html:not(.amh-studio) .sc-reset,
+  html:not(.amh-studio) .memory-panel .mem-all,
+  html:not(.amh-studio) .row-hint .hint-btn.close {
+    min-height: var(--control-height-sm); padding: 0 var(--space-3); border: 0; border-radius: var(--radius-sm);
+    background: transparent; color: var(--color-text-secondary); font-size: var(--font-size-xs); font-weight: var(--font-weight-regular); cursor: pointer;
+  }
+  html:not(.amh-studio) .tc-later:hover,
+  html:not(.amh-studio) .update-later:hover,
+  html:not(.amh-studio) .cc-reset:hover,
+  html:not(.amh-studio) .sc-reset:hover,
+  html:not(.amh-studio) .memory-panel .mem-all:hover,
+  html:not(.amh-studio) .row-hint .hint-btn.close:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
+  html:not(.amh-studio) .memory-panel .mem-all { color: var(--color-danger); }
+  html:not(.amh-studio) .client-panel .cli-actions .mem-all { color: var(--color-accent); }
+
+  /* Button · add - a dashed "add / more" line */
+  html:not(.amh-studio) .review-add,
+  html:not(.amh-studio) .style-more,
+  html:not(.amh-studio) .sc-install,
+  html:not(.amh-studio) .client-panel .cli-chip.add {
+    min-height: var(--control-height-md); padding: 0 var(--space-4); border: 1px dashed var(--color-border-control); border-radius: var(--radius-md);
+    background: transparent; color: var(--color-accent); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); cursor: pointer;
+  }
+  html:not(.amh-studio) .review-add:hover,
+  html:not(.amh-studio) .style-more:hover,
+  html:not(.amh-studio) .sc-install:hover:not(:disabled),
+  html:not(.amh-studio) .client-panel .cli-chip.add:hover { border-style: solid; border-color: var(--color-accent); background: var(--color-accent-soft); color: var(--color-accent-hover); }
+
+  /* Button · danger */
+  html:not(.amh-studio) #cancelBtn {
+    height: var(--control-height-sm); padding: 0 var(--space-4); border: 0; border-radius: var(--radius-md);
+    background: var(--color-danger-solid); color: var(--color-text-on-danger); font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold);
+  }
+  html:not(.amh-studio) #cancelBtn:hover { background: var(--color-danger-solid-hover); }
+
+  /* Menu item */
+  html:not(.amh-studio) .row-menu button.tool {
+    min-height: var(--control-height-sm); padding: 0 var(--space-4); border: 0; border-radius: var(--radius-sm);
+    background: transparent; color: var(--color-text-primary); font-size: var(--font-size-xs); font-weight: var(--font-weight-regular); text-align: left;
+  }
+  html:not(.amh-studio) .row-menu button.tool:hover:not(:disabled) { background: var(--color-bg-hover); }
+
+  /* Chip - a small pill: a step, a client, the language, Customize */
+  html:not(.amh-studio) .review-steps .rstep,
+  html:not(.amh-studio) .client-panel .cli-chip,
+  html:not(.amh-studio) .lang-toggle,
+  html:not(.amh-studio) .sc-toggle,
+  html:not(.amh-studio) .chk-sug button {
+    min-height: var(--control-height-sm); height: auto; padding: 0 var(--space-4); border: 1px solid var(--color-border-control); border-radius: var(--radius-pill);
+    background: var(--color-bg-raised); color: var(--color-text-secondary); font-size: var(--font-size-xs); font-weight: var(--font-weight-regular);
+    line-height: 1.2; cursor: pointer;
+  }
+  html:not(.amh-studio) .review-steps .rstep:hover,
+  html:not(.amh-studio) .client-panel .cli-chip:hover,
+  html:not(.amh-studio) .lang-toggle:hover,
+  html:not(.amh-studio) .sc-toggle:hover,
+  html:not(.amh-studio) .chk-sug button:hover { color: var(--color-text-primary); border-color: var(--color-accent); }
+  /* chip · on (done, chosen, the open Customize call to action) */
+  html:not(.amh-studio) .review-steps .rstep.done,
+  html:not(.amh-studio) .rstep.hearstop,
+  html:not(.amh-studio) .client-panel .cli-chip.active,
+  html:not(.amh-studio) .sc-toggle,
+  html:not(.amh-studio) .chk-sug button {
+    background: var(--color-accent-soft); border-color: var(--color-accent-border); color: var(--color-accent);
+  }
+  html:not(.amh-studio) .review-steps .rstep.warn { background: var(--color-warning-soft); border-color: var(--color-warning-border); color: var(--color-warning); }
+  html:not(.amh-studio) .review-steps .rstep.last { color: var(--color-text-primary); }
+  /* chip · selected (filled) */
+  html:not(.amh-studio) .sc-toggle.open { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-text-on-accent); font-weight: var(--font-weight-semibold); }
+
+  /* Segmented - one choice of a few */
+  html:not(.amh-studio) .seg button,
+  html:not(.amh-studio) .sc-opt,
+  html:not(.amh-studio) .sc-compact .cc-opt {
+    height: 22px; padding: 0 var(--space-4); background: var(--color-bg-sunken); color: var(--color-text-secondary);
+    font-size: var(--font-size-sm); font-weight: var(--font-weight-regular); cursor: pointer;
+  }
+  html:not(.amh-studio) .seg button:hover,
+  html:not(.amh-studio) .sc-opt:hover,
+  html:not(.amh-studio) .sc-compact .cc-opt:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
+  html:not(.amh-studio) .seg button.active,
+  html:not(.amh-studio) .sc-opt.active,
+  html:not(.amh-studio) .sc-compact .cc-opt.active { background: var(--color-accent); color: var(--color-text-on-accent); font-weight: var(--font-weight-semibold); }
+  html:not(.amh-studio) .seg button:disabled,
+  html:not(.amh-studio) .sc-opt:disabled,
+  html:not(.amh-studio) .sc-compact .cc-opt:disabled { color: var(--color-text-disabled); cursor: not-allowed; }
+
+  /* IconButton - 24 px, an icon alone (close ✕ is one) */
+  html:not(.amh-studio) .row-acts button.act,
+  html:not(.amh-studio) .star-tip-x,
+  html:not(.amh-studio) #trialGate .tg-close,
+  html:not(.amh-studio) .chk-x,
+  html:not(.amh-studio) .memory-panel .mem-del,
+  html:not(.amh-studio) .recent-del,
+  html:not(.amh-studio) .clean-hear,
+  html:not(.amh-studio) .sc-live {
+    width: var(--target-min); height: var(--target-min); min-width: var(--target-min); padding: 0; border: 0; border-radius: var(--radius-sm);
+    display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+    background: transparent; color: var(--color-text-secondary); font-size: var(--font-size-sm); opacity: 1; cursor: pointer;
+  }
+  html:not(.amh-studio) .row-acts button.act:hover:not(:disabled),
+  html:not(.amh-studio) .star-tip-x:hover,
+  html:not(.amh-studio) #trialGate .tg-close:hover,
+  html:not(.amh-studio) .chk-x:hover,
+  html:not(.amh-studio) .clean-hear:hover,
+  html:not(.amh-studio) .sc-live:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
+  html:not(.amh-studio) .row-acts button.act-del:hover:not(:disabled),
+  html:not(.amh-studio) .memory-panel .mem-del:hover,
+  html:not(.amh-studio) .recent-del:hover { background: var(--color-danger-soft); color: var(--color-danger); }
+  html:not(.amh-studio) .sc-live.active { background: var(--color-accent-soft); color: var(--color-accent); }
+  html:not(.amh-studio) .row-acts { flex: 0 0 52px; grid-template-columns: var(--target-min) var(--target-min); }
+  /* the row's actions show on hover / focus (the row stays calm), as before */
+  html:not(.amh-studio) .row-acts button.act { opacity: 0; }
+  html:not(.amh-studio) .review-row:hover .row-acts button.act,
+  html:not(.amh-studio) .review-row:focus-within .row-acts button.act,
+  html:not(.amh-studio) .row-more.open button.act { opacity: 1; }
+  html:not(.amh-studio) .review-row .text-box .pop-word,
+  html:not(.amh-studio) .review-row .text-box .cut-word { border-radius: var(--radius-sm); }
+
+  /* Disclosure - a section that opens */
+  html:not(.amh-studio) .disclosure,
+  html:not(.amh-studio) .cc-sec {
+    min-height: var(--control-height-sm); padding: var(--space-3) var(--space-2); border: 0; background: transparent;
+    color: var(--color-text-primary); font-size: var(--font-size-xs); font-weight: var(--font-weight-semibold); text-align: left; cursor: pointer;
+  }
+  html:not(.amh-studio) .cc-sec { border-top: 1px solid var(--color-border-subtle); }
+  html:not(.amh-studio) .disclosure:hover,
+  html:not(.amh-studio) .cc-sec:hover { color: var(--color-accent-hover); }
+  html:not(.amh-studio) .disclosure.open,
+  html:not(.amh-studio) .cc-sec.open { color: var(--color-accent); }
+
+  /* Notice - a message in the page: warning, problem, information */
+  .notice { margin: 0 0 var(--space-4); padding: var(--space-4) var(--space-5); border: 1px solid var(--color-border-control); border-radius: var(--radius-md);
+    background: var(--color-bg-raised); font-size: var(--font-size-xs); line-height: var(--line-height-normal); }
+  .notice-warn { border-color: var(--color-warning); background: var(--color-warning-soft); }
+  .notice-danger { border-color: var(--color-danger); background: var(--color-danger-soft); }
+  .notice-info { border-color: var(--color-accent-border); background: var(--color-accent-soft); }
+  .permit-box.notice { margin: var(--space-4) 0; }
 </style>
 </head>
 <body>
@@ -1177,19 +1369,18 @@
     </div>
 
     <!-- 1.94.3: opened from inside the zip (the engine cannot start) -->
-    <div id="zipWarn" style="display:none;margin-bottom:var(--space-4);padding:var(--space-4) var(--space-5);border:1px solid var(--err);border-radius:var(--radius);background:var(--err-soft);font-size:var(--font-size-xs);line-height:1.45;" data-i18n-html="zip.warn">
+    <div id="zipWarn" class="notice notice-danger" style="display:none;" data-i18n-html="zip.warn">
       ⚠️ <b>Extract the zip first.</b> The program was opened from inside the downloaded zip, so it cannot make captions.
       Right-click the zip → <b>Extract All</b> → <b>Extract</b>, then open <b>«Make Amharic Captions»</b> from the extracted folder.
     </div>
     <!-- 1.94.44: a timed license ends in <= 3 days, or ended: renew in one tap -->
-    <div id="renewBox" style="display:none;margin-bottom:var(--space-4);padding:var(--space-4) var(--space-5);border:1px solid var(--warn);border-radius:var(--radius);background:var(--warn-soft);font-size:var(--font-size-xs);line-height:1.45;">
+    <div id="renewBox" class="notice notice-warn" style="display:none;">
       <div id="renewTitle" style="font-weight:var(--font-weight-bold);"></div>
       <div id="renewSub" style="margin:var(--space-2) 0 var(--space-3);"></div>
       <button type="button" id="renewBtn" class="btn btn-primary" style="width:100%;">🔁 Renew</button>
       <div class="hint" id="renewNote" style="display:none;margin-top:var(--space-3);font-weight:var(--font-weight-semibold);line-height:1.45;"></div>
     </div>
-    <div id="trialBanner"
-         style="display:none;margin-bottom:var(--space-4);padding:var(--space-4) var(--space-5);border:1px solid var(--warn);border-radius:var(--radius);background:var(--warn-soft);font-size:var(--font-size-xs);line-height:1.45;" data-i18n-html="lic.trialBanner">
+    <div id="trialBanner" class="notice notice-warn" style="display:none;" data-i18n-html="lic.trialBanner">
       <b>Your free minutes are used up</b> — buy a license below to keep making captions.
     </div>
 
@@ -1227,13 +1418,11 @@
         </div>
       </div>
 
-      <div id="machineUnsaved" class="permit-box"
-           style="display:none;margin:var(--space-4) 0;padding:var(--space-4) var(--space-5);border:1px solid var(--warn);border-radius:var(--radius);background:var(--warn-soft);font-size:var(--font-size-xs);line-height:1.45;" data-i18n-html="lic.unsaved">
+      <div id="machineUnsaved" class="notice notice-warn permit-box" style="display:none;" data-i18n-html="lic.unsaved">
         ⚠️ <b>This computer stops the program from saving its small ID file.</b> Free minutes still work, but a license would not stay activated.
         Allow «Amharic Captions» in your antivirus (or Windows Security → Ransomware protection → Controlled folder access), then restart the program.
       </div>
-      <div id="machineMismatch" class="permit-box"
-           style="display:none;margin:var(--space-4) 0;padding:var(--space-4) var(--space-5);border:1px solid var(--warn);border-radius:var(--radius);background:var(--warn-soft);font-size:var(--font-size-xs);line-height:1.45;" data-i18n-html="lic.mismatch">
+      <div id="machineMismatch" class="notice notice-warn permit-box" style="display:none;" data-i18n-html="lic.mismatch">
         ⚠️ <b>This machine record was created on another computer.</b> If you
         bought a key and reinstalled, contact support to move the license here —
         do not buy a second one.
@@ -1282,7 +1471,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.94.49</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.94.50</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>

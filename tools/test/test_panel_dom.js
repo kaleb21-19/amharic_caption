@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.49');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.50');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1729,6 +1729,24 @@ await t('4n3x. 1.94.49 dialogs take the keyboard: focus goes in, Tab stays insid
     p.evalVm(`$('buyBtn').focus(); showBuyQr('https://t.me/AmharicCaptionsBot?start=m_x'); hideBuyQr();`);
     assert.strictEqual(active(), 'buyBtn');
     assert.strictEqual(p.evalVm('DLG.length'), 0, 'nothing left open');
+  } finally { p.close(); }
+});
+await t('4n3y. 1.94.50 one main action: Buy is secondary while Generate can run, primary once Generate is blocked', async () => {
+  const p = loadPanel({});
+  try {
+    await flush(5);
+    const has = (c) => p.els('buyBtn').classList.contains(c);
+    p.evalVm("LICENSED = false; TRIAL_MIN = { status: 'active', seconds_left: 600, seconds_total: 1200, minutes: 20 }; updateLicenseUI();");
+    assert.strictEqual(p.evalVm("$('runBtn').disabled"), false);
+    assert.ok(has('btn-neutral'));
+    assert.ok(!has('btn-primary'), 'Generate is the main action while it can run');
+    p.evalVm("TRIAL_MIN = { status: 'used', seconds_left: 0, seconds_total: 1200, minutes: 20 }; updateLicenseUI();");
+    assert.strictEqual(p.evalVm("$('runBtn').disabled"), true);
+    assert.ok(has('btn-primary'), 'Generate blocked: Buy is the main action');
+    assert.ok(!has('btn-neutral'));
+    // a running job (Cancel shown): Buy is left as it is
+    p.evalVm("$('cancelBtn').style.display = 'inline-block'; TRIAL_MIN = { status: 'active', seconds_left: 600, seconds_total: 1200, minutes: 20 }; updateLicenseUI();");
+    assert.ok(has('btn-primary'), 'not switched in the middle of a job');
   } finally { p.close(); }
 });
 await t('4n4. 1.94.31 Follow Premiere: the caption and the word under the playhead are marked; off by default; off = no reads', async () => {
