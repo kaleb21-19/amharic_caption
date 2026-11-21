@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ExtensionManifest Version="9.0" ExtensionBundleId="com.amharic.captions"
-                   ExtensionBundleVersion="1.94.45"
+                   ExtensionBundleVersion="1.94.46"
                    ExtensionBundleName="Amharic Captions Pro">
   <ExtensionList>
-    <Extension Id="com.amharic.captions.panel" Version="1.94.45"/>
+    <Extension Id="com.amharic.captions.panel" Version="1.94.46"/>
   </ExtensionList>
 
   <ExecutionEnvironment>

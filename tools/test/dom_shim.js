@@ -182,7 +182,7 @@ const KNOWN = [
   'revUndo', 'revMemory', 'memoryPanel',
   'revClient', 'clientPanel', 'revCleanup', 'revSilence', 'cleanupPanel', 'revZoom', 'zoomPanel',
   'srcLine', 'wpcSeg', 'wpc1', 'wpc2', 'wpc3', 'wpc4', 'wpc5', 'wpcField', 'capField',
-  'reviewSteps', 'fontNote', 'fontNoteText', 'fontNoteBtn', 'fontNoteClose', 'zipWarn', 'textCutNote', 'textCutUndo', 'revFollow', 'starTip', 'starTipText', 'starTipClose', 'liveToggle', 'liveNote', 'runFix', 'stepText', 'stepStyle', 'stepPlace',
+  'reviewSteps', 'fontNote', 'fontNoteText', 'fontNoteBtn', 'fontNoteClose', 'zipWarn', 'textCutNote', 'textCutUndo', 'textCutMore', 'textCutList', 'revFollow', 'starTip', 'starTipText', 'starTipClose', 'liveToggle', 'liveNote', 'runFix', 'stepText', 'stepStyle', 'stepPlace',
   // next-step card after a free caption
   'trialCard', 'tcGroup', 'tcBuy', 'tcLater', 'tcLeftText', 'tcCutText', 'tcMore', 'tcMoreTitle', 'tcMoreText', 'freeMinNote', 'updateNow', 'modelTgBox', 'modelTgWhy', 'modelTg',
   'freeMinBox', 'freeMinTitle', 'freeMinBtn', 'freeMinWait',

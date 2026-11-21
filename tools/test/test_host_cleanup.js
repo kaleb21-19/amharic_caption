@@ -558,6 +558,30 @@ test('undo: refused (nothing changed) when another sequence is open or the untou
   assert.strictEqual(pp.project.activeSequence.name, 'Interview');
 });
 
+test('undo ANY cut (1.94.46): undoing cut 3 of 10 gives exactly the clips of a fresh build without it', () => {
+  // ten 1-second cuts in the ORIGINAL times, made one after another (each in the timeline of its moment)
+  const orig = [[2, 3], [5, 6], [8, 9], [11, 12], [14, 15], [17, 18], [20, 21], [23, 24], [26, 27], [29, 30]];
+  const pp = makePremiere(base());
+  let kept = '', sid = '';
+  orig.forEach((c, i) => {
+    const r = nowCut(pp, { cuts: [[c[0] - i, c[1] - i]], media: [VIDEO] });
+    assert.ok(r.ok, JSON.stringify(r));
+    if (r.kept) kept = r.kept;
+    sid = r.sequenceID;
+  });
+  const rest = orig.filter((c, i) => i !== 2);
+  const u = uncut(pp, { sequenceID: sid, keepName: kept, cuts: rest, media: [VIDEO] });
+  assert.ok(u.ok && u.cuts === 9, JSON.stringify(u));
+  const fresh = makePremiere(base());
+  const f = nowCut(fresh, { cuts: rest, media: [VIDEO] });
+  assert.ok(f.ok, JSON.stringify(f));
+  const a = pp.project.activeSequence, b = fresh.project.activeSequence;
+  assert.deepStrictEqual(a.vt[0].snap(), b.vt[0].snap(), 'the picture clips are those of a fresh build');
+  assert.deepStrictEqual(a.at[0].snap(), b.at[0].snap(), 'and the sound');
+  assert.strictEqual(a.vt[0].snap().length, 10, '9 cuts = 10 pieces');
+  assert.deepStrictEqual(pp.seqs.find((q) => q.name === kept).vt[0].snap(), [[0, 60, 'interview.mp4']], 'the untouched copy stays untouched');
+});
+
 
 // -- 1.94.31 follow Premiere: the playhead, read only
 test('follow: amh_playerPos reads the playhead in seconds and changes nothing', () => {
