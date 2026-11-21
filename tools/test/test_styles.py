@@ -211,6 +211,32 @@ FONT_FILES = {"sans": "NotoSansEthiopic-Regular.ttf", "menbere": "Menbere-Regula
 shipped = os.listdir(os.path.join(REPO, "tools", "fonts"))
 check(set(FONT_FILES) == set(A.FONTS) and all(FONT_FILES[f] in shipped for f in A.FONTS),
       "every font is shipped in tools/fonts (12)")
+# 1.94.37 English partners: one line per font, shipped with their licence, measured
+PARTNER_FILES = {"Lato": ("Lato-Regular.ttf", "Lato-Bold.ttf"), "Caveat Brush": ("CaveatBrush-Regular.ttf",),
+                 "Patrick Hand": ("PatrickHand-Regular.ttf",), "Noto Serif Ethiopic": ("NotoSerifEthiopic-Regular.ttf",)}
+check(set(A.LATIN_PARTNER) == set(A.FONTS.values()), "every Ethiopic font has a line in LATIN_PARTNER (12)")
+check(all(all(f in shipped for f in PARTNER_FILES[p[0]]) for p in A.LATIN_PARTNER.values() if p),
+      "every English partner is shipped in tools/fonts")
+check(all(n in shipped for n in ("OFL-Lato.txt", "OFL-CaveatBrush.txt", "OFL-PatrickHand.txt")), "with its OFL licence")
+check(all(A._face(p[0]) for p in A.LATIN_PARTNER.values() if p), "and measured in metrics.json")
+check(all(0.9 <= p[1] <= 1.5 for p in A.LATIN_PARTNER.values() if p), "partner size factors are sane")
+lt = A._latin_text(u"ሰላም Amharic 2026, እን {\\p1}m 0 0 l 10 10{\\p0}\\NOK", "Ethiopic Yebse", 60)
+check(u"ሰላም {\\fnLato\\fs84.6}Amharic 2026,{\\fnEthiopic Yebse\\fs60} እን" in lt, "English + numbers drawn in the partner, sized")
+check("m 0 0 l 10 10" in lt and "\\N{\\fnLato" in lt, "vector drawings and line breaks are never touched")
+check(A._latin_text("Amharic", "Menbere", 60) == "Amharic", "a font with good English of its own is left alone")
+check(A._latin_text("Amharic", "Hibur Mono", 60) == "Amharic", "the typewriter font keeps its typewriter English")
+bs = A.build([(u"ሰላም Premiere Pro", 0.0, 1.0)], "bold", 1280, 720)
+check("\\fnLato" in bs, "the real Bold style draws English in Lato")
+w_mono = A._run_w("Amharic Captions", A._face("Ethiopic Fantuwua"), 60)
+w_part = A._text_w("Amharic Captions", "Ethiopic Fantuwua", 60)
+check(abs(w_part - A._run_w("Amharic Captions", A._face("Patrick Hand"), 60 * 1.36)) < 0.01 and w_part < w_mono,
+      "English is measured in the partner it is drawn in (centring of self-placed styles)")
+check(all(f in shipped for files in A.FAMILY_FILES.values() for f in files)
+      and set(A.FONTS.values()) <= set(A.FAMILY_FILES), "FAMILY_FILES names real files for every font and partner")
+need = A.fonts_used(bs)
+check(need is not None and "Lato-Bold.ttf" in need and "NotoSansEthiopic-Bold.ttf" in need and "yebse.ttf" not in need,
+      "a render copies only the fonts its caption uses (Bold: Noto Sans Ethiopic + Lato)")
+check(A.fonts_used("Style: S,Some Other Font,40\n") is None, "an unknown font: every font is copied, as before")
 check(all(n in shipped for n in ("OFL.txt", "OFL-Menbere.txt", "OFL-NotoSerifEthiopic.txt", "OFL-AbyssinicaSIL.txt",
                                  "OFL-Agbalumo.txt", "OFL-HiburMono.txt", "OFL-Senamirmir.txt", "FONTLOG-Senamirmir.txt")),
       "every font's license is shipped")

@@ -44,6 +44,14 @@ FACES = [
     ("Hibur Mono", 1, "HiburMono-Regular.ttf"),
     ("Ethiopic Yigezu Bisrat Gothic", 0, "yigezubisratgothic.ttf"),
     ("Ethiopic Yigezu Bisrat Gothic", 1, "yigezubisratgothic.ttf"),
+    # 1.94.37: the English partners (amh_styles.LATIN_PARTNER) - measured so a
+    # mixed Amharic + English line is placed where libass draws it
+    ("Lato", 0, "Lato-Regular.ttf"),
+    ("Lato", 1, "Lato-Bold.ttf"),
+    ("Caveat Brush", 0, "CaveatBrush-Regular.ttf"),
+    ("Caveat Brush", 1, "CaveatBrush-Regular.ttf"),
+    ("Patrick Hand", 0, "PatrickHand-Regular.ttf"),
+    ("Patrick Hand", 1, "PatrickHand-Regular.ttf"),
 ]
 
 
@@ -71,6 +79,11 @@ def main():
                 if pen.bounds:
                     bottoms.append(pen.bounds[1])
                     tops.append(pen.bounds[3])
+        if not tops:                                   # an English partner: its capitals instead
+            pen = BoundsPen(gs)
+            gs[f.getBestCmap()[ord("H")]].draw(pen)
+            bottoms.append(0)
+            tops.append(pen.bounds[3])
         tops.sort()
         bottoms.sort()
         out["%s|%d" % (family, bold)] = {
