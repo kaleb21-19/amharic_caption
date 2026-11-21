@@ -205,11 +205,14 @@ const JOB_PAGES = {};
 const JOB_POSTS = {};
 const JOB_FETCHES = [];
 // fake api.github.com releases/latest (update-available notice)
-const GH = { calls: 0, status: 200, body: { tag_name: 'v1.8.0' }, files: {}, dl: [] };
+const GH = { calls: 0, status: 200, body: { tag_name: 'v1.8.0' }, files: {}, dl: [], page: '' };
 globalThis.fetch = async (url, init = {}) => {
   url = String(url);
   if (url.startsWith('https://github.com/kaleb21-19/amharic_caption/releases/') || url.startsWith('https://huggingface.co/kal11/')) {
     GH.dl.push({ url, range: (init.headers || {}).Range || '', method: init.method || 'GET' });
+    if (url === 'https://github.com/kaleb21-19/amharic_caption/releases/latest' && GH.page) {
+      return new Response(null, { status: 302, headers: { Location: GH.page } });        // the plain page's redirect
+    }
     const f = GH.files[url];
     if (f === undefined) return new Response('nope', { status: 404 });
     const r = /^bytes=(\d+)-$/.exec((init.headers || {}).Range || '');
@@ -1256,6 +1259,34 @@ console.log('\n:: scenario 9 — extension API: trial, rate limits, API key togg
     GH.files = {};
   }
   ok('/api/latest 1.80: each platform\'s update package with its SHA-256, signed; incomplete or foreign packages left out');
+
+  // 2026-11-21: GitHub's API refuses the shared Cloudflare address (rate limit) -> the plain release page still gives
+  // the newest version and its packages (the owner was stuck on 1.94.29 while 1.94.32 was out)
+  {
+    const envX = fresh();
+    const D = 'https://github.com/kaleb21-19/amharic_caption/releases/download/v1.94.32/';
+    const SHA = 'cd'.repeat(32);
+    await envX.kv.put('latest:last', JSON.stringify({ version: '1.94.29', url: 'https://amharic-caption-pro.vercel.app/install/' }));
+    GH.status = 403; GH.body = { message: 'API rate limit exceeded' };
+    GH.page = 'https://github.com/kaleb21-19/amharic_caption/releases/tag/v1.94.32';
+    GH.files = { [D + 'amharic-captions-update-win-x64.zip']: 'z'.repeat(120),
+                 [D + 'amharic-captions-update-win-x64.zip.sha256']: SHA + '  amharic-captions-update-win-x64.zip\n' };
+    const uj = await (await api(envX.env, '/api/latest', { headers: { 'CF-Connecting-IP': '203.0.113.95' } })).json();
+    assert.equal(uj.version, '1.94.32', 'the newest version, not the stale 1.94.29');
+    assert.deepEqual(Object.keys(uj.update || {}), ['win-x64'], 'the one-tap update package is found by its name');
+    assert.equal(uj.update['win-x64'].size, 120);
+    assert.equal(uj.update['win-x64'].sha256, SHA);
+    assert.ok(cryptoVerify('sha256', Buffer.from('update|1.94.32|win-x64|' + SHA + '|120'),
+      { key: createPublicKey(SIGNING_KEY), dsaEncoding: 'ieee-p1363' }, Buffer.from(uj.update['win-x64'].sig, 'hex')), 'signed as before');
+    // the page gives nothing usable either: the last good answer, as before
+    const envY = fresh();
+    await envY.kv.put('latest:last', JSON.stringify({ version: '1.94.29', url: 'https://amharic-caption-pro.vercel.app/install/' }));
+    GH.page = 'https://evil.example/releases/tag/v9.9.9';
+    const uy = await (await api(envY.env, '/api/latest', { headers: { 'CF-Connecting-IP': '203.0.113.94' } })).json();
+    assert.equal(uy.version, '1.94.29', 'a redirect elsewhere is never trusted');
+    GH.status = 200; GH.body = { tag_name: 'v1.8.0' }; GH.page = ''; GH.files = {};
+  }
+  ok('/api/latest: GitHub API refused (rate limit) -> the plain release page still gives the newest version + packages');
 
   // 1.80.1 fast downloads: our release files and the model's files only, with Range
   {
