@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.23';
+const APP_VERSION = '1.94.24';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3610,9 +3610,11 @@ function loadSettings() {
     return s;
   } catch (e) { return {}; }
 }
-// 1.94.23 smooth joins: a 30 ms fade out / in at every cut (no click). Off
-// until checked in a real Premiere (Run diagnostics > "Smooth joins").
-function cutFadesOn() { try { return loadSettings().cutFades === true; } catch (e) { return false; } }
+// 1.94.23 smooth joins: a 30 ms fade out / in at every cut (no click).
+// 1.94.24: on by default - checked in Premiere 2026 (Run diagnostics >
+// "Smooth joins": ready, all keyframe functions there). Setting cutFades:
+// false switches it off.
+function cutFadesOn() { try { return loadSettings().cutFades !== false; } catch (e) { return true; } }
 function saveSettings(over) {
   const s = loadSettings();
   for (const k in over) s[k] = over[k];
