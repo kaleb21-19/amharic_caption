@@ -9,6 +9,9 @@
 #include "json2.jsx"
 
 var AMH_CAPTION_BIN = "Amharic Captions";
+// 1.94.39 the live caption on the Program monitor: its files live in their own
+// bin, deleted as a whole when the review ends (amh_liveClear)
+var AMH_LIVE_BIN = "Amharic Captions - preview";
 var AMH_TICKS_PER_SECOND = 254016000000;
 
 function amhOk(obj) {
@@ -785,19 +788,19 @@ function amhTrackFree(track, start, end) {
 }
 
 // Import a styled caption file into our bin and return its project item.
-function amhImportCaptionFile(filePath) {
+function amhImportCaptionFile(filePath, binName) {
     var f = new File(filePath);
     if (!f.exists) { return { error: "Styled caption file not found: " + filePath }; }
-    var bin = amhFindOrCreateBin(AMH_CAPTION_BIN);
+    var bin = amhFindOrCreateBin(binName || AMH_CAPTION_BIN);
     var fileName = String(filePath).replace(/\\/g, "/").split("/").pop();
     var ok = app.project.importFiles([filePath], true, bin, false);
     if (!ok) { return { error: "Premiere refused to import the styled caption file." }; }
-    var item = amhCaptionItem(fileName);
+    var item = amhCaptionItem(fileName, binName);
     if (!item) { return { error: "The styled caption file was imported but could not be found in the bin." }; }
     return { item: item };
 }
-function amhCaptionItem(fileName) {
-    var bin = amhFindOrCreateBin(AMH_CAPTION_BIN);
+function amhCaptionItem(fileName, binName) {
+    var bin = amhFindOrCreateBin(binName || AMH_CAPTION_BIN);
     for (var i = bin.children.numItems - 1; i >= 0; i--) {
         var ch = bin.children[i];
         if (ch && String(ch.name) === fileName) { return ch; }
@@ -925,7 +928,7 @@ function amh_overlayPrepare(argsJSON) {
         var seq = app.project.activeSequence;
         if (!seq) { return amhErr("No active sequence. Open one first."); }
         var start = Number(args.rangeStart || 0), end = Number(args.rangeEnd || 0);
-        var imp = amhImportCaptionFile(args.path);
+        var imp = amhImportCaptionFile(args.path, args.live ? AMH_LIVE_BIN : AMH_CAPTION_BIN);
         if (imp.error) { return amhErr(imp.error); }
         var removed = amhRemoveStyled(seq, args.replacePrefix, start, end);
         var tg = amhStyledTarget(seq, start, end, Number(args.preferTrack || 0) - 1);
@@ -945,7 +948,7 @@ function amh_overlaySpans(argsJSON) {
         var args = JSON.parse(argsJSON);
         var seq = app.project.activeSequence;
         if (!seq) { return amhErr("No active sequence. Open one first."); }
-        var item = amhCaptionItem(String(args.itemName));
+        var item = amhCaptionItem(String(args.itemName), args.live ? AMH_LIVE_BIN : AMH_CAPTION_BIN);
         if (!item) { return amhErr("The styled caption file is not in the bin any more."); }
         var track = seq.videoTracks[Number(args.track) - 1];
         if (!track) { return amhErr("The caption track is gone."); }
@@ -979,6 +982,48 @@ function amh_overlaySpans(argsJSON) {
             amhClearRange(item);
         }
         return amhOk({ placed: placed });
+    });
+}
+
+// 1.94.39: the live caption ends (Place, Discard, the panel closing): its clip
+// comes off every sequence and its own bin goes - only when every item in
+// that bin is a live file of ours and none is still on a timeline (an editor
+// who moved it keeps it). args = { prefix } (must be the live prefix).
+function amh_liveClear(argsJSON) {
+    return amhGuard(function () {
+        var args = JSON.parse(argsJSON || "{}");
+        var pre = String(args.prefix || "");
+        if (pre.indexOf("amhstyle_livepreview") !== 0) { return amhErr("Not a live-preview name."); }
+        var seqs = app.project.sequences, removed = 0, used = false;
+        for (var s = 0; s < seqs.numSequences; s++) {
+            try { removed += amhRemoveStyled(seqs[s], pre, -1, 1e9); } catch (e) {}
+        }
+        for (var s2 = 0; s2 < seqs.numSequences && !used; s2++) {
+            try {
+                var vts = seqs[s2].videoTracks;
+                for (var t = 0; t < vts.numTracks && !used; t++) {
+                    for (var c = 0; c < vts[t].clips.numItems; c++) {
+                        var nm = "";
+                        try { nm = String(vts[t].clips[c].projectItem.name || ""); } catch (e) {}
+                        if (nm.indexOf(pre) === 0) { used = true; break; }
+                    }
+                }
+            } catch (e) { used = true; }      // could not look: keep the bin
+        }
+        var deleted = false;
+        if (!used) {
+            var root = app.project.rootItem;
+            for (var i = root.children.numItems - 1; i >= 0; i--) {
+                var ch = root.children[i];
+                if (!ch || ch.type !== 2 || String(ch.name) !== AMH_LIVE_BIN) { continue; }
+                var ours = true;
+                for (var j = 0; j < ch.children.numItems; j++) {
+                    if (String(ch.children[j].name).indexOf(pre) !== 0) { ours = false; break; }
+                }
+                if (ours) { try { ch.deleteBin(); deleted = true; } catch (e) {} }
+            }
+        }
+        return amhOk({ removed: removed, binDeleted: deleted, stillUsed: used });
     });
 }
 

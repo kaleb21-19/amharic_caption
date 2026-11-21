@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.38');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.39');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1656,6 +1656,7 @@ await t('4f2. 1.94.35 Premiere styling: the star tip once, a labelled Customize,
     const save = find(p.els('styleOpts'), 'myStyleSave');
     assert.ok(name && save, 'Save as My style is in the Premiere box');
     // 1.94.38: Animation in two groups - the six used most, then More (every animation still there)
+    p.evalVm("STYLE_SECTION = 'motion'; renderStyleCustom()");      // 1.94.39: in its own section
     const sels = []; const walk = (n) => { if (n.tagName === 'SELECT') sels.push(n); (n.children || []).forEach(walk); }; walk(p.els('styleOpts'));
     const anim = sels.find((x) => (x.children || []).some((g) => g.tagName === 'OPTGROUP'));
     assert.ok(anim, 'the animation list is grouped');
@@ -1669,27 +1670,47 @@ await t('4f2. 1.94.35 Premiere styling: the star tip once, a labelled Customize,
   } finally { p.close(); }
 });
 
-await t('4f3. 1.94.36 Premiere: the live preview shows without opening Customize, and is not redrawn for nothing', async () => {
-  const p = loadPanel({ realPanel: true });
+await t('4f3. 1.94.39 Premiere: the caption shows live on the Program monitor (its own bin, cleared on close); 📺 switches it off', async () => {
+  const log = [];
+  const p = loadPanel({ realPanel: true, evalLog: log, csiRaw: (jsx) => {
+    if (/amh_playerPos/.test(jsx)) return JSON.stringify({ ok: true, t: 20.5 });
+    if (/amharic_getFrame/.test(jsx)) return JSON.stringify({ ok: true, width: 1920, height: 1080, fps: 25 });
+    if (/amh_overlayPrepare/.test(jsx)) return JSON.stringify({ ok: true, itemName: 'x.mov', track: 3, addedTrack: false });
+    if (/amh_overlaySpans/.test(jsx)) return JSON.stringify({ ok: true, placed: 1 });
+    return JSON.stringify({ ok: true });
+  } });
   try {
     await flush(5);
-    const png = path.join(os.tmpdir(), 'amh_prev_' + Date.now());
-    p.evalVm(`LICENSED = true; globalThis.__pj = []; renderStyled = async (job) => { __pj.push(job.style + ':' + JSON.stringify(job.opts && job.opts.color));
-      const out = ${JSON.stringify(png)} + '_' + __pj.length + '.webp'; require('fs').writeFileSync(out, 'x'); return { ok: true, out }; };
-      STYLE_OK = true; STYLE = 'bold'; STYLE_CUSTOM_OPEN = false; reviewOpen = true;
+    p.evalVm(`LICENSED = true; globalThis.__lj = []; renderStyled = async (job) => { __lj.push(job.cues[0][0] + '|' + JSON.stringify(job.opts.color));
+      return { ok: true, out: 'C:/caps/live.mov', t0: 0, duration: 1, spans: [[0, 1]] }; };
+      REVIEW = { startSeconds: 0, label: 't' }; STYLE_OK = true; STYLE = 'bold'; reviewOpen = true;
       reviewCues = [{ text: 'ሰላም እንዴት', start: 0.5, end: 1.2 }, { text: 'ናችሁ', start: 20, end: 21 }]; renderStyleStrip();`);
-    await p.evalVm('renderPreview()');
-    assert.strictEqual(p.evalVm('__pj.length'), 1, 'a preview without opening Customize');
-    assert.notStrictEqual(p.els('styleCustom').style.display, 'none');
-    assert.notStrictEqual(p.els('stylePreview').style.display, 'none', 'shown under the tiles');
-    p.evalVm("reviewCues[1].text = 'ናችሁ ዛሬ'");                 // a caption after the preview's seconds
-    await p.evalVm('renderPreview()');
-    assert.strictEqual(p.evalVm('__pj.length'), 1, 'nothing in the preview changed: not drawn again');
+    assert.notStrictEqual(p.els('liveToggle').style.display, 'none', '📺 is shown for a styled look');
+    await p.evalVm('liveDraw()');
+    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(__lj)')), ['ናችሁ|""'], 'the caption under the playhead (20.5 s)');
+    const j = log.join('\n').split(String.fromCharCode(92)).join('');
+    assert.ok(/amh_overlayPrepare/.test(j) && /"live":true/.test(j) && /amhstyle_livepreview__/.test(j), 'its own live clip, in its own bin');
+    assert.ok(/amh_overlaySpans[^\n]*"live":true/.test(j), 'placed from the live bin');
+    assert.match(p.els('liveNote').textContent, /Program|ማሳያው/);
+    await p.evalVm('liveDraw()');
+    assert.strictEqual(p.evalVm('__lj.length'), 1, 'nothing changed: not drawn again');
     p.evalVm("setStyleOpt('color', '#FF3B30')");
-    await p.evalVm('renderPreview()');
-    assert.strictEqual(p.evalVm('__pj.length'), 2, 'a new colour: drawn again');
+    await p.evalVm('liveDraw()');
+    assert.strictEqual(p.evalVm('__lj.length'), 2, 'a change: drawn again');
+    // closing the review takes it off and deletes its bin
+    log.length = 0;
+    p.evalVm('closeReview(true)');
+    await flush(5);
+    assert.ok(log.some((x) => /amh_liveClear/.test(x) && /amhstyle_livepreview/.test(x)), 'cleared on close');
+    // 📺 off: nothing is put on the timeline
+    p.evalVm("reviewOpen = true; renderStyleStrip();");
+    p.els('liveToggle').fire('click');
+    assert.strictEqual(p.evalVm('liveOn()'), false);
+    const n = p.evalVm('__lj.length');
+    await p.evalVm('liveDraw()');
+    assert.strictEqual(p.evalVm('__lj.length'), n, 'off: never drawn');
     p.evalVm("STYLE = 'plain'; renderStyleStrip()");
-    assert.strictEqual(p.els('styleCustom').style.display, 'none', 'Plain: no preview area');
+    assert.strictEqual(p.els('liveToggle').style.display, 'none', 'Plain: no 📺');
   } finally { p.close(); }
 });
 
@@ -1785,39 +1806,60 @@ await t('4e. free week (1.10.20): the panel shows until when, and says when the 
   } finally { p.close(); }
 });
 
-await t('4f0. 1.94.2 the panel Customize is one compact block: ⚙ opens six short lines; a pick changes the look', async () => {
+await t('4f0. 1.94.39 the panel Customize: four sections (one open at a time), a size slider, any colour, height, words, lines', async () => {
   const p = loadPanel({ realPanel: true });
   try {
     await flush(10);
     // 1.93 owner: no 🔎 Search card in Premiere / After Effects (the Studio keeps it)
     assert.strictEqual(p.els('searchCard').style.display, 'none', 'no Search card in the panel');
-    p.evalVm('STYLE_OK = true; STYLE = "bounce"; STYLE_CUSTOM_OPEN = false; renderStyleStrip();');
+    p.evalVm('STYLE_OK = true; STYLE = "bounce"; STYLE_CUSTOM_OPEN = false; STYLE_SECTION = "text"; renderStyleStrip();');
     assert.notStrictEqual(p.els('styleCustomToggle').style.display, 'none', 'the ⚙ button is there');
-    // 1.94.36: the live preview shows at once; the settings lines only after ⚙
-    assert.notStrictEqual(p.els('styleCustom').style.display, 'none', 'the preview area is there for a styled look');
-    assert.strictEqual(Array.from(p.els('styleOpts').children).filter((r) => r.className === 'cc-row').length, 0, 'settings closed until ⚙');
+    assert.strictEqual(p.els('styleCustom').style.display, 'none', 'closed until ⚙ (no preview picture in the panel any more)');
     p.els('styleCustomToggle').fire('click');
     assert.notStrictEqual(p.els('styleCustom').style.display, 'none', 'open');
-    const rows = Array.from(p.els('styleOpts').children).filter((r) => r.className === 'cc-row');
+    const kids = () => Array.from(p.els('styleOpts').children);
+    const secs = () => kids().filter((r) => r.className && r.className.indexOf('cc-sec') === 0);
+    assert.deepStrictEqual(secs().map((b) => b.dataset.sec), ['text', 'emph', 'place', 'motion'], 'four sections');
+    const rows = () => kids().filter((r) => r.className === 'cc-row');
     const label = (r) => r.children[0].textContent;
-    assert.strictEqual(rows.length, 6, 'six short lines');
-    // Size L
-    const sizeBtn = rows[0].children[1].children.find((b) => b.dataset.value === 'l');
-    sizeBtn.fire('click');
-    assert.strictEqual(p.evalVm('styleOpts("bounce").size'), 1.25);
-    // Position Top
-    p.els('styleCustomToggle').fire('click'); p.els('styleCustomToggle').fire('click');
-    const rows2 = Array.from(p.els('styleOpts').children).filter((r) => r.className === 'cc-row');
-    rows2[1].children[1].children.find((b) => b.dataset.value === 'top').fire('click');
+    assert.deepStrictEqual(rows().map(label).map((x) => x.replace(/[^A-Za-z ]/g, '').trim()).filter(Boolean).length, 3, 'Text open: font, size, colour');
+    const find = (n, test) => { if (test(n)) return n; for (const c of (n.children || [])) { const x = find(c, test); if (x) return x; } return null; };
+    // the size slider (was S / M / L / XL)
+    const size = find(p.els('styleOpts'), (n) => n.className === 'cc-range');
+    assert.ok(size && Number(size.min) === 60 && Number(size.max) === 180, 'a 60-180 % slider');
+    size.value = '135';
+    size.fire('change');
+    assert.strictEqual(p.evalVm('styleOpts("bounce").size'), 1.35);
+    // any colour for the text
+    const pickc = find(p.els('styleOpts'), (n) => n.className === 'cc-pick');
+    pickc.value = '#12ab34';
+    pickc.fire('change');
+    assert.strictEqual(p.evalVm('styleOpts("bounce").text'), '#12AB34');
+    // one section at a time: Place & lines
+    secs().find((b) => b.dataset.sec === 'place').fire('click');
+    assert.strictEqual(p.evalVm('STYLE_SECTION'), 'place');
+    assert.ok(!find(p.els('styleOpts'), (n) => n.className === 'cc-pick'), 'the Text section closed');
+    const pos = rows().find((r) => /Position|ቦታ/.test(label(r)));
+    pos.children[1].children.find((b) => b.dataset.value === 'top').fire('click');
     assert.strictEqual(p.evalVm('styleOpts("bounce").pos'), 'top');
-    // a colour dot
-    const rows3 = Array.from(p.els('styleOpts').children).filter((r) => r.className === 'cc-row');
-    rows3[2].children[1].children.find((b) => b.dataset.value === '#FF3B30').fire('click');
+    const h = find(p.els('styleOpts'), (n) => n.className === 'cc-range');
+    h.value = '40'; h.fire('change');
+    assert.strictEqual(p.evalVm('styleOpts("bounce").y'), 0.4, 'the fine height');
+    const words = rows().find((r) => /Words|ቃላት/.test(label(r)));
+    words.children[1].children.find((b) => String(b.dataset.value) === '2').fire('click');
+    assert.strictEqual(p.evalVm('styleOpts("bounce").words'), 2);
+    const lines = rows().find((r) => /Lines|መስመር/.test(label(r)));
+    lines.children[1].children.find((b) => String(b.dataset.value) === '2').fire('click');
+    assert.strictEqual(p.evalVm('styleOpts("bounce").lines'), 2);
+    // Highlight word: a colour dot, on / off
+    secs().find((b) => b.dataset.sec === 'emph').fire('click');
+    find(p.els('styleOpts'), (n) => n.dataset && n.dataset.value === '#FF3B30').fire('click');
     assert.strictEqual(p.evalVm('styleOpts("bounce").color'), '#FF3B30');
-    // no tabs in the panel; 1.94.36: the live preview picture IS shown (it was hidden)
+    rows().find((r) => /Highlight|ማጉላት/.test(label(r))).children[1].children.find((b) => b.dataset.value === 'off').fire('click');
+    assert.strictEqual(p.evalVm('styleOpts("bounce").emph'), 'off');
+    // no tabs, no preview picture in the panel
     assert.strictEqual(p.els('styleTabs').style.display, 'none');
-    assert.notStrictEqual(p.els('stylePreview').style.display, 'none', 'the preview of the look is shown in the panel');
-    void label;
+    assert.strictEqual(p.els('stylePreview').style.display, 'none', 'the caption shows on the Program monitor instead');
   } finally { p.close(); }
 });
 
