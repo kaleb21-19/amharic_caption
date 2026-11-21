@@ -179,11 +179,7 @@ function loadPanel(opts) {
     TextEncoder,                                                            // likewise
   };
   sandbox.window = sandbox;
-  // 1.94.20: Premiere now shows only editable MOGRTs. Older style-strip
-  // sections opt out so they keep testing the drawn-style path; the new
-  // section loads with legacyStyles:false and checks the real default.
-  sandbox.__amhKeepOldStyles = opts.legacyStyles !== false;
-  sandbox.__dirname  = opts.dirName || PANEL_JS;
+  sandbox.__dirname  = PANEL_JS;
   sandbox.__filename = path.join(PANEL_JS,'main.js');
 
   const ctx = vm.createContext(sandbox);
@@ -251,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.21');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.22');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -4343,57 +4339,6 @@ await t('styled render: silent renderer is killed, stderr is drained, error is A
     assert.strictEqual(msg, 'The styled captions took too long. Try a shorter clip or close other programs.');
     assert.notStrictEqual(p.evalVm('T(' + JSON.stringify(msg) + ')'), msg, 'the timeout error is translated to Amharic');
   } finally { p.close(); cp.spawn = realSpawn; delete process.__amhTestChild; }
-});
-
-await t('4n3o. 1.94.21 Premiere: only editable MOGRTs in the strip; a click places one on the timeline', async () => {
-  const evalLog = [];
-  const storage = makeLocalStorage();
-  const p = loadPanel({ storage, legacyStyles: false, evalLog, csiRaw: (jsx) => {
-    if (/amh_placeMOGRT\(/.test(jsx)) return JSON.stringify({ ok: true, placed: true, track: 3, name: 'Blur' });
-    return '{"ok":true}';
-  } });
-  try {
-    await flush(10);
-    p.evalVm('STYLE_OK = false; renderStyleStrip();');
-    assert.strictEqual(p.els('styleStrip').style.display, '', 'MOGRTs do not need ffmpeg/libass');
-    const chips = Array.from(p.els('styleChips').children);
-    assert.ok(chips.length > 9, 'the supplied templates are listed (' + chips.length + ')');
-    assert.ok(!chips.some((c) => c.dataset.style), 'no drawn, non-editable styles in Premiere');
-    assert.ok(!chips.some((c) => c.dataset.my), 'no saved drawn looks in Premiere');
-    const blur = chips.find((c) => c.dataset.mogrt === 'Blur.mogrt');
-    assert.ok(blur, 'Blur.mogrt is in the strip');
-    assert.strictEqual(blur.children.length, 1, 'a MOGRT chip is a label, not a drawn-style thumbnail');
-    blur.fire('click');
-    await flush(10);
-    const call = evalLog.find((j) => /amh_placeMOGRT\(/.test(j));
-    assert.ok(call, 'the click asked Premiere to place the template');
-    const args = JSON.parse(JSON.parse(/amh_placeMOGRT\((.*)\)/.exec(call)[1]));
-    assert.ok(/[\\/]panel[\\/]mogrt[\\/]Blur\.mogrt$/.test(args.path), 'the path is the bundled .mogrt: ' + args.path);
-    assert.match(p.els('logBox').textContent, /Essential Graphics/, 'the editor is told where to type the Amharic text');
-    assert.strictEqual(p.evalVm('MOGRT_LAST'), 'Blur.mogrt', 'the placed template is marked as active');
-    assert.strictEqual(p.evalVm('typeof window.__amhKeepOldStyles'), 'boolean', 'the test harness pins the legacy-strip flag');
-    // A STYLE saved by an older version must not place a layer the editor
-    // cannot edit, even though the strip no longer offers drawn styles.
-    p.evalVm(`STYLE='neon'; STYLE_OK=true; STYLE_NAMES.neon='Neon'; reviewOpen=true; reviewPlacing=false;
-      REVIEW={label:'captions',startSeconds:0,outSrt:''}; reviewCues=[{text:'ሰላም'},{text:'እንዴት'}]; reviewTrialCharged=true;
-      __styledCalls=0; __plainCalls=0;
-      placeStyled=async()=>{__styledCalls++;return {updated:false,track:3,file:'x.mov'}};
-      finishImport=async()=>{__plainCalls++;return true};`);
-    await p.evalVm('placeReview()');
-    await flush(10);
-    assert.strictEqual(p.evalVm('__styledCalls'), 0, 'no drawn caption layer in Premiere');
-    assert.strictEqual(p.evalVm('__plainCalls'), 1, 'the editable Premiere captions are placed instead');
-  } finally { p.close(); }
-  // CEP reports __dirname as the EXTENSION ROOT on some builds (the panel's
-  // own pickRuntime() already probes both layouts). The chips must still show.
-  const q = loadPanel({ dirName: path.join(REPO, 'panel'), legacyStyles: false });
-  try {
-    await flush(10);
-    q.evalVm('renderStyleStrip();');
-    const chips = Array.from(q.els('styleChips').children);
-    assert.ok(chips.some((c) => c.dataset.mogrt === 'Blur.mogrt'), 'MOGRTs found when __dirname is the extension root');
-    assert.strictEqual(q.evalVm('MOGRT_DIR'), path.join(REPO, 'panel', 'mogrt'), 'the bundled folder was found');
-  } finally { q.close(); }
 });
 
 await t('the real license / machine-ID files in the home folder were never touched', async () => {

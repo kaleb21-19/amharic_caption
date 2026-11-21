@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.21';
+const APP_VERSION = '1.94.22';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -6963,7 +6963,6 @@ function checkStyles() {
   });
 }
 function styleNote() {
-  if (MOGRT_ONLY) return '① Click a template below — it goes on the timeline. ② Click that clip — type Amharic in Caption text (Essential Graphics).';
   if (STYLE === 'plain') {
     return IS_APP_MODE() ? 'Plain: the exported video has no captions — only the .srt file.'
       : 'Plain: ' + HOST_NAME + '\'s own captions — you can edit and restyle them there.';
@@ -6975,35 +6974,6 @@ function styleNote() {
   return LICENSED ? what : what + ' Free version: a small "Amharic Captions Pro" tag is added — a license removes it.';
 }
 function IS_APP_MODE() { return typeof window !== 'undefined' && !!window.__amhApp; }
-// 1.94.20 (owner): in Premiere ONLY the editable MOGRT templates are shown —
-// a drawn video layer cannot be edited in Essential Graphics, so it is gone
-// from this host. After Effects and the Studio keep the drawn styles. Tests of
-// the old strip set window.__amhKeepOldStyles before the panel loads.
-const MOGRT_ONLY = !IS_AE && !IS_APP_MODE() && !(typeof window !== 'undefined' && window.__amhKeepOldStyles === true);
-let MOGRT_LAST = '';
-let MOGRT_DIR = null;
-// 1.94.21: CEP's __dirname is not the same on every build: it may be the
-// extension root OR its js/ folder (pickRuntime() already probes both). Look
-// in every plausible place before saying the product has no templates.
-function mogrtDir() {
-  if (MOGRT_DIR !== null) return MOGRT_DIR;
-  const tries = [];
-  try {
-    const here = (typeof __dirname !== 'undefined' && __dirname) ? __dirname : '';
-    if (here) { tries.push(path.join(here, 'mogrt'), path.join(path.dirname(here), 'mogrt')); }
-    tries.push(path.join(EXT_DIR, 'mogrt'));
-    const rt = pickRuntime();
-    if (rt) tries.push(path.join(path.dirname(rt), 'mogrt'));
-  } catch (e) {}
-  for (const d of tries) {
-    if (d) { try { if (fs.existsSync(d)) { MOGRT_DIR = d; return d; } } catch (e) {} }
-  }
-  MOGRT_DIR = '';
-  return MOGRT_DIR;
-}
-function mogrtFiles() {
-  try { return fs.readdirSync(mogrtDir()).filter((f) => /\.mogrt$/i.test(f)).sort(); } catch (e) { return []; }
-}
 // ── My styles (1.13) ─────────────────────────────────────────────────────────
 // A customized look saved under a name ("My channel", "Client X"): its own
 // button in the strip, one click to use it again. Kept on this computer.
@@ -7053,52 +7023,32 @@ function styleChip(id, label, img, onClick) {
   b.type = 'button';
   b.className = 'style-chip';
   b.title = label;
-  if (img) {
-    const pic = document.createElement('img');
-    pic.src = 'img/styles/' + img + '.jpg';
-    pic.alt = '';
-    b.appendChild(pic);
-  }
+  const pic = document.createElement('img');
+  pic.src = 'img/styles/' + img + '.jpg';
+  pic.alt = '';
   const name = document.createElement('span');
   name.textContent = label;
+  b.appendChild(pic);
   b.appendChild(name);
-  if (onClick) b.addEventListener('click', onClick);
+  b.addEventListener('click', onClick);
   return b;
-}
-async function placeMogrt(file) {
-  const where = path.join(mogrtDir(), file);
-  try {
-    const res = await hostCall('amh_placeMOGRT', { path: where });
-    if (!res || !res.ok) throw new Error((res && res.error) || HOST_NAME + ' did not place the template');
-    MOGRT_LAST = file;
-    renderStyleStrip();
-    setSuccess('✓ ' + file.replace(/\.mogrt$/i, ''));
-    log(L('Template on the timeline — type your Amharic text in Essential Graphics (Window → Essential Graphics).'));
-  } catch (e) {
-    setStatus('err', 'ERROR');
-    log('ERROR ' + (e && e.message ? e.message : e));
-  }
 }
 function renderStyleStrip() {
   syncReviewSteps();
   const strip = $('styleStrip');
   const chips = $('styleChips');
   if (!strip || !chips) return;
-  const mogrt = MOGRT_ONLY ? mogrtFiles() : [];
-  // MOGRTs need no ffmpeg: the strip is shown even where libass is missing.
-  strip.style.display = MOGRT_ONLY || STYLE_OK ? '' : 'none';
-  if (!MOGRT_ONLY && !STYLE_OK) return;
+  strip.style.display = STYLE_OK ? '' : 'none';
+  if (!STYLE_OK) return;
   const mine = activeMyStyle();
   const list = myStyles();
   // Rebuilt only when the saved looks change: rebuilding on every click
   // would also jump the strip back to the start after scrolling to a style.
   // (1.94.4: the language too — the NEW tag stayed «አዲስ» in English)
-  const sig = JSON.stringify([typeof AMH_LANG !== 'undefined' ? AMH_LANG : '', MOGRT_ONLY ? mogrt.join('|') : '', MOGRT_LAST]
-    .concat(list.map((m) => [m.id, m.name, m.style, m.opts && m.opts.color])));
+  const sig = JSON.stringify([typeof AMH_LANG !== 'undefined' ? AMH_LANG : ''].concat(list.map((m) => [m.id, m.name, m.style, m.opts && m.opts.color])));
   if (chips.dataset.sig === sig && chips.children.length) {
     for (const b of Array.from(chips.children)) {
-      const on = b.dataset.mogrt ? b.dataset.mogrt === MOGRT_LAST
-        : b.dataset.my ? !!mine && mine.id === b.dataset.my : b.dataset.style === STYLE && !mine;
+      const on = b.dataset.my ? !!mine && mine.id === b.dataset.my : b.dataset.style === STYLE && !mine;
       b.classList.toggle('active', on);
       b.setAttribute('aria-pressed', on ? 'true' : 'false');
     }
@@ -7110,32 +7060,6 @@ function renderStyleStrip() {
   }
   chips.dataset.sig = sig;
   chips.textContent = '';
-  if (MOGRT_ONLY) {
-    const grp = document.createElement('span');
-    grp.className = 'style-group';
-    grp.textContent = L('Editable Amharic templates (MOGRT) — type in Essential Graphics');
-    chips.appendChild(grp);
-    if (!mogrt.length) {
-      const none = document.createElement('span');
-      none.className = 'style-group';
-      none.textContent = L('No MOGRT templates found in the product folder.');
-      chips.appendChild(none);
-    }
-    mogrt.forEach((file) => {
-      const label = file.replace(/\.mogrt$/i, '').replace(/^Amharic Gold Caption\s*/, '');
-      const b = styleChip('', label, '');
-      b.dataset.mogrt = file;
-      b.classList.toggle('active', file === MOGRT_LAST);
-      b.setAttribute('aria-pressed', file === MOGRT_LAST ? 'true' : 'false');
-      b.addEventListener('click', () => placeMogrt(file));
-      chips.appendChild(b);
-    });
-    const note = $('styleNote');
-    if (note) note.textContent = L(styleNote());
-    const more = $('styleMore');
-    if (more) more.style.display = 'none';
-    return;
-  }
   const builtIn = (id) => {
     const b = styleChip(id, TEMPLATE_NAMES[id] || STYLE_NAMES[id], id, () => {
       STYLE = id;
@@ -7987,7 +7911,6 @@ function renderStyleCustom() {
   const wrap = $('styleCustom');
   const opts = $('styleOpts');
   if (!wrap || !opts) return;
-  if (MOGRT_ONLY) { wrap.style.display = 'none'; const t = $('styleCustomToggle'); if (t) t.style.display = 'none'; return; }
   if (!customizeHere()) { renderCompactCustom(wrap, opts); return; }
   const styled = STYLE_OK && STYLE !== 'plain';
   const open = styled && STYLE_CUSTOM_OPEN;
@@ -8239,9 +8162,7 @@ async function placeReview() {
     removeTempCaptionArtifact(originalReviewSrt);
     REVIEW.outSrt = dest;
     lastSrtPath = dest;
-    // In Premiere the old drawn styles are gone: a saved STYLE from an older
-    // version must not silently place a layer the editor cannot edit.
-    if (!MOGRT_ONLY && STYLE !== 'plain' && STYLE_OK) {
+    if (STYLE !== 'plain' && STYLE_OK) {
       log('Placing your captions in the "' + STYLE_NAMES[STYLE] + '" style (' + reviewCues.length + ')…');
       try {
         const st = await placeStyled(reviewCues, REVIEW.label || 'captions', REVIEW.startSeconds);

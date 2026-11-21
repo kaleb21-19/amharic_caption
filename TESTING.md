@@ -212,13 +212,6 @@ customer — top manual priority.*
   cut in two: **Whole comp** and **Work Area** must list the clips inside them
   (§1.16.17; a precomp layer used to be skipped, so this said "no clips").
 
-**Editable caption template (MOGRT, owner only)**
-- After saving the open project, run `tools/mogrt/build_gold_caption.jsx` in After Effects.
-  Two .mogrt files must appear next to the script. Open each in Premiere 2023+,
-  install it from Essential Graphics → Browse, type Amharic in **Caption text** and
-  move **Side margin / Bottom margin / Text size / Accent colour**. Letters must be
-  Amharic (install Noto Sans Ethiopic), not squares; no English sample may remain.
-
 **Desktop app for CapCut / DaVinci (1.9.0+)**
 - Double-click "Make Amharic Captions" on the desktop → the app window opens (no
   black console). Dropping a video **on the icon** opens the app with that video
