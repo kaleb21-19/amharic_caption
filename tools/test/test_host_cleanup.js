@@ -384,7 +384,22 @@ test('1.93.1 the razor lands somewhere else (nothing between the lines): says so
   const r = nowCut(pp, { cuts: [[10, 12]], media: [VIDEO] });
   assert.match(r.error, /did not cut at 10\.00-12\.00 s = 10-12/);
 });
-
+test('a clip that STARTS inside the cut (whoosh 11-14, cut 10-12): what is left lands at the cut, the track stays in sync', () => {
+  const pp = makePremiere({ v: [[[0, 60, 'interview.mp4', VIDEO]]],
+    a: [[[0, 60, 'interview.mp4', VIDEO]], [[11, 14, 'whoosh.wav', 'C:/v/whoosh.wav'], [20, 25, 'whoosh.wav', 'C:/v/whoosh.wav']]] });
+  const r = nowCut(pp, { cuts: [[10, 12]], media: [VIDEO] });
+  assert.ok(r.ok, JSON.stringify(r));
+  const s = pp.project.activeSequence;
+  assert.deepStrictEqual(s.vt[0].snap(), [[0, 10, 'interview.mp4'], [10, 58, 'interview.mp4']]);
+  assert.deepStrictEqual(s.at[1].snap(), [[10, 12, 'whoosh.wav'], [18, 23, 'whoosh.wav']], 'moved by the cut (2 s), not by the piece (1 s)');
+});
+test('a clip that ENDS inside the cut, then a gap (clip 5-11, next 20-25, cut 10-12): later clips move by the whole cut', () => {
+  const pp = makePremiere({ v: [[[0, 60, 'interview.mp4', VIDEO]]],
+    a: [[[0, 60, 'interview.mp4', VIDEO]], [[5, 11, 'sfx.wav', 'C:/v/sfx.wav'], [20, 25, 'sfx2.wav', 'C:/v/sfx2.wav']]] });
+  const r = nowCut(pp, { cuts: [[10, 12]], media: [VIDEO] });
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.deepStrictEqual(pp.project.activeSequence.at[1].snap(), [[5, 10, 'sfx.wav'], [18, 23, 'sfx2.wav']]);
+});
 
 // ── 1.94.23 smooth joins: a 30 ms fade out / in at each cut (Volume > Level keys)
 const lvKeys = (c) => c.level.keys.map((k) => [r3(k[0]), r3(k[1])]);

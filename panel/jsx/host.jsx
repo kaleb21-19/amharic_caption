@@ -1892,12 +1892,22 @@ function amhCleanupOne(seq, a, b, fps, fade) {
         var next = out.next;
         var cl;
         if (!next || out.left) { continue; }      // a piece still there: never slide clips over it
+        // The next clip must end up at (its old start - len). Ripple only
+        // closes the removed pieces: when a clip starts inside the cut, or a
+        // gap lies inside it, that is less than len - move the rest by what
+        // is missing (all of len when nothing moved at all).
+        var want = next.s - len;
         cl = track.clips;
-        var j = amhCleanupFirstAfter(cl, next.s - eps);
-        if (j < cl.numItems && Math.abs(Number(cl[j].start.seconds) - next.s) < eps && amhClipName(cl[j]) === next.name) {
+        var j = amhCleanupFirstAfter(cl, want - eps), cur = null;
+        for (; j < cl.numItems; j++) {
+            var js = Number(cl[j].start.seconds);
+            if (js > next.s + eps) { break; }
+            if (js >= want - eps && amhClipName(cl[j]) === next.name) { cur = js; break; }
+        }
+        if (cur !== null && cur - want > eps) {
             for (var m = j; m < cl.numItems; m++) {
                 var shift = new Time();
-                shift.seconds = -len;
+                shift.seconds = want - cur;
                 try { cl[m].move(shift); moved++; } catch (e) {}
             }
         }
