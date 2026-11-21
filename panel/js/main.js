@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.38';
+const APP_VERSION = '1.94.39';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -5069,6 +5069,7 @@ async function openReview(outSrt, label, startSeconds, opts) {
   fitReviewBoxes();   // heights can only be measured once the overlay shows
   STYLE_CUSTOM_OPEN = false;      // closed again for every caption
   renderStyleStrip();
+  liveClear();                        // 1.94.39: a live caption left from before (panel closed mid-review)
   loadStyleFrame().then(schedulePreview, schedulePreview);
   if (!opts.live) log('Review your captions below — edit, then click "Place on timeline".');
   track('run_ok');
@@ -5263,6 +5264,7 @@ function closeReview(keepArtifact) {
   hideTiming();
   stopHearing();
   followStop();
+  liveClear();                        // 1.94.39: the live caption leaves the timeline
   CLEAN = null;
   closeCleanupPanel();
   ZOOM = null;
@@ -7319,6 +7321,7 @@ function styleChip(id, label, img, onClick) {
 function renderStyleStrip() {
   syncReviewSteps();
   syncStarTip();
+  syncLiveToggle();
   const strip = $('styleStrip');
   const chips = $('styleChips');
   if (!strip || !chips) return;
@@ -7550,7 +7553,7 @@ const hostCall = (fn, obj, ms) => evalScript(fn + '(' + escJson(escJson(obj)) + 
 async function placeSpans(file, spans, base, prep, show, done, total) {
   const CH = 40;
   for (let i = 0; i < spans.length; i += CH) {
-    const res = await hostCall('amh_overlaySpans', { itemName: prep.itemName, track: prep.track, base, spans: spans.slice(i, i + CH), check: i === 0 });
+    const res = await hostCall('amh_overlaySpans', { itemName: prep.itemName, track: prep.track, base, spans: spans.slice(i, i + CH), check: i === 0, live: !!prep.live });
     if (!res || !res.ok) {
       const e = new Error((res && res.error) || HOST_NAME + ' did not place the captions');
       e.range = !!(res && res.range);
@@ -7771,6 +7774,101 @@ async function tlRedraw(restore, cueArg) {
 function tlStop() {
   clearTimeout(TL.timer);
   TL.on = false;
+}
+// ── 📺 Live on the Program monitor (1.94.39) ────────────────────────────────
+// The owner: "the space should feel comfortable - remove the preview, let the
+// user see the caption directly". While a review is open in Premiere, the
+// caption under the playhead is drawn in the chosen look as a temporary clip
+// on the timeline, so it shows in Premiere's own (big) Program monitor; every
+// change redraws it (~1 s). Its files sit in their own bin; Place, Discard and
+// closing the review take the clip off and delete that bin. 📺 in the style
+// header switches it off (nothing is put on the timeline then).
+const LIVE_PREFIX = 'amhstyle_livepreview__';
+const LIVE = { timer: 0, busy: false, again: false, shown: false, key: '' };
+function liveOn() {
+  if (IS_AE || IS_APP_MODE()) return false;
+  try { return loadSettings().liveMonitor !== false; } catch (e) { return true; }
+}
+function liveNote(text, bad) {
+  const n = $('liveNote');
+  if (!n) return;
+  n.textContent = text || '';
+  n.className = 'live-note' + (bad ? ' bad' : '');
+  n.style.display = text ? '' : 'none';
+}
+function syncLiveToggle() {
+  const b = $('liveToggle');
+  if (!b) return;
+  const show = !IS_AE && !IS_APP_MODE() && STYLE_OK && STYLE !== 'plain';
+  b.style.display = show ? '' : 'none';
+  b.classList.toggle('active', liveOn());
+  b.title = L('Show the caption on the Program monitor');
+  if (!b.dataset.wired) {
+    b.dataset.wired = '1';
+    b.addEventListener('click', () => {
+      const on = !liveOn();
+      saveSettings({ liveMonitor: on });
+      if (on) { LIVE.key = ''; liveSchedule(); } else { liveClear(); liveNote(''); }
+      syncLiveToggle();
+    });
+  }
+  if (!show) liveNote('');
+}
+function liveSchedule() {
+  if (!liveOn() || !reviewOpen || !STYLE_OK || STYLE === 'plain' || TL.on || reviewPlacing) return;
+  clearTimeout(LIVE.timer);
+  LIVE.timer = setTimeout(() => { liveDraw(); }, 700);
+}
+async function liveDraw() {
+  if (!liveOn() || !reviewOpen || !STYLE_OK || STYLE === 'plain' || TL.on || reviewPlacing) return false;
+  if (LIVE.busy) { LIVE.again = true; return false; }
+  LIVE.busy = true;
+  try {
+    const base = Number(REVIEW && REVIEW.startSeconds) || 0;
+    let t = null;
+    const ph = await evalScript('amh_playerPos()', 3000);
+    if (ph && ph.ok && typeof ph.t === 'number') t = ph.t;
+    const i = t === null ? 0 : tlCueIndex(t - base);
+    const cue = reviewCues[i];
+    if (!cue) return false;
+    const opts = styleOpts(STYLE);
+    // nothing in that caption's look changed: nothing is drawn again
+    const key = JSON.stringify([i, STYLE, opts, cue.text, cue.start, cue.end, !LICENSED]);
+    if (LIVE.shown && key === LIVE.key) return true;
+    liveNote('⏳ ' + L('Showing it on the Program monitor…'));
+    const fr = await evalScript('amharic_getFrame()');
+    if (!fr || !fr.ok) throw new Error((fr && fr.error) || 'could not read the sequence frame size');
+    const out = path.join(ensureCaptionsDir(), LIVE_PREFIX + STYLE + '_' + Date.now() + '.mov');
+    const r = await renderStyled({ cues: styleCues([cue]), style: STYLE, opts, width: fr.width, height: fr.height, fps: fr.fps, out, mode: 'overlay', tag: !LICENSED });
+    if (!Array.isArray(r.spans) || !r.spans.length) throw new Error('nothing to show');
+    await hostCall('amh_removeStyledRange', { replacePrefix: LIVE_PREFIX, rangeStart: -1, rangeEnd: 1e9 });
+    const from = base + cue.start - 0.05, to = base + cue.end + 0.6;
+    const prep = await hostCall('amh_overlayPrepare', { path: r.out, rangeStart: Math.min(from, base + (r.t0 || 0)),
+      rangeEnd: Math.max(to, base + (r.t0 || 0) + (r.duration || 0)), replacePrefix: LIVE_PREFIX, live: true });
+    if (!prep || !prep.ok) throw new Error((prep && prep.error) || HOST_NAME + ' did not take the caption');
+    await placeSpans(r.out, r.spans, base + (r.t0 || 0), Object.assign({}, prep, { live: true }), null, 0, 0);
+    LIVE.shown = true;
+    LIVE.key = key;
+    // the playhead on that caption, so the monitor shows it
+    if (t === null || t < base + cue.start || t > base + cue.end) { try { await seekPlayhead(base + (cue.start + cue.end) / 2); } catch (e) {} }
+    liveNote('📺 ' + L('On the Program monitor') + ' — ' + L('caption') + ' ' + (i + 1));
+    return true;
+  } catch (e) {
+    liveNote(L('Could not show it on the Program monitor') + ': ' + L((e && e.message) || String(e)), true);
+    return false;
+  } finally {
+    LIVE.busy = false;
+    if (LIVE.again) { LIVE.again = false; liveSchedule(); }
+  }
+}
+function liveClear() {
+  clearTimeout(LIVE.timer);
+  const was = LIVE.shown;
+  LIVE.shown = false;
+  LIVE.key = '';
+  if (IS_AE || IS_APP_MODE()) return Promise.resolve(null);
+  void was;
+  try { return Promise.resolve(hostCall('amh_liveClear', { prefix: LIVE_PREFIX })).catch(() => null); } catch (e) { return Promise.resolve(null); }
 }
 
 // asked when the editor comes back to the panel (no polling while it is away)
@@ -8111,6 +8209,7 @@ function customizeHere() { return PANEL_CUSTOMIZE !== null ? !!PANEL_CUSTOMIZE :
 // No preview picture, no tabs, nothing to save: the look shows on the
 // timeline after Place. The same settings as the Studio's big box.
 const ANIM_COMMON = ['auto', 'none', 'fade', 'pop', 'slide', 'typewriter'];   // 1.94.38
+let STYLE_SECTION = 'text';          // 1.94.39: the open Customize section
 const SIZE_PICK = [['s', 'S', 0.8], ['m', 'M', 1], ['l', 'L', 1.25], ['xl', 'XL', 1.5]];
 function renderCompactCustom(wrap, opts) {
   const styled = STYLE_OK && STYLE !== 'plain';
@@ -8127,14 +8226,14 @@ function renderCompactCustom(wrap, opts) {
     }
   }
   wrap.classList.add('sc-compact');
-  // 1.94.36 (UI audit: a change was invisible until Place): the live preview
-  // of the chosen look shows under the tiles for every styled look - the
-  // settings below it only when Customize is open
-  wrap.style.display = styled ? '' : 'none';
+  // 1.94.39 (owner: "the space should feel comfortable"): no preview picture in
+  // the panel - the caption shows live on Premiere's Program monitor
+  wrap.style.display = open ? '' : 'none';
   const tabs = $('styleTabs');
   if (tabs) tabs.style.display = 'none';
   const stage = wrap.querySelector ? wrap.querySelector('.sc-stage') : null;
-  if (stage) stage.style.display = styled ? '' : 'none';
+  if (stage) stage.style.display = 'none';
+  ['stylePreview', 'stylePreviewNote'].forEach((id) => { const e = $(id); if (e) e.style.display = 'none'; });
   if (!open) { opts.textContent = ''; return; }
   const o = styleOpts(STYLE);
   opts.textContent = '';
@@ -8173,30 +8272,72 @@ function renderCompactCustom(wrap, opts) {
     row.appendChild(sel);
     return sel;
   };
-  // the size nearest to the one in use
-  const sz = sizeNum(o.size);
-  let near = SIZE_PICK[0];
-  SIZE_PICK.forEach((p) => { if (Math.abs(p[2] - sz) < Math.abs(near[2] - sz)) near = p; });
-  seg(line('Size'), SIZE_PICK.map((p) => [p[0], p[1]]), near[0], (v) => setStyleOpt('size', SIZE_PICK.find((p) => p[0] === v)[2]));
-  seg(line('Position'), [['bottom', L('Bottom')], ['middle', L('Middle')], ['top', L('Top')], ['safe', 'TikTok']], o.y === null ? o.pos : '',
-    (v) => setStyleOpt('pos', v));
-  dots(line('Colour'), STYLE_COLORS, o.color, 'color');
-  const tr = line('Text');
-  dots(tr, TEXT_COLORS, o.text, 'text');
-  const bx = el('button', 'cc-opt cc-box' + (o.box ? ' active' : ''), L('Box'));
-  bx.type = 'button';
-  bx.addEventListener('click', () => setStyleOpt('box', !o.box));
-  tr.appendChild(bx);
-  pick(line('Font'), STYLE_FONTS.map(([id, name]) => [id, L(name)]), o.font, 'font');
-  // 1.94.38: the six used most first, the rest grouped under More (one click, a shorter list to read)
-  const an = pick(line('Animation'), [], o.anim, 'anim');
-  [[L('Common'), STYLE_ANIMS.filter(([id]) => ANIM_COMMON.indexOf(id) >= 0)],
-   [L('More'), STYLE_ANIMS.filter(([id]) => ANIM_COMMON.indexOf(id) < 0)]].forEach(([label, list]) => {
-    const g = el('optgroup');
-    g.label = label;
-    list.forEach(([v, t]) => { const op = el('option', '', L(t)); op.value = v; if (v === o.anim) op.selected = true; g.appendChild(op); });
-    an.appendChild(g);
-  });
+  // 1.94.39 (owner: "deeper than S / M / L"): four sections, one open at a
+  // time - deep, but only one section takes room
+  const anyColour = (row, current, key) => {
+    const c = el('input', 'cc-pick');
+    c.type = 'color';
+    c.title = L('Any colour');
+    c.value = HEX_COLOR.test(current || '') ? current : '#FFFFFF';
+    c.addEventListener('change', () => setStyleOpt(key, String(c.value).toUpperCase()));
+    row.appendChild(c);
+    return c;
+  };
+  const slider = (row, min, max, step, value, fmt, onDone) => {
+    const r = el('input', 'cc-range');
+    r.type = 'range'; r.min = min; r.max = max; r.step = step; r.value = value;
+    const v = el('span', 'cc-val', fmt(value));
+    r.addEventListener('input', () => { v.textContent = fmt(Number(r.value)); });
+    r.addEventListener('change', () => onDone(Number(r.value)));     // drawn when the slider is let go
+    row.appendChild(r);
+    row.appendChild(v);
+    return r;
+  };
+  const section = (id, label) => {
+    const isOpen = STYLE_SECTION === id;
+    const b = el('button', 'cc-sec' + (isOpen ? ' open' : ''), (isOpen ? '▾ ' : '▸ ') + L(label));
+    b.type = 'button';
+    b.dataset.sec = id;
+    b.addEventListener('click', () => { STYLE_SECTION = isOpen ? '' : id; renderStyleCustom(); });
+    opts.appendChild(b);
+    return isOpen;
+  };
+  if (section('text', 'Text')) {
+    pick(line('Font'), STYLE_FONTS.map(([id, name]) => [id, L(name)]), o.font, 'font');
+    slider(line('Size'), 60, 180, 5, Math.round(sizeNum(o.size) * 100), (x) => x + '%', (x) => setStyleOpt('size', x / 100));
+    const tr = line('Colour');
+    dots(tr, TEXT_COLORS, o.text, 'text');
+    anyColour(tr, o.text, 'text');
+    const bx = el('button', 'cc-opt cc-box' + (o.box ? ' active' : ''), L('Box'));
+    bx.type = 'button';
+    bx.addEventListener('click', () => setStyleOpt('box', !o.box));
+    tr.appendChild(bx);
+  }
+  if (section('emph', 'Highlight word')) {
+    const cr = line('Colour');
+    dots(cr, STYLE_COLORS, o.color, 'color');
+    anyColour(cr, o.color, 'color');
+    seg(line('Highlight'), [['auto', L('On')], ['off', L('Off')]], o.emph, (v) => setStyleOpt('emph', v));
+  }
+  if (section('place', 'Place & lines')) {
+    seg(line('Position'), [['bottom', L('Bottom')], ['middle', L('Middle')], ['top', L('Top')], ['safe', 'TikTok']], o.y === null ? o.pos : '',
+      (v) => setStyleOpt('pos', v));
+    const yNow = o.y !== null ? o.y : ({ bottom: 0.9, middle: 0.55, top: 0.2, safe: 0.7 })[o.pos] || 0.9;
+    slider(line('Height'), 10, 97, 1, Math.round(yNow * 100), (x) => x + '%', (x) => setStyleOpt('y', x / 100));
+    seg(line('Words per caption'), [[0, L('Auto')], [1, '1'], [2, '2'], [3, '3'], [4, '4'], [5, '5']], o.words, (v) => setStyleOpt('words', Number(v)));
+    seg(line('Lines'), [[1, '1'], [2, '2']], o.lines, (v) => setStyleOpt('lines', Number(v)));
+  }
+  if (section('motion', 'Motion')) {
+    // 1.94.38: the six used most first, the rest grouped under More (one click, a shorter list to read)
+    const an = pick(line('Animation'), [], o.anim, 'anim');
+    [[L('Common'), STYLE_ANIMS.filter(([id]) => ANIM_COMMON.indexOf(id) >= 0)],
+     [L('More'), STYLE_ANIMS.filter(([id]) => ANIM_COMMON.indexOf(id) < 0)]].forEach(([label, list]) => {
+      const g = el('optgroup');
+      g.label = label;
+      list.forEach(([v, t]) => { const op = el('option', '', L(t)); op.value = v; if (v === o.anim) op.selected = true; g.appendChild(op); });
+      an.appendChild(g);
+    });
+  }
   const foot = el('div', 'cc-foot');
   const reset = el('button', 'cc-reset', '↺ ' + L('Reset'));
   reset.type = 'button';
@@ -8420,6 +8561,7 @@ async function loadStyleFrame() {
 let PREVIEW_KEY = '';
 function schedulePreview() {
   if (TL.on) tlSchedule();           // 1.93: the caption on the timeline follows
+  else liveSchedule();               // 1.94.39: the live caption on the Program monitor follows
   if (PREVIEW_TIMER) clearTimeout(PREVIEW_TIMER);
   PREVIEW_TIMER = setTimeout(renderPreview, 300);
 }
@@ -8428,7 +8570,8 @@ async function renderPreview() {
   const img = $('stylePreview');
   const note = $('stylePreviewNote');
   if (!img || !STYLE_OK || STYLE === 'plain' || !reviewOpen || reviewPlacing) return;
-  if (customizeHere() && !STYLE_CUSTOM_OPEN) return;   // the Studio: while its Customize is open
+  // 1.94.39: the Studio only - Premiere shows the caption on its own Program monitor (live)
+  if (!customizeHere() || !STYLE_CUSTOM_OPEN) return;
   const cues = styleCues(reviewCues);
   if (!cues.length) return;
   // 1.94.36: the preview shows the first seconds only - typing in a later
@@ -8484,6 +8627,7 @@ async function placeReview() {
     if (STYLE !== 'plain' && STYLE_OK) {
       log('Placing your captions in the "' + STYLE_NAMES[STYLE] + '" style (' + reviewCues.length + ')…');
       try {
+        await liveClear();              // 1.94.39: the live caption is not left under the real ones
         const st = await placeStyled(reviewCues, REVIEW.label || 'captions', REVIEW.startSeconds);
         if (!st.updated) {
           log('✓ Styled captions on track V' + st.track + (st.addedTrack ? ' (a new track)' : '') +

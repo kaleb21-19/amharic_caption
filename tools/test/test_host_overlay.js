@@ -52,9 +52,16 @@ function makeItem(name, range) {
 function makePremiere(trackClips, opts) {
   opts = opts || {};
   const kids = [];
-  const bin = { name: 'Amharic Captions', type: 2, children: coll(kids, 'numItems') };
+  const bin = { name: 'Amharic Captions', type: 2, children: coll(kids, 'numItems'), _kids: kids };
   const rootKids = [bin];
-  const root = { children: coll(rootKids, 'numItems'), createBin() { return bin; } };
+  // 1.94.39: other bins are real (the live preview bin), and can be deleted
+  const root = { children: coll(rootKids, 'numItems'), createBin(name) {
+    if (!name || name === 'Amharic Captions') return bin;
+    const k = [];
+    const b = { name, type: 2, children: coll(k, 'numItems'), _kids: k, deleteBin() { rootKids.splice(rootKids.indexOf(b), 1); } };
+    rootKids.push(b);
+    return b;
+  } };
   const vt = trackClips.map(makeTrack);
   const seq = {
     frameSizeHorizontal: 1080, frameSizeVertical: 1920, timebase: String(254016000000 / 25),
@@ -69,7 +76,8 @@ function makePremiere(trackClips, opts) {
     app: {
       project: {
         activeSequence: seq, rootItem: root,
-        importFiles(paths) { if (opts.refuse) return false; for (const p of paths) kids.push(makeItem(path.basename(p), opts.range || 'seconds')); return true; },
+        importFiles(paths, quiet, target) { if (opts.refuse) return false; for (const p of paths) ((target && target._kids) || kids).push(makeItem(path.basename(p), opts.range || 'seconds')); return true; },
+        get sequences() { return coll([seq], 'numSequences'); },
       },
       enableQE() {},
     },
@@ -224,6 +232,40 @@ test('the selected caption clip is found (ours only)', () => {
   assert.deepStrictEqual([r.name, r.start, r.end], [nm, 10.25, 11.4]);
   pp = makePremiere([[[0, 60]], [[10.25, 11.4, nm]]], { selection: (vt) => [vt[0].list[0]] });
   assert.strictEqual(pp.call('amh_selectedStyled()').none, true);
+});
+
+// -- 1.94.39 the live caption on the Program monitor
+test('live caption: its file goes to its own bin; it is placed from there', () => {
+  const pp = makePremiere([[[0, 60]]]);
+  const prep = pp.call('amh_overlayPrepare(' + J({ path: tmp, rangeStart: 19.9, rangeEnd: 21.6, replacePrefix: 'amhstyle_livepreview__', live: true }) + ')');
+  assert.ok(prep.ok, JSON.stringify(prep));
+  const root = pp.ctx.app.project.rootItem;
+  const kidsOf = (b) => Array.from({ length: b.children.numItems }, (_, i) => b.children[i]);
+  const live = kidsOf(root).find((b) => b.name === 'Amharic Captions - preview');
+  assert.ok(live && live.children.numItems === 1, 'in "Amharic Captions - preview"');
+  assert.strictEqual(root.children[0].children.numItems, 0, 'not in the captions bin');
+  const r = pp.call('amh_overlaySpans(' + J({ itemName: prep.itemName, track: prep.track, base: 20, spans: [[0, 1]], live: true }) + ')');
+  assert.ok(r.ok && r.placed === 1, JSON.stringify(r));
+});
+test('live caption cleared: its clip comes off, its bin is deleted; real captions and the video stay', () => {
+  const lv = 'amhstyle_livepreview__bold_1.mov', real = 'amhstyle_talk__bold_1.mov';
+  const pp = makePremiere([[[0, 60]], [[10, 11, real]], [[20, 21, lv]]]);
+  const root = pp.ctx.app.project.rootItem;
+  const kidsOf = (b) => Array.from({ length: b.children.numItems }, (_, i) => b.children[i]);
+  const b = root.createBin('Amharic Captions - preview');
+  b._kids.push(makeItem(lv, 'seconds'));
+  const r = pp.call('amh_liveClear(' + J({ prefix: 'amhstyle_livepreview__' }) + ')');
+  assert.ok(r.ok && r.removed === 1 && r.binDeleted === true, JSON.stringify(r));
+  assert.strictEqual(pp.vt[2].list.length, 0, 'the live clip is gone');
+  assert.deepStrictEqual(pp.vt[1].list.map((c) => c.projectItem.name), [real], 'the real captions stay');
+  assert.strictEqual(pp.vt[0].list.length, 1, 'the video stays');
+  assert.ok(!kidsOf(root).some((x) => x.name === 'Amharic Captions - preview'), 'bin deleted');
+  // a bin holding anything not ours is never deleted; another name is refused
+  const b2 = root.createBin('Amharic Captions - preview');
+  b2._kids.push(makeItem('my_own_clip.mov', 'seconds'));
+  assert.strictEqual(pp.call('amh_liveClear(' + J({ prefix: 'amhstyle_livepreview__' }) + ')').binDeleted, false, 'not only ours: kept');
+  assert.strictEqual(pp.call('amh_liveClear(' + J({ prefix: 'amhstyle_talk__' }) + ')').ok, false, 'only the live prefix');
+  assert.deepStrictEqual(pp.vt[1].list.map((c) => c.projectItem.name), [real]);
 });
 
 console.log('\nALL PASS  (' + passed + ' tests)');

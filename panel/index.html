@@ -566,6 +566,18 @@
     border: 0; border-radius: 5px; background: var(--bg-card); color: #ffd60a; font-size: 12px; line-height: 18px; cursor: pointer;
     opacity: .35; transition: opacity .12s; }   /* 1.94.35: always a little visible (was 0 = never found) */
   .review-row:hover .text-box .pop-word, .review-row:focus-within .text-box .pop-word { opacity: .95; }
+  .sc-live { flex: 0 0 auto; height: 28px; width: 32px; margin-left: auto; padding: 0; border: 1px solid var(--border); border-radius: 14px;
+    background: transparent; color: inherit; cursor: pointer; opacity: .55; font-size: 13px; }
+  .sc-live.active { opacity: 1; border-color: var(--accent); }
+  .sc-live + .sc-toggle { margin-left: 6px; }
+  .live-note { margin: 2px 0 4px; font-size: 10.5px; color: var(--text-secondary); }
+  .live-note.bad { color: #ff8a80; }
+  .cc-sec { display: block; width: 100%; text-align: left; margin: 2px 0 0; padding: 6px 4px; border: 0; border-top: 1px solid var(--divider);
+    background: transparent; color: inherit; cursor: pointer; font-size: 11.5px; font-weight: 600; }
+  .cc-sec.open { color: var(--accent); }
+  .cc-range { flex: 1 1 auto; min-width: 80px; accent-color: var(--accent); }
+  .cc-val { flex: 0 0 38px; text-align: right; font-size: 11px; color: var(--text-secondary); }
+  .cc-pick { flex: 0 0 auto; width: 22px; height: 20px; padding: 0; border: 1px solid var(--border); border-radius: 4px; background: transparent; cursor: pointer; }
   .star-tip { display: flex; align-items: center; gap: 6px; margin: 4px 0 6px; padding: 6px 9px; border-radius: 6px; font-size: 11px;
     line-height: 1.4; background: rgba(255, 214, 10, .10); border: 1px solid rgba(255, 214, 10, .35); }
   .star-tip span { flex: 1 1 auto; }
@@ -1270,7 +1282,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.94.38</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.94.39</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
@@ -1352,7 +1364,8 @@
     <button type="button" id="reviewAdd" class="review-add" data-i18n="rev.add">+ Add caption</button>
     <!-- 1.11: caption styles (shown only when this computer's ffmpeg can draw them) -->
     <div class="style-strip" id="styleStrip" style="display:none;">
-      <div class="style-head"><span class="style-title" data-i18n="style.title">🎨 Caption style</span><span class="style-note" id="styleNote"></span><button type="button" class="sc-toggle" id="styleCustomToggle" style="display:none;">⚙ Customize</button></div>
+      <div class="style-head"><span class="style-title" data-i18n="style.title">🎨 Caption style</span><span class="style-note" id="styleNote"></span><button type="button" class="sc-live" id="liveToggle" style="display:none;">📺</button><button type="button" class="sc-toggle" id="styleCustomToggle" style="display:none;">⚙ Customize</button></div>
+      <div class="live-note" id="liveNote" style="display:none;"></div>
       <div class="style-chips" id="styleChips" role="group" aria-label="Caption style"></div>
       <!-- 1.94.5 the Studio: 8 good styles first, the rest behind this -->
       <button type="button" class="style-more" id="styleMore" style="display:none;"></button>
