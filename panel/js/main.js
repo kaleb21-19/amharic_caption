@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.40';
+const APP_VERSION = '1.94.41';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3546,6 +3546,7 @@ function setSuccess(text) {
 function setBusy(busy) {
   if (busy) {
     showReportOffer(false);
+    hideRunFix();
     WORKER_TAIL = [];
     setStatus('busy', 'working…');
   } else {
@@ -7868,7 +7869,22 @@ function liveClear() {
   LIVE.key = '';
   if (IS_AE || IS_APP_MODE()) return Promise.resolve(null);
   void was;
-  try { return Promise.resolve(hostCall('amh_liveClear', { prefix: LIVE_PREFIX })).catch(() => null); } catch (e) { return Promise.resolve(null); }
+  let p;
+  try { p = Promise.resolve(hostCall('amh_liveClear', { prefix: LIVE_PREFIX })); } catch (e) { p = Promise.resolve(null); }
+  // 1.94.41: and its files on disk (every redraw wrote one, ~150 KB; the owner's
+  // first session left 33) - only once Premiere has let go of them
+  return p.then((r) => { if (r && r.ok && !r.stillUsed && !r.binKept) liveDeleteFiles(); return r; }, () => null);
+}
+function liveDeleteFiles() {
+  let n = 0;
+  try {
+    const dir = ensureCaptionsDir();
+    fs.readdirSync(dir).forEach((f) => {
+      if (f.indexOf(LIVE_PREFIX) !== 0 || !/\.mov$/i.test(f)) return;
+      try { fs.unlinkSync(path.join(dir, f)); n++; } catch (e) {}   // still open in Premiere: the next clear tries again
+    });
+  } catch (e) {}
+  return n;
 }
 
 // asked when the editor comes back to the panel (no polling while it is away)
@@ -9765,6 +9781,40 @@ function clockHelp() {
 // short or silent, the clock, no license) is not a failure of the program:
 // only the friendly message — no "see Details", no technical Log opened, no
 // "Send problem report" (5 of the 30-day report's errors were "no clip")
+// 1.94.41 (V2, journey audit: 19 % of Generate runs failed, half of them on
+// the editor's side): a failed run offers the way out under the message -
+// the whole edit when no clip / too short a clip / nothing in the range was
+// found, and Try again for anything a retry can fix (never a license problem).
+const RUN_FIX_SELECTION = ['err_no_clip', 'err_no_clips', 'err_too_short'];
+function pickSource(src) {
+  let b = null;
+  try { b = Array.from(document.querySelectorAll('#srcSeg button')).find((x) => x.dataset && x.dataset.src === src) || null; } catch (e) {}
+  if (b && typeof b.click === 'function') { b.click(); if (SOURCE === src) return; }
+  SOURCE = src;
+  saveSettings({ source: src });
+}
+function hideRunFix() {
+  const box = $('runFix');
+  if (box) { box.textContent = ''; box.style.display = 'none'; }
+}
+function showRunFix(step) {
+  const box = $('runFix');
+  if (!box) return;
+  box.textContent = '';
+  const add = (text, ev, fn) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn ' + (box.children.length ? 'btn-neutral' : 'btn-primary');
+    b.textContent = text;
+    b.addEventListener('click', () => { track(ev); hideRunFix(); fn(); });
+    box.appendChild(b);
+  };
+  if (RUN_FIX_SELECTION.indexOf(step) >= 0 && SOURCE !== 'whole') {
+    add('▶ ' + L(IS_AE ? 'Caption the whole comp instead' : 'Caption the whole edit instead'), 'fix_whole', () => { pickSource('whole'); run(); });
+  }
+  if (!/license|trial/.test(String(step || ''))) add('↻ ' + L('Try again'), 'fix_retry', () => { run(); });
+  box.style.display = box.children.length ? '' : 'none';
+}
 const USER_FIXABLE = ['err_no_clip', 'err_no_clips', 'err_too_short', 'err_no_audio', 'err_no_speech', 'err_no_media', 'err_clock', 'err_license'];
 function failRun(raw) {
   runFailed = true;
@@ -9779,6 +9829,7 @@ function failRun(raw) {
     if (disc) disc.classList.remove('open');
     LAST_FAIL = null;
     showReportOffer(false);
+    showRunFix(step);
     return;
   }
   setStatus('err', 'failed');
@@ -9788,6 +9839,7 @@ function failRun(raw) {
   // report used to go out without the error (1.69).
   LAST_FAIL = { raw: String(raw || ''), step: step || '', at: Date.now(), log: String((document.getElementById('logBox') || {}).textContent || '').split('\n').slice(-60) };
   showReportOffer(true);
+  showRunFix(step);
 }
 
 // ── Problem report (1.10.11) ────────────────────────────────────────────────
@@ -9818,8 +9870,36 @@ function scrubReport(s) {
     .replace(/\b[vt][12]\.[0-9A-Za-z._:-]{20,}/g, '[ticket]')
     .replace(/[A-Z2-9]{4}-[A-Z2-9]{4}\b/g, '[code]');
 }
-function buildReport() {
-  const logLines = (LAST_FAIL && LAST_FAIL.log) || String((document.getElementById('logBox') || {}).textContent || '').split('\n').slice(-60);
+// 1.94.41 (V2): what support asked for in Telegram every time ("press Run
+// diagnostics and send it") - but private: no project, file or clip names,
+// only the program's own state. Sent as the last Log lines (the bot always
+// shows the end of the Log).
+async function reportChecks() {
+  const out = ['── checks ──'];
+  const has = (p) => { try { return !!p && fs.existsSync(p); } catch (e) { return false; } };
+  out.push('panel ' + APP_VERSION + ' · ' + HOST_APP + ' · runtime ' + (RUNTIME ? 'found' : 'MISSING') +
+    ' · python ' + (has(PYTHON) ? 'ok' : 'MISSING') + ' · ffmpeg ' + (has(FFMPEG) ? 'ok' : 'MISSING') +
+    ' · model ' + (MODEL_MISSING ? 'MISSING' : 'ok') + ' · styles ' + (STYLE_OK ? 'ok' : 'off'));
+  out.push('extension folder ' + (has(path.join(EXT_DIR, 'CSXS', 'manifest.xml')) ? 'ok' : 'WRONG') + ': ' + EXT_DIR);
+  if (IS_AE) out.push('After Effects code: ' + (AE_LOAD.ok ? 'loaded' : 'NOT loaded' + (AE_LOAD.err ? ' — ' + AE_LOAD.err : '')));
+  const probe = await new Promise((resolve) => {
+    let done = false;
+    const t = setTimeout(() => { if (!done) { done = true; resolve('no answer in 3 s'); } }, 3000);
+    try { csi.evalScript(HOST_PROBE_JSX, (r) => { if (!done) { done = true; clearTimeout(t); resolve(String(r || 'empty')); } }); }
+    catch (e) { done = true; clearTimeout(t); resolve('error ' + (e && e.message)); }
+  });
+  out.push('host: ' + probe);
+  if (!IS_AE) {
+    try {
+      const f = await evalScript('amh_fadeProbe()', 3000);
+      if (f && f.ok) out.push('smooth joins: ' + (f.fade || '') + (f.api ? ' · ' + f.api : ''));
+    } catch (e) {}
+  }
+  return out;
+}
+function buildReport(extra) {
+  const logLines = ((LAST_FAIL && LAST_FAIL.log) || String((document.getElementById('logBox') || {}).textContent || '').split('\n').slice(-60))
+    .concat(Array.isArray(extra) ? extra : []);
   let sys = {};
   try {
     sys = {
@@ -9842,7 +9922,9 @@ async function sendReport() {
   const b = document.getElementById('reportBtn');
   const st = document.getElementById('reportStatus');
   if (b) b.disabled = true;
-  const r = await apiPost('/api/report', buildReport());
+  let checks = [];
+  try { checks = await reportChecks(); } catch (e) { checks = ['checks failed: ' + (e && e.message)]; }
+  const r = await apiPost('/api/report', buildReport(checks));
   track('report_sent');
   if (st) {
     st.textContent = L(r && r.ok
@@ -10361,7 +10443,9 @@ function modelReadyForRun(resume) {
   if (resume) MODEL_RESUME = resume;
   log('First the Amharic model is downloaded (' + mb(MODEL_TOTAL_BYTES) + ' MB, one time only).');
   log('Your captions start by themselves when it is ready.');
-  setStatus('err', 'model needed');
+  // 1.94.41: a job waiting for the model is queued, not failed (the pill was red)
+  if (resume || MODEL_RESUME) setStatus('busy', L('captions start when the model is ready'));
+  else setStatus('err', 'model needed');
   if (!modelChild) {
     if (MODEL_UI.state === 'retrying') retryModelNow();
     else startModelDownload();

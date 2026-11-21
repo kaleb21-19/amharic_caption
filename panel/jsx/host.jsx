@@ -1010,20 +1010,22 @@ function amh_liveClear(argsJSON) {
                 }
             } catch (e) { used = true; }      // could not look: keep the bin
         }
-        var deleted = false;
+        var deleted = false, kept = false;
         if (!used) {
             var root = app.project.rootItem;
             for (var i = root.children.numItems - 1; i >= 0; i--) {
                 var ch = root.children[i];
                 if (!ch || ch.type !== 2 || String(ch.name) !== AMH_LIVE_BIN) { continue; }
+                kept = true;
                 var ours = true;
                 for (var j = 0; j < ch.children.numItems; j++) {
                     if (String(ch.children[j].name).indexOf(pre) !== 0) { ours = false; break; }
                 }
-                if (ours) { try { ch.deleteBin(); deleted = true; } catch (e) {} }
+                if (ours) { try { ch.deleteBin(); deleted = true; kept = false; } catch (e) {} }
             }
         }
-        return amhOk({ removed: removed, binDeleted: deleted, stillUsed: used });
+        // binKept: a preview bin is still there (not only ours, or Premiere refused) - its files stay on disk
+        return amhOk({ removed: removed, binDeleted: deleted, stillUsed: used, binKept: kept });
     });
 }
 
