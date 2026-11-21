@@ -5266,6 +5266,8 @@ const EVENT_NAMES = new Set([
   'open', 'model_needed', 'model_dl_start', 'model_dl_ok', 'model_dl_fail',
   'run_click', 'blocked_model', 'blocked_trial', 'blocked_runtime', 'run_ok', 'placed',
   'buy_click', 'buy_again', 'buy_close', 'activate_ok', 'activate_fail', 'trial_link',
+  // 1.94.44: Renew pressed in the panel (a timed license about to end / ended)
+  'renew_click',
   // 1.77: the free-minutes step, by reason, and the first minutes on the computer
   // 1.78: a computer's first time ever; a finished run (not a reopened project)
   'first_open', 'cap_new',
@@ -5379,7 +5381,8 @@ async function adminUsage(chatId, messageId, days = 7) {
     ` · 🔑 Activated: ${c('activate_ok')}` +
     (c('buy_again') || c('buy_close')
       ? `\n   └ 💻 "Telegram did not open — open again": ${c('buy_again')} · closed without going on: ${c('buy_close')}` : '') +
-    (c('activate_fail') ? ` · activation failed: ${c('activate_fail')}` : '') + '\n\n' +
+    (c('activate_fail') ? ` · activation failed: ${c('activate_fail')}` : '') +
+    (c('renew_click') ? `\n🔁 Pressed Renew (timed license ending / ended): ${c('renew_click')}` : '') + '\n\n' +
     `<i>Outside Ethiopia (mostly our test machines): opened ${otherOpen}.</i>`;
   const kb = [
     [{ text: days === 7 ? '📅 Last 30 days' : '📅 Last 7 days', callback_data: 'admin:usage:' + (days === 7 ? 30 : 7) }],
@@ -7603,6 +7606,7 @@ export default {
       // same Machine ID must not inherit the malformed request's result.
       const cacheKey = hasValidKeyShape ? ('val:' + midKey + ':' + clean) : null;
       let out = null;
+      let renewedKey = '';   // 1.94.44: canonical new key when this old key was renewed
       if (cacheKey) {
         const cached = await kvGet(cacheKey);
         if (cached) { try { out = JSON.parse(cached); } catch (e) {} }
@@ -7629,7 +7633,11 @@ export default {
           const expDate = new Date(row.expiry.slice(0, 4) + '-' + row.expiry.slice(4, 6) + '-' + row.expiry.slice(6, 8));
           if (isNaN(expDate.getTime()) || expDate < new Date()) rowReason = 'expired';
         }
-        if (rowReason) {
+        if (rowReason === 'not_found' && row) {
+          // the key was replaced (a renewal?): the full check below decides
+          await kvDel(cacheKey);
+          out = null;
+        } else if (rowReason) {
           out = { valid: false, reason: rowReason };
           await kvDel(cacheKey);
         }
@@ -7682,7 +7690,19 @@ export default {
             // in JS. This supports both legacy formatted rows and the new
             // canonical representation without trusting presentation format.
             const row = await DB.prepare('SELECT expiry, revoked, key FROM customers WHERE machine_id = ?').bind(midKey).first();
-            if (!row || canonicalLicenseKey(row.key) !== clean) {
+            // 1.94.44: renewed - this authentic key of THIS computer was replaced
+            // by a later one (renewal or Forever upgrade). The panel still holds
+            // the old key and used to lose its license on the daily check; it now
+            // gets the new key back (bound to this Machine ID like every lease).
+            const replaced = row && !row.revoked && row.key && canonicalLicenseKey(row.key) !== clean &&
+              kexp !== '00000000' && (row.expiry === '00000000' || String(row.expiry || '') > kexp);
+            if (replaced && row.expiry !== '00000000' &&
+                new Date(row.expiry.slice(0, 4) + '-' + row.expiry.slice(4, 6) + '-' + row.expiry.slice(6, 8)) < new Date()) {
+              out = { valid: false, reason: 'expired' };
+            } else if (replaced) {
+              renewedKey = canonicalLicenseKey(row.key);
+              out = { valid: true, expiry: row.expiry, key: row.key };
+            } else if (!row || canonicalLicenseKey(row.key) !== clean) {
               out = { valid: false };
             } else if (row.revoked) {
               out = { valid: false, reason: 'revoked' };
@@ -7696,13 +7716,13 @@ export default {
             }
           }
         }
-        if (cacheKey) await kvPut(cacheKey, JSON.stringify(out), out.valid ? 3600 : 60);
+        if (cacheKey && !renewedKey) await kvPut(cacheKey, JSON.stringify(out), out.valid ? 3600 : 60);
       }
       // A known-good key is served from cache for an hour — but every VALID
       // response still records the activation (IP for support, computer
       // fingerprint for sharing), not just the first one.
       if (out.valid) {
-        const okActivation = await recordKeyActivation(clean, midKey, clientIp(), hf);
+        const okActivation = await recordKeyActivation(renewedKey || clean, midKey, clientIp(), hf);
         if (!okActivation) {
           // Not cached: the answer depends on WHICH computer asks — the
           // buyer's own one must keep working.

@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.43');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.44');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1881,6 +1881,98 @@ await t('4r. 1.94.43 write it in English: names fixed in green on review open, m
     await open();
     assert.strictEqual(texts()[1], 'ፕሪሚየር ፕሮ ቪዲዮ', 'off: the engine\'s Amharic letters');
     p.evalVm('closeReview(true)');
+  } finally { p.close(); }
+});
+
+await t('4s. 1.94.44 V3 renew: 3 days before a timed license ends, an ended one says so (never the trial screen), Renew follows the purchase, a key renewed in the bot is picked up', async () => {
+  let licState = 'none', NEWKEY = '', validate = () => ({ valid: true, expiry: '00000000', token: 'v1.x.' + '0'.repeat(128) });
+  const f = async (u, init) => {
+    const body = init && init.body ? JSON.parse(init.body) : null;
+    if (u.includes('/api/license')) return { ok: true, json: async () => (licState === 'approved' ? { status: 'approved', key: NEWKEY } : { status: licState }) };
+    if (u.includes('/api/validate')) return { ok: true, json: async () => validate(body) };
+    if (u.includes('/api/trial')) return { ok: true, json: async () => ({ used: 0 }) };
+    return { ok: true, json: async () => ({ ok: true }) };
+  };
+  const ymd = (days) => { const d = new Date(Date.now() + days * 86400000); return d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0'); };
+  const canon = (k) => String(k || '').replace(/^amh/i, '').replace(/[\s-]+/g, '').toLowerCase();
+  const tok = 'v1.x.' + '0'.repeat(128);
+  const p = loadPanel({ fetch: f });
+  try {
+    await flush(5);
+    // a key whose expiry day is the day after tomorrow: today and tomorrow left
+    const lic = async (exp, extra) => {
+      const key = mkKey(p.mid, exp, '0123456789abcdef');
+      p.evalVm(`verifyLicenseToken = async () => ({ ok: true, expiry: ${JSON.stringify(exp)} });
+        setLicense(Object.assign({ key: ${JSON.stringify(key)}, valid: true, expiry: ${JSON.stringify(exp)}, token: 'tok' }, ${JSON.stringify(extra || {})}));`);
+      await p.evalVm('assessLicense()');
+      p.evalVm('updateLicenseUI()');
+      return key;
+    };
+    await lic(ymd(10));
+    assert.strictEqual(p.els('renewBox').style.display, 'none', '10 days left: nothing');
+    const oldKey = await lic(ymd(2));
+    assert.strictEqual(p.els('renewBox').style.display, 'block', 'two days left: the box');
+    assert.strictEqual(p.els('renewTitle').textContent, '⏳ Your license ends on ' + p.evalVm(`lastLicenseDay(${JSON.stringify(ymd(2))})`) + ' — 2 days left');
+    has(p.els('renewSub').textContent, 'what you paid deducted');
+    assert.strictEqual(p.evalVm('$("runBtn").disabled'), false, 'still works');
+    await lic(ymd(1));
+    assert.strictEqual(p.els('renewTitle').textContent, '⏳ Today is the last day of your license');
+    await lic('00000000');
+    assert.strictEqual(p.els('renewBox').style.display, 'none', 'Forever: never');
+    // Renew while still licensed: the bot link with this computer, followed until the new key arrives
+    await lic(ymd(2));
+    p.evalVm('var __opened = null; cep.util.openURLInDefaultBrowser = (u) => { __opened = u; };');
+    p.els('renewBtn').fire('click', { preventDefault() {} });
+    await flush(20);
+    const pend = JSON.parse(p.storage.getItem('amh.pendingBuy'));
+    assert.ok(pend && pend.renew, 'a renew purchase is kept');
+    assert.strictEqual(p.evalVm('__opened'), 'https://t.me/AmharicCaptionsBot?start=m_' + p.mid + '_' + pend.nonce, 'the bot on this computer');
+    has(p.els('renewNote').textContent, 'send the screenshot', 'the renew box says what to do');
+    assert.ok(p.storage.getItem('amh.pendingBuy'), 'not dropped because the panel is still licensed');
+    NEWKEY = mkKey(p.mid, '00000000', 'fedcba9876543210');
+    licState = 'approved';
+    p.evalVm('verifyLicenseToken = async () => ({ ok: true, expiry: "00000000" });');
+    await p.evalVm('checkPendingBuy()');
+    await flush(40);
+    assert.strictEqual(canon(p.evalVm('getLicense().key')), canon(NEWKEY), 'the new key is in');
+    assert.strictEqual(p.storage.getItem('amh.pendingBuy'), null, 'purchase done');
+    assert.strictEqual(p.els('renewBox').style.display, 'none', 'Forever now: the box goes');
+
+    // ended (the lease cleared, the key kept): it says so - not "free minutes used up"
+    const past = ymd(-3);
+    const endedKey = mkKey(p.mid, past, '00112233445566aa');
+    p.evalVm(`setLicense({ key: ${JSON.stringify(endedKey)}, valid: false, expiry: ${JSON.stringify(past)}, token: null });
+      TRIAL_MIN = { status: 'used', seconds_left: 0, seconds_total: 1200, minutes: 20 };`);
+    await p.evalVm('assessLicense()');
+    p.evalVm('updateLicenseUI()');
+    assert.strictEqual(p.evalVm('LICENSED'), false);
+    assert.strictEqual(p.els('renewBox').style.display, 'block');
+    assert.strictEqual(p.els('renewTitle').textContent, '⌛ Your license ended on ' + p.evalVm(`lastLicenseDay(${JSON.stringify(past)})`));
+    assert.strictEqual(p.els('trialBanner').style.display, 'none', 'not the free-trial banner');
+    // an expired lease (token still there) ends the same way, never silently
+    p.evalVm(`verifyLicenseToken = async () => ({ ok: false, error: 'License expired on ' + ${JSON.stringify(past.slice(0, 4) + '-' + past.slice(4, 6) + '-' + past.slice(6))} });
+      setLicense({ key: ${JSON.stringify(endedKey)}, valid: true, expiry: ${JSON.stringify(past)}, token: 'tok' });`);
+    await p.evalVm('assessLicense()');
+    assert.ok(p.evalVm('LICENSE_ENDED'), 'expired lease -> ended');
+    assert.strictEqual(p.evalVm('getLicense().key'), endedKey, 'the key is kept for the renewal check');
+    // renewed in the bot (no panel purchase): the next check, 10 minutes on, brings the new key
+    const later = ymd(30);
+    const botKey = mkKey(p.mid, later, '99887766554433aa');
+    validate = (b) => (canon(b.key) === canon(endedKey) ? { valid: true, expiry: later, key: botKey, token: tok } : { valid: false });
+    p.evalVm(`verifyLicenseToken = async () => ({ ok: true, expiry: ${JSON.stringify(later)} });`);
+    p.storage.setItem('amh.license.lastCheck', String(Date.now() - 11 * 60000));
+    await p.evalVm('revalidateLicenseOnline()');
+    await flush(10);
+    assert.strictEqual(p.evalVm('LICENSED'), true, 'unlocked without pasting');
+    assert.strictEqual(canon(p.evalVm('getLicense().key')), canon(botKey), 'the renewed key stored');
+    assert.strictEqual(p.els('renewBox').style.display, 'none');
+    has(p.evalVm('$("logBox").textContent'), 'Renewed license picked up');
+    // the bug it fixes: a renewed key used to be answered "not valid" -> license deleted
+    validate = () => ({ valid: false, reason: 'revoked' });
+    await p.evalVm('revalidateLicenseOnline(true)');
+    assert.strictEqual(p.evalVm('LICENSED'), false);
+    assert.strictEqual(p.evalVm('LICENSE_ENDED'), '', 'a revoked license is not "ended - renew"');
+    assert.strictEqual(p.els('renewBox').style.display, 'none');
   } finally { p.close(); }
 });
 
