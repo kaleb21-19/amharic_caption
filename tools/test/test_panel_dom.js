@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.34');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.35');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1433,8 +1433,10 @@ await t('4n3i. 1.94.5 a new Studio editor starts with a real style (Bold) and 3 
     assert.strictEqual(look({ style: 'plain' }, true), '["bold","grouped",3]', 'Plain saved by an older Studio, never chosen');
     assert.strictEqual(look({ style: 'plain', plainChosen: true, cap: 'words' }, true), '["plain","words",3]', 'Plain the editor chose stays');
     assert.strictEqual(look({ style: 'reels', cap: 'grouped', group: 4 }, true), '["reels","grouped",4]', 'their own choice stays');
-    assert.strictEqual(look({}, false), '["plain","grouped",3]', 'Premiere / After Effects: Plain (their own captions), 3 words (1.94.6)');
-    assert.strictEqual(look({ cap: 'words' }, false), '["plain","words",3]', 'a chosen 1 word stays');
+    // 1.94.35 (UI audit): Premiere / After Effects start on Bold too; a Plain they saved stays Plain
+    assert.strictEqual(look({}, false), '["bold","grouped",3]', 'Premiere / After Effects: new = Bold, 3 words');
+    assert.strictEqual(look({ style: 'plain' }, false), '["plain","grouped",3]', 'Premiere: a saved Plain stays (their own editable captions)');
+    assert.strictEqual(look({ cap: 'words' }, false), '["bold","words",3]', 'a chosen 1 word stays');
     // tapping Plain marks it as chosen
     p.evalVm(`IS_APP_MODE = () => true; localStorage.setItem('amh.settings', '{}'); applySettings(); STYLE_OK = true; renderStyleStrip();`);
     const plain = Array.from(p.els('styleChips').children).find((c) => c.dataset.style === 'plain');
@@ -1635,6 +1637,31 @@ await t('4n4. 1.94.31 Follow Premiere: the caption and the word under the playhe
     assert.deepStrictEqual(nowText(), [], 'marks cleared');
   } finally { p.close(); }
 });
+await t('4f2. 1.94.35 Premiere styling: the star tip once, a labelled Customize, Save as My style in the compact box', async () => {
+  const p = loadPanel({ realPanel: true });
+  try {
+    await flush(5);
+    p.evalVm(`localStorage.setItem('amh.settings', '{}'); STYLE_OK = true; STYLE = 'bold'; reviewOpen = true;
+      reviewCues = [{ text: 'ሰላም እንዴት', start: 0, end: 1 }]; schedulePreview = () => {}; renderReview(); renderStyleStrip();`);
+    assert.notStrictEqual(p.els('starTip').style.display, 'none', 'the tip shows on a styled look');
+    assert.match(p.els('starTipText').textContent, /★/);
+    p.evalVm('toggleEmphasis(0, 0, 3)');
+    assert.strictEqual(p.els('starTip').style.display, 'none', 'gone after the first star');
+    assert.strictEqual(p.evalVm('loadSettings().starTipDone'), true, 'for good');
+    const tog = p.els('styleCustomToggle');
+    assert.match(tog.textContent, /Customize|አስተካክል/, 'Customize in words, not a bare icon');
+    tog.fire('click');
+    const find = (n, id) => { if (n.id === id) return n; for (const c of (n.children || [])) { const x = find(c, id); if (x) return x; } return null; };
+    const name = find(p.els('styleOpts'), 'myStyleName');
+    const save = find(p.els('styleOpts'), 'myStyleSave');
+    assert.ok(name && save, 'Save as My style is in the Premiere box');
+    name.value = 'My channel';
+    save.fire('click');
+    assert.strictEqual(p.evalVm('myStyles().length'), 1, 'saved');
+    assert.ok(Array.from(p.els('styleChips').children).some((b) => b.dataset && b.dataset.my), 'and shown as a tile');
+  } finally { p.close(); }
+});
+
 await t('4m. 1.91 ✂ a whole caption in one click; Shift+✂ = every caption in between; ✂ again keeps them', async () => {
   const p = loadPanel({});
   try {
@@ -1786,7 +1813,10 @@ await t('4f. caption styles (1.11): strip, choice remembered, styled layer place
     const wantChips = p.evalVm('STYLE_LIST.length') + 1 + p.evalVm('TEMPLATE_LIST.length') + 1;   // + the "short clips" heading (1.94.6)
     assert.strictEqual(chips.length, wantChips, 'Plain + 18 styles + the templates');
     assert.strictEqual(chips[0].dataset.style, 'plain');
-    assert.ok(chips[0].classList.contains('active'), 'Plain is the default');
+    // 1.94.35: a strong look (Bold) is the default; Plain is still the first tile, one click away
+    assert.ok(Array.from(chips).find((x) => x.dataset.style === 'bold').classList.contains('active'), 'Bold is the default');
+    chips[0].fire('click');
+    assert.ok(chips[0].classList.contains('active'), 'Plain: one click');
     assert.match(p.els('styleNote').textContent, /own captions/);
     const kar = Array.from(chips).find((b) => b.dataset.style === 'karaoke');
     kar.fire('click');
