@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.30');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.31');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1597,6 +1597,40 @@ await t('4n3. 1.93 ✂ one click on a caption cuts the Premiere timeline at once
     assert.strictEqual(p.evalVm('reviewCues.length'), 2);
     assert.ok(/bad/.test(p.els('textCutNote').className) && /locked|ተቆልፏል/.test(p.els('textCutNote').textContent));
     assert.strictEqual(p.els('revCleanup').style.display, 'none', 'no second step to press');
+  } finally { p.close(); }
+});
+await t('4n4. 1.94.31 Follow Premiere: the caption and the word under the playhead are marked; off by default; off = no reads', async () => {
+  let pos = 1.2, reads = 0;
+  const p = loadPanel({ csiRaw: (jsx) => {
+    if (/amh_playerPos/.test(jsx)) { reads++; return JSON.stringify({ ok: true, t: pos }); }
+    return JSON.stringify({ ok: true });
+  } });
+  try {
+    await flush(5);
+    p.evalVm(`reviewCues = [{ text: 'ሀ ለ', start: 0, end: 1 }, { text: 'ሰላም እንዴት ናችሁ', start: 1, end: 2.5, wt: [[1, 1.4], [1.4, 2], [2, 2.5]] }];
+      schedulePreview = () => {}; reviewOpen = true; renderReview(); followStart();`);
+    await new Promise((r) => setTimeout(r, 400));
+    assert.strictEqual(reads, 0, 'off by default: Premiere is never asked');
+    assert.strictEqual(p.evalVm('followOn()'), false);
+    p.els('revFollow').fire('click');                     // the 👁 button
+    assert.strictEqual(p.evalVm('followOn()'), true);
+    await new Promise((r) => setTimeout(r, 700));
+    assert.ok(reads > 0, 'reads the playhead');
+    const rows = p.els('reviewList').children;
+    assert.ok(rows[1].classList.contains('hearing'), 'the caption under the playhead');
+    const nowText = () => { const out = []; const walk = (n) => { if (n.tagName === 'MARK' && n.className === 'now') out.push(n.textContent); (n.children || []).forEach(walk); }; walk(p.els('reviewList')); return out; };
+    assert.deepStrictEqual(nowText(), ['ሰላም'], 'the word at 1.2 s');
+    pos = 2.1;
+    await new Promise((r) => setTimeout(r, 700));
+    assert.deepStrictEqual(nowText(), ['ናችሁ'], 'follows the playhead');
+    pos = 0.5;
+    await new Promise((r) => setTimeout(r, 700));
+    assert.ok(rows[0].classList.contains('hearing') && !p.els('reviewList').children[1].classList.contains('hearing'), 'moves to the other caption');
+    p.els('revFollow').fire('click');                     // off again
+    const n = reads;
+    await new Promise((r) => setTimeout(r, 600));
+    assert.ok(reads - n <= 1, 'off: no more reads');
+    assert.deepStrictEqual(nowText(), [], 'marks cleared');
   } finally { p.close(); }
 });
 await t('4m. 1.91 ✂ a whole caption in one click; Shift+✂ = every caption in between; ✂ again keeps them', async () => {

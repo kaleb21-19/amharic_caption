@@ -236,6 +236,8 @@ const AM_TEXT = {
   'is open. Your captions moved with the cuts: press Place to put them on it.': 'ተከፍቷል። ካፕሽኖችዎ ከቁርጡ ጋር ተስተካክለዋል፤ በእሱ ላይ ለማስቀመጥ Place ይጫኑ።',
   'Pauses longer than': 'ከዚህ የሚረዝሙ ዝምታዎች',
   'Background music': 'የጀርባ ሙዚቃ',
+  'Follow Premiere': 'ፕሪሚየርን ተከተል',
+  'Mark the caption and the word under Premiere’s playhead while it plays': 'ፕሪሚየር ሲያጫውት የሚሰማውን ካፕሽንና ቃል ይጠቋሙ',
   'Undo last cut': 'የመጨረሻውን ቁርጥ መልስ',
   'Undoing': 'እየተመለሰ ነው፦',
   'Cut undone': 'ቁርጡ ተመልሷል',

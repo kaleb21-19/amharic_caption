@@ -2214,6 +2214,17 @@ function amh_textUncut(argsJSON) {
     });
 }
 
+// 1.94.31 follow Premiere: where the playhead is now (read only, tiny - the
+// panel asks a few times a second while the captions are open).
+function amh_playerPos() {
+    return amhGuard(function () {
+        var seq = app.project ? app.project.activeSequence : null;
+        if (!seq) { return amhOk({ t: null }); }
+        var t = amhSec(seq.getPlayerPosition());
+        return amhOk({ t: t, seq: String(seq.sequenceID) });
+    });
+}
+
 // Everything in one call (older panels).
 function amh_cleanupCut(argsJSON) {
     return amhGuard(function () {

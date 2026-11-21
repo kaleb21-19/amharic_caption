@@ -584,6 +584,7 @@
     box-shadow: inset 0 -2px 0 var(--warn);
   }
   .review-row .text-box .hl-back mark.fix { background: var(--ok-mark); box-shadow: inset 0 -2px 0 var(--ok); }
+  .review-row .text-box .hl-back mark.now { background: var(--accent-soft); box-shadow: inset 0 -2px 0 var(--accent); }
   .review-row.cut-whole .text-box { opacity: .6; }
   .review-row.cut-whole .text-box .cut-word { opacity: 1; background: #e74c3c; color: #fff; }
   .clean-hear { flex: 0 0 auto; width: 20px; height: 20px; padding: 0; border: 1px solid var(--line, #3a3a3a); border-radius: 4px; background: transparent; color: inherit; cursor: pointer; font-size: 10px; line-height: 1; }
@@ -1261,7 +1262,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.94.30</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.94.31</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
@@ -1326,6 +1327,7 @@
       <button type="button" class="rstep" id="stepText" title="Go to the first doubtful word" data-i18n-title="step.textTitle"></button>
       <button type="button" class="rstep" id="revSilence" title="Cut long pauses, repeated takes and hesitation sounds" data-i18n-title="clean.title"></button>
       <button type="button" class="rstep" id="revCleanup" title="Cut the words you marked ✂ in the captions"></button>
+      <button type="button" class="rstep" id="revFollow"></button>
       <button type="button" class="rstep" id="revZoom" title="Zoom in on the video at ★ words, numbers and money" data-i18n-title="zoom.title"></button>
       <button type="button" class="rstep" id="stepStyle" title="Choose how the captions look" data-i18n-title="step.styleTitle"></button>
       <button type="button" class="rstep" id="stepPlace" title="Put the captions on the timeline" data-i18n-title="step.placeTitle"></button>

@@ -558,4 +558,17 @@ test('undo: refused (nothing changed) when another sequence is open or the untou
   assert.strictEqual(pp.project.activeSequence.name, 'Interview');
 });
 
+
+// -- 1.94.31 follow Premiere: the playhead, read only
+test('follow: amh_playerPos reads the playhead in seconds and changes nothing', () => {
+  const pp = makePremiere(base());
+  pp.project.activeSequence.pos = 254016000000 * 12.5;
+  const before = pp.project.activeSequence.vt[0].snap();
+  const r = JSON.parse(vm.runInContext('amh_playerPos()', pp.ctx));
+  assert.ok(r.ok && Math.abs(r.t - 12.5) < 1e-6, JSON.stringify(r));
+  assert.deepStrictEqual(pp.project.activeSequence.vt[0].snap(), before);
+  pp.project.activeSequence = null;
+  assert.strictEqual(JSON.parse(vm.runInContext('amh_playerPos()', pp.ctx)).t, null, 'no sequence open: no time, no error');
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');
