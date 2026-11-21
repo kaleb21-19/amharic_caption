@@ -179,7 +179,7 @@ function loadPanel(opts) {
     TextEncoder,                                                            // likewise
   };
   sandbox.window = sandbox;
-  sandbox.__dirname  = PANEL_JS;
+  sandbox.__dirname  = opts.dirname || PANEL_JS;
   sandbox.__filename = path.join(PANEL_JS,'main.js');
 
   const ctx = vm.createContext(sandbox);
@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.33');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.34');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -3867,6 +3867,18 @@ await t('14e. 1.94.33 After Effects: the AE code is defined for every call; miss
   const pl = [];
   const pp = loadPanel({ evalLog: pl });
   try { await flush(5); await pp.evalVm("evalScript('amharic_ping()')"); assert.ok(!pl.some((j) => /^try\{eval\(/.test(j))); } finally { pp.close(); }
+});
+
+await t('14f. 1.94.34 the extension folder is found whether CEP says js/ or the extension root (one-tap update, After Effects code)', async () => {
+  const root = path.dirname(PANEL_JS);
+  for (const dirname of [PANEL_JS, root]) {
+    const p = loadPanel({ dirname, hostApp: 'AEFT', csiRaw: () => 'amh-ae-ok' });
+    try {
+      await flush(5);
+      assert.strictEqual(path.resolve(p.evalVm('EXT_DIR')), path.resolve(root), '__dirname = ' + dirname);
+      assert.ok(/amharic_getSelectedClip\.amhAE = true/.test(p.evalVm('aeLoadScript()')), 'the AE code is read from the right folder');
+    } finally { p.close(); }
+  }
 });
 
 await t('14d. Work Area finds nothing: the message says why and what to do (1.10.15)', async () => {

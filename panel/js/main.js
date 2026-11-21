@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.33';
+const APP_VERSION = '1.94.34';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3285,8 +3285,17 @@ const IS_MAC   = process.platform === 'darwin';
 const IS_64BIT = process.arch === 'x64' || process.arch === 'arm64';
 
 // The extension's own folder (folder containing js/ -> the extension root).
+// 1.94.34: the extension's own folder = the one holding CSXS/manifest.xml.
+// CEP's __dirname is the js/ folder on some installs and the extension root on
+// others (pickRuntime always allowed both); taking dirname() blindly gave the
+// PARENT of the extension on the owner's Premiere - so one-tap update refused
+// ("it shows Download, not Update": runtime/ was not under that folder) and
+// After Effects looked for jsx/host_ae.jsx in the wrong place.
 const EXT_DIR = (() => {
-  const here = __dirname; // .../com.amharic.captions/js
+  const here = __dirname;
+  for (const d of [path.dirname(here), here]) {
+    try { if (fs.existsSync(path.join(d, 'CSXS', 'manifest.xml'))) return d; } catch (e) {}
+  }
   return path.dirname(here);
 })();
 
