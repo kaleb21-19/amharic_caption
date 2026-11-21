@@ -119,6 +119,70 @@ def t_cli_limits():
     assert C.main(["midword", LABELS, cuts]) == 0
 
 
+def t_same_as_panel():
+    # the Python copy gives exactly the panel's answer (core.js findSilences), edges included
+    import subprocess
+    db = []
+    for i in range(700):
+        db.append(-70 if (i < 60 or 200 <= i < 260 or i >= 650) else -20 + (i % 3))
+    env = {"t0": 2.0, "step": 0.02, "db": db}
+    py = [[round(x, 4) for x in c] for c in C.find_silences(env, 0.8, 0.15)]
+    core = os.path.join(REPO, "panel", "js", "core.js").replace("\\", "/")
+    js = ("const c=require(%s);const e=%s;process.stdout.write(JSON.stringify(c.findSilences(e,{minLen:0.8}).map(x=>[+x.start.toFixed(4),+x.end.toFixed(4)])))"
+          % (json.dumps(core), json.dumps(env)))
+    out = subprocess.run(["node", "-e", js], capture_output=True, text=True, check=True).stdout
+    assert py == json.loads(out), (py, out)
+    assert py[0][0] == 2.0 and py[-1][1] == 16.0, py                    # start and end dead air to the edge
+    flat = {"t0": 0, "step": 0.02, "db": [-26 if x < -60 else x for x in db]}
+    assert C.find_silences(flat, 0.8) == [] and C.silence_levels(flat)["flat"]
+
+
+def t_score():
+    # a clip folder: the loudness, and the hand-corrected pauses
+    d = os.path.join(TMP, "clip1")
+    os.makedirs(d, exist_ok=True)
+    db = [-70 if (i < 60 or 200 <= i < 260 or i >= 650) else -20 + (i % 3) for i in range(700)]
+    with open(os.path.join(d, "env.json"), "w") as h:
+        json.dump({"t0": 0, "step": 0.02, "db": db}, h)
+    # the truth, as an editor marked it in Audacity (the middle pause starts 0.1 s after the quiet begins)
+    C.write_labels(os.path.join(d, "pauses.txt"), [(0.0, 1.2, "pause"), (4.1, 5.2, "pause"), (13.0, 14.0, "pause")])
+    r = C.score(d, 0.8)
+    assert r["cuts"] == 3, r
+    assert r["into_speech"] == 0, r                                      # the cut 4.15-5.05 stays inside the pause
+    assert r["pauses"] == 3 and r["removed"] == 3, r
+
+
+def t_score_into_speech():
+    d = os.path.join(TMP, "clip2")
+    os.makedirs(d, exist_ok=True)
+    db = [-70 if (200 <= i < 300) else -20 + (i % 3) for i in range(500)]   # quiet 4.0-6.0 s
+    with open(os.path.join(d, "env.json"), "w") as h:
+        json.dump({"t0": 0, "step": 0.02, "db": db}, h)
+    C.write_labels(os.path.join(d, "pauses.txt"), [(4.6, 5.4, "pause")])   # really a soft word until 4.6
+    r = C.score(d, 0.8)
+    assert r["into_speech"] == 2 and [x[0] for x in r["into"]] == [4.15, 5.85], r   # both cut edges are inside speech
+
+
+def t_prepare():
+    import shutil
+    import subprocess
+    ff = C.find_ffmpeg()
+    try:
+        subprocess.run([ff, "-version"], capture_output=True, check=True)
+    except Exception:
+        print("    (no ffmpeg here: prepare SKIPPED)")
+        return
+    vid = os.path.join(TMP, "talk.wav")
+    subprocess.run([ff, "-y", "-v", "error", "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono:d=1.5", "-f", "lavfi", "-i", "sine=f=300:d=2:r=16000",
+                    "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono:d=1", "-filter_complex", "[0][1][2]concat=n=3:v=0:a=1", vid], check=True)
+    d = os.path.join(TMP, "prep")
+    r = C.prepare(vid, d, ff)
+    assert os.path.isfile(os.path.join(d, "audio.wav")) and abs(r["seconds"] - 4.5) < 0.05, r
+    L = C.read_labels(os.path.join(d, "pauses.txt"))
+    assert len(L) == 2 and L[0][0] == 0.0 and abs(L[0][1] - 1.5) < 0.05 and abs(L[1][0] - 3.5) < 0.05, L
+    shutil.rmtree(d, ignore_errors=True)
+
+
 for name, fn in [("Audacity labels are read (frequency lines skipped)", t_labels),
                  ("draft from SRT + words.json, and back", t_draft_roundtrip),
                  ("no words.json: even split by letters (the panel's fallback)", t_estimate_without_words),
@@ -126,7 +190,11 @@ for name, fn in [("Audacity labels are read (frequency lines skipped)", t_labels
                  ("cut edges inside a word are found; edges in a gap are not", t_midword),
                  ("pauses incl. the end; removed only when nearly all of it is cut", t_pauses),
                  ("clicks: a hard join is found, a smooth one and a faded one are not", t_clicks),
-                 ("limits make it a gate (exit 1)", t_cli_limits)]:
+                 ("limits make it a gate (exit 1)", t_cli_limits),
+                 ("1.94.34 the Python copy of the silence detection = the panel's (core.js)", t_same_as_panel),
+                 ("1.94.34 score: hand-marked pauses, all removed, nothing into speech", t_score),
+                 ("1.94.34 score: a cut that reaches into a soft word is caught", t_score_into_speech),
+                 ("1.94.34 prepare: a video -> audio.wav + pre-marked pauses (start/end too)", t_prepare)]:
     test(name, fn)
 
 print("ALL PASS  (%d)" % passed)

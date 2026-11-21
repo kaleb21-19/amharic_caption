@@ -24,6 +24,19 @@ a day. Everything below compares something against those labels.
           sample-to-sample step within +-5 ms of each join, compared with the
           typical step around it
 
+The quick way for the silence cut (1.94.34) - label only the PAUSES, not every
+word (2-3 minutes a clip):
+  prepare VIDEO -o DIR [--ffmpeg PATH]
+          DIR/audio.wav (for Audacity), DIR/env.json (the loudness exactly as
+          the panel measures it) and DIR/pauses.txt: the quiet parts the
+          program hears, as Audacity labels to be corrected by hand
+  detect  DIR [--min 0.8] [-o CUTS.json]
+          the panel's own silence detection (a line-by-line copy of
+          core.js findSilences) on that clip -> the cuts it would offer
+  score   DIR [--min 0.8] [--keep 0.15] [--tol 0.02]
+          detect, then compare with the corrected DIR/pauses.txt: cuts that
+          reach into speech, and pauses longer than --min that were removed
+
 CUTS.json is a list of [start, end] in seconds of the ORIGINAL timeline (what
 the panel removes). For `clicks` the joins are times in the EXPORTED audio.
 Every subcommand prints one summary line and exits 1 when its --max /
@@ -150,6 +163,121 @@ def read_wav_mono(path):
     if ch > 1:
         a = a.reshape(-1, ch).mean(axis=1)
     return a, rate
+
+
+# ------------------------------------------- the panel's silence detection
+# A line-by-line copy of panel/js/core.js silenceLevels + findSilences (1.94.28)
+# so a clip is scored with exactly what the panel would offer. A test checks
+# both give the same answer.
+
+def silence_levels(env):
+    db = (env or {}).get("db") or []
+    if len(db) < 10:
+        return {"flat": False, "short": True}
+    s = sorted(db)
+    pct_ = lambda q: s[min(len(s) - 1, int(math.floor(q * len(s))))]
+    floor, loud = pct_(0.1), pct_(0.95)
+    return {"floor": floor, "loud": loud, "flat": loud - floor < 12, "short": False}
+
+
+def find_silences(env, min_len=0.7, pad=0.15):
+    db = (env or {}).get("db") or []
+    lv = silence_levels(env)
+    if lv["short"] or lv["flat"]:
+        return []
+    thr = lv["floor"] + max(6, 0.3 * (lv["loud"] - lv["floor"]))
+    t0, step = float(env.get("t0", 0)), float(env.get("step", 0.02))
+    out, run = [], -1
+    for i in range(len(db) + 1):
+        quiet = i < len(db) and db[i] < thr
+        if quiet and run < 0:
+            run = i
+        if not quiet and run >= 0:
+            s, e = t0 + run * step, t0 + i * step
+            pa = 0 if run == 0 else pad
+            pb = 0 if i == len(db) else pad
+            if e - s >= min_len and e - s - pa - pb >= 0.2:
+                out.append((s + pa, e - pb))
+            run = -1
+    return out
+
+
+def envelope_from_s16(raw, per=80, step=0.02):
+    """Loudness 50 times a second, as panel main.js audioEnvelope: mono 4 kHz
+    16-bit samples, 80 per frame, dB = 20*log10(rms/32768 + 1e-6)."""
+    import numpy as np
+    a = np.frombuffer(raw[: len(raw) - len(raw) % 2], dtype="<i2").astype("float64")
+    n = len(a) // per
+    if n <= 0:
+        return {"t0": 0.0, "step": step, "db": []}
+    fr = a[: n * per].reshape(n, per)
+    rms = np.sqrt((fr * fr).mean(axis=1))
+    db = 20 * np.log10(rms / 32768.0 + 1e-6)
+    return {"t0": 0.0, "step": step, "db": [round(float(x), 3) for x in db]}
+
+
+def find_ffmpeg(given=None):
+    if given:
+        return given
+    cands = []
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        cands.append(os.path.join(appdata, "Adobe", "CEP", "extensions", "com.amharic.captions", "runtime", "bin", "ffmpeg.exe"))
+    home = os.path.expanduser("~")
+    cands.append(os.path.join(home, "Library", "Application Support", "Adobe", "CEP", "extensions", "com.amharic.captions", "runtime", "bin", "ffmpeg"))
+    for c in cands:
+        if os.path.isfile(c):
+            return c
+    return "ffmpeg"
+
+
+def prepare(video, out_dir, ffmpeg=None, draft_min=0.3):
+    import subprocess
+    ff = find_ffmpeg(ffmpeg)
+    os.makedirs(out_dir, exist_ok=True)
+    wav = os.path.join(out_dir, "audio.wav")
+    subprocess.run([ff, "-y", "-v", "error", "-i", video, "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", wav], check=True)
+    raw = subprocess.run([ff, "-v", "error", "-i", video, "-vn", "-ac", "1", "-ar", "4000", "-f", "s16le", "-"],
+                         check=True, stdout=subprocess.PIPE).stdout
+    env = envelope_from_s16(raw)
+    with open(os.path.join(out_dir, "env.json"), "w", encoding="utf-8") as h:
+        json.dump(env, h)
+    # the draft: every quiet run of 0.3 s or more, edges unpadded (a pause = the silence itself)
+    quiet = find_silences(env, draft_min, 0.0)
+    write_labels(os.path.join(out_dir, "pauses.txt"), [(s, e, "pause") for s, e in quiet])
+    return {"wav": wav, "seconds": round(len(env["db"]) * env["step"], 2), "pauses": len(quiet),
+            "flat": silence_levels(env)["flat"]}
+
+
+def load_clip(d):
+    with open(os.path.join(d, "env.json"), encoding="utf-8") as h:
+        env = json.load(h)
+    length = len(env.get("db") or []) * float(env.get("step", 0.02))
+    return env, length
+
+
+def speech_from_pauses(pause_labels, length):
+    """The parts between the labelled pauses = speech, as [(start, end, 'speech')]."""
+    out, prev = [], 0.0
+    for s, e, _ in sorted(pause_labels):
+        if s > prev:
+            out.append((prev, s, "speech"))
+        prev = max(prev, e)
+    if length > prev:
+        out.append((prev, length, "speech"))
+    return out
+
+
+def score(d, min_len=0.8, keep=0.15, tol=0.02):
+    env, length = load_clip(d)
+    cuts = find_silences(env, min_len, 0.15)
+    truth = read_labels(os.path.join(d, "pauses.txt"))
+    speech = speech_from_pauses(truth, length)
+    into = midword_cuts(speech, cuts, tol)
+    cov = pause_coverage(speech, cuts, length, min_len, keep)
+    return {"cuts": len(cuts), "into_speech": len(into), "into": into[:10],
+            "pauses": cov["pauses"], "removed": cov["removed"], "missed": cov["missed"][:10],
+            "flat": silence_levels(env)["flat"]}
 
 
 # -------------------------------------------------------------- measuring
@@ -285,7 +413,31 @@ def main(argv=None):
     p.add_argument("--min-ratio", type=float)
     p = sub.add_parser("clicks"); p.add_argument("audio"); p.add_argument("--joins"); p.add_argument("--joins-file")
     p.add_argument("--max", type=int)
+    p = sub.add_parser("prepare"); p.add_argument("video"); p.add_argument("-o", required=True); p.add_argument("--ffmpeg")
+    p = sub.add_parser("detect"); p.add_argument("dir"); p.add_argument("--min", type=float, default=0.8); p.add_argument("-o")
+    p = sub.add_parser("score"); p.add_argument("dir"); p.add_argument("--min", type=float, default=0.8)
+    p.add_argument("--keep", type=float, default=0.15); p.add_argument("--tol", type=float, default=0.02)
     a = ap.parse_args(argv)
+
+    if a.cmd == "prepare":
+        r = prepare(a.video, a.o, a.ffmpeg)
+        print("prepare: %.1f s, %d pause(s) pre-marked -> %s%s" % (r["seconds"], r["pauses"], os.path.join(a.o, "pauses.txt"),
+              "  (music/noise as loud as the voice: the program hears no pauses - mark them yourself)" if r["flat"] else ""))
+        return 0
+    if a.cmd == "detect":
+        env, _ = load_clip(a.dir)
+        cuts = [[round(s, 3), round(e, 3)] for s, e in find_silences(env, a.min, 0.15)]
+        if a.o:
+            with open(a.o, "w", encoding="utf-8") as h:
+                json.dump(cuts, h)
+        print("detect: %d cut(s)%s" % (len(cuts), (" -> " + a.o) if a.o else (": " + json.dumps(cuts[:10]))))
+        return 0
+    if a.cmd == "score":
+        r = score(a.dir, a.min, a.keep, a.tol)
+        print("score: %d cut(s), %d reach into speech%s; pauses >= %.1f s removed %d/%d%s%s" % (
+            r["cuts"], r["into_speech"], (" " + json.dumps(r["into"])) if r["into"] else "", a.min, r["removed"], r["pauses"],
+            ("  missed " + json.dumps(r["missed"])) if r["missed"] else "", "  [flat: music/noise as loud as the voice]" if r["flat"] else ""))
+        return 0
 
     if a.cmd == "draft":
         words = engine_words(a.srt, a.words)
