@@ -473,19 +473,27 @@ function cleanupWords(cues) {
 // Long pauses from the sound: env = { t0, step, db: [loudness per frame] }.
 // The quiet level is measured on THIS recording (a noisy room is fine): a
 // frame is quiet when it sits in the lower part between the room's own floor
-// and the voice. Keeps `pad` seconds of breath on each side.
+// and the voice. Keeps `pad` seconds of breath on each side - except at the
+// very start and end of the recording (1.94.28): dead air before the first
+// word and after the last one goes completely.
+function silenceLevels(env) {
+  const db = (env && env.db) || [];
+  if (db.length < 10) return { flat: false, short: true };
+  const sorted = Array.from(db).sort((a, b) => a - b);
+  const pct = (q) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
+  const floor = pct(0.1);
+  const loud = pct(0.95);
+  // no clear voice/quiet difference (music or noise under the voice): pauses cannot be told apart
+  return { floor, loud, flat: loud - floor < 12, short: false };
+}
 function findSilences(env, opts) {
   opts = opts || {};
   const minLen = Number(opts.minLen) || 0.7;
   const pad = opts.pad == null ? 0.15 : Number(opts.pad);
   const db = (env && env.db) || [];
-  if (db.length < 10) return [];
-  const sorted = Array.from(db).sort((a, b) => a - b);
-  const pct = (q) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
-  const floor = pct(0.1);
-  const loud = pct(0.95);
-  if (loud - floor < 12) return [];                 // no clear voice/quiet difference: cut nothing
-  const thr = floor + Math.max(6, 0.3 * (loud - floor));
+  const lv = silenceLevels(env);
+  if (lv.short || lv.flat) return [];               // cut nothing (the panel says why)
+  const thr = lv.floor + Math.max(6, 0.3 * (lv.loud - lv.floor));
   const out = [];
   let runStart = -1;
   for (let i = 0; i <= db.length; i++) {
@@ -494,7 +502,8 @@ function findSilences(env, opts) {
     if (!quiet && runStart >= 0) {
       const s = env.t0 + runStart * env.step;
       const e = env.t0 + i * env.step;
-      if (e - s >= minLen && e - s - 2 * pad >= 0.2) out.push({ start: s + pad, end: e - pad });
+      const pa = runStart === 0 ? 0 : pad, pb = i === db.length ? 0 : pad;
+      if (e - s >= minLen && e - s - pa - pb >= 0.2) out.push({ start: s + pa, end: e - pb });
       runStart = -1;
     }
   }
@@ -1088,7 +1097,7 @@ if (typeof module !== 'undefined' && module.exports) {
     speakerPrefix, noEmph, srtTextFromCues, displaySrtTextFromCues, vttTextFromCues, txtTextFromCues,
     speakerSummary, aeHostCall, replaceWords, learnFixes, applyFixes, doubtRanges, splitTextAt,
     validateLicense,
-    cleanupWords, findSilences, findRepeats, findFillers, snapQuiet, mergeRanges, cutTime,
+    cleanupWords, silenceLevels, findSilences, findRepeats, findFillers, snapQuiet, mergeRanges, cutTime,
     remapCuesAfterCut, remapMediaAfterCut, CLEANUP_FILLERS, CLEANUP_FILLER_WORDS,
     findZoomMoments, cutRanges, findTextCuts, exactWordTimes, regroupCues,
     LICENSE_TOKEN_PUBKEY_PEM, licenseTokenParse, verifyLicenseToken,

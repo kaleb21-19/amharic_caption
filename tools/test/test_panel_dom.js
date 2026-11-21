@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.27');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.28');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -2326,6 +2326,20 @@ await t('4l. ✂ clean up (1.16.20): pauses from the footage, repeats and እ so
       const pause = items.find((x) => x[0] === 'pause');
       assert.ok(pause && Math.abs(pause[1] - 1.15) < 0.06 && Math.abs(pause[2] - 2.35) < 0.06, 'the quiet part, breath kept: ' + JSON.stringify(items));
       fs.unlinkSync(wav);
+      // 1.94.28: the whole clip is read - dead air after the last caption (3.4 s) up to the file's end (5 s) goes completely
+      const wav2 = path.join(os.tmpdir(), 'amh_clean_edge_' + Date.now() + '.wav');
+      const made2 = cp.spawnSync(ff, ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'anullsrc=r=16000:cl=mono:d=2', '-f', 'lavfi', '-i', 'sine=f=300:d=1:r=16000',
+        '-f', 'lavfi', '-i', 'anullsrc=r=16000:cl=mono:d=2', '-filter_complex', '[0][1][2]concat=n=3:v=0:a=1', wav2]);
+      assert.ok(made2.status === 0, 'edge test sound made');
+      p.evalVm('setPreviewMedia([{ path: ' + JSON.stringify(wav2) + ', offset: 0 }])');
+      await p.evalVm('analyzeCleanup(' + JSON.stringify(ff) + ')');
+      const ps = JSON.parse(p.evalVm('JSON.stringify(CLEAN.items.filter((x) => x.kind === "pause").map((x) => [Math.round(x.start * 100) / 100, Math.round(x.end * 100) / 100]))'));
+      assert.ok(ps.length === 2 && ps[0][0] === 0 && Math.abs(ps[0][1] - 1.85) < 0.06 && Math.abs(ps[1][0] - 3.15) < 0.06 && Math.abs(ps[1][1] - 5) < 0.06,
+        'start and end dead air, to the very edges: ' + JSON.stringify(ps));
+      assert.ok(!/already tight/.test(JSON.stringify(p.els('cleanupPanel').children.map((c) => c.textContent))));
+      fs.unlinkSync(wav2);
+      p.evalVm('setPreviewMedia([{ path: "C:/v/talk.mp4", offset: 0 }])');   // the rest of this test: captions only
+      await p.evalVm('analyzeCleanup(null)');
     }
     assert.ok(/Removes|የሚቆረጠው/.test(JSON.stringify(p.els('cleanupPanel').children.map((c) => c.textContent))), 'how much goes is shown');
     // Premiere says no (a locked track): nothing changes, the reason is shown

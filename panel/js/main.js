@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.27';
+const APP_VERSION = '1.94.28';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -6153,11 +6153,12 @@ async function analyzeCleanup(ff) {
   CLEAN = { envs: [], items: [], busy: true };
   renderCleanupPanel();
   if (!reviewCues.length) { CLEAN.busy = false; renderCleanupPanel(); return CLEAN; }
-  const lo = Math.max(0, Math.min.apply(null, reviewCues.map((c) => c.start)) - 0.5);
+  // 1.94.28: the WHOLE clip, not only from the first caption to the last -
+  // dead air before the first word and after the last one is found too
   const hi = Math.max.apply(null, reviewCues.map((c) => c.end)) + 0.5;
   for (const m of PREVIEW_MEDIA) {
-    const a = Math.max(lo, m.from);
-    const b = Math.min(hi, m.to);
+    const a = Math.max(0, m.from, -m.offset);               // never before the file's own start
+    const b = m.to < 1e11 ? m.to : Math.max(hi, a) + 3600;  // length unknown (a file): read to its end
     if (b - a > 0.5) {
       const env = await audioEnvelope(m, a, b, ff);
       if (env) CLEAN.envs.push(env);
@@ -6172,6 +6173,8 @@ function cleanupFindAll() {
   const items = [];
   CLEAN.envs.forEach((env) => findSilences(env, { minLen: cleanupPause() }).forEach((s) =>
     items.push({ kind: 'pause', start: s.start, end: s.end, on: true })));
+  // 1.94.28: music or noise as loud as the voice - say so, never "already tight"
+  CLEAN.flat = CLEAN.envs.length > 0 && CLEAN.envs.every((env) => silenceLevels(env).flat);
   findTextCuts(reviewCues).forEach((c) => {
     const env = cleanupEnvAt(c.start);
     const r = c.exact ? 0.06 : 0.15;                    // exact engine times: only a nudge
@@ -6228,6 +6231,7 @@ function renderCleanupPanel() {
     });
     p.appendChild(seg);
     if (!CLEAN.envs.length) p.appendChild(el('div', 'mem-sub', L('Pauses: your footage could not be read here — repeats and sounds only.')));
+    else if (CLEAN.flat) p.appendChild(el('div', 'clean-err', L('Pauses: music or noise under your voice is almost as loud as the voice, so pauses cannot be told apart — none are offered. Repeats and sounds still are.')));
   }
   // 1.94.27 music under the cuts: plays on, or is cut with the voice
   const mus = el('div', 'clean-opt');
@@ -6246,7 +6250,8 @@ function renderCleanupPanel() {
   const shown = cleanupShown();
   if (!shown.length) list.appendChild(el('div', 'mem-sub', textMode
     ? L('Nothing marked yet: click ✂ on a caption (Shift+click for several), or select words and press ✂ / Ctrl+D.')
-    : L('Nothing to clean — it is already tight.')));
+    : (CLEAN.flat || !CLEAN.envs.length ? L('No repeated takes or እ… sounds found.')
+      : L('No pauses longer than {s} s, no repeated takes or እ… sounds.').replace('{s}', cleanupPause()))));
   shown.forEach((it) => {
     const row = el('label', 'clean-row' + (it.on ? '' : ' off'));
     const cb = document.createElement('input');

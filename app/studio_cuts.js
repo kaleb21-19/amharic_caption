@@ -146,7 +146,14 @@
     pane.appendChild(pv);
     if (!env()) pane.appendChild(el('div', 'st-note', tx('የድምፅ ሞገዱ እየተዘጋጀ ነው — ዝምታዎች በቅርቡ ይታያሉ።', 'The sound wave is being drawn — pauses appear in a moment.')));
     const list = el('div', 'st-cutlist');
-    if (!items.length) list.appendChild(el('div', 'st-note', tx('የሚጸዳ ነገር የለም — አስቀድሞ ጥብቅ ነው።', 'Nothing to clean — it is already tight.')));
+    if (!items.length) {
+      const e = env();
+      list.appendChild(el('div', 'st-note', e && silenceLevels(e).flat
+        ? tx('ዝምታዎች ሊለዩ አይችሉም፦ ሙዚቃ ወይም ጫጫታ እንደ ድምፅዎ ከፍ ነው። የተደገሙ ወይም እ… ድምፆች አልተገኙም።',
+             'Pauses cannot be told apart: music or noise is almost as loud as the voice. No repeated takes or እ… sounds found.')
+        : tx('ከ' + pause + ' ሰከንድ የሚረዝሙ ዝምታዎች፣ የተደገሙ ወይም እ… ድምፆች የሉም።',
+             'No pauses longer than ' + pause + ' s, no repeated takes or እ… sounds.')));
+    }
     const nm = names();
     items.forEach((it) => {
       const row = el('label', 'st-cutrow' + (it.on ? '' : ' off'));

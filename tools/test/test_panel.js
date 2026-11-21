@@ -439,6 +439,17 @@ t('clean up: pauses come from THIS recording (noisy room fine, no contrast = not
   assert.strictEqual(core.findSilences(env(-70, -20), { minLen: 2.5 }).length, 0, 'shorter than asked');
 });
 
+t('1.94.28 clean up: dead air at the very start and end goes completely; music as loud as the voice is reported, not "tight"', () => {
+  const db = [];
+  for (let i = 0; i < 600; i++) db.push(i < 75 || i >= 550 ? -70 : -20 + (i % 3));   // 1.5 s before the first word, 1 s after the last
+  const s = core.findSilences({ t0: 4, step: 0.02, db });
+  assert.deepStrictEqual(s.map((x) => [+x.start.toFixed(2), +x.end.toFixed(2)]), [[4, 5.35], [15.15, 16]], 'no breath kept at the outer edges');
+  const flat = { t0: 0, step: 0.02, db: db.map((v) => (v < -60 ? -26 : v)) };
+  assert.strictEqual(core.silenceLevels(flat).flat, true);
+  assert.strictEqual(core.findSilences(flat).length, 0);
+  assert.strictEqual(core.silenceLevels({ t0: 0, step: 0.02, db }).flat, false);
+});
+
 t('clean up: captions and footage follow the cut', () => {
   const cuts = core.mergeRanges([{ start: 8, end: 9 }, { start: 3, end: 4 }, { start: 3.5, end: 4.2 }]);
   assert.deepStrictEqual(cuts, [{ start: 3, end: 4.2 }, { start: 8, end: 9 }]);
