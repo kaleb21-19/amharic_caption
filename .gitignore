@@ -41,3 +41,6 @@ tools/telegram/pending.json
 
 # OS cruft
 .DS_Store
+
+# cut-quality test clips (real people's voices: never committed)
+tools/eval/set/

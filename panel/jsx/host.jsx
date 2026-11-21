@@ -77,6 +77,8 @@ function amharic_diag() {
     return amhGuard(function () {
         if (!app || !app.project) { return amhErr("No project is open."); }
         var lines = ["Project: " + app.project.name];
+        // 1.94.23: what this Premiere offers for smooth joins (read-only)
+        try { var fp = JSON.parse(amh_fadeProbe()); lines.push("Smooth joins: " + JSON.stringify(fp)); } catch (e) { lines.push("Smooth joins: ERR " + e.message); }
         amhDumpTree(app.project.rootItem, 0, lines);
         return amhOk({ lines: lines });
     });
@@ -1744,7 +1746,136 @@ function amhCleanupTakeOut(seq, qseq, kind, i, a, b, eps) {
     return { removed: want - left, left: left, next: found.next };
 }
 
-function amhCleanupOne(seq, a, b, fps) {
+// ---------------------------------------------------- smooth joins (1.94.23)
+// A cut leaves a hard join: the sound jumps from one sample to the next and
+// clicks. After each cut, the sound of the clip that ends at the join fades
+// out over the last AMH_FADE_S, and the clip that starts there fades in over
+// its first AMH_FADE_S - Premiere's documented Volume > Level keyframes (no
+// hidden functions). A clip whose Level already changes over time (the
+// editor's own keyframes, or an earlier fade: Premiere's razor copies keys to
+// both pieces) keeps them: the fade starts from the level at that moment.
+// Off unless the panel asks (args.fade): it is
+// switched on only after a real-Premiere check (amh_fadeProbe).
+var AMH_FADE_S = 0.03;
+function amhLevelProp(clip) {
+    var comps = null;
+    try { comps = clip.components; } catch (e) { return null; }
+    if (!comps) { return null; }
+    for (var i = 0; i < comps.numItems; i++) {
+        var c = comps[i], cn = "";
+        try { cn = String(c.displayName || c.matchName || ""); } catch (e) {}
+        if (!/volume/i.test(cn) || /channel/i.test(cn)) { continue; }
+        var props = c.properties;
+        for (var j = 0; props && j < props.numItems; j++) {
+            var p = props[j], pn = "";
+            try { pn = String(p.displayName || ""); } catch (e) {}
+            if (/level/i.test(pn)) { return p; }
+        }
+    }
+    return null;
+}
+// keys at media times (the clip's own source time): [[t, factor]], factor
+// 1 = the clip's current level, 0 = silent
+function amhLevelKeys(prop, keys) {
+    var tv = false;
+    try { tv = !!prop.isTimeVarying(); } catch (e) { tv = false; }
+    var lvl = [];
+    for (var k = 0; k < keys.length; k++) {
+        var v = NaN;
+        if (tv) { try { v = Number(prop.getValueAtTime(keys[k][0])); } catch (e) { v = NaN; } }
+        if (isNaN(v)) { try { v = Number(prop.getValue()); } catch (e2) { v = NaN; } }
+        if (isNaN(v)) { return "no level"; }
+        lvl.push(v);
+    }
+    if (!tv) { prop.setTimeVarying(true); }      // never switched off: that would wipe the editor's keys
+    for (k = 0; k < keys.length; k++) {
+        prop.addKey(keys[k][0]);
+        prop.setValueAtKey(keys[k][0], lvl[k] * keys[k][1], k === keys.length - 1);
+    }
+    return "ok";
+}
+function amhSec(t) {
+    if (t === null || t === undefined) { return null; }
+    try { var s = Number(t.seconds); if (!isNaN(s)) { return s; } } catch (e) {}
+    try { var tk = Number(t.ticks); if (!isNaN(tk)) { return tk / 254016000000; } } catch (e) {}
+    return null;
+}
+// fade both sides of the join at timeline time `at` on every audio track
+function amhJoinFades(seq, at, fps, d) {
+    var r = { faded: 0, skipped: 0, error: "" };
+    var eps = 0.5 / (fps || 25);
+    d = d || AMH_FADE_S;
+    var at2 = seq.audioTracks;
+    for (var ti = 0; ti < at2.numTracks; ti++) {
+        var cl = at2[ti].clips, before = null, after = null;
+        for (var c = 0; c < cl.numItems; c++) {
+            var it = cl[c];
+            var s = amhSec(it.start), e = amhSec(it.end);
+            if (s === null || e === null) { continue; }
+            if (Math.abs(e - at) < eps) { before = it; }
+            if (Math.abs(s - at) < eps) { after = it; }
+        }
+        if (!before || !after) { continue; }      // no join on this track (a gap, or nothing there)
+        var sides = [[before, true], [after, false]];
+        for (var k = 0; k < 2; k++) {
+            var clip = sides[k][0], out = sides[k][1];
+            try {
+                var cs = amhSec(clip.start), ce = amhSec(clip.end), ci = amhSec(clip.inPoint), co = amhSec(clip.outPoint);
+                if (ci === null) { ci = 0; }
+                if (co === null) { co = ci + (ce - cs); }
+                if (!(co - ci > 3 * d)) { r.skipped++; continue; }   // too short to fade
+                var prop = amhLevelProp(clip);
+                if (!prop) { r.skipped++; if (!r.error) { r.error = "no Volume > Level"; } continue; }
+                var res = amhLevelKeys(prop, out ? [[co - d, 1], [co, 0]] : [[ci, 0], [ci + d, 1]]);
+                if (res === "ok") { r.faded++; } else { r.skipped++; if (!r.error) { r.error = res; } }
+            } catch (err) {
+                r.skipped++;
+                if (!r.error) { r.error = String(err.message || err); }
+            }
+        }
+    }
+    return r;
+}
+// Read-only: what this Premiere offers for smooth joins (shown by Run
+// diagnostics). Looks at the audio clip under the playhead, or the first one.
+function amh_fadeProbe() {
+    return amhGuard(function () {
+        var seq = app.project.activeSequence;
+        if (!seq) { return amhOk({ fade: "no active sequence" }); }
+        var ph = null;
+        try { ph = amhSec(seq.getPlayerPosition()); } catch (e) {}
+        var clip = null;
+        var at2 = seq.audioTracks;
+        for (var ti = 0; ti < at2.numTracks && !clip; ti++) {
+            for (var c = 0; c < at2[ti].clips.numItems; c++) {
+                var it = at2[ti].clips[c];
+                var s = amhSec(it.start), e = amhSec(it.end);
+                if (ph === null || (ph >= s && ph < e)) { clip = it; break; }
+                if (!clip && c === 0 && ti === 0) { clip = it; }
+            }
+        }
+        if (!clip) { return amhOk({ fade: "no audio clip" }); }
+        var names = [];
+        try {
+            for (var i = 0; i < clip.components.numItems; i++) {
+                var cm = clip.components[i], pr = [];
+                for (var j = 0; j < cm.properties.numItems; j++) { pr.push(String(cm.properties[j].displayName)); }
+                names.push(String(cm.displayName) + "(" + pr.join(",") + ")");
+            }
+        } catch (e) { names.push("components ERR " + e.message); }
+        var p = amhLevelProp(clip), info = { fade: p ? "ready" : "no Volume > Level", components: names.join("; ") };
+        if (p) {
+            try { info.level = Number(p.getValue()); } catch (e) { info.level = "ERR " + e.message; }
+            try { info.keyed = !!p.isTimeVarying(); } catch (e) { info.keyed = "ERR " + e.message; }
+            info.api = ["setTimeVarying", "addKey", "setValueAtKey", "getValueAtTime"].map(function (f) {
+                return f + (typeof p[f] === "function" ? "+" : "-");
+            }).join(" ");
+        }
+        return amhOk(info);
+    });
+}
+
+function amhCleanupOne(seq, a, b, fps, fade) {
     var eps = 0.5 / fps, len = b - a;
     app.enableQE();
     var qseq = qe.project.getActiveSequence();
@@ -1771,7 +1902,9 @@ function amhCleanupOne(seq, a, b, fps) {
             }
         }
     }
-    return { removed: removed, moved: moved, len: len, left: left, tc: tcA + "-" + tcB };
+    var fd = null;
+    if (fade && removed > 0 && !left) { try { fd = amhJoinFades(seq, a, fps); } catch (e) { fd = { faded: 0, skipped: 0, error: String(e.message || e) }; } }
+    return { removed: removed, moved: moved, len: len, left: left, tc: tcA + "-" + tcB, fades: fd };
 }
 
 // Step 1: checks, then copy the sequence and open the copy. Nothing is cut
@@ -1840,12 +1973,14 @@ function amh_cleanupSome(argsJSON) {
         }
         var fps = Number(args.fps) > 0 ? Number(args.fps) : amhCleanupFps();
         var cuts = args.cuts || [];
-        var removed = 0, moved = 0, total = 0;
+        var removed = 0, moved = 0, total = 0, faded = 0, fadeErr = "";
         for (var n = cuts.length - 1; n >= 0; n--) {          // last first: earlier times stay valid
-            var r = amhCleanupOne(seq, Number(cuts[n][0]), Number(cuts[n][1]), fps);
+            var r = amhCleanupOne(seq, Number(cuts[n][0]), Number(cuts[n][1]), fps, !!args.fade);
             removed += r.removed; moved += r.moved; total += r.len;
+            if (r.fades) { faded += r.fades.faded; if (r.fades.error && !fadeErr) { fadeErr = r.fades.error; } }
         }
-        return amhOk({ cuts: cuts.length, removed: removed, moved: moved, removedSeconds: Math.round(total * 1000) / 1000 });
+        return amhOk({ cuts: cuts.length, removed: removed, moved: moved, removedSeconds: Math.round(total * 1000) / 1000,
+                       faded: faded, fadeError: fadeErr });
     });
 }
 
@@ -1904,10 +2039,11 @@ function amh_textCutNow(argsJSON) {
                 try { app.project.openSequence(seq.sequenceID); } catch (e) {}
             }
         }
-        var removed = 0, total = 0, left = 0, miss = "";
+        var removed = 0, total = 0, left = 0, miss = "", faded = 0, fadeErr = "";
         for (var n = cuts.length - 1; n >= 0; n--) {             // last first: earlier times stay valid
-            var o = amhCleanupOne(seq, cuts[n][0], cuts[n][1], fps);
+            var o = amhCleanupOne(seq, cuts[n][0], cuts[n][1], fps, !!args.fade);
             removed += o.removed; total += o.len; left += o.left;
+            if (o.fades) { faded += o.fades.faded; if (o.fades.error && !fadeErr) { fadeErr = o.fades.error; } }
             if (!o.removed && !o.left && !miss) { miss = cuts[n][0].toFixed(2) + "-" + cuts[n][1].toFixed(2) + " s = " + o.tc; }
         }
         if (miss) {
@@ -1916,7 +2052,8 @@ function amh_textCutNow(argsJSON) {
         if (left) {
             return amhErr("Premiere made the cut lines but kept the piece between them (" + left + " clip(s)). Select that piece on the timeline and press Shift+Delete. Then send a problem report so we can fix this for your Premiere version.");
         }
-        return amhOk({ sequence: name, kept: kept, list: cuts, removed: removed, removedSeconds: Math.round(total * 1000) / 1000 });
+        return amhOk({ sequence: name, kept: kept, list: cuts, removed: removed, removedSeconds: Math.round(total * 1000) / 1000,
+                       faded: faded, fadeError: fadeErr });
     });
 }
 

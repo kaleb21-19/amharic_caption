@@ -30,9 +30,11 @@ function makePremiere(spec, opts) {
     const list = [];
     const frozen = list;   // opts.domBlind: the script view never sees new pieces (an old handle)
     const track = { list, get clips() { return coll(opts.domBlind ? frozen.slice(0, frozen._n == null ? frozen.length : frozen._n) : list, 'numItems'); }, isLocked: () => !!locked };
-    const add = (s, e, name, media) => {
+    const add = (s, e, name, media, inS, keys) => {
       const c = {
         name, start: { seconds: s }, end: { seconds: e },
+        inPoint: { seconds: inS || 0 },
+        get outPoint() { return { seconds: this.inPoint.seconds + this.end.seconds - this.start.seconds }; },
         projectItem: { name, getMediaPath: () => media || '' },
         remove(ripple, align, viaQe) {
           if (opts.domRemoveNoop && !viaQe) return;          // a Premiere that ignores remove()
@@ -46,6 +48,24 @@ function makePremiere(spec, opts) {
         },
         move(t) { c.start.seconds += t.seconds; c.end.seconds += t.seconds; },
       };
+      if (opts.volume) {
+        // Volume > Level (1.94.23 smooth joins): keys at source times, like Premiere
+        const lv = { displayName: 'Level', tv: !!keys, keys: keys ? keys.map((k) => k.slice()) : [], v: opts.volume,
+          isTimeVarying() { return this.tv; }, getValue() { return this.v; },
+          setTimeVarying(b) { this.tv = b; if (!b) this.keys = []; },
+          addKey(t) { if (!this.keys.some((k) => Math.abs(k[0] - t) < 1e-9)) this.keys.push([t, this.v]); this.keys.sort((x, y) => x[0] - y[0]); },
+          setValueAtKey(t, v) { this.keys.find((k) => Math.abs(k[0] - t) < 1e-9)[1] = v; },
+          getValueAtTime(t) {
+            const k = this.keys; if (!k.length) return this.v;
+            if (t <= k[0][0]) return k[0][1];
+            for (let i = 1; i < k.length; i++) if (t <= k[i][0]) return k[i - 1][1] + (k[i][1] - k[i - 1][1]) * (t - k[i - 1][0]) / (k[i][0] - k[i - 1][0]);
+            return k[k.length - 1][1];
+          } };
+        c.level = lv;
+        c.components = coll([{ displayName: 'Opacity', properties: coll([{ displayName: 'Opacity' }], 'numItems') },
+          { displayName: 'Channel Volume', properties: coll([{ displayName: 'Left' }], 'numItems') },
+          { displayName: 'Volume', properties: coll([{ displayName: 'Bypass' }, lv], 'numItems') }], 'numItems');
+      }
       list.push(c);
       return c;
     };
@@ -56,7 +76,8 @@ function makePremiere(spec, opts) {
       if (!c) return;
       const end = c.end.seconds;
       c.end.seconds = t;
-      add(t, end, c.name, c.projectItem.getMediaPath());
+      // the second piece starts later in the source, and gets a copy of the keys (Premiere does that)
+      add(t, end, c.name, c.projectItem.getMediaPath(), c.inPoint.seconds + t - c.start.seconds, c.level && c.level.tv ? c.level.keys : null);
       list.sort((x, y) => x.start.seconds - y.start.seconds);
     };
     track.snap = () => list.map((c) => [r3(c.start.seconds), r3(c.end.seconds), c.name]).sort((x, y) => x[0] - y[0]);
@@ -362,6 +383,63 @@ test('1.93.1 the razor lands somewhere else (nothing between the lines): says so
   pp.ctx.qe.project.getActiveSequence = () => ({ getVideoTrackAt: (i) => off(pp.seqs[0].vt[i]), getAudioTrackAt: (i) => off(pp.seqs[0].at[i]) });
   const r = nowCut(pp, { cuts: [[10, 12]], media: [VIDEO] });
   assert.match(r.error, /did not cut at 10\.00-12\.00 s = 10-12/);
+});
+
+
+// ── 1.94.23 smooth joins: a 30 ms fade out / in at each cut (Volume > Level keys)
+const lvKeys = (c) => c.level.keys.map((k) => [r3(k[0]), r3(k[1])]);
+test('smooth joins OFF (the default): no keys anywhere', () => {
+  const pp = makePremiere(base(), { volume: 1 });
+  const r = nowCut(pp, { cuts: [[10, 12]], media: [VIDEO] });
+  assert.ok(r.ok && !r.faded, JSON.stringify(r));
+  pp.project.activeSequence.at.forEach((t) => t.list.forEach((c) => assert.strictEqual(c.level.tv, false)));
+});
+test('smooth joins ON: the piece before fades out over its last 30 ms, the piece after fades in, on every audio track', () => {
+  const pp = makePremiere(base(), { volume: 1 });
+  const r = nowCut(pp, { cuts: [[10, 12]], media: [VIDEO], fade: true });
+  assert.ok(r.ok, JSON.stringify(r));
+  const s = pp.project.activeSequence;
+  const voice = s.at[0].list.slice().sort((x, y) => x.start.seconds - y.start.seconds);
+  assert.deepStrictEqual(lvKeys(voice[0]), [[9.97, 1], [10, 0]], 'source 9.97-10.00 fades out');
+  assert.deepStrictEqual(lvKeys(voice[1]), [[12, 0], [12.03, 1]], 'source 12.00-12.03 fades in (the piece starts at source 12)');
+  assert.ok(r.faded >= 4, 'voice + music both sides: ' + r.faded);
+  assert.strictEqual(r.fadeError, '');
+});
+test('smooth joins: two cuts in one clip both fade (razor copied the first fade keys), and the editor own level is kept', () => {
+  const pp = makePremiere(base(), { volume: 0.5 });
+  const r = nowCut(pp, { cuts: [[10, 12], [20, 22]], media: [VIDEO], fade: true });
+  assert.ok(r.ok, JSON.stringify(r));
+  const voice = pp.project.activeSequence.at[0].list.slice().sort((x, y) => x.start.seconds - y.start.seconds);
+  assert.strictEqual(voice.length, 3);
+  assert.deepStrictEqual(lvKeys(voice[0]).filter((k) => k[0] <= 10), [[9.97, 0.5], [10, 0]], 'keys past a piece end (copied by the razor) are outside it: unheard');
+  assert.deepStrictEqual(lvKeys(voice[1]).filter((k) => k[0] >= 12 && k[0] <= 12.03), [[12, 0], [12.03, 0.5]]);
+  assert.deepStrictEqual(lvKeys(voice[1]).filter((k) => k[0] >= 19.97 && k[0] <= 20), [[19.97, 0.5], [20, 0]], 'the middle piece fades out too');
+  assert.deepStrictEqual(lvKeys(voice[2]).filter((k) => k[0] >= 22), [[22, 0], [22.03, 0.5]]);
+});
+test('smooth joins: a Premiere without Volume > Level still cuts, and says why there is no fade', () => {
+  const pp = makePremiere(base());
+  const r = nowCut(pp, { cuts: [[10, 12]], media: [VIDEO], fade: true });
+  assert.ok(r.ok, JSON.stringify(r));
+  assert.strictEqual(r.faded, 0);
+  assert.match(r.fadeError, /no Volume > Level/);
+  assert.deepStrictEqual(pp.project.activeSequence.vt[0].snap(), [[0, 10, 'interview.mp4'], [10, 58, 'interview.mp4']]);
+});
+test('smooth joins in the step-by-step clean-up too', () => {
+  const pp = makePremiere(base(), { volume: 1 });
+  const call = (fn, a) => JSON.parse(vm.runInContext(fn + '(' + JSON.stringify(JSON.stringify(a)) + ')', pp.ctx));
+  const p = call('amh_cleanupPrepare', { cuts: [[10, 12]], media: [VIDEO] });
+  const r = call('amh_cleanupSome', { sequenceID: p.sequenceID, fps: p.fps, cuts: p.list, fade: true });
+  assert.ok(r.ok && r.faded >= 2, JSON.stringify(r));
+});
+test('fade probe (Run diagnostics) reads only: it reports Level and the functions, and adds no key', () => {
+  const pp = makePremiere(base(), { volume: 1 });
+  const r = JSON.parse(vm.runInContext('amh_fadeProbe()', pp.ctx));
+  assert.ok(r.ok && r.fade === 'ready', JSON.stringify(r));
+  assert.match(r.api, /setTimeVarying\+ addKey\+ setValueAtKey\+ getValueAtTime\+/);
+  assert.match(r.components, /Volume\(Bypass,Level\)/);
+  pp.project.activeSequence.at.forEach((t) => t.list.forEach((c) => assert.strictEqual(c.level.tv, false)));
+  const none = makePremiere(base());
+  assert.strictEqual(JSON.parse(vm.runInContext('amh_fadeProbe()', none.ctx)).fade, 'no Volume > Level');
 });
 
 console.log('ALL PASS  (' + passed + ' tests)');
