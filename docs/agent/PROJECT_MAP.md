@@ -83,6 +83,11 @@ the same PR that moves or renames the code. Keep this file under ~120 lines.
 - `tools/fonts/metrics.json` :: `"Noto Sans Ethiopic|1"` — letter widths (shipped in runtime/fonts)
 - `panel/img/styles/glide.jpg` :: — style thumbnails 300x150 (neutral background, no third-party video)
 
+## Editable Premiere template (tools/mogrt/)
+- `tools/mogrt/build_gold_caption.jsx` :: `function amhBuildTemplates` — After Effects script: two editable MOGRTs (16:9 + 9:16), Amharic sample, 7 Essential Graphics controls
+- `tools/mogrt/README.md` :: `Install Motion Graphics Template` — owner build steps + editor install steps, Amharic then English
+- `tools/test/test_mogrt.js` :: `ALL PASS` — runs the generator in a fake AE object model (CI has no After Effects)
+
 ## Engine + licensing (careful: AGENTS.md §7)
 - `ethio_srt.py` :: `def require_license` — engine refuses without a license / trial ticket
 - `amh_license.py` :: `def engine_auth` — lease / ticket verification for this machine

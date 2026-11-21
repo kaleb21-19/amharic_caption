@@ -3,6 +3,7 @@
 Add a line (with the date) when the owner decides something. Keep < 60 lines.
 
 ## Product
+- 2026-11-21 (owner): ship a READY MOGRT caption template for Premiere — the editor types the Amharic text in Essential Graphics. Do NOT re-enable automatic panel→MOGRT text-setting: 1.94.0 kept the template's English sample and was rolled back in 1.94.1.
 - No model training / fine-tuning. Improve with decoding, rules, word lists (measured).
 - Nothing may slow transcription. Time every engine change.
 - Afaan Oromo is NOT released (tested 2026-10, friend: not accurate). Branch feature/oromo is parked.

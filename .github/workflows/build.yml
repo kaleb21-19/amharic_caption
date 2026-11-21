@@ -184,6 +184,9 @@ jobs:
       - name: After Effects host layer tests (Node, simulated AE object model)
         run: node tools/test/test_host_ae.js
 
+      - name: Editable MOGRT caption template (generated in a simulated AE)
+        run: node tools/test/test_mogrt.js
+
       - name: Premiere caption placement tests (re-placing must not stack tracks)
         run: node tools/test/test_host_captions.js
 
