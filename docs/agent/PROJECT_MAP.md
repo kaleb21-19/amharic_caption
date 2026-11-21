@@ -7,7 +7,7 @@ the same PR that moves or renames the code. Keep this file under ~120 lines.
 ## Panel (Premiere / After Effects, CEP) — panel/
 - `panel/js/main.js` :: `function openReview` — the review screen opens (captions list, style strip)
 - `panel/js/main.js` :: `function placeReview` — "Place on timeline": plain captions or a styled layer (falls back to plain)
-- `panel/js/main.js` :: `function renderStyleStrip` — Premiere: ONLY the editable MOGRTs (click = place at playhead); Studio/AE: Plain, My styles, 18 styles, Templates group
+- `panel/js/main.js` :: `function renderStyleStrip` — style buttons (Plain, My styles, NEW mark, 18 styles, the Templates group)
 - `panel/js/main.js` :: `function styleOpts` — Customize options per style (colour, text, anim, font, size, pos, words, box)
 - `panel/js/main.js` :: `function renderPreview` — the caption-strip preview (runs amh_styles.py preview)
 - `panel/js/main.js` :: `function renderStyled` — spawns `amh_styles.py render` (overlay / burn / preview)
@@ -42,7 +42,7 @@ the same PR that moves or renames the code. Keep this file under ~120 lines.
 - `panel/index.html` :: `id="review"` — markup + all panel CSS (dark only)
 - `panel/CSXS/manifest.xml` :: `ExtensionBundleVersion` — version (bump with tools/agent/bump.py)
 - `panel/jsx/host.jsx` :: `function amharic_getSelectedClip` — which clip Generate uses (audio tracks first, then video)
-- `panel/jsx/host.jsx` :: `function amh_placeOverlay` — styled layer on the first empty track above (Premiere); `function amh_placeMOGRT` — editable MOGRT at the playhead via `Sequence.importMGT`
+- `panel/jsx/host.jsx` :: `function amh_placeOverlay` — styled layer on the first empty track above (Premiere)
 - `panel/jsx/host.jsx` :: `function amh_cleanupPrepare` — ✂ checks + copy the sequence; then `amh_cleanupSome` cuts groups (razor + ripple, every track)
 - `panel/jsx/host.jsx` :: `function amh_autoZoom` — Scale keyframes on the footage (Motion effect), on a copy; skips the editor's own animation
 - `panel/jsx/host.jsx` :: `function amharic_getFrame` — sequence width/height/fps
@@ -83,17 +83,10 @@ the same PR that moves or renames the code. Keep this file under ~120 lines.
 - `tools/fonts/metrics.json` :: `"Noto Sans Ethiopic|1"` — letter widths (shipped in runtime/fonts)
 - `panel/img/styles/glide.jpg` :: — style thumbnails 300x150 (neutral background, no third-party video)
 
-## Editable Premiere template (tools/mogrt/, panel/mogrt/)
-- `tools/mogrt/build_gold_caption.jsx` :: `function amhBuildTemplates` — After Effects script: 20 single-line MOGRTs (10 looks x 16x9 / 9x16), Amharic sample, 7 Essential Graphics controls
-- `tools/mogrt/README.md` :: `Install Motion Graphics Template` — owner build steps + editor install steps, Amharic then English
-- `panel/mogrt/Blur.mogrt` :: — one of 9 supplied single-line animation templates (owner holds rights), shipped with the product
-- `tools/test/test_mogrt.js` :: `ALL PASS` — runs the generator in a fake AE object model (CI has no After Effects)
-- `tools/test/test_mogrt_pack.py` :: `ALL PASS` — checks shipped .mogrt files: single line, no embedded footage/fonts, small pack
-- `tools/test/test_host_mogrt.js` :: `all green` — click places MOGRT at playhead on a free track; no text written into the template
-
 ## Engine + licensing (careful: AGENTS.md §7)
 - `ethio_srt.py` :: `def require_license` — engine refuses without a license / trial ticket
 - `amh_license.py` :: `def engine_auth` — lease / ticket verification for this machine
+- `amh_decode.py` :: `def ` — word-aware CTC decoder (+ forced alignment)
 - `tools/model.lock` :: — the only allowed model.bin hash
 
 ## Bot + license server — tools/telegram-worker/
