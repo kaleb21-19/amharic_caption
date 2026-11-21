@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.39';
+const APP_VERSION = '1.94.40';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -8066,7 +8066,19 @@ function styleOpts(style, raw) {
     anim: STYLE_ANIMS.some((a) => a[0] === o.anim) ? o.anim : 'auto',
     emph: o.emph === 'off' ? 'off' : 'auto',
     lines: Number(o.lines) === 2 ? 2 : 1,          // 1.50: two balanced lines per caption
+    // 1.94.40 Outline & shadow, Box (null = the look's own)
+    outline: optNum(o.outline, 0, 0.15),
+    outline_col: HEX_COLOR.test(o.outline_col || '') ? o.outline_col.toUpperCase() : '',
+    shadow: optNum(o.shadow, 0, 0.15),
+    box_col: HEX_COLOR.test(o.box_col || '') ? o.box_col.toUpperCase() : '',
+    box_a: optNum(o.box_a, 0.1, 1),
+    box_r: optNum(o.box_r, 0, 0.6),
   };
+}
+function optNum(v, lo, hi) {
+  if (v === null || v === undefined || v === '' || typeof v === 'boolean') return null;
+  const n = Number(v);
+  return isNaN(n) ? null : Math.max(lo, Math.min(hi, n));
 }
 function setStyleOpt(key, value) {
   const s = loadSettings();
@@ -8210,6 +8222,8 @@ function customizeHere() { return PANEL_CUSTOMIZE !== null ? !!PANEL_CUSTOMIZE :
 // timeline after Place. The same settings as the Studio's big box.
 const ANIM_COMMON = ['auto', 'none', 'fade', 'pop', 'slide', 'typewriter'];   // 1.94.38
 let STYLE_SECTION = 'text';          // 1.94.39: the open Customize section
+const OUTLINE_COLORS = ['', '#000000', '#FFFFFF', '#1A1A2E'];          // 1.94.40 ('' = the look's own)
+const BOX_COLORS = ['', '#000000', '#FFFFFF', '#FFE500', '#FF2D95', '#2F80ED'];
 const SIZE_PICK = [['s', 'S', 0.8], ['m', 'M', 1], ['l', 'L', 1.25], ['xl', 'XL', 1.5]];
 function renderCompactCustom(wrap, opts) {
   const styled = STYLE_OK && STYLE !== 'plain';
@@ -8283,10 +8297,10 @@ function renderCompactCustom(wrap, opts) {
     row.appendChild(c);
     return c;
   };
-  const slider = (row, min, max, step, value, fmt, onDone) => {
+  const slider = (row, min, max, step, value, fmt, onDone, autoLabel) => {
     const r = el('input', 'cc-range');
     r.type = 'range'; r.min = min; r.max = max; r.step = step; r.value = value;
-    const v = el('span', 'cc-val', fmt(value));
+    const v = el('span', 'cc-val', autoLabel ? L('Auto') : fmt(value));
     r.addEventListener('input', () => { v.textContent = fmt(Number(r.value)); });
     r.addEventListener('change', () => onDone(Number(r.value)));     // drawn when the slider is let go
     row.appendChild(r);
@@ -8308,16 +8322,31 @@ function renderCompactCustom(wrap, opts) {
     const tr = line('Colour');
     dots(tr, TEXT_COLORS, o.text, 'text');
     anyColour(tr, o.text, 'text');
-    const bx = el('button', 'cc-opt cc-box' + (o.box ? ' active' : ''), L('Box'));
-    bx.type = 'button';
-    bx.addEventListener('click', () => setStyleOpt('box', !o.box));
-    tr.appendChild(bx);
   }
   if (section('emph', 'Highlight word')) {
     const cr = line('Colour');
     dots(cr, STYLE_COLORS, o.color, 'color');
     anyColour(cr, o.color, 'color');
     seg(line('Highlight'), [['auto', L('On')], ['off', L('Off')]], o.emph, (v) => setStyleOpt('emph', v));
+  }
+  // 1.94.40 Outline & shadow, Box
+  const pctOf = (x) => Math.round(x * 100);
+  if (section('outline', 'Outline & shadow')) {
+    slider(line('Outline'), 0, 15, 1, o.outline === null ? 0 : pctOf(o.outline), (x) => x + '%', (x) => setStyleOpt('outline', x / 100), o.outline === null);
+    const oc = line('Colour');
+    dots(oc, OUTLINE_COLORS, o.outline_col, 'outline_col');
+    anyColour(oc, o.outline_col || '#000000', 'outline_col');
+    slider(line('Shadow'), 0, 15, 1, o.shadow === null ? 0 : pctOf(o.shadow), (x) => x + '%', (x) => setStyleOpt('shadow', x / 100), o.shadow === null);
+  }
+  if (section('box', 'Box')) {
+    seg(line('Box'), [[true, L('On')], [false, L('Off')]], o.box, (v) => setStyleOpt('box', v === true || v === 'true'));
+    const bc = line('Colour');
+    dots(bc, BOX_COLORS, o.box_col, 'box_col');
+    anyColour(bc, o.box_col || '#000000', 'box_col');
+    slider(line('Opacity'), 10, 100, 5, o.box_a === null ? 75 : pctOf(o.box_a), (x) => x + '%', (x) => setStyleOpt('box_a', x / 100), o.box_a === null);
+    if (isTemplate(STYLE)) {                     // the older styles draw a square box
+      slider(line('Roundness'), 0, 60, 5, o.box_r === null ? 0 : pctOf(o.box_r), (x) => x + '%', (x) => setStyleOpt('box_r', x / 100), o.box_r === null);
+    }
   }
   if (section('place', 'Place & lines')) {
     seg(line('Position'), [['bottom', L('Bottom')], ['middle', L('Middle')], ['top', L('Top')], ['safe', 'TikTok']], o.y === null ? o.pos : '',

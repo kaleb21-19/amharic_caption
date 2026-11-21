@@ -114,7 +114,24 @@ for an in ("slidecolor", "shake", "glow", "blurzoom"):
 
 o = A.options({"color": "red", "size": "huge", "pos": "left", "words": 9, "box": 1, "y": "x"})
 check(o == {"color": None, "text": None, "size": "m", "k": 1.0, "y": None, "pos": "bottom", "words": 0, "box": True,
-            "font": "sans", "anim": "auto", "emph": "auto", "lines": 1}, "bad options fall back safely")
+            "font": "sans", "anim": "auto", "emph": "auto", "lines": 1, "outline": None, "outline_col": None, "shadow": None, "box_col": None, "box_a": None, "box_r": None}, "bad options fall back safely")
+# 1.94.40 Outline & shadow, Box: templates through their look, older styles on their style line
+ob = A.options({"outline": 0.5, "outline_col": "#ff0000", "shadow": -1, "box_col": "nope", "box_a": 3, "box_r": 0.2})
+check([ob["outline"], ob["outline_col"], ob["shadow"], ob["box_col"], ob["box_a"], ob["box_r"]] == [0.15, "#FF0000", 0.0, None, 1.0, 0.2],
+      "outline / shadow / box options are clamped and cleaned")
+lk = A._look_overrides(A.template("modern"), A.options({"outline": 0.1, "outline_col": "#FF0000", "shadow": 0.05}))
+check(lk["outline_w"] == 0.1 and lk["outline"] == "#FF0000" and lk["shadow_w"] == 0.05, "a template takes the editor's outline and shadow")
+gl = A.template("glass")
+lk2 = A._look_overrides(gl, A.options({"box_col": "#FFE500", "box_a": 0.4, "box_r": 0.3}))
+check(lk2["box"] == "#FFE500" and lk2["box_a"] == 0.4 and lk2["box_r"] == 0.3, "a template's own box takes colour, opacity, roundness")
+check(A._look_overrides(A.template("modern"), A.options({"box_col": "#FFE500"})).get("box") == A.template("modern").get("box"),
+      "a box colour alone does not switch a box on")
+sb = A.build([(u"\u1230\u120b\u121d", 0.0, 1.0)], "bold", 1280, 720, opts={"outline": 0.1, "outline_col": "#FF0000", "shadow": 0})
+stl = [l for l in sb.splitlines() if l.startswith("Style: S,")][0].split(",")
+check(stl[5] == "&H000000FF" and float(stl[17]) == 0.0 and float(stl[16]) > 0, "an older style: outline colour, width and no shadow on its style line")
+bb = A.build([(u"\u1230\u120b\u121d", 0.0, 1.0)], "bold", 1280, 720, opts={"box": True, "box_col": "#FFFFFF", "box_a": 0.5})
+st2 = [l for l in bb.splitlines() if l.startswith("Style: S,")][0].split(",")
+check(st2[15] == "3" and st2[5] == "&H80FFFFFF", "an older style's box: the colour and opacity chosen")
 # 1.32: the Size slider's number and a dragged height
 check(A.options({"size": 1.3})["k"] == 1.3 and A.options({"size": 9})["k"] == 1.8 and A.options({"size": True})["k"] == 1.0
       and A.options({"size": "xl"})["k"] == 1.45, "size: a number 0.6-1.8, or S/M/L/XL")

@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.39');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.40');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1819,7 +1819,7 @@ await t('4f0. 1.94.39 the panel Customize: four sections (one open at a time), a
     assert.notStrictEqual(p.els('styleCustom').style.display, 'none', 'open');
     const kids = () => Array.from(p.els('styleOpts').children);
     const secs = () => kids().filter((r) => r.className && r.className.indexOf('cc-sec') === 0);
-    assert.deepStrictEqual(secs().map((b) => b.dataset.sec), ['text', 'emph', 'place', 'motion'], 'four sections');
+    assert.deepStrictEqual(secs().map((b) => b.dataset.sec), ['text', 'emph', 'outline', 'box', 'place', 'motion'], 'six sections (1.94.40)');
     const rows = () => kids().filter((r) => r.className === 'cc-row');
     const label = (r) => r.children[0].textContent;
     assert.deepStrictEqual(rows().map(label).map((x) => x.replace(/[^A-Za-z ]/g, '').trim()).filter(Boolean).length, 3, 'Text open: font, size, colour');
@@ -1857,6 +1857,25 @@ await t('4f0. 1.94.39 the panel Customize: four sections (one open at a time), a
     assert.strictEqual(p.evalVm('styleOpts("bounce").color'), '#FF3B30');
     rows().find((r) => /Highlight|ማጉላት/.test(label(r))).children[1].children.find((b) => b.dataset.value === 'off').fire('click');
     assert.strictEqual(p.evalVm('styleOpts("bounce").emph'), 'off');
+    // 1.94.40 Outline & shadow: Auto until moved, then the editor's own
+    secs().find((b) => b.dataset.sec === 'outline').fire('click');
+    const ol = find(p.els('styleOpts'), (n) => n.className === 'cc-range');
+    assert.match(find(p.els('styleOpts'), (n) => n.className === 'cc-val').textContent, /Auto|ራሱ/, 'Auto until moved');
+    ol.value = '8'; ol.fire('change');
+    assert.strictEqual(p.evalVm('styleOpts("bounce").outline'), 0.08);
+    find(p.els('styleOpts'), (n) => n.dataset && n.dataset.value === '#FFFFFF').fire('click');
+    assert.strictEqual(p.evalVm('styleOpts("bounce").outline_col'), '#FFFFFF');
+    // Box: on, colour, opacity; roundness only for a template
+    secs().find((b) => b.dataset.sec === 'box').fire('click');
+    rows().find((r) => /Box|ሳጥን/.test(label(r))).children[1].children.find((b) => String(b.dataset.value) === 'true').fire('click');
+    assert.strictEqual(p.evalVm('styleOpts("bounce").box'), true);
+    const op = find(p.els('styleOpts'), (n) => n.className === 'cc-range');
+    op.value = '40'; op.fire('change');
+    assert.strictEqual(p.evalVm('styleOpts("bounce").box_a'), 0.4);
+    assert.ok(!rows().some((r) => /Roundness|ክብነት/.test(label(r))), 'an older style: no roundness (its box is square)');
+    p.evalVm('STYLE = "glass"; renderStyleStrip(); renderStyleCustom();');
+    assert.ok(rows().some((r) => /Roundness|ክብነት/.test(label(r))), 'a template: roundness');
+    p.evalVm('STYLE = "bounce"; renderStyleStrip(); renderStyleCustom();');
     // no tabs, no preview picture in the panel
     assert.strictEqual(p.els('styleTabs').style.display, 'none');
     assert.strictEqual(p.els('stylePreview').style.display, 'none', 'the caption shows on the Program monitor instead');
@@ -1923,7 +1942,7 @@ await t('4f. caption styles (1.11): strip, choice remembered, styled layer place
     const args = JSON.parse(JSON.parse(/amh_placeOverlay\((.*)\)/.exec(ov)[1]));
     assert.deepStrictEqual(args, { path: 'C:/caps/x_karaoke.mov', startSeconds: 12.75, duration: 2.35, replacePrefix: 'amhstyle_clip__' },
       'placed at the clip start + the layer start; placing again replaces the earlier layer of these captions');
-    assert.deepStrictEqual(job.opts, { color: '', text: '', size: 'm', pos: 'bottom', y: null, words: 0, box: false, font: 'sans', anim: 'auto', emph: 'auto', lines: 1 }, 'default look');
+    assert.deepStrictEqual(job.opts, { color: '', text: '', size: 'm', pos: 'bottom', y: null, words: 0, box: false, font: 'sans', anim: 'auto', emph: 'auto', lines: 1, outline: null, outline_col: '', shadow: null, box_col: '', box_a: null, box_r: null }, 'default look');
     assert.strictEqual(calls(/amh_importCaptions\(/).length, 0, 'no plain caption track as well');
     assert.strictEqual(p.evalVm('reviewOpen'), false, 'done');
     has(p.els('logBox').textContent, 'Styled captions on track V3');
@@ -2047,7 +2066,7 @@ await t('4g. customize (1.12): colour, size, position, words, box remembered per
     rows[6].children[1].fire('click');                       // Box switch on
     await settle();
     const saved = JSON.parse(storage.getItem('amh.settings')).styleOpts.bold;
-    assert.deepStrictEqual(saved, { color: '#FF3B30', text: '', size: 1.45, pos: 'safe', y: null, words: 2, box: true, font: 'serif', anim: 'slide', emph: 'off', lines: 2 }, 'remembered for this style');
+    assert.deepStrictEqual(saved, { color: '#FF3B30', text: '', size: 1.45, pos: 'safe', y: null, words: 2, box: true, font: 'serif', anim: 'slide', emph: 'off', lines: 2, outline: null, outline_col: '', shadow: null, box_col: '', box_a: null, box_r: null }, 'remembered for this style');
     j = last();
     assert.deepStrictEqual(j.opts, saved, 'the preview follows every change');
     assert.ok(Array.from(p.els('styleOpts').children[2].children[1].children).find((b) => b.dataset.value === 'safe').classList.contains('active'));
