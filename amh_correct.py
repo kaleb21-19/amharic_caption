@@ -26,6 +26,7 @@ Usage (library):
     corrected = correct_words([(word, start, end), ...])
 """
 import os
+import re
 
 # ---------------------------------------------------------------------------
 # EXACT-WORD replacements: {bad -> good}. ONLY verified entries.
@@ -144,6 +145,84 @@ _NUM_SCALES = {"ሺ": 1000, "ሺህ": 1000, "ሽህ": 1000, "ሚሊዮን": 10 *
 _NUM_POINT = {"ነጥብ"}
 _NUM_PREFIXES = ("እስከ", "በ", "ከ", "የ", "ለ")
 _NUM_TRAIL = "።፣፤፥፦፧.,?!"
+
+
+# ---------------------------------------------------------------------------
+# ETHIOPIAN CONVENTIONS (1.94.45, roadmap V6). AMH_ET=0 disables.
+#   * a date's day 1 after a month name is a number (መስከረም አንድ -> መስከረም 1;
+#     a lone አንድ is otherwise the article "a" and stays a word);
+#   * the era after a year is written ዓ.ም. (2018 ዓመተ ምሕረት -> 2018 ዓ.ም.);
+#   * keep_together(): a caption or line never breaks inside a date / time /
+#     amount (መስከረም | 17, 3 | ሰዓት, 500 | ብር, ከጠዋቱ | 3) and never starts
+#     with a punctuation mark. Breaking one word later costs nothing.
+# ---------------------------------------------------------------------------
+_ET_ON = os.environ.get("AMH_ET", "1") != "0"
+ET_MONTHS = {"መስከረም", "ጥቅምት", "ኅዳር", "ህዳር", "ሕዳር", "ታኅሣሥ", "ታህሳስ", "ታሕሳስ",
+             "ታህሣሥ", "ታኅሳስ", "ጥር", "የካቲት", "መጋቢት", "ሚያዝያ", "ሚያዚያ", "ግንቦት",
+             "ሰኔ", "ሐምሌ", "ሀምሌ", "ሃምሌ", "ነሐሴ", "ነሀሴ", "ነሃሴ", "ጳጉሜ", "ጳጉሜን", "ጷጉሜ"}
+_TIME_OF_DAY = {"ከጠዋቱ", "ከማለዳው", "ከረፋዱ", "ከቀኑ", "ከምሽቱ", "ከማታው", "ከሌሊቱ", "ከለሊቱ"}
+_AFTER_NUMBER = {"ብር", "ሳንቲም", "ዶላር", "ሰዓት", "ደቂቃ", "ሰከንድ", "ቀን", "ሳምንት", "ወር",
+                 "ዓመት", "አመት", "ዓ.ም.", "ዓ.ም", "በመቶ", "ኪሎ", "ግራም", "ሜትር", "ኪሜ", "ኪሎሜትር", "ሊትር"}
+_AFTER_HOUR = {"ተኩል", "ከሩብ"}
+_ERA_FIRST = {"ዓመተ", "አመተ"}
+_ERA_SECOND = {"ምሕረት", "ምህረት", "ምሕርት", "ምህርት"}
+_ERA_GLUED = {a + b for a in _ERA_FIRST for b in _ERA_SECOND} | {"ዓም", "ዓ.ም", "ዓ.ም."}
+_YEAR_TOK = re.compile(r"^(?:እስከ|በ|ከ|የ|ለ)?\d{3,4}$")
+_CTL = "".join(chr(c) for c in range(32))   # style marks (a starred word) are not letters
+_DIGIT_TOK = re.compile(r"^(?:እስከ|በ|ከ|የ|ለ)?\d[\d.,:\-]*$")
+
+
+def is_month(tok):
+    """A month name, also with a one-letter prefix (በመስከረም, ከሰኔ, እስከ ጥር)."""
+    t = str(tok or "").rstrip(_NUM_TRAIL)
+    if t in ET_MONTHS:
+        return True
+    return any(t.startswith(p) and t[len(p):] in ET_MONTHS for p in _NUM_PREFIXES)
+
+
+def keep_together(a, b):
+    """True when a caption / line must not break between tokens a and b."""
+    if not _ET_ON:
+        return False
+    a, b = str(a or "").strip(_CTL), str(b or "").strip(_CTL)
+    if not a or not b:
+        return False
+    if b[0] in _NUM_TRAIL:
+        return True                      # never start with a punctuation mark
+    if a[-1] in _NUM_TRAIL:
+        return False                     # a sentence / clause mark is a good break
+    b_core = b.rstrip(_NUM_TRAIL)
+    if b[0].isdigit() and (is_month(a) or a in _TIME_OF_DAY):
+        return True                      # መስከረም 17 · ከጠዋቱ 3
+    if _DIGIT_TOK.match(a) and (b[0].isdigit() or b_core in _AFTER_NUMBER):
+        return True                      # 1 2018 · 3 ሰዓት · 500 ብር
+    if a == "ሰዓት" and b_core in _AFTER_HOUR:
+        return True                      # ሰዓት ተኩል
+    return False
+
+
+def _era_marks(words):
+    """2018 ዓመተ ምሕረት -> 2018 ዓ.ም. (only right after a year written in digits)."""
+    out = []
+    i, n = 0, len(words)
+    while i < n:
+        w = words[i]
+        prev = _split_trail(out[-1][0]) if out else ("", "")
+        year = bool(prev[0]) and not prev[1] and _YEAR_TOK.match(prev[0])
+        core, trail = _split_trail(w[0])
+        if year and core in _ERA_FIRST and not trail and i + 1 < n:
+            c2, t2 = _split_trail(words[i + 1][0])
+            if c2 in _ERA_SECOND:
+                out.append(("ዓ.ም." + ("" if t2 in ("", "።", ".") else t2), w[1], words[i + 1][2]) + tuple(w[3:]))
+                i += 2
+                continue
+        if year and core in _ERA_GLUED:
+            out.append(("ዓ.ም." + ("" if trail in ("", "።", ".") else trail), w[1], w[2]) + tuple(w[3:]))
+            i += 1
+            continue
+        out.append(w)
+        i += 1
+    return out
 
 
 def _num_tile_words():
@@ -355,8 +434,12 @@ def numbers_to_digits(words):
             cores.append(c)
             trails.append(t)
             j += 1
-        # Lone "አንድ" is the article "a", not a count.
-        if len(cores) == 1 and cores[0] == "አንድ":
+        # Lone "አንድ" is the article "a", not a count - except a date's day 1
+        # right after a month name (መስከረም አንድ -> መስከረም 1) and 1 o'clock
+        # after a time of day (ከጠዋቱ አንድ ሰዓት -> ከጠዋቱ 1 ሰዓት).
+        if len(cores) == 1 and cores[0] == "አንድ" and not (
+                _ET_ON and not prefix and out and not _split_trail(out[-1][0])[1]
+                and (is_month(out[-1][0]) or out[-1][0] in _TIME_OF_DAY)):
             out.append(words[i])
             i += 1
             continue
@@ -377,7 +460,8 @@ def numbers_to_digits(words):
             out.append((text, first[1], last[2]) + tuple(first[3:]))
             k += used
         i = j
-    return _join_decimals(out)
+    out = _join_decimals(out)
+    return _era_marks(out) if _ET_ON else out
 
 
 def _join_decimals(words):

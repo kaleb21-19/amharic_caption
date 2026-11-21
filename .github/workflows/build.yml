@@ -226,6 +226,9 @@ jobs:
       - name: Exact word times next to the SRT (1.16.26)
         run: python3 tools/test/test_word_times.py
 
+      - name: Ethiopian conventions - dates, times, no break inside a date or before a mark (1.94.45)
+        run: python3 tools/test/test_et_conventions.py
+
       - name: Desktop app server (CapCut / DaVinci app, no window)
         run: python3 tools/test/test_app.py
 
