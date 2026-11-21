@@ -434,7 +434,38 @@ def options(opts):
         "anim": o.get("anim") if o.get("anim") in ANIMS else "auto",
         "emph": "off" if o.get("emph") == "off" else "auto",
         "lines": 2 if str(o.get("lines")) == "2" else 1,
+        # 1.94.40 Outline & shadow, Box (None = the look's own): sizes are x the
+        # font size, colours '#RRGGBB', box opacity 0.1-1, corner radius x size
+        "outline": _num(o.get("outline"), 0.0, 0.15),
+        "outline_col": _hex_or_none(o.get("outline_col")),
+        "shadow": _num(o.get("shadow"), 0.0, 0.15),
+        "box_col": _hex_or_none(o.get("box_col")),
+        "box_a": _num(o.get("box_a"), 0.1, 1.0),
+        "box_r": _num(o.get("box_r"), 0.0, 0.6),
     }
+
+
+def _hex_or_none(v):
+    m = re.match(r"^#?([0-9a-fA-F]{6})$", str(v or ""))
+    return ("#" + m.group(1).upper()) if m else None
+
+
+def _look_overrides(look, o):
+    """A template's look with the editor's Outline & shadow and Box settings."""
+    look = dict(look)
+    if o.get("outline") is not None:
+        look["outline_w"] = o["outline"]
+    if o.get("outline_col"):
+        look["outline"] = o["outline_col"]
+    if o.get("shadow") is not None:
+        look["shadow_w"] = o["shadow"]
+    if o.get("box_col") and (o.get("box") or look.get("box")):
+        look["box"] = o["box_col"]
+    if o.get("box_a") is not None:
+        look["box_a"] = o["box_a"]
+    if o.get("box_r") is not None:
+        look["box_r"] = o["box_r"]
+    return look
 
 
 def _apply_layout(script, style, width, height, o):
@@ -460,9 +491,17 @@ def _apply_layout(script, style, width, height, o):
                 f[18], f[21] = "8", str(round(h * 0.08))
             elif pos == "safe":
                 f[18], f[21] = "2", str(round(h * (0.30 if portrait else 0.16)))
+            size = float(f[2])
+            if f[15] != "3":                     # 1.94.40: the editor's outline / shadow
+                if o.get("outline") is not None:
+                    f[16] = "%.1f" % (size * o["outline"])
+                if o.get("outline_col"):
+                    f[5] = _ass_color(o["outline_col"], f[5])
+                if o.get("shadow") is not None:
+                    f[17] = "%.1f" % (size * o["shadow"])
             if o["box"] and style not in NO_BOX and style not in TEMPLATES:
-                size = float(f[2])
-                f[15], f[5], f[16], f[17] = "3", "&H40000000", "%.1f" % (size * 0.28), "0"
+                box = _ass_color_a(o.get("box_col") or "#000000", o["box_a"] if o.get("box_a") is not None else 0.75, "&H40000000")
+                f[15], f[5], f[16], f[17] = "3", box, "%.1f" % (size * 0.28), "0"
             line = "Style: " + ",".join(f)
         elif line.startswith("Dialogue") and "\\pos(" in line and (pos != "bottom" or y is not None) \
                 and style not in SELF_PLACED and style not in TEMPLATES:
@@ -821,6 +860,7 @@ def _build_template(words, style, width, height, font=FONT, opts=None):
         look = dict(look)
         look["font"] = raw_font
     o = options(opts)
+    look = _look_overrides(look, o)               # 1.94.40 Outline & shadow, Box
     ws = _mark_emphasis([(_clean(w[0]), float(w[1]), float(w[2])) for w in words if _clean(w[0])], o["emph"])
     lines, st = _tpl_script(ws, look, width, height, o)
     if o["lines"] == 2 and look["mode"] in ("line", "reveal") and int(look.get("rows") or 1) < 2:
