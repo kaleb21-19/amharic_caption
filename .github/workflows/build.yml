@@ -159,6 +159,9 @@ jobs:
       - name: Panel unit tests (Node, no deps)
         run: node tools/test/test_panel.js
 
+      - name: Panel design tokens - no hard-coded colour / size / space, token contrast (1.94.47)
+        run: node tools/test/test_ui_tokens.js
+
       - name: Build a placeholder runtime/ for test_panel_dom.js
         # main.js's pickRuntime() and the test's own detectRuntime() both walk
         # a few __dirname-relative candidates before falling back to a

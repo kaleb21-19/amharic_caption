@@ -32,7 +32,8 @@ def suites(area):
     host = sorted(f for f in os.listdir(os.path.join(ROOT, "tools", "test")) if f.startswith("test_host_") and f.endswith(".js"))
     table = {
         "panel": [("panel unit", node + ["tools/test/test_panel.js"], ROOT),
-                  ("panel DOM", node + ["tools/test/test_panel_dom.js"], ROOT)],
+                  ("panel DOM", node + ["tools/test/test_panel_dom.js"], ROOT),
+                  ("ui tokens", node + ["tools/test/test_ui_tokens.js"], ROOT)],
         "host": [(f[:-3], node + ["tools/test/" + f], ROOT) for f in host],
         "styles": [("styles", py + ["tools/test/test_styles.py"], ROOT),
                    ("templates", py + ["tools/test/test_templates.py"], ROOT)],
