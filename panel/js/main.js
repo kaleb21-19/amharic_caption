@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.30';
+const APP_VERSION = '1.94.31';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3543,17 +3543,20 @@ const HOST_PROBE_JSX = '(function(){var s=[];' +
   'if(p&&p.activeItem){s.push("active "+(p.activeItem.typeName||"item"));}else{s.push("active none");}}catch(e){s.push("project ? "+e);}' +
   'return s.join(", ");})()';
 
+let EVAL_INFLIGHT = 0;               // 1.94.31: Premiere calls running now (follow waits for 0)
 function evalScript(jsx, timeoutMs) {
   if (IS_AE) {
     jsx = aeHostCall(jsx,
       path.join(EXT_DIR, 'jsx', 'host.jsx').replace(/\\/g, '/'),
       path.join(EXT_DIR, 'jsx', 'host_ae.jsx').replace(/\\/g, '/'));
   }
+  EVAL_INFLIGHT++;
   return new Promise((resolve, reject) => {
     let settled = false;
     const finish = (value) => {
       if (settled) return;
       settled = true;
+      EVAL_INFLIGHT = Math.max(0, EVAL_INFLIGHT - 1);
       clearTimeout(timer);
       resolve(value);
     };
@@ -4998,8 +5001,10 @@ async function openReview(outSrt, label, startSeconds, opts) {
   syncClientButton();
   closeClientPanel();
   reviewOpen = true;
+  FOLLOW.row = -1; FOLLOW.word = -1; FOLLOW.last = null;
   renderReview();
   $('review').classList.add('show');
+  followStart();
   fitReviewBoxes();   // heights can only be measured once the overlay shows
   STYLE_CUSTOM_OPEN = false;      // closed again for every caption
   renderStyleStrip();
@@ -5196,6 +5201,7 @@ function closeReview(keepArtifact) {
   tlStop();
   hideTiming();
   stopHearing();
+  followStop();
   CLEAN = null;
   closeCleanupPanel();
   ZOOM = null;
@@ -5424,6 +5430,14 @@ function renderReview(force) {
       doubtRanges(t, cue._fixed).forEach((r) => {
         if (!all.some((x) => r.start < x.end && x.start < r.end)) all.push({ start: r.start, end: r.end, cls: 'fix' });
       });
+      // 1.94.31 the word being played (Premiere's playhead or the panel's own ▶) wins over the other marks
+      if (FOLLOW.row === i && FOLLOW.word >= 0) {
+        const nr = wordCharRange(t, FOLLOW.word);
+        if (nr) {
+          for (let q = all.length - 1; q >= 0; q--) if (all[q].start < nr.end && nr.start < all[q].end) all.splice(q, 1);
+          all.push({ start: nr.start, end: nr.end, cls: 'now' });
+        }
+      }
       // ✂ struck words (1.16.24) win over the other marks
       const cr = cutRanges(t);
       if (cr.length) {
@@ -5446,6 +5460,8 @@ function renderReview(force) {
       put('span', t.slice(at) + '\u200b');   // keeps a trailing line break the same height
       row.classList.toggle('doubt', rs.length > 0);
     };
+    row.__paint = paint;
+    if (FOLLOW.row === i) row.classList.add('hearing');
     textBox.appendChild(ta);
     textBox.appendChild(back);
     // ★ right next to the text (1.16.17): click a word, press ★ - it pops.
@@ -5940,14 +5956,96 @@ function hearFrom(i, caret) {
 }
 function hearFollow() {
   if (!HEAR.a) return;
-  const t = HEAR.a.currentTime - (HEAR.off || 0);
+  markPlaying(HEAR.a.currentTime - (HEAR.off || 0));
+  HEAR.row = FOLLOW.row;
+}
+// ── 1.94.31 👁 Follow Premiere: the caption and the WORD under Premiere's
+// playhead are marked while it plays or is dragged (the panel's own ▶ marks
+// the word too). A light read of the playhead about 4 times a second, only
+// while the captions are open in Premiere and no other Premiere work runs.
+// The list scrolls to the caption, except while the editor is typing.
+const FOLLOW = { timer: 0, busy: false, last: null, row: -1, word: -1, fails: 0 };
+function followOn() { try { return loadSettings().followPlayhead === true; } catch (e) { return false; } }
+// the characters of word k (k = the k-th run of non-spaces, as the cut code counts)
+function wordCharRange(text, k) {
+  const re = /\S+/g;
+  let m, n = 0;
+  while ((m = re.exec(String(text || ''))) !== null) {
+    if (n === k) return { start: m.index, end: m.index + m[0].length };
+    n++;
+  }
+  return null;
+}
+function markPlaying(t, scroll) {
   const list = $('reviewList');
+  const rows = (list && list.children) || [];
   const i = reviewCues.findIndex((c) => t >= c.start && t < c.end);
-  if (i === HEAR.row || !list) return;
-  const rows = list.children || [];
-  if (HEAR.row >= 0 && rows[HEAR.row] && rows[HEAR.row].classList) rows[HEAR.row].classList.remove('hearing');
-  if (i >= 0 && rows[i] && rows[i].classList) rows[i].classList.add('hearing');
-  HEAR.row = i;
+  let k = -1;
+  if (i >= 0) {
+    const w = cleanupWords([reviewCues[i]]).find((x) => t >= x.s && t < x.e);
+    k = w ? w.k : -1;
+  }
+  if (i === FOLLOW.row && k === FOLLOW.word) return false;
+  const was = FOLLOW.row;
+  FOLLOW.row = i; FOLLOW.word = k;
+  if (was >= 0 && was !== i && rows[was]) {
+    if (rows[was].classList) rows[was].classList.remove('hearing');
+    if (rows[was].__paint) rows[was].__paint();
+  }
+  const r = i >= 0 ? rows[i] : null;
+  if (r) {
+    if (r.classList) r.classList.add('hearing');
+    if (r.__paint) r.__paint();
+    const typing = document.activeElement && document.activeElement.tagName === 'TEXTAREA';
+    if (scroll && was !== i && !typing && typeof r.scrollIntoView === 'function') {
+      try { r.scrollIntoView({ block: 'nearest' }); } catch (e) {}
+    }
+  }
+  return true;
+}
+function clearPlaying() {
+  if (FOLLOW.row < 0) return;
+  const list = $('reviewList');
+  const r = list && list.children ? list.children[FOLLOW.row] : null;
+  FOLLOW.row = -1; FOLLOW.word = -1;
+  if (r) { if (r.classList) r.classList.remove('hearing'); if (r.__paint) r.__paint(); }
+}
+function followStart() {
+  FOLLOW.fails = 0;
+  if (!FOLLOW.timer && followOn() && reviewOpen && cleanupAvailable()) FOLLOW.timer = setTimeout(followTick, 250);
+}
+function followStop() {
+  if (FOLLOW.timer) { clearTimeout(FOLLOW.timer); FOLLOW.timer = 0; }
+  FOLLOW.last = null;
+  if (!(HEAR.a && !HEAR.a.paused)) clearPlaying();
+}
+function followTick() {
+  FOLLOW.timer = 0;
+  if (!followOn() || !reviewOpen || !cleanupAvailable()) { followStop(); return; }
+  FOLLOW.timer = setTimeout(followTick, 250);
+  const own = HEAR.a && !HEAR.a.paused;                      // the panel's own ▶ is marking already
+  const hidden = typeof document !== 'undefined' && document.hidden;
+  if (FOLLOW.busy || EVAL_INFLIGHT > 0 || own || hidden || TEXTCUT.busy || (CLEAN && CLEAN.cutting)) return;
+  FOLLOW.busy = true;
+  evalScript('amh_playerPos()', 2000).then((r) => {
+    FOLLOW.busy = false;
+    if (!r || !r.ok) {
+      if (++FOLLOW.fails >= 5) { log('👁 Follow Premiere stopped: ' + ((r && r.error) || 'no answer')); saveSettings({ followPlayhead: false }); followStop(); syncReviewSteps(); }
+      return;
+    }
+    FOLLOW.fails = 0;
+    const t = Number(r.t);
+    if (r.t === null || isNaN(t)) return;
+    if (FOLLOW.last !== null && Math.abs(t - FOLLOW.last) < 0.01) return;    // not moving: nothing to redraw
+    FOLLOW.last = t;
+    markPlaying(t, true);
+  }, () => { FOLLOW.busy = false; });
+}
+function toggleFollow() {
+  const on = !followOn();
+  saveSettings({ followPlayhead: on });
+  if (on) followStart(); else followStop();
+  syncReviewSteps();
 }
 // 1.91 ▶ hear the edit: the footage's own sound with the ticked parts skipped
 // (a frame early, so a cut word is not heard), across clips, before anything
@@ -6001,8 +6099,7 @@ function stopHearing() {
     try { renderCleanupPanel(); } catch (e) {}
   }
   if (HEAR.a) { try { HEAR.a.pause(); } catch (e) {} }
-  const list = $('reviewList');
-  if (list && HEAR.row >= 0 && list.children && list.children[HEAR.row] && list.children[HEAR.row].classList) list.children[HEAR.row].classList.remove('hearing');
+  if (HEAR.row >= 0) clearPlaying();
   HEAR.row = -1;
   hearButton(false);
 }
@@ -6624,6 +6721,7 @@ function syncReviewSteps() {
     ['revSilence', tools, '🔇 ' + L('Clean silence'), ''],
     ['revCleanup', tools && !instantCutOn(), '✂ ' + L('Edit with text') + (marked ? ' · ' + marked : '') + (CLEAN && CLEAN.done ? ' ✓' : ''), marked ? 'warn' : (CLEAN && CLEAN.done ? 'done' : '')],
     ['revZoom', tools, '🔍', ZOOM && ZOOM.done ? 'done rzoom' : 'rzoom'],
+    ['revFollow', tools, '👁 ' + L('Follow Premiere'), followOn() ? 'done' : ''],
     ['stepStyle', false, '', ''],
     ['stepPlace', false, '', ''],
   ];
@@ -8531,6 +8629,13 @@ function initReview() {
   if (silenceBtn) {
     if (cleanupAvailable()) silenceBtn.addEventListener('click', () => toggleCleanupPanel('silence'));
     else silenceBtn.style.display = 'none';                 // Premiere only
+  }
+  const followBtn = $('revFollow');
+  if (followBtn) {
+    if (cleanupAvailable()) {
+      followBtn.title = L('Mark the caption and the word under Premiere\u2019s playhead while it plays');
+      followBtn.addEventListener('click', toggleFollow);
+    } else followBtn.style.display = 'none';                // Premiere only
   }
   initReviewSteps();
   initSourceLine();
