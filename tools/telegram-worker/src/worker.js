@@ -6839,17 +6839,53 @@ function isPrivateChat(chatId, uid) {
 // request per customer. Only a plain x.y.z version and our own install page are
 // ever returned, never text taken from the release body.
 const RELEASES_API = 'https://api.github.com/repos/kaleb21-19/amharic_caption/releases/latest';
+// 2026-11-21: the owner's panel kept being told 1.94.29 while GitHub's latest
+// was 1.94.32 for hours - GitHub's API refuses unauthenticated callers past
+// 60 requests an hour per address, and Cloudflare's addresses are shared, so
+// the lookup failed and the last good answer was served forever. When the API
+// refuses, the plain release page is used instead (no such limit): its
+// redirect names the newest tag, and the update packages are found by their
+// fixed names on our own release (size from a HEAD request).
+const RELEASES_PAGE = 'https://github.com/kaleb21-19/amharic_caption/releases/latest';
+async function releaseFromPage() {
+  const ua = { 'User-Agent': 'amharic-captions-worker' };
+  const res = await fetch(RELEASES_PAGE, { method: 'HEAD', redirect: 'manual', headers: ua });
+  const loc = String((res.headers && res.headers.get('location')) || '');
+  const m = /^https:\/\/github\.com\/kaleb21-19\/amharic_caption\/releases\/tag\/(v\d{1,4}\.\d{1,4}\.\d{1,4})$/.exec(loc);   // our own release page only
+  if (!m) return null;
+  const tag = m[1], assets = [];
+  for (const t of UPDATE_TARGETS) {
+    const name = 'amharic-captions-update-' + t + '.zip';
+    const url = UPDATE_URL_PREFIX + tag + '/' + name;
+    try {
+      const h = await fetch(url, { method: 'HEAD', headers: ua });       // follows on to the file host
+      const size = Number(h.headers.get('content-length'));
+      if (h.ok && Number.isInteger(size) && size > 0) {
+        assets.push({ name, size, browser_download_url: url },
+          { name: name + '.sha256', size: 1, browser_download_url: url + '.sha256' });
+      }
+    } catch (e) {}
+  }
+  return { tag_name: tag, assets };
+}
 async function latestRelease() {
   const cached = await kvGet('latest:release');
   if (cached) { try { return JSON.parse(cached); } catch (e) {} }
   let out = null;
   if (!(await kvGet('latest:fail'))) {
     try {
-      const res = await fetch(RELEASES_API, {
-        headers: { 'User-Agent': 'amharic-captions-worker', Accept: 'application/vnd.github+json' },
-      });
-      if (res.ok) {
-        const rel = await res.json();
+      let rel = null;
+      try {
+        const res = await fetch(RELEASES_API, {
+          headers: { 'User-Agent': 'amharic-captions-worker', Accept: 'application/vnd.github+json' },
+        });
+        if (res.ok) rel = await res.json();
+        else log('warn', 'latest_release_api_refused', { status: res.status });
+      } catch (e) {
+        log('warn', 'latest_release_api_failed', { err: String((e && e.message) || e) });
+      }
+      if (!rel) rel = await releaseFromPage();
+      if (rel) {
         const v = String((rel && rel.tag_name) || '').replace(/^v/, '');
         if (/^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(v)) {
           out = { version: v, url: SITE_URL + '/install/' };
