@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.32';
+const APP_VERSION = '1.94.33';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3293,12 +3293,47 @@ const EXT_DIR = (() => {
 const DEV_RUNTIME = path.join(os.homedir(), 'Documents', 'amharic-captions');
 
 // Inside After Effects, load the AE implementations of the host entry points
-// on top of host.jsx (the manifest's ScriptPath). evalScript calls run in
-// order in the host engine, so this completes before any panel call.
+// on top of host.jsx (the manifest's ScriptPath).
+// 1.94.33: the AE code is sent as TEXT and evaluated at the script's top level
+// (so it is defined for every later call), not read from disk by After
+// Effects ($.evalFile): reports from AE 24 and 26 kept saying "ae-code false"
+// - the AE code was not there - and a file read inside a call can fail on a
+// user folder with non-English letters or land in the wrong scope. The load
+// answers "amh-ae-ok" or the exact error and line; every AE call waits for it,
+// and a call that finds the AE code missing reloads it and runs once more.
+const AE_LOAD = { ok: false, err: '', p: null, tries: 0 };
+function aeLoadScript() {
+  const src = fs.readFileSync(path.join(EXT_DIR, 'jsx', 'host_ae.jsx'), 'utf8');
+  return 'try{eval(' + escJson(src) + ');' +
+    '(typeof amharic_getSelectedClip!=="undefined"&&amharic_getSelectedClip.amhAE===true)?"amh-ae-ok":"amh-ae-missing"}' +
+    'catch(e){"amh-ae-error: "+e+(e.line?" (line "+e.line+")":"")}';
+}
+function aeReady(force) {
+  if (!IS_AE) return Promise.resolve(true);
+  if (AE_LOAD.ok && !force) return Promise.resolve(true);
+  if (AE_LOAD.p) return AE_LOAD.p;
+  AE_LOAD.tries++;
+  AE_LOAD.p = new Promise((resolve) => {
+    let script;
+    try { script = aeLoadScript(); } catch (e) { AE_LOAD.ok = false; AE_LOAD.err = 'host_ae.jsx could not be read: ' + (e && e.message); resolve(false); return; }
+    let done = false;
+    const end = (ok, err) => { if (done) return; done = true; clearTimeout(timer); AE_LOAD.ok = ok; AE_LOAD.err = err; resolve(ok); };
+    const timer = setTimeout(() => end(false, 'After Effects did not answer the load'), 20000);
+    try {
+      csi.evalScript(script, (res) => {
+        const s = String(res == null ? '' : res);
+        if (s === 'amh-ae-ok') end(true, '');
+        else if (s === 'amh-ae-missing') end(false, 'loaded, but the After Effects functions are not there');
+        else if (s.indexOf('amh-ae-error: ') === 0) end(false, s.slice('amh-ae-error: '.length));
+        else end(false, s ? 'unexpected answer: ' + s.slice(0, 120) : 'no answer to the load');
+      });
+    } catch (e) { end(false, String((e && e.message) || e)); }
+  }).then((ok) => { AE_LOAD.p = null; return ok; });
+  return AE_LOAD.p;
+}
 function loadHostLayer() {
   if (!IS_AE) return;
-  const f = path.join(EXT_DIR, 'jsx', 'host_ae.jsx').replace(/\\/g, '/');
-  try { csi.evalScript('$.evalFile(new File(' + JSON.stringify(f) + '))', () => {}); } catch (e) {}
+  aeReady();
 }
 loadHostLayer();
 
@@ -3545,11 +3580,24 @@ const HOST_PROBE_JSX = '(function(){var s=[];' +
 
 let EVAL_INFLIGHT = 0;               // 1.94.31: Premiere calls running now (follow waits for 0)
 function evalScript(jsx, timeoutMs) {
-  if (IS_AE) {
-    jsx = aeHostCall(jsx,
-      path.join(EXT_DIR, 'jsx', 'host.jsx').replace(/\\/g, '/'),
-      path.join(EXT_DIR, 'jsx', 'host_ae.jsx').replace(/\\/g, '/'));
-  }
+  if (!IS_AE) return evalScriptRaw(jsx, timeoutMs);
+  const wrapped = aeHostCall(jsx,
+    path.join(EXT_DIR, 'jsx', 'host.jsx').replace(/\\/g, '/'),
+    path.join(EXT_DIR, 'jsx', 'host_ae.jsx').replace(/\\/g, '/'));
+  // the AE code was not active, so the call did not run: load it again, try once more
+  const missing = (r) => !!(r && r.ok === false &&
+    (/did not load/.test(String(r.error || '')) || (/^No result from/.test(String(r.error || '')) && /ae-code false/.test(String(r.error || '')))));
+  return aeReady().then(() => evalScriptRaw(wrapped, timeoutMs)).then((r) => {
+    if (!missing(r)) return r;
+    return aeReady(true).then((ok) => (ok ? evalScriptRaw(wrapped, timeoutMs) : r)).then((r2) => {
+      if (r2 && r2.ok === false && AE_LOAD.err && String(r2.error || '').indexOf('[AE code:') < 0) {
+        r2.error = String(r2.error || '') + ' [AE code: ' + AE_LOAD.err + ']';
+      }
+      return r2;
+    });
+  });
+}
+function evalScriptRaw(jsx, timeoutMs) {
   EVAL_INFLIGHT++;
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -3602,6 +3650,7 @@ function seekPlayhead(seconds) {
 
 function runDiagnostics() {
   clearLog();
+  if (IS_AE) log('After Effects code: ' + (AE_LOAD.ok ? 'loaded' : 'NOT loaded' + (AE_LOAD.err ? ' — ' + AE_LOAD.err : '')) + ' (load tries: ' + AE_LOAD.tries + ')');
   log('Dumping project media tree…');
   return evalScript('amharic_diag()');
 }

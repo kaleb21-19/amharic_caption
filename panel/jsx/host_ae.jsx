@@ -1,8 +1,8 @@
 /*
  * Amharic Captions - ExtendScript host layer for After Effects.
  *
- * Loaded by main.js (via $.evalFile) only when the panel runs inside After
- * Effects, AFTER host.jsx. It redefines the same six entry points the panel
+ * Sent by main.js as text and evaluated at the top level (1.94.33, aeReady)
+ * only when the panel runs inside After Effects, AFTER host.jsx. It redefines the same six entry points the panel
  * calls, returning the same JSON shapes as the Premiere versions, so the
  * panel's transcription / review / license code is shared unchanged:
  *

@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.32');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.33');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -3761,14 +3761,16 @@ await t('14. After Effects: loads host_ae.jsx, AE wording, font + long timeout o
   try {
     await flush(10);
     assert.strictEqual(p.evalVm('HOST_APP'), 'AEFT');
-    const load = evalLog.find((j) => /\$\.evalFile/.test(j));
-    assert.ok(load, 'host_ae.jsx evaluated');
-    assert.match(load, /jsx\/host_ae\.jsx"\)\)$/, 'forward-slash path, properly quoted: ' + load);
-    assert.ok(evalLog.indexOf(load) === 0 || !evalLog.slice(0, evalLog.indexOf(load)).some((j) => /amh/.test(j)),
-      'loaded before any host call');
+    // 1.94.33: the AE code goes to After Effects as text, evaluated at the top level (no file read by AE)
+    const load = evalLog.find((j) => /^try\{eval\(/.test(j));
+    assert.ok(load, 'host_ae.jsx sent as text');
+    assert.ok(/amharic_getSelectedClip\.amhAE = true/.test(load) && /amh-ae-ok/.test(load), 'the whole AE layer, answering amh-ae-ok');
+    assert.ok(!/\$\.evalFile/.test(load), 'no file read inside After Effects for the load');
+    assert.strictEqual(evalLog.indexOf(load), 0, 'loaded before any host call');
     assert.strictEqual(p.els('srcClip').textContent, 'Selected Layer');
     assert.strictEqual(p.els('srcWhole').textContent, 'Whole Comp');
     p.evalVm("importCaptions('C:/x.srt', 3, 'clip')");
+    await flush(5);                                        // 1.94.33: calls wait for the AE code to load
     // In After Effects every host call is wrapped (aeHostCall) so the AE
     // implementations are active at call time, whatever order host.jsx and
     // host_ae.jsx were evaluated in.
@@ -3795,8 +3797,9 @@ await t('14c. an empty or "EvalScript error." answer is explained by a host prob
   // Effects" and nothing else to go on.
   const probeLog = [];
   const p = loadPanel({ hostApp: 'AEFT', csiRaw: (jsx) => {
+    if (/^try\{eval\(/.test(jsx)) return 'amh-ae-ok';                 // 1.94.33 the AE code loads
     if (/s\.push\("app "/.test(jsx)) { probeLog.push(jsx); return 'app 25.2, json object, helpers function, ae-code false, project open, active Composition'; }
-    return /getSequenceInfo/.test(jsx) ? '' : /getSelectedClip/.test(jsx) ? 'EvalScript error.' : '{"ok":true}';
+    return /return amharic_getSequenceInfo/.test(jsx) ? '' : /return amharic_getSelectedClip/.test(jsx) ? 'EvalScript error.' : '{"ok":true}';
   } });
   try {
     await flush(5);
@@ -3805,7 +3808,7 @@ await t('14c. an empty or "EvalScript error." answer is explained by a host prob
     assert.strictEqual(r.error, 'No result from After Effects (app 25.2, json object, helpers function, ae-code false, project open, active Composition)');
     const r2 = await p.evalVm("evalScript('amharic_getSelectedClip()')");
     assert.match(r2.error, /^script error in After Effects \(app 25\.2/);
-    assert.ok(probeLog.length === 2 && !/aeHostCall|evalFile/.test(probeLog[0]), 'the probe is plain (not wrapped, no file loads)');
+    assert.ok(probeLog.length >= 2 && !/aeHostCall|evalFile/.test(probeLog[0]), 'the probe is plain (not wrapped, no file loads)');
     assert.ok(new Function('app', 'amhGuard', 'amharic_getSelectedClip', 'return ' + probeLog[0])({ version: '1', project: null }, undefined, undefined).indexOf('project none') >= 0,
       'the probe itself runs and never throws, even with nothing loaded');
   } finally { p.close(); }
@@ -3816,6 +3819,54 @@ await t('14c. an empty or "EvalScript error." answer is explained by a host prob
     const r = await q.evalVm("evalScript('amharic_getSequenceInfo(false)')");
     assert.strictEqual(r.error, 'No result from After Effects (the host did not answer a test either)');
   } finally { q.close(); }
+});
+
+await t('14e. 1.94.33 After Effects: the AE code is defined for every call; missing = reload + one retry; a failed load says why', async () => {
+  // the real load text, run as a top-level script: the AE functions exist afterwards (globally) and it answers amh-ae-ok
+  const p0 = loadPanel({ hostApp: 'AEFT', csiRaw: () => 'amh-ae-ok' });
+  let script;
+  try { await flush(5); script = p0.evalVm('aeLoadScript()'); } finally { p0.close(); }
+  const vm = require('vm');
+  const ctx = vm.createContext({ JSON, app: {} });
+  assert.strictEqual(vm.runInContext(script, ctx), 'amh-ae-ok', 'the load answers ok');
+  assert.strictEqual(typeof ctx.amharic_getSequenceInfo, 'function', 'defined at the top level, for later calls');
+  assert.strictEqual(ctx.amharic_getSelectedClip.amhAE, true);
+  // the first call finds the AE code missing (Premiere host.jsx loaded after it): reload, run once more
+  const log1 = [];
+  let calls = 0, loads = 0;
+  const p = loadPanel({ hostApp: 'AEFT', evalLog: log1, csiRaw: (jsx) => {
+    if (/^try\{eval\(/.test(jsx)) { loads++; return 'amh-ae-ok'; }
+    if (/return amharic_getSequenceInfo/.test(jsx)) {
+      calls++;
+      return calls === 1 ? '{"ok":false,"error":"The After Effects part of the panel did not load. Click Run diagnostics and send the result to support."}'
+                         : '{"ok":true,"clips":[],"inPoint":0,"outPoint":5}';
+    }
+    return '{"ok":true}';
+  } });
+  try {
+    await flush(5);
+    const r = await p.evalVm("evalScript('amharic_getSequenceInfo(false)')");
+    assert.ok(r.ok && calls === 2 && loads === 2, JSON.stringify({ r, calls, loads }));
+  } finally { p.close(); }
+  // the load itself fails: the customer's error says exactly why (sent with a problem report)
+  const q = loadPanel({ hostApp: 'AEFT', csiRaw: (jsx) => {
+    if (/^try\{eval\(/.test(jsx)) return 'amh-ae-error: SyntaxError: Illegal use of reserved word (line 212)';
+    if (/return amharic_getSequenceInfo/.test(jsx)) return '{"ok":false,"error":"The After Effects part of the panel did not load. Click Run diagnostics and send the result to support."}';
+    return '{"ok":true}';
+  } });
+  try {
+    await flush(5);
+    const r = await q.evalVm("evalScript('amharic_getSequenceInfo(false)')");
+    assert.strictEqual(r.ok, false);
+    assert.match(r.error, /\[AE code: SyntaxError: Illegal use of reserved word \(line 212\)\]$/);
+    q.evalVm('runDiagnostics()');
+    await flush(5);
+    assert.match(q.els('logBox').textContent, /After Effects code: NOT loaded — SyntaxError.*line 212/);
+  } finally { q.close(); }
+  // Premiere: none of this
+  const pl = [];
+  const pp = loadPanel({ evalLog: pl });
+  try { await flush(5); await pp.evalVm("evalScript('amharic_ping()')"); assert.ok(!pl.some((j) => /^try\{eval\(/.test(j))); } finally { pp.close(); }
 });
 
 await t('14d. Work Area finds nothing: the message says why and what to do (1.10.15)', async () => {
