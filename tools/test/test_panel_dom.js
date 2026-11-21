@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.29');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.30');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -4375,10 +4375,14 @@ await t('1.94.24 smooth joins are on by default; the cutFades: false setting swi
     assert.strictEqual(p.evalVm('cutFadesOn()'), true);
     p.evalVm("saveSettings({ cutFades: false })");
     assert.strictEqual(p.evalVm('cutFadesOn()'), false);
-    // 1.94.27 keep music: off until checked in Premiere; the panel's toggle saves it
-    assert.strictEqual(p.evalVm('cutKeepMusic()'), false);
-    p.evalVm("saveSettings({ cutKeepMusic: true })");
+    // 1.94.30 keep music: ON by default (checked in Premiere); "Cut it too" saves false
     assert.strictEqual(p.evalVm('cutKeepMusic()'), true);
+    p.evalVm("saveSettings({ cutKeepMusic: false })");
+    assert.strictEqual(p.evalVm('cutKeepMusic()'), false);
+    // a short cut reads in tenths, never "0:00"
+    assert.strictEqual(p.evalVm('fmtCut(0.4)'), '0.4 s');
+    assert.strictEqual(p.evalVm('fmtCut(12.34)'), '12.3 s');
+    assert.strictEqual(p.evalVm('fmtCut(75)'), '1:15');
   } finally { p.close(); }
 });
 

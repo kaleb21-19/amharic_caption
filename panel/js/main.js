@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.29';
+const APP_VERSION = '1.94.30';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3616,8 +3616,9 @@ function loadSettings() {
 // false switches it off.
 function cutFadesOn() { try { return loadSettings().cutFades !== false; } catch (e) { return true; } }
 // 1.94.27 keep music: music / ambience under a cut plays on (only picture and
-// the voice are cut). Off until checked in a real Premiere.
-function cutKeepMusic() { try { return loadSettings().cutKeepMusic === true; } catch (e) { return false; } }
+// the voice are cut). 1.94.30: on by default - checked in Premiere 2026 by the
+// owner (music one piece, plays smoothly across the cuts). "Cut it too" = false.
+function cutKeepMusic() { try { return loadSettings().cutKeepMusic !== false; } catch (e) { return true; } }
 function logMusic(r) {
   if (r && (r.musicKept || r.musicError)) log('🎵 Music kept playing at ' + (r.musicKept || 0) + ' cut(s)' + (r.musicError ? ' — ' + r.musicError : ''));
 }
@@ -6173,6 +6174,11 @@ function cleanupAvailable() { return !IS_AE && !IS_APP_MODE(); }
 // ✂ text cuts: Premiere (Clean up cuts the sequence) and the Studio, whose
 // export cuts the video (1.19.0, window.__amhStudioCuts)
 function textCutAvailable() { return cleanupAvailable() || !!(typeof window !== 'undefined' && window.__amhStudioCuts); }
+// 1.94.30: how much a cut removes - a short one in tenths ("0.4 s"), never "0:00"
+function fmtCut(sec) {
+  const s = Math.max(0, Number(sec) || 0);
+  return s < 60 ? (Math.round(s * 10) / 10).toFixed(1) + ' s' : fmtDur(s);
+}
 function fmtDur(sec) {
   const s = Math.max(0, Math.round(Number(sec) || 0));
   return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
@@ -6272,7 +6278,7 @@ function renderCleanupPanel() {
     : L('Cuts long pauses, repeated takes and እ… sounds — on a copy of your sequence.')));
   if (!CLEAN || CLEAN.busy) { p.appendChild(el('div', 'mem-sub', L('Listening for pauses…'))); return; }
   if (CLEAN.done) {
-    p.appendChild(el('div', 'clean-done', L('Done') + ': ' + L('removed') + ' ' + fmtDur(CLEAN.done.removedSeconds) +
+    p.appendChild(el('div', 'clean-done', L('Done') + ': ' + L('removed') + ' ' + fmtCut(CLEAN.done.removedSeconds) +
       ' — “' + CLEAN.done.sequence + '” ' + L('is open. Your captions moved with the cuts: press Place to put them on it.')));
     if (CLEAN.done.cuts < CLEAN.done.total) {
       p.appendChild(el('div', 'mem-sub', L('Stopped after') + ' ' + CLEAN.done.cuts + ' ' + L('of') + ' ' + CLEAN.done.total + ' ' +
@@ -6339,7 +6345,7 @@ function renderCleanupPanel() {
   const sel = mergeRanges(cleanupSelected());
   const total = sel.reduce((x, c) => x + c.end - c.start, 0);
   const length = Math.max.apply(null, reviewCues.map((c) => c.end).concat([0]));
-  p.appendChild(el('div', 'clean-sum', L('Removes') + ' ' + fmtDur(total) + ' ' + L('of') + ' ' + fmtDur(length)));
+  p.appendChild(el('div', 'clean-sum', L('Removes') + ' ' + fmtCut(total) + ' ' + L('of') + ' ' + fmtDur(length)));
   if (CLEAN.error) p.appendChild(el('div', 'clean-err', CLEAN.error));
   if (CLEAN.cutting) {
     const pr = CLEAN.progress || { done: 0, total: 0 };
@@ -6437,7 +6443,7 @@ async function applyCleanup() {
   schedulePreview();
   CLEAN.done = { sequence: p.sequence, removedSeconds, cuts: applied.length, total: list.length,
     error: err ? L(err.error || 'Premiere did not answer.') : '' };
-  log('✂ Clean up: removed ' + fmtDur(removedSeconds) + ' in ' + applied.length + ' of ' + list.length + ' cut(s) — "' + p.sequence + '"');
+  log('✂ Clean up: removed ' + fmtCut(removedSeconds) + ' in ' + applied.length + ' of ' + list.length + ' cut(s) — "' + p.sequence + '"');
   if (faded || fadeErr) log('✂ Smooth joins: ' + faded + ' faded' + (fadeErr ? ' — ' + fadeErr : ''));
   logMusic({ musicKept, musicError: musicErr });
   renderCleanupPanel();
