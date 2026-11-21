@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.28';
+const APP_VERSION = '1.94.29';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -4949,6 +4949,7 @@ async function openReview(outSrt, label, startSeconds, opts) {
   // Free minutes are charged when the engine starts (engineAuth); a result
   // from the cache was charged when it was made. Nothing more to charge.
   reviewTrialCharged = true;
+  TEXTCUT.hist = null;                 // 1.94.29: undo is for the cuts of THIS review
   if (!opts || !opts.projectId) STYLED_PREV = null;
   REVIEW = {
     outSrt, label: label || 'captions', startSeconds: startSeconds || 0,
@@ -5677,7 +5678,10 @@ function toggleTextCut(i, from, to) {
 // the captions after it move up. Words selected in the text: only those words.
 // The first cut keeps an untouched copy in the project ("… - before text
 // edit"). Clicks wait their turn (one Premiere edit at a time).
-const TEXTCUT = { chain: Promise.resolve(), busy: 0, note: '', bad: false };
+const TEXTCUT = { chain: Promise.resolve(), busy: 0, note: '', bad: false, hist: null };
+// 1.94.29 undo: this session's text cuts on one sequence, in the ORIGINAL
+// times (the "- before text edit" copy), with the captions as they were
+// before each cut. hist = { keepName, sequenceID, steps: [{ what, cuts, cues, media }] }
 // 1.94.2 (owner: "edit with text does not work in the List" — in the Studio
 // ✂ only struck the words and the cut came at export): the Studio has its
 // own timeline, so ✂ cuts there at once too (the editor's cutRanges, with ↶ Undo).
@@ -5690,6 +5694,55 @@ function textCutNote(text, bad) {
   n.textContent = TEXTCUT.note;
   n.className = 'textcut-note' + (bad ? ' bad' : '');
   n.style.display = TEXTCUT.note ? '' : 'none';
+  syncTextCutUndo();
+}
+function syncTextCutUndo() {
+  const b = $('textCutUndo');
+  if (!b) return;
+  const H = TEXTCUT.hist;
+  const on = !!(H && H.steps.length && cleanupAvailable());
+  b.style.display = on ? '' : 'none';
+  b.disabled = TEXTCUT.busy > 0;
+  b.textContent = '↶ ' + L('Undo last cut') + (on && H.steps.length > 1 ? ' (' + H.steps.length + ')' : '');
+  if (!b.__amhBound) {
+    b.__amhBound = true;
+    b.addEventListener('click', (e) => { if (e && e.stopPropagation) e.stopPropagation(); undoTextCut(); });
+  }
+}
+function undoTextCut() {
+  const H = TEXTCUT.hist;
+  if (!H || !H.steps.length || TEXTCUT.busy) return false;
+  TEXTCUT.busy++;
+  textCutNote('↶ ' + L('Undoing') + ' ' + H.steps[H.steps.length - 1].what + '…');
+  TEXTCUT.chain = TEXTCUT.chain.then(() => runTextUncut()).catch(() => {}).then(() => { TEXTCUT.busy--; syncTextCutUndo(); });
+  return true;
+}
+async function runTextUncut() {
+  const H = TEXTCUT.hist;
+  const step = H.steps[H.steps.length - 1];
+  const rest = mergeRanges([].concat(...H.steps.slice(0, -1).map((s) => s.cuts)));
+  const media = Array.from(new Set(step.media.map((m) => m.path)));
+  const r = await evalScript('amh_textUncut(' + escJson(JSON.stringify({ sequenceID: H.sequenceID, keepName: H.keepName,
+    cuts: rest.map((c) => [c.start, c.end]), media, fade: cutFadesOn(), keepMusic: cutKeepMusic() })) + ')', 300000);
+  if (!r || !r.ok) {
+    log('↶ Undo: ' + ((r && r.error) || 'no answer'));
+    textCutNote(L((r && r.error) || 'Premiere did not answer.'), true);
+    return null;
+  }
+  H.steps.pop();
+  H.sequenceID = r.sequenceID;
+  hideTiming();
+  clearRowHint();
+  reviewCues = step.cues;
+  setPreviewMedia(step.media);
+  REVIEW_UNDO.length = 0;
+  syncReviewUndo();
+  if (CLEAN) CLEAN.envs = [];
+  renderReview();
+  schedulePreview();
+  log('↶ Undo ' + step.what + ' — "' + r.sequence + '" rebuilt with ' + r.cuts + ' cut(s); the replaced one is "' + r.old + '"');
+  textCutNote('↶ ' + L('Cut undone') + ': ' + step.what + ' — ' + L('your sequence before the undo is kept as') + ' “' + r.old + '”');
+  return r;
 }
 // The whole word(s) a selection touches, struck: the same rule as toggleTextCut
 function markWordsCut(text, from, to) {
@@ -5765,6 +5818,14 @@ async function runTextCut(job) {
   if (r.faded || r.fadeError) log('✂ Smooth joins: ' + (r.faded || 0) + ' faded' + (r.fadeError ? ' — ' + r.fadeError : ''));
   logMusic(r);
   const done = (r.list || []).map((c) => ({ start: c[0], end: c[1] })).sort((x, y) => x.start - y.start);
+  // 1.94.29 undo: remember this cut (original times) and the captions before it
+  if (r.kept) TEXTCUT.hist = { keepName: r.kept, sequenceID: r.sequenceID, steps: [] };
+  const H = TEXTCUT.hist;
+  if (H && r.sequenceID && H.sequenceID === r.sequenceID) {
+    const prev = mergeRanges([].concat(...H.steps.map((s) => s.cuts)));
+    H.steps.push({ what: job.what, cuts: done.map((c) => ({ start: uncutTime(c.start, prev), end: uncutTime(c.end, prev) })),
+      cues: JSON.parse(JSON.stringify(reviewCues)), media: PREVIEW_MEDIA.map((m) => Object.assign({}, m)) });
+  }
   hideTiming();
   clearRowHint();
   reviewCues = remapCuesAfterCut(reviewCues, done, job.drop);

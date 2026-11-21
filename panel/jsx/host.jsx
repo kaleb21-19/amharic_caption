@@ -2142,8 +2142,75 @@ function amh_textCutNow(argsJSON) {
         if (left) {
             return amhErr("Premiere made the cut lines but kept the piece between them (" + left + " clip(s)). Select that piece on the timeline and press Shift+Delete. Then send a problem report so we can fix this for your Premiere version.");
         }
-        return amhOk({ sequence: name, kept: keptName, list: cuts, removed: removed, removedSeconds: Math.round(total * 1000) / 1000,
+        return amhOk({ sequence: name, sequenceID: String(seq.sequenceID), kept: keptName, list: cuts, removed: removed, removedSeconds: Math.round(total * 1000) / 1000,
                        faded: faded, fadeError: fadeErr, musicKept: kept, musicError: keepErr });
+    });
+}
+
+// 1.94.29 undo a text cut. Premiere's scripting cannot group or undo edits,
+// so the sequence is REBUILT: a fresh copy of the untouched "- before text
+// edit" sequence takes the open one's name, the cuts that stay are made on it
+// again (same cut code), and it opens. The replaced sequence is never
+// deleted: it is renamed "<name> - undone N" and put in a bin, so hand edits
+// made after the first cut are not lost.
+// args = { sequenceID, keepName, cuts: [[start, end]] (original times), media, fade, keepMusic }
+function amhUndoneBin() {
+    var root = app.project.rootItem, nm = "Amharic Captions - undone";
+    for (var i = 0; i < root.children.numItems; i++) {
+        var it = root.children[i];
+        if (String(it.name) === nm && it.type === 2) { return it; }
+    }
+    return root.createBin(nm);
+}
+function amh_textUncut(argsJSON) {
+    return amhGuard(function () {
+        var args = JSON.parse(argsJSON);
+        if (!app || !app.project) { return amhErr("No project is open."); }
+        var seq = app.project.activeSequence;
+        if (!seq || String(seq.sequenceID) !== String(args.sequenceID)) {
+            return amhErr("The edited sequence is no longer the open one. Open it, then press Undo again.");
+        }
+        var all = app.project.sequences, orig = null, names = {};
+        for (var q = 0; q < all.numSequences; q++) {
+            names[String(all[q].name)] = true;
+            if (String(all[q].name) === String(args.keepName)) { orig = all[q]; }
+        }
+        if (!orig) {
+            return amhErr("The untouched copy \"" + args.keepName + "\" is gone, so the cut cannot be undone here. Use Ctrl+Z in Premiere.");
+        }
+        var name = String(seq.name);
+        var before = {};
+        for (var b = 0; b < all.numSequences; b++) { before[String(all[b].sequenceID)] = true; }
+        try { orig.clone(); } catch (e) {}
+        var copy = null;
+        for (var r = 0; r < app.project.sequences.numSequences; r++) {
+            var sq = app.project.sequences[r];
+            if (!before[String(sq.sequenceID)]) { copy = sq; }
+        }
+        if (!copy) { return amhErr("Premiere could not copy \"" + args.keepName + "\". Nothing was changed."); }
+        var n = 1;
+        while (names[name + " - undone " + n]) { n++; }
+        var oldName = name + " - undone " + n;
+        try { seq.name = oldName; } catch (e) {}
+        try { copy.name = name; } catch (e) {}
+        try { seq.projectItem.moveBin(amhUndoneBin()); } catch (e) {}   // tidy only: fine if this Premiere cannot
+        app.project.openSequence(copy.sequenceID);
+        var cur = app.project.activeSequence;
+        if (!cur || String(cur.sequenceID) !== String(copy.sequenceID)) {
+            return amhErr("Premiere could not open the rebuilt sequence \"" + name + "\". Your edit is kept as \"" + oldName + "\".");
+        }
+        var fps = amhCleanupFps();
+        var cuts = amhCleanupFrames(args.cuts || [], fps);
+        var keep = amhKeepSet(args), left = 0, removed = 0, total = 0;
+        for (var c = cuts.length - 1; c >= 0; c--) {           // last first: earlier times stay valid
+            var o = amhCleanupOne(cur, cuts[c][0], cuts[c][1], fps, !!args.fade, keep);
+            left += o.left; removed += o.removed; total += o.len;
+        }
+        if (left) {
+            return amhErr("The sequence was rebuilt, but Premiere kept " + left + " piece(s) that should be cut. Check \"" + name + "\" (your edit before the undo is \"" + oldName + "\").");
+        }
+        return amhOk({ sequence: name, sequenceID: String(cur.sequenceID), old: oldName, cuts: cuts.length,
+                       removedSeconds: Math.round(total * 1000) / 1000 });
     });
 }
 

@@ -519,4 +519,43 @@ test('keep music + smooth joins: the voice fades at the join, the music gets a f
   assert.deepStrictEqual(lvKeys(m), [[47.97, 1], [48, 0]]);
 });
 
+
+// -- 1.94.29 undo a text cut: rebuilt from the untouched copy, the replaced one kept
+const uncut = (pp, a) => JSON.parse(vm.runInContext('amh_textUncut(' + JSON.stringify(JSON.stringify(a)) + ')', pp.ctx));
+test('undo: two cuts, undo the last - the open sequence (same name) has only the first cut; the replaced one is kept', () => {
+  const pp = makePremiere(base());
+  const r1 = nowCut(pp, { cuts: [[10, 12]], media: [VIDEO] });
+  const r2 = nowCut(pp, { cuts: [[18, 20]], media: [VIDEO] });          // 20-22 s of the original
+  assert.ok(r1.ok && r2.ok && r1.sequenceID === r2.sequenceID && r1.kept, JSON.stringify([r1, r2]));
+  const u = uncut(pp, { sequenceID: r2.sequenceID, keepName: r1.kept, cuts: [[10, 12]], media: [VIDEO] });
+  assert.ok(u.ok, JSON.stringify(u));
+  const s = pp.project.activeSequence;
+  assert.strictEqual(s.name, 'Interview');
+  assert.strictEqual(String(s.sequenceID), u.sequenceID);
+  assert.notStrictEqual(u.sequenceID, r2.sequenceID, 'a new sequence');
+  assert.deepStrictEqual(s.vt[0].snap(), [[0, 10, 'interview.mp4'], [10, 58, 'interview.mp4']], 'only the first cut');
+  assert.deepStrictEqual(s.at[0].snap(), [[0, 10, 'interview.mp4'], [10, 58, 'interview.mp4']]);
+  assert.strictEqual(u.old, 'Interview - undone 1');
+  const old = pp.seqs.find((q) => q.name === 'Interview - undone 1');
+  assert.ok(old && old.vt[0].snap().length === 3, 'the replaced sequence is kept as it was');
+  const keep = pp.seqs.find((q) => q.name === 'Interview - before text edit');
+  assert.deepStrictEqual(keep.vt[0].snap(), [[0, 60, 'interview.mp4']], 'the untouched copy stays untouched');
+  // undo again (no cuts left): the open sequence is the original again; names do not clash
+  const u2 = uncut(pp, { sequenceID: u.sequenceID, keepName: r1.kept, cuts: [], media: [VIDEO] });
+  assert.ok(u2.ok && u2.old === 'Interview - undone 2', JSON.stringify(u2));
+  assert.deepStrictEqual(pp.project.activeSequence.vt[0].snap(), [[0, 60, 'interview.mp4']]);
+});
+test('undo: refused (nothing changed) when another sequence is open or the untouched copy is gone', () => {
+  const pp = makePremiere(base());
+  const r1 = nowCut(pp, { cuts: [[10, 12]], media: [VIDEO] });
+  let u = uncut(pp, { sequenceID: 'nope', keepName: r1.kept, cuts: [] });
+  assert.match(u.error, /no longer the open one/);
+  pp.seqs.find((q) => q.name === r1.kept).name = 'renamed by the editor';
+  const n = pp.seqs.length;
+  u = uncut(pp, { sequenceID: r1.sequenceID, keepName: r1.kept, cuts: [] });
+  assert.match(u.error, /is gone.*Ctrl\+Z/);
+  assert.strictEqual(pp.seqs.length, n, 'nothing copied');
+  assert.strictEqual(pp.project.activeSequence.name, 'Interview');
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');

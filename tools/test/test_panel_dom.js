@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.28');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.29');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1552,9 +1552,10 @@ await t('4n3. 1.93 ✂ one click on a caption cuts the Premiere timeline at once
   const p = loadPanel({ evalLog: log, csiRaw: (jsx) => {
     if (/amh_textCutNow/.test(jsx)) {
       const a = JSON.parse(JSON.parse(jsx.slice(jsx.indexOf('(') + 1, jsx.lastIndexOf(')'))));
-      return JSON.stringify({ ok: true, sequence: 'Talk', kept: log.filter((j) => /amh_textCutNow/.test(j)).length === 1 ? 'Talk - before text edit' : '',
+      return JSON.stringify({ ok: true, sequence: 'Talk', sequenceID: 's1', kept: log.filter((j) => /amh_textCutNow/.test(j)).length === 1 ? 'Talk - before text edit' : '',
         list: a.cuts, removedSeconds: a.cuts.reduce((n, c) => n + c[1] - c[0], 0) });
     }
+    if (/amh_textUncut/.test(jsx)) return JSON.stringify({ ok: true, sequence: 'Talk', sequenceID: 's2', old: 'Talk - undone 1', cuts: 1 });
     return JSON.stringify({ ok: true });
   } });
   try {
@@ -1578,6 +1579,17 @@ await t('4n3. 1.93 ✂ one click on a caption cuts the Premiere timeline at once
     await flush(10);
     const c2 = JSON.parse(p.evalVm('JSON.stringify(reviewCues.map((c) => [c.text, c.start, c.end]))'));
     assert.deepStrictEqual(c2, [['ሀ ለ', 0, 1], ['ሰ በ', 1, 2]], JSON.stringify(c2));
+    // 1.94.29 ↶ undo the last cut: Premiere rebuilds with the cuts that stay (original times), the captions come back
+    const undo = p.els('textCutUndo');
+    assert.notStrictEqual(undo.style.display, 'none', 'undo is offered after a cut');
+    assert.ok(/\(2\)/.test(undo.textContent), undo.textContent);
+    undo.fire('click', { stopPropagation() {} });
+    await flush(10);
+    const uc = log.find((j) => /amh_textUncut/.test(j)).split(String.fromCharCode(92)).join('');
+    assert.ok(/"sequenceID":"s1"/.test(uc) && /"keepName":"Talk - before text edit"/.test(uc) && /"cuts":\[\[1,2\.5\]\]/.test(uc), uc);
+    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(reviewCues.map((c) => [c.text, c.start, c.end]))')), [['ሀ ለ', 0, 1], ['ሰ ቀ በ', 1, 2.5]], 'the word is back');
+    assert.ok(/Talk - undone 1/.test(p.els('textCutNote').textContent), p.els('textCutNote').textContent);
+    assert.ok(!/\(2\)/.test(undo.textContent) && undo.style.display !== 'none', 'one more undo left');
     // Premiere says no: the captions stay, the reason is shown in red
     p.evalVm(`evalScript = async () => ({ ok: false, error: 'A track is locked. Unlock all tracks (the lock icons), then press the scissors again.' });`);
     p.evalVm('cutCaptionsNow(0, false)');
