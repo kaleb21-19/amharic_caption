@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.42');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.43');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1848,6 +1848,39 @@ await t('4f5. 1.94.42 the live canvas file server: JASSUB from this install only
     assert.strictEqual((await get('v/jassub/NOTICE.txt')).code, 404, 'only scripts, WebAssembly and fonts');
     assert.strictEqual((await get('x/anything.js')).code, 404);
     p.evalVm('LC.http.close(); LC.http = null; LC.base = ""; LC.httpP = null;');
+  } finally { p.close(); }
+});
+
+await t('4r. 1.94.43 write it in English: names fixed in green on review open, memory wins, forget keeps it Amharic, off = none', async () => {
+  const p = loadPanel({});
+  try {
+    await flush(5);
+    const tmp = path.join(os.tmpdir(), 'amh_en_' + Date.now() + '.srt');
+    fs.writeFileSync(tmp, '1\n00:00:01,000 --> 00:00:03,000\nዛሬ በዩቲዩብ እና ቲክ ቶክ ላይ\n\n2\n00:00:03,500 --> 00:00:05,000\nፕሪሚየር ፕሮ ቪዲዮ\n');
+    p.evalVm(`fixStorePath = () => ${JSON.stringify(path.join(os.tmpdir(), 'amh_en_fix_' + Date.now() + '.json'))}; saveSettings({ englishWords: true });`);
+    const open = async () => { p.evalVm("lastCues = [{ start: 1, end: 3, text: 'ዛሬ በዩቲዩብ እና ቲክ ቶክ ላይ' }, { start: 3.5, end: 5, text: 'ፕሪሚየር ፕሮ ቪዲዮ' }];"); await p.evalVm('openReview(' + JSON.stringify(tmp) + ', "talk.mp4", 0, {})'); };
+    await open();
+    const texts = () => JSON.parse(p.evalVm('JSON.stringify(reviewCues.map((c) => c.text))'));
+    assert.deepStrictEqual(texts(), ['ዛሬ በYouTube እና TikTok ላይ', 'Premiere Pro ቪዲዮ'], 'names in English, ቪዲዮ kept');
+    assert.ok(p.evalVm('reviewCues[0]._fixed.indexOf("በYouTube") >= 0'), 'marked green like a memory fix');
+    // the editor's own rule wins over the list
+    p.evalVm(`(() => { const st = loadFixStore(); rememberFix(st, 'ቲክ ቶክ', 'ቲክቶክ', true); saveFixStore(st); })()`);
+    p.evalVm('closeReview(true)');
+    await open();
+    assert.strictEqual(texts()[0], 'ዛሬ በYouTube እና ቲክቶክ ላይ', 'memory wins');
+    // forget a built-in name: put back everywhere, and not changed again
+    p.evalVm(`putBackWord(reviewCues[0], 'በYouTube', 'በዩቲዩብ', true, '')`);
+    assert.strictEqual(texts()[0], 'ዛሬ በዩቲዩብ እና ቲክቶክ ላይ');
+    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(loadFixStore().noEnglish)')), ['ዩቲዩብ']);
+    p.evalVm('closeReview(true)');
+    await open();
+    assert.strictEqual(texts()[0], 'ዛሬ በዩቲዩብ እና ቲክቶክ ላይ', 'forgotten for good');
+    assert.strictEqual(texts()[1], 'Premiere Pro ቪዲዮ', 'the other names still in English');
+    // switched off: nothing from the list
+    p.evalVm('closeReview(true); saveSettings({ englishWords: false });');
+    await open();
+    assert.strictEqual(texts()[1], 'ፕሪሚየር ፕሮ ቪዲዮ', 'off: the engine\'s Amharic letters');
+    p.evalVm('closeReview(true)');
   } finally { p.close(); }
 });
 

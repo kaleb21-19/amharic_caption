@@ -352,6 +352,83 @@ const bareWord = (w) => String(w || '').replace(STRIP_PUNCT_RE, '');
 // when the review opened, and still the same number of words, every word
 // that changed (ignoring punctuation) is a [wrong, right] pair. Captions that
 // were split / merged / rewritten teach nothing — too ambiguous to learn from.
+// ── "Write it in English" (1.94.43) ───────────────────────────────────────────
+// The engine writes every word in Amharic letters (Latin is masked, so
+// "Premiere" comes out as ፕሪሚየር). Brand and app names are written in English
+// by Ethiopian editors, so these are fixed like the editor's own word memory
+// (green, put back, forget). ONLY names - never ordinary loanwords (ቪዲዮ,
+// ኮምፒውተር, ላፕቶፕ are written in Amharic) and never a word that is also an
+// Amharic word or ambiguous (አፕል = the fruit; bare ፕሪሚየር = Premiere or
+// Premier League, so only the two-word names). Each spelling also with the
+// one-letter prefixes በ ለ ከ የ (በዩቲዩብ -> በYouTube). The editor's memory and a
+// client's words always win over this list.
+const ENGLISH_WORD_RE = /^[A-Za-z][A-Za-z0-9'’&+.\-]*$/;
+const ENGLISH_PREFIXES = ['በ', 'ለ', 'ከ', 'የ'];
+const ENGLISH_WORDS = [
+  ['YouTube', ['ዩቲዩብ', 'ዩትዩብ', 'ዩቱብ']],
+  ['YouTuber', ['ዩቲዩበር', 'ዩትዩበር']],
+  ['TikTok', ['ቲክቶክ', 'ቲክ ቶክ']],
+  ['TikToker', ['ቲክቶከር']],
+  ['Facebook', ['ፌስቡክ', 'ፌስ ቡክ']],
+  ['Instagram', ['ኢንስታግራም']],
+  ['Telegram', ['ቴሌግራም']],
+  ['WhatsApp', ['ዋትስአፕ', 'ዋትሳፕ', 'ዋትስ አፕ']],
+  ['Messenger', ['ሜሴንጀር']],
+  ['Snapchat', ['ስናፕቻት']],
+  ['Twitter', ['ትዊተር', 'ቲዊተር']],
+  ['LinkedIn', ['ሊንክዲን', 'ሊንክድኢን']],
+  ['Google', ['ጉግል', 'ጎግል']],
+  ['Gmail', ['ጂሜይል', 'ጂሜል']],
+  ['ChatGPT', ['ቻትጂፒቲ', 'ቻት ጂፒቲ']],
+  ['Netflix', ['ኔትፍሊክስ']],
+  ['Spotify', ['ስፖቲፋይ']],
+  ['Amazon', ['አማዞን']],
+  ['PayPal', ['ፔይፓል']],
+  ['Safaricom', ['ሳፋሪኮም']],
+  ['Starlink', ['ስታርሊንክ']],
+  ['Tesla', ['ቴስላ']],
+  ['iPhone', ['አይፎን']],
+  ['MacBook', ['ማክቡክ']],
+  ['Samsung', ['ሳምሰንግ']],
+  ['Android', ['አንድሮይድ']],
+  ['Windows', ['ዊንዶውስ']],
+  ['Microsoft', ['ማይክሮሶፍት']],
+  ['Excel', ['ኤክሴል']],
+  ['Bluetooth', ['ብሉቱዝ']],
+  ['Wi-Fi', ['ዋይፋይ']],
+  ['PDF', ['ፒዲኤፍ']],
+  ['USB', ['ዩኤስቢ']],
+  ['CapCut', ['ካፕካት', 'ካፕ ካት']],
+  ['Canva', ['ካንቫ']],
+  ['Photoshop', ['ፎቶሾፕ']],
+  ['Premiere Pro', ['ፕሪሚየር ፕሮ']],
+  ['Premier League', ['ፕሪሚየር ሊግ']],
+  ['After Effects', ['አፍተር ኢፌክት', 'አፍተር ኢፌክትስ']],
+  ['DaVinci Resolve', ['ዳቪንቺ ሪዞልቭ']],
+];
+// every spelling -> its English name (prefixed ones too); skip = { spelling: 1 } the editor said no to
+function englishStarter(skip) {
+  const out = {};
+  ENGLISH_WORDS.forEach(([en, forms]) => forms.forEach((f) => {
+    if (skip && skip[f]) return;
+    out[f] = en;
+    if (f.indexOf(' ') < 0) ENGLISH_PREFIXES.forEach((p) => { out[p + f] = p + en; });
+    else ENGLISH_PREFIXES.forEach((p) => { out[p + f] = p + en; });
+  }));
+  return out;
+}
+// the list spelling behind a (prefixed) word, or '' when it is not one of ours
+function englishBase(word) {
+  const w = String(word || '');
+  const all = englishStarter();
+  if (!(w in all)) return '';
+  for (const [, forms] of ENGLISH_WORDS) {
+    if (forms.indexOf(w) >= 0) return w;
+    for (const p of ENGLISH_PREFIXES) if (w.indexOf(p) === 0 && forms.indexOf(w.slice(p.length)) >= 0) return w.slice(p.length);
+  }
+  return '';
+}
+
 function learnFixes(beforeCues, afterCues) {
   const before = {};
   (beforeCues || []).forEach((c) => { if (c && c._id != null) before[c._id] = String(c.text || ''); });
@@ -365,7 +442,8 @@ function learnFixes(beforeCues, afterCues) {
       const w = bareWord(a[i]);
       const r = bareWord(b[i]);
       if (!w || !r || w === r) continue;
-      if (!/[ሀ-᎟]/.test(w) || !/[ሀ-᎟]/.test(r)) continue;   // Amharic words only
+      // Amharic words - and (1.94.43) an Amharic word written in English (ዩቲዩብ -> YouTube)
+      if (!/[ሀ-᎟]/.test(w) || !(/[ሀ-᎟]/.test(r) || ENGLISH_WORD_RE.test(r))) continue;
       if (w.length < 2) continue;
       pairs.push([w, r]);
     }
@@ -1109,6 +1187,7 @@ if (typeof module !== 'undefined' && module.exports) {
     speakerPrefix, noEmph, srtTextFromCues, displaySrtTextFromCues, vttTextFromCues, txtTextFromCues,
     speakerSummary, aeHostCall, replaceWords, learnFixes, applyFixes, doubtRanges, splitTextAt,
     validateLicense,
+    englishStarter, englishBase, ENGLISH_WORDS, ENGLISH_WORD_RE,
     cleanupWords, silenceLevels, findSilences, findRepeats, findFillers, snapQuiet, mergeRanges, cutTime, uncutTime,
     remapCuesAfterCut, remapMediaAfterCut, CLEANUP_FILLERS, CLEANUP_FILLER_WORDS,
     findZoomMoments, cutRanges, findTextCuts, exactWordTimes, regroupCues,
