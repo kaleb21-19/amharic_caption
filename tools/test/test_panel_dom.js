@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.37');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.38');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1655,6 +1655,13 @@ await t('4f2. 1.94.35 Premiere styling: the star tip once, a labelled Customize,
     const name = find(p.els('styleOpts'), 'myStyleName');
     const save = find(p.els('styleOpts'), 'myStyleSave');
     assert.ok(name && save, 'Save as My style is in the Premiere box');
+    // 1.94.38: Animation in two groups - the six used most, then More (every animation still there)
+    const sels = []; const walk = (n) => { if (n.tagName === 'SELECT') sels.push(n); (n.children || []).forEach(walk); }; walk(p.els('styleOpts'));
+    const anim = sels.find((x) => (x.children || []).some((g) => g.tagName === 'OPTGROUP'));
+    assert.ok(anim, 'the animation list is grouped');
+    assert.strictEqual(anim.children.length, 2);
+    assert.strictEqual(anim.children[0].children.length, 6, 'six common ones first');
+    assert.strictEqual(anim.children[0].children.length + anim.children[1].children.length, p.evalVm('STYLE_ANIMS.length'), 'none lost');
     name.value = 'My channel';
     save.fire('click');
     assert.strictEqual(p.evalVm('myStyles().length'), 1, 'saved');
@@ -1849,7 +1856,9 @@ await t('4f. caption styles (1.11): strip, choice remembered, styled layer place
     assert.strictEqual(p.evalVm('STYLE'), 'karaoke');
     assert.ok(kar.classList.contains('active') && !chips[0].classList.contains('active'));
     assert.strictEqual(JSON.parse(storage.getItem('amh.settings')).style, 'karaoke', 'the choice is remembered');
-    assert.match(p.els('styleNote').textContent, /video layer/);
+    // 1.94.38: one short line - where it goes (licensed) or the free-version tag (trial)
+    assert.match(p.els('styleNote').textContent, /video layer|small tag/);
+    assert.ok(p.els('styleNote').textContent.length < 70, 'one short line: ' + p.els('styleNote').textContent);
     // the templates (1.66): their own group, their own font, the choice is remembered
     const tpl = Array.from(chips).find((b) => b.dataset.style === 'boldpop');
     assert.ok(tpl, 'the templates are in the strip');
@@ -2069,7 +2078,8 @@ await t('4h. My styles (1.13): save a look under a name, one click to use it aga
     const isNew = (b) => b.children.some((c) => c.className === 'style-new');
     assert.strictEqual(JSON.stringify(chips().filter(isNew).map((b) => b.dataset.style)), JSON.stringify(p.evalVm('STYLE_NEW.slice()')),
       'NEW: only the newest pack');
-    assert.strictEqual(p.evalVm('STYLE_NEW.length'), 24, 'the 1.94.4 pack: 24 looks');
+    assert.strictEqual(p.evalVm('STYLE_NEW.length'), 0, '1.94.38: no NEW tags (the 1.94.4 pack is not new any more)');
+    assert.strictEqual(chips().filter(isNew).length, 0);
     assert.ok(p.evalVm('STYLE_NEW.every((id) => TEMPLATE_LIST.indexOf(id) >= 0 && TEMPLATE_NAMES[id] && TEMPLATE_FONTS[id])'), 'every new look is listed, named and has its font');
     assert.ok(mine()[0].classList.contains('active'), 'the saved look is the one in use');
     assert.ok(!chips().find((b) => b.dataset.style === 'bold' && !b.dataset.my).classList.contains('active'));

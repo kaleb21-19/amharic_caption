@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.37';
+const APP_VERSION = '1.94.38';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -7219,7 +7219,7 @@ function studioUnchosenPlain(st) {
   if (st !== 'plain' || !IS_APP_MODE()) return false;
   try { return !loadSettings().plainChosen; } catch (e) { return true; }
 }
-const STYLE_NEW = ['luxgold', 'goldbox', 'royal', 'goldword', 'sweep', 'limepunch', 'hotpink', 'ocean', 'fire', 'ice', 'retrowave', 'hacker', 'minimal', 'documentary', 'newsbar', 'sticker', 'candychips', 'goldchips', 'archgold', 'kineticice', 'reelsblue', 'duogold', 'brush', 'handwritten'];   // 1.94.4 pack
+const STYLE_NEW = [];   // 1.94.38: the 1.94.4 pack is not new any more (a future pack goes here)
 const STYLE_NAMES = {
   plain: 'Plain', glide: 'Glide', spotlight: 'Spotlight', bounce: 'Bounce', karaoke: 'Karaoke', fill: 'Fill', highlight: 'Highlight', bold: 'Bold', podcast: 'Podcast',
   reveal: 'Reveal', typewriter: 'Typewriter', pop: 'Pop', word: 'Word', impact: 'Impact', neon: 'Neon',
@@ -7253,9 +7253,8 @@ function styleNote() {
   }
   // 1.94.5: the Studio says it in one short line (it was three)
   if (IS_APP_MODE()) return LICENSED ? '' : 'Free version adds a small tag — a license removes it.';
-  const what = IS_APP_MODE() ? 'Saves the video with these captions drawn in, next to your video.'
-    : 'Drawn as a video layer on an empty track above your video.';
-  return LICENSED ? what : what + ' Free version: a small "Amharic Captions Pro" tag is added — a license removes it.';
+  // 1.94.38 (UI audit: two sentences, always cut off at panel width): one short line
+  return LICENSED ? 'Drawn as a video layer above your video.' : 'Free version adds a small tag — a license removes it.';
 }
 function IS_APP_MODE() { return typeof window !== 'undefined' && !!window.__amhApp; }
 // ── My styles (1.13) ─────────────────────────────────────────────────────────
@@ -8111,6 +8110,7 @@ function customizeHere() { return PANEL_CUSTOMIZE !== null ? !!PANEL_CUSTOMIZE :
 // each for Size, Position, Colour, Text, Font and Animation, closed until ⚙.
 // No preview picture, no tabs, nothing to save: the look shows on the
 // timeline after Place. The same settings as the Studio's big box.
+const ANIM_COMMON = ['auto', 'none', 'fade', 'pop', 'slide', 'typewriter'];   // 1.94.38
 const SIZE_PICK = [['s', 'S', 0.8], ['m', 'M', 1], ['l', 'L', 1.25], ['xl', 'XL', 1.5]];
 function renderCompactCustom(wrap, opts) {
   const styled = STYLE_OK && STYLE !== 'plain';
@@ -8188,7 +8188,15 @@ function renderCompactCustom(wrap, opts) {
   bx.addEventListener('click', () => setStyleOpt('box', !o.box));
   tr.appendChild(bx);
   pick(line('Font'), STYLE_FONTS.map(([id, name]) => [id, L(name)]), o.font, 'font');
-  pick(line('Animation'), STYLE_ANIMS.map(([id, name]) => [id, L(name)]), o.anim, 'anim');
+  // 1.94.38: the six used most first, the rest grouped under More (one click, a shorter list to read)
+  const an = pick(line('Animation'), [], o.anim, 'anim');
+  [[L('Common'), STYLE_ANIMS.filter(([id]) => ANIM_COMMON.indexOf(id) >= 0)],
+   [L('More'), STYLE_ANIMS.filter(([id]) => ANIM_COMMON.indexOf(id) < 0)]].forEach(([label, list]) => {
+    const g = el('optgroup');
+    g.label = label;
+    list.forEach(([v, t]) => { const op = el('option', '', L(t)); op.value = v; if (v === o.anim) op.selected = true; g.appendChild(op); });
+    an.appendChild(g);
+  });
   const foot = el('div', 'cc-foot');
   const reset = el('button', 'cc-reset', '↺ ' + L('Reset'));
   reset.type = 'button';
