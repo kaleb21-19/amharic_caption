@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.31';
+const APP_VERSION = '1.94.32';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -5816,7 +5816,8 @@ function queueTextCut(ranges, drop, what, focusAt) {
   textCutNote('✂ ' + L('Cutting') + ' ' + what + '…');
   // times are read when the turn comes: an earlier cut moves everything after it
   const job = { ranges, drop, what, focusAt, cues: reviewCues };
-  TEXTCUT.chain = TEXTCUT.chain.then(() => runTextCut(job)).catch(() => {}).then(() => { TEXTCUT.busy--; });
+  // 1.94.32: redraw ↶ Undo once the cut is really done (it was drawn while busy = greyed out for good)
+  TEXTCUT.chain = TEXTCUT.chain.then(() => runTextCut(job)).catch(() => {}).then(() => { TEXTCUT.busy--; syncTextCutUndo(); });
   return true;
 }
 async function runTextCut(job) {

@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.31');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.32');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1583,6 +1583,7 @@ await t('4n3. 1.93 ✂ one click on a caption cuts the Premiere timeline at once
     const undo = p.els('textCutUndo');
     assert.notStrictEqual(undo.style.display, 'none', 'undo is offered after a cut');
     assert.ok(/\(2\)/.test(undo.textContent), undo.textContent);
+    assert.strictEqual(undo.disabled, false, 'the button can be pressed once the cuts are done (owner: "the undo button is disabled")');
     undo.fire('click', { stopPropagation() {} });
     await flush(10);
     const uc = log.find((j) => /amh_textUncut/.test(j)).split(String.fromCharCode(92)).join('');
@@ -1590,6 +1591,7 @@ await t('4n3. 1.93 ✂ one click on a caption cuts the Premiere timeline at once
     assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(reviewCues.map((c) => [c.text, c.start, c.end]))')), [['ሀ ለ', 0, 1], ['ሰ ቀ በ', 1, 2.5]], 'the word is back');
     assert.ok(/Talk - undone 1/.test(p.els('textCutNote').textContent), p.els('textCutNote').textContent);
     assert.ok(!/\(2\)/.test(undo.textContent) && undo.style.display !== 'none', 'one more undo left');
+    assert.strictEqual(undo.disabled, false, 'and it can be pressed again');
     // Premiere says no: the captions stay, the reason is shown in red
     p.evalVm(`evalScript = async () => ({ ok: false, error: 'A track is locked. Unlock all tracks (the lock icons), then press the scissors again.' });`);
     p.evalVm('cutCaptionsNow(0, false)');
