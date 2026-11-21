@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.22';
+const APP_VERSION = '1.94.23';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3610,6 +3610,9 @@ function loadSettings() {
     return s;
   } catch (e) { return {}; }
 }
+// 1.94.23 smooth joins: a 30 ms fade out / in at every cut (no click). Off
+// until checked in a real Premiere (Run diagnostics > "Smooth joins").
+function cutFadesOn() { try { return loadSettings().cutFades === true; } catch (e) { return false; } }
 function saveSettings(over) {
   const s = loadSettings();
   for (const k in over) s[k] = over[k];
@@ -5744,13 +5747,14 @@ async function runTextCut(job) {
   const media = Array.from(new Set(PREVIEW_MEDIA.map((m) => m.path)));
   const cuts = mergeRanges(job.ranges.filter((c) => c.end - c.start > 0.03));
   if (!cuts.length) return null;
-  const r = await evalScript('amh_textCutNow(' + escJson(JSON.stringify({ cuts: cuts.map((c) => [c.start, c.end]), media })) + ')', 120000);
+  const r = await evalScript('amh_textCutNow(' + escJson(JSON.stringify({ cuts: cuts.map((c) => [c.start, c.end]), media, fade: cutFadesOn() })) + ')', 120000);
   if (!r || !r.ok) {
     const msg = L((r && r.error) || 'Premiere did not answer.');
     log('✂ Cut: ' + ((r && r.error) || 'no answer'));
     textCutNote(msg, true);
     return null;
   }
+  if (r.faded || r.fadeError) log('✂ Smooth joins: ' + (r.faded || 0) + ' faded' + (r.fadeError ? ' — ' + r.fadeError : ''));
   const done = (r.list || []).map((c) => ({ start: c[0], end: c[1] })).sort((x, y) => x.start - y.start);
   hideTiming();
   clearRowHint();
@@ -6311,14 +6315,16 @@ async function applyCleanup() {
   const list = p.list || [];
   CLEAN.progress.total = list.length;
   const applied = [];
-  let removedSeconds = 0;
+  let removedSeconds = 0, faded = 0, fadeErr = "";
   let err = null;
   for (let end = list.length; end > 0 && !CLEAN.stop; end -= CLEAN_CHUNK) {
     const chunk = list.slice(Math.max(0, end - CLEAN_CHUNK), end);
-    const r = await evalScript('amh_cleanupSome(' + escJson(JSON.stringify({ sequenceID: p.sequenceID, fps: p.fps, cuts: chunk })) + ')', 120000);
+    const r = await evalScript('amh_cleanupSome(' + escJson(JSON.stringify({ sequenceID: p.sequenceID, fps: p.fps, cuts: chunk, fade: cutFadesOn() })) + ')', 120000);
     if (!r || !r.ok) { err = r || { error: 'Premiere did not answer.' }; break; }
     applied.push(...chunk);
     removedSeconds += Number(r.removedSeconds) || 0;
+    faded += Number(r.faded) || 0;
+    if (r.fadeError && !fadeErr) fadeErr = r.fadeError;
     CLEAN.progress.done = applied.length;
     renderCleanupPanel();
   }
@@ -6343,6 +6349,7 @@ async function applyCleanup() {
   CLEAN.done = { sequence: p.sequence, removedSeconds, cuts: applied.length, total: list.length,
     error: err ? L(err.error || 'Premiere did not answer.') : '' };
   log('✂ Clean up: removed ' + fmtDur(removedSeconds) + ' in ' + applied.length + ' of ' + list.length + ' cut(s) — "' + p.sequence + '"');
+  if (faded || fadeErr) log('✂ Smooth joins: ' + faded + ' faded' + (fadeErr ? ' — ' + fadeErr : ''));
   renderCleanupPanel();
   return CLEAN.done;
 }
