@@ -1195,6 +1195,13 @@
       ⚠️ <b>Extract the zip first.</b> The program was opened from inside the downloaded zip, so it cannot make captions.
       Right-click the zip → <b>Extract All</b> → <b>Extract</b>, then open <b>«Make Amharic Captions»</b> from the extracted folder.
     </div>
+    <!-- 1.94.44: a timed license ends in <= 3 days, or ended: renew in one tap -->
+    <div id="renewBox" style="display:none;margin-bottom:8px;padding:9px 12px;border:1px solid var(--warn);border-radius:var(--radius);background:var(--warn-soft);font-size:11px;line-height:1.45;">
+      <div id="renewTitle" style="font-weight:700;"></div>
+      <div id="renewSub" style="margin:3px 0 7px;"></div>
+      <button type="button" id="renewBtn" class="btn btn-primary" style="width:100%;">🔁 Renew</button>
+      <div class="hint" id="renewNote" style="display:none;margin-top:6px;font-weight:600;line-height:1.45;"></div>
+    </div>
     <div id="trialBanner"
          style="display:none;margin-bottom:8px;padding:9px 12px;border:1px solid var(--warn);border-radius:var(--radius);background:var(--warn-soft);font-size:11px;line-height:1.45;" data-i18n-html="lic.trialBanner">
       <b>Your free minutes are used up</b> — buy a license below to keep making captions.
@@ -1289,7 +1296,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.94.43</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.94.44</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>

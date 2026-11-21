@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.43';
+const APP_VERSION = '1.94.44';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -1888,6 +1888,8 @@ function newBuyNonce() {
   return Array.from(bytes, (x) => abc[x % abc.length]).join('');
 }
 function showBuyPending(text, color) {
+  const rn = document.getElementById('renewNote');      // 1.94.44: the renew box says it too
+  if (rn) { rn.style.display = text ? '' : 'none'; rn.textContent = text ? L(text) : ''; rn.style.color = color || ''; }
   const el = document.getElementById('buyPending');
   if (!el) return;
   el.style.display = text ? '' : 'none';
@@ -1899,7 +1901,7 @@ function stopBuyPoll() {
 }
 async function checkPendingBuy() {
   const p = getPendingBuy();
-  if (LICENSED) { setPendingBuy(null); stopBuyPoll(); showBuyPending(''); return; }
+  if (LICENSED && !(p && p.renew)) { setPendingBuy(null); stopBuyPoll(); showBuyPending(''); return; }
   if (!p) { stopBuyPoll(); showBuyPending(''); return; }
   const r = await apiPost('/api/license', { mid: MACHINE_ID, nonce: p.nonce });
   if (!r) return;   // offline or busy: the next tick tries again
@@ -1907,9 +1909,14 @@ async function checkPendingBuy() {
     stopBuyPoll();
     showBuyPending('✓ Payment confirmed — activating…', 'var(--ok)');
     const input = document.getElementById('licenseInput');
+    const had = getLicense();
+    if (LICENSED && had && canonicalPanelKey(had.key) === canonicalPanelKey(r.key)) {
+      setPendingBuy(null); showBuyPending(''); return;    // already this key (picked up by the daily check)
+    }
     if (input) input.value = r.key;
     await activateLicense();
-    if (LICENSED) { setPendingBuy(null); showBuyPending(''); }
+    const now = getLicense();
+    if (LICENSED && now && canonicalPanelKey(now.key) === canonicalPanelKey(r.key)) { setPendingBuy(null); showBuyPending(''); }
     return;
   }
   if (r.status === 'pending') {
@@ -1953,6 +1960,24 @@ function showBuyQr(url) {
 function hideBuyQr() {
   const card = document.getElementById('buyQrCard');
   if (card) card.classList.remove('show');
+}
+// Buy (no license) and Renew (a timed license about to end or ended): the same
+// bot link with this computer and a secret; the bot shows the plans with what
+// was paid deducted from Forever, and this panel picks up the new key itself.
+function startPurchase(renew) {
+  track(renew ? 'renew_click' : 'buy_click');
+  // Reuse the secret of an unfinished purchase so a second tap never
+  // orphans the order that is already waiting.
+  let p = getPendingBuy();
+  if (!p) p = { nonce: newBuyNonce(), mid: MACHINE_ID };
+  p.at = Date.now();
+  if (renew) p.renew = true;
+  setPendingBuy(p);
+  // 1.41: buy on the PHONE — the bank app, the screenshot and Telegram
+  // are all there; this computer still unlocks itself (the same link).
+  showBuyQr(buyUrl(p) + '_q');    // 1.94.3: the phone's link is marked (the bot counts it apart)
+  openUrl(buyUrl(p));          // 1.82: Telegram on this computer at once
+  startBuyPoll();
 }
 function startBuyPoll() {
   if (!BUY_POLL) BUY_POLL = setInterval(checkPendingBuy, BUY_POLL_MS);
@@ -2268,23 +2293,9 @@ function initBuy() {
   initTrialCard();
   initFreeMinutes();
   const b = document.getElementById('buyBtn');
-  if (b) {
-    b.addEventListener('click', (e) => {
-      e.preventDefault();
-      track('buy_click');
-      // Reuse the secret of an unfinished purchase so a second tap never
-      // orphans the order that is already waiting.
-      let p = getPendingBuy();
-      if (!p) p = { nonce: newBuyNonce(), mid: MACHINE_ID };
-      p.at = Date.now();
-      setPendingBuy(p);
-      // 1.41: buy on the PHONE — the bank app, the screenshot and Telegram
-      // are all there; this computer still unlocks itself (the same link).
-      showBuyQr(buyUrl(p) + '_q');    // 1.94.3: the phone's link is marked (the bot counts it apart)
-      openUrl(buyUrl(p));          // 1.82: Telegram on this computer at once
-      startBuyPoll();
-    });
-  }
+  if (b) b.addEventListener('click', (e) => { e.preventDefault(); startPurchase(false); });
+  const rb = document.getElementById('renewBtn');      // 1.94.44
+  if (rb) rb.addEventListener('click', (e) => { e.preventDefault(); startPurchase(true); });
   const pc = document.getElementById('buyQrPc');
   // 1.94.3: which way buyers get stuck — Telegram did not open on this
   // computer (they press it again), or they closed the window (the price?)
@@ -2294,7 +2305,7 @@ function initBuy() {
   // A purchase started earlier (the panel was closed meanwhile): keep checking.
   if (getPendingBuy()) startBuyPoll();
   if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-    window.addEventListener('focus', () => { if (getPendingBuy() && !LICENSED) checkPendingBuy(); });
+    window.addEventListener('focus', () => { const p = getPendingBuy(); if (p && (!LICENSED || p.renew)) checkPendingBuy(); });
   }
   // Bank details stay one tap away rather than occupying the panel by
   // default — they matter at payment time, not while reading.
@@ -2413,6 +2424,29 @@ function canonicalPanelKey(value) {
 let LICENSED = false;
 let LICENSED_REFRESH = false;
 let LICENSE_NOTE = '';
+// 1.94.44 (V3): a timed license - the days left (today included) while it
+// works, and the last day of one that ended. An ended license used to drop the
+// panel back to the free-trial screen without a word.
+let LICENSE_DAYS_LEFT = null;
+let LICENSE_LAST_DAY = '';
+let LICENSE_ENDED = '';
+const RENEW_DAYS = 3;
+function localYmd(t) { const d = t || new Date(); return d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0'); }
+// whole days from today to YYYY-MM-DD (0 = today)
+function daysUntil(dash) {
+  const [y, m, d] = String(dash).split('-').map(Number);
+  const t = new Date();
+  return Math.round((Date.UTC(y, m - 1, d) - Date.UTC(t.getFullYear(), t.getMonth(), t.getDate())) / 86400000);
+}
+// the last day of a stored timed key that has ended, else ''
+function endedDay(stored, err) {
+  if (!stored || !stored.key || stored.revoked) return '';
+  let exp = /^\d{8}$/.test(String(stored.expiry || '')) ? String(stored.expiry) : '';
+  const m = /License expired on (\d{4})-(\d{2})-(\d{2})/.exec(String(err || ''));
+  if (!exp && m) exp = m[1] + m[2] + m[3];
+  if (!exp || exp === '00000000' || exp > localYmd()) return '';
+  return lastLicenseDay(exp);
+}
 // A key that ends on YYYYMMDD works until the day before.
 function lastLicenseDay(exp) {
   const d = new Date(Date.UTC(+exp.slice(0, 4), +exp.slice(4, 6) - 1, +exp.slice(6, 8)) - 86400000);
@@ -2428,7 +2462,11 @@ async function assessLicense() {
   const stored = getLicense();
   LICENSED = false;
   LICENSE_NOTE = '';
-  if (!stored || !stored.token) return;
+  LICENSE_DAYS_LEFT = null;
+  LICENSE_LAST_DAY = '';
+  LICENSE_ENDED = '';
+  if (!stored) return;
+  if (!stored.token) { LICENSE_ENDED = endedDay(stored); return; }
 
   const v = await verifyLicenseToken(stored.token, LICENSE_TOKEN_PUBKEY_PEM, MACHINE_ID);
   if (v.ok) {
@@ -2436,6 +2474,10 @@ async function assessLicense() {
     // A 1- or 2-month plan (1.10.12): show the last day it works.
     LICENSE_NOTE = (v.expiry && /^\d{8}$/.test(v.expiry) && v.expiry !== '00000000')
       ? 'Licensed until ' + lastLicenseDay(v.expiry) : 'Licensed';
+    if (v.expiry && /^\d{8}$/.test(v.expiry) && v.expiry !== '00000000') {
+      LICENSE_LAST_DAY = lastLicenseDay(v.expiry);
+      LICENSE_DAYS_LEFT = daysUntil(LICENSE_LAST_DAY) + 1;
+    }
     return;
   }
   // Definitive signature/shape failures clear the lease. A transient WebCrypto
@@ -2443,6 +2485,7 @@ async function assessLicense() {
   // not unlocked for this session and can be retried on the next boot/focus.
   const transient = /No WebCrypto|verification failed/i.test(String(v.error || ''));
   if (!transient) setLicense(Object.assign({}, stored, { valid: false, token: null }));
+  LICENSE_ENDED = endedDay(stored, v.error);
 }
 
 // Online revocation check. Local signature verification remains the offline
@@ -2452,10 +2495,11 @@ async function assessLicense() {
 const LICENSE_RECHECK_INTERVAL = 24 * 60 * 60 * 1000;
 async function revalidateLicenseOnline(force) {
   const stored = getLicense();
-  if (!stored || !stored.token || !stored.key) return;
+  if (!stored || !stored.key || (!stored.token && !LICENSE_ENDED)) return;
   let last = 0;
   try { last = parseInt(localStorage.getItem('amh.license.lastCheck') || '0', 10) || 0; } catch (e) {}
-  if (!force && last && Date.now() - last < LICENSE_RECHECK_INTERVAL) return;
+  // 1.94.44: an ended license is asked about every 10 minutes (renewed in the bot -> unlocked)
+  if (!force && last && Date.now() - last < (LICENSE_ENDED ? 10 * 60 * 1000 : LICENSE_RECHECK_INTERVAL)) return;
   const result = await apiPost('/api/validate', { mid: MACHINE_ID, key: stored.key, hf: hostFingerprint() || undefined });
   // Only a real semantic response starts the retry interval. Network errors,
   // 5xx responses, and malformed payloads must be retried on the next focus.
@@ -2463,13 +2507,19 @@ async function revalidateLicenseOnline(force) {
   try { localStorage.setItem('amh.license.lastCheck', String(Date.now())); } catch (e) {}
   if (result.valid === false) {
     log('License revoked or rejected by server' + (result.reason ? ' (' + result.reason + ')' : '') + '.');
-    setLicense(Object.assign({}, stored, { valid: false, token: null }));
+    setLicense(Object.assign({}, stored, { valid: false, token: null }, result.reason === 'revoked' ? { revoked: true } : {}));
     await assessLicense();
     updateLicenseUI();
     return;
   }
   if (result.valid === true && result.token) {
+    // 1.94.44: renewed (in the bot or here) - the server hands back the new key
+    const renewedKey = result.key && canonicalPanelKey(result.key) !== canonicalPanelKey(stored.key) &&
+      validateLicense(result.key, MACHINE_ID).ok ? result.key : '';
+    if (renewedKey) log('Renewed license picked up' + (result.expiry && result.expiry !== '00000000' ? ' (until ' + lastLicenseDay(result.expiry) + ').' : ' (forever).'));
     const durable = setLicense(Object.assign({}, stored, {
+      key: renewedKey || stored.key,
+      revoked: false,
       valid: true,
       token: result.token,
       expiry: result.expiry || stored.expiry || '00000000',
@@ -2963,9 +3013,34 @@ function updateLicenseUI() {
   if (footPrice) footPrice.style.display = LICENSED ? 'none' : '';
   const footLic = document.getElementById('footLicensed');
   if (footLic) footLic.style.display = LICENSED ? '' : 'none';
+  // 1.94.44: an ended license says so (not "free minutes used up")
+  if (!LICENSED && LICENSE_ENDED && banner) banner.style.display = 'none';
+  renderRenewBox();
   renderTrialGate();
   renderFreeMinBox();
   LICENSED_REFRESH = false;
+}
+// 1.94.44 (V3): the last 3 days of a timed license, and after it ended -
+// one box with the day and a Renew button (the bot is already on this computer)
+function renderRenewBox() {
+  const box = document.getElementById('renewBox');
+  if (!box) return;
+  let title = '';
+  if (LICENSED && LICENSE_DAYS_LEFT != null && LICENSE_DAYS_LEFT <= RENEW_DAYS) {
+    title = '⏳ ' + (LICENSE_DAYS_LEFT <= 1
+      ? L('Today is the last day of your license')
+      : L('Your license ends on ' + LICENSE_LAST_DAY + ' — ' + LICENSE_DAYS_LEFT + ' days left'));
+  } else if (!LICENSED && LICENSE_ENDED) {
+    title = '⌛ ' + L('Your license ended on ' + LICENSE_ENDED);
+  }
+  box.style.display = title ? 'block' : 'none';
+  if (!title) return;
+  const t = document.getElementById('renewTitle');
+  if (t) t.textContent = title;
+  const s = document.getElementById('renewSub');
+  if (s) s.textContent = L('Renew in Telegram: 1 month, 2 months, or Forever with what you paid deducted. This panel updates itself.');
+  const b = document.getElementById('renewBtn');
+  if (b) b.textContent = L('🔁 Renew');
 }
 
 // "k7qd 3mxp" / "K7QD3MXP" / "K7QD-3MXP" → "K7QD-3MXP"; null for anything else

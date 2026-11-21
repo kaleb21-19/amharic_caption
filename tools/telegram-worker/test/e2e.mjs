@@ -595,6 +595,60 @@ console.log('\n:: scenario 1b — rotating AMH_SECRET must not kill existing key
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+console.log('\n:: scenario 1b2 — 1.94.44 a renewed computer: its old key brings back the new key');
+
+{
+  // Renewing writes a new key to the customer row. The panel still held the old
+  // key and its daily /api/validate got {valid:false} -> the license was deleted
+  // the day after paying. Now the old (authentic, same computer) key returns the
+  // new key and a lease for the new expiry. Each call its own computer + address
+  // (validate is rate-limited per Machine ID and per IP).
+  const ymd = (days) => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10).replace(/-/g, '');
+  const call = async (env, mid, key, ip) => (await api(env, '/api/validate', { method: 'POST', body: { mid, key }, headers: { 'CF-Connecting-IP': ip } })).json();
+  const { env } = fresh();
+  const put = (mid, key, expiry, revoked = 0) => env.DB.prepare('INSERT INTO customers (machine_id, key, expiry, revoked) VALUES (?,?,?,?)').bind(mid, key, expiry, revoked).run();
+  // renewed before the end: a month more
+  put('c3d4e5f6', keyFor('c3d4e5f6', ymd(32)), ymd(32));
+  let j = await call(env, 'c3d4e5f6', keyFor('c3d4e5f6', ymd(2)), '203.0.113.31');
+  assert.equal(j.valid, true, 'the old key of a renewed computer is still good');
+  assert.equal(j.expiry, ymd(32), 'with the new end');
+  assert.equal(canonicalKey(j.key), canonicalKey(keyFor('c3d4e5f6', ymd(32))), 'and the new key');
+  assert.match(j.token || '', /^v1\.[0-9a-f]{16}\./i, 'a lease for this computer');
+  // renewed after it ended, upgraded to Forever
+  put('c3d4e5f7', keyFor('c3d4e5f7'), '00000000');
+  j = await call(env, 'c3d4e5f7', keyFor('c3d4e5f7', ymd(-5)), '203.0.113.32');
+  assert.deepEqual([j.valid, j.expiry, canonicalKey(j.key)], [true, '00000000', canonicalKey(keyFor('c3d4e5f7'))], 'an ended key upgraded to Forever');
+  // the same key answered from the cache an hour before the renewal: the cache never hides it
+  put('c3d4e5f8', keyFor('c3d4e5f8', ymd(3)), ymd(3));
+  j = await call(env, 'c3d4e5f8', keyFor('c3d4e5f8', ymd(3)), '203.0.113.33');
+  assert.equal(j.valid, true);
+  assert.equal(j.key, undefined, 'the current key: no key in the answer');
+  env.DB.prepare('UPDATE customers SET key=?, expiry=? WHERE machine_id=?').bind(keyFor('c3d4e5f8', ymd(33)), ymd(33), 'c3d4e5f8').run();
+  env.DB.prepare("DELETE FROM rl_counters WHERE k = 'rl:val:c3d4e5f8'").run();   // the renewal comes hours later, not within the minute
+  j = await call(env, 'c3d4e5f8', keyFor('c3d4e5f8', ymd(3)), '203.0.113.34');
+  assert.equal(canonicalKey(j.key), canonicalKey(keyFor('c3d4e5f8', ymd(33))), 'a cached old key still finds the renewal');
+  // NOT renewals - all refused as before
+  put('c3d4e5f9', keyFor('c3d4e5f9', ymd(5)), ymd(5));
+  j = await call(env, 'c3d4e5f9', keyFor('c3d4e5f9', ymd(40)), '203.0.113.35');
+  assert.equal(j.valid, false, 'a key LATER than the row (never sold) is refused');
+  assert.equal(j.key, undefined);
+  put('c3d4e5fa', keyFor('c3d4e5fa', ymd(30)), ymd(30));
+  j = await call(env, 'c3d4e5fa', keyFor('c3d4e5fa'), '203.0.113.36');
+  assert.equal(j.valid, false, 'a Forever key replaced by a timed one is refused');
+  put('c3d4e5fb', keyFor('c3d4e5fb', ymd(30)), ymd(30), 1);
+  j = await call(env, 'c3d4e5fb', keyFor('c3d4e5fb', ymd(2)), '203.0.113.37');
+  assert.equal(j.valid, false, 'revoked: refused');
+  assert.equal(j.key, undefined);
+  put('c3d4e5fc', keyFor('c3d4e5fc', ymd(-2)), ymd(-2));
+  j = await call(env, 'c3d4e5fc', keyFor('c3d4e5fc', ymd(-40)), '203.0.113.38');
+  assert.deepEqual([j.valid, j.reason, j.key], [false, 'expired', undefined], 'the renewal itself ended: expired, no key');
+  j = await call(env, 'c3d4e5fd', keyFor('c3d4e5f6', ymd(2)), '203.0.113.39');
+  assert.equal(j.valid, false, 'another computer with that old key: refused');
+  assert.equal(j.key, undefined);
+  ok('renewal: the old key of the same computer gets the new key + lease; never for another computer, a revoked or ended row, or a key the row never had');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 console.log('\n:: scenario 1c — arriving from the panel skips the Machine ID step');
 
 {
