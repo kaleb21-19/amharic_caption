@@ -888,6 +888,35 @@ function amh_placeOverlay(argsJSON) {
     });
 }
 
+/**
+ * 1.94.20: put a bundled, EDITABLE MOGRT on the timeline at the playhead,
+ * on the topmost empty video track there. The editor types the Amharic text
+ * in Essential Graphics; we never write text into the template (1.94.1).
+ */
+function amh_placeMOGRT(argsJSON) {
+    return amhGuard(function () {
+        var args = JSON.parse(argsJSON);
+        var seq = app.project.activeSequence;
+        if (!seq) { return amhErr("No active sequence. Open one first."); }
+        var f = new File(args.path);
+        if (!f.exists) { return amhErr("Template not found: " + args.path); }
+        var pos = seq.getPlayerPosition();
+        var start = pos ? Number(pos.seconds) : 0;
+        var ticks = amhSecondsToTicks(start);
+        var tracks = seq.videoTracks;
+        var target = -1;
+        for (var t = tracks.numTracks - 1; t >= 0; t--) {
+            if (amhTrackFree(tracks[t], start, start + 0.05)) { target = t; break; }
+        }
+        if (target < 0) {
+            return amhErr("No empty video track at the playhead. Add one and press the template again.");
+        }
+        var item = seq.importMGT(args.path, ticks, target, 0);
+        if (!item) { return amhErr("Premiere could not place this template."); }
+        return amhOk({ placed: true, track: target + 1, name: String(item.name || ""), atSeconds: start });
+    });
+}
+
 // -- Styled captions as one clip per phrase (1.27.0) ------------------------------
 // Each caption on screen is its own clip (move, trim, delete it on its own),
 // cut from one rendered file with the project item's in / out points. The
