@@ -255,7 +255,7 @@ test('live caption cleared: its clip comes off, its bin is deleted; real caption
   const b = root.createBin('Amharic Captions - preview');
   b._kids.push(makeItem(lv, 'seconds'));
   const r = pp.call('amh_liveClear(' + J({ prefix: 'amhstyle_livepreview__' }) + ')');
-  assert.ok(r.ok && r.removed === 1 && r.binDeleted === true, JSON.stringify(r));
+  assert.ok(r.ok && r.removed === 1 && r.binDeleted === true && r.binKept === false, JSON.stringify(r));
   assert.strictEqual(pp.vt[2].list.length, 0, 'the live clip is gone');
   assert.deepStrictEqual(pp.vt[1].list.map((c) => c.projectItem.name), [real], 'the real captions stay');
   assert.strictEqual(pp.vt[0].list.length, 1, 'the video stays');
@@ -263,7 +263,8 @@ test('live caption cleared: its clip comes off, its bin is deleted; real caption
   // a bin holding anything not ours is never deleted; another name is refused
   const b2 = root.createBin('Amharic Captions - preview');
   b2._kids.push(makeItem('my_own_clip.mov', 'seconds'));
-  assert.strictEqual(pp.call('amh_liveClear(' + J({ prefix: 'amhstyle_livepreview__' }) + ')').binDeleted, false, 'not only ours: kept');
+  const kept = pp.call('amh_liveClear(' + J({ prefix: 'amhstyle_livepreview__' }) + ')');
+  assert.ok(kept.binDeleted === false && kept.binKept === true, 'not only ours: kept (and the panel keeps its files) ' + JSON.stringify(kept));
   assert.strictEqual(pp.call('amh_liveClear(' + J({ prefix: 'amhstyle_talk__' }) + ')').ok, false, 'only the live prefix');
   assert.deepStrictEqual(pp.vt[1].list.map((c) => c.projectItem.name), [real]);
 });

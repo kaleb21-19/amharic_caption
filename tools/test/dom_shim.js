@@ -9,8 +9,8 @@
 
 class ClassList {
   constructor(el) { this.el = el; this._ = new Set(); }
-  add(c) { this._.add(c); }
-  remove(c) { this._.delete(c); }
+  add(...cs) { cs.forEach((c) => this._.add(c)); }          // several at once, like a browser
+  remove(...cs) { cs.forEach((c) => this._.delete(c)); }
   toggle(c, force) {
     const on = (force === undefined) ? !this._.has(c) : !!force;
     if (on) this._.add(c); else this._.delete(c);
@@ -181,7 +181,7 @@ const KNOWN = [
   'revUndo', 'revMemory', 'memoryPanel',
   'revClient', 'clientPanel', 'revCleanup', 'revSilence', 'cleanupPanel', 'revZoom', 'zoomPanel',
   'srcLine', 'wpcSeg', 'wpc1', 'wpc2', 'wpc3', 'wpc4', 'wpc5', 'wpcField', 'capField',
-  'reviewSteps', 'fontNote', 'fontNoteText', 'fontNoteBtn', 'fontNoteClose', 'zipWarn', 'textCutNote', 'textCutUndo', 'revFollow', 'starTip', 'starTipText', 'starTipClose', 'liveToggle', 'liveNote', 'stepText', 'stepStyle', 'stepPlace',
+  'reviewSteps', 'fontNote', 'fontNoteText', 'fontNoteBtn', 'fontNoteClose', 'zipWarn', 'textCutNote', 'textCutUndo', 'revFollow', 'starTip', 'starTipText', 'starTipClose', 'liveToggle', 'liveNote', 'runFix', 'stepText', 'stepStyle', 'stepPlace',
   // next-step card after a free caption
   'trialCard', 'tcGroup', 'tcBuy', 'tcLater', 'tcLeftText', 'tcCutText', 'tcMore', 'tcMoreTitle', 'tcMoreText', 'freeMinNote', 'updateNow', 'modelTgBox', 'modelTgWhy', 'modelTg',
   'freeMinBox', 'freeMinTitle', 'freeMinBtn', 'freeMinWait',

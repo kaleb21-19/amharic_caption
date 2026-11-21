@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.40');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.41');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1697,11 +1697,18 @@ await t('4f3. 1.94.39 Premiere: the caption shows live on the Program monitor (i
     p.evalVm("setStyleOpt('color', '#FF3B30')");
     await p.evalVm('liveDraw()');
     assert.strictEqual(p.evalVm('__lj.length'), 2, 'a change: drawn again');
-    // closing the review takes it off and deletes its bin
+    // closing the review takes it off, deletes its bin - and (1.94.41) its files on disk
+    const capDir = p.evalVm('ensureCaptionsDir()');
+    const liveFile = path.join(capDir, 'amhstyle_livepreview__bold_1.mov');
+    const realFile = path.join(capDir, 'amhstyle_talk__bold_1.mov');
+    fs.writeFileSync(liveFile, 'x'); fs.writeFileSync(realFile, 'x');
     log.length = 0;
     p.evalVm('closeReview(true)');
     await flush(5);
     assert.ok(log.some((x) => /amh_liveClear/.test(x) && /amhstyle_livepreview/.test(x)), 'cleared on close');
+    assert.ok(!fs.existsSync(liveFile), 'the live file is deleted from disk');
+    assert.ok(fs.existsSync(realFile), 'real caption files are never touched');
+    fs.unlinkSync(realFile);
     // 📺 off: nothing is put on the timeline
     p.evalVm("reviewOpen = true; renderStyleStrip();");
     p.els('liveToggle').fire('click');
@@ -1711,6 +1718,57 @@ await t('4f3. 1.94.39 Premiere: the caption shows live on the Program monitor (i
     assert.strictEqual(p.evalVm('__lj.length'), n, 'off: never drawn');
     p.evalVm("STYLE = 'plain'; renderStyleStrip()");
     assert.strictEqual(p.els('liveToggle').style.display, 'none', 'Plain: no 📺');
+  } finally { p.close(); }
+});
+
+await t('4q. 1.94.41 V2: a failed run offers the way out; the report carries private checks; a queued job is not an error', async () => {
+  const p = loadPanel({ csiRaw: (jsx) => {
+    if (/s\.push\("app "/.test(jsx)) return 'app 25.0x1, json object, helpers function, ae-code false, project open, active Sequence';
+    if (/amh_fadeProbe/.test(jsx)) return JSON.stringify({ ok: true, fade: 'ready', api: 'setTimeVarying+ addKey+' });
+    return JSON.stringify({ ok: true });
+  } });
+  try {
+    await flush(5);
+    p.evalVm("globalThis.__runs = 0; run = async () => { __runs++; }; SOURCE = 'clip';");
+    // no clip: the whole edit, or try again
+    p.evalVm("failRun('No clip found under the playhead')");
+    const box = p.els('runFix');
+    assert.notStrictEqual(box.style.display, 'none', 'the way out is shown');
+    assert.strictEqual(box.children.length, 2, 'whole edit + try again');
+    assert.match(box.children[0].textContent, /whole edit|ሙሉውን/);
+    box.children[0].fire('click');
+    assert.strictEqual(p.evalVm('SOURCE'), 'whole', 'switched to the whole edit');
+    assert.strictEqual(p.evalVm('__runs'), 1, 'and started again');
+    assert.strictEqual(box.style.display, 'none', 'gone once used');
+    // the engine stopped: try again only
+    p.evalVm("SOURCE = 'clip'; failRun('python failed: worker exited 1')");
+    assert.strictEqual(box.children.length, 1);
+    assert.match(box.children[0].textContent, /Try again|እንደገና/);
+    box.children[0].fire('click');
+    assert.strictEqual(p.evalVm('__runs'), 2);
+    // a license problem: nothing a retry can fix
+    p.evalVm("failRun('license required')");
+    assert.strictEqual(box.style.display, 'none', 'no button for a license problem');
+    // a new run hides it
+    p.evalVm("failRun('No clip found'); setBusy(true); setBusy(false);");
+    assert.strictEqual(box.style.display, 'none', 'a new run clears it');
+    // the problem report ends with the private checks
+    p.evalVm("globalThis.__rep = null; apiPost = async (u, b) => { if (u === '/api/report') __rep = b; return { ok: true }; }; LAST_FAIL = { raw: 'boom', step: 'err_engine', log: ['line a'] };");
+    await p.evalVm('sendReport()');
+    const rep = JSON.parse(p.evalVm('JSON.stringify(__rep)'));
+    const tail = rep.log.join('\n');
+    assert.match(tail, /── checks ──/);
+    assert.match(tail, /panel 1\.94\.\d+ · PPRO · runtime /);
+    assert.match(tail, /extension folder ok/);
+    assert.match(tail, /host: app 25\.0x1/);
+    assert.match(tail, /smooth joins: ready · setTimeVarying\+/);
+    assert.ok(tail.indexOf(os.homedir()) < 0, 'no home folder in the report');
+    assert.ok(rep.log[0] === 'line a', 'the Log as it was comes first');
+    // a job waiting for the model: queued, not an error
+    p.evalVm("MODEL_MISSING = true; startModelDownload = () => {}; modelReadyForRun(() => {});");
+    assert.match(p.els('statusText').textContent, /model is ready|ሞዴሉ ሲዘጋጅ/);
+    assert.ok(!p.els('statusPill').classList.contains('err'), 'not shown as an error');
+    p.evalVm('MODEL_MISSING = false; MODEL_RESUME = null;');
   } finally { p.close(); }
 });
 

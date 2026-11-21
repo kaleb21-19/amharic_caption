@@ -578,6 +578,8 @@
   .cc-range { flex: 1 1 auto; min-width: 80px; accent-color: var(--accent); }
   .cc-val { flex: 0 0 38px; text-align: right; font-size: 11px; color: var(--text-secondary); }
   .cc-pick { flex: 0 0 auto; width: 22px; height: 20px; padding: 0; border: 1px solid var(--border); border-radius: 4px; background: transparent; cursor: pointer; }
+  .run-fix { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .run-fix .btn { flex: 1 1 auto; min-width: 120px; }
   .star-tip { display: flex; align-items: center; gap: 6px; margin: 4px 0 6px; padding: 6px 9px; border-radius: 6px; font-size: 11px;
     line-height: 1.4; background: rgba(255, 214, 10, .10); border: 1px solid rgba(255, 214, 10, .35); }
   .star-tip span { flex: 1 1 auto; }
@@ -1157,6 +1159,8 @@
         <span id="progLabel" aria-live="polite"></span>
         <button id="cancelBtn" title="Stop this transcription" data-i18n="run.cancel" data-i18n-title="run.cancelTitle">Cancel</button>
       </div>
+      <!-- 1.94.41: the way out of a failed run (whole edit / try again) -->
+      <div id="runFix" class="run-fix" style="display:none;"></div>
       <!-- After a failed run (1.10.11): one tap sends the error + Log to us. -->
       <!-- 1.94.11: Premiere's own captions need an Amharic font -->
       <div id="fontNote" class="font-note" style="display:none;">
@@ -1282,7 +1286,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.94.40</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.94.41</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
