@@ -689,6 +689,23 @@ def get_words(spans, frame_dur, glyphs):
     return _lm_split_words(words, word_units)
 
 
+# 1.94.45 Ethiopian conventions: a caption never ends inside a date, time or
+# amount (መስከረም | 17, 3 | ሰዓት, 500 | ብር) - it takes up to 3 more words.
+try:
+    from amh_correct import keep_together as _keep_together
+except Exception:  # pragma: no cover
+    def _keep_together(a, b):
+        return False
+
+
+def _next_text(words, idx):
+    for w in words[idx + 1:]:
+        t = w[0].strip()
+        if t:
+            return t
+    return ""
+
+
 def group_word_cues(words, max_chars=200):
     max_chars = int(max_chars)
     cues = []
@@ -719,7 +736,7 @@ def group_n_cues(words, n, max_chars=200):
             cues.append((" ".join(buf), buf_start, buf_end))
         buf, buf_start, buf_end, buf_chars = [], None, None, 0
 
-    for w_text, w_s, w_e in words:
+    for idx, (w_text, w_s, w_e) in enumerate(words):
         txt = w_text.strip()
         if not txt:
             continue
@@ -732,7 +749,8 @@ def group_n_cues(words, n, max_chars=200):
         buf_end = w_e
         buf.append(txt)
         buf_chars += len(txt)
-        if len(buf) >= n or buf_chars >= max_chars:
+        hold = n >= 2 and len(buf) < n + 3 and _keep_together(txt, _next_text(words, idx))
+        if (len(buf) >= n and not hold) or buf_chars >= max_chars:
             flush()
     flush()
     return cues
@@ -756,15 +774,16 @@ def group_cues(words, frame_dur=None, text_chars=None, glyphs=None, max_chars=42
             cues.append((" ".join(buf_words), buf_start, buf_end))
         buf_words, buf_chars, buf_start, buf_end = [], 0, None, None
 
-    for w_text, w_s, w_e in words:
+    for idx, (w_text, w_s, w_e) in enumerate(words):
         if buf_start is None:
             buf_start = w_s
         buf_end = w_e
         buf_words.append(w_text)
         buf_chars += len(w_text)
-        if is_sentence_end(w_text) and buf_chars >= 12:
+        hold = buf_chars < MAX_CHARS + 16 and _keep_together(w_text, _next_text(words, idx))
+        if is_sentence_end(w_text) and buf_chars >= 12 and not hold:
             flush()
-        elif buf_chars >= MAX_CHARS:
+        elif buf_chars >= MAX_CHARS and not hold:
             flush()
     flush()
     return cues

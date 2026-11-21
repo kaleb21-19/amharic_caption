@@ -44,6 +44,16 @@ import math
 import re
 import sys
 
+# 1.94.45 Ethiopian conventions: never break a caption or a line inside a date,
+# time or amount, or before a punctuation mark (amh_correct ships beside this
+# file in every runtime; without it nothing changes).
+try:
+    from amh_correct import keep_together as _keep_together
+except Exception:  # pragma: no cover
+    def _keep_together(a, b):
+        return False
+_PUNCT_ONLY = re.compile("^[\u1361-\u1368.,;:!?\u2026]+$")
+
 STYLES = ("glide", "spotlight", "bounce", "karaoke", "fill", "highlight", "bold", "podcast", "reveal", "typewriter", "pop", "word", "impact",
           "neon", "retro", "habesha", "cinema", "clean")
 YELLOW = "&H0000E5FF"
@@ -309,7 +319,17 @@ def words_from_cues(cues):
     out = []
     for c in cues:
         text, s, e = c[0], float(c[1]), float(c[2])
-        parts = [p for p in _clean(text).split() if p]
+        parts = []
+        for p in _clean(text).split():
+            # a mark typed as its own word ("ነው ።") belongs to the word before
+            # it - also the last word of the caption before
+            if _PUNCT_ONLY.match(p) and (parts or out):
+                if parts:
+                    parts[-1] += p
+                else:
+                    out[-1] = (out[-1][0] + p,) + tuple(out[-1][1:])
+            elif p:
+                parts.append(p)
         if not parts or e <= s:
             continue
         total = sum(len(p) for p in parts)
@@ -328,7 +348,11 @@ def _phrases(words, size, o=None):
         size = min(10, size * 2)
     out, cur = [], []
     for w in words:
-        if cur and (len(cur) >= size or w[1] - cur[-1][2] > GAP_HOLD):
+        # 1.94.45: a full group still takes the next word (up to 3 more) when the
+        # break would split a date / time / amount (መስከረም | 17, 500 | ብር).
+        # Not for one word at a time: those styles draw exactly one word.
+        full = len(cur) >= size and not (size >= 2 and len(cur) < size + 3 and _keep_together(cur[-1][0], w[0]))
+        if cur and (full or w[1] - cur[-1][2] > GAP_HOLD):
             out.append(cur)
             cur = []
         cur.append(w)
@@ -755,6 +779,10 @@ def build(words, style, width, height, font=FONT, opts=None):
         groups = _phrases(words, NW or 7, o)
         for g, (s0, e) in zip(groups, _spans(groups)):
             half = (len(g) + 1) // 2
+            # 1.94.45: the second line never starts inside a date / amount
+            cut = [k for k in range(1, len(g)) if not _keep_together(g[k - 1][0], g[k][0])]
+            if cut and half < len(g):
+                half = min(cut, key=lambda k: (abs(2 * k - len(g)), -k))
             for i, w in enumerate(g):
                 ws = s0 if i == 0 else w[1]
                 we = g[i + 1][1] if i + 1 < len(g) else e
@@ -887,7 +915,7 @@ def _two_lines(line):
     head, sep, text = line.partition(",,0,0,0,,")
     if not sep or "\\N" in text:
         return line
-    spaces, n, i = [], 0, 0
+    spaces, n, i, vis = [], 0, 0, []
     while i < len(text):
         ch = text[i]
         if ch == "{":
@@ -898,16 +926,21 @@ def _two_lines(line):
             j = text.find("\x04" if ch == "\x03" else "\x06", i)
             i = len(text) if j < 0 else j + 1
             continue
-        if ch in "\x02\x04\x06":
+        if ch in "\x01\x02\x04\x06":            # marks, not letters (\x01 = a starred word, 1.94.45)
             i += 1
             continue
         if ch == " ":
             spaces.append((n, i))
+        vis.append(ch)
         n += 1
         i += 1
     if not spaces:
         return line
-    k = min(spaces, key=lambda p: abs(n - 1 - 2 * p[0]))[1]
+    # 1.94.45: not inside a date / time / amount, never before a mark
+    v = "".join(vis)
+    ok = [p for p in spaces
+          if not _keep_together((v[:p[0]].split() or [""])[-1], (v[p[0] + 1:].split() or [""])[0])]
+    k = min(ok or spaces, key=lambda p: abs(n - 1 - 2 * p[0]))[1]
     return head + sep + text[:k] + "\\N" + text[k + 1:]
 
 IN = "\x02"                    # marks the line where a phrase appears
