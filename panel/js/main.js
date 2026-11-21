@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.42';
+const APP_VERSION = '1.94.43';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -4725,13 +4725,23 @@ function loadFixStore() {
     const j = JSON.parse(fs.readFileSync(fixStorePath(), 'utf8'));
     if (j && j.fixes && typeof j.fixes === 'object') {
       Object.keys(j.fixes).forEach((w) => { if (!(j.fixes[w] && j.fixes[w].strong)) delete j.fixes[w]; });
+      if (!Array.isArray(j.noEnglish)) j.noEnglish = [];
       return j;
     }
   } catch (e) { /* none yet */ }
-  return { v: 1, fixes: {} };
+  return { v: 1, fixes: {}, noEnglish: [] };
 }
 function saveFixStore(st) {
   try { fs.writeFileSync(fixStorePath(), JSON.stringify(st), { encoding: 'utf8', mode: 0o600 }); } catch (e) {}
+}
+// 1.94.43 "write it in English": the built-in names, minus the ones the editor
+// put back for good (fix store `noEnglish`); setting englishWords:false = none
+function englishOn() { try { return loadSettings().englishWords !== false; } catch (e) { return true; } }
+function englishFixesNow() {
+  if (!englishOn()) return {};
+  const skip = {};
+  try { (loadFixStore().noEnglish || []).forEach((w) => { skip[w] = 1; }); } catch (e) {}
+  return englishStarter(skip);
 }
 function activeFixes(st) {
   const out = {};
@@ -5039,7 +5049,7 @@ async function openReview(outSrt, label, startSeconds, opts) {
   // one of them while the client is chosen, and gives the word back to the
   // memory when the editor takes the client off again.
   REVIEW_MEM_FIXES = activeFixes(loadFixStore());
-  const fx = Object.assign({}, REVIEW_MEM_FIXES, cfx);
+  const fx = Object.assign({}, englishFixesNow(), REVIEW_MEM_FIXES, cfx);   // 1.94.43 names in English (memory wins)
   if (Object.keys(fx).length) {
     reviewCues.forEach((c) => {
       const r = applyFixes(c.text, fx);
@@ -5135,7 +5145,7 @@ function startLivePoll(work) {
 function appendLiveCues(cues) {
   if (!cues.length) return;
   const cfx = clientFixes(ACTIVE_CLIENT);
-  const fx = Object.assign({}, activeFixes(loadFixStore()), cfx);
+  const fx = Object.assign({}, englishFixesNow(), activeFixes(loadFixStore()), cfx);   // 1.94.43
   cues.forEach((c) => {
     const cue = Object.assign({}, JSON.parse(JSON.stringify(c)), { text: cleanCueLines(c.text), _id: REVIEW_NEXT_ID++ });
     if (Object.keys(fx).length) {
@@ -9367,8 +9377,9 @@ function offerMemoryWord(cue, word) {
   const rule = memoryRuleFor(word);
   if (!rule) return;
   const from = rule.from, scope = rule.scope;
+  const builtIn = !scope && englishBase(from) && !(loadFixStore().fixes[from]);   // 1.94.43
   showRowHint(cue, [
-    { text: (scope ? '👤 ' + L('from the client list') : '🧠 ' + L('from memory')) + ' ' + from + ' → ' + word, cls: 'hint-pair' },
+    { text: (scope ? '👤 ' + L('from the client list') : builtIn ? '🔤 ' + L('name written in English') : '🧠 ' + L('from memory')) + ' ' + from + ' → ' + word, cls: 'hint-pair' },
     { btn: '↩ ' + L('Put back'), title: L('Put the original word back in this caption'), onClick: () => putBackWord(cue, word, from, false, scope) },
     { btn: L('Forget this fix'), cls: 'danger', title: scope ? L('Stop fixing this word in this client’s videos, and put the original back everywhere') : L('Stop fixing this word, and put the original back everywhere'), onClick: () => putBackWord(cue, word, from, true, scope) },
     { btn: '✕', cls: 'close', title: L('Close'), onClick: clearRowHint },
@@ -9395,6 +9406,8 @@ function putBackWord(cue, word, from, forget, scope) {
     } else {
       const st = loadFixStore();
       if (st.fixes[from] && st.fixes[from].to === word) delete st.fixes[from];
+      const base = englishBase(from);                   // 1.94.43: a built-in English name
+      if (base && st.noEnglish.indexOf(base) < 0) st.noEnglish.push(base);
       saveFixStore(st);
       syncMemoryButton();
       log('Auto-correct memory: forgot "' + from + '" → "' + word + '".');

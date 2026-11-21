@@ -251,6 +251,7 @@ const AM_TEXT = {
   'On the Program monitor': 'በProgram ማሳያው ላይ',
   'Showing it on the Program monitor…': 'በProgram ማሳያው ላይ እያሳየ ነው…',
   'Could not show it on the Program monitor': 'በProgram ማሳያው ላይ ማሳየት አልተቻለም',
+  'name written in English': 'ስሙ በእንግሊዝኛ ተጽፏል',
   'Try again': 'እንደገና ይሞክሩ',
   'Caption the whole edit instead': 'በምትኩ ሙሉውን ኤዲት ካፕሽን አድርግ',
   'Caption the whole comp instead': 'በምትኩ ሙሉውን ኮምፕ ካፕሽን አድርግ',

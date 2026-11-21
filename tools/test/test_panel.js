@@ -458,6 +458,33 @@ t('1.94.29 undo: uncutTime is the opposite of cutTime (a second at a join belong
   assert.strictEqual(core.uncutTime(5, []), 5);
 });
 
+t('1.94.43 write it in English: names only, prefixes, the ambiguous and ordinary words left alone, learned from the editor', () => {
+  const fx = core.englishStarter();
+  const fix = (s) => core.applyFixes(s, fx).text;
+  assert.strictEqual(fix('ዛሬ ዩቲዩብ ላይ'), 'ዛሬ YouTube ላይ');
+  assert.strictEqual(fix('በዩቲዩብ እና የቲክቶክ'), 'በYouTube እና የTikTok', 'one-letter prefixes');
+  assert.strictEqual(fix('ቲክ ቶክ'), 'TikTok', 'two-word spellings');
+  assert.strictEqual(fix('ፕሪሚየር ፕሮ ወይም ፕሪሚየር ሊግ'), 'Premiere Pro ወይም Premier League');
+  assert.strictEqual(fix('ፕሪሚየር'), 'ፕሪሚየር', 'bare ፕሪሚየር is ambiguous: left alone');
+  assert.strictEqual(fix('ቪዲዮ ኮምፒውተር ላፕቶፕ'), 'ቪዲዮ ኮምፒውተር ላፕቶፕ', 'ordinary loanwords stay Amharic');
+  assert.strictEqual(fix('ዩቲዩባችሁ'), 'ዩቲዩባችሁ', 'a word with a suffix is never guessed');
+  assert.strictEqual(fix('አፕል'), 'አፕል', 'the fruit is not a brand');
+  // the editor said no to one spelling: that one only
+  const skip = core.englishStarter({ 'ዩቲዩብ': 1 });
+  assert.ok(!('ዩቲዩብ' in skip) && !('በዩቲዩብ' in skip) && skip['ዩትዩብ'] === 'YouTube');
+  assert.strictEqual(core.englishBase('በዩቲዩብ'), 'ዩቲዩብ');
+  assert.strictEqual(core.englishBase('ቪዲዮ'), '');
+  // every English name is a real English word form, every spelling Ethiopic
+  core.ENGLISH_WORDS.forEach(([en, forms]) => {
+    assert.ok(en.split(' ').every((w) => core.ENGLISH_WORD_RE.test(w)), en);
+    forms.forEach((f) => assert.ok(/^[ሀ-፿ ]+$/.test(f), f));
+  });
+  // memory learns an English correction now (it refused before)
+  assert.deepStrictEqual(core.learnFixes([{ _id: 1, text: 'ዩቲዩብ ላይ' }], [{ _id: 1, text: 'YouTube ላይ' }]), [['ዩቲዩብ', 'YouTube']]);
+  assert.deepStrictEqual(core.learnFixes([{ _id: 1, text: 'ሰላም' }], [{ _id: 1, text: 'hello!!' }]), [['ሰላም', 'hello']], 'punctuation trimmed');
+  assert.deepStrictEqual(core.learnFixes([{ _id: 1, text: 'ሰላም' }], [{ _id: 1, text: '12:30' }]), [], 'not a word');
+});
+
 t('clean up: captions and footage follow the cut', () => {
   const cuts = core.mergeRanges([{ start: 8, end: 9 }, { start: 3, end: 4 }, { start: 3.5, end: 4.2 }]);
   assert.deepStrictEqual(cuts, [{ start: 3, end: 4.2 }, { start: 8, end: 9 }]);
