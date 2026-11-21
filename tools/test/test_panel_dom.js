@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.48');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.49');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1687,6 +1687,48 @@ await t('4n3w. 1.94.48 speed: caption boxes get their height from CSS (nothing m
     assert.strictEqual(menu.children.length, 4, 'made once');
     menu.children[1].fire('click');                    // +0.1 s
     assert.strictEqual(p.evalVm('reviewCues[5].start'), 10.1, 'shift +0.1 s still works');
+  } finally { p.close(); }
+});
+await t('4n3x. 1.94.49 dialogs take the keyboard: focus goes in, Tab stays inside, Escape closes, focus comes back', async () => {
+  const p = loadPanel({});
+  try {
+    await flush(5);
+    const key = (k, shift) => p.evalVm(`document._listeners.keydown.forEach((f) => f({ key: ${JSON.stringify(k)}, shiftKey: ${!!shift}, preventDefault() {}, stopPropagation() {} }))`);
+    const active = () => p.evalVm('document.activeElement && (document.activeElement.id || document.activeElement.tagName)');
+    // the buy dialog's two buttons live inside it (the test DOM keeps ids flat)
+    p.evalVm(`$('buyQrPc').tagName = 'BUTTON'; $('buyQrClose').tagName = 'BUTTON'; $('feedbackSend').tagName = 'BUTTON'; $('feedbackText').tagName = 'TEXTAREA';
+      $('buyQrCard').appendChild($('buyQrPc')); $('buyQrCard').appendChild($('buyQrClose'));
+      cep.util.openURLInDefaultBrowser = () => {}; $('buyBtn').focus();`);
+    p.els('buyBtn').fire('click', { preventDefault() {} });
+    await flush(5);
+    assert.ok(p.els('buyQrCard').classList.contains('show'));
+    assert.strictEqual(active(), 'buyQrPc', 'focus goes into the dialog');
+    // between the ends the browser moves the focus itself; at the ends it wraps
+    p.evalVm("$('buyQrClose').focus()");
+    key('Tab');
+    assert.strictEqual(active(), 'buyQrPc', 'Tab from the last control wraps to the first');
+    key('Tab', true);
+    assert.strictEqual(active(), 'buyQrClose', 'Shift+Tab from the first wraps to the last');
+    p.evalVm("$('runBtn').focus()");
+    key('Tab');
+    assert.strictEqual(active(), 'buyQrPc', 'focus outside the open dialog is pulled back in');
+    p.evalVm("$('buyQrClose').focus()");
+    key('Escape');
+    assert.ok(!p.els('buyQrCard').classList.contains('show'), 'Escape closes it');
+    assert.strictEqual(active(), 'buyBtn', 'focus back on what opened it');
+    key('Escape');
+    assert.strictEqual(active(), 'buyBtn', 'no dialog: Escape does nothing here');
+    // the feedback dialog: focus in the text box, Escape closes, focus returns
+    p.evalVm(`$('feedbackCard').appendChild($('feedbackText')); $('feedbackCard').appendChild($('feedbackSend'));
+      $('runBtn').focus(); openFeedback(true);`);
+    assert.strictEqual(active(), 'feedbackText');
+    key('Escape');
+    assert.ok(!p.els('feedbackCard').classList.contains('show'));
+    assert.strictEqual(active(), 'runBtn');
+    // closed by its own button: also gives the focus back
+    p.evalVm(`$('buyBtn').focus(); showBuyQr('https://t.me/AmharicCaptionsBot?start=m_x'); hideBuyQr();`);
+    assert.strictEqual(active(), 'buyBtn');
+    assert.strictEqual(p.evalVm('DLG.length'), 0, 'nothing left open');
   } finally { p.close(); }
 });
 await t('4n4. 1.94.31 Follow Premiere: the caption and the word under the playhead are marked; off by default; off = no reads', async () => {
