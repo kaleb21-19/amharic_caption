@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.35');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.36');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1662,6 +1662,30 @@ await t('4f2. 1.94.35 Premiere styling: the star tip once, a labelled Customize,
   } finally { p.close(); }
 });
 
+await t('4f3. 1.94.36 Premiere: the live preview shows without opening Customize, and is not redrawn for nothing', async () => {
+  const p = loadPanel({ realPanel: true });
+  try {
+    await flush(5);
+    const png = path.join(os.tmpdir(), 'amh_prev_' + Date.now());
+    p.evalVm(`LICENSED = true; globalThis.__pj = []; renderStyled = async (job) => { __pj.push(job.style + ':' + JSON.stringify(job.opts && job.opts.color));
+      const out = ${JSON.stringify(png)} + '_' + __pj.length + '.webp'; require('fs').writeFileSync(out, 'x'); return { ok: true, out }; };
+      STYLE_OK = true; STYLE = 'bold'; STYLE_CUSTOM_OPEN = false; reviewOpen = true;
+      reviewCues = [{ text: 'ሰላም እንዴት', start: 0.5, end: 1.2 }, { text: 'ናችሁ', start: 20, end: 21 }]; renderStyleStrip();`);
+    await p.evalVm('renderPreview()');
+    assert.strictEqual(p.evalVm('__pj.length'), 1, 'a preview without opening Customize');
+    assert.notStrictEqual(p.els('styleCustom').style.display, 'none');
+    assert.notStrictEqual(p.els('stylePreview').style.display, 'none', 'shown under the tiles');
+    p.evalVm("reviewCues[1].text = 'ናችሁ ዛሬ'");                 // a caption after the preview's seconds
+    await p.evalVm('renderPreview()');
+    assert.strictEqual(p.evalVm('__pj.length'), 1, 'nothing in the preview changed: not drawn again');
+    p.evalVm("setStyleOpt('color', '#FF3B30')");
+    await p.evalVm('renderPreview()');
+    assert.strictEqual(p.evalVm('__pj.length'), 2, 'a new colour: drawn again');
+    p.evalVm("STYLE = 'plain'; renderStyleStrip()");
+    assert.strictEqual(p.els('styleCustom').style.display, 'none', 'Plain: no preview area');
+  } finally { p.close(); }
+});
+
 await t('4m. 1.91 ✂ a whole caption in one click; Shift+✂ = every caption in between; ✂ again keeps them', async () => {
   const p = loadPanel({});
   try {
@@ -1762,7 +1786,9 @@ await t('4f0. 1.94.2 the panel Customize is one compact block: ⚙ opens six sho
     assert.strictEqual(p.els('searchCard').style.display, 'none', 'no Search card in the panel');
     p.evalVm('STYLE_OK = true; STYLE = "bounce"; STYLE_CUSTOM_OPEN = false; renderStyleStrip();');
     assert.notStrictEqual(p.els('styleCustomToggle').style.display, 'none', 'the ⚙ button is there');
-    assert.strictEqual(p.els('styleCustom').style.display, 'none', 'closed until ⚙');
+    // 1.94.36: the live preview shows at once; the settings lines only after ⚙
+    assert.notStrictEqual(p.els('styleCustom').style.display, 'none', 'the preview area is there for a styled look');
+    assert.strictEqual(Array.from(p.els('styleOpts').children).filter((r) => r.className === 'cc-row').length, 0, 'settings closed until ⚙');
     p.els('styleCustomToggle').fire('click');
     assert.notStrictEqual(p.els('styleCustom').style.display, 'none', 'open');
     const rows = Array.from(p.els('styleOpts').children).filter((r) => r.className === 'cc-row');
@@ -1781,9 +1807,9 @@ await t('4f0. 1.94.2 the panel Customize is one compact block: ⚙ opens six sho
     const rows3 = Array.from(p.els('styleOpts').children).filter((r) => r.className === 'cc-row');
     rows3[2].children[1].children.find((b) => b.dataset.value === '#FF3B30').fire('click');
     assert.strictEqual(p.evalVm('styleOpts("bounce").color'), '#FF3B30');
-    // no preview picture and no tabs in the panel
+    // no tabs in the panel; 1.94.36: the live preview picture IS shown (it was hidden)
     assert.strictEqual(p.els('styleTabs').style.display, 'none');
-    assert.strictEqual(p.els('stylePreview').style.display, 'none');
+    assert.notStrictEqual(p.els('stylePreview').style.display, 'none', 'the preview of the look is shown in the panel');
     void label;
   } finally { p.close(); }
 });

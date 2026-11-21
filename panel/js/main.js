@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.35';
+const APP_VERSION = '1.94.36';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -8127,11 +8127,15 @@ function renderCompactCustom(wrap, opts) {
     }
   }
   wrap.classList.add('sc-compact');
-  wrap.style.display = open ? '' : 'none';
-  ['stylePreview', 'stylePreviewNote', 'styleTabs'].forEach((id) => { const e = $(id); if (e) e.style.display = 'none'; });
+  // 1.94.36 (UI audit: a change was invisible until Place): the live preview
+  // of the chosen look shows under the tiles for every styled look - the
+  // settings below it only when Customize is open
+  wrap.style.display = styled ? '' : 'none';
+  const tabs = $('styleTabs');
+  if (tabs) tabs.style.display = 'none';
   const stage = wrap.querySelector ? wrap.querySelector('.sc-stage') : null;
-  if (stage) stage.style.display = 'none';
-  if (!open) return;
+  if (stage) stage.style.display = styled ? '' : 'none';
+  if (!open) { opts.textContent = ''; return; }
   const o = styleOpts(STYLE);
   opts.textContent = '';
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -8405,6 +8409,7 @@ async function loadStyleFrame() {
     if (fr && fr.ok && fr.width > 0 && fr.height > 0) STYLE_FRAME = { width: fr.width, height: fr.height };
   } catch (e) {}
 }
+let PREVIEW_KEY = '';
 function schedulePreview() {
   if (TL.on) tlSchedule();           // 1.93: the caption on the timeline follows
   if (PREVIEW_TIMER) clearTimeout(PREVIEW_TIMER);
@@ -8414,10 +8419,16 @@ async function renderPreview() {
   PREVIEW_TIMER = null;
   const img = $('stylePreview');
   const note = $('stylePreviewNote');
-  if (!img || !STYLE_OK || STYLE === 'plain' || !reviewOpen || !STYLE_CUSTOM_OPEN) return;
-  if (!customizeHere()) return;             // 1.94.2: the compact panel block has no preview picture
+  if (!img || !STYLE_OK || STYLE === 'plain' || !reviewOpen || reviewPlacing) return;
+  if (customizeHere() && !STYLE_CUSTOM_OPEN) return;   // the Studio: while its Customize is open
   const cues = styleCues(reviewCues);
   if (!cues.length) return;
+  // 1.94.36: the preview shows the first seconds only - typing in a later
+  // caption (or anything else that changes nothing there) draws nothing again
+  const pm = previewMediaFor(cues);
+  const key = JSON.stringify([STYLE, styleOpts(STYLE), cues.filter((c) => Number(c[1]) < 8), previewFrame(), !LICENSED,
+    pm ? [pm.path, pm.offset] : null]);
+  if (key === PREVIEW_KEY && img.style.display !== 'none') return;
   const seq = ++PREVIEW_SEQ;
   if (note) { note.textContent = L('Making the preview…'); note.style.display = ''; }
   const fr = previewFrame();
@@ -8431,6 +8442,7 @@ async function renderPreview() {
     try { fs.unlinkSync(r.out); } catch (e) {}
     img.src = 'data:image/' + (/\.gif$/i.test(r.out) ? 'gif' : 'webp') + ';base64,' + b64;
     img.style.display = '';
+    PREVIEW_KEY = key;
     if (note) note.style.display = 'none';
   } catch (e) {
     if (seq !== PREVIEW_SEQ) return;
