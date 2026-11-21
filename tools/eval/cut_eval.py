@@ -33,9 +33,12 @@ word (2-3 minutes a clip):
   detect  DIR [--min 0.8] [-o CUTS.json]
           the panel's own silence detection (a line-by-line copy of
           core.js findSilences) on that clip -> the cuts it would offer
-  score   DIR [--min 0.8] [--keep 0.15] [--tol 0.02]
+  score   DIR [--min 0.8] [--keep 0.15] [--tol 0.02] [--method loud|vad|both]
           detect, then compare with the corrected DIR/pauses.txt: cuts that
-          reach into speech, and pauses longer than --min that were removed
+          reach into speech, and pauses longer than --min that were removed.
+          --method vad = the speech detector the program already ships
+          (Silero, amh_vad.py, run with the program's own Python) instead of
+          loudness: phase 3 is chosen by these numbers, not by guessing.
 
 CUTS.json is a list of [start, end] in seconds of the ORIGINAL timeline (what
 the panel removes). For `clicks` the joins are times in the EXPORTED audio.
@@ -249,6 +252,82 @@ def prepare(video, out_dir, ffmpeg=None, draft_min=0.3):
             "flat": silence_levels(env)["flat"]}
 
 
+# ------------------------------------- phase 3 candidate: the speech detector
+def find_runtime(given=None):
+    """The installed program's runtime folder (its Python has onnxruntime,
+    and amh_vad.py + silero_vad.onnx sit there)."""
+    cands = [given] if given else []
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        cands.append(os.path.join(appdata, "Adobe", "CEP", "extensions", "com.amharic.captions", "runtime"))
+    cands.append(os.path.join(os.path.expanduser("~"), "Library", "Application Support", "Adobe", "CEP", "extensions",
+                              "com.amharic.captions", "runtime"))
+    for c in cands:
+        if not c:
+            continue
+        py = os.path.join(c, "python", "python.exe") if os.name == "nt" else os.path.join(c, "python", "bin", "python3")
+        if os.path.isfile(py) and os.path.isfile(os.path.join(c, "amh_vad.py")) and os.path.isfile(os.path.join(c, "silero_vad.onnx")):
+            return c, py
+    return None, None
+
+
+_VAD_CODE = (
+    "import sys, json, wave\n"
+    "import numpy as np\n"
+    "sys.path.insert(0, sys.argv[1])\n"
+    "import amh_vad\n"
+    "w = wave.open(sys.argv[2], 'rb')\n"
+    "a = np.frombuffer(w.readframes(w.getnframes()), dtype='<i2').astype('float32') / 32768.0\n"
+    "if amh_vad._load_session() is None: print('NO-VAD'); sys.exit(0)\n"
+    # speech_segments answers 'speech everywhere' when it finds NONE (its no-detector
+    # fallback): here no speech must mean no speech, so the windows are checked first
+    "pr = amh_vad._probabilities(a)\n"
+    "if pr is None or len(pr[0]) == 0 or float(pr[0].max()) < amh_vad._THRESHOLD: print('[]'); sys.exit(0)\n"
+    "print(json.dumps([[round(s, 3), round(e, 3)] for s, e in amh_vad.speech_segments(a, 16000)]))\n"
+)
+
+
+def vad_speech(d, runtime=None):
+    """Speech segments of DIR/audio.wav from the shipped detector, cached in
+    DIR/vad.json. None when the program (and so the detector) is not here."""
+    cache = os.path.join(d, "vad.json")
+    if os.path.isfile(cache):
+        with open(cache, encoding="utf-8") as h:
+            return [tuple(x) for x in json.load(h)]
+    import subprocess
+    rt, py = find_runtime(runtime)
+    if not rt:
+        return None
+    out = subprocess.run([py, "-c", _VAD_CODE, rt, os.path.join(d, "audio.wav")],
+                         capture_output=True, text=True, check=True).stdout.strip()
+    if out == "NO-VAD":
+        return None
+    segs = json.loads(out)
+    with open(cache, "w", encoding="utf-8") as h:
+        json.dump(segs, h)
+    return [tuple(x) for x in segs]
+
+
+def pauses_from_speech(speech, length, min_len=0.8, pad=0.15):
+    """The panel's rule on the detector's speech segments: every gap of
+    min_len or more is a cut, keeping `pad` of breath on each side - except
+    at the very start / end of the clip (cut to the edge)."""
+    out, prev = [], 0.0
+    gaps = []
+    for s, e in sorted(speech):
+        if s > prev:
+            gaps.append((prev, s))
+        prev = max(prev, e)
+    if length > prev:
+        gaps.append((prev, length))
+    for s, e in gaps:
+        pa = 0 if s <= 1e-6 else pad
+        pb = 0 if e >= length - 1e-6 else pad
+        if e - s >= min_len and e - s - pa - pb >= 0.2:
+            out.append((s + pa, e - pb))
+    return out
+
+
 def load_clip(d):
     with open(os.path.join(d, "env.json"), encoding="utf-8") as h:
         env = json.load(h)
@@ -268,9 +347,19 @@ def speech_from_pauses(pause_labels, length):
     return out
 
 
-def score(d, min_len=0.8, keep=0.15, tol=0.02):
+def clip_cuts(d, method="loud", min_len=0.8):
     env, length = load_clip(d)
-    cuts = find_silences(env, min_len, 0.15)
+    if method == "vad":
+        speech = vad_speech(d)
+        if speech is None:
+            raise SystemExit("score: the speech detector needs the installed program (its runtime folder) on this computer")
+        return pauses_from_speech(speech, length, min_len, 0.15)
+    return find_silences(env, min_len, 0.15)
+
+
+def score(d, min_len=0.8, keep=0.15, tol=0.02, method="loud"):
+    env, length = load_clip(d)
+    cuts = clip_cuts(d, method, min_len)
     truth = read_labels(os.path.join(d, "pauses.txt"))
     speech = speech_from_pauses(truth, length)
     into = midword_cuts(speech, cuts, tol)
@@ -417,6 +506,7 @@ def main(argv=None):
     p = sub.add_parser("detect"); p.add_argument("dir"); p.add_argument("--min", type=float, default=0.8); p.add_argument("-o")
     p = sub.add_parser("score"); p.add_argument("dir"); p.add_argument("--min", type=float, default=0.8)
     p.add_argument("--keep", type=float, default=0.15); p.add_argument("--tol", type=float, default=0.02)
+    p.add_argument("--method", choices=["loud", "vad", "both"], default="loud")
     a = ap.parse_args(argv)
 
     if a.cmd == "prepare":
@@ -433,10 +523,12 @@ def main(argv=None):
         print("detect: %d cut(s)%s" % (len(cuts), (" -> " + a.o) if a.o else (": " + json.dumps(cuts[:10]))))
         return 0
     if a.cmd == "score":
-        r = score(a.dir, a.min, a.keep, a.tol)
-        print("score: %d cut(s), %d reach into speech%s; pauses >= %.1f s removed %d/%d%s%s" % (
-            r["cuts"], r["into_speech"], (" " + json.dumps(r["into"])) if r["into"] else "", a.min, r["removed"], r["pauses"],
-            ("  missed " + json.dumps(r["missed"])) if r["missed"] else "", "  [flat: music/noise as loud as the voice]" if r["flat"] else ""))
+        for m in (["loud", "vad"] if a.method == "both" else [a.method]):
+            r = score(a.dir, a.min, a.keep, a.tol, m)
+            print("score [%s]: %d cut(s), %d reach into speech%s; pauses >= %.1f s removed %d/%d%s%s" % (
+                m, r["cuts"], r["into_speech"], (" " + json.dumps(r["into"])) if r["into"] else "", a.min, r["removed"], r["pauses"],
+                ("  missed " + json.dumps(r["missed"])) if r["missed"] else "",
+                "  [flat: music/noise as loud as the voice]" if (r["flat"] and m == "loud") else ""))
         return 0
 
     if a.cmd == "draft":

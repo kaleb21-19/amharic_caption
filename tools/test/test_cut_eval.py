@@ -183,6 +183,38 @@ def t_prepare():
     shutil.rmtree(d, ignore_errors=True)
 
 
+def t_pauses_from_speech():
+    # the panel's rule on speech segments: gaps >= min, breath kept inside, none at the clip's own edges
+    speech = [(1.0, 4.0), (4.3, 8.0), (9.5, 12.0)]
+    cuts = C.pauses_from_speech(speech, 14.0, 0.8, 0.15)
+    assert cuts == [(0.0, 0.85), (8.15, 9.35), (12.15, 14.0)], cuts   # the 0.3 s gap is too short
+    assert C.pauses_from_speech([(0.0, 14.0)], 14.0, 0.8) == []         # talking all the time: nothing
+    assert C.pauses_from_speech([], 3.0, 0.8) == [(0.0, 3.0)]           # no speech at all: all of it
+
+
+def t_vad_on_a_clip():
+    # the shipped detector through the program's own Python (skipped where the program is not installed)
+    import shutil
+    import subprocess
+    rt, py = C.find_runtime()
+    ff = C.find_ffmpeg()
+    try:
+        subprocess.run([ff, "-version"], capture_output=True, check=True)
+    except Exception:
+        rt = None
+    if not rt:
+        print("    (no installed program here: the speech-detector run was SKIPPED)")
+        return
+    vid = os.path.join(TMP, "silence_tone.wav")
+    subprocess.run([ff, "-y", "-v", "error", "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono:d=3", vid], check=True)
+    d = os.path.join(TMP, "vadclip")
+    C.prepare(vid, d, ff)
+    sp = C.vad_speech(d)
+    assert sp is not None and os.path.isfile(os.path.join(d, "vad.json"))
+    assert all(e - s < 3.0 for s, e in sp), sp                          # silence is not one long speech segment
+    shutil.rmtree(d, ignore_errors=True)
+
+
 for name, fn in [("Audacity labels are read (frequency lines skipped)", t_labels),
                  ("draft from SRT + words.json, and back", t_draft_roundtrip),
                  ("no words.json: even split by letters (the panel's fallback)", t_estimate_without_words),
@@ -194,7 +226,9 @@ for name, fn in [("Audacity labels are read (frequency lines skipped)", t_labels
                  ("1.94.34 the Python copy of the silence detection = the panel's (core.js)", t_same_as_panel),
                  ("1.94.34 score: hand-marked pauses, all removed, nothing into speech", t_score),
                  ("1.94.34 score: a cut that reaches into a soft word is caught", t_score_into_speech),
-                 ("1.94.34 prepare: a video -> audio.wav + pre-marked pauses (start/end too)", t_prepare)]:
+                 ("1.94.34 prepare: a video -> audio.wav + pre-marked pauses (start/end too)", t_prepare),
+                 ("phase 3: the panel's pause rule on speech-detector segments", t_pauses_from_speech),
+                 ("phase 3: the shipped speech detector runs on a clip (program's own Python)", t_vad_on_a_clip)]:
     test(name, fn)
 
 print("ALL PASS  (%d)" % passed)
