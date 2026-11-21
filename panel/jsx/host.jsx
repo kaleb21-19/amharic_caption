@@ -1609,7 +1609,7 @@ function amhCleanupUnder(seq, t) {
         if (s0 > t) { continue; }
         var item = null;
         try { item = it.projectItem; } catch (e) {}
-        out.push({ name: amhClipName(it), media: amhMediaPath(item) || "", nested: !!amhNestedSequence(item), kind: tracks[w].kind });
+        out.push({ name: amhClipName(it), media: amhMediaPath(item) || "", nested: amhNestedSequence(item) || null, kind: tracks[w].kind });
     }
     return out;
 }
@@ -1619,17 +1619,24 @@ function amhCleanupUnder(seq, t) {
 // is cut and the editor is told which clip it would have hit.
 function amhCleanupCheckCuts(seq, cuts, wantSet) {
     var fmt = function (x) { var m = Math.floor(x / 60), r = x - m * 60; return m + ":" + (r < 10 ? "0" : "") + r.toFixed(1); };
+    // Check both edges as well as the middle: a cut whose middle sits on our
+    // clip but whose end runs into the next clip would still cut that clip on
+    // every track. A nested sequence counts only when it really holds our media.
     for (var i = 0; i < cuts.length; i++) {
-        var mid = (cuts[i][0] + cuts[i][1]) / 2;
-        var under = amhCleanupUnder(seq, mid);
-        var ours = false, other = "";
-        for (var u = 0; u < under.length; u++) {
-            if (under[u].nested || (under[u].media && wantSet[amhCleanupKey(under[u].media)])) { ours = true; break; }
-            if (!other && under[u].media && under[u].kind === "v") { other = under[u].name; }
-            if (!other && under[u].media) { other = under[u].name; }
-        }
-        if (!ours) {
-            return { at: fmt(cuts[i][0]) + "-" + fmt(cuts[i][1]), other: other };
+        var a = Number(cuts[i][0]), b = Number(cuts[i][1]);
+        var mid = (a + b) / 2;
+        var eps = Math.min(0.05, (b - a) / 3);
+        var at = fmt(a) + "-" + fmt(b);
+        var probes = [a + eps, mid, b - eps];
+        for (var p = 0; p < probes.length; p++) {
+            var under = amhCleanupUnder(seq, probes[p]);
+            var ours = false, other = "";
+            for (var u = 0; u < under.length; u++) {
+                if (under[u].nested && amhCleanupHasMedia(under[u].nested, wantSet, 0)) { ours = true; break; }
+                if (under[u].media && wantSet[amhCleanupKey(under[u].media)]) { ours = true; break; }
+                if (!other && under[u].media) { other = under[u].name; }
+            }
+            if (!ours) { return { at: at, other: other }; }
         }
     }
     return null;

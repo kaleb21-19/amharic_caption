@@ -364,4 +364,32 @@ test('1.93.1 the razor lands somewhere else (nothing between the lines): says so
   assert.match(r.error, /did not cut at 10\.00-12\.00 s = 10-12/);
 });
 
+test('1.94.23 a cut that RUNS INTO the next clip is refused — the middle alone looked like our clip', () => {
+  const other = 'C:/v/other.mp4';
+  const spec = { v: [[[0, 10, 'interview.mp4', VIDEO], [10, 30, 'other.mp4', other]]],
+                 a: [[[0, 10, 'interview.mp4', VIDEO], [10, 30, 'other.mp4', other]]] };
+  const pp = makePremiere(spec);
+  const r = nowCut(pp, { cuts: [[5, 12]], media: [VIDEO] });
+  assert.strictEqual(r.ok, false, JSON.stringify(r));
+  assert.match(r.error, /other\.mp4/);
+  assert.strictEqual(pp.seqs[0].vt[0].list.length, 2, 'nothing was cut');
+});
+
+test('1.94.23 a nested sequence with DIFFERENT footage at the cut is not treated as ours', () => {
+  const pp = makePremiere({ v: [[[0, 10, 'interview.mp4', VIDEO], [10, 60, 'Nested']]],
+                            a: [[[0, 10, 'interview.mp4', VIDEO], [10, 60, 'Nested']]] });
+  const inner = { name: 'Inner', sequenceID: 'in1', videoTracks: [], audioTracks: [] };
+  const vclip = { start: { seconds: 10 }, end: { seconds: 60 }, projectItem: { getMediaPath: () => 'C:/v/other.mp4' } };
+  inner.videoTracks = coll([{ clips: coll([vclip], 'numItems') }], 'numTracks');
+  inner.audioTracks = coll([], 'numTracks');
+  const item = pp.seqs[0].vt[0].list[1].projectItem;
+  item.isSequence = () => true;
+  inner.projectItem = item;
+  pp.seqs.push(inner);
+  const r = nowCut(pp, { cuts: [[12, 14]], media: [VIDEO] });
+  assert.strictEqual(r.ok, false, JSON.stringify(r));
+  assert.match(r.error, /not the clip these captions were made from/);
+  assert.strictEqual(pp.seqs[0].vt[0].list.length, 2, 'the wrong nested clip was not cut');
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');

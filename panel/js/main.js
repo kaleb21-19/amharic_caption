@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.22';
+const APP_VERSION = '1.94.23';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -5696,7 +5696,9 @@ function cutCaptionsNow(i, range) {
   if (!reviewCues[i]) return false;
   let a = i, b = i;
   if (range && WHOLE_LAST >= 0 && WHOLE_LAST < reviewCues.length) { a = Math.min(WHOLE_LAST, i); b = Math.max(WHOLE_LAST, i); }
-  WHOLE_LAST = -1;
+  // The next Shift+✂ starts from this caption. The instant path used to clear
+  // the anchor instead of setting it, so the promised range never worked.
+  WHOLE_LAST = i;
   const drop = [];
   for (let j = a; j <= b; j++) {
     const n = String(reviewCues[j].text || '').replace(/\n/g, ' ').split(/\s+/).filter(Boolean).length;
@@ -5718,6 +5720,7 @@ function cutWordsNow(i, from, to) {
   const ranges = found.map((c) => ({ start: snapQuiet(c.start, env, r), end: snapQuiet(c.end, env, r) }));
   const drop = [];
   found.forEach((c) => c.words.forEach((w) => drop.push([i, w[1]])));
+  WHOLE_LAST = i;
   return queueTextCut(ranges, drop, '“' + found.map((c) => c.text).join(' … ') + '”', i);
 }
 function queueTextCut(ranges, drop, what, focusAt) {
@@ -5754,7 +5757,11 @@ async function runTextCut(job) {
   const done = (r.list || []).map((c) => ({ start: c[0], end: c[1] })).sort((x, y) => x.start - y.start);
   hideTiming();
   clearRowHint();
-  reviewCues = remapCuesAfterCut(reviewCues, done, job.drop);
+  // A word cut removes the WORDS it struck; any older ~marks~ in the text
+  // were never cut, so leave none behind that look like pending cuts.
+  reviewCues = remapCuesAfterCut(reviewCues, done, job.drop)
+    .map((q) => (String(q.text || '').indexOf('~') >= 0
+      ? Object.assign({}, q, { text: String(q.text).replace(/~/g, '') }) : q));
   setPreviewMedia(remapMediaAfterCut(PREVIEW_MEDIA, done));
   REVIEW_UNDO.length = 0;             // the old captions no longer match the timeline
   syncReviewUndo();

@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.22');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.23');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1587,6 +1587,44 @@ await t('4n3. 1.93 ✂ one click on a caption cuts the Premiere timeline at once
     assert.strictEqual(p.els('revCleanup').style.display, 'none', 'no second step to press');
   } finally { p.close(); }
 });
+await t('4n3p. 1.94.23 Shift+✂ in Premiere: the cut really spans from the last ✂ to this caption', async () => {
+  const log = [];
+  const p = loadPanel({ evalLog: log, csiRaw: (jsx) => (/amh_textCutNow/.test(jsx) ? JSON.stringify({ ok: false, error: 'test stop' }) : '{"ok":true}') });
+  try {
+    await flush(5);
+    p.evalVm(`reviewCues = [{text:'ሀ ለ',start:0,end:1},{text:'መ ረ',start:1,end:2},{text:'ሰ ቀ',start:2,end:3},{text:'በ ተ',start:3,end:4}];
+      setPreviewMedia([{path:'C:/v/talk.mp4',offset:0}]); schedulePreview = () => {}; renderReview = () => {};`);
+    p.evalVm('cutCaptionsNow(0, false)');
+    await flush(30);
+    assert.strictEqual(p.evalVm('WHOLE_LAST'), 0, 'the first cut sets the anchor for Shift');
+    p.evalVm('cutCaptionsNow(2, true)');
+    await flush(30);
+    const calls = log.filter((j) => /amh_textCutNow/.test(j))
+      .map((j) => JSON.parse(JSON.parse(j.slice(j.indexOf('(') + 1, j.lastIndexOf(')')))).cuts);
+    assert.deepStrictEqual(calls[0], [[0, 1]]);
+    assert.deepStrictEqual(calls[1], [[0, 3]], 'Shift: from the last cut anchor (0) to the clicked caption (2)');
+  } finally { p.close(); }
+});
+
+await t('4n3q. 1.94.23 a word cut in Premiere leaves no old ~marks~ that look like uncut words', async () => {
+  const p = loadPanel({ csiRaw: (jsx) => {
+    if (/amh_textCutNow/.test(jsx)) {
+      const a = JSON.parse(JSON.parse(jsx.slice(jsx.indexOf('(') + 1, jsx.lastIndexOf(')'))));
+      return JSON.stringify({ ok: true, sequence: 'Talk', kept: '', list: a.cuts, removedSeconds: a.cuts.reduce((n, c) => n + c[1] - c[0], 0) });
+    }
+    return '{"ok":true}';
+  } });
+  try {
+    await flush(5);
+    p.evalVm(`reviewCues = [{text:'አ ~በ~ ገ',start:0,end:2,wt:[[0,0.6],[0.6,1.4],[1.4,2]]}];
+      setPreviewMedia([{path:'C:/v/talk.mp4',offset:0}]); schedulePreview = () => {}; renderReview = () => {};`);
+    p.evalVm('cutWordsNow(0, 6, 7)');   // cut only ገ; the earlier ~በ~ was never cut
+    await flush(30);
+    assert.strictEqual(p.evalVm('reviewCues[0].text'), 'አ በ', JSON.stringify(p.evalVm('JSON.stringify(reviewCues)')));
+    assert.strictEqual(p.evalVm('findTextCuts(reviewCues).length'), 0, 'no phantom pending cut');
+  } finally { p.close(); }
+});
+
 await t('4m. 1.91 ✂ a whole caption in one click; Shift+✂ = every caption in between; ✂ again keeps them', async () => {
   const p = loadPanel({});
   try {
