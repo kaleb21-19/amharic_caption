@@ -183,7 +183,7 @@ function loadPanel(opts) {
   // sections opt out so they keep testing the drawn-style path; the new
   // section loads with legacyStyles:false and checks the real default.
   sandbox.__amhKeepOldStyles = opts.legacyStyles !== false;
-  sandbox.__dirname  = PANEL_JS;
+  sandbox.__dirname  = opts.dirName || PANEL_JS;
   sandbox.__filename = path.join(PANEL_JS,'main.js');
 
   const ctx = vm.createContext(sandbox);
@@ -251,7 +251,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.20');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.21');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -4345,7 +4345,7 @@ await t('styled render: silent renderer is killed, stderr is drained, error is A
   } finally { p.close(); cp.spawn = realSpawn; delete process.__amhTestChild; }
 });
 
-await t('4n3o. 1.94.20 Premiere: only editable MOGRTs in the strip; a click places one on the timeline', async () => {
+await t('4n3o. 1.94.21 Premiere: only editable MOGRTs in the strip; a click places one on the timeline', async () => {
   const evalLog = [];
   const storage = makeLocalStorage();
   const p = loadPanel({ storage, legacyStyles: false, evalLog, csiRaw: (jsx) => {
@@ -4384,6 +4384,16 @@ await t('4n3o. 1.94.20 Premiere: only editable MOGRTs in the strip; a click plac
     assert.strictEqual(p.evalVm('__styledCalls'), 0, 'no drawn caption layer in Premiere');
     assert.strictEqual(p.evalVm('__plainCalls'), 1, 'the editable Premiere captions are placed instead');
   } finally { p.close(); }
+  // CEP reports __dirname as the EXTENSION ROOT on some builds (the panel's
+  // own pickRuntime() already probes both layouts). The chips must still show.
+  const q = loadPanel({ dirName: path.join(REPO, 'panel'), legacyStyles: false });
+  try {
+    await flush(10);
+    q.evalVm('renderStyleStrip();');
+    const chips = Array.from(q.els('styleChips').children);
+    assert.ok(chips.some((c) => c.dataset.mogrt === 'Blur.mogrt'), 'MOGRTs found when __dirname is the extension root');
+    assert.strictEqual(q.evalVm('MOGRT_DIR'), path.join(REPO, 'panel', 'mogrt'), 'the bundled folder was found');
+  } finally { q.close(); }
 });
 
 await t('the real license / machine-ID files in the home folder were never touched', async () => {
