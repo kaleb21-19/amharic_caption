@@ -2,7 +2,7 @@
 """Run the tests for an area and print ONLY failures + one summary line per
 suite (saves reading thousands of lines).
 
-  python tools/agent/test.py panel|host|styles|app|bot|texts|versions|all  [-v]
+  python tools/agent/test.py panel|host|styles|mogrt|app|bot|texts|versions|all  [-v]
 
 panel needs a runtime/ folder: when this checkout has none, a junction to the
 main clone's runtime is made for the run and removed afterwards (only the
@@ -37,6 +37,8 @@ def suites(area):
         "styles": [("styles", py + ["tools/test/test_styles.py"], ROOT),
                    ("templates", py + ["tools/test/test_templates.py"], ROOT)],
         "texts": [("trial texts", py + ["tools/test/test_trial_texts.py"], ROOT)],
+        "mogrt": [("mogrt template", node + ["tools/test/test_mogrt.js"], ROOT),
+                  ("mogrt pack", py + ["tools/test/test_mogrt_pack.py"], ROOT)],
         "update": [("one-tap update", py + ["tools/test/test_update.py"], ROOT)],
         "engine": [("word times", engine_py + ["tools/test/test_word_times.py"], ROOT)],
         "app": [("app", py + ["tools/test/test_app.py"], ROOT), ("app shim", node + ["tools/test/test_app_shim.js"], ROOT),
@@ -46,7 +48,7 @@ def suites(area):
         "versions": [("versions", ["bash", "tools/check_versions.sh"], ROOT)],
     }
     if area == "all":
-        return [s for k in ("versions", "panel", "host", "styles", "texts", "update", "engine", "app", "bot") for s in table[k]]
+        return [s for k in ("versions", "panel", "host", "styles", "mogrt", "texts", "update", "engine", "app", "bot") for s in table[k]]
     if area not in table:
         sys.exit("area must be one of: %s, all" % ", ".join(table))
     return table[area]
