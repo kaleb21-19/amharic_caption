@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.41';
+const APP_VERSION = '1.94.42';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -5266,6 +5266,7 @@ function closeReview(keepArtifact) {
   stopHearing();
   followStop();
   liveClear();                        // 1.94.39: the live caption leaves the timeline
+  lcStop();                           // 1.94.42: the style process and the renderer stop
   CLEAN = null;
   closeCleanupPanel();
   ZOOM = null;
@@ -5650,6 +5651,7 @@ function renderReview(force) {
       if (el.tagName === 'BUTTON' || el.tagName === 'TEXTAREA') return;
       if (el.parentNode && el.parentNode.tagName === 'BUTTON') return;
       seekPlayhead(cue.start);
+      if (LC.i !== i) { LC.i = i; lcDraw(); }        // 1.94.42: the live canvas follows the caption clicked
     });
     list.appendChild(row);
   }
@@ -7776,6 +7778,226 @@ function tlStop() {
   clearTimeout(TL.timer);
   TL.on = false;
 }
+// ── ⚡ Live canvas: every Customize change drawn in the panel at once (1.94.42) ──
+// The owner: "changing a setting means waiting - boring, not professional".
+// Measured (2026-11-22): the look itself is ready in 0.4 ms; the ~1.5-2.5 s
+// went to a fixed 700 ms wait, a new Python, ffmpeg encoding a .mov, and
+// Premiere importing it. Now, while ⚙ Customize is open, the SAME caption
+// script (amh_styles.py serve: one long-lived process, ~1 ms a change) is drawn
+// by libass itself in WebAssembly (JASSUB - already shipped for the Studio in
+// <extension>/app/vendor) on a canvas over a still of the editor's footage:
+// a slider or colour picker redraws while it moves (measured 2-4 ms a frame).
+// The Program monitor still follows when a control is let go (📺). JASSUB, its
+// worker, its WebAssembly and the fonts come from a tiny read-only server on
+// 127.0.0.1 (a file:// page cannot fetch WebAssembly or start a worker from
+// files). Anything missing -> no canvas, nothing else changes. Setting
+// liveCanvas: false switches it off.
+const LC = { child: null, buf: '', wait: new Map(), seq: 0, http: null, httpP: null, base: '', JASSUB: null, jas: null,
+  canvas: null, img: null, fontsIn: {}, frames: {}, busy: false, want: null, failed: '', i: 0, lastMs: 0, draws: 0 };
+function liveCanvasOn() {
+  if (IS_AE || IS_APP_MODE()) return false;
+  try { return loadSettings().liveCanvas !== false; } catch (e) { return true; }
+}
+function lcVendor() {
+  const c = [path.join(EXT_DIR, 'app', 'vendor'), path.join(EXT_DIR, '..', 'app', 'vendor')];
+  return c.find((d) => { try { return fs.existsSync(path.join(d, 'jassub', 'dist', 'jassub.js')); } catch (e) { return false; } }) || '';
+}
+// the style process: one JSON line in, one out; the newest answer is used
+function lcProcess() {
+  if (LC.child) return LC.child;
+  const child = spawn(PYTHON, ['-E', '-s', runtimePath('amh_styles.py'), 'serve'], { env: AMH_ENV, windowsHide: true });
+  child.stdout.on('data', (b) => {
+    LC.buf += b.toString('utf8');
+    let nl;
+    while ((nl = LC.buf.indexOf('\n')) >= 0) {
+      const line = LC.buf.slice(0, nl);
+      LC.buf = LC.buf.slice(nl + 1);
+      let r = null;
+      try { r = JSON.parse(line); } catch (e) {}
+      if (r && LC.wait.has(r.id)) { const fn = LC.wait.get(r.id); LC.wait.delete(r.id); fn(r); }
+    }
+  });
+  const gone = () => {
+    if (LC.child === child) { LC.child = null; LC.buf = ''; }
+    LC.wait.forEach((fn) => fn({ ok: false, error: 'the style process stopped' }));
+    LC.wait.clear();
+  };
+  child.on('exit', gone);
+  child.on('error', gone);
+  if (child.stdin && child.stdin.on) child.stdin.on('error', () => {});
+  LC.child = child;
+  return child;
+}
+function lcAsk(req) {
+  return new Promise((resolve) => {
+    let child;
+    try { child = lcProcess(); } catch (e) { resolve({ ok: false, error: String((e && e.message) || e) }); return; }
+    const id = ++LC.seq;
+    const timer = setTimeout(() => { if (LC.wait.has(id)) { LC.wait.delete(id); resolve({ ok: false, error: 'the style process did not answer' }); } }, 8000);
+    LC.wait.set(id, (r) => { clearTimeout(timer); resolve(r); });
+    try { child.stdin.write(JSON.stringify(Object.assign({ id }, req)) + '\n'); }
+    catch (e) { LC.wait.delete(id); clearTimeout(timer); resolve({ ok: false, error: String((e && e.message) || e) }); }
+  });
+}
+// read-only files for the renderer, on this computer only
+const LC_TYPES = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.wasm': 'application/wasm', '.ttf': 'font/ttf', '.otf': 'font/otf' };
+function lcServe(roots, req, res) {
+  const m = /^\/(v|f)\/([^?#]*)/.exec(String(req.url || ''));
+  const no = () => { res.writeHead(404, { 'Access-Control-Allow-Origin': '*' }); res.end(); };
+  if (req.method !== 'GET' || !m || !roots[m[1]]) return no();
+  const root = path.resolve(roots[m[1]]);
+  let full;
+  try { full = path.resolve(root, decodeURIComponent(m[2])); } catch (e) { return no(); }
+  if (full.indexOf(root + path.sep) !== 0) return no();                       // never outside its folder
+  const type = LC_TYPES[path.extname(full).toLowerCase()];
+  if (!type) return no();
+  fs.readFile(full, (err, data) => {
+    if (err) return no();
+    res.writeHead(200, { 'Content-Type': type, 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=3600' });
+    res.end(data);
+  });
+}
+function lcHttp() {
+  if (LC.base) return Promise.resolve(LC.base);
+  if (LC.httpP) return LC.httpP;
+  LC.httpP = new Promise((resolve, reject) => {
+    const vendor = lcVendor();
+    if (!vendor) { reject(new Error('the caption renderer (app/vendor/jassub) is not in this install')); return; }
+    const roots = { v: vendor, f: runtimePath('fonts') };
+    let srv;
+    try { srv = nodeRequire('http').createServer((req, res) => lcServe(roots, req, res)); } catch (e) { reject(e); return; }
+    srv.on('error', reject);
+    srv.listen(0, '127.0.0.1', () => {
+      LC.http = srv;
+      LC.base = 'http://127.0.0.1:' + srv.address().port + '/';
+      resolve(LC.base);
+    });
+  }).catch((e) => { LC.httpP = null; throw e; });
+  return LC.httpP;
+}
+function lcStage() {
+  const wrap = $('styleCustom');
+  return wrap && wrap.querySelector ? wrap.querySelector('.sc-stage') : null;
+}
+function lcShown() { return reviewOpen && STYLE_OK && STYLE !== 'plain' && STYLE_CUSTOM_OPEN && liveCanvasOn() && !LC.failed; }
+// the caption shown: the one the live caption last used, else the first
+function lcCue() {
+  const list = reviewCues || [];
+  if (!list.length) return null;
+  return list[Math.max(0, Math.min(list.length - 1, LC.i || 0))];
+}
+function lcTime(cue) { return Number(cue.start) + 0.7 * Math.max(0, Number(cue.end) - Number(cue.start)); }   // the look settled, not mid-entrance
+// a still of the editor's footage behind the caption (one ffmpeg grab per caption, kept)
+function lcFrame(cue) {
+  const img = LC.img;
+  if (!img) return;
+  const t = lcTime(cue);
+  const m = previewMediaFor([[String(cue.text || ''), t, t]]);
+  if (!m || !FFMPEG) { img.style.display = 'none'; return; }
+  const src = Math.max(0, t + (Number(m.offset) || 0));
+  const key = m.path + '|' + src.toFixed(1);
+  const show = (f) => { if (LC.img === img) { img.src = fileUrl(f); img.style.display = ''; } };
+  if (LC.frames[key]) { if (LC.frames[key] !== 'busy') show(LC.frames[key]); return; }
+  LC.frames[key] = 'busy';
+  const out = path.join(os.tmpdir(), 'amh_lcframe_' + Math.abs(key.split('').reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) | 0, 7)) + '.jpg');
+  try {
+    execFile(FFMPEG, ['-v', 'error', '-y', '-ss', src.toFixed(3), '-i', m.path, '-frames:v', '1', '-vf', 'scale=640:-2', '-q:v', '5', out],
+      { timeout: 20000, windowsHide: true }, (err) => {
+        if (err || !fs.existsSync(out)) { delete LC.frames[key]; return; }
+        LC.frames[key] = out;
+        show(out);
+      });
+  } catch (e) { delete LC.frames[key]; }
+}
+function lcEnsureCanvas(stage, fr) {
+  if (!LC.canvas || LC.canvas.parentNode !== stage) {
+    stage.textContent = '';
+    stage.classList.add('lc-stage');
+    LC.img = document.createElement('img');
+    LC.img.className = 'lc-frame';
+    LC.img.alt = '';
+    LC.img.style.display = 'none';
+    LC.canvas = document.createElement('canvas');
+    LC.canvas.className = 'lc-canvas';
+    stage.appendChild(LC.img);
+    stage.appendChild(LC.canvas);
+    if (LC.jas) { try { LC.jas.destroy(); } catch (e) {} LC.jas = null; LC.fontsIn = {}; }
+  }
+  // the frame's own shape, never taller than 220 px (a 9:16 video stays small)
+  const ratio = fr.height / fr.width;
+  stage.style.aspectRatio = fr.width + ' / ' + fr.height;
+  stage.style.maxHeight = '220px';
+  stage.style.maxWidth = ratio > 1 ? Math.round(220 / ratio) + 'px' : '';
+}
+async function lcRender(script, fonts, fr) {
+  const base = await lcHttp();
+  if (!LC.JASSUB) {
+    if (typeof OffscreenCanvas === 'undefined' || typeof WebAssembly === 'undefined') throw new Error('this Premiere has no OffscreenCanvas / WebAssembly');
+    LC.JASSUB = (await import(base + 'v/jassub/dist/jassub.js')).default;
+  }
+  const want = (fonts || []).concat(['NotoSansEthiopic-Regular.ttf', 'NotoSansEthiopic-Bold.ttf']);
+  const urls = want.filter((f) => !LC.fontsIn[f]).map((f) => { LC.fontsIn[f] = 1; return base + 'f/' + encodeURIComponent(f); });
+  if (!LC.jas) {
+    // a worker must come from the page's own origin: a blob that imports JASSUB's worker from our server
+    const workerUrl = URL.createObjectURL(new Blob(['import "' + base + 'v/jassub/dist/worker/worker.js";'], { type: 'text/javascript' }));
+    LC.jas = new LC.JASSUB({ canvas: LC.canvas, subContent: script, fonts: urls, defaultFont: 'Noto Sans Ethiopic', queryFonts: false,
+      workerUrl, wasmUrl: base + 'v/jassub/dist/wasm/jassub-worker.wasm', modernWasmUrl: base + 'v/jassub/dist/wasm/jassub-worker-modern.wasm' });
+    await LC.jas.ready;
+  } else {
+    if (urls.length) await LC.jas.renderer.addFonts(urls);
+    await LC.jas.renderer.setTrack(script);
+  }
+  void fr;
+}
+// draw now; while one draw runs the newest request waits (never a queue of old ones)
+async function lcDraw(override) {
+  if (!lcShown()) return false;
+  LC.want = Object.assign({}, override || {});
+  if (LC.busy) return true;
+  LC.busy = true;
+  try {
+    while (LC.want) {
+      const ov = LC.want;
+      LC.want = null;
+      const cue = lcCue();
+      const stage = lcStage();
+      if (!cue || !stage) break;
+      const fr = previewFrame();
+      const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      const r = await lcAsk({ cues: styleCues([cue]), style: STYLE, opts: Object.assign(styleOpts(STYLE), ov), width: fr.width, height: fr.height,
+        duration: Number(cue.end) + 1, tag: !LICENSED });
+      if (!r || !r.ok) throw new Error((r && r.error) || 'no script');
+      if (!lcShown()) break;
+      lcEnsureCanvas(stage, fr);
+      lcFrame(cue);
+      await lcRender(r.script, r.fonts, fr);
+      LC.jas.manualRender({ mediaTime: lcTime(cue), width: fr.width, height: fr.height,
+        expectedDisplayTime: (typeof performance !== 'undefined' ? performance.now() : Date.now()) }, true);
+      LC.lastMs = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0);
+      LC.draws++;
+      stage.style.display = '';
+    }
+  } catch (e) {
+    LC.failed = String((e && e.message) || e);
+    log('The live caption preview is not available here (' + LC.failed + ') \u2014 the Program monitor still shows the look.');
+    const stage = lcStage();
+    if (stage) stage.style.display = 'none';
+  } finally {
+    LC.busy = false;
+  }
+  return true;
+}
+// the review ends / the panel closes: nothing left running
+function lcStop() {
+  LC.want = null;
+  if (LC.jas) { try { LC.jas.destroy(); } catch (e) {} LC.jas = null; }
+  LC.canvas = null; LC.img = null; LC.fontsIn = {};
+  if (LC.child) { try { LC.child.kill(); } catch (e) {} LC.child = null; }
+  LC.buf = '';
+}
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('beforeunload', () => { lcStop(); if (LC.http) { try { LC.http.close(); } catch (e) {} } });
+}
 // ── 📺 Live on the Program monitor (1.94.39) ────────────────────────────────
 // The owner: "the space should feel comfortable - remove the preview, let the
 // user see the caption directly". While a review is open in Premiere, the
@@ -7850,6 +8072,7 @@ async function liveDraw() {
     await placeSpans(r.out, r.spans, base + (r.t0 || 0), Object.assign({}, prep, { live: true }), null, 0, 0);
     LIVE.shown = true;
     LIVE.key = key;
+    if (LC.i !== i) { LC.i = i; lcDraw(); }          // 1.94.42: the canvas shows the same caption
     // the playhead on that caption, so the monitor shows it
     if (t === null || t < base + cue.start || t > base + cue.end) { try { await seekPlayhead(base + (cue.start + cue.end) / 2); } catch (e) {} }
     liveNote('📺 ' + L('On the Program monitor') + ' — ' + L('caption') + ' ' + (i + 1));
@@ -8257,14 +8480,17 @@ function renderCompactCustom(wrap, opts) {
   }
   wrap.classList.add('sc-compact');
   // 1.94.39 (owner: "the space should feel comfortable"): no preview picture in
-  // the panel - the caption shows live on Premiere's Program monitor
+  // the panel - the caption shows live on Premiere's Program monitor.
+  // 1.94.42: while Customize is OPEN, the live canvas (drawn in the panel at once)
   wrap.style.display = open ? '' : 'none';
   const tabs = $('styleTabs');
   if (tabs) tabs.style.display = 'none';
   const stage = wrap.querySelector ? wrap.querySelector('.sc-stage') : null;
-  if (stage) stage.style.display = 'none';
   ['stylePreview', 'stylePreviewNote'].forEach((id) => { const e = $(id); if (e) e.style.display = 'none'; });
+  const canvasNow = open && liveCanvasOn() && !LC.failed;
+  if (stage && !(canvasNow && LC.canvas && LC.canvas.parentNode === stage)) stage.style.display = 'none';
   if (!open) { opts.textContent = ''; return; }
+  if (canvasNow) lcDraw();
   const o = styleOpts(STYLE);
   opts.textContent = '';
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -8309,15 +8535,19 @@ function renderCompactCustom(wrap, opts) {
     c.type = 'color';
     c.title = L('Any colour');
     c.value = HEX_COLOR.test(current || '') ? current : '#FFFFFF';
+    c.addEventListener('input', () => { const o2 = {}; o2[key] = String(c.value).toUpperCase(); lcDraw(o2); });   // 1.94.42 while picking
     c.addEventListener('change', () => setStyleOpt(key, String(c.value).toUpperCase()));
     row.appendChild(c);
     return c;
   };
-  const slider = (row, min, max, step, value, fmt, onDone, autoLabel) => {
+  const slider = (row, min, max, step, value, fmt, onDone, autoLabel, liveKey, liveScale) => {
     const r = el('input', 'cc-range');
     r.type = 'range'; r.min = min; r.max = max; r.step = step; r.value = value;
     const v = el('span', 'cc-val', autoLabel ? L('Auto') : fmt(value));
-    r.addEventListener('input', () => { v.textContent = fmt(Number(r.value)); });
+    r.addEventListener('input', () => {
+      v.textContent = fmt(Number(r.value));
+      if (liveKey) { const o2 = {}; o2[liveKey] = Number(r.value) / (liveScale || 100); lcDraw(o2); }   // 1.94.42 while it moves
+    });
     r.addEventListener('change', () => onDone(Number(r.value)));     // drawn when the slider is let go
     row.appendChild(r);
     row.appendChild(v);
@@ -8334,7 +8564,7 @@ function renderCompactCustom(wrap, opts) {
   };
   if (section('text', 'Text')) {
     pick(line('Font'), STYLE_FONTS.map(([id, name]) => [id, L(name)]), o.font, 'font');
-    slider(line('Size'), 60, 180, 5, Math.round(sizeNum(o.size) * 100), (x) => x + '%', (x) => setStyleOpt('size', x / 100));
+    slider(line('Size'), 60, 180, 5, Math.round(sizeNum(o.size) * 100), (x) => x + '%', (x) => setStyleOpt('size', x / 100), false, 'size');
     const tr = line('Colour');
     dots(tr, TEXT_COLORS, o.text, 'text');
     anyColour(tr, o.text, 'text');
@@ -8348,27 +8578,27 @@ function renderCompactCustom(wrap, opts) {
   // 1.94.40 Outline & shadow, Box
   const pctOf = (x) => Math.round(x * 100);
   if (section('outline', 'Outline & shadow')) {
-    slider(line('Outline'), 0, 15, 1, o.outline === null ? 0 : pctOf(o.outline), (x) => x + '%', (x) => setStyleOpt('outline', x / 100), o.outline === null);
+    slider(line('Outline'), 0, 15, 1, o.outline === null ? 0 : pctOf(o.outline), (x) => x + '%', (x) => setStyleOpt('outline', x / 100), o.outline === null, 'outline');
     const oc = line('Colour');
     dots(oc, OUTLINE_COLORS, o.outline_col, 'outline_col');
     anyColour(oc, o.outline_col || '#000000', 'outline_col');
-    slider(line('Shadow'), 0, 15, 1, o.shadow === null ? 0 : pctOf(o.shadow), (x) => x + '%', (x) => setStyleOpt('shadow', x / 100), o.shadow === null);
+    slider(line('Shadow'), 0, 15, 1, o.shadow === null ? 0 : pctOf(o.shadow), (x) => x + '%', (x) => setStyleOpt('shadow', x / 100), o.shadow === null, 'shadow');
   }
   if (section('box', 'Box')) {
     seg(line('Box'), [[true, L('On')], [false, L('Off')]], o.box, (v) => setStyleOpt('box', v === true || v === 'true'));
     const bc = line('Colour');
     dots(bc, BOX_COLORS, o.box_col, 'box_col');
     anyColour(bc, o.box_col || '#000000', 'box_col');
-    slider(line('Opacity'), 10, 100, 5, o.box_a === null ? 75 : pctOf(o.box_a), (x) => x + '%', (x) => setStyleOpt('box_a', x / 100), o.box_a === null);
+    slider(line('Opacity'), 10, 100, 5, o.box_a === null ? 75 : pctOf(o.box_a), (x) => x + '%', (x) => setStyleOpt('box_a', x / 100), o.box_a === null, 'box_a');
     if (isTemplate(STYLE)) {                     // the older styles draw a square box
-      slider(line('Roundness'), 0, 60, 5, o.box_r === null ? 0 : pctOf(o.box_r), (x) => x + '%', (x) => setStyleOpt('box_r', x / 100), o.box_r === null);
+      slider(line('Roundness'), 0, 60, 5, o.box_r === null ? 0 : pctOf(o.box_r), (x) => x + '%', (x) => setStyleOpt('box_r', x / 100), o.box_r === null, 'box_r');
     }
   }
   if (section('place', 'Place & lines')) {
     seg(line('Position'), [['bottom', L('Bottom')], ['middle', L('Middle')], ['top', L('Top')], ['safe', 'TikTok']], o.y === null ? o.pos : '',
       (v) => setStyleOpt('pos', v));
     const yNow = o.y !== null ? o.y : ({ bottom: 0.9, middle: 0.55, top: 0.2, safe: 0.7 })[o.pos] || 0.9;
-    slider(line('Height'), 10, 97, 1, Math.round(yNow * 100), (x) => x + '%', (x) => setStyleOpt('y', x / 100));
+    slider(line('Height'), 10, 97, 1, Math.round(yNow * 100), (x) => x + '%', (x) => setStyleOpt('y', x / 100), false, 'y');
     seg(line('Words per caption'), [[0, L('Auto')], [1, '1'], [2, '2'], [3, '3'], [4, '4'], [5, '5']], o.words, (v) => setStyleOpt('words', Number(v)));
     seg(line('Lines'), [[1, '1'], [2, '2']], o.lines, (v) => setStyleOpt('lines', Number(v)));
   }
@@ -9882,6 +10112,8 @@ async function reportChecks() {
     ' · model ' + (MODEL_MISSING ? 'MISSING' : 'ok') + ' · styles ' + (STYLE_OK ? 'ok' : 'off'));
   out.push('extension folder ' + (has(path.join(EXT_DIR, 'CSXS', 'manifest.xml')) ? 'ok' : 'WRONG') + ': ' + EXT_DIR);
   if (IS_AE) out.push('After Effects code: ' + (AE_LOAD.ok ? 'loaded' : 'NOT loaded' + (AE_LOAD.err ? ' — ' + AE_LOAD.err : '')));
+  out.push('live canvas: ' + (!liveCanvasOn() ? 'off' : LC.failed ? 'FAILED — ' + LC.failed : LC.draws ? LC.draws + ' draws, last ' + LC.lastMs + ' ms' : 'not used yet') +
+    ' · renderer ' + (lcVendor() ? 'installed' : 'MISSING'));
   const probe = await new Promise((resolve) => {
     let done = false;
     const t = setTimeout(() => { if (!done) { done = true; resolve('no answer in 3 s'); } }, 3000);

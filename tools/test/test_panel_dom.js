@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.41');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.42');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1769,6 +1769,85 @@ await t('4q. 1.94.41 V2: a failed run offers the way out; the report carries pri
     assert.match(p.els('statusText').textContent, /model is ready|ሞዴሉ ሲዘጋጅ/);
     assert.ok(!p.els('statusPill').classList.contains('err'), 'not shown as an error');
     p.evalVm('MODEL_MISSING = false; MODEL_RESUME = null;');
+  } finally { p.close(); }
+});
+
+await t('4f4. 1.94.42 live canvas: drawn while Customize is open, sliders redraw as they move (newest wins), failure hides it, close stops it', async () => {
+  const p = loadPanel({ realPanel: true });
+  try {
+    await flush(5);
+    p.evalVm(`globalThis.__asks = []; globalThis.__renders = []; globalThis.__mr = 0; globalThis.__answer = null;
+      lcAsk = async (req) => { __asks.push(req); await new Promise((r) => setTimeout(r, 5)); return __answer || { ok: true, script: 'SCRIPT ' + JSON.stringify(req.opts.size), fonts: ['yebse.ttf'] }; };
+      lcRender = async (script, fonts) => { __renders.push([script, fonts]); if (!LC.jas) LC.jas = { manualRender() { __mr++; }, destroy() {} }; };
+      { const st = document.createElement('div'); st.className = 'sc-stage'; $('styleCustom').appendChild(st); }
+      LICENSED = true; STYLE_OK = true; STYLE = 'bold'; STYLE_CUSTOM_OPEN = false; reviewOpen = true;
+      reviewCues = [{ text: 'ሰላም Amharic', start: 1, end: 3 }, { text: 'ናችሁ', start: 4, end: 5 }]; renderStyleStrip();`);
+    assert.strictEqual(p.evalVm('__asks.length'), 0, 'nothing while Customize is closed');
+    p.els('styleCustomToggle').fire('click');
+    await flush(10);
+    assert.ok(p.evalVm('__asks.length') >= 1, 'opening Customize draws');
+    const first = JSON.parse(p.evalVm('JSON.stringify(__asks[0])'));
+    assert.deepStrictEqual(first.cues, [['ሰላም Amharic', 1, 3]], 'the caption shown');
+    assert.strictEqual(first.style, 'bold');
+    assert.ok(p.evalVm('__mr') >= 1, 'drawn at a moment of the caption');
+    const stage = p.evalVm("$('styleCustom').querySelector('.sc-stage')");
+    assert.ok(stage && stage.style.display !== 'none', 'the canvas is shown');
+    assert.ok(p.evalVm("!!LC.canvas && LC.canvas.tagName === 'CANVAS'"));
+    // the size slider: drawn while it moves, not saved until let go; the newest value wins
+    p.evalVm("STYLE_SECTION = 'text'; renderStyleCustom();");
+    await flush(10);
+    const find = (n, test) => { if (test(n)) return n; for (const c of (n.children || [])) { const x = find(c, test); if (x) return x; } return null; };
+    const size = find(p.els('styleOpts'), (n) => n.className === 'cc-range');
+    const before = p.evalVm('__asks.length');
+    for (const v of [70, 90, 110, 130, 150]) { size.value = String(v); size.fire('input'); }
+    await flush(20);
+    const asks = JSON.parse(p.evalVm('JSON.stringify(__asks.slice(' + before + '))'));
+    assert.ok(asks.length >= 2 && asks.length <= 3, 'five moves, at most three drawings (newest wins): ' + asks.length);
+    assert.strictEqual(asks[asks.length - 1].opts.size, 1.5, 'the last position is what is drawn');
+    assert.strictEqual(p.evalVm('styleOpts("bold").size'), 'm', 'not saved while moving');
+    size.fire('change');
+    assert.strictEqual(p.evalVm('styleOpts("bold").size'), 1.5, 'saved when let go');
+    // a caption clicked in the list: the canvas shows that one
+    p.evalVm('LC.i = 1; lcDraw();');
+    await flush(10);
+    assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(__asks[__asks.length - 1].cues)')), [['ናችሁ', 4, 5]]);
+    // the renderer fails: the canvas goes, Customize still works
+    p.evalVm("__answer = { ok: false, error: 'no WebAssembly here' }; lcDraw();");
+    await flush(10);
+    assert.match(p.evalVm('LC.failed'), /WebAssembly/);
+    assert.strictEqual(p.evalVm("$('styleCustom').querySelector('.sc-stage').style.display"), 'none', 'hidden on failure');
+    const n = p.evalVm('__asks.length');
+    p.evalVm('renderStyleCustom();');
+    await flush(5);
+    assert.strictEqual(p.evalVm('__asks.length'), n, 'not tried again in this session');
+    // switched off: never drawn; closing the review stops the style process
+    p.evalVm("LC.failed = ''; saveSettings({ liveCanvas: false }); lcDraw();");
+    await flush(5);
+    assert.strictEqual(p.evalVm('__asks.length'), n, 'liveCanvas false: never');
+    p.evalVm("globalThis.__killed = 0; LC.child = { kill() { __killed++; } }; closeReview(true);");
+    assert.strictEqual(p.evalVm('__killed'), 1, 'the style process is stopped');
+    assert.strictEqual(p.evalVm('LC.child'), null);
+  } finally { p.close(); }
+});
+
+await t('4f5. 1.94.42 the live canvas file server: JASSUB from this install only, CORS for the worker, never outside its folder', async () => {
+  const p = loadPanel({ realPanel: true });
+  try {
+    await flush(5);
+    const base = await p.evalVm('lcHttp()');
+    assert.match(base, /^http:\/\/127\.0\.0\.1:\d+\/$/, 'this computer only');
+    const get = (u) => new Promise((resolve) => require('http').get(base + u, (res) => {
+      let n = 0; res.on('data', (c) => { n += c.length; }); res.on('end', () => resolve({ code: res.statusCode, cors: res.headers['access-control-allow-origin'], type: res.headers['content-type'], n }));
+    }).on('error', () => resolve({ code: 0 })));
+    const js = await get('v/jassub/dist/jassub.js');
+    assert.ok(js.code === 200 && js.cors === '*' && /javascript/.test(js.type) && js.n > 1000, JSON.stringify(js));
+    const wasm = await get('v/jassub/dist/wasm/jassub-worker.wasm');
+    assert.ok(wasm.code === 200 && wasm.type === 'application/wasm', JSON.stringify(wasm));
+    assert.strictEqual((await get('v/..%2F..%2Fpanel%2Fjs%2Fmain.js')).code, 404, 'no way out of the folder');
+    assert.strictEqual((await get('v/../../panel/js/main.js')).code, 404);
+    assert.strictEqual((await get('v/jassub/NOTICE.txt')).code, 404, 'only scripts, WebAssembly and fonts');
+    assert.strictEqual((await get('x/anything.js')).code, 404);
+    p.evalVm('LC.http.close(); LC.http = null; LC.base = ""; LC.httpP = null;');
   } finally { p.close(); }
 });
 
