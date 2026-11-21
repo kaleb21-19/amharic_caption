@@ -2,9 +2,9 @@
  * test_mogrt.js — the editable Premiere caption template.
  *
  * There is no After Effects on CI, so run the generator script in a tiny fake
- * AE object model and check what it would build: two frame shapes, seven real
- * Essential Graphics controls, an Amharic text layer using our OFL font, and
- * two exported .mogrt files. Also keeps the .jsx plain ASCII / ES3 so
+ * AE object model and check what it would build: 10 looks x 2 frame shapes,
+ * seven real Essential Graphics controls, an Amharic text layer using our OFL
+ * font, and 20 exported .mogrt files. Also keeps the .jsx plain ASCII / ES3 so
  * ExtendScript can read it on an editor's Windows or Mac machine.
  */
 const fs = require('fs');
@@ -14,6 +14,13 @@ const vm = require('vm');
 const ROOT = path.join(__dirname, '..', '..');
 const SCRIPT = path.join(ROOT, 'tools', 'mogrt', 'build_gold_caption.jsx');
 const SAMPLE = '\u1230\u120b\u1325\u1363 \u12a0\u121b\u122d\u131b \u12ab\u1365\u133d\u1295';
+const LOOKS = [
+  ['Gold', true, 100], ['Emerald', true, 100], ['Sky', false, 105],
+  ['Coral', true, 100], ['Violet', false, 105], ['White', true, 100],
+  ['Pink', false, 110], ['Lime', true, 100], ['Amber', false, 105],
+  ['Ice', true, 95]
+];
+const FRAMES = [[1920, 1080, '16x9'], [1080, 1920, '9x16']];
 
 let failures = 0;
 function ok(cond, what) {
@@ -175,35 +182,44 @@ function run() {
   eq(alerts.length, 0, 'no error alert while building');
   eq(newProjects, 1, 'a fresh AE project is used (the editor\'s own project is untouched)');
   ok(app.project.savedAs && app.project.savedAs.indexOf('AmhCap_Source.aep') > 0, 'the source project is saved next to the script');
-  eq(app.project.comps.length, 2, 'two comps: 16:9 and 9:16');
-  eq(app.project.comps[0].width, 1920, 'landscape comp is 1920 wide');
-  eq(app.project.comps[0].height, 1080, 'landscape comp is 1080 high');
-  eq(app.project.comps[1].width, 1080, 'portrait comp is 1080 wide');
-  eq(app.project.comps[1].height, 1920, 'portrait comp is 1920 high');
+  eq(app.project.comps.length, 20, '20 comps: 10 looks x 2 frame shapes');
 
   const labels = ['Caption text', 'Text size', 'Box opacity', 'Side margin', 'Bottom margin', 'Accent colour', 'Show box'];
-  for (const c of app.project.comps) {
-    eq(c.exposed.slice().sort().join('|'), labels.slice().sort().join('|'), c.name + ': all seven Essential Graphics controls');
-    eq(c.list().length, 4, c.name + ': Controls, box, accent rule and text');
-    const text = c.list().filter(l => l.kind === 'text')[0];
-    ok(!!text, c.name + ': has a text layer');
-    const doc = text.property('Source Text').value;
-    eq(doc.text, SAMPLE, c.name + ': the sample is Amharic, written as \\u escapes');
-    eq(doc.font, 'Noto Sans Ethiopic', c.name + ': uses the free OFL Amharic font');
-    ok(doc.fontSize >= 40, c.name + ': readable base font size');
-    ok(doc.justify === 2, c.name + ': centred text');
-    ok(text.scale.expression.indexOf('Text size') >= 0, c.name + ': Text size control drives the text');
-    ok(text.position.expression.indexOf('Bottom margin') >= 0, c.name + ': Bottom margin drives the text');
-    const box = c.list().filter(l => l.kind === 'solid')[0];
-    ok(box.opacity.expression.indexOf('Show box') >= 0 && box.opacity.expression.indexOf('Box opacity') >= 0,
-       c.name + ': Show box and Box opacity drive the backdrop');
-    ok(box.scale.expression.indexOf('Side margin') >= 0, c.name + ': Side margin drives the backdrop width');
-    eq(c.exports.length, 1, c.name + ': exported once');
-    eq(c.exports[0].overwrite, true, c.name + ': overwrites an older build');
-    eq(c.exports[0].folder, 'C:/amh/tools/mogrt', c.name + ': exported next to the script');
-    eq(c.exports[0].name, 'Amharic Gold Caption ' + (c.width > c.height ? '16:9' : '9:16'), c.name + ': template name');
+  let i = 0;
+  for (const look of LOOKS) {
+    for (const frame of FRAMES) {
+      const c = app.project.comps[i++];
+      const label = 'Amharic Gold Caption ' + look[0] + ' ' + frame[2];
+      eq(c.name, label, 'comp name: ' + label);
+      eq(c.width, frame[0], label + ': width ' + frame[0]);
+      eq(c.height, frame[1], label + ': height ' + frame[1]);
+      eq(c.exposed.slice().sort().join('|'), labels.slice().sort().join('|'), label + ': all seven Essential Graphics controls');
+      eq(c.list().length, 4, label + ': Controls, box, accent rule and text');
+      const text = c.list().filter(l => l.kind === 'text')[0];
+      ok(!!text, label + ': has a text layer');
+      const doc = text.property('Source Text').value;
+      eq(doc.text, SAMPLE, label + ': the sample is Amharic, written as \\u escapes');
+      eq(doc.font, 'Noto Sans Ethiopic', label + ': uses the free OFL Amharic font');
+      ok(doc.fontSize >= 40, label + ': readable base font size');
+      ok(doc.justify === 2, label + ': centred text');
+      ok(text.scale.expression.indexOf('Text size') >= 0, label + ': Text size control drives the text');
+      ok(text.position.expression.indexOf('Bottom margin') >= 0, label + ': Bottom margin drives the text');
+      const box = c.list().filter(l => l.kind === 'solid')[0];
+      ok(box.opacity.expression.indexOf('Show box') >= 0 && box.opacity.expression.indexOf('Box opacity') >= 0,
+         label + ': Show box and Box opacity drive the backdrop');
+      ok(box.scale.expression.indexOf('Side margin') >= 0, label + ': Side margin drives the backdrop width');
+      const ctl = c.list()[0];
+      eq(ctl.property('ADBE Effect Parade')._list[0].property('Slider').value, look[2], label + ': Text size default');
+      eq(ctl.property('ADBE Effect Parade')._list[5].property('Checkbox').value, look[1] ? 1 : 0, label + ': Show box default');
+      eq(c.exports.length, 1, label + ': exported once');
+      eq(c.exports[0].overwrite, true, label + ': overwrites an older build');
+      eq(c.exports[0].folder, 'C:/amh/tools/mogrt', label + ': exported next to the script');
+      eq(c.exports[0].name, label, label + ': template name');
+      ok(c.exports[0].name.indexOf(':') < 0, label + ': no ":" in the Windows file name');
+    }
   }
-  eq(made.length, 2, 'two .mogrt names reported to the owner');
+  eq(made.length, 20, '20 .mogrt names reported to the owner');
+  eq(new Set(made).size, 20, 'all 20 template names are unique');
 }
 
 try { run(); }

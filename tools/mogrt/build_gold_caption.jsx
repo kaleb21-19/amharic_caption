@@ -2,9 +2,9 @@
  * Amharic Captions Pro - build the editable "Gold Caption" MOGRT.
  *
  * Run ONCE in After Effects: File > Scripts > Run Script File...
- * It makes a NEW project (your open project is not changed), exports
- * "Amharic Gold Caption 16:9.mogrt" and "Amharic Gold Caption 9:16.mogrt"
- * next to this script, then leaves that folder open on your desktop.
+ * It makes a NEW project (your open project is not changed) and exports 20
+ * single-line templates next to this script: 10 looks x 2 frame shapes.
+ * Names use 16x9 / 9x16 because Windows file names cannot contain ":".
  *
  * Needs the free OFL font "Noto Sans Ethiopic" installed (it ships in the
  * fonts folder of Amharic Captions Pro). No audio, no photos, no third-party
@@ -24,6 +24,21 @@ var AMH_TPL = {
   white: [1.0, 1.0, 1.0, 1.0],
   black: [0.0, 0.0, 0.0, 1.0]
 };
+
+// 10 looks x 2 frame shapes = 20 single-line templates. One accent colour
+// per look; some sit on a dark box, others are clean text over the footage.
+var AMH_LOOKS = [
+  ["Gold",     [1.00, 0.827, 0.00, 1], true,  100],
+  ["Emerald",  [0.20, 0.753, 0.49, 1], true,  100],
+  ["Sky",      [0.21, 0.769, 0.91, 1], false, 105],
+  ["Coral",    [1.00, 0.42,  0.37, 1], true,  100],
+  ["Violet",   [0.66, 0.47,  1.00, 1], false, 105],
+  ["White",    [1.00, 1.00,  1.00, 1], true,  100],
+  ["Pink",     [1.00, 0.31,  0.64, 1], false, 110],
+  ["Lime",     [0.71, 0.91,  0.29, 1], true,  100],
+  ["Amber",    [1.00, 0.62,  0.11, 1], false, 105],
+  ["Ice",      [0.62, 0.85,  1.00, 1], true,  95]
+];
 
 function amhFail(msg) {
   if (amhTest) { throw new Error(msg); }
@@ -73,21 +88,22 @@ function amhCtlExpr(name) {
 /* One design, two frame shapes. Everything the editor may change is a
    real Essential Graphics control - no text is written into the template
    by our panel (that path failed in 1.94.0 and was removed). */
-function amhBuildOne(w, h, suffix) {
+function amhBuildOne(w, h, suffix, look) {
   var portrait = (h > w);
-  var comp = app.project.items.addComp(AMH_TPL.name + " " + suffix, w, h, 1, 10, 30);
+  var label = AMH_TPL.name + " " + look[0] + " " + suffix;
+  var comp = app.project.items.addComp(label, w, h, 1, 10, 30);
   var barH = portrait ? 186 : 214;
   var pad = portrait ? 60 : 90;
   var bottom = portrait ? 300 : 96;
   var ctl = comp.layers.addNull();
   ctl.name = "Controls";
 
-  var pSize = amhSlider(ctl, "Text size", 100);
+  var pSize = amhSlider(ctl, "Text size", look[3]);
   var pBox = amhSlider(ctl, "Box opacity", 86);
   var pSide = amhSlider(ctl, "Side margin", pad);
   var pBottom = amhSlider(ctl, "Bottom margin", bottom);
-  var pGold = amhColour(ctl, "Accent colour", AMH_TPL.gold);
-  var pShow = amhCheck(ctl, "Show box", true);
+  var pGold = amhColour(ctl, "Accent colour", look[1]);
+  var pShow = amhCheck(ctl, "Show box", look[2]);
 
   var box = comp.layers.addSolid(AMH_TPL.dark, "Caption box", w, barH, 1, 10);
   box.position.expression = amhLines([
@@ -162,7 +178,7 @@ function amhBuildOne(w, h, suffix) {
   amhExpose(pGold, comp, "Accent colour");
   amhExpose(pShow, comp, "Show box");
 
-  comp.motionGraphicsTemplateName = AMH_TPL.name + " " + suffix;
+  comp.motionGraphicsTemplateName = label;
   return comp;
 }
 
@@ -174,19 +190,20 @@ function amhBuildTemplates() {
   var here = new File($.fileName).parent;
   app.project.saveAs(new File(here.fsName + "/AmhCap_Source.aep"));
 
-  var comps = [
-    amhBuildOne(1920, 1080, "16:9"),
-    amhBuildOne(1080, 1920, "9:16")
-  ];
+  var frames = [[1920, 1080, "16x9"], [1080, 1920, "9x16"]];
   var made = [];
-  for (var i = 0; i < comps.length; i++) {
-    var out = comps[i].exportAsMotionGraphicsTemplate(true, here.fsName);
-    if (!out) { amhFail("After Effects did not export " + comps[i].motionGraphicsTemplateName + "."); }
-    made.push(comps[i].motionGraphicsTemplateName + ".mogrt");
+  for (var li = 0; li < AMH_LOOKS.length; li++) {
+    for (var fi = 0; fi < frames.length; fi++) {
+      var f = frames[fi];
+      var comp = amhBuildOne(f[0], f[1], f[2], AMH_LOOKS[li]);
+      var out = comp.exportAsMotionGraphicsTemplate(true, here.fsName);
+      if (!out) { amhFail("After Effects did not export " + comp.motionGraphicsTemplateName + "."); }
+      made.push(comp.motionGraphicsTemplateName + ".mogrt");
+    }
   }
   if (!amhTest) {
-    alert("Done. Two editable templates are next to this script:\n\n" + made.join("\n") +
-          "\n\nCopy the .mogrt file into your product's com.amharic.captions/mogrt folder before building the zip.");
+    alert("Done. " + made.length + " editable templates are next to this script:\n\n" + made.join("\n") +
+          "\n\nCopy the .mogrt files into your product's com.amharic.captions/mogrt folder before building the zip.");
   }
   return made;
 }
