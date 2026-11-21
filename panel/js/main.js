@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.50';
+const APP_VERSION = '1.94.51';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3669,12 +3669,42 @@ function log(msg) {
   logEl.scrollTop = logEl.scrollHeight;
   // Errors/warnings are the reason the Log box exists — surface them instead of
   // hiding them behind the collapsed disclosure. Success stays quiet.
-  if (/^ERROR/i.test(line) || /warning/i.test(line) || /no speech detected/i.test(line)) {
+  if (/^ERROR/i.test(line) || /warning/i.test(line)) {
     const disc = document.getElementById('logDisc');
     if (disc && !disc.classList.contains('open')) disc.classList.add('open');
   }
 }
 function clearLog() { logEl.textContent = ''; }
+// 1.94.51 toast: an outcome the editor must see - it used to go only to the
+// collapsed support log ("Nothing to export yet", "No speech detected", a time
+// typed wrongly...). info / success / warn go away by themselves (4 s, warn
+// 6 s); an error stays until closed. At most three at a time.
+function toast(text, kind) {
+  kind = kind || 'info';
+  const box = document.getElementById('toasts');
+  if (!box || !text) return null;
+  const t = document.createElement('div');
+  t.className = 'toast toast-' + kind;
+  t.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+  const s = document.createElement('span');
+  s.className = 'toast-text';
+  s.textContent = text;
+  const x = document.createElement('button');
+  x.type = 'button';
+  x.className = 'toast-x';
+  x.textContent = '✕';
+  x.setAttribute('aria-label', L('Close'));
+  const close = () => { if (t.parentNode) t.parentNode.removeChild(t); };
+  x.addEventListener('click', close);
+  t.appendChild(s);
+  t.appendChild(x);
+  box.appendChild(t);
+  while (box.children.length > 3) box.removeChild(box.children[0]);
+  if (kind !== 'error') setTimeout(close, kind === 'warn' ? 6000 : 4000);
+  return t;
+}
+// the support log keeps every line; the editor sees the outcome
+function notify(msg, kind) { log(msg); return toast(L(msg), kind); }
 
 let STATUS_EN = '';
 function setStatus(state, text) {
@@ -3692,6 +3722,7 @@ function setSuccess(text) {
   // without having to open the collapsed Log box.
   setStatus('ready', text || '✓ Done');
 }
+const BUSY_LOCK = ['srcClip', 'srcWork', 'srcWhole', 'wpc1', 'wpc2', 'wpc3', 'wpc4', 'wpc5', 'fmtH', 'fmtV'];
 function setBusy(busy) {
   if (busy) {
     showReportOffer(false);
@@ -3707,6 +3738,13 @@ function setBusy(busy) {
     if (!keep) setStatus('ready', 'ready');
   }
   $('runBtn').disabled = busy;
+  // 1.94.51: the source and the options cannot change under a running job
+  BUSY_LOCK.forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    if (busy) { if (el.dataset.busyWas === undefined) el.dataset.busyWas = el.disabled ? '1' : '0'; el.disabled = true; }
+    else if (el.dataset.busyWas !== undefined) { el.disabled = el.dataset.busyWas === '1'; delete el.dataset.busyWas; }
+  });
   const cancel = $('cancelBtn');
   if (cancel) cancel.style.display = busy ? 'inline-block' : 'none';
   UI_BUSY = !!busy;
@@ -5635,14 +5673,14 @@ function renderReview(force) {
     // Time edits re-sort and re-render; text edits update the live cue only.
     tIn.addEventListener('change', () => {
       const v = parseReviewTs(tIn.value);
-      if (isNaN(v)) { log('Time format: m:ss.cc (e.g. 1:23.45)'); return; }
+      if (isNaN(v)) { notify('Time format: m:ss.cc (e.g. 1:23.45)', 'warn'); return; }
       cue.start = v;
       if (cue.end < cue.start + 0.3) cue.end = cue.start + 0.3;
       renderReview();
     });
     tOut.addEventListener('change', () => {
       const v = parseReviewTs(tOut.value);
-      if (isNaN(v)) { log('Time format: m:ss.cc (e.g. 1:23.45)'); return; }
+      if (isNaN(v)) { notify('Time format: m:ss.cc (e.g. 1:23.45)', 'warn'); return; }
       cue.end = Math.max(cue.start + 0.3, v);
       renderReview();
     });
@@ -6085,10 +6123,17 @@ function queueTextCut(ranges, drop, what, focusAt) {
   }
   TEXTCUT.busy++;
   textCutNote('✂ ' + L('Cutting') + ' ' + what + '…');
+  // 1.94.51: the caption being cut is busy until Premiere answers
+  const rowsNow = $('reviewList') ? $('reviewList').children : [];
+  if (focusAt != null && rowsNow[focusAt] && rowsNow[focusAt].classList) rowsNow[focusAt].classList.add('cutting');
   // times are read when the turn comes: an earlier cut moves everything after it
   const job = { ranges, drop, what, focusAt, cues: reviewCues };
   // 1.94.32: redraw ↶ Undo once the cut is really done (it was drawn while busy = greyed out for good)
-  TEXTCUT.chain = TEXTCUT.chain.then(() => runTextCut(job)).catch(() => {}).then(() => { TEXTCUT.busy--; syncTextCutUndo(); });
+  TEXTCUT.chain = TEXTCUT.chain.then(() => runTextCut(job)).catch(() => {}).then(() => {
+    TEXTCUT.busy--; syncTextCutUndo();
+    const rows = $('reviewList') ? $('reviewList').children : [];
+    for (let k = 0; k < rows.length; k++) if (rows[k].classList) rows[k].classList.remove('cutting');
+  });
   return true;
 }
 async function runTextCut(job) {
@@ -9089,7 +9134,7 @@ async function placeReview() {
     return;
   }
   reviewCues = reviewCues.filter((c) => (c.text || '').trim().length > 0);
-  if (reviewCues.length === 0) { log('All captions are empty — nothing to place.'); return; }
+  if (reviewCues.length === 0) { notify('All captions are empty — nothing to place.', 'warn'); return; }
 
   reviewPlacing = true;
   const placeBtn = $('reviewPlace');
@@ -9198,7 +9243,10 @@ function deleteHistory(file) {
   try { if (String(file).endsWith(HISTORY_EXT)) fs.unlinkSync(file); } catch (e) {}
 }
 async function reopenHistory(rec) {
-  if (!rec || !Array.isArray(rec.cues) || !rec.cues.length) return false;
+  if (!rec || !Array.isArray(rec.cues) || !rec.cues.length) {
+    toast(L('This project has no captions left to open.'), 'warn');                 // 1.94.51
+    return false;
+  }
   if (reviewOpen) closeReview();
   hideRecent();
   lastCues = rec.cues.map((c) => ({ start: Number(c.start) || 0, end: Number(c.end) || 0, text: String(c.text || '') }));
@@ -9218,7 +9266,13 @@ async function reopenHistory(rec) {
   const tmp = path.join(os.tmpdir(), 'amh_reopen_' + Date.now() + '.srt');
   try { fs.writeFileSync(tmp, displaySrtTextFromCues(lastCues), { encoding: 'utf8', mode: 0o600 }); } catch (e) {}
   log('Reopened "' + rec.label + '" (' + lastCues.length + ' captions). Edit, then press Place — it replaces the old ones.');
-  await openReview(tmp, rec.label, rec.startSeconds, { projectId: rec.label });
+  try {
+    await openReview(tmp, rec.label, rec.startSeconds, { projectId: rec.label });
+  } catch (e) {
+    log('Reopen failed: ' + (e && e.message ? e.message : e));
+    toast(L('This project could not be opened') + ': ' + (e && e.message ? e.message : e), 'error');   // 1.94.51
+    return false;
+  }
   return true;
 }
 function fmtWhen(ms) {
@@ -9300,7 +9354,7 @@ function exportReviewFiles() {
   if (!reviewOpen || REVIEW_LIVE) return;
   const cues = (reviewCues && reviewCues.length ? reviewCues : lastCues)
     .filter((c) => (c.text || '').trim().length > 0);
-  if (!cues.length) { log('Nothing to export yet.'); return; }
+  if (!cues.length) { notify('Nothing to export yet.', 'warn'); return; }
   const label = (REVIEW && REVIEW.label) || 'captions';
 
   let dir = null;
@@ -9324,10 +9378,12 @@ function exportReviewFiles() {
     fs.writeFileSync(txt, txtTextFromCues(cues), { encoding: 'utf8', mode: 0o600 });
   } catch (e) {
     log('Export failed: ' + (e && e.message ? e.message : String(e)));
+    toast(L('The files could not be written to that folder — try another folder.'), 'error');
     return;
   }
   log('Exported ' + cues.length + ' captions to ' + dir +
     '  (' + base + '.srt / ' + base + '.vtt / ' + base + '.txt)');
+  toast(L('Exported ' + cues.length + ' captions (SRT, VTT, TXT)'), 'success');
 }
 
 // Sanitize a clip/label name into a safe cross-platform file stem.
@@ -9906,7 +9962,7 @@ function clientExport() {
   if (!ACTIVE_CLIENT) return;
   const fx = clientFixes(ACTIVE_CLIENT);
   const words = Object.keys(fx);
-  if (!words.length) { log('The client list is empty — nothing to export.'); return; }
+  if (!words.length) { notify('The client list is empty — nothing to export.', 'warn'); return; }
   const dir = pickDialogPath(true, 'Choose a folder for the client word list') || ensureCaptionsDir();
   const base = safeFileName(ACTIVE_CLIENT) || 'client';
   const pairs = {};
@@ -9916,8 +9972,8 @@ function clientExport() {
   try {
     fs.writeFileSync(path.join(dir, base + '.amhglossary.txt'), txt, { encoding: 'utf8', mode: 0o600 });
     fs.writeFileSync(path.join(dir, base + '.amhglossary.json'), json, { encoding: 'utf8', mode: 0o600 });
-  } catch (e) { log('Could not write the client list to that folder — try another folder.'); return; }
-  log('Exported ' + words.length + ' word(s) to the folder you chose.');
+  } catch (e) { notify('Could not write the client list to that folder — try another folder.', 'error'); return; }
+  notify('Exported ' + words.length + ' word(s) to the folder you chose.', 'success');
 }
 // Read a word list: our .json, or plain "wrong=right" lines (.txt). # starts
 // a comment in the text form. Unknown lines are ignored, never an error box.
@@ -9951,10 +10007,10 @@ function clientImport() {
   const file = pickDialogPath(false, 'Choose a client word list (.txt or .json)');
   if (!file) { log('Import cancelled.'); return; }
   let raw = '';
-  try { raw = fs.readFileSync(file, 'utf8'); } catch (e) { log('Could not read that file.'); return; }
+  try { raw = fs.readFileSync(file, 'utf8'); } catch (e) { notify('Could not read that file.', 'error'); return; }
   const words = parseGlossary(raw);
   const keys = Object.keys(words);
-  if (!keys.length) { log('No words found in that file.'); return; }
+  if (!keys.length) { notify('No words found in that file.', 'warn'); return; }
   const st = loadClients();
   if (!st.clients[ACTIVE_CLIENT]) return;
   const holder = { fixes: clientWords(st, ACTIVE_CLIENT) };
@@ -9967,7 +10023,7 @@ function clientImport() {
   pruneClientWords(holder.fixes);
   st.clients[ACTIVE_CLIENT].at = Date.now();
   saveClients(st);
-  log('Imported ' + added + ' new word(s), ' + updated + ' already there.');
+  notify('Imported ' + added + ' new word(s), ' + updated + ' already there.', 'success');
   setActiveClient(ACTIVE_CLIENT);
   renderClientPanel();
 }
@@ -10507,7 +10563,7 @@ async function runSelectedClip() {
   }
   setProgress(0.9, 'Transcription complete');
 
-  if (!r.cues.length) log('No speech detected in this audio — nothing to place.');
+  if (!r.cues.length) notify('No speech detected in this audio — nothing to place.', 'warn');
   log('Done writing captions.');
 
   // Review flow: let the user edit before anything hits the timeline (or
@@ -10604,7 +10660,7 @@ async function runWorkArea(given) {
     protectTempFile(outSrt);
     lastCues = all;
     lastSrtPath = outSrt;
-    if (all.length === 0) log('No speech detected in these clips — nothing to place.');
+    if (all.length === 0) notify('No speech detected in these clips — nothing to place.', 'warn');
     log('Done — ' + all.length + ' captions written (' +
         items.length + ' clip(s) cached).');
     track('cap_new');
@@ -10672,7 +10728,7 @@ async function runWorkArea(given) {
     });
 
     LIVE_WANTED = null;
-    if (!r.cues.length) log('No speech detected in these clips — nothing to place.');
+    if (!r.cues.length) notify('No speech detected in these clips — nothing to place.', 'warn');
     log('Done — ' + r.cues.length + ' captions written.');
     await showRunResult(outSrt, 'sequence', r, info.sequence);
   } finally {
@@ -10755,7 +10811,7 @@ async function runFile(filePath, fileName) {
       LIVE_WANTED = null;
     }
     setProgress(0.9, 'Transcription complete');
-    if (!r.cues.length) log('No speech detected in this audio — nothing to place.');
+    if (!r.cues.length) notify('No speech detected in this audio — nothing to place.', 'warn');
     log('Done writing captions.');
     await showRunResult(outSrt, cleanName, r);
   } catch (e) {

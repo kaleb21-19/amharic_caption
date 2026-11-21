@@ -125,6 +125,14 @@ t('1.94.50 one component layer; notices are a component, not copied inline style
   assert.ok(!/border:1px solid var\(--(warn|err)\);border-radius/.test(markup), 'no inline banner look left');
 });
 
+t('1.94.51 Customize never squeezes the captions; toasts sit above every overlay', () => {
+  assert.match(css, /html:not\(\.amh-studio\) #reviewList \{ min-height: 190px; \}/, 'three captions stay');
+  assert.match(css, /\.style-strip > \.style-custom \{ flex: 0 1 auto; min-height: 120px; overflow-y: auto; \}/, 'the settings scroll inside');
+  assert.match(css, /\.toasts \{[^}]*z-index: var\(--z-toast\)/);
+  assert.match(markup, /<div id="toasts" class="toasts" aria-live="polite"><\/div>/);
+  assert.ok(!/amh-toast-in \{ from \{ opacity: 0/.test(css), 'a toast is never invisible while animations are paused');
+});
+
 // WCAG 2.2: text 4.5:1, a control's edge 3:1 (1.4.11)
 const tok = {};
 tokens.replace(/(--color-[a-z-]+):\s*(#[0-9a-fA-F]{6})/g, (m, k, v) => { tok[k] = v; });

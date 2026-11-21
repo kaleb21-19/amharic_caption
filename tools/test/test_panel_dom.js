@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.50');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.51');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1623,7 +1623,9 @@ await t('4n3v. 1.94.46 V8 undo ANY cut: "All cuts" lists every cut, ↶ on the f
       schedulePreview = () => {}; renderReview();`);
     const texts = () => JSON.parse(p.evalVm('JSON.stringify(reviewCues.map((c) => [c.text, c.start, c.end]))'));
     p.evalVm('cutCaptionsNow(1, false)');              // ሁለት (1-2 s)
+    assert.ok(p.els('reviewList').children[1].classList.contains('cutting'), '1.94.51: the caption being cut is busy');
     await flush(10);
+    assert.ok(!p.els('reviewList').children.some((r) => r.classList.contains('cutting')), 'and not after');
     p.evalVm('cutCaptionsNow(2, false)');              // አራት (now 2-3 s, originally 3-4)
     await flush(10);
     p.evalVm('cutCaptionsNow(0, false)');              // አንድ
@@ -1747,6 +1749,47 @@ await t('4n3y. 1.94.50 one main action: Buy is secondary while Generate can run,
     // a running job (Cancel shown): Buy is left as it is
     p.evalVm("$('cancelBtn').style.display = 'inline-block'; TRIAL_MIN = { status: 'active', seconds_left: 600, seconds_total: 1200, minutes: 20 }; updateLicenseUI();");
     assert.ok(has('btn-primary'), 'not switched in the middle of a job');
+  } finally { p.close(); }
+});
+await t('4n3z2. 1.94.51 states: outcomes as toasts (not only the support log), settings lock during a run, a failed reopen says why, the caption being cut is busy', async () => {
+  const p = loadPanel({});
+  try {
+    await flush(5);
+    const toasts = () => p.els('toasts').children.map((t) => ({ text: t.children[0].textContent, cls: t.className, role: t.getAttribute('role') }));
+    // a toast: the text, its kind, ✕ closes it, at most three
+    p.evalVm("notify('Nothing to export yet.', 'warn')");
+    assert.deepStrictEqual(toasts(), [{ text: 'Nothing to export yet.', cls: 'toast toast-warn', role: 'status' }]);
+    has(p.evalVm('logEl.textContent'), 'Nothing to export yet.', 'the support log keeps it');
+    p.els('toasts').children[0].children[1].fire('click');
+    assert.strictEqual(p.els('toasts').children.length, 0, '✕ closes it');
+    p.evalVm("toast('a', 'error'); toast('b'); toast('c'); toast('d');");
+    assert.deepStrictEqual(toasts().map((x) => x.text), ['b', 'c', 'd'], 'at most three, the oldest goes');
+    p.evalVm("while ($('toasts').children.length) $('toasts').removeChild($('toasts').children[0]); toast('x', 'error');");
+    assert.strictEqual(toasts()[0].role, 'alert', 'an error is announced');
+    p.evalVm("while ($('toasts').children.length) $('toasts').removeChild($('toasts').children[0]);");
+    // the outcomes that only reached the log: export with nothing, a time typed wrongly
+    p.evalVm(`schedulePreview = () => {}; reviewOpen = true; REVIEW_LIVE = false; reviewCues = []; lastCues = []; exportReviewFiles();`);
+    assert.strictEqual(toasts()[0].text, 'Nothing to export yet.');
+    p.evalVm(`while ($('toasts').children.length) $('toasts').removeChild($('toasts').children[0]);
+      reviewCues = [{ text: 'ሰላም', start: 1, end: 2 }]; renderReview();`);
+    const tIn = p.els('reviewList').children[0].children[0].children[0];
+    tIn.value = 'abc'; tIn.fire('change');
+    assert.strictEqual(toasts()[0].text, 'Time format: m:ss.cc (e.g. 1:23.45)');
+    assert.strictEqual(toasts()[0].cls, 'toast toast-warn');
+    p.evalVm("while ($('toasts').children.length) $('toasts').removeChild($('toasts').children[0]); reviewOpen = false;");
+    // a run locks the source and the options, and gives back exactly what was there
+    p.evalVm("$('fmtV').disabled = true; setBusy(true);");
+    assert.deepStrictEqual(JSON.parse(p.evalVm("JSON.stringify(BUSY_LOCK.map((id) => $(id).disabled))")), Array(10).fill(true));
+    p.evalVm('setBusy(false);');
+    assert.deepStrictEqual(JSON.parse(p.evalVm("JSON.stringify(['srcWork', 'wpc2', 'fmtH', 'fmtV'].map((id) => $(id).disabled))")), [false, false, false, true],
+      'unlocked; one that was disabled before stays disabled');
+    // Recent: a project that cannot open says why
+    const ok = await p.evalVm(`(async () => { openReview = async () => { throw new Error('disk full'); };
+      return await reopenHistory({ label: 'talk', cues: [{ start: 0, end: 1, text: 'ሰላም' }], startSeconds: 0 }); })()`);
+    assert.strictEqual(ok, false);
+    assert.deepStrictEqual(toasts()[0], { text: 'This project could not be opened: disk full', cls: 'toast toast-error', role: 'alert' });
+    assert.strictEqual(await p.evalVm('reopenHistory({ label: "x", cues: [] })'), false);
+    assert.strictEqual(toasts()[1].text, 'This project has no captions left to open.');
   } finally { p.close(); }
 });
 await t('4n4. 1.94.31 Follow Premiere: the caption and the word under the playhead are marked; off by default; off = no reads', async () => {
