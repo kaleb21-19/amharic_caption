@@ -4,10 +4,11 @@ import Reveal from "@/components/Reveal";
 import BuySafely from "@/components/BuySafely";
 import StudioMock from "@/components/StudioMock";
 import StyleShowcase from "@/components/StyleShowcase";
+import WhatsNew from "@/components/WhatsNew";
 import DemoVideo from "@/components/DemoVideo";
 import Tx from "@/components/Tx";
 import {
-  BOT_URL, ACCT_NAME, PRICE, PRICE_AM, PRICE_NUM, PRICE_OLD_NUM, PRICE_M1_NUM, PRICE_M2_NUM,
+  BOT_URL, ACCT_NAME, PRICE, PRICE_AM, PRICE_NUM, PRICE_M1_NUM, PRICE_M2_NUM,
 } from "@/lib/site";
 
 const steps = [
@@ -234,7 +235,6 @@ function Words({ text, from = 0 }) {
 
 export default function HomePage() {
   const priceLbl = Number(PRICE_NUM).toLocaleString("en-US");
-  const oldLbl = Number(PRICE_OLD_NUM).toLocaleString("en-US");
   const num = (n) => Number(n).toLocaleString("en-US");
   // The three plans, each as big and clear as the others (owner, 2026-10-25:
   // "500 and 900 as clear and bold as 2,500").
@@ -267,8 +267,10 @@ export default function HomePage() {
         <div className="container">
           <div className="hero-grid">
             <div className="hero-copy">
-              <p className="eyebrow">
-                <Tx am="ስቱዲዮ (ለብቻው) · Premiere Pro · After Effects · CapCut · DaVinci" en="Studio app (on its own) · Premiere Pro · After Effects · CapCut · DaVinci" />
+              {/* W1: one line above the headline - the moat (the editors are named right below) */}
+              <p className="hero-moat">
+                <span className="hero-moat-dot" aria-hidden="true" />
+                <Tx am="ለአማርኛ ብቻ የተሰራ — ያለ ኢንተርኔት፣ በኮምፒውተርዎ ላይ" en="Made only for Amharic — offline, on your own computer" />
               </p>
 
               <h1 className="hero-title">
@@ -337,6 +339,8 @@ export default function HomePage() {
           </ul>
         </div>
       </section>
+
+      <WhatsNew />
 
       <DemoVideo />
 
@@ -502,7 +506,6 @@ export default function HomePage() {
                       <span className="price-cur"><Tx am="ብር" en="ETB" /></span>
                     </span>
                     <span className="plan-sub">
-                      {pl.best && <span className="price-old"><Tx am={`${oldLbl} ብር`} en={`ETB ${oldLbl}`} /></span>}{" "}
                       <Tx am={pl.subAm} en={pl.subEn} />
                     </span>
                   </div>
@@ -538,7 +541,7 @@ export default function HomePage() {
               <ol className="istep-list">
                 {buySteps.map((s, i) => (
                   <li className="istep" key={s.t.en}>
-                    <span className="istep-n">{i + 1}</span>
+                    <span className="istep-n" aria-hidden="true" />
                     <div className="istep-body">
                       <h3><Tx am={s.t.am} en={s.t.en} /></h3>
                       <p><Tx am={s.c.am} en={s.c.en} /></p>
