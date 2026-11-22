@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.65');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.66');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1988,7 +1988,11 @@ await t('4f4. 1.94.42 live canvas: drawn while Customize is open, sliders redraw
     // 1.94.65 (owner: 'it shows one word - let us see the movement'): the caption then plays in a loop
     const play = JSON.parse(p.evalVm("JSON.stringify(__posts.filter((m) => m.type === 'play').pop() || null)"));
     assert.ok(play, 'the motion plays after a drawing');
-    assert.deepStrictEqual([play.cs, play.ce, play.from, play.to], [1, 3, 0.75, 3.6], 'from a little before the caption to a little after it');
+    // 1.94.66 (owner: 'it blinks'): only the caption itself, its finished look held - no empty gap
+    assert.deepStrictEqual([play.cs, play.ce, play.hold, play.from, play.to], [1, 3, 0.9, undefined, undefined], 'the caption itself, then a hold');
+    { const page = p.evalVm('LC_PAGE');
+      assert.ok(!/visibility/.test(page), 'the canvas is never hidden (that blinked)');
+      assert.ok(/play\.ce - 0\.02/.test(page) && /opacity/.test(page), 'the hold draws the finished caption; a short fade between rounds'); }
     // the size slider: drawn while it moves, not saved until let go; the newest value wins
     p.evalVm("STYLE_SECTION = 'text'; renderStyleCustom();");
     await flush(10);
