@@ -89,6 +89,26 @@ t('every var() is a real token (or one the code sets at runtime)', () => {
   assert.deepStrictEqual(used.filter((v) => !defined.has(v) && !runtime.has(v)), []);
 });
 
+t('1.94.49 keyboard focus is visible everywhere; no outline removed without a replacement', () => {
+  assert.match(css, /button:focus-visible,[^{]*\{\s*outline: var\(--ring-width\) solid var\(--color-focus-ring\)/);
+  (css.match(/[^{}]+\{[^}]*outline:\s*(none|0)[^}]*\}/g) || []).forEach((rule) => {
+    assert.ok(/border-color:\s*var\(--accent\)/.test(rule), 'outline removed with no visible focus instead: ' + rule.trim().slice(0, 80));
+  });
+});
+
+t('1.94.49 control edges use the 3:1 border; Ethiopic in the shipped Noto face; Cancel on the danger fill', () => {
+  for (const sel of ['.seg {', '.btn-neutral {', '.sc-seg {', '.sc-compact .cc-seg {', '.cc-pick {', '.sc-name {', '.cc-name {', '.lang-toggle {']) {
+    const i = css.indexOf(sel);
+    assert.ok(i >= 0, sel);
+    assert.ok(/var\(--color-border-control\)/.test(css.slice(i, css.indexOf('}', i))), sel + ' edge');
+  }
+  assert.match(css, /input\[type="text"\][^{]*\{[^}]*border: 1px solid var\(--color-border-control\)/);
+  assert.match(tokens, /font-family: "AMH Ethiopic";\s*src: url\("runtime\/fonts\/NotoSansEthiopic-Regular\.ttf"\)/);
+  assert.match(tokens, /unicode-range: U\+1200-139F/);
+  assert.match(tokens, /--font-family-ui: "AMH Ethiopic",/);
+  assert.match(css, /#cancelBtn \{[^}]*background: var\(--color-danger-solid\)/);
+});
+
 // WCAG 2.2: text 4.5:1, a control's edge 3:1 (1.4.11)
 const tok = {};
 tokens.replace(/(--color-[a-z-]+):\s*(#[0-9a-fA-F]{6})/g, (m, k, v) => { tok[k] = v; });
@@ -108,6 +128,8 @@ t('token contrast: text 4.5:1, control edges and the focus ring 3:1', () => {
   }
   assert.ok(ratio('--color-text-on-accent', '--color-accent') >= 4.5);
   assert.ok(ratio('--color-text-on-danger', '--color-danger-solid') >= 4.5, 'white on a danger button ' + ratio('--color-text-on-danger', '--color-danger-solid').toFixed(2));
+  assert.ok(ratio('--color-text-on-danger', '--color-danger-solid-hover') >= 4.5);
+  assert.ok(ratio('--color-text-on-accent', '--color-accent') >= 3, 'the dark focus ring on a green control');
 });
 
 t('the numbers the U1 plan promised', () => {

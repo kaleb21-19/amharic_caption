@@ -92,6 +92,9 @@ class El {
   click() { this.fire('click', { target: this, preventDefault() {}, stopPropagation() {} }); }
   set setScrollTop(v) { this.scrollTop = v; }
   scrollIntoView() {}
+  // keyboard focus, like a browser's document.activeElement (no focus events)
+  focus() { const d = this._holder && this._holder.doc; if (d) d.activeElement = this; }
+  blur() { const d = this._holder && this._holder.doc; if (d && d.activeElement === this) d.activeElement = d.body; }
   select() {}
   setSelectionRange(a, b) { this.selectionStart = a; this.selectionEnd = b; }
   // ── minimal querySelector / querySelectorAll ─────────────────────────────
@@ -206,8 +209,10 @@ const KNOWN = [
 
 function makeDocument(tagFor) {
   const ids = {};
+  const holder = {};
   const mk = (tag, id) => {
     const el = new El(tag, id);
+    el._holder = holder;
     if (tagFor) el._cmp = tagFor(id);
     return el;
   };
@@ -295,6 +300,8 @@ function makeDocument(tagFor) {
     removeEventListener() {},
     execCommand() { return true; },
   };
+  holder.doc = doc;
+  doc.activeElement = doc.body;
   // root the known elements under <body> so '#id button' style queries resolve
   doc.body.children = KNOWN.map((id) => ids[id]);
   doc.documentElement.appendChild(doc.body);

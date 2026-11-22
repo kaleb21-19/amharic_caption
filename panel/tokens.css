@@ -9,6 +9,22 @@
  * border-control 3.2-3.5:1 (a control's edge), white on danger-solid 5.0:1.
  * Dark only (1.13.0): the panel looks the same in every host theme.
  */
+/* 1.94.49: Ethiopic letters always in Noto Sans Ethiopic (shipped with the
+   program in runtime/fonts, OFL) - the same shapes on every computer instead of
+   whatever Ebrima / Nyala the PC has. Latin keeps the system face. */
+@font-face {
+  font-family: "AMH Ethiopic";
+  src: url("runtime/fonts/NotoSansEthiopic-Regular.ttf") format("truetype");
+  font-weight: 400; font-style: normal; font-display: swap;
+  unicode-range: U+1200-139F, U+2D80-2DDF, U+AB00-AB2F, U+1E7E0-1E7FF;
+}
+@font-face {
+  font-family: "AMH Ethiopic";
+  src: url("runtime/fonts/NotoSansEthiopic-Bold.ttf") format("truetype");
+  font-weight: 600 800; font-style: normal; font-display: swap;
+  unicode-range: U+1200-139F, U+2D80-2DDF, U+AB00-AB2F, U+1E7E0-1E7FF;
+}
+
 :root {
   color-scheme: dark;
 
@@ -50,6 +66,7 @@
   --color-warning-border: rgba(232, 168, 61, .42);
   --color-danger:         #e8575b; /* text on any surface 4.9:1+ (was #e5484d: 4.4 on a card) */
   --color-danger-solid:   #c93b40; /* a filled danger button: white text 5.0:1 */
+  --color-danger-solid-hover: #b0353a; /* white text 6.2:1 */
   --color-danger-soft:    rgba(229, 72, 77, .12);
   --color-danger-mark:    rgba(229, 72, 77, .22);
   --color-danger-border:  rgba(229, 72, 77, .42);
@@ -68,7 +85,7 @@
   --color-tint-white:     rgba(255, 255, 255, .03);
 
   /* ── type ───────────────────────────────────────────────────────────── */
-  --font-family-ui: "Adobe Clean", "Segoe UI", -apple-system, "Helvetica Neue", Arial,
+  --font-family-ui: "AMH Ethiopic", "Adobe Clean", "Segoe UI", -apple-system, "Helvetica Neue", Arial,
     "Ebrima", "Nyala", "Kefa", "Abyssinica SIL", "Noto Sans Ethiopic", sans-serif;
   --font-family-caption: 'Abyssinica SIL', 'Kefa', serif;
   --font-family-mono: ui-monospace, Menlo, Consolas, monospace;

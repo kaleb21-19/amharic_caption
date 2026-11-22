@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.48';
+const APP_VERSION = '1.94.49';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -1948,6 +1948,68 @@ function buyQrSvg(url) {
   q.make();
   return q.createSvgTag({ cellSize: 4, margin: 16, scalable: true, alt: 'QR' });
 }
+// 1.94.49 dialogs (WCAG 2.4.3): focus goes into the dialog, Tab stays inside,
+// Escape closes it, and focus comes back to what opened it.
+const DLG = [];
+function dlgFocusables(card) {
+  // in page order (the browser's own Tab order): a walk through the dialog
+  const out = [];
+  const walk = (n) => {
+    const kids = n && n.children ? Array.from(n.children) : [];
+    kids.forEach((e) => {
+      const tag = String(e.tagName || '').toUpperCase();
+      if ((tag === 'BUTTON' || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'A') &&
+          !e.disabled && !(e.getClientRects && !e.getClientRects().length)) out.push(e);
+      walk(e);
+    });
+  };
+  walk(card);
+  return out;
+}
+function dlgOpen(card, close) {
+  if (!card || DLG.some((d) => d.card === card)) return;
+  DLG.push({ card, close, back: document.activeElement || null });
+  const f = dlgFocusables(card);
+  const first = f[0];
+  if (first && typeof first.focus === 'function') { try { first.focus(); } catch (e) {} }
+}
+function dlgClose(card) {
+  const i = DLG.findIndex((d) => d.card === card);
+  if (i < 0) return;
+  const d = DLG.splice(i, 1)[0];
+  const back = d.back;
+  // nothing to go back to: the focus must not stay on a hidden button
+  const act = document.activeElement;
+  if (act && card.contains && card.contains(act) && typeof act.blur === 'function') { try { act.blur(); } catch (e) {} }
+  if (back && typeof back.focus === 'function' && (!document.body || !document.body.contains || document.body.contains(back) || back.isConnected)) {
+    try { back.focus(); } catch (e) {}
+  }
+}
+if (typeof document !== 'undefined' && document.addEventListener) {
+  // capture: the dialog answers before the review's own Escape / shortcuts
+  document.addEventListener('keydown', (e) => {
+    const d = DLG[DLG.length - 1];
+    if (!d) return;
+    if (e.key === 'Escape') {
+      if (e.preventDefault) e.preventDefault();
+      if (e.stopPropagation) e.stopPropagation();
+      d.close();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    const f = dlgFocusables(d.card);
+    if (!f.length) return;
+    const at = f.indexOf(document.activeElement);
+    let next = -1;
+    if (at < 0) next = e.shiftKey ? f.length - 1 : 0;
+    else if (e.shiftKey && at === 0) next = f.length - 1;
+    else if (!e.shiftKey && at === f.length - 1) next = 0;
+    if (next >= 0) {
+      if (e.preventDefault) e.preventDefault();
+      try { f[next].focus(); } catch (x) {}
+    }
+  }, true);
+}
 function showBuyQr(url) {
   const card = document.getElementById('buyQrCard');
   const box = document.getElementById('buyQr');
@@ -1956,10 +2018,11 @@ function showBuyQr(url) {
   box.innerHTML = svg;
   box.dataset.url = url;
   card.classList.add('show');
+  dlgOpen(card, hideBuyQr);
 }
 function hideBuyQr() {
   const card = document.getElementById('buyQrCard');
-  if (card) card.classList.remove('show');
+  if (card) { card.classList.remove('show'); dlgClose(card); }
 }
 // Buy (no license) and Renew (a timed license about to end or ended): the same
 // bot link with this computer and a secret; the bot shows the plans with what
@@ -5410,13 +5473,14 @@ function showTrialCardIfDue() {
   const tm = $('tcMore');
   if (tm && more) tm.textContent = L('🎁 Get ' + more + ' more free minutes — 1 tap');
   card.classList.add('show');
+  dlgOpen(card, hideTrialCard);
   log(cut ? 'Free minutes covered part of this video — showing the next-step card (buy).'
     : last ? 'Free trial finished — showing the next-step card (buy / group).'
       : 'Free caption done — showing the next-step card (group).');
 }
 function hideTrialCard() {
   const card = $('trialCard');
-  if (card) card.classList.remove('show');
+  if (card) { card.classList.remove('show'); dlgClose(card); }
 }
 function initTrialCard() {
   const open = (url) => {
@@ -10306,6 +10370,7 @@ function openFeedback(on) {
   const card = document.getElementById('feedbackCard');
   if (!card) return;
   card.classList.toggle('show', !!on);
+  if (on) dlgOpen(card, () => openFeedback(false)); else dlgClose(card);
   const st = document.getElementById('feedbackStatus');
   if (st && on) { st.textContent = ''; st.style.display = 'none'; }
   const send = document.getElementById('feedbackSend');
