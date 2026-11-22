@@ -336,7 +336,7 @@ export default function InstallGuide() {
           <ol className="istep-list">
             {active.steps.map((s, i) => (
               <li className="istep" key={s.t.en}>
-                <span className="istep-n">{i + 1}</span>
+                <span className="istep-n" aria-hidden="true" />
                 <div className="istep-body">
                   <h3><Tx am={s.t.am} en={s.t.en} /></h3>
                   <p><Tx am={s.c.am} en={s.c.en} /></p>
