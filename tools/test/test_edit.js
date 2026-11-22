@@ -907,4 +907,31 @@ test('1.94.56 S1: the project takes the nearest shape - a 9:16 phone video is a 
   assert.deepStrictEqual(E.canvasSize(f, E.PRESETS[E.presetFor(f)].res), { w: 1080, h: 1920 });
 });
 
+test('1.94.60 E1a: Q / W cut the clip under the playhead before / after it; on a cut or past the end, nothing', () => {
+  const clips = [{ id: 'a', m: 'v', in: 0, out: 100 }, { id: 'b', m: 'v', in: 200, out: 400 }];
+  assert.deepStrictEqual(E.trimRange(clips, 150, 'left'), { start: 100, end: 150 }, 'Q: from the clip start (edit time) to the playhead');
+  assert.deepStrictEqual(E.trimRange(clips, 150, 'right'), { start: 150, end: 300 }, 'W: from the playhead to the clip end');
+  assert.strictEqual(E.trimRange(clips, 100, 'left'), null, 'on the cut itself');
+  assert.strictEqual(E.trimRange(clips, 500, 'right'), null, 'past the end');
+  const after = E.cutRange(clips, 100, 150, ((n) => () => 'x' + (++n))(0));
+  assert.deepStrictEqual(after.map((c) => [c.in, c.out]), [[0, 100], [250, 400]], 'what is left closes up');
+});
+
+test('1.94.60 E1a: ↑ / ↓ go to the previous / next cut, item edge or marker', () => {
+  const pts = [0, 300, 100, 250.5, NaN, 42];
+  assert.strictEqual(E.nextCut(pts, 50, 1), 100);
+  assert.strictEqual(E.nextCut(pts, 100, 1), 250.5, 'standing on one: the next');
+  assert.strictEqual(E.nextCut(pts, 100, -1), 42);
+  assert.strictEqual(E.nextCut(pts, 0, -1), null, 'nothing before the start');
+  assert.strictEqual(E.nextCut(pts, 300, 1), null);
+});
+
+test('1.94.60 E1a: picture strip tiles - the tile at or before the time, never outside the sheet', () => {
+  assert.strictEqual(E.stripTile(0, 3, 600), 0);
+  assert.strictEqual(E.stripTile(8.9, 3, 600), 2);
+  assert.strictEqual(E.stripTile(1799.9, 3, 600), 599);
+  assert.strictEqual(E.stripTile(5000, 3, 600), 599);
+  assert.strictEqual(E.stripTile(-4, 3, 600), 0);
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');

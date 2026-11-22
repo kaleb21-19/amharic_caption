@@ -640,7 +640,10 @@
         [['J'], tx('1 ሰከንድ ወደኋላ (Shift፦ 5)', '1 second back (Shift: 5)')],
         [['←', '→'], tx('አንድ ፍሬም (Shift፦ 1 ሰከንድ)', 'One frame (Shift: 1 second)')], [['Home', 'End'], tx('መጀመሪያ / መጨረሻ', 'Start / end')]]],
       [tx('ማረም', 'Editing'), [
-        [['S'], tx('በማጫወቻው ቦታ ቁረጥ (Split)', 'Split at the playhead')], [['Delete'], tx('የተመረጠውን አጥፋ', 'Delete what is selected')],
+        [['S'], tx('በማጫወቻው ቦታ ቁረጥ (Split · Ctrl+B)', 'Split at the playhead (also Ctrl+B)')], [['Delete'], tx('የተመረጠውን አጥፋ', 'Delete what is selected')],
+        [['Q', 'W'], tx('ከማጫወቻው በፊት / በኋላ ያለውን የክሊፑን ክፍል አጥፋ', 'Cut the clip before / after the playhead')],
+        [['↑', '↓'], tx('ወደ ቀዳሚው / ቀጣዩ ቁርጥ', 'To the previous / next cut')],
+        [['+', '−'], tx('ጊዜ መስመሩን አቅርብ / አርቅ (Shift+Z፦ ሁሉንም አሳይ)', 'Zoom the timeline in / out (Shift+Z: fit all)')],
         [[C, 'C'], tx('ቅዳ', 'Copy')], [[C, 'V'], tx('በማጫወቻው ቦታ ለጥፍ', 'Paste at the playhead')], [[C, 'D'], tx('ድገም (ከተመረጠው በኋላ)', 'Duplicate (right after it)')],
         [['Shift', 'Click'], tx('ብዙ ምረጥ', 'Select several')],
         [['M'], tx('🔖 ምልክት አድርግ / አንሳ (Shift+M፦ ወደሚቀጥለው)', '🔖 Add / remove a marker (Shift+M: go to the next)')],
@@ -659,7 +662,7 @@
       rows.forEach(([keys, what]) => {
         const r = el('div', 'st-keys-row');
         const k = el('span', 'st-keys-k');
-        keys.forEach((x, i) => { if (i) k.appendChild(document.createTextNode(keys.length === 2 && /^[JLI←→]$|^Home$/.test(keys[0]) ? ' / ' : ' + ')); k.appendChild(el('kbd', '', x)); });
+        keys.forEach((x, i) => { if (i) k.appendChild(document.createTextNode(keys.length === 2 && /^[JLI←→QW↑+]$|^Home$/.test(keys[0]) ? ' / ' : ' + ')); k.appendChild(el('kbd', '', x)); });
         r.appendChild(k);
         r.appendChild(el('span', '', what));
         box.appendChild(r);
