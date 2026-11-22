@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.64';
+const APP_VERSION = '1.94.65';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -8149,13 +8149,29 @@ const LC_PAGE = `<!doctype html><meta charset="utf-8"><meta name="color-scheme" 
 #bg,#c{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}#bg{display:none}
 </style><img id="bg" alt=""><canvas id="c"></canvas><script type="module">
 let J = null, jas = null; const got = {};
+let play = null;
 const say = (m) => parent.postMessage(Object.assign({ amhLive: 1 }, m), '*');
+// 1.94.65: the caption's own motion, over and over (entrance, each word, exit)
+function loop(now) {
+  if (!play || !jas) return;
+  const span = Math.max(0.3, play.to - play.from);
+  const t = play.from + (((now - play.t0) / 1000) % span);
+  // the renderer paints nothing at an empty moment (the last word would stay):
+  // outside the caption the canvas is hidden
+  document.getElementById('c').style.visibility = t >= play.cs && t < play.ce ? '' : 'hidden';
+  try { jas.manualRender({ mediaTime: t, width: play.w, height: play.h, expectedDisplayTime: now }, true); } catch (e) {}
+  requestAnimationFrame(loop);
+}
 const abs = (u) => new URL(u, location.href).href;
 addEventListener('message', async (e) => {
   const d = e.data;
   if (!d || !d.amhLive || e.source !== parent) return;
   if (d.type === 'still') { const bg = document.getElementById('bg'); if (d.src) { bg.src = d.src; bg.style.display = 'block'; } else bg.style.display = 'none'; return; }
+  if (d.type === 'play') { if (jas) { const go = !play; play = { from: d.from, to: d.to, cs: d.cs, ce: d.ce, w: d.width, h: d.height, t0: performance.now() }; if (go) requestAnimationFrame(loop); } return; }
+  if (d.type === 'stop') { play = null; document.getElementById('c').style.visibility = ''; return; }
   if (d.type !== 'draw') return;
+  play = null;
+  document.getElementById('c').style.visibility = '';
   try {
     const t0 = performance.now();
     if (typeof OffscreenCanvas === 'undefined' || typeof WebAssembly === 'undefined') throw new Error('no OffscreenCanvas / WebAssembly here');
@@ -8343,6 +8359,10 @@ async function lcDraw(override) {
       await lcEnsureCanvas(stage, fr);
       lcFrame(cue);
       await lcRender(r.script, r.fonts, fr, lcTime(cue));
+      // 1.94.65 (owner: 'it shows one word of the caption, hard to customize -
+      // let us see the movement and how it passes'): the caption plays in a
+      // loop - a little before it starts to a little after it ends
+      if (!LC.want) lcPost({ type: 'play', from: Math.max(0, Number(cue.start) - 0.25), to: Number(cue.end) + 0.6, cs: Number(cue.start), ce: Number(cue.end), width: fr.width, height: fr.height });
       LC.lastMs = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0);
       LC.draws++;
       stage.style.display = '';

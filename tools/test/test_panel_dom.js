@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.64');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.65');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1968,6 +1968,7 @@ await t('4f4. 1.94.42 live canvas: drawn while Customize is open, sliders redraw
     p.evalVm(`globalThis.__asks = []; globalThis.__renders = []; globalThis.__mr = 0; globalThis.__answer = null;
       lcAsk = async (req) => { __asks.push(req); await new Promise((r) => setTimeout(r, 5)); return __answer || { ok: true, script: 'SCRIPT ' + JSON.stringify(req.opts.size), fonts: ['yebse.ttf'] }; };
       lcRender = async (script, fonts, fr, time) => { __renders.push([script, fonts, time]); __mr++; };
+      globalThis.__posts = []; lcPost = (m) => { __posts.push(m); };
       { const st = document.createElement('div'); st.className = 'sc-stage'; $('styleCustom').appendChild(st); }
       LICENSED = true; STYLE_OK = true; STYLE = 'bold'; STYLE_CUSTOM_OPEN = false; reviewOpen = true;
       reviewCues = [{ text: 'ሰላም Amharic', start: 1, end: 3 }, { text: 'ናችሁ', start: 4, end: 5 }]; renderStyleStrip();`);
@@ -1984,6 +1985,10 @@ await t('4f4. 1.94.42 live canvas: drawn while Customize is open, sliders redraw
     // 1.94.53: drawn in a frame from this computer's server (the panel's own policy blocks the renderer's scripts)
     assert.ok(p.evalVm("!!LC.frame && LC.frame.tagName === 'IFRAME' && /^http:\\/\\/127\\.0\\.0\\.1:\\d+\\/c\\/live\\.html$/.test(LC.frame.src)"), 'the renderer page');
     assert.ok(p.evalVm('typeof __renders[0][2] === "number"'), 'drawn at a moment of the caption');
+    // 1.94.65 (owner: 'it shows one word - let us see the movement'): the caption then plays in a loop
+    const play = JSON.parse(p.evalVm("JSON.stringify(__posts.filter((m) => m.type === 'play').pop() || null)"));
+    assert.ok(play, 'the motion plays after a drawing');
+    assert.deepStrictEqual([play.cs, play.ce, play.from, play.to], [1, 3, 0.75, 3.6], 'from a little before the caption to a little after it');
     // the size slider: drawn while it moves, not saved until let go; the newest value wins
     p.evalVm("STYLE_SECTION = 'text'; renderStyleCustom();");
     await flush(10);
