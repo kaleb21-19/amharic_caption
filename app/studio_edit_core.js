@@ -571,6 +571,16 @@
     const to = dir < 0 ? p.filter((x) => x < t - 0.02).pop() : p.find((x) => x > t + 0.02);
     return to == null ? null : to;
   }
+  // 1.94.63 (E2b): a caption height dragged in the project's own shape is for
+  // that shape. Exported to a TALL format from a WIDE project (or the other way)
+  // it would land somewhere else - in a Shorts export, under TikTok's buttons -
+  // so there the look's own safe place is used instead.
+  function capsOptsFor(opts, projFmt, outFmt) {
+    const o = Object.assign({}, opts || {});
+    const tall = (f) => { const s = FORMATS[f] || FORMATS['16:9']; return s[1] > s[0]; };
+    if (o.y != null && tall(projFmt) !== tall(outFmt)) delete o.y;
+    return o;
+  }
   // 1.94.61 (E1b) box select: the ids of the items a dragged box touches.
   // cands: [{ id, s, e, y0, y1 }] (edit time, lane top / bottom in px);
   // box: { t0, t1, y0, y1 } in any order
@@ -2245,7 +2255,7 @@
   }
 
   const api = { MIN, layout, total, locate, sourceToEdit, splitAt, removeClip, trimClip, moveClip, dropIndex, cutRange, moveRange, rangeState, insertClips, keptSegs, mapTime, followClips,
-    words, deriveCaptions, syncBack, FORMATS, videoShape, fmtForShape, trimRange, nextCut, stripTile, boxHits, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
+    words, deriveCaptions, syncBack, FORMATS, videoShape, fmtForShape, trimRange, nextCut, stripTile, boxHits, capsOptsFor, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
     TFONTS, TPRESETS, assColor, textAnchor, textAss, setFontInfo, fontInfo, textSize, addFont, fontFacts,
     TITLE_ANIMS, TITLE_LOOKS, TITLE_BG, titleOf, titleLook, LOUD, MUS_DEFAULT, musicGain,
     MIX_BUSES, MIX_EQ, MIX_PRESETS, stripOf, mixOf, mixerOn, compParams, panGains, stripChain,

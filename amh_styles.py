@@ -390,6 +390,66 @@ def words_from_cues(cues):
     return out
 
 
+# 1.94.63 (E2b): text on tall video (9:16, 4:5) 1.3x bigger - it was sized for
+# the narrow width and read small on a phone (bold: 4.3% of the frame height).
+# AMH_PORTRAIT_K sets it (1.0 = as before).
+try:
+    PORTRAIT_K = max(0.5, min(2.0, float(os.environ.get("AMH_PORTRAIT_K", "1.3"))))
+except ValueError:
+    PORTRAIT_K = 1.3
+# how wide a caption line may be: wide video 92% of the frame; tall video 80%,
+# clear of TikTok / Reels / Shorts' buttons down the right side
+FIT_WIDE, FIT_TALL = 0.92, 0.80
+_TAG = re.compile(r"\{[^}]*\}")
+_FS = re.compile(r"\\fs(\d+(?:\.\d+)?)")
+
+
+def _fit_lines(script, width, height):
+    """1.94.63 (E2b): a caption line wider than the frame allows is drawn
+    smaller - that line only, every font size in it by the same factor (the
+    Latin partner font's too); the others keep their full size. Before, one
+    long phrase made every caption of the video smaller (legacy looks), or ran
+    off the frame ('modern', a long two-word line)."""
+    lim = width * (FIT_TALL if height > width else FIT_WIDE)
+    styles = {}
+    for ln in script.split("\n"):
+        if ln.startswith("Style: "):
+            f = ln[7:].split(",")
+            try:
+                styles[f[0]] = (f[1], float(f[2]), f[7].strip() == "-1")
+            except (IndexError, ValueError):
+                pass
+    out = []
+    for ln in script.split("\n"):
+        if not ln.startswith("Dialogue: "):
+            out.append(ln)
+            continue
+        p = ln.split(",", 9)
+        st = styles.get(p[3])
+        if len(p) < 10 or not st:
+            out.append(ln)
+            continue
+        font, size, bold = st
+        base = size
+        head = _TAG.match(p[9])
+        if head:
+            mm = _FS.search(head.group(0))
+            if mm:
+                base = float(mm.group(1))
+        vis = _TAG.sub("", p[9]).replace("\\h", " ")
+        widest = max([_text_w(x, font, base, bold) for x in vis.split("\\N") if x.strip()] + [0.0])
+        if widest <= lim:
+            out.append(ln)
+            continue
+        k = lim / widest
+        text = _FS.sub(lambda q: "\\fs%s" % _fs_num(float(q.group(1)) * k), p[9])
+        if not (head and _FS.search(head.group(0))):
+            text = "{\\fs%s}" % _fs_num(size * k) + text
+        p[9] = text
+        out.append(",".join(p))
+    return "\n".join(out)
+
+
 _SENT_END = re.compile("[\u1362\u1367?!]$")
 
 
@@ -770,8 +830,11 @@ def build(words, style, width, height, font=FONT, opts=None):
     words = _mark_emphasis([(_clean(w[0]), float(w[1]), float(w[2])) for w in words if _clean(w[0])], o["emph"])
     h = float(height)
     portrait = height > width
-    if style not in SELF_PLACED:
-        K *= _legacy_fit(words, font, round(K * h * 0.06), width, NW, o)
+    # 1.94.63 (E2b): no more "every caption as small as the video's widest
+    # phrase" (_legacy_fit) - a line too wide for the frame is made smaller
+    # itself (_fit_lines); and tall video gets phone-size text
+    if height > width:
+        K *= PORTRAIT_K
     lines = []
     if style in ("karaoke", "fill"):
         size = round(K * h * (0.050 if portrait else 0.060))
@@ -997,7 +1060,7 @@ def build(words, style, width, height, font=FONT, opts=None):
             script = script.replace(c, o["color"])
     if o["text"]:
         script = script.replace(WHITE, o["text"])
-    script = _latin_partners(_apply_layout(script, style, width, height, o))
+    script = _fit_lines(_latin_partners(_apply_layout(script, style, width, height, o)), width, height)
     return script.replace("[Events]\n", "; amh-bottom: %.4f\n[Events]\n" % caption_bottom(script, style, width, height, o), 1)
 
 
@@ -1025,7 +1088,7 @@ def _build_template(words, style, width, height, font=FONT, opts=None):
     if anim in LETTER_ANIMS:
         lines = _letters(lines, anim)
     script = _header(width, height, st) + "\n".join(_smooth_fades(lines)) + "\n"
-    script = _latin_partners(_apply_layout(script, style, width, height, o))
+    script = _fit_lines(_latin_partners(_apply_layout(script, style, width, height, o)), width, height)
     return script.replace("[Events]\n", "; amh-bottom: %.4f\n[Events]\n" % caption_bottom(script, style, width, height, o), 1)
 
 
@@ -1925,7 +1988,7 @@ def _tpl_size(look, width, height, o):
     portrait = height > width
     fid = look["font"] if look["font"] in FONTS else "sans"
     font = FONTS[fid]
-    K = o["k"] * float((_face(font) or {}).get("scale", 1.0))
+    K = o["k"] * float((_face(font) or {}).get("scale", 1.0)) * (PORTRAIT_K if portrait else 1.0)
     size = max(8, int(round(K * h * (0.050 if portrait else 0.060) * look["size"])))
     return size, font
 

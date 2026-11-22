@@ -191,13 +191,33 @@ check(A._text_w(long[0][0], "Noto Sans Ethiopic", size) <= 1080 * 0.86 + 1, "a v
 # shrink to fit a portrait frame instead of running off both edges (1.94.12)
 crowded = [(w, i * 0.2, i * 0.2 + 0.18) for i, w in enumerate(
     ("ኢትዮጵያውያንንናንንናንንንን", "አስተዳደር", "መረጃዎችን", "ማግኘት", "እንችላለን"))]
-style_size = lambda txt: float([l for l in txt.splitlines() if l.startswith("Style:")][0].split(",")[2])
+# 1.94.63 (E2b): only the crowded LINE is drawn smaller (its own \fs), the
+# look keeps its size for every other caption (was: the whole video shrank)
+def _line_widths(txt):
+    sty = {}
+    for l in txt.splitlines():
+        if l.startswith("Style: "):
+            f = l[7:].split(",")
+            sty[f[0]] = (f[1], float(f[2]), f[7].strip() == "-1")
+    out = []
+    for l in txt.splitlines():
+        if not l.startswith("Dialogue: "):
+            continue
+        q = l.split(",", 9)
+        font, size, bold = sty[q[3]]
+        head = A._TAG.match(q[9])
+        m = A._FS.search(head.group(0)) if head else None
+        size = float(m.group(1)) if m else size
+        vis = A._TAG.sub("", q[9])
+        out.append((max([A._text_w(x, font, size, bold) for x in vis.split("\\N") if x.strip()] + [0]), bool(m)))
+    return out
 for st in A.STYLES:
     if st in A.SELF_PLACED:
         continue
-    normal = style_size(A.build(W, st, 1080, 1920))
-    tight = style_size(A.build(crowded, st, 1080, 1920))
-    check(tight < normal, "%s: a crowded phrase shrinks instead of being cut off (%s < %s)" % (st, tight, normal))
+    ws = _line_widths(A.build(crowded, st, 1080, 1920))
+    check(ws and max(w for w, _ in ws) <= 1080 * A.FIT_TALL * 1.02, "%s: a crowded phrase is drawn smaller to fit, not cut off (%d px)" % (st, max(w for w, _ in ws)))
+    nm = _line_widths(A.build(W, st, 1080, 1920))
+    check(not any(f for w, f in nm if w < 1080 * A.FIT_TALL * 0.9), "%s: ordinary phrases keep the look's full size" % st)
 t = A.build(W, "glide", 1080, 1920, opts={"color": "#FF3B30"})
 check("&H00303BFF" in t and A.VIOLET not in t, "the colour option paints the glide pill")
 t = A.build(W, "spotlight", 1080, 1920, opts={"color": "#FF3B30"})
@@ -546,6 +566,18 @@ _ass = A.build(A.words_from_cues(_cap), "bold", 1080, 1920)      # (the caption 
 check("እንነጋገራለን በ2018" not in re.sub(r"\{[^}]*\}", "", _ass), "a rendered look shows no phrase mixing two captions")
 _stale = A.build([("ሀ", 0.0, 0.3), ("ለ", 0.3, 0.6), ("ሐ", 0.6, 0.9), ("መ", 0.9, 1.2)], "bold", 1080, 1920)
 check("ሀ" in _stale, "words given straight to build() (no captions behind them) still render")
+
+# 1.94.63 (E2b) _fit_lines: one line made smaller, every size in it alike
+_scr = ("[V4+ Styles]\nStyle: S,Noto Sans Ethiopic,100,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,4,2,2,10,10,10,1\n[Events]\n"
+        "Dialogue: 0,0:00:00.00,0:00:01.00,S,,0,0,0,,{\\an2}" + "\u1200" * 60 + "{\\fs100}ABC{\\fs100}\n"
+        "Dialogue: 0,0:00:01.00,0:00:02.00,S,,0,0,0,,{\\an2}\u1200\u1208\n")
+_fit = A._fit_lines(_scr, 1080, 1920).splitlines()
+_d1 = [l for l in _fit if l.startswith("Dialogue") and "ABC" in l][0]
+_szs = [float(x) for x in re.findall(r"\\fs(\d+(?:\.\d+)?)", _d1)]
+check(_szs and all(x < 100 for x in _szs) and len(set(_szs)) == 1, "a too-wide line: every font size in it smaller by the same factor %s" % ascii(_szs))
+check(_d1.split(",,", 1)[1].startswith("0,0,0,,{\\fs"), "its new size is set at the line's start")
+check("\\fs" not in [l for l in _fit if l.startswith("Dialogue") and "ABC" not in l][0], "a short line is left as it was")
+check(A._fit_lines(_scr, 4000, 1000) == _scr, "wide enough: nothing changes")
 
 print("\nALL PASS" if not fails else "\nFAILURES: %d" % fails)
 sys.exit(1 if fails else 0)

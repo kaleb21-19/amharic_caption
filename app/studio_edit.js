@@ -5112,7 +5112,7 @@
       }
       if (job.caps && typeof renderStyled === 'function') {
         folder();
-        await renderStyled(Object.assign({}, job.caps, { mode: 'script', width: W, height: H, fps: FPS, duration: tot, out: path.join(cwd, 'c.ass') }));
+        await renderStyled(Object.assign({}, job.caps, { opts: E.capsOptsFor(job.caps.opts, st.fmt, f), mode: 'script', width: W, height: H, fps: FPS, duration: tot, out: path.join(cwd, 'c.ass') }));
         made.push(path.join(cwd, 'c.ass')); ass.push('c.ass');
       }
       const kind = E.EXPORT_KINDS[job.kind] ? job.kind : 'h264';

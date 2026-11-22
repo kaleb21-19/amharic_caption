@@ -944,4 +944,13 @@ test('1.94.61 E1b: box select - what the dragged box touches, in time and in its
   assert.deepStrictEqual(E.boxHits(cands, { t0: 0, t1: 30, y0: 90, y1: 190 }), [], 'between the lanes: nothing');
 });
 
+test('1.94.63 E2b: a caption height dragged in the shape of the project is not carried into the other shape', () => {
+  assert.deepStrictEqual(E.capsOptsFor({ y: 0.9, size: 'l' }, '16:9', '9:16'), { size: 'l' }, 'wide project -> Shorts: the safe place');
+  assert.deepStrictEqual(E.capsOptsFor({ y: 0.9 }, '16:9', '16:9'), { y: 0.9 }, 'same shape: as dragged');
+  assert.deepStrictEqual(E.capsOptsFor({ y: 0.8 }, '9:16', '4:5'), { y: 0.8 }, 'tall to tall: as dragged');
+  assert.deepStrictEqual(E.capsOptsFor({ y: 0.8 }, '9:16', '16:9'), {});
+  assert.deepStrictEqual(E.capsOptsFor(null, '9:16', '16:9'), {});
+  const o = { y: 0.5 }; E.capsOptsFor(o, '16:9', '9:16'); assert.strictEqual(o.y, 0.5, 'the options of the project are not changed');
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');
