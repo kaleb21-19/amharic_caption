@@ -6,166 +6,55 @@ import StudioMock from "@/components/StudioMock";
 import StyleShowcase from "@/components/StyleShowcase";
 import WhatsNew from "@/components/WhatsNew";
 import DemoVideo from "@/components/DemoVideo";
+import Bento from "@/components/Bento";
+import CountUp from "@/components/CountUp";
+import Spotlight from "@/components/Spotlight";
 import Tx from "@/components/Tx";
 import {
-  BOT_URL, ACCT_NAME, PRICE, PRICE_AM, PRICE_NUM, PRICE_M1_NUM, PRICE_M2_NUM,
+  BOT_URL, ACCT_NAME, PRICE_NUM, PRICE_M1_NUM, PRICE_M2_NUM,
 } from "@/lib/site";
 
+// W2 (2026-11): the page redesigned to be read in seconds - short lines, one
+// idea per block, the product shown moving. The long explanations live in
+// the FAQ and the install guide.
+
 const steps = [
-  {
-    n: "1",
-    title: { am: "አንድ ጊዜ ይጫኑ", en: "Install once" },
-    text: {
-      am: "ጫኚውን ሁለቴ ይጫኑ። አንድ ደቂቃ ገደማ ይወስዳል፤ የቴክኒክ እውቀት አያስፈልግም። Premiere እና After Effects ውስጥ ፓነል፣ ዴስክቶፕ ላይ ደግሞ ለCapCut እና DaVinci «Amharic Captions Studio» ያገኛሉ።",
-      en: "Double-click the installer — about a minute, no technical skills needed. You get a panel inside Premiere and After Effects, and Amharic Captions Studio on your desktop for CapCut and DaVinci.",
-    },
-  },
-  {
-    n: "2",
-    title: { am: "ቪዲዮ ወይም ክሊፕ ይምረጡ", en: "Pick your video" },
-    text: {
-      am: "Premiere ላይ ክሊፕ፣ Work Area ወይም ሙሉ ኤዲቱን ይምረጡ፤ ለCapCut ወይም DaVinci ቪዲዮውን ወደ Studio ይጎትቱ። ካፕሽኖቹ ያለ ኢንተርኔት በደቂቃዎች ይጻፋሉ።",
-      en: "In Premiere select a clip, the work area or the whole sequence; for CapCut or DaVinci drag the video into the Studio. The captions are written in minutes, offline.",
-    },
-  },
-  {
-    n: "3",
-    title: { am: "ያርሙ፣ ስታይል ይምረጡ፣ ይላኩ", en: "Fix, style, send" },
-    text: {
-      am: "አጠራጣሪ ቃላትን አንድ በአንድ ያረጋግጡ፣ ከ60 በላይ ስታይሎች አንዱን ይምረጡ፣ ከዚያ ወደ Premiere ታይምላይን፣ ወደ CapCut ወይም ወደ DaVinci ይላኩ — ወይም ካፕሽኑ የተጻፈበት MP4 ቪዲዮ ያውጡ።",
-      en: "Check the doubtful words one by one, pick one of 60+ styles, then send the captions to your Premiere timeline, CapCut or DaVinci — or export an MP4 with the captions burned in.",
-    },
-  },
+  { title: { am: "አንድ ጊዜ ይጫኑ", en: "Install once" },
+    text: { am: "ጫኚውን ሁለቴ ይጫኑ — አንድ ደቂቃ ገደማ። የቴክኒክ እውቀት አያስፈልግም።", en: "Double-click the installer — about a minute. No technical skills needed." } },
+  { title: { am: "ቪዲዮ ይምረጡ", en: "Pick your video" },
+    text: { am: "ክሊፕ ይምረጡ ወይም ቪዲዮውን ወደ Studio ይጎትቱ። ካፕሽኖቹ ያለ ኢንተርኔት በደቂቃዎች ይጻፋሉ።", en: "Select a clip or drag the video into the Studio. Captions are written in minutes, offline." } },
+  { title: { am: "ያርሙ፣ ስታይል ይምረጡ፣ ይላኩ", en: "Fix, style, send" },
+    text: { am: "ከ60 በላይ ስታይሎች አንዱን ይምረጡ፣ ወደ ኤዲተርዎ ይላኩ — ወይም MP4 ያውጡ።", en: "Pick one of 60+ styles and send it to your editor — or export an MP4." } },
 ];
 
 // The four editors, each with what actually happens there.
 const editors = [
-  {
-    icon: "Pr", name: "Premiere Pro",
-    text: {
-      am: "ፓነሉ ውስጥ ይስሩ። ካፕሽኖቹ በመረጡት ስታይል በታይምላይኑ ላይ ይገባሉ — እያንዳንዱ ካፕሽን የራሱ ክሊፕ ነው፤ አንዱን ቢያርሙ ያ ብቻ ይቀየራል። ቀላል የካፕሽን ትራክም ይቻላል።",
-      en: "Work in the panel. Captions land on your timeline in the style you chose — each caption its own clip, so fixing one redraws only that one. A plain caption track works too.",
-    },
-  },
-  {
-    icon: "Ae", name: "After Effects",
-    text: {
-      am: "ያው ፓነል — ካፕሽኖቹ በመረጡት ስታይል በኮምፖዚሽንዎ ውስጥ ይገባሉ፣ ለተጨማሪ አኒሜሽን ዝግጁ።",
-      en: "The same panel — captions arrive in your composition in the style you chose, ready for more animation.",
-    },
-  },
-  {
-    icon: "✂", name: "CapCut",
-    text: {
-      am: "Studio በአንድ ጠቅታ አዲስ የCapCut ፕሮጀክት ይሰራል — ቪዲዮው፣ በስታይሉ ያሉ ካፕሽኖችና አኒሜሽናቸው ውስጥ ሆነው። እያንዳንዱ ካፕሽን የሚታረም የCapCut ጽሑፍ ነው። ያለዎትን ፕሮጀክትም ካፕሽን ማድረግና ማዘመን ይችላሉ።",
-      en: "One click in the Studio makes a new CapCut project — the video, the styled captions and their animation already inside. Every caption is a normal, editable CapCut text. Your own projects can be captioned and updated too.",
-    },
-  },
-  {
-    icon: "◐", name: "DaVinci Resolve",
-    text: {
-      am: "ካፕሽኖቹ በስታይሉ፣ እንደሚታረሙ Text+ በTimelineዎ ላይ ይገባሉ (Workspace → Scripts → Amharic Captions)። ቪዲዮዎ አይነካም። ነፃው DaVinci Resolveም ይሰራል።",
-      en: "Captions arrive styled, as editable Text+ on your timeline (Workspace → Scripts → Amharic Captions). Your video isn't touched. Works in the free DaVinci Resolve too.",
-    },
-  },
-];
-
-// More than captions: what an editor actually gets (each one in the product today).
-const features = [
-  {
-    icon: "Aa",
-    title: { am: "ከ60 በላይ ስታይሎች · 12 የአማርኛ ፎንቶች", en: "60+ styles · 12 Amharic fonts" },
-    text: {
-      am: "ካራኦኬ፣ Bounce፣ Neon፣ Habesha… Typewriter እና Wave አኒሜሽን፣ በአንድ ወይም በሁለት መስመር። የራስዎን ስታይል አስቀምጠው በአንድ ጠቅታ ይጠቀሙ።",
-      en: "Karaoke, Bounce, Neon, Habesha… Typewriter and Wave animation, on one line or two. Save your own look and reuse it in one click.",
-    },
-  },
-  {
-    icon: "✓",
-    title: { am: "ቃላትን አንድ በአንድ ያረጋግጡ", en: "Check words one by one" },
-    text: {
-      am: "አጠራጣሪ ቃላት ይደምቃሉ፤ እያንዳንዱን ይሰሙታል። Enter = ትክክል፣ ይጻፉ = ያርሙ። ከ69,000 ቃላት የአማርኛ መዝገበ ቃላት ምክር ይሰጣል።",
-      en: "Doubtful words are highlighted and play one by one. Enter = right, type = fix. Suggestions come from a 69,000-word Amharic dictionary.",
-    },
-  },
-  {
-    icon: "🧠",
-    title: { am: "ቃላትዎን ይማራል", en: "Learns your words" },
-    text: {
-      am: "አንድ ጊዜ ያረሙት ቃል በሚቀጥለው ቪዲዮ በራሱ ይስተካከላል። ለእያንዳንዱ ደንበኛ የራሱ ስሞችና ቃላት።",
-      en: "A word you fix once is fixed by itself in the next video. Each client keeps their own names and terms.",
-    },
-  },
-  {
-    icon: "✂",
-    title: { am: "ቪዲዮውን በጽሑፍ ያርሙ", en: "Edit the video with text" },
-    text: {
-      am: "ቃላትን ይምረጡና ✂ ይጫኑ — ያ የቪዲዮው ክፍል ይቆረጣል፣ ካፕሽኖቹም አብረው ይንቀሳቀሳሉ።",
-      en: "Select words and press ✂ — that part of the video is cut, and the captions move with it.",
-    },
-  },
-  {
-    icon: "⏸",
-    title: { am: "ጸጥታን ያጽዱ", en: "Clean the silences" },
-    text: {
-      am: "ረጅም ዝምታ፣ ተደጋጋሚ ሙከራዎችና «እ…» ድምፆች በአንድ ጠቅታ ይወጣሉ — በሴኩዌንስዎ ቅጂ ላይ።",
-      en: "Long pauses, repeated takes and “እ…” sounds go in one click — on a copy of your sequence.",
-    },
-  },
-  {
-    icon: "▶",
-    title: { am: "ለTikTok ዝግጁ ቪዲዮ", en: "Ready for TikTok" },
-    text: {
-      am: "Amharic Captions Studio፦ ቆርጠው፣ ሙዚቃ ጨምረው፣ ለTikTok፣ Reels ወይም YouTube MP4 ያውጡ — ካፕሽኑ ተጽፎበት፣ በግራፊክስ ካርድ በፍጥነት።",
-      en: "Amharic Captions Studio: cut, add music, and export an MP4 for TikTok, Reels or YouTube — captions burned in, fast on your graphics card.",
-    },
-  },
-  {
-    icon: "አ",
-    title: { am: "በላቲን ፊደል አማርኛ ይጻፉ", en: "Type Amharic with Latin letters" },
-    text: {
-      am: "selam ብለው ይጻፉ → ሰላም። ካፕሽን ሲያርሙ የአማርኛ ኪቦርድ አያስፈልግም።",
-      en: "Type selam → ሰላም. No Amharic keyboard needed to fix a caption.",
-    },
-  },
-  {
-    icon: "🔒",
-    title: { am: "ሁሉም በኮምፒውተርዎ", en: "Everything on your computer" },
-    text: {
-      am: "ቪዲዮዎ ወደ የትም አይላክም። ያለ ኢንተርኔት ይሰራል፤ የዳታ ወጪ የለም።",
-      en: "Your video is never uploaded. It works offline — no data costs.",
-    },
-  },
+  { icon: "Pr", cls: "pr", name: "Premiere Pro",
+    text: { am: "ካፕሽኖቹ በስታይሉ በታይምላይኑ ላይ ይገባሉ — እያንዳንዱ የራሱ፣ የሚታረም ክሊፕ።", en: "Captions land on your timeline in your style — each its own editable clip." } },
+  { icon: "Ae", cls: "ae", name: "After Effects",
+    text: { am: "በስታይሉ በኮምፖዚሽንዎ ውስጥ ይገባሉ — ለተጨማሪ አኒሜሽን ዝግጁ።", en: "Styled captions arrive in your composition, ready for more animation." } },
+  { icon: "✂", cls: "cc", name: "CapCut",
+    text: { am: "በአንድ ጠቅታ አዲስ የCapCut ፕሮጀክት — ቪዲዮውና አኒሜሽን ያላቸው፣ የሚታረሙ ካፕሽኖች።", en: "One click makes a CapCut project — the video plus animated, editable captions." } },
+  { icon: "◐", cls: "dv", name: "DaVinci Resolve",
+    text: { am: "እንደሚታረም Text+ በTimelineዎ ላይ። ነፃው DaVinci Resolveም ይሰራል።", en: "Editable Text+ on your timeline. The free DaVinci Resolve works too." } },
 ];
 
 const buySteps = [
   {
     t: { am: "ይጫኑና 30 ደቂቃ በነጻ ይሞክሩ", en: "Install and try 30 minutes free" },
-    c: {
-      am: "ከመክፈልዎ በፊት በራስዎ ቪዲዮ እንደሚሰራ ያረጋግጡ።",
-      en: "Make sure it works on your own footage before you pay anything.",
-    },
+    c: { am: "ከመክፈልዎ በፊት በራስዎ ቪዲዮ እንደሚሰራ ያረጋግጡ።", en: "Make sure it works on your own footage before you pay anything." },
   },
   {
-    t: { am: "በፓነሉ ወይም በStudio «ፈቃድ ይግዙ» ይጫኑ", en: "Press “Buy a license” in the panel or the Studio" },
-    c: {
-      am: "የሚታየውን QR በስልክዎ ይቃኙ — የቴሌግራም ቦቱ ከኮምፒውተርዎ ጋር ተገናኝቶ ይከፈታል። ምንም መቅዳት አያስፈልግም።",
-      en: "Scan the QR with your phone — the Telegram bot opens already linked to your computer. Nothing to copy.",
-    },
+    t: { am: "«ፈቃድ ይግዙ» ይጫኑ", en: "Press “Buy a license”" },
+    c: { am: "በፓነሉ ወይም በStudio። QRውን በስልክዎ ይቃኙ — ቦቱ ከኮምፒውተርዎ ጋር ተገናኝቶ ይከፈታል።", en: "In the panel or the Studio. Scan the QR — the Telegram bot opens already linked to your computer." },
   },
   {
-    t: { am: "ፕላን ይምረጡና በባንክ ያስተላልፉ", en: "Choose a plan and transfer by bank" },
-    c: {
-      am: `ለ ${ACCT_NAME} (CBE፣ አቢሲኒያ ወይም ዘመን ባንክ) ያስተላልፉ፣ የደረሰኙን ስክሪንሾት ለቦቱ ይላኩ።`,
-      en: `Pay ${ACCT_NAME} (CBE, Abyssinia or Zemen) and send the receipt screenshot to the bot.`,
-    },
+    t: { am: "በባንክ ያስተላልፉ", en: "Transfer by bank" },
+    c: { am: `ለ ${ACCT_NAME} (CBE፣ አቢሲኒያ ወይም ዘመን) ይክፈሉ፣ የደረሰኙን ስክሪንሾት ለቦቱ ይላኩ።`, en: `Pay ${ACCT_NAME} (CBE, Abyssinia or Zemen) and send the receipt screenshot to the bot.` },
   },
   {
     t: { am: "በራሱ ይነቃል", en: "It activates itself" },
-    c: {
-      am: "ክፍያው ሲረጋገጥ ፓነሉ ወይም መተግበሪያው በራሱ ይነቃል — ምንም መለጠፍ አያስፈልግም። በስልክ ብቻ ከከፈሉ አጭር ኮድ ይደርስዎታል፤ «የፈቃድ ቁልፍ» ላይ ጽፈው «አግብር» ይጫኑ።",
-      en: "Once the payment is confirmed the panel or app turns itself on — nothing to paste. Paid from your phone only? You get a short code; type it into “License key” and press Activate.",
-    },
+    c: { am: "ክፍያው ሲረጋገጥ ፓነሉ ወይም መተግበሪያው በራሱ ይነቃል — ምንም መለጠፍ አያስፈልግም።", en: "Once the payment is confirmed the panel or app turns itself on — nothing to paste." },
   },
 ];
 
@@ -208,8 +97,8 @@ const faqs = [
   {
     q: { am: "ፈቃዱ እንዴት ይሰራል?", en: "How does the license work?" },
     a: {
-      am: "አንድ ቁልፍ ለአንድ ኮምፒውተር። ኮምፒውተር ከቀየሩ ወይም Windows እንደገና ከጫኑ ድጋፍን ያግኙ፤ ፈቃድዎን እናዛውርልዎታለን። ሁለተኛ አይግዙ።",
-      en: "One key per computer. Changed computer or reinstalled Windows? Message support and we'll move your license. Don't buy a second one.",
+      am: "አንድ ቁልፍ ለአንድ ኮምፒውተር። ኮምፒውተር ከቀየሩ ወይም Windows እንደገና ከጫኑ ድጋፍን ያግኙ፤ ፈቃድዎን እናዛውርልዎታለን። ሁለተኛ አይግዙ። በስልክ ብቻ ከከፈሉ አጭር ኮድ ይደርስዎታል፤ «የፈቃድ ቁልፍ» ላይ ጽፈው «አግብር» ይጫኑ።",
+      en: "One key per computer. Changed computer or reinstalled Windows? Message support and we'll move your license. Don't buy a second one. Paid from your phone only? You get a short code; type it into “License key” and press Activate.",
     },
   },
   {
@@ -234,14 +123,13 @@ function Words({ text, from = 0 }) {
 }
 
 export default function HomePage() {
-  const priceLbl = Number(PRICE_NUM).toLocaleString("en-US");
   const num = (n) => Number(n).toLocaleString("en-US");
   // The three plans, each as big and clear as the others (owner, 2026-10-25:
   // "500 and 900 as clear and bold as 2,500").
   const plans = [
     { n: num(PRICE_M1_NUM), am: "1 ወር", en: "1 month", subAm: "30 ቀን", subEn: "30 days" },
     { n: num(PRICE_M2_NUM), am: "2 ወር", en: "2 months", subAm: "60 ቀን", subEn: "60 days" },
-    { n: priceLbl, am: "ለዘለቄታው", en: "Forever", subAm: "አንድ ጊዜ ብቻ", subEn: "pay once", best: true },
+    { n: num(PRICE_NUM), am: "ለዘለቄታው", en: "Forever", subAm: "አንድ ጊዜ ይክፈሉ፣ ለዘላለም ይጠቀሙ", subEn: "pay once, yours for good", best: true },
   ];
 
   // Search engines get the English FAQ; the Amharic copy is on the page itself.
@@ -261,81 +149,74 @@ export default function HomePage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(faqLd) }}
       />
+      <Spotlight />
 
       {/* ---------------------------------------------------------- hero */}
-      <section className="hero" id="top">
-        <div className="container">
-          <div className="hero-grid">
-            <div className="hero-copy">
-              {/* W1: one line above the headline - the moat (the editors are named right below) */}
-              <p className="hero-moat">
-                <span className="hero-moat-dot" aria-hidden="true" />
-                <Tx am="ለአማርኛ ብቻ የተሰራ — ያለ ኢንተርኔት፣ በኮምፒውተርዎ ላይ" en="Made only for Amharic — offline, on your own computer" />
-              </p>
+      <section className="hero hero2" id="top">
+        <div className="hero2-bg" aria-hidden="true"><i /><i /><i /></div>
+        <div className="container hero2-in">
+          <p className="hero-moat">
+            <span className="hero-moat-dot" aria-hidden="true" />
+            <Tx am="ለአማርኛ ብቻ የተሰራ — ያለ ኢንተርኔት፣ በኮምፒውተርዎ ላይ" en="Made only for Amharic — offline, on your own computer" />
+          </p>
 
-              <h1 className="hero-title">
-                <Tx
-                  am={<Words text="የአማርኛ ካፕሽን በደቂቃዎች — በሰዓታት አይደለም።" />}
-                  en={<><Words text="Amharic subtitles in minutes," /><br className="hide-sm" /> <Words text="not hours." from={5} /></>}
-                />
-              </h1>
+          <h1 className="hero-title">
+            <Tx
+              am={<Words text="የአማርኛ ካፕሽን በደቂቃዎች — በሰዓታት አይደለም።" />}
+              en={<><Words text="Amharic subtitles in minutes," /><br className="hide-sm" /> <Words text="not hours." from={5} /></>}
+            />
+          </h1>
 
-              <p className="hero-sub">
-                <Tx
-                  am="እያንዳንዱን መስመር በእጅ መጻፍ ይቅር፦ ፕሮግራሙ በስታይል ያሉ፣ የሚታረሙ የአማርኛ ካፕሽኖችን ይጽፍልዎታል። Adobe አያስፈልግም — የአማርኛ ካፕሽን ስቱዲዮ ብቻውን ካፕሽን ይሰራል፣ ቪዲዮ ያስተካክላል፣ ለTikTok እና YouTube ይልካል። ደግሞም በPremiere እና After Effects ታይምላይን ላይ፣ በCapCut ወይም በDaVinci ውስጥ። ያለ ኢንተርኔት።"
-                  en="Stop typing every line by hand: get styled, editable Amharic captions. No Adobe needed — the Amharic Captions Studio app makes the captions, edits the video and exports it for TikTok and YouTube on its own. Or use it on your Premiere and After Effects timeline, in CapCut or DaVinci Resolve. Fully offline."
-                />
-              </p>
+          <p className="hero-sub">
+            <Tx
+              am="በስታይል ያሉ፣ የሚታረሙ የአማርኛ ካፕሽኖች — ለPremiere፣ After Effects፣ CapCut እና DaVinci። ወይም ያለ Adobe፣ በራሱ በAmharic Captions Studio።"
+              en="Styled, editable Amharic captions for Premiere, After Effects, CapCut and DaVinci — or with no Adobe at all, in the Amharic Captions Studio."
+            />
+          </p>
 
-              <div className="hero-cta cta-row">
-                <a className="btn btn-primary btn-lg" href={BOT_URL} target="_blank" rel="noopener">
-                  <Tx am="ቁልፍ ያግኙ — ከ500 ብር ጀምሮ" en="Get your key — from ETB 500" />
-                </a>
-                <Link className="btn btn-ghost btn-lg" href="/install/">
-                  <Tx am="የመጫኛ መመሪያ" en="Install guide" />
-                </Link>
-              </div>
-
-              <p className="hero-note">
-                <Tx am="መጀመሪያ 30 ደቂቃ በነጻ ይሞክሩ፤ ከዚያ፦" en="Try 30 minutes free first, then:" />
-              </p>
-              <ul className="hero-plans">
-                {plans.map((pl) => (
-                  <li key={pl.en} className={pl.best ? "is-best" : undefined}>
-                    <span className="hp-term"><Tx am={pl.am} en={pl.en} /></span>
-                    <span className="hp-price"><Tx am={`${pl.n} ብር`} en={`ETB ${pl.n}`} /></span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            {/* Deliberately NOT wrapped in Reveal: this is the hero visual and
-                the largest paint on the page. Fading it in delays the one thing
-                a visitor came to see, for an effect they never scrolled to. */}
-            <div className="hero-visual">
-              <StudioMock />
-            </div>
+          <div className="hero-cta cta-row">
+            <a className="btn btn-primary btn-lg" href={BOT_URL} target="_blank" rel="noopener">
+              <Tx am="ቁልፍ ያግኙ — ከ500 ብር ጀምሮ" en="Get your key — from ETB 500" />
+            </a>
+            <Link className="btn btn-ghost btn-lg" href="/install/">
+              <Tx am="በነጻ ይሞክሩ" en="Try it free" /> <span aria-hidden="true">→</span>
+            </Link>
           </div>
+
+          <ul className="hero-meta">
+            <li><Tx am="30 ደቂቃ በነጻ" en="30 minutes free" /></li>
+            <li>Windows · macOS</li>
+            <li><Tx am="ቪዲዮዎ አይላክም" en="Nothing uploaded" /></li>
+          </ul>
+        </div>
+
+        {/* Deliberately NOT wrapped in Reveal: this is the hero visual and
+            the largest paint on the page. */}
+        <div className="container hero2-visual">
+          <div className="hero2-stage">
+            <StudioMock />
+          </div>
+        </div>
+
+        {/* the four editors, as a logo row */}
+        <div className="container">
+          <p className="works-label"><Tx am="ከእነዚህ ጋር ይሰራል" en="Works with" /></p>
+          <ul className="works-row">
+            {editors.map((e) => (
+              <li key={e.name}><span className={"wr-ico " + e.cls} aria-hidden="true">{e.icon}</span>{e.name}</li>
+            ))}
+          </ul>
         </div>
       </section>
 
-      {/* A thin band, not a section: the practical reasons this matters to an
-          editor in Ethiopia, said plainly. */}
-      <section className="strip">
+      {/* ------------------------------------------------------ numbers (product facts) */}
+      <section className="stats" aria-label="In numbers">
         <div className="container">
-          <ul className="strip-list">
-            <li>
-              <strong><Tx am="ኢንተርኔት አያስፈልግም" en="No internet needed" /></strong>
-              <span><Tx am="ኔትወርክ ቢጠፋም ይሰራል" en="Works when the connection doesn't" /></span>
-            </li>
-            <li>
-              <strong><Tx am="የዳታ ወጪ የለም" en="No data charges" /></strong>
-              <span><Tx am="ቪዲዮዎ ወደ ኢንተርኔት አይላክም" en="Nothing is uploaded, ever" /></span>
-            </li>
-            <li>
-              <strong><Tx am="ለዘለቄታው አንድ ጊዜ" en="Pay once, forever" /></strong>
-              <span><Tx am={<><b>500</b> · <b>900</b> · <b>2,500</b> ብር</>} en={<>ETB <b>500</b> · <b>900</b> · <b>2,500</b></>} /></span>
-            </li>
+          <ul className="stats-row">
+            <li><strong><CountUp to={60} suffix="+" /></strong><span><Tx am="የካፕሽን ስታይሎች" en="caption styles" /></span></li>
+            <li><strong><CountUp to={12} /></strong><span><Tx am="የአማርኛ ፎንቶች" en="Amharic fonts" /></span></li>
+            <li><strong><CountUp to={69000} /></strong><span><Tx am="ቃላት ያሉት መዝገበ ቃላት" en="word dictionary" /></span></li>
+            <li><strong>0</strong><span><Tx am="ወደ ኢንተርኔት የሚላክ ፋይል" en="files uploaded" /></span></li>
           </ul>
         </div>
       </section>
@@ -344,10 +225,12 @@ export default function HomePage() {
 
       <DemoVideo />
 
+      <Bento />
+
       <StyleShowcase />
 
       {/* ------------------------------------------------------ how it works */}
-      <section className="section" id="how" style={{ background: "var(--bg-soft)" }}>
+      <section className="section" id="how">
         <div className="container">
           <Reveal>
             <div className="section-head center">
@@ -356,73 +239,36 @@ export default function HomePage() {
             </div>
           </Reveal>
           <Reveal className="steps-wrap">
-          <span className="steps-line" aria-hidden="true"><i /></span>
-          <div className="steps">
-            {steps.map((s, i) => (
-              <Reveal key={s.n} delay={i * 110}>
-                <div className="step">
-                  <span className="step-n">{s.n}</span>
+            <span className="steps-line" aria-hidden="true"><i /></span>
+            <ol className="steps2">
+              {steps.map((s, i) => (
+                <li key={s.title.en} className="step2 spot" style={{ "--d": `${i * 120}ms` }}>
+                  <span className="step2-n" aria-hidden="true">{i + 1}</span>
                   <h3><Tx am={s.title.am} en={s.title.en} /></h3>
                   <p><Tx am={s.text.am} en={s.text.en} /></p>
-                </div>
-              </Reveal>
-            ))}
-          </div>
+                </li>
+              ))}
+            </ol>
           </Reveal>
         </div>
       </section>
 
       {/* ------------------------------------------------- works with editors */}
-      <section className="section" id="editors">
+      <section className="section section-soft" id="editors">
         <div className="container">
           <Reveal>
             <div className="section-head center">
               <p className="eyebrow"><Tx am="ከኤዲተርዎ ጋር ይሰራል" en="Works with your editor" /></p>
-              <h2><Tx am="Premiere፣ After Effects፣ CapCut ወይም DaVinci።" en="Premiere, After Effects, CapCut or DaVinci." /></h2>
-              <p className="section-sub">
-                <Tx
-                  am="አንድ ፈቃድ — ሁሉም። በሁሉም ላይ ካፕሽኑን ቪዲዮውን እያዩ ያስተካክላሉ።"
-                  en="One license covers all of them. Everywhere, you fix the captions while you watch the video."
-                />
-              </p>
+              <h2><Tx am="አንድ ፈቃድ — አራት ኤዲተሮች።" en="One license. Four editors." /></h2>
             </div>
           </Reveal>
-          <div className="editors">
+          <div className="editors2">
             {editors.map((e, i) => (
-              <Reveal key={e.name} delay={i * 90}>
-                <div className="editor-card">
-                  <span className="editor-icon" aria-hidden="true">{e.icon}</span>
+              <Reveal key={e.name} delay={i * 80}>
+                <div className="editor2 spot">
+                  <span className={"editor2-ico " + e.cls} aria-hidden="true">{e.icon}</span>
                   <h3>{e.name}</h3>
                   <p><Tx am={e.text.am} en={e.text.en} /></p>
-                </div>
-              </Reveal>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ------------------------------------------------------- features */}
-      <section className="section" id="features" style={{ background: "var(--bg-soft)" }}>
-        <div className="container">
-          <Reveal>
-            <div className="section-head center">
-              <p className="eyebrow"><Tx am="ከካፕሽን በላይ" en="More than captions" /></p>
-              <h2><Tx am="ኤዲተሮች የሚፈልጉት ሁሉ።" en="Everything an editor needs." /></h2>
-              <p className="section-sub">
-                <Tx
-                  am="በፓነሉም በStudioም — አንድ ፈቃድ፣ ሁሉም ባህሪያት።"
-                  en="In the panel and in the Studio — one license, every feature."
-                />
-              </p>
-            </div>
-          </Reveal>
-          <div className="editors">
-            {features.map((f, i) => (
-              <Reveal key={f.title.en} delay={(i % 4) * 80}>
-                <div className="editor-card">
-                  <span className="editor-icon" aria-hidden="true">{f.icon}</span>
-                  <h3><Tx am={f.title.am} en={f.title.en} /></h3>
-                  <p><Tx am={f.text.am} en={f.text.en} /></p>
                 </div>
               </Reveal>
             ))}
@@ -438,108 +284,79 @@ export default function HomePage() {
               <p className="eyebrow"><Tx am="እውነቱን እንንገርዎ" en="Be realistic" /></p>
               <h2><Tx am="የትኛው ድምፅ በደንብ ይሰራል።" en="What kind of audio works best." /></h2>
               <p className="section-sub">
-                <Tx
-                  am="ምንም የድምፅ-ወደ-ጽሑፍ ፕሮግራም ፍጹም አይደለም። ከገዙ በኋላ ቅር ከሚሰኙ፣ ከመግዛትዎ በፊት ቢያውቁ እንመርጣለን።"
-                  en="No speech-to-text is perfect, and we'd rather you know where it shines before you buy than be disappointed after."
-                />
+                <Tx am="ከመግዛትዎ በፊት ቢያውቁ እንመርጣለን።" en="We'd rather you know before you buy." />
               </p>
             </div>
           </Reveal>
-
-          <div className="quality">
-            <Reveal>
-              <div className="q-card q-good">
-                <h3><Tx am="✓ በጣም ጥሩ ይሰራል" en="✓ Works great" /></h3>
-                <ul>
-                  <li><Tx am={<><strong>ግልጽ ንግግር</strong> — ስቱዲዮ፣ የዜና አይነት አቀራረብ</>} en={<><strong>Clear speech</strong> — studio, news-style delivery</>} /></li>
-                  <li><Tx am={<><strong>ቅርብ ማይክራፎን</strong> — የኮሌታ (lapel) ወይም የጠረጴዛ ማይክ</>} en={<><strong>Close microphone</strong> — lapel or desk mic</>} /></li>
-                  <li><Tx am={<><strong>ጸጥ ያለ አካባቢ</strong> — ከድምፁ ጀርባ ትንሽ ጫጫታ</>} en={<><strong>Quiet background</strong> — little noise behind the voice</>} /></li>
-                  <li><Tx am={<><strong>መደበኛ ክፍሎች</strong> — ቢሮዎች፣ ትናንሽ ስቱዲዮዎች</>} en={<><strong>Normal rooms</strong> — offices, small studios</>} /></li>
-                </ul>
-              </div>
-            </Reveal>
-            <Reveal delay={90}>
-              <div className="q-card q-warn">
-                <h3><Tx am="⚠ ተጨማሪ ማስተካከያ ይፈልጋል" en="⚠ Needs more editing" /></h3>
-                <ul>
-                  <li><Tx am={<><strong>የስልክ ቀረጻ</strong> — ጠባብና የተጨመቀ ድምፅ</>} en={<><strong>Phone recordings</strong> — narrow, compressed audio</>} /></li>
-                  <li><Tx am={<><strong>የውጪ ቀረጻ</strong> — ንፋስ፣ የመኪና ጫጫታ፣ ብዙ ሰው</>} en={<><strong>Outdoor footage</strong> — wind, traffic, crowds</>} /></li>
-                  <li><Tx am={<><strong>የሚደራረቡ ተናጋሪዎች</strong> — ሰዎች በአንድ ጊዜ ሲናገሩ</>} en={<><strong>Overlapping speakers</strong> — people talking across each other</>} /></li>
-                </ul>
-              </div>
-            </Reveal>
-            <Reveal delay={180}>
-              <div className="q-card q-avoid">
-                <h3><Tx am="✗ ይቸገራል" en="✗ Struggles" /></h3>
-                <ul>
-                  <li><Tx am={<><strong>ትላልቅ አዳራሾችና ቤተ ክርስቲያኖች</strong> — ከፍተኛ ማሚቶ (echo) በጣም ከባዱ ነው</>} en={<><strong>Big halls and churches</strong> — strong echo is the hardest case</>} /></li>
-                  <li><Tx am={<><strong>ከንግግሩ ስር ከፍ ያለ ሙዚቃ</strong> — መጀመሪያ የሙዚቃውን ትራክ mute ያድርጉ</>} en={<><strong>Loud music under speech</strong> — mute the music track first</>} /></li>
-                  <li><Tx am={<><strong>በጣም ደካማ ማይክራፎን</strong> — ያለዎትን ምርጥ ድምፅ ይጠቀሙ</>} en={<><strong>Very low-quality mics</strong> — use your best available audio</>} /></li>
-                </ul>
-              </div>
-            </Reveal>
+          <div className="quality2">
+            {[
+              { cls: "good", h: { am: "በጣም ጥሩ", en: "Works great" }, mark: "✓",
+                items: [{ am: "ግልጽ ንግግር", en: "Clear speech" }, { am: "ቅርብ ማይክራፎን", en: "A close microphone" }, { am: "ጸጥ ያለ ክፍል", en: "A quiet room" }] },
+              { cls: "warn", h: { am: "ማስተካከያ ይፈልጋል", en: "Needs more fixing" }, mark: "!",
+                items: [{ am: "የስልክ ቀረጻ", en: "Phone recordings" }, { am: "የውጪ ቀረጻ — ንፋስ፣ መኪና", en: "Outdoors — wind, traffic" }, { am: "የሚደራረቡ ተናጋሪዎች", en: "Overlapping speakers" }] },
+              { cls: "bad", h: { am: "ይቸገራል", en: "Struggles" }, mark: "✗",
+                items: [{ am: "ትላልቅ አዳራሾች — ማሚቶ", en: "Big halls — echo" }, { am: "ከንግግሩ ስር ከፍ ያለ ሙዚቃ", en: "Loud music under speech" }, { am: "በጣም ደካማ ማይክራፎን", en: "A very poor microphone" }] },
+            ].map((q, i) => (
+              <Reveal key={q.cls} delay={i * 80}>
+                <div className={"q2 q2-" + q.cls}>
+                  <h3><span className="q2-mark" aria-hidden="true">{q.mark}</span><Tx am={q.h.am} en={q.h.en} /></h3>
+                  <ul>{q.items.map((it) => <li key={it.en}><Tx am={it.am} en={it.en} /></li>)}</ul>
+                </div>
+              </Reveal>
+            ))}
           </div>
-
         </div>
       </section>
 
       {/* ------------------------------------------------------------ pricing */}
-      <section className="section" id="pricing">
+      <section className="section section-soft" id="pricing">
         <div className="container">
           <Reveal>
             <div className="section-head center">
               <p className="eyebrow"><Tx am="ዋጋ" en="Pricing" /></p>
               <h2><Tx am="አንድ ጊዜ ይክፈሉ — ወይም በወር ይጀምሩ።" en="Pay once — or start monthly." /></h2>
-            </div>
-          </Reveal>
-
-          <Reveal delay={80}>
-            <div className="price-card">
-              <span className="price-badge"><Tx am="ለአንድ ኮምፒውተር · ሁሉም ባህሪያት በሶስቱም" en="1 computer · every feature in all three" /></span>
-              <div className="plans">
-                {plans.map((pl) => (
-                  <div key={pl.en} className={pl.best ? "plan is-best" : "plan"}>
-                    {pl.best && <span className="plan-flag"><Tx am="ምርጥ ዋጋ" en="Best value" /></span>}
-                    <span className="plan-term"><Tx am={pl.am} en={pl.en} /></span>
-                    <span className="plan-price">
-                      <span className="price-now">{pl.n}</span>
-                      <span className="price-cur"><Tx am="ብር" en="ETB" /></span>
-                    </span>
-                    <span className="plan-sub">
-                      <Tx am={pl.subAm} en={pl.subEn} />
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              <ul className="price-features">
-                <li><Tx am="ያልተገደበ ካፕሽን — የፈለጉትን ያህል" en="Unlimited captions — caption as much as you like" /></li>
-                <li><Tx am="Premiere Pro እና After Effects 2022+ — በቀጥታ ታይምላይኑ ላይ" en="Premiere Pro & After Effects 2022+ — straight onto the timeline" /></li>
-                <li><Tx am="CapCut እና DaVinci Resolve — Amharic Captions Studio፦ የሚታረሙ ካፕሽኖች በፕሮጀክትዎ ውስጥ፣ MP4 ለTikTok፣ .srt" en="CapCut & DaVinci Resolve — Amharic Captions Studio: editable captions inside your project, MP4 for TikTok, .srt" /></li>
-                <li><Tx am="ከ60 በላይ ስታይሎች፣ 12 የአማርኛ ፎንቶች፣ አኒሜሽን — ሁሉም ባህሪያት ተካትተዋል" en="60+ styles, 12 Amharic fonts, animation — every feature included" /></li>
-                <li><Tx am="Windows 10/11 እና macOS (Intel ወይም M1/M2/M3)" en="Windows 10/11 & macOS (Intel or Apple silicon)" /></li>
-                <li><Tx am="በአማርኛ ወይም በእንግሊዝኛ" en="In Amharic or English" /></li>
-                <li><Tx am="በቴሌግራም ድጋፍ — ከሰሩት ሰዎች በቀጥታ" en="Support on Telegram from the people who built it" /></li>
-              </ul>
-
-              <p className="price-plans" style={{ margin: "14px 0 16px", lineHeight: 1.6, fontSize: "0.95em" }}>
-                <Tx
-                  am="በወር ይጀምሩ፣ በኋላ ለዘለቄታው ሲገዙ የከፈሉት ይቀነሳል።"
-                  en="Start monthly, go Forever later and what you paid is deducted."
-                />
+              <p className="section-sub">
+                <Tx am="ሁሉም ባህሪያት በሶስቱም። በወር ጀምረው በኋላ ለዘለቄታው ሲገዙ የከፈሉት ይቀነሳል።"
+                  en="Every feature in all three. Start monthly — go Forever later and what you paid is deducted." />
               </p>
-
-              <a className="btn btn-primary btn-lg btn-block" href={BOT_URL} target="_blank" rel="noopener">
-                <Tx am="ቁልፍዎን በቴሌግራም ያግኙ" en="Get your key on Telegram" />
-              </a>
             </div>
           </Reveal>
+
+          <div className="plans2">
+            {plans.map((pl, i) => (
+              <Reveal key={pl.en} delay={i * 90}>
+                <div className={pl.best ? "plan2 is-best spot" : "plan2 spot"}>
+                  {pl.best && <span className="plan2-flag"><Tx am="ምርጥ ዋጋ" en="Best value" /></span>}
+                  <span className="plan2-term"><Tx am={pl.am} en={pl.en} /></span>
+                  <span className="plan2-price">
+                    <strong>{pl.n}</strong>
+                    <span><Tx am="ብር" en="ETB" /></span>
+                  </span>
+                  <span className="plan2-sub"><Tx am={pl.subAm} en={pl.subEn} /></span>
+                  <a className={pl.best ? "btn btn-primary btn-block" : "btn btn-ghost btn-block"} href={BOT_URL} target="_blank" rel="noopener">
+                    <Tx am="ቁልፍ ያግኙ" en="Get your key" />
+                  </a>
+                </div>
+              </Reveal>
+            ))}
+          </div>
 
           <Reveal delay={120}>
-            <div className="buy-steps" id="buy">
-              <h3><Tx am="እንዴት እንደሚገዙ — 4 ደረጃዎች" en="How to buy — 4 steps" /></h3>
-              <ol className="istep-list">
-                {buySteps.map((s, i) => (
+            <ul className="price-incl">
+              <li><Tx am="ያልተገደበ ካፕሽን" en="Unlimited captions" /></li>
+              <li><Tx am="Premiere እና After Effects 2022+" en="Premiere & After Effects 2022+" /></li>
+              <li><Tx am="CapCut እና DaVinci — Studio" en="CapCut & DaVinci — the Studio" /></li>
+              <li><Tx am="60+ ስታይሎች · 12 ፎንቶች" en="60+ styles · 12 fonts" /></li>
+              <li>Windows 10/11 · macOS</li>
+              <li><Tx am="በቴሌግራም ድጋፍ — ከሰሩት ሰዎች" en="Telegram support from the makers" /></li>
+            </ul>
+          </Reveal>
+
+          <Reveal delay={160}>
+            <div className="buy2" id="buy">
+              <h3><Tx am="እንዴት እንደሚገዙ" en="How to buy" /></h3>
+              <ol className="istep-list buy2-list">
+                {buySteps.map((s) => (
                   <li className="istep" key={s.t.en}>
                     <span className="istep-n" aria-hidden="true" />
                     <div className="istep-body">
@@ -557,7 +374,7 @@ export default function HomePage() {
       <BuySafely />
 
       {/* ---------------------------------------------------------------- faq */}
-      <section className="section" id="faq" style={{ background: "var(--bg-soft)" }}>
+      <section className="section section-soft" id="faq">
         <div className="container">
           <Reveal>
             <div className="section-head center">
@@ -583,20 +400,18 @@ export default function HomePage() {
       <section className="section">
         <div className="container">
           <Reveal>
-            <div className="final-cta">
+            <div className="final2">
+              <div className="final2-glow" aria-hidden="true" />
               <h2><Tx am="የአማርኛ ካፕሽንን በእጅ መጻፍ ያቁሙ።" en="Stop typing Amharic captions by hand." /></h2>
-              <p className="section-sub" style={{ marginInline: "auto" }}>
-                <Tx
-                  am="በራስዎ ቪዲዮ በነጻ ይሞክሩ — 30 ደቂቃ፣ ያለ ክፍያ፣ በቴሌግራም አንድ ጊዜ በመጫን።"
-                  en="Try it free on your own footage — 30 minutes, no payment, one tap in Telegram."
-                />
+              <p className="section-sub">
+                <Tx am="በራስዎ ቪዲዮ በነጻ ይሞክሩ — 30 ደቂቃ፣ ያለ ክፍያ።" en="Try it free on your own footage — 30 minutes, no payment." />
               </p>
               <div className="cta-row">
                 <a className="btn btn-primary btn-lg" href={BOT_URL} target="_blank" rel="noopener">
                   <Tx am="የፈቃድ ቁልፍ ያግኙ" en="Get your license key" />
                 </a>
                 <Link className="btn btn-ghost btn-lg" href="/install/">
-                  <Tx am="የመጫኛ መመሪያውን ያንብቡ" en="Read the install guide" />
+                  <Tx am="የመጫኛ መመሪያ" en="Install guide" />
                 </Link>
               </div>
             </div>
