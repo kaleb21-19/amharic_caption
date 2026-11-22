@@ -208,7 +208,9 @@
   // ── the timeline: red stripes where it will be cut ─────────────────────
   ST.overlays.push((ctx, view, w, h, g) => {
     // only while the ✂ Clean up tab is open (elsewhere they would look like cuts)
-    if (!active() || pane.offsetParent === null) return;
+    // 1.94.64 (E3): the tab's own display, not offsetParent - reading that in
+    // every frame of playback made the browser lay out the page (4.5 ms a frame)
+    if (!active() || !pane.isConnected || pane.style.display === 'none') return;
     cuts().forEach((c) => {
       const x0 = S.timeToX(c.start, view), x1 = S.timeToX(c.end, view);
       if (x1 < 0 || x0 > w) return;

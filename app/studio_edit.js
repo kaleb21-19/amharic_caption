@@ -287,6 +287,10 @@
   // reviewCues (what the editor sees and edits) are derived from the files'
   // captions; before the edit changes, what the editor changed goes back.
   function syncSrc() { if (built && typeof reviewCues !== 'undefined') SRC = E.syncBack(clips, SRC, reviewCues); }
+  // 1.94.64 (E3): an edit copied the captions back twice (in the undo snapshot,
+  // then for the edit) - 11-73 ms each with 1,000 captions; now once, and the
+  // snapshot taken right after uses it (only within that same step)
+  let srcFresh = false;
   function derive() {
     packAll();
     reviewCues = E.deriveCaptions(clips, SRC);
@@ -294,8 +298,9 @@
     if (typeof schedulePreview === 'function') schedulePreview();
   }
   function change(what, fn) {
-    pushReviewUndo(what);
     syncSrc();
+    srcFresh = true;
+    try { pushReviewUndo(what); } finally { srcFresh = false; }
     fn();
     derive();
     // keep the selection while it still exists: a text, an overlay or music
@@ -321,7 +326,7 @@
   const origUndo = window.undoReview;
   const REDO = [];
   let redoing = false;
-  const snap = () => JSON.stringify({ clips, ovl, txt, mus, snd, zm, trk, mk, io, fmt, media, SRC: built ? E.syncBack(clips, SRC, reviewCues) : SRC });
+  const snap = () => JSON.stringify({ clips, ovl, txt, mus, snd, zm, trk, mk, io, fmt, media, SRC: built && !srcFresh ? E.syncBack(clips, SRC, reviewCues) : SRC });
   function restore(json) {
     const o = JSON.parse(json);
     clips = o.clips; ovl = o.ovl || []; txt = o.txt || []; mus = o.mus || []; snd = o.snd || { clean: false, loud: 'off' }; zm = o.zm || []; trk = o.trk || { tx: [], ov: [], au: [] }; fmt = o.fmt; SRC = o.SRC;
@@ -619,6 +624,14 @@
   const pv = $('appPreview');
   const wrapEl = pv ? pv.querySelector('.app-video-wrap') : null;
   const stage = el('div', 'ed-canvas');
+  // 1.94.64 (E3): the picture's size, kept - reading stage.clientWidth in every
+  // frame made the browser lay out the whole page again (4.5 ms a frame with a
+  // 1,000-caption project, ~45 ms on a slow PC). Set where the stage is sized
+  // (frame) and by a ResizeObserver.
+  let STW = 0, STH = 0;
+  const stageW = () => STW || (STW = stage.clientWidth);
+  const stageH = () => STH || (STH = stage.clientHeight);
+  try { new ResizeObserver(() => { STW = stage.clientWidth; STH = stage.clientHeight; }).observe(stage); } catch (e) {}
   const mainLayer = el('div', 'ed-mainlayer');
   stage.appendChild(mainLayer);
   const vB = document.createElement('video');           // the other clip, during a transition
@@ -787,13 +800,19 @@
   if (pv) pv.appendChild(transport);
   function syncPlay() { bPlay.textContent = playing ? '⏸' : '▶'; }
   // the canvas fits the space; the picture is placed exactly as the export will place it
+  // 1.94.64 (E3): the player area's size, kept (reading it in every edit forced a
+  // layout of the whole page: 13-23 ms with 1,000 captions); a new size refits
+  let WRW = 0, WRH = 0;
+  if (wrapEl) { try { new ResizeObserver(() => { const w = wrapEl.clientWidth, h = wrapEl.clientHeight; if (w !== WRW || h !== WRH) { WRW = w; WRH = h; frame(); } }).observe(wrapEl); } catch (e) {} }
   function frame() {
     if (!wrapEl) return;
     const { w: W, h: H } = E.canvasSize(fmt);
-    const aw = Math.max(50, wrapEl.clientWidth - 8), ah = Math.max(50, wrapEl.clientHeight - 8);
+    if (!WRW) { WRW = wrapEl.clientWidth; WRH = wrapEl.clientHeight; }
+    const aw = Math.max(50, WRW - 8), ah = Math.max(50, WRH - 8);
     const k = Math.min(aw / W, ah / H);
     stage.style.width = Math.round(W * k) + 'px';
     stage.style.height = Math.round(H * k) + 'px';
+    STW = Math.round(W * k); STH = Math.round(H * k);
     fmtBar.querySelectorAll('button[data-f]').forEach((b) => b.classList.toggle('on', b.dataset.f === fmt));
     syncSafe();
     const c = L()[cur] || L()[0];
@@ -818,7 +837,7 @@
     const { w: W, h: H } = E.canvasSize(fmt);
     const r = E.zoomRect(zm, t, W, H);
     if (r.z <= 1.0001) { if (mainLayer.style.transform) mainLayer.style.transform = ''; return; }
-    const k = (stage.clientWidth || W) / W;
+    const k = (stageW() || W) / W;
     mainLayer.style.transformOrigin = '0 0';
     mainLayer.style.transform = 'translate(' + (-r.z * r.x * k) + 'px,' + (-r.z * r.y * k) + 'px) scale(' + r.z + ')';
   }
@@ -829,7 +848,7 @@
     const m = c && media[c.m];
     if (!v || !m || !m.video) return;
     const { w: W, h: H } = E.canvasSize(fmt);
-    const k = stage.clientWidth / W || 0;
+    const k = stageW() / W || 0;
     const p = E.rfPlace(m, c, W, H, c.in + Math.max(0, t - c.s) * E.speedOf(c));
     applyPic(v, m, c, p, k);
   }
@@ -985,7 +1004,7 @@
   const TXEL = {};
   function syncTexts(t) {
     const { w: W, h: H } = E.canvasSize(fmt);
-    const k = stage.clientWidth / W || 0;
+    const k = stageW() / W || 0;
     const on = {};
     txt.forEach((it) => {
       if (it.tpl) return;                    // 🇪🇹 templates are drawn on the canvas (syncTemplates)
@@ -1068,8 +1087,9 @@
     else { if (!e.paused) e.pause(); if (Math.abs(e.currentTime - want) > 0.04) { try { e.currentTime = want; } catch (x) {} } }
   }
   function syncOverlays(t) {
+    if (!ovl.length && !Object.keys(OVEL).length) return;
     const { w: W, h: H } = E.canvasSize(fmt);
-    const k = stage.clientWidth / W || 0;
+    const k = stageW() / W || 0;
     const on = {};
     E.ovAt(ovl, t).forEach((o) => {
       if (t >= total() || rowHidden('ov', rowOf(o))) return;
@@ -1119,7 +1139,7 @@
   // ⧓ a transition in the preview: the other clip in vB, mixed like xfade
   function placeEl(e, c) {
     const { w: W, h: H } = E.canvasSize(fmt);
-    const k = stage.clientWidth / W || 0;
+    const k = stageW() / W || 0;
     const m = media[c.m];
     if (!m) return;
     const p = E.rfPlace(m, c, W, H, c.in);
@@ -1158,7 +1178,7 @@
     else { if (!vB.paused) vB.pause(); if (Math.abs(vB.currentTime - want) > 0.03) { try { vB.currentTime = want; } catch (x) {} } }
     const eA = showB ? v : vB, eB = showB ? vB : v;      // outgoing, incoming
     resetFx(eA); resetFx(eB);
-    const W = stage.clientWidth;
+    const W = stageW();
     const type = clips[hit.i].tr.type;
     mainLayer.style.background = type === 'fadewhite' ? '#fff' : '';
     eB.style.zIndex = 2; eA.style.zIndex = 1;
@@ -1200,7 +1220,7 @@
     if (ovl.some((o) => o.id === id && E.ovLook(o).layout !== 'free')) return;
     const { w: W, h: H } = E.canvasSize(fmt);
     pushReviewUndo('move picture');
-    moving = { id, x0: e.clientX, y0: e.clientY, cx: Number(it.x) || 0, cy: Number(it.y) || 0, k: stage.clientWidth / W, W, H,
+    moving = { id, x0: e.clientX, y0: e.clientY, cx: Number(it.x) || 0, cy: Number(it.y) || 0, k: stageW() / W, W, H,
       framed: clips.some((c) => c.id === id && E.rfOn(c)) };
   }
   stage.addEventListener('mousedown', (e) => {
@@ -1636,7 +1656,10 @@
   relayout();
   let view = { start: 0, pps: 50 };
   let fitted = false;
-  const width = () => Math.max(50, cwrap.clientWidth || 600);
+  // 1.94.64 (E3): kept, not read each frame (the follow + draw read forced a layout: 3 ms a frame)
+  let CWW = 0;
+  try { new ResizeObserver(() => { CWW = cwrap.clientWidth; drawSoon(); }).observe(cwrap); } catch (e) {}
+  const width = () => Math.max(50, CWW || (CWW = cwrap.clientWidth) || 600);
   let drag = null, hover = null;
   let pending = 0;
   function drawSoon() { if (!pending) pending = requestAnimationFrame(() => { pending = 0; draw(); }); }
@@ -1653,7 +1676,7 @@
     if (window.__amhSubsTick) window.__amhSubsTick(t);   // the caption style, live (studio_subs.js)
     tTime.textContent = S.fmtClock(t, true) + ' / ' + S.fmtClock(total());
     if (follow) view = S.follow(view, t, total(), width());
-    draw();
+    if (playing && follow) drawPlay(); else draw();      // 1.94.64: a playback frame pastes the kept timeline
   }
   // the track headers: name, 👁 hide / 🔇 mute, 🔒 lock, ＋ a track, ✕ an empty one
   let labelSig = '';
@@ -1701,6 +1724,12 @@
     lab(MAIN + GAP, null, 0, '🎬 V1 ' + tx('ዋና', 'Main'));
     for (let r = 0; r < NA; r++) lab(MUS + RG, 'au', r, '♪ A' + (r + 1), r === NA - 1 ? add('au') : null);
   }
+  // 1.94.64 (E3): the timeline kept as a picture during playback (see drawPlay)
+  const base = document.createElement('canvas');
+  const bctx = base.getContext ? base.getContext('2d') : null;
+  let baseKey = '';
+  const drawKey = (w) => [view.start, view.pps, w, LH, canvas.width, canvas.height].join('|');
+  let RFONT = '';
   function draw() {
     if (!ctx || !review.classList.contains('show')) return;
     relayout();
@@ -1902,16 +1931,18 @@
     // 💬 captions
     const cues = (typeof reviewCues !== 'undefined' && reviewCues) || [];
     const t = time();
-    ctx.font = '600 11px ' + (getComputedStyle(document.documentElement).getPropertyValue('--review-font').trim() || '"Abyssinica SIL"') + ', serif';
+    // 1.94.64 (E3): the review font is read when stopped only - getComputedStyle in
+    // every frame of playback made the browser restyle the whole page (7 ms a frame)
+    if (!playing || !RFONT) RFONT = getComputedStyle(document.documentElement).getPropertyValue('--review-font').trim() || '"Abyssinica SIL"';
+    ctx.font = '600 11px ' + RFONT + ', serif';
     cues.forEach((c, i) => {
       const x0 = S.timeToX(c.start, view), x1 = S.timeToX(c.end, view);
       if (x1 < 0 || x0 > w) return;
-      const on = t >= c.start && t < c.end;
       const cut = /~[^~]+~/.test(c.text || '') && String(c.text).replace(/~[^~]*~/g, '').trim() === '';
       // 1.94.60: zoomed out, a thousand captions were one green bar - narrow
       // ones get no bright edges, alternate shades and a gap between them
       const cw = x1 - x0;
-      ctx.fillStyle = cut ? '#4a2622' : (on ? '#1f7a4c' : (cw < 8 ? (i % 2 ? '#2c574b' : '#1d3a33') : '#22413a'));
+      ctx.fillStyle = cut ? '#4a2622' : (cw < 8 ? (i % 2 ? '#2c574b' : '#1d3a33') : '#22413a');
       ctx.fillRect(x0 + 0.5, capTop, Math.max(cw < 3 ? 1 : 2, cw - (cw < 3 ? 0 : 1)), CAP);
       if (cw >= 8) {
         ctx.fillStyle = (hover && hover.lane === 'cap' && hover.i === i && hover.edge !== 'body') ? '#ffffff' : (cut ? '#ff6b6b' : '#3ddc84');
@@ -1955,9 +1986,36 @@
       ctx.beginPath(); ctx.moveTo(x - 5, 0); ctx.lineTo(x + 5, 0); ctx.lineTo(x + 5, 8); ctx.lineTo(x, 13); ctx.lineTo(x - 5, 8); ctx.closePath(); ctx.fill();
       ctx.fillStyle = 'rgba(79,209,197,.35)'; ctx.fillRect(Math.round(x), 13, 1, h - 13);
     });
+    // 1.94.64 (E3): during playback only the playhead and the playing caption
+    // move - the rest of the timeline is kept as a picture (base) and pasted in
+    // every frame (drawPlay); a full draw cost ~3 ms a frame (~15 ms on a slow PC)
+    if (playing) {
+      if (base.width !== canvas.width || base.height !== canvas.height) { base.width = canvas.width; base.height = canvas.height; }
+      bctx.setTransform(1, 0, 0, 1, 0, 0); bctx.clearRect(0, 0, base.width, base.height); bctx.drawImage(canvas, 0, 0);
+      baseKey = drawKey(w);
+    } else baseKey = '';
+    drawNow(t, w, h);
+  }
+  // the parts of the timeline that move with the time: the playing caption, the playhead
+  function drawNow(t, w, h) {
+    const cues = (typeof reviewCues !== 'undefined' && reviewCues) || [];
+    const c = cues.find((q) => t >= q.start && t < q.end);
+    if (c) {
+      const x0 = S.timeToX(c.start, view), x1 = S.timeToX(c.end, view);
+      if (x1 >= 0 && x0 <= w) { ctx.fillStyle = 'rgba(46,204,113,.30)'; ctx.fillRect(x0 + 0.5, capTop, Math.max(2, x1 - x0 - 1), CAP); }
+    }
     const px = S.timeToX(t, view);
     ctx.fillStyle = '#ff5c5c'; ctx.fillRect(Math.round(px) - 1, 0, 2, h);
     ctx.beginPath(); ctx.moveTo(px - 6, 0); ctx.lineTo(px + 6, 0); ctx.lineTo(px, 8); ctx.closePath(); ctx.fill();
+  }
+  // a playback frame: the kept timeline + what moves; anything else changed
+  // (an edit, hover, the view, the size) -> the full draw, which keeps it again
+  function drawPlay() {
+    if (!ctx || !bctx || !review.classList.contains('show')) return;
+    const w = width(), dpr = window.devicePixelRatio || 1;
+    if (!baseKey || baseKey !== drawKey(w) || canvas.width !== Math.round(w * dpr)) { draw(); return; }
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(base, 0, 0); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawNow(time(), w, LH);
   }
   function xy(e) { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
   function hitAt(p) {
@@ -3022,7 +3080,17 @@
       }));
     }
   }
+  // 1.94.64 (E3): every edit rebuilt the ⚙ Clip panel even when its tab was
+  // closed (35-139 ms with a 1,000-caption project); now it is marked and drawn
+  // when the tab opens
+  let inspDirty = false;
   function renderInspector() {
+    if (clipPane.style.display === 'none') { inspDirty = true; return; }
+    inspDirty = false;
+    renderInspectorNow();
+  }
+  try { new MutationObserver(() => { if (inspDirty && clipPane.style.display !== 'none') renderInspector(); }).observe(clipPane, { attributes: true, attributeFilter: ['style'] }); } catch (e) {}
+  function renderInspectorNow() {
     clipPane.textContent = '';
     setTimeout(() => {
       if (clipPane.querySelector('.ed-row:not(.simple-ok), .pro-only') && !clipPane.querySelector('.ed-simplenote')) {
@@ -3312,7 +3380,7 @@
     const c = clips.find((x) => x.id === cropEdit.id);
     const m = c && media[c.m];
     const { w: W, h: H } = E.canvasSize(fmt);
-    const k = stage.clientWidth / W || 0;
+    const k = stageW() / W || 0;
     const p = E.placement(m || {}, cropFull(c), W, H);
     return { p, k, c, m };
   }
@@ -4144,6 +4212,8 @@
     let lastL = 0;
     const tickM = (now) => {
       if (!box.isConnected) return;
+      // 1.94.64 (E3): stopped, the meters look 4 times a second instead of every frame
+      if (!playing) { setTimeout(() => requestAnimationFrame(tickM), 250); return; }
       requestAnimationFrame(tickM);
       if (!BUS) return;
       E.MIX_BUSES.forEach((b) => { const d = Math.max(-60, peak(BUS[b].an)); meters[b].style.height = Math.round((d + 60) / 60 * 100) + '%'; meters[b].className = 'ed-smeter-bar' + (d > -1 ? ' red' : d > -9 ? ' yel' : ''); });
@@ -4308,7 +4378,7 @@
   function syncTemplates(t) {
     if (!tcv.parentNode && stage) { const cap = $('appCap'); stage.insertBefore(tcv, cap && cap.parentNode === stage ? cap : null); }
     const { w: W, h: H } = E.canvasSize(fmt);
-    const sw = stage.clientWidth || 0, shh = stage.clientHeight || 0, dpr = window.devicePixelRatio || 1;
+    const sw = stageW() || 0, shh = stageH() || 0, dpr = window.devicePixelRatio || 1;
     if (tcv.width !== Math.round(sw * dpr) || tcv.height !== Math.round(shh * dpr)) { tcv.width = Math.round(sw * dpr); tcv.height = Math.round(shh * dpr); tcv.style.width = sw + 'px'; tcv.style.height = shh + 'px'; }
     const c2 = tcv.getContext('2d');
     c2.setTransform(1, 0, 0, 1, 0, 0);
@@ -4328,7 +4398,7 @@
   // a press on a template in the picture: select it, drag it (its fx / fy)
   function tplAt(e) {
     const { w: W } = E.canvasSize(fmt);
-    const r = stage.getBoundingClientRect(), k = (stage.clientWidth || 1) / W;
+    const r = stage.getBoundingClientRect(), k = (stageW() || 1) / W;
     const x = (e.clientX - r.left) / k, y = (e.clientY - r.top) / k;
     const ids = Object.keys(TPLBOX).reverse();
     return ids.find((id) => { const b = TPLBOX[id]; return b && x >= b.x0 - 14 && x <= b.x1 + 14 && y >= b.y0 - 14 && y <= b.y1 + 14; }) || null;
@@ -4343,7 +4413,7 @@
     const P = E.tplOf(it);
     const { w: W, h: H } = E.canvasSize(fmt);
     pushReviewUndo('move template');
-    const k = stage.clientWidth / W, x0 = e.clientX, y0 = e.clientY;
+    const k = stageW() / W, x0 = e.clientX, y0 = e.clientY;
     const mm = (ev) => {
       const fx = Math.round((P.fx + (ev.clientX - x0) / k / W) * 1000) / 1000, fy = Math.round((P.fy + (ev.clientY - y0) / k / H) * 1000) / 1000;
       txt = txt.map((x) => (x.id === id ? Object.assign({}, x, { fx: Math.max(0, Math.min(1, fx)), fy: Math.max(0, Math.min(1, fy)) }) : x));
