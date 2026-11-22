@@ -28,6 +28,14 @@
   if (!APP || !S || !E || !ST || !review) return;
   const $ = (id) => document.getElementById(id);
   const tx = (am, en) => ((typeof AMH_LANG !== 'undefined' && AMH_LANG === 'am') ? am : en);
+  // 1.94.57 (S2): a failure the editor would not otherwise hear about
+  const failNote = (am, en, e, kind) => {
+    const r = e ? S.fsReason(e) : null;
+    const m = tx(am, en) + (r ? ' — ' + tx(r.am, r.en) : '');
+    try { if (typeof log === 'function') log(m); } catch (x) {}
+    try { if (typeof toast === 'function') toast(m, kind || 'error'); } catch (x) {}
+    return m;
+  };
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (cls, text, title, fn) => { const b = el('button', cls, text); b.type = 'button'; if (title) b.title = title; if (fn) b.addEventListener('click', (e) => { if (e && e.preventDefault) e.preventDefault(); fn(e); }); return b; };
   document.documentElement.classList.add('amh-editor');
@@ -106,7 +114,7 @@
   async function addMedia(p, opts) {
     opts = opts || {};
     const info = await probe(p);
-    if (!info.dur && !(info.image && info.w)) { log(tx('ይህ ፋይል ሊከፈት አልቻለም፦ ', 'This file could not be opened: ') + path.basename(p)); return null; }
+    if (!info.dur && !(info.image && info.w)) { failNote('ይህ ፋይል ሊከፈት አልቻለም፦ ' + path.basename(p), 'This file could not be opened: ' + path.basename(p)); return null; }
     const id = opts.id || ('m' + (Object.keys(media).length + 1) + '_' + Date.now().toString(36));
     media[id] = Object.assign({ id, path: p, name: path.basename(p) }, info);
     loadPeaks(id);
@@ -915,7 +923,9 @@
     try { cube = E.parseCube(fs.readFileSync(file, 'utf8')); } catch (e) {}
     if (!cube) { log(tx('ይህ 3D .cube LUT አይደለም።', 'That is not a 3D .cube LUT.')); return null; }
     const id = path.basename(file);
-    try { fs.mkdirSync(lutDir(), { recursive: true }); const dst = path.join(lutDir(), id); if (path.resolve(dst) !== path.resolve(file)) fs.copyFileSync(file, dst); } catch (e) {}
+    try { fs.mkdirSync(lutDir(), { recursive: true }); const dst = path.join(lutDir(), id); if (path.resolve(dst) !== path.resolve(file)) fs.copyFileSync(file, dst); } catch (e) {
+      failNote('LUTው አሁን ይሰራል፣ ግን አልተቀመጠም — በሚቀጥለው ጊዜ እንደገና ያስገቡት', 'The LUT works now but was not kept — add it again next time', e, 'warn');
+    }
     E.setLut(id, cube);
     if (LUTLIST.indexOf(id) < 0) LUTLIST.push(id);
     return id;
@@ -4907,13 +4917,17 @@
       if (cwd) return;
       cwd = path.join(os.tmpdir(), 'amh_exp_' + Date.now() + '_' + (++nid));
       fs.mkdirSync(path.join(cwd, 'fonts'), { recursive: true });
-      try { fs.readdirSync(fontsDir()).filter((x) => /\.(ttf|otf)$/i.test(x)).forEach((x) => { fs.copyFileSync(path.join(fontsDir(), x), path.join(cwd, 'fonts', x)); made.push(path.join(cwd, 'fonts', x)); }); } catch (e) {}
+      // 1.94.57: a font that does not reach the export draws the captions in
+      // another font - say so instead of exporting the wrong look silently
+      try { fs.readdirSync(fontsDir()).filter((x) => /\.(ttf|otf)$/i.test(x)).forEach((x) => { fs.copyFileSync(path.join(fontsDir(), x), path.join(cwd, 'fonts', x)); made.push(path.join(cwd, 'fonts', x)); }); } catch (e) {
+        failNote('የካፕሽን ፊደሎቹ ወደ ኤክስፖርቱ አልደረሱም — ካፕሽኖቹ በሌላ ፊደል ሊወጡ ይችላሉ', 'The caption fonts did not reach the export — the captions may come out in another font', e, 'warn');
+      }
       // ✍ 1.85: the fonts this edit uses from the computer / the editor's own
       const usedU = {};
       (st.txt || []).forEach((t) => { if (UFONTS[t.font]) usedU[t.font] = 1; });
       Object.keys(usedU).forEach((id, n) => {
         const src = UFONTS[id].file, dst = path.join(cwd, 'fonts', 'user' + n + '_' + path.basename(src));
-        try { fs.copyFileSync(src, dst); made.push(dst); } catch (e) {}
+        try { fs.copyFileSync(src, dst); made.push(dst); } catch (e) { failNote('ፊደሉ ወደ ኤክስፖርቱ አልደረሰም፦ ' + path.basename(src), 'A font did not reach the export: ' + path.basename(src), e, 'warn'); }
       });
     };
     // 1.88: the free version's small tag also when there are no styled captions
@@ -5140,7 +5154,9 @@
     setLeft(!(reviewCues && reviewCues.length));     // 1.94.2: no captions yet → 📁 Media (Make captions)
     // the other files dropped with it
     const more = pendingFiles; pendingFiles = [];
-    for (const p of more) { try { await addAndPlace(p); } catch (e) {} }
+    const failed = [];
+    for (const p of more) { try { await addAndPlace(p); } catch (e) { failed.push(path.basename(p)); } }
+    if (failed.length) failNote('እነዚህ ፋይሎች አልገቡም፦ ' + failed.join('፣ '), 'These files were not added: ' + failed.join(', '));
     if (more.length) { await seek(0); after(); }
     setTimeout(() => maybeGuide(false), 600);
   }
@@ -5236,5 +5252,5 @@
     queueExports, stopExport, clearDone, detectGpu, gpuName: (e) => GPU_NAMES[e] || '', queue: () => QUEUE, onQueue: (f) => qWatch.push(f),
     setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } });
   window.__amhEditor = { renderJob, snapshot, open, copySel, paste, duplicate, togglePick, selected, state: () => ({ clips, ovl, txt, mus, snd, zm, media, SRC, fmt, sel, built }), addOverlay, addText, addZoom, autoZooms, addBroll, brollPicker, findFaces, followFaces, frameClips, useSoundFolder, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, moveRange, total, redo,
-    select: (id) => { sel = id; picks = []; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, transcribeAll, stopCaptions, capCard, captionsReady, capLeft, sourceShort, addToTimeline, insertMain, insertFound, startCrop, endCrop, cropState: () => cropEdit, setCropView: (v) => { if (cropEdit) { cropEdit.v = v; frame(); } }, freezeFrame, reverseClip, rampClip, guide: () => maybeGuide(true), queueExports, kinds, queue: () => QUEUE, markedPart, toggleMarker, markIO, clearIO, setShuttle, markers: () => mk, addToMedia, findFile, missingFiles, checkFiles, render, exportVideo, frame, setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } };
+    hideReady, select: (id) => { sel = id; picks = []; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, transcribeAll, stopCaptions, capCard, captionsReady, capLeft, sourceShort, addToTimeline, insertMain, insertFound, startCrop, endCrop, cropState: () => cropEdit, setCropView: (v) => { if (cropEdit) { cropEdit.v = v; frame(); } }, freezeFrame, reverseClip, rampClip, guide: () => maybeGuide(true), queueExports, kinds, queue: () => QUEUE, markedPart, toggleMarker, markIO, clearIO, setShuttle, markers: () => mk, addToMedia, findFile, missingFiles, checkFiles, render, exportVideo, frame, setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } };
 })();

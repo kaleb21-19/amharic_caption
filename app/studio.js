@@ -20,6 +20,15 @@
   const tx = (am, en) => ((typeof AMH_LANG !== 'undefined' && AMH_LANG === 'am') ? am : en);
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const btn = (cls, text, title, fn) => { const b = el('button', cls, text); b.type = 'button'; if (title) b.title = title; if (fn) b.addEventListener('click', (e) => { if (e && e.preventDefault) e.preventDefault(); fn(e); }); return b; };
+  // 1.94.57 (S2): a thing the editor asked for that failed is said, with why -
+  // it was swallowed (try {} catch (e) {}) and looked done
+  const failNote = (am, en, e) => {
+    const r = e ? S.fsReason(e) : null;
+    const m = tx(am, en) + (r ? ' — ' + tx(r.am, r.en) : '');
+    try { if (typeof log === 'function') log(m); } catch (x) {}
+    try { if (typeof toast === 'function') toast(m, 'error'); } catch (x) {}
+    return m;
+  };
   document.documentElement.classList.add('amh-studio');
   // no first-run wizard in the Studio: the home opens at once (1.45)
   if (typeof hideOnboarding === 'function') { window.showOnboarding = function () {}; try { hideOnboarding(); } catch (e) {} }
@@ -205,10 +214,13 @@
     if (card && searchHome && sheet.contains(card)) { searchHome.parent.insertBefore(card, searchHome.next); card.classList.remove('open'); }
     sheet.style.display = 'none'; sheet.textContent = '';
   }
+  // 1.94.57: the "captions are ready" card sat on top of the sheet (same layer)
+  const hideReadyCard = () => { try { if (window.__amhEditor && window.__amhEditor.hideReady) window.__amhEditor.hideReady(); } catch (e) {} };
   function openSearchSheet() {
     const card = $('searchCard');
     if (!card) return;
     closeSheet();
+    hideReadyCard();
     searchHome = { parent: card.parentNode, next: card.nextSibling };
     const box = el('div', 'st-sheet-box st-search');
     const head = el('div', 'st-sheet-head');
@@ -227,6 +239,7 @@
     opts = opts && opts.focus ? opts : {};
     if (typeof reviewOpen === 'undefined' || !reviewOpen) return;
     const X = window.__amhAppExport;
+    hideReadyCard();
     sheet.textContent = '';
     const box = el('div', 'st-sheet-box');
     const head = el('div', 'st-sheet-head');
@@ -680,12 +693,14 @@
       group: groupUnknown || typeof CAP === 'undefined' ? null : { n: CAP === 'words' ? 1 : GROUP_SIZE, fmt: FORMAT },
       cleanup: window.__amhCuts ? window.__amhCuts.save() : null });
   }
+  let saveFailed = false;
   function saveProject(force) {
     if (!review.classList.contains('show') || !reviewOpen || (typeof REVIEW_LIVE !== 'undefined' && REVIEW_LIVE)) return false;
     const p = currentProject();
     if (!p) return false;
     const sig = JSON.stringify([p.cues, p.style, p.styleOpts, p.cleanup, p.edit]);
-    if (sig === lastSaved && !force) return false;
+    // (the file already holds exactly this: saved, whatever failed before)
+    if (sig === lastSaved && !force) { saveFailed = false; return false; }
     try {
       if (!fs.existsSync(projDir())) fs.mkdirSync(projDir(), { recursive: true });
       const text = JSON.stringify(p);
@@ -693,8 +708,19 @@
       lastSaved = sig;
       keepVersion(p, text, false);
       savedEl.textContent = '✓ ' + tx('ተቀምጧል', 'Saved');
+      savedEl.title = '';
+      saveFailed = false;
       return true;
-    } catch (e) { savedEl.textContent = '⚠ ' + tx('አልተቀመጠም', 'Not saved'); return false; }
+    } catch (e) {
+      savedEl.textContent = '⚠ ' + tx('አልተቀመጠም', 'Not saved');
+      // 1.94.57: said once (not on every keystroke), with why - the small
+      // "Not saved" alone was easy to miss before closing the project
+      const r = S.fsReason(e);
+      savedEl.title = tx(r.am, r.en);
+      if (!saveFailed) failNote('ፕሮጀክቱ አልተቀመጠም', 'The project was not saved', e);
+      saveFailed = true;
+      return false;
+    }
   }
   // 1.71: never half a project. The new text goes to <file>.tmp first and
   // then takes the old file's place in one step, so a power cut while saving
@@ -781,7 +807,10 @@
     sheet.style.display = '';
   }
   let saveTimer = 0;
-  function saveSoon() { clearTimeout(saveTimer); savedEl.textContent = tx('እየተቀመጠ ነው…', 'Saving…'); saveTimer = setTimeout(() => { if (!saveProject()) savedEl.textContent = '✓ ' + tx('ተቀምጧል', 'Saved'); }, 800); }
+  function saveSoon() { clearTimeout(saveTimer); savedEl.textContent = tx('እየተቀመጠ ነው…', 'Saving…'); saveTimer = setTimeout(() => {
+    // 1.94.57: a FAILED save also returns false - it used to be shown as "✓ Saved"
+    if (!saveProject() && !saveFailed) { savedEl.textContent = '✓ ' + tx('ተቀምጧል', 'Saved'); savedEl.title = ''; }
+  }, 800); }
   setInterval(() => { saveProject(); syncHead(); }, 5000);
   review.addEventListener('input', saveSoon);
   function projectFor(videoPath) {
@@ -928,7 +957,7 @@
       done = true;
       const v = inp.value.trim();
       if (keep && v && v !== (p.title || p.name)) {
-        try { const o = libRead(p._file); o.title = v; libWrite(p._file, o); } catch (e) {}
+        try { const o = libRead(p._file); o.title = v; libWrite(p._file, o); } catch (e) { failNote('ስሙ አልተቀየረም', 'The name was not changed', e); }
       }
       renderRecent();
     };
@@ -949,7 +978,9 @@
   }
   function libRestore() {
     if (!libUndo) return;
-    try { fs.renameSync(path.join(projDir(), '.trash', libUndo.file), path.join(projDir(), libUndo.file)); } catch (e) {}
+    try { fs.renameSync(path.join(projDir(), '.trash', libUndo.file), path.join(projDir(), libUndo.file)); } catch (e) {
+      failNote('ፕሮጀክቱ አልተመለሰም — በ Studio/.trash ውስጥ ነው', 'The project did not come back — it is in Studio/.trash', e);
+    }
     libUndo = null;
     renderRecent();
   }
@@ -964,7 +995,7 @@
       const nf = S.projectFileName(np);
       libWrite(nf, o);
       if (nf !== p._file) fs.unlinkSync(path.join(projDir(), p._file));
-    } catch (e) {}
+    } catch (e) { failNote('ፕሮጀክቱ ከአዲሱ ቦታ ጋር አልተገናኘም', 'The project was not pointed at the new place', e); }
     renderRecent();
   }
   function libMenu(p, card, nameEl, anchor) {

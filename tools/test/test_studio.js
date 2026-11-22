@@ -161,4 +161,17 @@ test('1.76 project library: every project, found by name or by a word said in it
   assert.strictEqual(S.makeProject({ video: 'a' }).done, null);
 });
 
+test('1.94.57 S2: a failed save / copy says why, in plain words (Node fs error codes)', () => {
+  const err = (code, message) => Object.assign(new Error(message || code), { code });
+  assert.strictEqual(S.fsReason(err('ENOSPC')).en, 'the disk is full');
+  assert.match(S.fsReason(err('EPERM', 'EPERM: operation not permitted, rename')).en, /Windows blocked the file \(OneDrive/);
+  assert.match(S.fsReason(err('EBUSY')).en, /Windows blocked/);
+  assert.match(S.fsReason(err('EACCES')).am, /OneDrive/);
+  assert.strictEqual(S.fsReason(err('ENOENT')).en, 'the file or folder is not there');
+  assert.strictEqual(S.fsReason(err('EROFS')).en, 'the disk is read-only');
+  assert.strictEqual(S.fsReason(new Error('something odd')).en, 'something odd', 'anything else: the message itself');
+  assert.strictEqual(S.fsReason(null).en, 'unknown error');
+  ['ENOSPC', 'EPERM', 'ENOENT', 'EROFS'].forEach((c) => assert.ok(/[ሀ-፿]/.test(S.fsReason(err(c)).am), c + ' has Amharic'));
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');
