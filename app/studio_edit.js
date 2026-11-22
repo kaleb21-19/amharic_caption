@@ -69,10 +69,11 @@
         const t = String(errText || (err && err.message) || '');
         const d = t.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
         const vm = t.match(/Stream[^\n]*Video:[^\n]*?\s(\d{2,5})x(\d{2,5})/);
-        if (IMAGE.test(p)) { resolve({ dur: 0, image: true, w: vm ? Number(vm[1]) : 0, h: vm ? Number(vm[2]) : 0, video: !!vm, audio: false }); return; }
+        const sh = E.videoShape(t);       // 1.94.56: as shown (a phone's turn applied)
+        if (IMAGE.test(p)) { resolve({ dur: 0, image: true, w: sh.w, h: sh.h, video: !!vm, audio: false }); return; }
         const vc = t.match(/Stream[^\n]*Video:\s*(\w+)/), ac = t.match(/Stream[^\n]*Audio:\s*(\w+)/);
         resolve({ dur: d ? Number(d[1]) * 3600 + Number(d[2]) * 60 + Number(d[3]) : 0,
-          w: vm ? Number(vm[1]) : 0, h: vm ? Number(vm[2]) : 0, video: !!vm && !/attached pic/.test(t.slice(t.indexOf(vm[0]), t.indexOf(vm[0]) + 300)),
+          w: sh.w, h: sh.h, video: !!vm && !/attached pic/.test(t.slice(t.indexOf(vm[0]), t.indexOf(vm[0]) + 300)),
           audio: /Stream[^\n]*Audio:/.test(t), vc: vc ? vc[1].toLowerCase() : '', ac: ac ? ac[1].toLowerCase() : '' });
       });
     });
@@ -2427,7 +2428,11 @@
     const m = media[id];
     if (m.image) { addOverlay(id); renderMedia(); return; }
     if (!m.video) { addMusic(id); renderMedia(); return; }
-    change('add clip', () => { clips = clips.concat([{ id: newId(), m: id, in: 0, out: Math.round(m.dur * 1000) / 1000 }]); });
+    change('add clip', () => {
+      // 1.94.56: the first video on an empty timeline sets the shape
+      if (!clips.length) { fmt = E.fmtForShape(m.w, m.h); reframeAll(); }
+      clips = clips.concat([{ id: newId(), m: id, in: 0, out: Math.round(m.dur * 1000) / 1000 }]);
+    });
     view = S.fitView(total(), width());
     renderMedia();
   }
@@ -2524,7 +2529,13 @@
         return o;
       });
       CAPJOBS[id] = { busy: false };
-      if (!clean.length) { CAPJOBS[id].err = tx('በዚህ ፋይል ንግግር አልተገኘም።', 'No speech was found in this file.'); renderMedia(); return; }
+      if (!clean.length) {
+        CAPJOBS[id].err = tx('በዚህ ፋይል ንግግር አልተገኘም።', 'No speech was found in this file.');
+        // 1.94.56 (S1): said where it is seen, not only on the media card -
+        // music or noise now gives no captions instead of made-up text
+        try { if (typeof toast === 'function') toast(tx('በዚህ ቪዲዮ ውስጥ ንግግር አልተገኘም', 'No speech found in this video') + ' — ' + m.name, 'warn'); } catch (e) {}
+        renderMedia(); return;
+      }
       const first = !((typeof reviewCues !== 'undefined' && reviewCues) || []).some((q) => String(q.text || '').trim());
       change('captions', () => { SRC[id] = clean; });
       log(tx('✓ ካፕሽን ተሰራ፦ ', '✓ Captions made: ') + m.name + ' (' + clean.length + ')');
@@ -5117,6 +5128,10 @@
     if (!id) return;
     SRC = { [id]: (reviewCues || []).map((q) => Object.assign({}, q)) };
     clips = [{ id: newId(), m: id, in: 0, out: Math.round(media[id].dur * 1000) / 1000 }];
+    // 1.94.56 (S1): the project takes the video's shape - a phone video is a
+    // 9:16 project (and exports for Shorts / TikTok), not 16:9 with bars;
+    // before, a new project kept 16:9 (or the last project's format)
+    fmt = media[id].video ? E.fmtForShape(media[id].w, media[id].h) : '16:9';
     built = true; fitted = false; cur = 0; ET = 0; sel = null;
     reviewCues = E.deriveCaptions(clips, SRC);
     renderReview();

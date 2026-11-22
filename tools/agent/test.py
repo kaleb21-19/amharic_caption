@@ -41,6 +41,7 @@ def suites(area):
         "update": [("one-tap update", py + ["tools/test/test_update.py"], ROOT)],
         "engine": [("word times", engine_py + ["tools/test/test_word_times.py"], ROOT),
                    ("ethiopian conventions", engine_py + ["tools/test/test_et_conventions.py"], ROOT),
+                   ("no speech", engine_py + ["tools/test/test_no_speech.py"], ROOT),
                    ("cut eval", engine_py + ["tools/test/test_cut_eval.py"], ROOT)],
         "app": [("app", py + ["tools/test/test_app.py"], ROOT), ("app shim", node + ["tools/test/test_app_shim.js"], ROOT),
                 ("studio", node + ["tools/test/test_studio.js"], ROOT), ("capcut", node + ["tools/test/test_capcut.js"], ROOT), ("davinci", node + ["tools/test/test_davinci.js"], ROOT),

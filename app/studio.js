@@ -321,6 +321,7 @@
     ['square', tx('ካሬ', 'Square'), '1:1'], ['telegram', tx('ቴሌግራም — ቀላል ፋይል', 'Telegram — light file'), '720p'], ['master', tx('ማስተር — ምርጥ ጥራት', 'Master — best quality'), '']];
   const PFMT = { youtube: '16:9', shorts: '9:16', insta: '4:5', square: '1:1' };
   let picked = null;
+  let pickedFor = '';      // 1.94.56: the format they were picked for
   // ⚙ 1.71: frame rate, 4K, only the marked part (I / O)
   // 1.83 Pro export: resolution, quality, kind of file, where it goes
   let expOpts = { fps: 30, k4: false, part: false, res: 'auto', q: 'auto', kind: 'h264', dir: '' };
@@ -339,7 +340,8 @@
   const mins = (sec) => (sec < 60 ? Math.max(1, Math.round(sec)) + ' ' + tx('ሰከንድ', 's') : Math.round(sec / 60) + ' ' + tx('ደቂቃ', 'min'));
   function videoChoices(v, styled, fmtName) {
     const want = { '16:9': 'youtube', '9:16': 'shorts', '4:5': 'insta', '1:1': 'square' }[fmtName] || 'youtube';
-    if (!picked) picked = [want];
+    // 1.94.56: another format (a new project) starts from its own size again
+    if (!picked || pickedFor !== fmtName) { picked = [want]; pickedFor = fmtName; }
     const chips = el('div', 'st-presets');
     const note = el('div', 'st-sub st-pnote');
     const gpuRow = el('div', 'st-sub st-gpu');
