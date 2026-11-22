@@ -661,6 +661,7 @@ const AM_TEXT = {
   'Could not write the client list to that folder — try another folder.': 'ዝርዝሩን በዚያ አቃፊ ውስጥ ማስቀመጥ አልተቻለም — ሌላ አቃፊ ይሞክሩ።',
   'Could not read that file.': 'ያንን ፋይል ማንበብ አልተቻለም።',
   'No words found in that file.': 'በዚያ ፋይል ውስጥ ምንም ቃል አልተገኘም።',
+  'kept as a right word': 'እንደ ትክክለኛ ቃል ተይዟል',
   'No speech detected in this audio — nothing to place.': 'በዚህ ድምፅ ውስጥ ንግግር አልተገኘም — የሚቀመጥ ካፕሽን የለም።',
   'No speech detected in these clips — nothing to place.': 'በእነዚህ ክሊፖች ውስጥ ንግግር አልተገኘም — የሚቀመጥ ካፕሽን የለም።',
   'This project has no captions left to open.': 'ይህ ፕሮጀክት የሚከፈት ካፕሽን የለውም።',

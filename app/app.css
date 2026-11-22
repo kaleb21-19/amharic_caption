@@ -295,6 +295,8 @@ html.amh-studio #review.st-working .st-script { visibility: hidden; }
 .st-script .w:hover { background: #1b2521; }
 .st-script .w.doubt { background: rgba(245,165,36,.20); box-shadow: inset 0 -2px 0 #f5a524; }
 .st-script .w.fixed { box-shadow: inset 0 -2px 0 var(--ok); }
+/* 🔤 1.94.59 probably misspelled: a wavy red line (orange = the model's doubts) */
+.st-script .w.spell { text-decoration: underline wavy #e5484d; text-decoration-thickness: 1.5px; text-underline-offset: 3px; text-decoration-skip-ink: none; }
 .st-script .w.star { color: #ffd60a; font-weight: 700; }
 .st-script .w.cut { text-decoration: line-through; text-decoration-color: #ff6b6b; text-decoration-thickness: 2px; background: rgba(231,76,60,.16); }
 .st-script .w.now { background: rgba(46,204,113,.30); }

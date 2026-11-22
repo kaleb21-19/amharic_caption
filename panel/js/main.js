@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.58';
+const APP_VERSION = '1.94.59';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -5554,6 +5554,7 @@ function initTrialCard() {
 let REVIEW_ROWS_LATER = false;
 function ensureReviewRows() { if (REVIEW_ROWS_LATER) { REVIEW_ROWS_LATER = false; renderReview(true); } }
 function renderReview(force) {
+  SPELL_OK = null; SPELL_VER++;     // 1.94.59: a fix / "Correct" since the last draw
   // Sort by start time so playback order matches what gets written.
   reviewCues.sort((a, b) => a.start - b.start);
   const list = $('reviewList');
@@ -5700,6 +5701,10 @@ function renderReview(force) {
       doubtRanges(t, cue._fixed).forEach((r) => {
         if (!all.some((x) => r.start < x.end && x.start < r.end)) all.push({ start: r.start, end: r.end, cls: 'fix' });
       });
+      // 🔤 1.94.59 a word that is probably misspelled
+      doubtRanges(t, cueSpell(cue)).forEach((r) => {
+        if (!all.some((x) => r.start < x.end && x.start < r.end)) all.push({ start: r.start, end: r.end, cls: 'spell' });
+      });
       // 1.94.31 the word being played (Premiere's playhead or the panel's own ▶) wins over the other marks
       if (FOLLOW.row === i && FOLLOW.word >= 0) {
         const nr = wordCharRange(t, FOLLOW.word);
@@ -5769,6 +5774,7 @@ function renderReview(force) {
     if (textCutAvailable()) textBox.appendChild(cutBtn);   // where something can cut (Premiere Clean up, Studio export)
     paint();
     ta.addEventListener('input', () => {
+      spellTyped(cue, cue.text, ta.value);     // 🔤 1.94.59
       cue.text = ta.value; paint(); fitReviewBox(ta); updateReviewCount();
       if (FIX_OFFER && FIX_OFFER.cue !== cue) clearRowHint();   // the line under another caption goes away
     });
@@ -7045,7 +7051,7 @@ function closeZoomPanel() {
 // the numbers follow what is shown.
 const STEP_NUMS = ['①', '②', '③', '④', '⑤'];
 function reviewDoubtCount() {
-  return reviewCues.reduce((n, c) => n + doubtRanges(c.text || '', c.doubt).length, 0);
+  return reviewCues.reduce((n, c) => n + cueMarks(c).length, 0);
 }
 function syncReviewSteps() {
   const box = $('reviewSteps');
@@ -7082,7 +7088,7 @@ function syncReviewSteps() {
 // ① goes to the first doubtful word (selected, so typing replaces it).
 function goFirstDoubt() {
   for (let i = 0; i < reviewCues.length; i++) {
-    const r = doubtRanges(reviewCues[i].text || '', reviewCues[i].doubt)[0];
+    const r = cueMarks(reviewCues[i])[0];
     if (!r) continue;
     focusReviewCue(i, r.start);
     const row = $('reviewList') && $('reviewList').children[i];
@@ -7103,7 +7109,7 @@ function goFirstDoubt() {
 const PCHK = { on: false, done: 0, note: '', at: [0, 0] };
 function panelDoubts() {
   const out = [];
-  reviewCues.forEach((c, i) => doubtRanges(c.text || '', c.doubt).forEach((r) => out.push({ i, start: r.start, end: r.end, word: String(c.text).slice(r.start, r.end) })));
+  reviewCues.forEach((c, i) => cueMarks(c).forEach((r) => out.push({ i, start: r.start, end: r.end, spell: r.spell, word: String(c.text).slice(r.start, r.end) })));
   return out;
 }
 function panelCheckFixes() {
@@ -7114,7 +7120,7 @@ function panelCheckFixes() {
 }
 function startPanelCheck() {
   PCHK.on = true; PCHK.done = 0; PCHK.note = ''; PCHK.at = [0, 0];
-  amhDict();
+  amhDict(); spellIdx();
   showPanelCheck(false);
 }
 function stopPanelCheck() {
@@ -7184,7 +7190,11 @@ function showPanelCheck(back) {
   const next = el('button', 'btn', '→'); next.type = 'button'; next.title = L('Skip') + ' (Tab)';
   [inp, ok, play, next].forEach((b) => row.appendChild(b));
   card.appendChild(row);
-  const sug = suggestWords(d.word, reviewCues, panelCheckFixes(), 3, AMH_DICT);
+  let sug = suggestWords(d.word, reviewCues, panelCheckFixes(), 3, AMH_DICT);
+  if (d.spell) {
+    const hint = spellCheck(d.word, spellIdx(), spellOkMap());
+    if (hint && hint.suggest) sug = [hint.suggest].concat(sug.filter((x) => x !== hint.suggest)).slice(0, 3);
+  }
   if (sug.length) {
     const sr = el('div', 'chk-sug');
     sug.forEach((w2, k) => {
@@ -7208,12 +7218,15 @@ function showPanelCheck(back) {
     if (v === was) {
       pushReviewUndo('check');
       c.doubt = (c.doubt || []).filter((w) => clean(w) !== clean(was));
+      if (d.spell) { spellRemember(clean(was)); PCHK.note = '🔤 ' + clean(was) + ' — ' + L('kept as a right word'); }
       PCHK.at = [d.i, d.end];
     } else {
       pushReviewUndo('edit');
       const s = String(c.text || '');
       const lead = (d.word.match(/^[*~]+/) || [''])[0], trail = (d.word.match(/[*~]+$/) || [''])[0];
-      c.text = (s.slice(0, d.start) + (v ? lead + v + trail : '') + s.slice(d.end)).replace(/\s{2,}/g, ' ').trim();
+      const nt = (s.slice(0, d.start) + (v ? lead + v + trail : '') + s.slice(d.end)).replace(/\s{2,}/g, ' ').trim();
+      spellTyped(c, s, nt);
+      c.text = nt;
       c.doubt = (c.doubt || []).filter((w) => clean(w) !== clean(was));
       if (v && !/\s/.test(v)) {
         try {
@@ -8493,14 +8506,17 @@ function installFonts() {
 // The language model's words used at least twice (~69,000), made ONCE into a
 // small text file (Python reads the model in about half a second) and kept in
 // the captions folder; until it exists the suggestions come without it.
-let AMH_DICT = null;
-let AMH_DICT_BUSY = false;
-function amhDictFile() { return path.join(USER_CAPTIONS_DIR, '.cache', 'amh_words_v1.txt'); }
+var AMH_DICT = null;   // var: renderReview (1.94.59 spelling) may reach it before this line runs
+var AMH_DICT_BUSY = false;
+var AMH_DICT_TEXT = "";
+// 1.94.59: v2 keeps every word (v1: used twice or more) - a word the model
+// saw once is still a word, not a spelling mistake
+function amhDictFile() { return path.join(USER_CAPTIONS_DIR, '.cache', 'amh_words_v2.txt'); }
 function amhDict() {
   if (AMH_DICT) return AMH_DICT;
   const f = amhDictFile();
   try {
-    if (fs.existsSync(f)) { AMH_DICT = dictFromText(fs.readFileSync(f, 'utf8')); return AMH_DICT; }
+    if (fs.existsSync(f)) { AMH_DICT_TEXT = fs.readFileSync(f, 'utf8'); AMH_DICT = dictFromText(AMH_DICT_TEXT); return AMH_DICT; }
   } catch (e) {}
   if (!AMH_DICT_BUSY) makeAmhDict();
   return null;
@@ -8514,7 +8530,7 @@ function makeAmhDict() {
   const code = 'import gzip,json,re,sys\n' +
     "d=json.load(gzip.open(sys.argv[1],'rt',encoding='utf-8'))['counts']\n" +
     "e=re.compile('^[\\u1200-\\u137F]+$')\n" +
-    'w=sorted(((k,v) for k,v in d.items() if v>=2 and e.match(k)),key=lambda x:-x[1])\n' +
+    'w=sorted(((k,v) for k,v in d.items() if v>=1 and e.match(k)),key=lambda x:-x[1])\n' +
     "open(sys.argv[2],'w',encoding='utf-8').write('\\n'.join(k+'\\t'+str(v) for k,v in w))\n";
   AMH_DICT_BUSY = true;
   try {
@@ -8527,6 +8543,85 @@ function makeAmhDict() {
     });
   } catch (e) { AMH_DICT_BUSY = false; }
 }
+// ── 🔤 spelling hints (1.94.59, Studio S4; core.js spellCheck) ──────────────
+// A word not in the word list (endings taken off) and one letter from a common
+// word is underlined; it joins ✔ Check words with that word as the first
+// suggestion. "Correct" there remembers it (settings.spellOk). The index is
+// made once, in the background, from the same word list (~0.2 s).
+// settings.spellHints = false turns it off.
+var AMH_SPELL = null;
+var AMH_SPELL_BUSY = false;
+var SPELL_OK = null;
+function spellOn() { try { return loadSettings().spellHints !== false; } catch (e) { return true; } }
+function spellIdx() {
+  if (AMH_SPELL || !spellOn()) return AMH_SPELL;
+  if (AMH_SPELL_BUSY) return null;
+  amhDict();
+  if (!AMH_DICT_TEXT) return null;
+  AMH_SPELL_BUSY = true;
+  setTimeout(() => {
+    try { AMH_SPELL = spellIndex(AMH_DICT_TEXT, 5); } catch (e) { AMH_SPELL = null; }
+    AMH_SPELL_BUSY = false;
+    if (AMH_SPELL && typeof reviewOpen !== 'undefined' && reviewOpen) { try { renderReview(); } catch (e) {} }
+  }, 0);
+  return null;
+}
+function spellOkMap() {
+  if (SPELL_OK) return SPELL_OK;
+  const o = {};
+  const put = (w) => { w = String(w || '').trim(); if (w) { o[w] = 1; o[spellNorm(w)] = 1; } };
+  try { (loadSettings().spellOk || []).forEach(put); } catch (e) {}
+  try { const f = activeFixes(loadFixStore()); Object.keys(f).forEach((k) => put(f[k])); } catch (e) {}   // a fix is a right word
+  SPELL_OK = o;
+  return o;
+}
+function spellRemember(w) {
+  w = String(w || '').trim();
+  if (!w) return;
+  try {
+    const list = (loadSettings().spellOk || []).filter((x) => x !== w);
+    list.push(w);
+    saveSettings({ spellOk: list.slice(-5000) });
+  } catch (e) {}
+  SPELL_OK = null;
+}
+// Only the words the editor TYPED are judged ("underlined while typing"):
+// the engine's own words are its to doubt (orange). Its right-but-rare words
+// would otherwise collect red lines - the sample's first caption had three
+// (አቀረበለት, ትወድ, አላሾፈም). Kept for the session, per caption.
+function spellTyped(c, before, after) {
+  if (!c) return;
+  const had = {};
+  String(before || '').split(/\s+/).forEach((w) => { had[w.replace(/[*~]/g, '')] = 1; });
+  let t = c._typed;
+  if (!t) { t = {}; Object.defineProperty(c, '_typed', { value: t, writable: true, configurable: true, enumerable: false }); }
+  String(after || '').split(/\s+/).forEach((w) => {
+    const x = w.replace(/[*~]/g, '');
+    if (x && !had[x]) { t[x.replace(/^[^\u1200-\u135A]+|[^\u1200-\u135A]+$/g, '')] = 1; }
+  });
+}
+// the words of a caption to underline: typed, not the orange ones (already marked)
+function cueSpell(c) {
+  const idx = spellIdx();
+  if (!idx || !c || !c._typed) return [];
+  const t = String(c.text || '');
+  if (c._spellT === t && c._spellV === SPELL_VER) return c._spell;
+  const doubt = (c.doubt || []).map((w) => String(w).trim());
+  const out = spellWordsIn(t, idx, spellOkMap()).filter((w) => doubt.indexOf(w) < 0 && c._typed[w]);
+  Object.defineProperty(c, '_spell', { value: out, writable: true, configurable: true, enumerable: false });
+  Object.defineProperty(c, '_spellT', { value: t, writable: true, configurable: true, enumerable: false });
+  Object.defineProperty(c, '_spellV', { value: SPELL_VER, writable: true, configurable: true, enumerable: false });
+  return out;
+}
+var SPELL_VER = 0;
+// the orange words and the underlined ones, in text order (for ✔ Check words)
+function cueMarks(c) {
+  const t = String(c.text || '');
+  const d = doubtRanges(t, c.doubt).map((r) => Object.assign(r, { spell: false }));
+  doubtRanges(t, cueSpell(c)).forEach((r) => { if (!d.some((x) => r.start < x.end && x.start < r.end)) d.push(Object.assign(r, { spell: true })); });
+  return d.sort((a, b) => a.start - b.start);
+}
+
 // 1.94.11: Premiere's own captions use the editor's caption font — the panel
 // cannot choose it. Without an Amharic font they show boxes. After the first
 // plain captions on a computer without our fonts: one note, install in one

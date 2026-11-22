@@ -33,7 +33,8 @@ def suites(area):
     table = {
         "panel": [("panel unit", node + ["tools/test/test_panel.js"], ROOT),
                   ("panel DOM", node + ["tools/test/test_panel_dom.js"], ROOT),
-                  ("ui tokens", node + ["tools/test/test_ui_tokens.js"], ROOT)],
+                  ("ui tokens", node + ["tools/test/test_ui_tokens.js"], ROOT),
+                  ("spelling", node + ["tools/test/test_spell.js"], ROOT)],
         "host": [(f[:-3], node + ["tools/test/" + f], ROOT) for f in host],
         "styles": [("styles", py + ["tools/test/test_styles.py"], ROOT),
                    ("templates", py + ["tools/test/test_templates.py"], ROOT)],

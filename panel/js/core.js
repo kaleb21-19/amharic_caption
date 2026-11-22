@@ -1227,6 +1227,128 @@ function wordsFromCues(cues) {
 }
 
 // Node (tests) — no-op in the CEP browser where `module` is undefined.
+
+// ── 🔤 spelling hints (1.94.59, Studio S4) ─────────────────────────────────
+// A word that is not in the Amharic word list (the language model's 109,612
+// words), even with its common prefixes / endings taken off, AND is one letter
+// from a common word (5+ uses) is underlined, with that word as the hint.
+// Measured (owner chose "Balanced"): 39 of 50 seeded typos caught; correct
+// words underlined 2.0% in speech transcripts, 10.6% in technical UI text
+// (loanwords like ካፕሽን). A plain "not in the list" check underlined 23% of
+// correct words: Amharic glues -ም -ና -ን -ው and በ- የ- ለ- onto words.
+const SPELL_ROWS = [[0x1200, 0x1210, 0x1280], [0x1230, 0x1220], [0x1338, 0x1340], [0x12A0, 0x12D0]];
+const SPELL_ROW_TO = {};
+SPELL_ROWS.forEach((fam) => fam.forEach((r) => { SPELL_ROW_TO[r] = fam[0]; }));
+// the letters Amharic writers swap freely (ሀ ሐ ኀ, ሰ ሠ, ጸ ፀ, አ ዐ) count as one
+function spellNorm(w) {
+  let o = '';
+  for (const ch of String(w || '')) {
+    const cp = ch.codePointAt(0);
+    const row = cp - ((cp - 0x1200) % 8);
+    o += SPELL_ROW_TO[row] != null && cp >= 0x1200 && cp <= 0x137F ? String.fromCodePoint(SPELL_ROW_TO[row] + (cp - row)) : ch;
+  }
+  return o;
+}
+const SPELL_WORD = /^[\u1200-\u135A]{2,}$/;
+const SPELL_PRE = ['እንደ', 'ስለ', 'ወደ', 'እስከ', 'ከነ', 'የሚ', 'የማ', 'የተ', 'በተ', 'ለተ', 'የ', 'በ', 'ለ', 'ከ', 'ሲ', 'እና'];
+const SPELL_SUF = ['ዎችን', 'ዎቹን', 'ዎቹ', 'ዎች', 'ውን', 'ችን', 'ም', 'ና', 'ስ', 'ን', 'ማ', 'ኮ', 'ሳ', 'ው', 'ዋ', 'ችሁ', 'ዎ', 'ዎን'];
+const spellOrd = (ch) => { const cp = ch.codePointAt(0); return cp >= 0x1200 && cp <= 0x135A ? (cp - 0x1200) % 8 : -1; };
+const spellSet = (ch, ord) => { const cp = ch.codePointAt(0); return String.fromCodePoint(cp - ((cp - 0x1200) % 8) + ord); };
+// w and its forms with a prefix / ending taken off (two rounds); each with
+// how to put the taken part back on a suggested stem
+function spellStems(w) {
+  const out = [{ s: w, wrap: (c) => c }];
+  const seen = { [w]: 1 };
+  const add = (s, wrap) => { if (s.length >= 2 && !seen[s]) { seen[s] = 1; out.push({ s, wrap }); } };
+  for (let round = 0; round < 2; round++) {
+    out.slice().forEach(({ s: x, wrap: f }) => {
+      SPELL_PRE.forEach((p) => { if (x.startsWith(p) && x.length - p.length >= 2) add(x.slice(p.length), (c) => f(p + c)); });
+      SPELL_SUF.forEach((q) => { if (x.endsWith(q) && x.length - q.length >= 2) add(x.slice(0, -q.length), (c) => f(c + q)); });
+      // the definite -u / -a merged into the last letter: ካፕሽኑ -> ካፕሽን (+ -ን: ካፕሽኑን)
+      const o1 = spellOrd(x[x.length - 1]);
+      if (x.length >= 3 && (o1 === 1 || o1 === 3)) add(x.slice(0, -1) + spellSet(x[x.length - 1], 5), (c) => f(c.slice(0, -1) + spellSet(c[c.length - 1], o1)));
+      if (x.length >= 3 && x[x.length - 1] === 'ን') {
+        const o2 = spellOrd(x[x.length - 2]);
+        if (o2 === 1 || o2 === 3) add(x.slice(0, -2) + spellSet(x[x.length - 2], 5), (c) => f(c.slice(0, -1) + spellSet(c[c.length - 1], o2) + 'ን'));
+      }
+    });
+  }
+  return out;
+}
+// the index: every word (normalized) and, for the common ones, their
+// one-letter deletions - a look-up is a few Map reads, not a scan of 109k words
+function spellIndex(text, minCommon) {
+  minCommon = minCommon || 5;
+  const counts = new Map();
+  const shown = new Map();
+  String(text || '').split('\n').forEach((line) => {
+    const t = line.indexOf('\t');
+    const w = (t < 0 ? line : line.slice(0, t)).trim();
+    if (!w) return;
+    const n = t < 0 ? 1 : (Number(line.slice(t + 1)) || 1);
+    const k = spellNorm(w);
+    counts.set(k, (counts.get(k) || 0) + n);
+    if (!shown.has(k) || shown.get(k)[1] < n) shown.set(k, [w, n]);
+  });
+  const del = new Map();
+  counts.forEach((n, k) => {
+    if (n < minCommon) return;
+    for (let i = 0; i < k.length; i++) {
+      const d = k.slice(0, i) + k.slice(i + 1);
+      const a = del.get(d);
+      if (a) a.push(k); else del.set(d, [k]);
+    }
+  });
+  return { counts, shown, del, minCommon };
+}
+function spellOneAway(q, idx) {
+  const n = q.length;
+  const near = (k) => {
+    if (k === q) return false;
+    if (k.length === n) { let d = 0; for (let i = 0; i < n && d < 2; i++) if (k[i] !== q[i]) d++; return d === 1; }
+    const [a, b] = k.length > n ? [k, q] : [q, k];
+    if (a.length - b.length !== 1) return false;
+    for (let i = 0; i < a.length; i++) if (a.slice(0, i) + a.slice(i + 1) === b) return true;
+    return false;
+  };
+  let best = null;
+  const take = (k) => { const c = idx.counts.get(k) || 0; if (c >= idx.minCommon && near(k) && (!best || c > best[1])) best = [k, c]; };
+  (idx.del.get(q) || []).forEach(take);                 // q + one letter
+  for (let i = 0; i < n; i++) {
+    const d = q.slice(0, i) + q.slice(i + 1);
+    if (idx.counts.has(d)) take(d);                     // q - one letter
+    (idx.del.get(d) || []).forEach(take);               // one letter different
+  }
+  return best;
+}
+// null when the word is fine (or not Amharic); else { suggest } - ok: words
+// the editor said are right (and their fixes)
+function spellCheck(word, idx, ok) {
+  if (!idx) return null;
+  const w = String(word || '').replace(/[*~]/g, '').replace(/^[^\u1200-\u135A]+|[^\u1200-\u135A]+$/g, '');
+  if (!SPELL_WORD.test(w)) return null;
+  const nw = spellNorm(w);
+  if (ok && (ok[w] || ok[nw])) return null;
+  const stems = spellStems(nw);
+  if (stems.some((x) => idx.counts.has(x.s))) return null;
+  let best = null;
+  stems.forEach((x) => {
+    const b = spellOneAway(x.s, idx);
+    if (b && (!best || b[1] > best.n)) best = { n: b[1], k: x.wrap((idx.shown.get(b[0]) || [b[0]])[0]) };
+  });
+  return best ? { word: w, suggest: best.k } : null;
+}
+// the words of a caption to underline (each once)
+function spellWordsIn(text, idx, ok) {
+  if (!idx) return [];
+  const out = [];
+  String(text || '').replace(/~[^~]*~/g, ' ').split(/\s+/).forEach((raw) => {
+    const r = spellCheck(raw, idx, ok);
+    if (r && out.indexOf(r.word) < 0) out.push(r.word);
+  });
+  return out;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { skipTarget, wholeStruck,
     parseSrt, formatSrtTs, cleanCueLines, AMH_PUNCT_CHARS,
@@ -1240,7 +1362,7 @@ if (typeof module !== 'undefined' && module.exports) {
     findZoomMoments, cutRanges, findTextCuts, exactWordTimes, regroupCues,
     LICENSE_TOKEN_PUBKEY_PEM, licenseTokenParse, verifyLicenseToken,
     amhType, amhRowOf, styledUpdatePlan,
-    editDistance, dictFromText, suggestWords,
+    editDistance, dictFromText, suggestWords, spellNorm, spellStems, spellIndex, spellCheck, spellWordsIn,
     amhFold, searchTerms, searchFootage, searchClipRange, wordsFromCues,
   };
 }

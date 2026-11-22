@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.58');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.59');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -2018,6 +2018,52 @@ await t('4f4. 1.94.42 live canvas: drawn while Customize is open, sliders redraw
     p.evalVm("globalThis.__killed = 0; LC.child = { kill() { __killed++; } }; closeReview(true);");
     assert.strictEqual(p.evalVm('__killed'), 1, 'the style process is stopped');
     assert.strictEqual(p.evalVm('LC.child'), null);
+  } finally { p.close(); }
+});
+
+await t('4f8. 1.94.59 spelling hints: a probably misspelled word is underlined, joins Check words with the hint first, and "Correct" keeps it', async () => {
+  const p = loadPanel({ realPanel: true });
+  try {
+    await flush(5);
+    p.evalVm(`AMH_DICT_TEXT = 'ቤተሰብ\\t50\\nሰላም\\t80\\nሁሉ\\t90\\nነው\\t99'; AMH_DICT = dictFromText(AMH_DICT_TEXT); AMH_SPELL = spellIndex(AMH_DICT_TEXT, 5);
+      saveSettings({ spellOk: [] }); LICENSED = true; reviewOpen = true; if (!$('reviewList').parentNode) $('review').appendChild($('reviewList'));
+      reviewCues = [{ text: 'ሰላም ሁሉ', start: 0, end: 2 }, { text: 'ሰላም ነው', start: 2, end: 4 }]; renderReview();`);
+    const marks = (i) => p.els('reviewList').children[i].querySelector('.hl-back').children.filter((n) => n.tagName === 'MARK' || n.tagName === 'mark');
+    const typeIn = (i, v) => { const ta = p.els('reviewList').children[i].querySelector('textarea'); ta.value = v; ta.fire('input'); };
+    // the engine's own words are never underlined - only what the editor types
+    p.evalVm(`reviewCues[1].text = 'ሰላም ቤተስብ'; renderReview();`);
+    assert.strictEqual(marks(1).filter((m) => m.className === 'spell').length, 0, 'not typed: not judged');
+    p.evalVm(`reviewCues[1].text = 'ሰላም ነው'; renderReview();`);
+    typeIn(0, 'ሰላም ቤተስብ ሁሉ');
+    const sp = marks(0).filter((m) => m.className === 'spell');
+    assert.strictEqual(sp.length, 1, 'one word underlined');
+    assert.strictEqual(sp[0].textContent, 'ቤተስብ');
+    assert.strictEqual(marks(1).length, 0, 'a clean caption: nothing');
+    assert.strictEqual(p.evalVm('reviewDoubtCount()'), 1, 'counted in Text · ⚠ N');
+    // an orange (doubtful) word is not marked twice
+    p.evalVm(`reviewCues[0].doubt = ['ቤተስብ']; renderReview();`);
+    assert.strictEqual(marks(0).filter((m) => m.className === 'spell').length, 0);
+    assert.strictEqual(p.evalVm('reviewDoubtCount()'), 1);
+    p.evalVm(`reviewCues[0].doubt = []; renderReview(); startPanelCheck();`);
+    const card = p.els('reviewList').parentNode.children.find((c) => c.id === 'chkCard');   // made at run time
+    assert.ok(card, 'the check card opens');
+    const sug = card.children.find((c) => c.className === 'chk-sug');
+    assert.ok(sug && sug.children[0].textContent === 'ቤተሰብ', 'the hint is the first suggestion');
+    // "Correct" (Enter on the word as it is): kept as a right word, no longer underlined
+    const okb = card.querySelector('.chk-okb');
+    okb.fire('click');
+    assert.ok(p.evalVm("(loadSettings().spellOk || []).indexOf('ቤተስብ') >= 0"), 'remembered');
+    assert.strictEqual(marks(0).filter((m) => m.className === 'spell').length, 0, 'not underlined any more');
+    assert.strictEqual(p.evalVm('reviewDoubtCount()'), 0);
+    // a fix from the suggestion: the right word goes in
+    p.evalVm(`stopPanelCheck(); saveSettings({ spellOk: [] }); renderReview();`);
+    typeIn(1, 'ሰላም ቤተስብም');
+    assert.strictEqual(marks(1).filter((m) => m.className === 'spell').length, 1, 'typed with an ending: underlined');
+    assert.strictEqual(p.evalVm("spellCheck('ቤተስብም', AMH_SPELL, spellOkMap()).suggest"), 'ቤተሰብም', 'the hint keeps the ending of the word');
+    // settings.spellHints = false: nothing underlined
+    p.evalVm(`saveSettings({ spellHints: false }); AMH_SPELL = null; renderReview();`);
+    assert.strictEqual(marks(1).filter((m) => m.className === 'spell').length, 0);
+    p.evalVm(`saveSettings({ spellHints: true });`);
   } finally { p.close(); }
 });
 

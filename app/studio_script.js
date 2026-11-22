@@ -88,7 +88,8 @@
       const re = /\*[^*]+\*/g;
       let m;
       while ((m = re.exec(t)) !== null) star.push([m.index, m.index + m[0].length]);
-      return { r: S.wordRanges(t), star, cut: marks(t, cutRanges(t)), doubt: marks(t, doubtRanges(t, c.doubt)), fixed: marks(t, doubtRanges(t, c._fixed)) };
+      return { r: S.wordRanges(t), star, cut: marks(t, cutRanges(t)), doubt: marks(t, doubtRanges(t, c.doubt)), fixed: marks(t, doubtRanges(t, c._fixed)),
+        spell: typeof cueSpell === 'function' ? marks(t, doubtRanges(t, cueSpell(c))) : [] };      // 🔤 1.94.59
     });
     const inside = (wr, list2) => !!wr && list2.some((x) => wr[0] < x[1] && x[0] < wr[1]);
     paras = S.scriptParagraphs(words);
@@ -113,6 +114,7 @@
         if (inside(wr, inf.star)) s.classList.add('star');
         if (inside(wr, inf.cut)) s.classList.add('cut');
         if (inside(wr, inf.doubt)) s.classList.add('doubt');
+        else if (inside(wr, inf.spell)) { s.classList.add('spell'); s.title = tx('ምናልባት የፊደል ስህተት — ✔ ቃላትን ፈትሽ (F7)', 'Probably misspelled — ✔ Check words (F7)'); }
         else if (inside(wr, inf.fixed)) s.classList.add('fixed');
         p.appendChild(s);
         p.appendChild(document.createTextNode(' '));
@@ -438,7 +440,9 @@
       const lead = (old.match(/^[*~]+/) || [''])[0], trail = (old.match(/[*~]+$/) || [''])[0];
       const isFirst = n === groups.length - 1;
       const rep = isFirst && value ? lead + value + trail : '';
-      c.text = (t.slice(0, g.from) + rep + t.slice(g.to)).replace(/\s{2,}/g, ' ').trim();
+      const nt = (t.slice(0, g.from) + rep + t.slice(g.to)).replace(/\s{2,}/g, ' ').trim();
+      if (typeof spellTyped === 'function') spellTyped(c, t, nt);       // 🔤 1.94.59
+      c.text = nt;
     });
     for (let i = reviewCues.length - 1; i >= 0; i--) if (!String(reviewCues[i].text || '').replace(/[*~]/g, '').trim()) reviewCues.splice(i, 1);
     hideBar();
@@ -580,11 +584,12 @@
   // it again, Esc = stop. Suggestions: 🧠 memory, then look-alike words of
   // this video. Every step is one ↶.
   let checking = false, chkAt = 0, chkDone = 0, chkNote = '';
-  function doubtList() { const a = []; spans.forEach((s, i) => { if (s && s.classList.contains('doubt')) a.push(i); }); return a; }
+  function doubtList() { const a = []; spans.forEach((s, i) => { if (s && (s.classList.contains('doubt') || s.classList.contains('spell'))) a.push(i); }); return a; }
   function startCheck() {
     if (mode !== 'script') setMode('script');
     checking = true; chkDone = 0; chkNote = '';
     if (typeof amhDict === 'function') amhDict();       // the dictionary: made once, in the background
+    if (typeof spellIdx === 'function') spellIdx();
     setTimeout(() => goCheck(0, false), 80);
   }
   function stopCheck() { checking = false; bar.classList.remove('st-chk'); hideBar(); }
@@ -651,7 +656,12 @@
     const nextB = el('button', '', '→'); nextB.type = 'button'; nextB.title = tx('ዝለል (Tab)', 'Skip (Tab)');
     [inp, okB, playB, nextB].forEach((b) => row.appendChild(b));
     bar.appendChild(row);
-    const sug = S.checkSuggest(x.w, reviewCues, memoryFixes(), 3, typeof amhDict === 'function' ? amhDict() : null);
+    let sug = S.checkSuggest(x.w, reviewCues, memoryFixes(), 3, typeof amhDict === 'function' ? amhDict() : null);
+    const isSpell = s.classList.contains('spell');
+    if (isSpell && typeof spellCheck === 'function' && typeof spellIdx === 'function') {
+      const hint = spellCheck(x.w, spellIdx(), spellOkMap());
+      if (hint && hint.suggest) sug = [hint.suggest].concat(sug.filter((w2) => w2 !== hint.suggest)).slice(0, 3);
+    }
     if (sug.length) {
       const sr = el('div', 'st-chk-sug');
       sug.forEach((w2, k) => {
@@ -667,7 +677,10 @@
     hear(x);
     function apply() {
       const v = inp.value.replace(/\s+/g, ' ').trim();
-      if (v === was) markRight(x);
+      if (v === was) {
+        markRight(x);
+        if (isSpell && typeof spellRemember === 'function') { spellRemember(was); chkNote = '🔤 ' + was + ' — ' + tx('እንደ ትክክለኛ ቃል ተይዟል', 'kept as a right word'); if (typeof renderReview === 'function') renderReview(); }
+      }
       else {
         fix([x], v);
         // one word for one word: learned for every new video (🧠, editable there)
