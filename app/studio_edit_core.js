@@ -557,6 +557,35 @@
   const FORMATS = { '16:9': [1920, 1080], '9:16': [1080, 1920], '1:1': [1080, 1080], '4:5': [1080, 1350] };
   // res: the short side (1080 or 720); the canvas keeps its shape
   const even = (x) => Math.max(2, Math.round(x / 2) * 2);
+  // 1.94.56 (S1): the picture as it is SHOWN. A phone films wide and writes
+  // "turn it 90 degrees" next to the picture (ffmpeg -i: "Display Matrix:
+  // rotation of -90.00 degrees", older ffmpeg "displaymatrix: ..." or
+  // "rotate : 90"); ffmpeg turns it when it decodes, so a 1920x1080 phone
+  // video is 1080x1920 everywhere after. t = ffmpeg -i's text.
+  function videoShape(t) {
+    t = String(t || '');
+    const vm = t.match(/Stream[^\n]*Video:[^\n]*?\s(\d{2,5})x(\d{2,5})/);
+    if (!vm) return { w: 0, h: 0, rot: 0 };
+    let w = Number(vm[1]), h = Number(vm[2]);
+    const at = t.indexOf(vm[0]) + vm[0].length;
+    const next = t.indexOf('Stream #', at);
+    const own = t.slice(at, next < 0 ? t.length : next);      // this stream's lines only
+    const r = own.match(/(?:display\s*matrix\s*:\s*rotation of|\brotate\s*:)\s*(-?\d+(?:\.\d+)?)/i);
+    const rot = r ? ((Math.round(Number(r[1]) / 90) * 90) % 360 + 360) % 360 : 0;
+    if (rot === 90 || rot === 270) { const k = w; w = h; h = k; }
+    return { w, h, rot };
+  }
+  // the format whose shape is nearest the picture's (16:9, 9:16, 1:1, 4:5)
+  function fmtForShape(w, h) {
+    w = Number(w); h = Number(h);
+    if (!(w > 0 && h > 0)) return '16:9';
+    let best = '16:9', d0 = Infinity;
+    Object.keys(FORMATS).forEach((f) => {
+      const d = Math.abs(Math.log((w / h) / (FORMATS[f][0] / FORMATS[f][1])));
+      if (d < d0 - 1e-9) { d0 = d; best = f; }
+    });
+    return best;
+  }
   const canvasSize = (fmt, res) => { const s = FORMATS[fmt] || FORMATS['16:9']; const k = (Number(res) || 1080) / 1080; return { w: even(s[0] * k), h: even(s[1] * k) }; };
 
   // ── export choices (1.25.0): where it goes, how big, which encoder ───────
@@ -2190,7 +2219,7 @@
   }
 
   const api = { MIN, layout, total, locate, sourceToEdit, splitAt, removeClip, trimClip, moveClip, dropIndex, cutRange, moveRange, rangeState, insertClips, keptSegs, mapTime, followClips,
-    words, deriveCaptions, syncBack, FORMATS, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
+    words, deriveCaptions, syncBack, FORMATS, videoShape, fmtForShape, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
     TFONTS, TPRESETS, assColor, textAnchor, textAss, setFontInfo, fontInfo, textSize, addFont, fontFacts,
     TITLE_ANIMS, TITLE_LOOKS, TITLE_BG, titleOf, titleLook, LOUD, MUS_DEFAULT, musicGain,
     MIX_BUSES, MIX_EQ, MIX_PRESETS, stripOf, mixOf, mixerOn, compParams, panGains, stripChain,

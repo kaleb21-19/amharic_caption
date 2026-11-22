@@ -845,11 +845,68 @@ def drop_background_words(words, wav, sr=16000):
     return out
 
 
-def make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=42, wav=None):
+# 1.94.56 (S1): speech-free audio (music, noise, wind, a fan) gave made-up
+# captions - "ዘብ እ። እ።" on a 6 s noise clip, "ነ ነ ነ ..." on drums. Silero VAD
+# cannot tell: it marked all 20 speech-free test clips as 100% speech. The
+# model's own confidence can: over the letters it wrote, speech-free clips
+# averaged 0.56-0.70, real speech 0.735-1.0 (19 Common Voice clips + the
+# fixtures, clean / noisy / phone / two speakers), and speech-free text is
+# sparse (under 0.75 words a second; speech 0.94+). Drums write one letter
+# over and over - real text never is 80% one word. The whole result is
+# dropped only when ALL of it looks like that; a real sentence among the
+# noise lifts the average and everything is kept as before - and so do two
+# words in a row the model is sure of (each 0.85+, 2+ letters; speech-free
+# clips scored at most 0.55 on that, speech under music 0.87-1.0).
+# AMH_NOSPEECH=0 turns it off.
+NOSPEECH_CONF = 0.75
+NOSPEECH_WPS = 1.0
+NOSPEECH_KEEP = 0.85
+
+
+def _sure_pair(spans, words, frame_dur):
+    """The best of: two words in a row, the less sure of the two (words of
+    one letter count 0 - the model's noise words are mostly one letter)."""
+    wc = []
+    for w in words:
+        t = re.sub(r"[፡-፨.,!?\s]+", "", str(w[0]))
+        if len(t) < 2:
+            wc.append(0.0)
+            continue
+        cs = [_span_conf(s) for s in spans if w[1] - 1e-6 <= s[1] * frame_dur <= w[2] + 1e-6]
+        wc.append(float(np.mean(cs)) if cs else 0.0)
+    return max([min(a, b) for a, b in zip(wc, wc[1:])] or [0.0])
+
+
+def no_speech(spans, words, secs):
+    """True when the words are the model's made-up text on audio without speech."""
+    if os.environ.get("AMH_NOSPEECH", "1") == "0" or not words or not spans or not secs or secs <= 0:
+        return False
+    conf = float(np.mean([_span_conf(s) for s in spans]))
+    wps = len(words) / float(secs)
+    if conf < NOSPEECH_CONF and wps < NOSPEECH_WPS:
+        return True
+    toks = [re.sub(r"[\u1361-\u1368.,!?\s]+", "", str(w[0])) for w in words]
+    toks = [t for t in toks if t]
+    if len(toks) >= 5 and conf < 0.9:
+        top = max(toks.count(t) for t in set(toks))
+        if top >= 0.8 * len(toks):
+            return True
+    return False
+
+
+def make_cues(mode, group_size, spans, frame_dur, text, glyphs, max_chars=42, wav=None, secs=None):
     # Pull the raw word stream ONCE and run the conservative post-correction
     # pass on it, so every caption mode (words/grouped/sentence) benefits and
     # the corrected words match the same timing as the original.
     raw_words = get_words(spans, frame_dur, glyphs)
+    # 1.94.56: speech-free audio writes no captions (secs: how much audio the
+    # spans cover - a long clip's window, else the whole clip)
+    if secs is None and wav is not None:
+        secs = len(wav) / 16000.0
+    noise = no_speech(spans, raw_words, secs) and _sure_pair(spans, raw_words, frame_dur) < NOSPEECH_KEEP
+    if noise:
+        print("[info] no speech found (the model's text was noise)", file=sys.stderr)
+        return []
     # `wav` is the audio on the SAME timeline as the spans (the whole clip —
     # windowed paths shift their spans back onto it).
     if wav is not None:
@@ -1347,7 +1404,7 @@ def _win_cues(engine, wav, st, en, mode, group_size, max_chars):
         ee = st + int(round((e + 1) * fdur * 16000))
         shifted.append(Span(tok, ss, max(ss, ee), _span_conf(sp)))
     cues = make_cues(mode, group_size, shifted, 1.0 / 16000.0, text,
-                     engine.glyphs, max_chars=max_chars, wav=wav)
+                     engine.glyphs, max_chars=max_chars, wav=wav, secs=(en - st) / 16000.0)
     return text, cues
 
 

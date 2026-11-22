@@ -864,4 +864,47 @@ test('1.88 editor first: the free version\'s small tag on an export without capt
   assert.ok(!E.textAss([], 1920, 1080, 12, { tag: false }).includes('Amharic Captions Pro'));
 });
 
+// ffmpeg 8.1 -i, as it prints them (the bundled ffmpeg; S1 test clips)
+const FF_PHONE = `Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'phone_rot.mp4':
+  Duration: 00:00:20.00, start: 0.000000, bitrate: 2335 kb/s
+  Stream #0:0[0x1](eng): Video: h264 (High) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 1024x576 [SAR 1:1 DAR 16:9], 2200 kb/s, 24 fps, 24 tbr, 12288 tbn (default)
+      Metadata:
+        handler_name    : VideoHandler
+    Side data:
+      Display Matrix: rotation of 90.00 degrees
+  Stream #0:1[0x2](eng): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, stereo, fltp, 129 kb/s (default)`;
+const FF_WIDE = `  Duration: 00:00:20.00, start: 0.000000, bitrate: 2335 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1280x720 [SAR 1:1 DAR 16:9], 30 fps (default)
+  Stream #0:1[0x2](und): Audio: aac (LC), 48000 Hz, stereo, fltp (default)`;
+
+test('1.94.56 S1: a phone video is shown turned - its size as seen, not as stored', () => {
+  assert.deepStrictEqual(E.videoShape(FF_PHONE), { w: 576, h: 1024, rot: 90 });
+  assert.deepStrictEqual(E.videoShape(FF_PHONE.replace('rotation of 90.00', 'rotation of -90.00')), { w: 576, h: 1024, rot: 270 });
+  // older ffmpeg wording, and the old "rotate" tag
+  assert.deepStrictEqual(E.videoShape(FF_PHONE.replace('Display Matrix: rotation of 90.00 degrees', 'displaymatrix: rotation of -90.00 degrees')).w, 576);
+  assert.deepStrictEqual(E.videoShape(FF_PHONE.replace('Display Matrix: rotation of 90.00 degrees', 'rotate          : 90')).h, 1024);
+  // upside down stays the same shape; no rotation is the stored size
+  assert.deepStrictEqual(E.videoShape(FF_PHONE.replace('rotation of 90.00', 'rotation of 180.00')), { w: 1024, h: 576, rot: 180 });
+  assert.deepStrictEqual(E.videoShape(FF_WIDE), { w: 1280, h: 720, rot: 0 });
+  // another stream's rotation (a cover picture after the audio) is not this one's
+  assert.strictEqual(E.videoShape(FF_WIDE + '\n  Stream #0:2: Video: mjpeg, 600x600\n    Side data:\n      Display Matrix: rotation of 90.00 degrees').w, 1280);
+  assert.deepStrictEqual(E.videoShape('no video here'), { w: 0, h: 0, rot: 0 });
+});
+
+test('1.94.56 S1: the project takes the nearest shape - a 9:16 phone video is a 9:16 project and a 1080x1920 Shorts export', () => {
+  assert.strictEqual(E.fmtForShape(576, 1024), '9:16');
+  assert.strictEqual(E.fmtForShape(1080, 1920), '9:16');
+  assert.strictEqual(E.fmtForShape(1920, 1080), '16:9');
+  assert.strictEqual(E.fmtForShape(1280, 720), '16:9');
+  assert.strictEqual(E.fmtForShape(1440, 1080), '16:9', '4:3 is nearer 16:9 than 1:1');
+  assert.strictEqual(E.fmtForShape(1080, 1080), '1:1');
+  assert.strictEqual(E.fmtForShape(1080, 1350), '4:5');
+  assert.strictEqual(E.fmtForShape(720, 960), '4:5', '3:4 portrait');
+  assert.strictEqual(E.fmtForShape(0, 0), '16:9', 'unknown: as before');
+  const s = E.videoShape(FF_PHONE);
+  const f = E.fmtForShape(s.w, s.h);
+  assert.strictEqual(E.presetFor(f), 'shorts');
+  assert.deepStrictEqual(E.canvasSize(f, E.PRESETS[E.presetFor(f)].res), { w: 1080, h: 1920 });
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');
