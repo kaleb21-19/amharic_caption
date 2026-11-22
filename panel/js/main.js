@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.53';
+const APP_VERSION = '1.94.54';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -5266,6 +5266,7 @@ async function openReview(outSrt, label, startSeconds, opts) {
   followStart();
   fitReviewBoxes();   // heights can only be measured once the overlay shows
   STYLE_CUSTOM_OPEN = false;      // closed again for every caption
+  $('review').classList.remove('customizing');
   renderStyleStrip();
   liveClear();                        // 1.94.39: a live caption left from before (panel closed mid-review)
   loadStyleFrame().then(schedulePreview, schedulePreview);
@@ -5458,6 +5459,7 @@ function removeTempCaptionArtifact(filePath) {
 }
 
 function closeReview(keepArtifact) {
+  if ($('review')) $('review').classList.remove('customizing');   // 1.94.54
   tlStop();
   hideTiming();
   stopHearing();
@@ -8237,8 +8239,10 @@ async function lcEnsureCanvas(stage, fr) {
   // the frame's own shape, never taller than 220 px (a 9:16 video stays small)
   const ratio = fr.height / fr.width;
   stage.style.aspectRatio = fr.width + ' / ' + fr.height;
-  stage.style.maxHeight = '220px';
-  stage.style.maxWidth = ratio > 1 ? Math.round(220 / ratio) + 'px' : '';
+  const page = $('review') && $('review').classList.contains('customizing');
+  const maxH = page ? Math.max(150, Math.min(360, Math.round((window.innerHeight || 800) * 0.36))) : 220;   // 1.94.54: a third of the panel
+  stage.style.maxHeight = maxH + 'px';
+  stage.style.maxWidth = ratio > 1 ? Math.round(maxH / ratio) + 'px' : '';
 }
 // messages from the renderer page (only from our own frame)
 function lcOnMessage(e) {
@@ -8789,6 +8793,51 @@ let STYLE_SECTION = 'text';          // 1.94.39: the open Customize section
 const OUTLINE_COLORS = ['', '#000000', '#FFFFFF', '#1A1A2E'];          // 1.94.40 ('' = the look's own)
 const BOX_COLORS = ['', '#000000', '#FFFFFF', '#FFE500', '#FF2D95', '#2F80ED'];
 const SIZE_PICK = [['s', 'S', 0.8], ['m', 'M', 1], ['l', 'L', 1.25], ['xl', 'XL', 1.5]];
+// 1.94.54 the Customize page: the caption list steps aside, the look gets the
+// whole panel; ‹ › shows the look on another caption; ← Captions goes back
+function customPage(open) {
+  const rv = $('review');
+  if (!rv) return;
+  const was = rv.classList.contains('customizing');
+  rv.classList.toggle('customizing', !!open);
+  if (!open) {
+    if (was) {                                         // back at the caption that was being looked at
+      const row = $('reviewList') && $('reviewList').children[LC.i || 0];
+      if (row && typeof row.scrollIntoView === 'function') { try { row.scrollIntoView({ block: 'nearest' }); } catch (e) {} }
+    }
+    return;
+  }
+  const back = $('customBack');
+  if (back && !back.dataset.wired) {
+    back.dataset.wired = '1';
+    back.textContent = '← ' + L('Captions');
+    const title = $('customBar').querySelector ? $('customBar').querySelector('.custom-title') : null;
+    if (title) title.textContent = '⚙ ' + L('Customize');
+    $('customPrev').setAttribute('aria-label', L('Previous caption'));
+    $('customNext').setAttribute('aria-label', L('Next caption'));
+    back.addEventListener('click', () => { STYLE_CUSTOM_OPEN = false; renderStyleCustom(); });
+    const step = (d) => {
+      const n = (reviewCues || []).length;
+      if (!n) return;
+      LC.i = Math.max(0, Math.min(n - 1, (LC.i || 0) + d));
+      customBarSync();
+      lcDraw();
+    };
+    $('customPrev').addEventListener('click', () => step(-1));
+    $('customNext').addEventListener('click', () => step(1));
+  }
+  customBarSync();
+}
+function customBarSync() {
+  const n = (reviewCues || []).length;
+  const i = Math.max(0, Math.min(n - 1, LC.i || 0));
+  const at = $('customAt');
+  if (at) at.textContent = n ? (i + 1) + ' / ' + n : '';
+  const cue = (reviewCues || [])[i];
+  if (at) at.title = cue ? String(cue.text || '').slice(0, 80) : '';
+  if ($('customPrev')) $('customPrev').disabled = i <= 0;
+  if ($('customNext')) $('customNext').disabled = i >= n - 1;
+}
 function renderCompactCustom(wrap, opts) {
   const styled = STYLE_OK && STYLE !== 'plain';
   const open = styled && STYLE_CUSTOM_OPEN;
@@ -8804,6 +8853,7 @@ function renderCompactCustom(wrap, opts) {
     }
   }
   wrap.classList.add('sc-compact');
+  customPage(open);                                   // 1.94.54: the whole panel while it is open
   // 1.94.39 (owner: "the space should feel comfortable"): no preview picture in
   // the panel - the caption shows live on Premiere's Program monitor.
   // 1.94.42: while Customize is OPEN, the live canvas (drawn in the panel at once)
@@ -9543,6 +9593,7 @@ function initReview() {
   document.addEventListener('keydown', (e) => {
     if (!reviewOpen) return;
     if (e.key === 'Escape') {
+      if ($('review').classList.contains('customizing')) { STYLE_CUSTOM_OPEN = false; renderStyleCustom(); return; }   // 1.94.54
       const list = $('reviewList');
       if (list && list.querySelector && list.querySelector('.row-more.open')) { closeRowMenus(); return; }
       const mp = $('memoryPanel');

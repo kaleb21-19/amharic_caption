@@ -166,6 +166,13 @@ t('1.94.53 the panel policy: scripts from the panel only; the one exception is a
   assert.match(m[1], /frame-src http:\/\/127\.0\.0\.1:\*;/, 'the live caption renderer frame');
 });
 
+t('1.94.54 the Customize page hides the caption list and gives the settings the panel', () => {
+  assert.match(css, /#review\.customizing > #reviewList/);
+  assert.match(css, /#review\.customizing \.style-strip > \.style-custom \{ flex: 1 1 auto; min-height: 0; max-height: none; \}/);
+  assert.match(css, /#review\.customizing > \.custom-bar \{ display: flex;/);
+  assert.match(markup, /<div class="custom-bar" id="customBar">/);
+});
+
 // WCAG 2.2: text 4.5:1, a control's edge 3:1 (1.4.11)
 const tok = {};
 tokens.replace(/(--color-[a-z-]+):\s*(#[0-9a-fA-F]{6})/g, (m, k, v) => { tok[k] = v; });

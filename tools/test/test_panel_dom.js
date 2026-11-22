@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.53');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.54');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -2018,6 +2018,40 @@ await t('4f4. 1.94.42 live canvas: drawn while Customize is open, sliders redraw
     p.evalVm("globalThis.__killed = 0; LC.child = { kill() { __killed++; } }; closeReview(true);");
     assert.strictEqual(p.evalVm('__killed'), 1, 'the style process is stopped');
     assert.strictEqual(p.evalVm('LC.child'), null);
+  } finally { p.close(); }
+});
+
+await t('4f6. 1.94.54 the Customize page: Customize takes the whole panel, ‹ › shows another caption, ← Captions and Escape go back', async () => {
+  const p = loadPanel({ realPanel: true });
+  try {
+    await flush(5);
+    p.evalVm(`globalThis.__draws = 0; lcDraw = async () => { __draws++; return true; };
+      { const st = document.createElement('div'); st.className = 'sc-stage'; $('styleCustom').appendChild(st); }
+      LICENSED = true; STYLE_OK = true; STYLE = 'bold'; STYLE_CUSTOM_OPEN = false; reviewOpen = true;
+      reviewCues = [{ text: 'አንድ', start: 0, end: 1 }, { text: 'ሁለት', start: 1, end: 2 }, { text: 'ሶስት', start: 2, end: 3 }]; LC.i = 0; renderStyleStrip();`);
+    const page = () => p.els('review').classList.contains('customizing');
+    assert.strictEqual(page(), false, 'the captions while Customize is closed');
+    p.els('styleCustomToggle').fire('click');
+    assert.strictEqual(page(), true, 'Customize opens the page');
+    assert.strictEqual(p.els('customAt').textContent, '1 / 3');
+    assert.strictEqual(p.els('customPrev').disabled, true);
+    p.els('customNext').fire('click');
+    p.els('customNext').fire('click');
+    assert.strictEqual(p.evalVm('LC.i'), 2, '› shows the next caption');
+    assert.strictEqual(p.els('customAt').textContent, '3 / 3');
+    assert.strictEqual(p.els('customNext').disabled, true, 'not past the last');
+    assert.ok(p.evalVm('__draws') >= 2, 'drawn again for it');
+    p.els('customBack').fire('click');
+    assert.strictEqual(page(), false, '← Captions goes back');
+    assert.strictEqual(p.evalVm('STYLE_CUSTOM_OPEN'), false);
+    p.els('styleCustomToggle').fire('click');
+    assert.strictEqual(page(), true);
+    p.evalVm(`document._listeners.keydown.forEach((f) => f({ key: 'Escape', preventDefault() {}, stopPropagation() {} }))`);
+    assert.strictEqual(page(), false, 'Escape goes back to the captions');
+    assert.strictEqual(p.evalVm('reviewOpen'), true, 'and does not close the review');
+    p.els('styleCustomToggle').fire('click');
+    p.evalVm('closeReview(true)');
+    assert.strictEqual(page(), false, 'never left on after the review closes');
   } finally { p.close(); }
 });
 
