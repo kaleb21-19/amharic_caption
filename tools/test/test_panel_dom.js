@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.47');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.48');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -690,6 +690,7 @@ await t('3.11 review: split / join / delete one click; Enter & Backspace; undo; 
     assert.deepStrictEqual(texts(), ['ሰላም ውድ ተመልካቾቼ እንኳን ደህና', 'መጣችሁ ዛሬ', 'ቻው'], 'undo split, then join');
     // ⋯ keeps the rarer edits: shift ±0.1s and add a caption below.
     const more = acts(1).children[2];
+    more.children[0].fire('click');                   // open ⋯ (1.94.48: its buttons are made then)
     more.children[1].children[2].fire('click');
     assert.strictEqual(texts().length, 4, '⋯ → add a caption below');
     assert.strictEqual(texts()[2], '', 'the new caption sits right below');
@@ -1655,6 +1656,37 @@ await t('4n3v. 1.94.46 V8 undo ANY cut: "All cuts" lists every cut, ↶ on the f
     assert.ok(/"cuts":\[\[3,4\]\]/.test(uc2), uc2);
     assert.deepStrictEqual(texts(), [['አንድ', 0, 1], ['ሁለት', 1, 2], ['ሶስት', 2, 3], ['አምስት!', 3, 4]]);
     assert.strictEqual(more.style.display, 'none', 'one cut left: no list');
+  } finally { p.close(); }
+});
+await t('4n3w. 1.94.48 speed: caption boxes get their height from CSS (nothing measured), the ⋯ menu is made when it first opens and still works', async () => {
+  const p = loadPanel({});
+  try {
+    await flush(5);
+    p.evalVm(`schedulePreview = () => {};
+      reviewCues = Array.from({ length: 200 }, (_, i) => ({ text: 'ሰላም ውድ ተመልካቾች ' + i, start: i * 2, end: i * 2 + 1.5 }));
+      renderReview();`);
+    const rows = p.els('reviewList').children;
+    assert.strictEqual(rows.length, 200);
+    const find = (n, test) => { if (test(n)) return n; for (const c of (n.children || [])) { const x = find(c, test); if (x) return x; } return null; };
+    const all = (n, test, out) => { out = out || []; if (test(n)) out.push(n); (n.children || []).forEach((c) => all(c, test, out)); return out; };
+    // no JS height on any caption box (it used to measure each one: a forced layout per caption)
+    const tas = all(p.els('reviewList'), (n) => n.tagName === 'TEXTAREA');
+    assert.strictEqual(tas.length, 200);
+    assert.ok(tas.every((ta) => !ta.style.height), 'no caption box has a height set from JS');
+    // the CSS that does it: the copy of the text is in the flow, the box lies on it
+    const html = require('fs').readFileSync(require('path').join(__dirname, '..', '..', 'panel', 'index.html'), 'utf8');
+    assert.match(html, /\.review-row \.text-box textarea \{\s*position: absolute; inset: 0; height: 100%;/);
+    assert.match(html, /\.review-row \.text-box \.hl-back \{\s*position: relative;/);
+    // the ⋯ menu: empty until opened, then its four actions, and they work
+    const menu = find(rows[5], (n) => (n.className || '') === 'row-menu');
+    assert.strictEqual(menu.children.length, 0, 'not made in every row');
+    find(rows[5], (n) => /act-more/.test(n.className || '')).fire('click');
+    assert.strictEqual(menu.children.length, 4, 'made on first open');
+    find(rows[5], (n) => /act-more/.test(n.className || '')).fire('click');
+    find(rows[5], (n) => /act-more/.test(n.className || '')).fire('click');
+    assert.strictEqual(menu.children.length, 4, 'made once');
+    menu.children[1].fire('click');                    // +0.1 s
+    assert.strictEqual(p.evalVm('reviewCues[5].start'), 10.1, 'shift +0.1 s still works');
   } finally { p.close(); }
 });
 await t('4n4. 1.94.31 Follow Premiere: the caption and the word under the playhead are marked; off by default; off = no reads', async () => {

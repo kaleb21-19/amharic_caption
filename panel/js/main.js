@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.47';
+const APP_VERSION = '1.94.48';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -5506,23 +5506,28 @@ function renderReview(force) {
       menu.appendChild(b);
       return b;
     };
+    // 1.94.48: the menu's buttons are made when it first opens (four buttons
+    // in every row that is almost never opened were a fifth of the list)
+    const buildMenu = () => {
+      if (menu.children.length) return;
+      const nudgeBack = mk('−0.1s', 'Shift this caption −0.1s');
+      const nudgeFwd = mk('+0.1s', 'Shift this caption +0.1s');
+      const addBelow = mk('+', 'Add a caption below');
+      const popBtn = mk('★', 'Make the selected word pop');
+      nudgeBack.addEventListener('click', () => nudgeReview(i, -0.1));
+      nudgeFwd.addEventListener('click', () => nudgeReview(i, 0.1));
+      addBelow.addEventListener('click', () => { const j = addReviewCue(i); focusReviewCue(j, 0); });
+      // the textarea keeps its selection after the menu takes the focus
+      popBtn.addEventListener('click', () => { closeRowMenus(); toggleEmphasis(i, ta.selectionStart, ta.selectionEnd); });
+    };
     moreBtn.addEventListener('click', () => {
       const wasOpen = more.classList.contains('open');
       closeRowMenus();
-      if (!wasOpen) more.classList.add('open');
+      if (!wasOpen) { buildMenu(); more.classList.add('open'); }
     });
-    const nudgeBack = mk('−0.1s', 'Shift this caption −0.1s');
-    const nudgeFwd = mk('+0.1s', 'Shift this caption +0.1s');
-    const addBelow = mk('+', 'Add a caption below');
-    const popBtn = mk('★', 'Make the selected word pop');
     const nextCue = reviewCues[i + 1];
     mergeBtn.disabled = !canJoin(i);
     splitBtn.disabled = !splitTextAt(cue.text || '', -1);
-    nudgeBack.addEventListener('click', () => nudgeReview(i, -0.1));
-    nudgeFwd.addEventListener('click', () => nudgeReview(i, 0.1));
-    addBelow.addEventListener('click', () => { const j = addReviewCue(i); focusReviewCue(j, 0); });
-    // the textarea keeps its selection after the menu takes the focus
-    popBtn.addEventListener('click', () => { closeRowMenus(); toggleEmphasis(i, ta.selectionStart, ta.selectionEnd); });
     splitBtn.addEventListener('click', () => {
       const j = splitReview(i, cue._caret);
       if (j >= 0) focusReviewCue(j, 0);
@@ -7287,16 +7292,11 @@ function closeRowMenus() {
   for (let k = 0; k < open.length; k++) open[k].classList.remove('open');
 }
 // Each caption box is exactly as tall as its text (one line = one line).
-function fitReviewBox(ta) {
-  if (!ta || !ta.style) return;
-  ta.style.height = 'auto';
-  if (ta.scrollHeight) ta.style.height = ta.scrollHeight + 'px';
-}
-function fitReviewBoxes() {
-  const list = $('reviewList');
-  const all = list && list.querySelectorAll ? list.querySelectorAll('textarea') : [];
-  for (let k = 0; k < all.length; k++) fitReviewBox(all[k]);
-}
+// 1.94.48: a caption box takes its height from the copy of its text behind it
+// (CSS), so nothing is measured here any more. Measuring cost one forced
+// layout per caption - 650 ms for 200 captions on every redraw and resize.
+function fitReviewBox() {}
+function fitReviewBoxes() {}
 function updateReviewCount() {
   const toCheck = reviewCues.filter((c) => cueDoubts(c).length).length;
   $('reviewCount').textContent = L(reviewCues.length + ' caption' + (reviewCues.length === 1 ? '' : 's')) +
@@ -9333,7 +9333,6 @@ function initReview() {
     if (inside('.row-more')) return;
     closeRowMenus();
   });
-  window.addEventListener('resize', () => { if (reviewOpen) fitReviewBoxes(); });
 
   document.addEventListener('keydown', (e) => {
     if (!reviewOpen) return;
