@@ -557,6 +557,24 @@
   const FORMATS = { '16:9': [1920, 1080], '9:16': [1080, 1920], '1:1': [1080, 1080], '4:5': [1080, 1350] };
   // res: the short side (1080 or 720); the canvas keeps its shape
   const even = (x) => Math.max(2, Math.round(x / 2) * 2);
+  // ── 1.94.60 (E1a) the timeline keys CapCut / Premiere editors use ────────
+  // Q / W: the part of the main-track clip under t before (left) / after
+  // (right) it - the range to cut out, or null (t on a cut, or no clip)
+  function trimRange(clips, t, side) {
+    const c = layout(clips).find((x) => t > x.s + MIN / 2 && t < x.e - MIN / 2);
+    if (!c) return null;
+    return side === 'left' ? { start: c.s, end: t } : { start: t, end: c.e };
+  }
+  // ↑ / ↓: the previous / next point in pts (cuts, item edges, markers) from t
+  function nextCut(pts, t, dir) {
+    const p = (pts || []).filter((x) => isFinite(x)).sort((a, b) => a - b);
+    const to = dir < 0 ? p.filter((x) => x < t - 0.02).pop() : p.find((x) => x > t + 0.02);
+    return to == null ? null : to;
+  }
+  // 🎞 which tile of a picture strip shows the file's time src (step seconds a tile)
+  function stripTile(src, step, n) {
+    return Math.max(0, Math.min(n - 1, Math.floor(Math.max(0, src) / step)));
+  }
   // 1.94.56 (S1): the picture as it is SHOWN. A phone films wide and writes
   // "turn it 90 degrees" next to the picture (ffmpeg -i: "Display Matrix:
   // rotation of -90.00 degrees", older ffmpeg "displaymatrix: ..." or
@@ -2219,7 +2237,7 @@
   }
 
   const api = { MIN, layout, total, locate, sourceToEdit, splitAt, removeClip, trimClip, moveClip, dropIndex, cutRange, moveRange, rangeState, insertClips, keptSegs, mapTime, followClips,
-    words, deriveCaptions, syncBack, FORMATS, videoShape, fmtForShape, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
+    words, deriveCaptions, syncBack, FORMATS, videoShape, fmtForShape, trimRange, nextCut, stripTile, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
     TFONTS, TPRESETS, assColor, textAnchor, textAss, setFontInfo, fontInfo, textSize, addFont, fontFacts,
     TITLE_ANIMS, TITLE_LOOKS, TITLE_BG, titleOf, titleLook, LOUD, MUS_DEFAULT, musicGain,
     MIX_BUSES, MIX_EQ, MIX_PRESETS, stripOf, mixOf, mixerOn, compParams, panGains, stripChain,

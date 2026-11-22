@@ -88,14 +88,65 @@
   }
   const PEAKS = {};           // media id -> loudness 0-100, 50 a second
   const peaking = {};
+  // 🎞 1.94.60 (E1a): pictures on the main track's clips, like CapCut and
+  // Premiere - editors find a shot by its picture, not its sound wave. ONE
+  // ffmpeg pass per video reads only the key frames (a 30-minute file: a few
+  // seconds) into a sheet of up to 600 small frames, kept in the temp folder
+  // (made again only when the file changes). One at a time, in the background.
+  const STRIPS = {};          // media id -> { img, step, cols, fw, fh, n } (or 'busy' / 'none')
+  const stripQ = [];
+  let stripBusy = false;
+  const STRIP_FH = 64;
+  function loadStrip(id) {
+    const m = media[id];
+    if (!m || !m.video || m.image || STRIPS[id] || !(m.dur > 0) || typeof FFMPEG === 'undefined') return;
+    STRIPS[id] = 'busy';
+    stripQ.push(id);
+    nextStrip();
+  }
+  function nextStrip() {
+    if (stripBusy || !stripQ.length) return;
+    const id = stripQ.shift();
+    const m = media[id];
+    if (!m) { nextStrip(); return; }
+    const step = Math.max(1, m.dur / 600);
+    const n = Math.max(1, Math.ceil(m.dur / step));
+    const cols = Math.min(n, 60), rows = Math.ceil(n / cols);
+    const fw = Math.max(16, Math.round(STRIP_FH * ((m.w || 16) / (m.h || 9)) / 2) * 2);
+    let st = null;
+    try { st = fs.statSync(m.path); } catch (e) {}
+    const key = crypto.createHash('sha1').update(m.path + '|' + (st ? st.size + '|' + st.mtimeMs : '') + '|' + step.toFixed(3) + '|' + fw).digest('hex').slice(0, 14);
+    const out = path.join(os.tmpdir(), 'amh_strip_' + key + '.jpg');
+    const show = () => {
+      const img = new Image();
+      // the id must still be that file ("m1" is every new project's video; a
+      // project without an edit makes its m1 twice) - by path, not by object
+      img.onload = () => { if (media[id] && media[id].path === m.path) { STRIPS[id] = { img, step, cols, fw, fh: STRIP_FH, n, path: m.path }; drawSoon(); } else if (STRIPS[id] === 'busy') { delete STRIPS[id]; loadStrip(id); } };
+      img.onerror = () => { STRIPS[id] = 'none'; };
+      try { img.src = APP.call('media', [out]); } catch (e) { STRIPS[id] = 'none'; }
+    };
+    if (fs.existsSync(out)) { show(); nextStrip(); return; }
+    stripBusy = true;
+    // key frames only (-skip_frame nokey) + fps: each tile shows the key frame at or before its time
+    execFile(FFMPEG, ['-v', 'error', '-y', '-threads', '1', '-skip_frame', 'nokey', '-i', m.path, '-an', '-sn',
+      '-vf', 'fps=1/' + step.toFixed(4) + ',scale=' + fw + ':' + STRIP_FH + ':force_original_aspect_ratio=increase,crop=' + fw + ':' + STRIP_FH + ',tile=' + cols + 'x' + rows,
+      '-frames:v', '1', '-q:v', '6', out], { timeout: 10 * 60 * 1000 }, (err) => {
+      stripBusy = false;
+      if (!err && fs.existsSync(out)) show(); else STRIPS[id] = 'none';
+      nextStrip();
+    });
+  }
   function loadPeaks(id) {
+    loadStrip(id);              // 🎞 (every place that loads a file's wave loads its pictures too)
     const m = media[id];
     if (!m || PEAKS[id] || peaking[id] || !m.audio) return;
     peaking[id] = true;
     const raw = path.join(os.tmpdir(), 'amh_peaks_' + Date.now() + '_' + id + '.raw');
     execFile(FFMPEG, ['-v', 'error', '-y', '-i', m.path, '-vn', '-ac', '1', '-ar', '2000', '-f', 's16le', raw], { timeout: 30 * 60 * 1000 }, (err) => {
       peaking[id] = false;
-      if (err || media[id] !== m) return;          // (1.94.6: another project opened meanwhile)
+      // (1.94.6: another project opened meanwhile) - 1.94.60: by path; the same
+      // file made again under its id (a project without an edit) keeps its wave
+      if (err || !media[id] || media[id].path !== m.path) return;
       try { PEAKS[id] = APP.call('peaks', [raw, 2000, 50]); } catch (e) { PEAKS[id] = null; }
       drawSoon();
     });
@@ -1660,16 +1711,35 @@
       const isSel = isPicked(c.id);
       ctx.fillStyle = isSel ? '#2a5f86' : '#1f4b6b';
       ctx.fillRect(x0 + 1, mainTop, Math.max(2, x1 - x0 - 2), MAIN);
+      // 🎞 the clip's pictures, one tile after another, each the frame at its own time
+      const sp0 = STRIPS[c.m];
+      const sp = sp0 && sp0.img && media[c.m] && sp0.path === media[c.m].path ? sp0 : null;
+      if (sp) {
+        ctx.save(); ctx.beginPath(); ctx.rect(x0 + 1, mainTop, Math.max(2, x1 - x0 - 2), MAIN); ctx.clip();
+        const dh = MAIN, dw = sp.fw * dh / sp.fh, k0 = E.speedOf(c);
+        const first = Math.max(x0 + 1, Math.floor((0 - x0) / dw) * dw + x0);
+        for (let x = first; x < Math.min(w, x1); x += dw) {
+          const srcT = c.in + (S.xToTime(x + dw / 2, view) - c.s) * k0;
+          const k = E.stripTile(c.revOf ? (c.out - (srcT - c.in)) : srcT, sp.step, sp.n);
+          ctx.drawImage(sp.img, (k % sp.cols) * sp.fw, Math.floor(k / sp.cols) * sp.fh, sp.fw, sp.fh, x, mainTop, dw, dh);
+        }
+        ctx.fillStyle = isSel ? 'rgba(42,95,134,.35)' : 'rgba(10,20,28,.30)';
+        ctx.fillRect(x0 + 1, mainTop, Math.max(2, x1 - x0 - 2), MAIN);
+        ctx.fillStyle = 'rgba(0,0,0,.45)';                     // the wave and the name stay readable on any picture
+        ctx.fillRect(x0 + 1, mainTop + MAIN - 16, Math.max(2, x1 - x0 - 2), 16);
+        ctx.fillRect(x0 + 1, mainTop, Math.max(2, x1 - x0 - 2), 16);
+        ctx.restore();
+      }
       const p = PEAKS[c.m];
       if (p) {
-        ctx.fillStyle = 'rgba(160,210,230,.45)';
+        ctx.fillStyle = sp ? 'rgba(170,225,245,.85)' : 'rgba(160,210,230,.45)';
         const bot = mainTop + MAIN - 3;
         for (let x = Math.max(0, Math.floor(x0) + 2); x < Math.min(w, x1 - 2); x++) {
           const k0 = E.speedOf(c);
           const sa = c.in + (S.xToTime(x, view) - c.s) * k0, sb = c.in + (S.xToTime(x + 1, view) - c.s) * k0;
           let mx = 0;
           for (let k = Math.floor(sa * 50); k < Math.max(Math.floor(sa * 50) + 1, Math.floor(sb * 50)) && k < p.length; k++) if (p[k] > mx) mx = p[k];
-          const hh = Math.max(1, mx / 100 * (MAIN - 22));
+          const hh = Math.max(1, mx / 100 * (sp ? 13 : MAIN - 22));
           ctx.fillRect(x, bot - hh, 1, hh);
         }
       }
@@ -1814,10 +1884,15 @@
       if (x1 < 0 || x0 > w) return;
       const on = t >= c.start && t < c.end;
       const cut = /~[^~]+~/.test(c.text || '') && String(c.text).replace(/~[^~]*~/g, '').trim() === '';
-      ctx.fillStyle = cut ? '#4a2622' : (on ? '#1f7a4c' : '#22413a');
-      ctx.fillRect(x0 + 0.5, capTop, Math.max(2, x1 - x0 - 1), CAP);
-      ctx.fillStyle = (hover && hover.lane === 'cap' && hover.i === i && hover.edge !== 'body') ? '#ffffff' : (cut ? '#ff6b6b' : '#3ddc84');
-      ctx.fillRect(x0, capTop, 2, CAP); ctx.fillRect(x1 - 2, capTop, 2, CAP);
+      // 1.94.60: zoomed out, a thousand captions were one green bar - narrow
+      // ones get no bright edges, alternate shades and a gap between them
+      const cw = x1 - x0;
+      ctx.fillStyle = cut ? '#4a2622' : (on ? '#1f7a4c' : (cw < 8 ? (i % 2 ? '#2c574b' : '#1d3a33') : '#22413a'));
+      ctx.fillRect(x0 + 0.5, capTop, Math.max(cw < 3 ? 1 : 2, cw - (cw < 3 ? 0 : 1)), CAP);
+      if (cw >= 8) {
+        ctx.fillStyle = (hover && hover.lane === 'cap' && hover.i === i && hover.edge !== 'body') ? '#ffffff' : (cut ? '#ff6b6b' : '#3ddc84');
+        ctx.fillRect(x0, capTop, 2, CAP); ctx.fillRect(x1 - 2, capTop, 2, CAP);
+      }
       if (/\*[^*]+\*/.test(c.text || '')) { ctx.fillStyle = '#ffd60a'; ctx.fillRect(x0 + 2, capTop + CAP - 3, Math.max(1, x1 - x0 - 4), 3); }
       if (x1 - x0 > 18) {
         ctx.save(); ctx.beginPath(); ctx.rect(x0 + 4, capTop, x1 - x0 - 8, CAP); ctx.clip();
@@ -2226,6 +2301,29 @@
     sel = clips[loc.i + 1] ? clips[loc.i + 1].id : sel;
     after();
   }
+  // 1.94.60: Q / W - the part of the clip under the playhead before / after it goes, the rest closes up
+  function trimToPlayhead(side) {
+    const r = E.trimRange(clips, time(), side);
+    if (!r) return;
+    cutRanges([r]);
+    seek(r.start);
+  }
+  // + / -: around the playhead, like CapCut (off screen: it comes to the middle)
+  function zoomKey(f) {
+    const w = width(), t = time();
+    const x = S.timeToX(t, view);
+    view = S.zoomAt(view, f, x >= 0 && x <= w ? x : w / 2, total(), w);
+    const x2 = S.timeToX(t, view);
+    if (x2 < 0 || x2 > w) view = S.clampView({ start: t - (w / 2) / view.pps, pps: view.pps }, total(), w);
+    drawSoon();
+  }
+  // every cut and item edge of the edit, in time order
+  function jumpCut(dir) {
+    const t = time();
+    const pts = [0, total()].concat(L().map((c) => c.s), ovl.map((o) => o.start), ovl.map((o) => E.ovEnd(o)), txt.map((o) => o.start), txt.map((o) => E.ovEnd(o)), mk.map((m) => m.start));
+    const to = E.nextCut(pts, t, dir);
+    if (to != null) seek(to);
+  }
   function deleteSel() {
     if (picks.length) { deleteMany(selected()); return; }
     if (sel && zm.some((o) => o.id === sel)) {
@@ -2286,6 +2384,7 @@
       if (c === 'x' && selected().length) { e.preventDefault(); cutSel(); return; }
       if (c === 'v' && CLIP) { e.preventDefault(); paste(); return; }
       if (c === 'd') { e.preventDefault(); duplicate(); return; }
+      if (c === 'b') { e.preventDefault(); splitHere(); return; }          // 1.94.60: CapCut's split (the Script's Ctrl+B ★ runs first when words are picked)
     }
     if (e.altKey && !mod && String(k).toLowerCase() === 'x' && !typing(document.activeElement)) { e.preventDefault(); clearIO(); return; }
     if (typing(document.activeElement) || mod || e.altKey) return;
@@ -2301,6 +2400,16 @@
     else if (k === 'i' || k === 'I') markIO('i');
     else if (k === 'o' || k === 'O') markIO('o');
     else if (k === 's' || k === 'S') splitHere();
+    // 1.94.60 (E1a) the keys CapCut / Premiere editors have in their fingers:
+    // Q / W = cut the clip under the playhead up to it (its left / right part),
+    // + / - zoom, Shift+Z or \ fit the whole edit, ↑ / ↓ the previous / next cut
+    else if (k === 'q' || k === 'Q') trimToPlayhead('left');
+    else if (k === 'w' || k === 'W') trimToPlayhead('right');
+    else if (k === '+' || k === '=') zoomKey(1.5);
+    else if (k === '-' || k === '_') zoomKey(1 / 1.5);
+    else if (k === '\\' || ((k === 'z' || k === 'Z') && e.shiftKey)) { view = S.fitView(total(), width()); drawSoon(); }
+    else if (k === 'ArrowUp') jumpCut(-1);
+    else if (k === 'ArrowDown') jumpCut(1);
     else if (k === 'Delete' || k === 'Backspace') deleteSel();
     else if (k === 'j' || k === 'J') seek(time() - (e.shiftKey ? 5 : 1));
     else if (k === 'ArrowLeft') seek(time() - (e.shiftKey ? 1 : 1 / 30));
@@ -5194,7 +5303,8 @@
     // 1.94.6: a new project's video is "m1" again — the player's file, the
     // second player and the wave were kept per id, so after Home and a new
     // video the player showed the OLD video and ✂ Clean up read the old wave
-    [urls, OFFLINE, PEAKS, peaking].forEach((o) => Object.keys(o).forEach((k) => { delete o[k]; }));
+    [urls, OFFLINE, PEAKS, peaking, STRIPS].forEach((o) => Object.keys(o).forEach((k) => { delete o[k]; }));
+    stripQ.length = 0;
     resetTwin();
     setLeft(false);
     if (guideEl) { guideEl.remove(); guideEl = null; }
@@ -5251,6 +5361,6 @@
   ST.attachEditor({ draw, drawSoon, seek, duration: total, peaks: editPeaks, open, shown, saveState, loadState, exportVideo, markedPart, format: () => fmt, sourceShort,
     queueExports, stopExport, clearDone, detectGpu, gpuName: (e) => GPU_NAMES[e] || '', queue: () => QUEUE, onQueue: (f) => qWatch.push(f),
     setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } });
-  window.__amhEditor = { renderJob, snapshot, open, copySel, paste, duplicate, togglePick, selected, state: () => ({ clips, ovl, txt, mus, snd, zm, media, SRC, fmt, sel, built }), addOverlay, addText, addZoom, autoZooms, addBroll, brollPicker, findFaces, followFaces, frameClips, useSoundFolder, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, moveRange, total, redo,
+  window.__amhEditor = { strips: () => STRIPS, renderJob, snapshot, open, copySel, paste, duplicate, togglePick, selected, state: () => ({ clips, ovl, txt, mus, snd, zm, media, SRC, fmt, sel, built }), addOverlay, addText, addZoom, autoZooms, addBroll, brollPicker, findFaces, followFaces, frameClips, useSoundFolder, addMusic, addTransition, seek, play, pause, time, splitHere, deleteSel, cutRanges, moveRange, total, redo,
     hideReady, select: (id) => { sel = id; picks = []; renderInspector(); frame(); drawSoon(); }, addMedia: addAndPlace, transcribeAll, stopCaptions, capCard, captionsReady, capLeft, sourceShort, addToTimeline, insertMain, insertFound, startCrop, endCrop, cropState: () => cropEdit, setCropView: (v) => { if (cropEdit) { cropEdit.v = v; frame(); } }, freezeFrame, reverseClip, rampClip, guide: () => maybeGuide(true), queueExports, kinds, queue: () => QUEUE, markedPart, toggleMarker, markIO, clearIO, setShuttle, markers: () => mk, addToMedia, findFile, missingFiles, checkFiles, render, exportVideo, frame, setFormat: (f) => { if (f !== fmt) { change('format', () => { fmt = f; reframeAll(); }); showRfOffer(); } } };
 })();
