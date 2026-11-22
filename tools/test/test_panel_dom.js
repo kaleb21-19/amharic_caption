@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.61');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.62');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -2018,6 +2018,15 @@ await t('4f4. 1.94.42 live canvas: drawn while Customize is open, sliders redraw
     p.evalVm("globalThis.__killed = 0; LC.child = { kill() { __killed++; } }; closeReview(true);");
     assert.strictEqual(p.evalVm('__killed'), 1, 'the style process is stopped');
     assert.strictEqual(p.evalVm('LC.child'), null);
+  } finally { p.close(); }
+});
+
+await t('4f9. 1.94.62 styled captions carry the engine\'s word times (the highlight follows the voice)', async () => {
+  const p = loadPanel({ realPanel: true });
+  try {
+    await flush(3);
+    const rows = p.evalVm(`JSON.stringify(styleCues([{ text: 'ሰላም ~ውድ~ ሁሉ', start: 0, end: 2, wt: [[0, 0.5], [0.6, 1], [1.1, 2]] }, { text: 'ብቻ', start: 2, end: 3 }, { text: '  ', start: 3, end: 4 }]))`);
+    assert.deepStrictEqual(JSON.parse(rows), [['ሰላም ውድ ሁሉ', 0, 2, [[0, 0.5], [0.6, 1], [1.1, 2]]], ['ብቻ', 2, 3]]);
   } finally { p.close(); }
 });
 
