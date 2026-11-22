@@ -571,6 +571,14 @@
     const to = dir < 0 ? p.filter((x) => x < t - 0.02).pop() : p.find((x) => x > t + 0.02);
     return to == null ? null : to;
   }
+  // 1.94.61 (E1b) box select: the ids of the items a dragged box touches.
+  // cands: [{ id, s, e, y0, y1 }] (edit time, lane top / bottom in px);
+  // box: { t0, t1, y0, y1 } in any order
+  function boxHits(cands, box) {
+    const t0 = Math.min(box.t0, box.t1), t1 = Math.max(box.t0, box.t1);
+    const y0 = Math.min(box.y0, box.y1), y1 = Math.max(box.y0, box.y1);
+    return (cands || []).filter((c) => c.s < t1 && c.e > t0 && c.y0 < y1 && c.y1 > y0).map((c) => c.id);
+  }
   // 🎞 which tile of a picture strip shows the file's time src (step seconds a tile)
   function stripTile(src, step, n) {
     return Math.max(0, Math.min(n - 1, Math.floor(Math.max(0, src) / step)));
@@ -2237,7 +2245,7 @@
   }
 
   const api = { MIN, layout, total, locate, sourceToEdit, splitAt, removeClip, trimClip, moveClip, dropIndex, cutRange, moveRange, rangeState, insertClips, keptSegs, mapTime, followClips,
-    words, deriveCaptions, syncBack, FORMATS, videoShape, fmtForShape, trimRange, nextCut, stripTile, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
+    words, deriveCaptions, syncBack, FORMATS, videoShape, fmtForShape, trimRange, nextCut, stripTile, boxHits, canvasSize, placement, editGraph, ovLen, ovEnd, ovAt, ovMove, ovTrim,
     TFONTS, TPRESETS, assColor, textAnchor, textAss, setFontInfo, fontInfo, textSize, addFont, fontFacts,
     TITLE_ANIMS, TITLE_LOOKS, TITLE_BG, titleOf, titleLook, LOUD, MUS_DEFAULT, musicGain,
     MIX_BUSES, MIX_EQ, MIX_PRESETS, stripOf, mixOf, mixerOn, compParams, panGains, stripChain,

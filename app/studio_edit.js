@@ -1553,6 +1553,30 @@
   const canvas = el('canvas');
   cwrap.appendChild(canvas);
   lanes.appendChild(labels); lanes.appendChild(cwrap);
+  // 1.94.61 (E1b): the bar above the timeline drags it taller / shorter, like
+  // CapCut's - more picture or more tracks; remembered. Tracks beyond it scroll.
+  const grip = el('div', 'ed-tlgrip');
+  grip.title = tx('ጊዜ መስመሩን ለማሳደግ / ለማሳነስ ይጎትቱ (ሁለቴ ጠቅ፦ ወደ ነበረበት)', 'Drag to make the timeline taller / shorter (double-click: back to normal)');
+  const TLH_KEY = 'amh_tl_h';
+  const applyTlH = (h) => { lanes.style.maxHeight = h ? Math.round(h) + 'px' : ''; lanes.classList.toggle('ed-lanes-cut', !!h); };
+  try { const h0 = Number(localStorage.getItem(TLH_KEY)); if (h0 >= 90) applyTlH(h0); } catch (e) {}
+  grip.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const y0 = e.clientY, h0 = lanes.getBoundingClientRect().height;
+    const mm = (ev) => {
+      const h = Math.max(90, Math.min(Math.max(90, window.innerHeight - 220), h0 - (ev.clientY - y0)));
+      applyTlH(h >= LH - 2 ? 0 : h);         // as tall as all the tracks: no limit (no scroll bar)
+      drawSoon();
+    };
+    const mu = () => {
+      document.removeEventListener('mousemove', mm); document.removeEventListener('mouseup', mu);
+      try { const h = parseFloat(lanes.style.maxHeight) || 0; if (h) localStorage.setItem(TLH_KEY, String(h)); else localStorage.removeItem(TLH_KEY); } catch (x) {}
+    };
+    document.addEventListener('mousemove', mm); document.addEventListener('mouseup', mu);
+  });
+  grip.addEventListener('dblclick', () => { applyTlH(0); try { localStorage.removeItem(TLH_KEY); } catch (e) {} drawSoon(); });
+  tl.appendChild(grip);
   tl.appendChild(tbar); tl.appendChild(lanes);
   review.appendChild(tl);
   const ctx = canvas.getContext ? canvas.getContext('2d') : null;
@@ -1902,6 +1926,11 @@
       }
     });
     ST.overlays.forEach((f) => { try { f(ctx, view, w, h, { ruler: RULER, laneTop: capTop, lane: CAP }); } catch (e) {} });
+    if (drag && drag.kind === 'box' && drag.moved) {          // 1.94.61 the box being dragged
+      const bx = Math.min(drag.x0, drag.x1), by = Math.min(drag.y0, drag.y1);
+      ctx.fillStyle = 'rgba(61,220,132,.12)'; ctx.fillRect(bx, by, Math.abs(drag.x1 - drag.x0), Math.abs(drag.y1 - drag.y0));
+      ctx.strokeStyle = 'rgba(61,220,132,.9)'; ctx.lineWidth = 1; ctx.strokeRect(bx + 0.5, by + 0.5, Math.abs(drag.x1 - drag.x0), Math.abs(drag.y1 - drag.y0));
+    }
     // 🔊 where each sound effect plays (on the ruler)
     if (snd.sfx) {
       E.sfxEvents({ snd, clips, ovl, txt, zm }, total()).forEach((ev) => {
@@ -2052,17 +2081,43 @@
       if (hit.edge !== 'body') { pushReviewUndo('timing'); drag = { kind: 'cap', i: hit.i, edge: hit.edge }; }
       else { seek(reviewCues[hit.i].start + 0.01); if (typeof focusReviewCue === 'function') focusReviewCue(hit.i, 0); }
     } else {
-      sel = null; picks = []; renderInspector();
-      drag = { kind: 'seek' };
+      // 1.94.61 (E1b): on the ruler a drag scrubs; on an empty track a click
+      // moves the playhead and a drag draws a box that selects what it touches
+      // (Shift: adds to the selection), like CapCut / Premiere
+      if (!e.shiftKey) { sel = null; picks = []; renderInspector(); }
+      drag = p.y < RULER ? { kind: 'seek' } : { kind: 'box', x0: p.x, y0: p.y, x1: p.x, y1: p.y, moved: false, base: e.shiftKey ? selected().map((x) => x.id) : [] };
       seek(S.xToTime(p.x, view));
     }
     frame(); drawSoon();
   });
+  // every item on the timeline as a box (edit time, lane top / bottom) - for the box select
+  function boxCands() {
+    const out = [];
+    L().forEach((c) => out.push({ id: c.id, s: c.s, e: c.e, y0: mainTop, y1: mainTop + MAIN }));
+    const add = (list, yOf, hgt) => list.forEach((o) => out.push({ id: o.id, s: o.start, e: E.ovEnd(o), y0: yOf(o), y1: yOf(o) + hgt }));
+    add(ovl, (o) => ovY(rowOf(o)), OVL);
+    add(txt, (o) => txY(rowOf(o)), TXT);
+    add(mus, (o) => muY(rowOf(o)), MUS);
+    if (ZMON) add(zm, () => zmTop, ZM);
+    return out;
+  }
   document.addEventListener('mousemove', (e) => {
     if (!review.classList.contains('show')) return;
     const p = xy(e);
     if (drag) {
       if (drag.kind === 'seek') { seek(S.xToTime(p.x, view)); return; }
+      if (drag.kind === 'box') {
+        drag.x1 = p.x; drag.y1 = p.y;
+        if (!drag.moved && Math.abs(p.x - drag.x0) + Math.abs(p.y - drag.y0) > 5) drag.moved = true;
+        if (drag.moved) {
+          const ids = E.boxHits(boxCands(), { t0: S.xToTime(drag.x0, view), t1: S.xToTime(drag.x1, view), y0: drag.y0, y1: drag.y1 });
+          const all = drag.base.concat(ids.filter((id) => drag.base.indexOf(id) < 0));
+          sel = all.length ? all[all.length - 1] : null;
+          picks = all.slice(0, -1);
+          drawSoon();
+        }
+        return;
+      }
       if (drag.kind === 'cap') { setTimingEdge(drag.i, drag.edge, S.xToTime(p.x, view)); drawSoon(); return; }
       if (drag.kind === 'ov') {
         const d = (p.x - drag.x0) / view.pps;
@@ -2124,7 +2179,8 @@
     if (!drag) return;
     const d = drag;
     drag = null;
-    if (d.kind === 'trim') { if (d.clips0) follow(d.clips0); derive(); after(); }
+    if (d.kind === 'box') { if (d.moved) { renderInspector(); if (sel) ST.showTab('clip'); } }
+    else if (d.kind === 'trim') { if (d.clips0) follow(d.clips0); derive(); after(); }
     else if (d.kind === 'ov') { after(); }
     else if (d.kind === 'cap') { renderReview(); ST.saveSoon(); }
     else if (d.kind === 'move' && d.moved && d.idx != null) {

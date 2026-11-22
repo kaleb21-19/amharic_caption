@@ -368,6 +368,11 @@ html.amh-editor #review .ed-tl { padding: 0; }
 .ed-tool:disabled { opacity: .4; cursor: default; }
 .ed-hint { color: var(--warn); font-size: var(--font-s); margin-left: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; max-width: 40%; }
 .ed-lanes { display: grid; grid-template-columns: 108px minmax(0, 1fr); }
+/* 1.94.61 (E1b): the timeline's divider; a shorter timeline scrolls its tracks */
+.ed-lanes.ed-lanes-cut { overflow-y: auto; overscroll-behavior: contain; }
+.ed-tlgrip { flex: 0 0 auto; height: 8px; margin: -6px -14px 2px; cursor: ns-resize; position: relative; }
+.ed-tlgrip::after { content: ''; position: absolute; left: 50%; top: 2px; width: 44px; height: 4px; margin-left: -22px; border-radius: 2px; background: var(--border); }
+.ed-tlgrip:hover::after { background: var(--accent); }
 .ed-labels { border-right: 1px solid var(--border); font-size: 12px; color: var(--text-secondary); }
 .ed-lh { height: 24px; }
 .ed-lcap { height: 36px; display: flex; align-items: center; padding-left: 10px; }

@@ -934,4 +934,14 @@ test('1.94.60 E1a: picture strip tiles - the tile at or before the time, never o
   assert.strictEqual(E.stripTile(-4, 3, 600), 0);
 });
 
+test('1.94.61 E1b: box select - what the dragged box touches, in time and in its lane, dragged either way', () => {
+  const cands = [{ id: 'clip1', s: 0, e: 3, y0: 200, y1: 248 }, { id: 'clip2', s: 3, e: 6, y0: 200, y1: 248 },
+    { id: 'text', s: 2, e: 4, y0: 60, y1: 86 }, { id: 'music', s: 0, e: 20, y0: 260, y1: 288 }];
+  assert.deepStrictEqual(E.boxHits(cands, { t0: 1, t1: 2.5, y0: 50, y1: 250 }), ['clip1', 'text'], 'the box over T1 and V1, 1-2.5 s');
+  assert.deepStrictEqual(E.boxHits(cands, { t0: 5, t1: 1, y0: 250, y1: 190 }), ['clip1', 'clip2'], 'dragged up and left: the same');
+  assert.deepStrictEqual(E.boxHits(cands, { t0: 0, t1: 30, y0: 0, y1: 400 }), ['clip1', 'clip2', 'text', 'music'], 'everything');
+  assert.deepStrictEqual(E.boxHits(cands, { t0: 6, t1: 7, y0: 190, y1: 250 }), [], 'touching an end is not inside');
+  assert.deepStrictEqual(E.boxHits(cands, { t0: 0, t1: 30, y0: 90, y1: 190 }), [], 'between the lanes: nothing');
+});
+
 console.log('ALL PASS  (' + passed + ' tests)');
