@@ -158,6 +158,14 @@ t('1.94.52 icons: the buttons, titles and notes of the panel show line icons, no
   }
 });
 
+t('1.94.53 the panel policy: scripts from the panel only; the one exception is a frame from this computer', () => {
+  const m = /<meta http-equiv="Content-Security-Policy" content="([^"]+)"/.exec(html);
+  assert.ok(m);
+  assert.match(m[1], /script-src 'self';/, 'scripts: the panel only');
+  assert.ok(!/unsafe-eval|wasm-unsafe-eval/.test(m[1]), 'never eval in the panel');
+  assert.match(m[1], /frame-src http:\/\/127\.0\.0\.1:\*;/, 'the live caption renderer frame');
+});
+
 // WCAG 2.2: text 4.5:1, a control's edge 3:1 (1.4.11)
 const tok = {};
 tokens.replace(/(--color-[a-z-]+):\s*(#[0-9a-fA-F]{6})/g, (m, k, v) => { tok[k] = v; });

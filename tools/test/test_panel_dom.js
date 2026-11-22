@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.52');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.53');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1967,7 +1967,7 @@ await t('4f4. 1.94.42 live canvas: drawn while Customize is open, sliders redraw
     await flush(5);
     p.evalVm(`globalThis.__asks = []; globalThis.__renders = []; globalThis.__mr = 0; globalThis.__answer = null;
       lcAsk = async (req) => { __asks.push(req); await new Promise((r) => setTimeout(r, 5)); return __answer || { ok: true, script: 'SCRIPT ' + JSON.stringify(req.opts.size), fonts: ['yebse.ttf'] }; };
-      lcRender = async (script, fonts) => { __renders.push([script, fonts]); if (!LC.jas) LC.jas = { manualRender() { __mr++; }, destroy() {} }; };
+      lcRender = async (script, fonts, fr, time) => { __renders.push([script, fonts, time]); __mr++; };
       { const st = document.createElement('div'); st.className = 'sc-stage'; $('styleCustom').appendChild(st); }
       LICENSED = true; STYLE_OK = true; STYLE = 'bold'; STYLE_CUSTOM_OPEN = false; reviewOpen = true;
       reviewCues = [{ text: 'ሰላም Amharic', start: 1, end: 3 }, { text: 'ናችሁ', start: 4, end: 5 }]; renderStyleStrip();`);
@@ -1981,7 +1981,9 @@ await t('4f4. 1.94.42 live canvas: drawn while Customize is open, sliders redraw
     assert.ok(p.evalVm('__mr') >= 1, 'drawn at a moment of the caption');
     const stage = p.evalVm("$('styleCustom').querySelector('.sc-stage')");
     assert.ok(stage && stage.style.display !== 'none', 'the canvas is shown');
-    assert.ok(p.evalVm("!!LC.canvas && LC.canvas.tagName === 'CANVAS'"));
+    // 1.94.53: drawn in a frame from this computer's server (the panel's own policy blocks the renderer's scripts)
+    assert.ok(p.evalVm("!!LC.frame && LC.frame.tagName === 'IFRAME' && /^http:\\/\\/127\\.0\\.0\\.1:\\d+\\/c\\/live\\.html$/.test(LC.frame.src)"), 'the renderer page');
+    assert.ok(p.evalVm('typeof __renders[0][2] === "number"'), 'drawn at a moment of the caption');
     // the size slider: drawn while it moves, not saved until let go; the newest value wins
     p.evalVm("STYLE_SECTION = 'text'; renderStyleCustom();");
     await flush(10);
@@ -2036,6 +2038,23 @@ await t('4f5. 1.94.42 the live canvas file server: JASSUB from this install only
     assert.strictEqual((await get('v/../../panel/js/main.js')).code, 404);
     assert.strictEqual((await get('v/jassub/NOTICE.txt')).code, 404, 'only scripts, WebAssembly and fonts');
     assert.strictEqual((await get('x/anything.js')).code, 404);
+    // 1.94.53 the renderer page and the stills of the footage
+    const page = await new Promise((resolve) => require('http').get(base + 'c/live.html', (res) => {
+      let b = ''; res.on('data', (c) => { b += c; }); res.on('end', () => resolve({ code: res.statusCode, type: res.headers['content-type'], b }));
+    }));
+    assert.ok(page.code === 200 && /text\/html/.test(page.type), JSON.stringify(page.code));
+    assert.match(page.b, /import\('\/v\/jassub\/dist\/jassub\.js'\)/, 'JASSUB from the same server');
+    assert.match(page.b, /color-scheme" content="dark"/, 'a dark frame (no white backdrop)');
+    assert.match(page.b, /e\.source !== parent/, 'only the panel can ask it to draw');
+    const still = path.join(os.tmpdir(), 'amh_lcframe_424242.jpg');
+    fs.writeFileSync(still, 'jpg');
+    try {
+      const s = await get('s/amh_lcframe_424242.jpg');
+      assert.ok(s.code === 200 && s.type === 'image/jpeg', JSON.stringify(s));
+      assert.strictEqual((await get('s/other.jpg')).code, 404, 'only our own stills');
+      assert.strictEqual((await get('s/..%2Famh_lcframe_424242.jpg')).code, 404);
+      assert.strictEqual((await get('s/amh_lcframe_1.png')).code, 404);
+    } finally { try { fs.unlinkSync(still); } catch (e) {} }
     p.evalVm('LC.http.close(); LC.http = null; LC.base = ""; LC.httpP = null;');
   } finally { p.close(); }
 });
