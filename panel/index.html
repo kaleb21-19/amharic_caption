@@ -1169,6 +1169,30 @@
   #trialCard.show .tc-box, #buyQrCard.show .tc-box, #feedbackCard.show .tc-box, #review.show {
     animation: amh-rise var(--duration-normal) var(--ease-enter);
   }
+
+  /* ═══ 1.94.54 the Customize page ═══════════════════════════════════════════
+     Owner: "on a small screen it overlaps and I can't edit - when the user
+     clicks Customize give him a full page". While Customize is open the
+     caption list and its tools step aside; the live preview and every setting
+     get the whole panel (the style row and Place stay). ← Captions or Escape
+     goes back. */
+  .custom-bar { display: none; }
+  html:not(.amh-studio) #review.customizing > .review-head, html:not(.amh-studio) #review.customizing > .review-steps,
+  html:not(.amh-studio) #review.customizing > .star-tip, html:not(.amh-studio) #review.customizing > .textcut-note,
+  html:not(.amh-studio) #review.customizing > .textcut-undo, html:not(.amh-studio) #review.customizing > .textcut-list,
+  html:not(.amh-studio) #review.customizing > .memory-panel, html:not(.amh-studio) #review.customizing > #reviewList,
+  html:not(.amh-studio) #review.customizing > #reviewAdd, html:not(.amh-studio) #review.customizing #styleCustomToggle { display: none !important; }
+  /* a short panel: the status line and "More styles" give their room to the settings */
+  @media (max-height: 700px) { html:not(.amh-studio) #review.customizing .live-note, html:not(.amh-studio) #review.customizing .style-more { display: none !important; } }
+  html:not(.amh-studio) #review.customizing > .custom-bar { display: flex; align-items: center; gap: var(--space-3); flex: 0 0 auto; margin: 0 0 var(--space-3); }
+  html:not(.amh-studio) #review.customizing .custom-title { font-size: var(--font-size-lg); font-weight: var(--font-weight-bold); flex: 1 1 auto; min-width: 0; }
+  html:not(.amh-studio) #review.customizing .custom-nav { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--font-size-xs); color: var(--color-text-secondary); white-space: nowrap; }
+  html:not(.amh-studio) .custom-nav button { width: var(--target-min); height: var(--target-min); padding: 0; border: 1px solid var(--color-border-control); border-radius: var(--radius-sm);
+    background: var(--color-bg-raised); color: var(--color-text-primary); font-size: var(--font-size-md); cursor: pointer; }
+  html:not(.amh-studio) .custom-nav button:hover:not(:disabled) { border-color: var(--color-accent); }
+  html:not(.amh-studio) .custom-nav button:disabled { color: var(--color-text-disabled); cursor: default; }
+  html:not(.amh-studio) #review.customizing .style-strip { flex: 1 1 auto; min-height: 0; margin-top: 0; }
+  html:not(.amh-studio) #review.customizing .style-strip > .style-custom { flex: 1 1 auto; min-height: 0; max-height: none; }
 </style>
 </head>
 <body>
@@ -1514,7 +1538,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.94.53</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.94.54</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
@@ -1596,6 +1620,12 @@
     <div class="memory-panel cleanup-panel" id="zoomPanel" style="display:none;"></div>
     <div id="reviewList"></div>
     <button type="button" id="reviewAdd" class="review-add" data-i18n="rev.add">+ Add caption</button>
+    <!-- 1.94.54 the Customize page: the whole panel for the look -->
+    <div class="custom-bar" id="customBar">
+      <button type="button" class="btn btn-neutral" id="customBack">← Captions</button>
+      <span class="custom-title">⚙ Customize</span>
+      <span class="custom-nav"><button type="button" id="customPrev" aria-label="Previous caption">‹</button><span id="customAt"></span><button type="button" id="customNext" aria-label="Next caption">›</button></span>
+    </div>
     <!-- 1.11: caption styles (shown only when this computer's ffmpeg can draw them) -->
     <div class="style-strip" id="styleStrip" style="display:none;">
       <div class="style-head"><span class="style-title" data-i18n="style.title">🎨 Caption style</span><span class="style-note" id="styleNote"></span><button type="button" class="sc-live" id="liveToggle" style="display:none;">📺</button><button type="button" class="sc-toggle" id="styleCustomToggle" style="display:none;">⚙ Customize</button></div>
