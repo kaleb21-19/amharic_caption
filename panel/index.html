@@ -586,6 +586,9 @@
   }
   .review-row .text-box .hl-back mark.fix { background: var(--ok-mark); box-shadow: inset 0 -2px 0 var(--ok); }
   .review-row .text-box .hl-back mark.now { background: var(--accent-soft); box-shadow: inset 0 -2px 0 var(--accent); }
+  /* 🔤 1.94.59 probably misspelled: a wavy red line, no fill (the orange words are the model's doubts) */
+  .review-row .text-box .hl-back mark.spell { background: transparent; box-shadow: none;
+    text-decoration: underline wavy var(--color-danger); text-decoration-thickness: 1.5px; text-underline-offset: 3px; text-decoration-skip-ink: none; }
   .review-row.cut-whole .text-box { opacity: .6; }
   .review-row.cut-whole .text-box .cut-word { opacity: 1; background: var(--color-danger-solid); color: var(--color-text-on-danger); }
   .clean-hear { flex: 0 0 auto; width: 24px; height: 24px; padding: 0; border: 1px solid var(--color-border-control); border-radius: var(--radius-sm); background: transparent; color: inherit; cursor: pointer; font-size: var(--font-size-xs); line-height: 1; }
@@ -1538,7 +1541,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.94.58</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.94.59</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>

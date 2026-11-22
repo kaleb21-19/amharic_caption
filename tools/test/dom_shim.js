@@ -66,6 +66,15 @@ class El {
     this.children.push(child);
     return child;
   }
+  // 1.94.59: before ref (or at the end), like the DOM
+  insertBefore(child, ref) {
+    if (child.parentNode) child.parentNode.removeChild(child);
+    child.parentNode = this;
+    const i = ref ? this.children.indexOf(ref) : -1;
+    if (i >= 0) this.children.splice(i, 0, child); else this.children.push(child);
+    return child;
+  }
+  remove() { if (this.parentNode) this.parentNode.removeChild(this); }
   removeChild(child) {
     const i = this.children.indexOf(child);
     if (i >= 0) this.children.splice(i, 1);
@@ -294,6 +303,8 @@ function makeDocument(tagFor) {
     fonts: null,
     getElementById: (id) => registry[id] || null,
     createElement(tag) { return mk(tag, ''); },
+    // 1.94.59: a text node, as an element whose textContent is the text (✔ Check words' caption line)
+    createTextNode(text) { const n = mk('#text', ''); n.textContent = String(text); return n; },
     querySelectorAll(sel) { return doc.documentElement._match(sel); },
     _listeners: {},
     addEventListener(type, fn) { (doc._listeners[type] = doc._listeners[type] || []).push(fn); },
