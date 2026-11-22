@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.52';
+const APP_VERSION = '1.94.53';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -8042,8 +8042,16 @@ function tlStop() {
 // 127.0.0.1 (a file:// page cannot fetch WebAssembly or start a worker from
 // files). Anything missing -> no canvas, nothing else changes. Setting
 // liveCanvas: false switches it off.
-const LC = { child: null, buf: '', wait: new Map(), seq: 0, http: null, httpP: null, base: '', JASSUB: null, jas: null,
-  canvas: null, img: null, fontsIn: {}, frames: {}, busy: false, want: null, failed: '', i: 0, lastMs: 0, draws: 0 };
+// 1.94.53: the renderer runs in a small page of its own (an iframe from the
+// same 127.0.0.1 server). The panel's security policy allows scripts from the
+// panel only (script-src 'self'), so importing JASSUB into the panel itself
+// failed in Premiere ("Failed to fetch dynamically imported module", owner's
+// log 2026-11-22). The page has no such policy: JASSUB, its worker and its
+// WebAssembly load there; the panel only allows that frame (frame-src
+// 127.0.0.1) and talks to it with messages. The still of the footage is
+// shown in the page too (served from the temp folder, our own files only).
+const LC = { child: null, buf: '', wait: new Map(), seq: 0, http: null, httpP: null, base: '',
+  frame: null, frameP: null, ready: null, pend: new Map(), rid: 0, still: '', frames: {}, busy: false, want: null, failed: '', i: 0, lastMs: 0, draws: 0 };
 function liveCanvasOn() {
   if (IS_AE || IS_APP_MODE()) return false;
   try { return loadSettings().liveCanvas !== false; } catch (e) { return true; }
@@ -8091,9 +8099,60 @@ function lcAsk(req) {
 }
 // read-only files for the renderer, on this computer only
 const LC_TYPES = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.wasm': 'application/wasm', '.ttf': 'font/ttf', '.otf': 'font/otf' };
+// the renderer page: JASSUB draws the caption over the still, on a message
+const LC_PAGE = `<!doctype html><meta charset="utf-8"><meta name="color-scheme" content="dark"><style>
+:root{color-scheme:dark}html,body{margin:0;height:100%;background:transparent;overflow:hidden}
+#bg,#c{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}#bg{display:none}
+</style><img id="bg" alt=""><canvas id="c"></canvas><script type="module">
+let J = null, jas = null; const got = {};
+const say = (m) => parent.postMessage(Object.assign({ amhLive: 1 }, m), '*');
+const abs = (u) => new URL(u, location.href).href;
+addEventListener('message', async (e) => {
+  const d = e.data;
+  if (!d || !d.amhLive || e.source !== parent) return;
+  if (d.type === 'still') { const bg = document.getElementById('bg'); if (d.src) { bg.src = d.src; bg.style.display = 'block'; } else bg.style.display = 'none'; return; }
+  if (d.type !== 'draw') return;
+  try {
+    const t0 = performance.now();
+    if (typeof OffscreenCanvas === 'undefined' || typeof WebAssembly === 'undefined') throw new Error('no OffscreenCanvas / WebAssembly here');
+    if (!J) J = (await import('/v/jassub/dist/jassub.js')).default;
+    const fonts = (d.fonts || []).filter((f) => !got[f]).map((f) => { got[f] = 1; return abs('/f/' + encodeURIComponent(f)); });
+    if (!jas) {
+      jas = new J({ canvas: document.getElementById('c'), subContent: d.script, fonts, defaultFont: 'Noto Sans Ethiopic', queryFonts: false,
+        workerUrl: abs('/v/jassub/dist/worker/worker.js'), wasmUrl: abs('/v/jassub/dist/wasm/jassub-worker.wasm'),
+        modernWasmUrl: abs('/v/jassub/dist/wasm/jassub-worker-modern.wasm') });
+      await jas.ready;
+    } else {
+      if (fonts.length) await jas.renderer.addFonts(fonts);
+      await jas.renderer.setTrack(d.script);
+    }
+    jas.manualRender({ mediaTime: d.time, width: d.width, height: d.height, expectedDisplayTime: performance.now() }, true);
+    say({ type: 'drawn', id: d.id, ms: Math.round(performance.now() - t0) });
+  } catch (err) { say({ type: 'error', id: d.id, message: String((err && err.message) || err) }); }
+});
+say({ type: 'ready' });
+</script>`;
+const LC_STILL = /^amh_lcframe_\d+\.jpg$/;
 function lcServe(roots, req, res) {
-  const m = /^\/(v|f)\/([^?#]*)/.exec(String(req.url || ''));
+  const url = String(req.url || '');
   const no = () => { res.writeHead(404, { 'Access-Control-Allow-Origin': '*' }); res.end(); };
+  if (req.method === 'GET' && /^\/c\/live\.html(?:[?#]|$)/.test(url)) {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(LC_PAGE);
+    return;
+  }
+  // the still of the footage: only our own temp files by name
+  const st = /^\/s\/([^/?#]+)/.exec(url);
+  if (st) {
+    if (req.method !== 'GET' || !roots.s || !LC_STILL.test(st[1])) return no();
+    fs.readFile(path.join(roots.s, st[1]), (err, data) => {
+      if (err) return no();
+      res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' });
+      res.end(data);
+    });
+    return;
+  }
+  const m = /^\/(v|f)\/([^?#]*)/.exec(url);
   if (req.method !== 'GET' || !m || !roots[m[1]]) return no();
   const root = path.resolve(roots[m[1]]);
   let full;
@@ -8113,7 +8172,7 @@ function lcHttp() {
   LC.httpP = new Promise((resolve, reject) => {
     const vendor = lcVendor();
     if (!vendor) { reject(new Error('the caption renderer (app/vendor/jassub) is not in this install')); return; }
-    const roots = { v: vendor, f: runtimePath('fonts') };
+    const roots = { v: vendor, f: runtimePath('fonts'), s: os.tmpdir() };
     let srv;
     try { srv = nodeRequire('http').createServer((req, res) => lcServe(roots, req, res)); } catch (e) { reject(e); return; }
     srv.on('error', reject);
@@ -8139,14 +8198,16 @@ function lcCue() {
 function lcTime(cue) { return Number(cue.start) + 0.7 * Math.max(0, Number(cue.end) - Number(cue.start)); }   // the look settled, not mid-entrance
 // a still of the editor's footage behind the caption (one ffmpeg grab per caption, kept)
 function lcFrame(cue) {
-  const img = LC.img;
-  if (!img) return;
+  const frame = LC.frame;
+  if (!frame) return;
   const t = lcTime(cue);
   const m = previewMediaFor([[String(cue.text || ''), t, t]]);
-  if (!m || !FFMPEG) { img.style.display = 'none'; return; }
+  const still = (src) => { LC.still = src; lcPost({ type: 'still', src }); };
+  if (!m || !FFMPEG) { still(''); return; }
   const src = Math.max(0, t + (Number(m.offset) || 0));
   const key = m.path + '|' + src.toFixed(1);
-  const show = (f) => { if (LC.img === img) { img.src = fileUrl(f); img.style.display = ''; } };
+  // the page shows it, from our server (the panel's own policy keeps file:// images out of the frame)
+  const show = (f) => { if (LC.frame === frame) still(LC.base + 's/' + path.basename(f)); };
   if (LC.frames[key]) { if (LC.frames[key] !== 'busy') show(LC.frames[key]); return; }
   LC.frames[key] = 'busy';
   const out = path.join(os.tmpdir(), 'amh_lcframe_' + Math.abs(key.split('').reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) | 0, 7)) + '.jpg');
@@ -8159,19 +8220,19 @@ function lcFrame(cue) {
       });
   } catch (e) { delete LC.frames[key]; }
 }
-function lcEnsureCanvas(stage, fr) {
-  if (!LC.canvas || LC.canvas.parentNode !== stage) {
+async function lcEnsureCanvas(stage, fr) {
+  if (!LC.frame || LC.frame.parentNode !== stage) {
+    const base = await lcHttp();
     stage.textContent = '';
     stage.classList.add('lc-stage');
-    LC.img = document.createElement('img');
-    LC.img.className = 'lc-frame';
-    LC.img.alt = '';
-    LC.img.style.display = 'none';
-    LC.canvas = document.createElement('canvas');
-    LC.canvas.className = 'lc-canvas';
-    stage.appendChild(LC.img);
-    stage.appendChild(LC.canvas);
-    if (LC.jas) { try { LC.jas.destroy(); } catch (e) {} LC.jas = null; LC.fontsIn = {}; }
+    LC.frameP = null; LC.still = '';
+    lcFrameReady().catch(() => {});
+    LC.frame = document.createElement('iframe');
+    LC.frame.className = 'lc-canvas';
+    LC.frame.setAttribute('title', 'caption preview');
+    LC.frame.setAttribute('tabindex', '-1');
+    LC.frame.src = base + 'c/live.html';
+    stage.appendChild(LC.frame);
   }
   // the frame's own shape, never taller than 220 px (a 9:16 video stays small)
   const ratio = fr.height / fr.width;
@@ -8179,25 +8240,40 @@ function lcEnsureCanvas(stage, fr) {
   stage.style.maxHeight = '220px';
   stage.style.maxWidth = ratio > 1 ? Math.round(220 / ratio) + 'px' : '';
 }
-async function lcRender(script, fonts, fr) {
-  const base = await lcHttp();
-  if (!LC.JASSUB) {
-    if (typeof OffscreenCanvas === 'undefined' || typeof WebAssembly === 'undefined') throw new Error('this Premiere has no OffscreenCanvas / WebAssembly');
-    LC.JASSUB = (await import(base + 'v/jassub/dist/jassub.js')).default;
-  }
+// messages from the renderer page (only from our own frame)
+function lcOnMessage(e) {
+  const d = e && e.data;
+  if (!d || !d.amhLive || !LC.frame || e.source !== LC.frame.contentWindow) return;
+  if (d.type === 'ready') { if (LC.ready) { LC.ready(); LC.ready = null; } if (LC.still) lcPost({ type: 'still', src: LC.still }); return; }
+  const p = LC.pend.get(d.id);
+  if (!p) return;
+  LC.pend.delete(d.id);
+  if (d.type === 'drawn') p.ok(d); else p.no(new Error(d.message || 'the renderer failed'));
+}
+if (typeof window !== 'undefined' && window.addEventListener) window.addEventListener('message', lcOnMessage);
+function lcPost(m) {
+  const w = LC.frame && LC.frame.contentWindow;
+  if (w && w.postMessage) w.postMessage(Object.assign({ amhLive: 1 }, m), '*');
+}
+// the renderer page loaded and ready (8 s, else the canvas is given up)
+function lcFrameReady() {
+  if (LC.frameP) return LC.frameP;
+  LC.frameP = new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('the caption renderer page did not start')), 8000);
+    LC.ready = () => { clearTimeout(t); resolve(); };
+  });
+  return LC.frameP;
+}
+async function lcRender(script, fonts, fr, time) {
+  await lcHttp();
+  await lcFrameReady();
+  const id = ++LC.rid;
   const want = (fonts || []).concat(['NotoSansEthiopic-Regular.ttf', 'NotoSansEthiopic-Bold.ttf']);
-  const urls = want.filter((f) => !LC.fontsIn[f]).map((f) => { LC.fontsIn[f] = 1; return base + 'f/' + encodeURIComponent(f); });
-  if (!LC.jas) {
-    // a worker must come from the page's own origin: a blob that imports JASSUB's worker from our server
-    const workerUrl = URL.createObjectURL(new Blob(['import "' + base + 'v/jassub/dist/worker/worker.js";'], { type: 'text/javascript' }));
-    LC.jas = new LC.JASSUB({ canvas: LC.canvas, subContent: script, fonts: urls, defaultFont: 'Noto Sans Ethiopic', queryFonts: false,
-      workerUrl, wasmUrl: base + 'v/jassub/dist/wasm/jassub-worker.wasm', modernWasmUrl: base + 'v/jassub/dist/wasm/jassub-worker-modern.wasm' });
-    await LC.jas.ready;
-  } else {
-    if (urls.length) await LC.jas.renderer.addFonts(urls);
-    await LC.jas.renderer.setTrack(script);
-  }
-  void fr;
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => { if (LC.pend.has(id)) { LC.pend.delete(id); reject(new Error('the caption renderer did not answer')); } }, 10000);
+    LC.pend.set(id, { ok: (d) => { clearTimeout(t); resolve(d); }, no: (err) => { clearTimeout(t); reject(err); } });
+    lcPost({ type: 'draw', id, script, fonts: want, time, width: fr.width, height: fr.height });
+  });
 }
 // draw now; while one draw runs the newest request waits (never a queue of old ones)
 async function lcDraw(override) {
@@ -8218,11 +8294,9 @@ async function lcDraw(override) {
         duration: Number(cue.end) + 1, tag: !LICENSED });
       if (!r || !r.ok) throw new Error((r && r.error) || 'no script');
       if (!lcShown()) break;
-      lcEnsureCanvas(stage, fr);
+      await lcEnsureCanvas(stage, fr);
       lcFrame(cue);
-      await lcRender(r.script, r.fonts, fr);
-      LC.jas.manualRender({ mediaTime: lcTime(cue), width: fr.width, height: fr.height,
-        expectedDisplayTime: (typeof performance !== 'undefined' ? performance.now() : Date.now()) }, true);
+      await lcRender(r.script, r.fonts, fr, lcTime(cue));
       LC.lastMs = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0);
       LC.draws++;
       stage.style.display = '';
@@ -8240,8 +8314,9 @@ async function lcDraw(override) {
 // the review ends / the panel closes: nothing left running
 function lcStop() {
   LC.want = null;
-  if (LC.jas) { try { LC.jas.destroy(); } catch (e) {} LC.jas = null; }
-  LC.canvas = null; LC.img = null; LC.fontsIn = {};
+  if (LC.frame) { try { LC.frame.src = 'about:blank'; if (LC.frame.parentNode) LC.frame.parentNode.removeChild(LC.frame); } catch (e) {} }
+  LC.frame = null; LC.frameP = null; LC.ready = null; LC.still = '';
+  LC.pend.forEach((p) => p.no(new Error('closed'))); LC.pend.clear();
   if (LC.child) { try { LC.child.kill(); } catch (e) {} LC.child = null; }
   LC.buf = '';
 }
@@ -8738,7 +8813,7 @@ function renderCompactCustom(wrap, opts) {
   const stage = wrap.querySelector ? wrap.querySelector('.sc-stage') : null;
   ['stylePreview', 'stylePreviewNote'].forEach((id) => { const e = $(id); if (e) e.style.display = 'none'; });
   const canvasNow = open && liveCanvasOn() && !LC.failed;
-  if (stage && !(canvasNow && LC.canvas && LC.canvas.parentNode === stage)) stage.style.display = 'none';
+  if (stage && !(canvasNow && LC.frame && LC.frame.parentNode === stage)) stage.style.display = 'none';
   if (!open) { opts.textContent = ''; return; }
   if (canvasNow) lcDraw();
   const o = styleOpts(STYLE);
