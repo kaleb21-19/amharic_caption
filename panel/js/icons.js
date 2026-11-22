@@ -75,6 +75,14 @@
     plug: 'M9 2v5M15 2v5M7 7h10v4a5 5 0 01-10 0zM12 16v6',
     clip: 'M20 11l-8.5 8.5a5 5 0 01-7-7L13 4a3.5 3.5 0 015 5l-8.5 8.5a2 2 0 01-3-3L14 7',
     search: 'M11 18a7 7 0 100-14 7 7 0 000 14zM21 21l-5-5',
+    // 1.94.52: the last emoji of the panel's own buttons, titles and notes
+    repeat: 'M17 2l4 4-4 4M3 11V9a3 3 0 013-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 01-3 3H3',
+    card: 'M3 6h18v12H3zM3 10h18M7 15h3',
+    lock: 'M6 11h12v10H6zM8 11V7a4 4 0 018 0v4',
+    eye: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 9a3 3 0 100 6 3 3 0 000-6z',
+    ear: 'M7 9a5 5 0 0110 0c0 3-3 4-3 7a3 3 0 01-6 0M10 10a2 2 0 014 0',
+    type: 'M4 7V5h16v2M12 5v14M9 19h6',
+    cloud: 'M7 18h10a4 4 0 000-8 6 6 0 00-11.5 1.5A3.5 3.5 0 007 18z',
     hourglass: 'M7 3h10M7 21h10M8 3c0 5 8 5 8 9s-8 4-8 9M16 3c0 5-8 5-8 9s8 4 8 9',
   };
   // the symbols the Studio's labels start with -> icon
@@ -87,6 +95,8 @@
     '↕': 'updown', '⇕': 'updown', '☰': 'list', '¶': 'para', '🎨': 'palette', '🔗': 'link',
     '🎁': 'gift', '🕘': 'clock', '💡': 'idea', '📨': 'send', '📋': 'copy', '💻': 'laptop', '⌨': 'keys', '〰': 'wave',
     '📶': 'wifi', '🔌': 'plug', '📎': 'clip', '🔍': 'search', '⬇': 'download', '★': 'star',
+    '🔄': 'refresh', '🔎': 'search', '🔁': 'repeat', '➕': 'plus', '📥': 'download', '💳': 'card', '🔒': 'lock',
+    '🎵': 'music', '👁': 'eye', '👂': 'ear', '⌛': 'wait', '📺': 'monitor', '☁': 'cloud', '🔤': 'type',
   };
   const NS = 'http://www.w3.org/2000/svg';
   function icon(name) {
@@ -100,7 +110,7 @@
     return s;
   }
   // where icons belong: buttons, tabs, card / section heads, timeline labels
-  const WHERE = 'button, label, summary, .card-head, .card-title, .st-tab, .st-card-ico, .st-home-h, .ed-labels > div, .ed-mthumb, .ed-cname, .st-ednote > b, .st-capsec, .st-sheet-head > b, .style-title, .app-drop-icon, .st-cchint, .st-how-ic';
+  const WHERE = 'button, label, summary, .card-head, .card-title, .tc-title, .bq-phone, #recentLink, #feedbackLink, #supportLink, #renewTitle, #searchStatus, .cli-note, .clean-opt > span, .row-hint .hint-pair, .st-tab, .st-card-ico, .st-home-h, .ed-labels > div, .ed-mthumb, .ed-cname, .st-ednote > b, .st-capsec, .st-sheet-head > b, .style-title, .app-drop-icon, .st-cchint, .st-how-ic';
   const NOT = '[contenteditable="true"], textarea, input, .review-text, .st-script-body';
   const LEAD = /^\s*([^\s\wሀ-፿])️?\s?/u;
   function fix(node) {
