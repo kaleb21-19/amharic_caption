@@ -1126,6 +1126,34 @@
   .notice-danger { border-color: var(--color-danger); background: var(--color-danger-soft); }
   .notice-info { border-color: var(--color-accent-border); background: var(--color-accent-soft); }
   .permit-box.notice { margin: var(--space-4) 0; }
+
+  /* ═══ 1.94.51 states (panel UI plan U5) ═══════════════════════════════════ */
+  /* Toast - an outcome the editor must see (it used to go only to the collapsed
+     support log). Above the review and its Place button; errors stay. */
+  .toasts { position: fixed; left: var(--space-4); right: var(--space-4); bottom: 56px; z-index: var(--z-toast);
+    display: flex; flex-direction: column; gap: var(--space-3); pointer-events: none; }
+  .toast { pointer-events: auto; display: flex; align-items: flex-start; gap: var(--space-3);
+    padding: var(--space-3) var(--space-2) var(--space-3) var(--space-5); border: 1px solid var(--color-border-control); border-radius: var(--radius-md);
+    background: var(--color-bg-raised); color: var(--color-text-primary); font-size: var(--font-size-xs); line-height: var(--line-height-normal);
+    box-shadow: var(--elevation-menu); animation: amh-toast-in var(--duration-normal) var(--ease-enter); }
+  .toast-success { border-color: var(--color-accent-border); border-left: 3px solid var(--color-accent); }
+  .toast-warn { border-color: var(--color-warning-border); border-left: 3px solid var(--color-warning); }
+  .toast-error { border-color: var(--color-danger); border-left: 3px solid var(--color-danger); }
+  .toast .toast-text { flex: 1 1 auto; min-width: 0; padding-top: var(--space-1); }
+  .toast .toast-x { flex: 0 0 auto; width: var(--target-min); height: var(--target-min); padding: 0; border: 0; border-radius: var(--radius-sm);
+    background: transparent; color: var(--color-text-secondary); font-size: var(--font-size-sm); cursor: pointer; }
+  .toast .toast-x:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
+  /* a slide only: if animations are paused (a hidden panel) the toast is still seen */
+  @keyframes amh-toast-in { from { transform: translateY(6px); } to { transform: none; } }
+  /* the caption being cut: busy until Premiere answers */
+  .review-row.cutting { opacity: .55; pointer-events: none; cursor: progress; }
+  /* Customize never squeezes the captions: the list keeps three captions, the
+     settings scroll inside themselves (a very short panel still scrolls whole) */
+  html:not(.amh-studio) #reviewList { min-height: 190px; }
+  html:not(.amh-studio) .style-strip { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; }
+  html:not(.amh-studio) .style-strip > * { flex: 0 0 auto; }
+  html:not(.amh-studio) .style-strip > .style-custom { flex: 0 1 auto; min-height: 120px; overflow-y: auto; }
+  @media (max-height: 520px) { html:not(.amh-studio) #reviewList { min-height: 56px; } }
 </style>
 </head>
 <body>
@@ -1471,7 +1499,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.94.50</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.94.51</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
@@ -1572,6 +1600,7 @@
     </div>
   </div>
 
+  <div id="toasts" class="toasts" aria-live="polite"></div>
   <script src="./js/CSInterface.js"></script>
   <script src="./js/core.js"></script>
   <script src="./js/qrcode.js"></script>
