@@ -898,21 +898,37 @@ function amh_placeOverlay(argsJSON) {
 // cut from one rendered file with the project item's in / out points. The
 // scripting guide gives the in point in ticks and the out point in seconds,
 // so both are tried and read back; the way that works is remembered.
+// 1.94.55: Premiere snaps in / out points to whole frames, so the point read
+// back can be up to half a frame away (25 fps: 0.02 s, 23.976: 0.021 s). The
+// check allowed 0.02 s for the in point: with a hundred captions one of them
+// always landed just outside and the whole video fell back to one layer (the
+// owner's Premiere, 2026-11-23). It now allows a little more than half a frame
+// of the sequence; and when it still fails, AMH_RANGE_DIAG says what was asked
+// and what Premiere read back, way by way.
 var AMH_RANGE_WAY = -1;
-function amhSetRange(item, a, b) {
+var AMH_RANGE_DIAG = "";
+function amhR3(x) { return Math.round(Number(x) * 1000) / 1000; }
+function amhSetRange(item, a, b, frame) {
+    var f = Number(frame) > 0 ? Number(frame) : 0;
+    var tolIn = Math.max(0.02, 0.55 * f), tolOut = Math.max(0.06, 0.55 * f + 0.02);
     var ways = [
         function () { item.setInPoint(a, 4); item.setOutPoint(b, 4); },
         function () { item.setInPoint(amhSecondsToTicks(a), 4); item.setOutPoint(amhSecondsToTicks(b), 4); },
         function () { item.setInPoint(amhSecondsToTicks(a), 4); item.setOutPoint(b, 4); }
     ];
     var order = AMH_RANGE_WAY >= 0 ? [AMH_RANGE_WAY] : [0, 1, 2];
+    var diag = [];
     for (var k = 0; k < order.length; k++) {
         try {
             ways[order[k]]();
             var gi = Number(item.getInPoint().seconds), go = Number(item.getOutPoint().seconds);
-            if (Math.abs(gi - a) < 0.02 && Math.abs(go - b) < 0.06) { AMH_RANGE_WAY = order[k]; return true; }
-        } catch (e) {}
+            if (Math.abs(gi - a) <= tolIn && Math.abs(go - b) <= tolOut) { AMH_RANGE_WAY = order[k]; AMH_RANGE_DIAG = ""; return true; }
+            diag.push("way " + order[k] + ": asked " + amhR3(a) + "-" + amhR3(b) + " s, Premiere read " + amhR3(gi) + "-" + amhR3(go));
+        } catch (e) {
+            diag.push("way " + order[k] + ": " + String((e && e.message) || e));
+        }
     }
+    AMH_RANGE_DIAG = diag.join("; ") + (f ? "; frame " + amhR3(f) + " s" : "");
     return false;
 }
 function amhClearRange(item) {
@@ -955,12 +971,16 @@ function amh_overlaySpans(argsJSON) {
         var base = Number(args.base || 0);
         var spans = args.spans || [];
         var placed = 0;
+        var frame = 0;
+        try { frame = Number(seq.timebase) / 254016000000; } catch (e) { frame = 0; }
+        if (!(frame > 0 && frame < 1)) { frame = 0; }
         try {
             for (var i = 0; i < spans.length; i++) {
                 var a = Number(spans[i][0]), b = Number(spans[i][1]);
                 if (!(b > a)) { continue; }
-                if (!amhSetRange(item, a, b)) {
-                    return JSON.stringify({ ok: false, range: true, placed: placed, error: "Premiere did not take the caption in / out points." });
+                if (!amhSetRange(item, a, b, frame)) {
+                    return JSON.stringify({ ok: false, range: true, placed: placed,
+                        error: "Premiere did not take the caption in / out points (caption " + (i + 1) + " of " + spans.length + ": " + AMH_RANGE_DIAG + ")." });
                 }
                 track.overwriteClip(item, base + a);
                 if (placed === 0 && args.check) {

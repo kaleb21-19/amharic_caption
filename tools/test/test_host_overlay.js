@@ -36,10 +36,13 @@ function makeTrack(clips) {
            } };
 }
 // a project item; range: how the fake Premiere reads setInPoint / setOutPoint
-// ('seconds', 'ticks' = a ticks string or number, 'ignore' = in / out do nothing)
+// ('seconds', 'ticks' = a ticks string or number, 'ignore' = in / out do nothing,
+// 'frames' = seconds, snapped to whole frames of 25 fps like a real Premiere)
 function makeItem(name, range) {
   const TPS = 254016000000;
-  const conv = (v) => (range === 'ticks' ? (typeof v === 'string' || v > 1e6 ? Number(v) / TPS : null) : (typeof v === 'number' && v < 1e6 ? v : null));
+  const snap = (x) => (range === 'frames' && x != null ? Math.round(x * 25) / 25 : x);
+  const conv0 = (v) => (range === 'ticks' ? (typeof v === 'string' || v > 1e6 ? Number(v) / TPS : null) : (typeof v === 'number' && v < 1e6 ? v : null));
+  const conv = (v) => snap(conv0(v));
   return {
     name, _in: null, _out: null,
     setInPoint(v) { if (range !== 'ignore') { const x = conv(v); if (x != null) this._in = x; } return 0; },
@@ -206,6 +209,15 @@ test('Premiere ignores in / out points: nothing is left on the timeline, the pan
   assert.strictEqual(r.ok, false);
   assert.strictEqual(r.range, true);
   assert.strictEqual(pp.vt[1].list.length, 0);
+  // 1.94.55: the reason says what was asked and what Premiere read back
+  assert.match(r.error, /caption 1 of 3: way 0: asked 0\.25-1\.4 s, Premiere read 0-5; way 1: .*; frame 0\.04 s/, r.error);
+});
+test('1.94.55 Premiere snaps in / out points to frames: captions between frames are still one clip each (was: one layer)', () => {
+  // 25 fps: a start of 0.26 s reads back as 0.24 or 0.28 - 0.02 s away; the old check allowed < 0.02
+  const pp = makePremiere([[[0, 60]], []], { range: 'frames' });
+  const { prep, r } = placeCut(pp, [[0.26, 1.42], [1.42, 2.58], [4.02, 5.5]]);
+  assert.ok(prep.ok && r.ok, JSON.stringify([prep, r]));
+  assert.strictEqual(r.placed, 3);
 });
 test('an edit: only our clips in that range are replaced, on the same track; the rest stays', () => {
   const nm = 'amhstyle_talk__bold_1.mov';
