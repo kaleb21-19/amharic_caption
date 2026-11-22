@@ -275,13 +275,26 @@
 
   // ✔ Check words (1.48): what a doubtful word probably is — the panel's
   // core (panel/js/core.js, 1.52: shared, + the Amharic dictionary)
+  // 1.94.57 (S2): why a file could not be written / read, in plain words -
+  // a failure the editor would otherwise never hear about (Node fs error codes)
+  function fsReason(e) {
+    const code = String((e && e.code) || '');
+    const msg = String((e && e.message) || e || '');
+    if (code === 'ENOSPC' || /no space/i.test(msg)) return { am: 'ዲስኩ ሞልቷል', en: 'the disk is full' };
+    if (code === 'EACCES' || code === 'EPERM' || code === 'EBUSY' || /denied|not permitted|busy|locked/i.test(msg)) {
+      return { am: 'Windows ፋይሉን ከልክሏል (OneDrive ወይም ጸረ-ቫይረስ ሊሆን ይችላል)', en: 'Windows blocked the file (OneDrive or an antivirus may be holding it)' };
+    }
+    if (code === 'ENOENT' || /no such file/i.test(msg)) return { am: 'ፋይሉ ወይም አቃፊው የለም', en: 'the file or folder is not there' };
+    if (code === 'EROFS') return { am: 'ዲስኩ ለንባብ ብቻ ነው', en: 'the disk is read-only' };
+    return { am: msg || 'ያልታወቀ ስህተት', en: msg || 'unknown error' };
+  }
   const CORE = (typeof module !== 'undefined' && module.exports) ? require('../panel/js/core.js') : root;
   const editDistance = (a, b) => CORE.editDistance(a, b);
   const checkSuggest = (word, cues, fixes, max, dict) => CORE.suggestWords(word, cues, fixes, max, dict);
 
   const api = { MAX_PPS, minPps, clampView, fitView, timeToX, xToTime, zoomAt, follow, hitCaption, ticks, fmtClock,
     projectId, projectFileName, makeProject, parseProject, recentProjects, libraryMatch, libraryList, libraryGroups, VERSIONS_KEEP, VERSION_EVERY, versionName, versionTime, versionsSorted, versionsToDrop, firstProject, scriptParagraphs, wordRanges, wordAt, selectionByCaption,
-    keepRanges, cutFilter, keptLength, editDistance, checkSuggest, readyNext };
+    keepRanges, cutFilter, keptLength, editDistance, checkSuggest, readyNext, fsReason };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AmhStudio = api;
 })(typeof window !== 'undefined' ? window : this);
