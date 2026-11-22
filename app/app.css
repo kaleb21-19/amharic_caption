@@ -147,6 +147,8 @@ html.amh-studio { --font-s: 12px; --font-m: 13.5px; --font-l: 15px; --control-h:
 .st-keys kbd { display: inline-block; min-width: 22px; padding: 2px 7px; border: 1px solid #34413b; border-bottom-width: 2px; border-radius: 6px; background: #1a2420;
   color: var(--text-primary); font: 600 12px/1.4 system-ui, sans-serif; text-align: center; }
 .st-how { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+/* 1.94.58: the sample project, under How it works */
+.st-sample { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
 .st-how-step { display: flex; flex-direction: column; gap: 6px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); }
 .st-how-step b { font-size: var(--font-l); }
 .st-how-step span { color: var(--text-secondary); font-size: var(--font-s); line-height: 1.5; }

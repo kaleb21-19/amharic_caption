@@ -367,7 +367,7 @@
     card.appendChild(head);
     if (typeof note === 'string' && note) card.appendChild(el('div', 'st-ok', note));
     const style = typeof STYLE !== 'undefined' ? STYLE : 'plain';
-    const sname = typeof STYLE_NAMES !== 'undefined' ? (typeof L === 'function' ? L(STYLE_NAMES[style] || style) : style) : style;
+    const sname = typeof styleLabel === 'function' ? styleLabel(style) : style;
     card.appendChild(el('div', 'st-sub', tx('ስታይል፦ ', 'Style: ') + sname));
     // one tip for all (1.45), not one per project
     if (list.some((p) => p.ours && !p.anim)) card.appendChild(el('div', 'st-sub st-cchint', '✨ ' + tx('ምክር፦ በCapCut ውስጥ ለአንድ ካፕሽን እንቅስቃሴ (Animation) ይስጡ — እዚህ ለሁሉም ይገለበጣል።',

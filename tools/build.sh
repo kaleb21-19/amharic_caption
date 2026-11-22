@@ -228,6 +228,8 @@ cp "$ROOT/app/amh_faces.py" "${BUILD_DIR}/${NAME}/app/amh_faces.py"
 cp -R "$ROOT/app/faces" "${BUILD_DIR}/${NAME}/app/faces"
 # the sound effects (1.65): our own, made by tools/make_sfx.py
 cp -R "$ROOT/app/sfx" "${BUILD_DIR}/${NAME}/app/sfx"
+# the sample project (1.94.58): Common Voice Amharic (CC0), made by tools/make_sample.py
+cp -R "$ROOT/app/sample" "${BUILD_DIR}/${NAME}/app/sample"
 if ! ls -d "$RT"/python/lib/python3.11/site-packages/webview >/dev/null 2>&1; then
   echo "  [FAIL] pywebview missing from the bundled python (tools/prepare_python.sh)"; exit 1
 fi

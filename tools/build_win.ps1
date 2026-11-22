@@ -215,6 +215,8 @@ Copy-Item (Join-Path $ROOT "app\amh_faces.py") (Join-Path $APPDST "amh_faces.py"
 Copy-Item -Recurse (Join-Path $ROOT "app\faces") (Join-Path $APPDST "faces")
 # the sound effects (1.65): our own, made by tools/make_sfx.py
 Copy-Item -Recurse (Join-Path $ROOT "app\sfx") (Join-Path $APPDST "sfx")
+# the sample project (1.94.58): Common Voice Amharic (CC0), made by tools/make_sample.py
+Copy-Item -Recurse (Join-Path $ROOT "app\sample") (Join-Path $APPDST "sample")
 if (-not (Test-Path (Join-Path $SITE "webview"))) { throw "pywebview missing from the bundled python (tools/prepare_python.sh)" }
 Write-Host "  [ok] desktop app"
 # The released JavaScript without comments/whitespace (names unchanged).

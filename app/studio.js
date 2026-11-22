@@ -145,7 +145,7 @@
     document.documentElement.classList.toggle('amh-capedit', ed && isStyled());
     capBack.textContent = '← ' + tx('ስታይሎች', 'Styles');
     capName.textContent = typeof STYLE_NAMES !== 'undefined' && typeof STYLE !== 'undefined'
-      ? (typeof L === 'function' ? L(STYLE_NAMES[STYLE] || STYLE) : STYLE) : '';
+      ? (typeof styleLabel === 'function' ? styleLabel(STYLE) : STYLE) : '';
     if (ed && !wasEditing) showACaption();
     wasEditing = ed;
   }
@@ -288,7 +288,7 @@
     const styled = typeof STYLE !== 'undefined' && STYLE !== 'plain' && STYLE_OK;
     const fmtName = editor ? editor.format() : '16:9';
     const v = card('🎬', tx('ቪዲዮ', 'Video'),
-      (styled ? tx('ካፕሽኑ በ ' + (STYLE_NAMES[STYLE] || STYLE) + ' ስታይል ተጽፎበት', 'With the captions in the ' + (STYLE_NAMES[STYLE] || STYLE) + ' style')
+      (styled ? tx('ካፕሽኑ በ ' + styleLabel(STYLE) + ' ስታይል ተጽፎበት', 'With the captions in the ' + styleLabel(STYLE) + ' style')
         : tx('ያለ ካፕሽን — ካፕሽን ለመጻፍ ስታይል ይምረጡ', 'Without captions — choose a style to draw them in')) + ' · ' + fmtName);
     if (!styled) v.c.appendChild(btn('st-link', '🎨 ' + tx('ስታይል ይምረጡ', 'Choose a style'), '', () => { closeSheet(); showTab('style'); setCapEdit(false); }));
     if (editor && editor.queueExports) videoChoices(v, styled, fmtName);
@@ -883,6 +883,25 @@
     return true;
   }
 
+  // ── the sample project (1.94.58, S3) ─────────────────────────────────────
+  // app/sample: 6 Common Voice Amharic sentences (CC0) over a drawn background,
+  // and their captions from the clips' own transcripts (tools/make_sample.py).
+  // The video is copied next to the user's projects (exports go next to it).
+  const sampleSrc = () => { const d = (window.__AMH_APP__ || {}).appdir; return d ? path.join(d, 'sample') : ''; };
+  const sampleHere = () => { try { const d = sampleSrc(); return !!d && fs.existsSync(path.join(d, 'amharic_sample.mp4')) && fs.existsSync(path.join(d, 'amharic_sample.json')); } catch (e) { return false; } };
+  async function openSample() {
+    const d = sampleSrc();
+    const info = JSON.parse(fs.readFileSync(path.join(d, 'amharic_sample.json'), 'utf8'));
+    const home = path.join(typeof USER_CAPTIONS_DIR !== 'undefined' ? USER_CAPTIONS_DIR : path.join(os.homedir(), 'Documents', 'AmharicCaptions'), 'Sample');
+    if (!fs.existsSync(home)) fs.mkdirSync(home, { recursive: true });
+    const video = path.join(home, tx('የአማርኛ ናሙና', 'Amharic sample') + '.mp4');
+    if (!fs.existsSync(video)) fs.copyFileSync(path.join(d, 'amharic_sample.mp4'), video);
+    const p = S.makeProject({ video, name: path.basename(video), duration: info.duration, cues: info.cues, edit: null,
+      style: typeof STYLE !== 'undefined' ? STYLE : 'plain', group: { n: 3, fmt: typeof FORMAT !== 'undefined' ? FORMAT : null } });
+    if (!(await openProject(p))) throw new Error(tx('ፕሮጀክቱ አልተከፈተም', 'the project did not open'));
+    saveProject(true);
+  }
+
   // ── home ───────────────────────────────────────────────────────────────
   const recent = el('div', 'card studio-recent');
   recent.id = 'studioRecent';
@@ -1083,6 +1102,18 @@
           how.appendChild(c);
         });
       recent.appendChild(how);
+      // 1.94.58 (S3): a first project without a video of their own - the
+      // sample's captions come with it (no minutes used, nothing to wait for)
+      if (sampleHere()) {
+        const row = el('div', 'st-sample');
+        const go = btn('st-btn primary', '▶ ' + tx('በናሙና ቪዲዮ ይሞክሩ', 'Try it with a sample video'), '', async () => {
+          go.disabled = true;
+          try { await openSample(); } catch (e) { failNote('ናሙናው አልተከፈተም', 'The sample did not open', e); go.disabled = false; }
+        });
+        row.appendChild(go);
+        row.appendChild(el('span', 'st-note', tx('20 ሰከንድ · ካፕሽኑ ዝግጁ ነው · ደቂቃ አይቆጥርም', '20 s · captions ready · uses no minutes')));
+        recent.appendChild(row);
+      }
       return;
     }
     const all = listAllProjects();
@@ -1232,7 +1263,7 @@
       if (ready || ++tries > 60) { clearInterval(t); const c = chosenVideo(); if (ready && c) window.__amhOnChosen(c); }
     }, 250);
   }
-  window.__amhStudio = { draw, drawSoon, saveProject, saveSoon, listProjects, openProject, renderRecent, openExport, closeSheet, showTab, regroup, goHome,
+  window.__amhStudio = { draw, drawSoon, saveProject, saveSoon, listProjects, openProject, renderRecent, openExport, closeSheet, showTab, regroup, goHome, openSample, sampleHere,
     addTab: (id, label, pane) => { addTab(id, label, pane); relabel(); showTab(tabNow); }, overlays, seek, dur, peaks,
     attachEditor: (e) => { editor = e; if (e.onQueue) e.onQueue(onQueue); }, relabel, savedEl, projDir, chosenVideo, tx, thumbFor, openKeys };
 })();
