@@ -133,6 +133,31 @@ t('1.94.51 Customize never squeezes the captions; toasts sit above every overlay
   assert.ok(!/amh-toast-in \{ from \{ opacity: 0/.test(css), 'a toast is never invisible while animations are paused');
 });
 
+t('1.94.52 motion: what opens comes in with the motion tokens (0 under reduce motion), never by a fade', () => {
+  const at = css.indexOf('1.94.52 motion');
+  assert.ok(at > 0);
+  const m = css.slice(at);
+  assert.match(m, /@keyframes amh-drop \{ from \{ transform: translateY\(-4px\); \}/);
+  assert.match(m, /#trialCard\.show \.tc-box, #buyQrCard\.show \.tc-box, #feedbackCard\.show \.tc-box, #review\.show \{\s*animation: amh-rise var\(--duration-normal\)/);
+  assert.match(m, /\.row-more\.open \.row-menu, \.foot-more\.open \.foot-menu, \.recent-box, \.memory-panel/);
+  assert.ok(!/@keyframes[^{]*\{[^}]*opacity: 0/.test(css), 'no fade-in anywhere');
+  assert.match(tokens, /prefers-reduced-motion: reduce\)[^}]*--duration-fast: 0ms; --duration-normal: 0ms;/);
+  assert.ok(!/animation:[^;]*\d+m?s\b/.test(css.replace(/1\.4s/g, '')), 'every animation on a duration token');
+});
+
+t('1.94.52 icons: the buttons, titles and notes of the panel show line icons, not colour emoji', () => {
+  const icons = fs.readFileSync(path.join(ROOT, 'panel', 'js', 'icons.js'), 'utf8');
+  const map = {};
+  icons.replace(/'([^'\w\s]{1,3})': '([a-z]+)'/g, (x, k, v) => { map[k] = v; });
+  for (const e of ['🔄', '🔎', '🔁', '➕', '📥', '💳', '🔒', '🎵', '👁', '👂', '⌛', '📺', '☁', '🔤']) {
+    assert.ok(map[e], e + ' is drawn');
+    assert.ok(new RegExp('\\n    ' + map[e] + ": '").test(icons), map[e] + ' has a drawing');
+  }
+  for (const w of ['#recentLink', '.bq-phone', '.tc-title', '#renewTitle', '#searchStatus', '.cli-note', '.clean-opt > span', '.row-hint .hint-pair']) {
+    assert.ok(icons.indexOf(w) > 0, 'icons are drawn in ' + w);
+  }
+});
+
 // WCAG 2.2: text 4.5:1, a control's edge 3:1 (1.4.11)
 const tok = {};
 tokens.replace(/(--color-[a-z-]+):\s*(#[0-9a-fA-F]{6})/g, (m, k, v) => { tok[k] = v; });

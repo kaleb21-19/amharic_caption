@@ -1154,6 +1154,21 @@
   html:not(.amh-studio) .style-strip > * { flex: 0 0 auto; }
   html:not(.amh-studio) .style-strip > .style-custom { flex: 0 1 auto; min-height: 120px; overflow-y: auto; }
   @media (max-height: 520px) { html:not(.amh-studio) #reviewList { min-height: 56px; } }
+
+  /* ═══ 1.94.52 motion (panel UI plan U6) ═══════════════════════════════════
+     What opens, comes in: a menu or a panel drops 4 px in (fast), a dialog or
+     the review rises in (normal) - the motion tokens, so "reduce motion" in
+     the system makes it all instant. Movement only, never a fade: a paused
+     animation (a hidden panel) must not leave anything invisible. Customize is
+     left still on purpose - it redraws its rows on every slider move. */
+  @keyframes amh-drop { from { transform: translateY(-4px); } to { transform: none; } }
+  @keyframes amh-rise { from { transform: translateY(8px) scale(.985); } to { transform: none; } }
+  .row-more.open .row-menu, .foot-more.open .foot-menu, .recent-box, .memory-panel, .disclosure.open + .disclosure-content {
+    animation: amh-drop var(--duration-fast) var(--ease-enter);
+  }
+  #trialCard.show .tc-box, #buyQrCard.show .tc-box, #feedbackCard.show .tc-box, #review.show {
+    animation: amh-rise var(--duration-normal) var(--ease-enter);
+  }
 </style>
 </head>
 <body>
@@ -1499,7 +1514,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.94.51</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.94.52</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
