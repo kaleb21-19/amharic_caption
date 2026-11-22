@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.57');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.58');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -2018,6 +2018,28 @@ await t('4f4. 1.94.42 live canvas: drawn while Customize is open, sliders redraw
     p.evalVm("globalThis.__killed = 0; LC.child = { kill() { __killed++; } }; closeReview(true);");
     assert.strictEqual(p.evalVm('__killed'), 1, 'the style process is stopped');
     assert.strictEqual(p.evalVm('LC.child'), null);
+  } finally { p.close(); }
+});
+
+await t('4f7. 1.94.58 the style names in Amharic: every look has one, the chips show it, English stays English', async () => {
+  const p = loadPanel({ realPanel: true });
+  try {
+    await flush(5);
+    const ids = p.evalVm('Object.keys(STYLE_NAMES).concat(Object.keys(TEMPLATE_NAMES))');
+    const missing = ids.filter((id) => !/[\u1200-\u137F]/.test(p.evalVm('STYLE_NAMES_AM[' + JSON.stringify(id) + '] || ""')));
+    assert.strictEqual(missing.length, 0, 'every look has an Amharic name: ' + JSON.stringify(missing.slice(0, 8)));
+    assert.ok(ids.length >= 60, String(ids.length));
+    p.evalVm("i18nSetLang('am')");
+    assert.strictEqual(p.evalVm("styleLabel('karaoke')"), 'ካራኦኬ');
+    assert.strictEqual(p.evalVm("styleLabel('goldbox')"), 'የወርቅ ሳጥን');
+    p.evalVm('LICENSED = true; STYLE_OK = true; STYLE = "bold"; reviewOpen = true; reviewCues = [{ text: "አንድ", start: 0, end: 1 }]; renderStyleStrip();');
+    const chipText = (id) => { const b = p.els('styleChips').children.find((c) => c.dataset.style === id && !c.dataset.my); return b && b.children.find((x) => x.tagName === 'SPAN' || x.tagName === 'span').textContent; };
+    assert.strictEqual(chipText('neon'), 'ኒዮን', 'the chip shows the Amharic name');
+    p.evalVm("i18nSetLang('en'); renderStyleStrip();");
+    assert.strictEqual(p.evalVm("styleLabel('goldbox')"), 'Gold Box', 'English: as before');
+    assert.strictEqual(chipText('neon'), 'Neon');
+    assert.strictEqual(p.evalVm("styleLabel('nosuch')"), 'nosuch');
+    p.evalVm("i18nSetLang('am')");
   } finally { p.close(); }
 });
 

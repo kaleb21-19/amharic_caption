@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.57';
+const APP_VERSION = '1.94.58';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -7482,6 +7482,27 @@ const STYLE_NAMES = {
   reveal: 'Reveal', typewriter: 'Typewriter', pop: 'Pop', word: 'Word', impact: 'Impact', neon: 'Neon',
   retro: 'Retro', habesha: 'Habesha', cinema: 'Cinema', clean: 'Clean',
 };
+// 1.94.58 (S3): the style names in Amharic (an Amharic panel showed only these
+// in English). Loanwords people already say stay as they are said (ካራኦኬ,
+// ኒዮን, ሪልስ); the rest say what the look is. By id, not through L(): short
+// names like 'Word' or 'Clean' are other UI words too. English is unchanged.
+const STYLE_NAMES_AM = {
+  plain: 'መደበኛ', glide: 'ተንሸራታች', spotlight: 'ስፖትላይት', bounce: 'ዝላይ', karaoke: 'ካራኦኬ', fill: 'ሙሌት', highlight: 'ማድመቂያ',
+  bold: 'ደማቅ', podcast: 'ፖድካስት', reveal: 'መገለጥ', typewriter: 'ታይፕራይተር', pop: 'ፖፕ', word: 'ቃል በቃል', impact: 'ኃይለኛ',
+  neon: 'ኒዮን', retro: 'ሬትሮ', habesha: 'ሐበሻ', cinema: 'ሲኒማ', clean: 'ንጹሕ',
+  modern: 'ዘመናዊ', boldpop: 'ደማቅ ፖፕ', creator: 'ፈጣሪ', comic: 'ኮሚክ', gradient: 'ቀለም ቅልቅል', neonglow: 'ኒዮን ብርሃን',
+  glass: 'የመስታወት ሳጥን', subtitle: 'ንዑስ ጽሑፍ', arch: 'ቅስት', editorial: 'የመጽሔት', chips: 'ቺፕስ', paperink: 'ወረቀት',
+  story: 'ስቶሪ', duo: 'ሁለት መስመር', reels: 'ሪልስ', reelsgold: 'ሪልስ ወርቅ', kinetic: 'ተንቀሳቃሽ', kineticpop: 'ተንቀሳቃሽ ፖፕ',
+  bouncy: 'ዝላይ ዝላይ', flicker: 'ብልጭታ', snap: 'ፈጣን', luxgold: 'የቅንጦት ወርቅ', goldbox: 'የወርቅ ሳጥን', royal: 'ንጉሣዊ',
+  goldword: 'የወርቅ ቃል', sweep: 'ማንሸራተት', limepunch: 'ሎሚ አረንጓዴ', hotpink: 'ደማቅ ሮዝ', ocean: 'ውቅያኖስ', fire: 'እሳት',
+  ice: 'በረዶ', retrowave: 'ሬትሮ ሞገድ', hacker: 'ሃከር', minimal: 'ቀለል ያለ', documentary: 'ዘጋቢ ፊልም', newsbar: 'የዜና ባር',
+  sticker: 'ስቲከር', candychips: 'ከረሜላ', goldchips: 'የወርቅ ቺፕስ', archgold: 'የወርቅ ቅስት', kineticice: 'ተንቀሳቃሽ በረዶ',
+  reelsblue: 'ሪልስ ሰማያዊ', duogold: 'ሁለት መስመር ወርቅ', brush: 'ብሩሽ', handwritten: 'የእጅ ጽሑፍ',
+};
+function styleLabel(id) {
+  const en = (typeof TEMPLATE_NAMES !== 'undefined' && TEMPLATE_NAMES[id]) || STYLE_NAMES[id] || id;
+  return (typeof AMH_LANG !== 'undefined' && AMH_LANG === 'am' && STYLE_NAMES_AM[id]) || en;
+}
 let STYLE = 'plain';
 let STYLE_OK = false;
 // Customize starts closed for every caption: it opens only when pressed.
@@ -7603,7 +7624,7 @@ function renderStyleStrip() {
   chips.dataset.sig = sig;
   chips.textContent = '';
   const builtIn = (id) => {
-    const b = styleChip(id, TEMPLATE_NAMES[id] || STYLE_NAMES[id], id, () => {
+    const b = styleChip(id, styleLabel(id), id, () => {
       STYLE = id;
       saveSettings(id === 'plain' ? { style: id, plainChosen: true } : { style: id });
       renderStyleStrip();
@@ -9432,7 +9453,7 @@ function renderRecent() {
     name.textContent = rec.label;
     const meta = document.createElement('span');
     meta.className = 'recent-meta';
-    meta.textContent = fmtWhen(rec.at) + ' · ' + (STYLE_NAMES[rec.style] || 'Plain') + ' · ' + rec.cues.length;
+    meta.textContent = fmtWhen(rec.at) + ' · ' + styleLabel(rec.style || 'plain') + ' · ' + rec.cues.length;
     open.appendChild(name);
     open.appendChild(meta);
     open.addEventListener('click', () => { reopenHistory(rec); });
