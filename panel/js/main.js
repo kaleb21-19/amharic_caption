@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.61';
+const APP_VERSION = '1.94.62';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -7748,8 +7748,16 @@ function syncStyleMore(chips) {
     more.addEventListener('click', () => { STYLE_MORE = !STYLE_MORE; syncStyleMore($('styleChips')); });
   }
 }
+// 1.94.62 (E2): the engine's own time of every word goes along (c.wt, one
+// [start, end] per word) - the styles' word highlight follows the voice; the
+// renderer shares the caption's time by letters only when they do not match
+// the words (the text was edited)
 function styleCues(cues) {
-  return (cues || []).filter((c) => (c.text || '').trim()).map((c) => [String(c.text).replace(/~/g, '').replace(/\s+/g, ' ').trim(), c.start, c.end]);
+  return (cues || []).filter((c) => (c.text || '').trim()).map((c) => {
+    const row = [String(c.text).replace(/~/g, '').replace(/\s+/g, ' ').trim(), c.start, c.end];
+    if (Array.isArray(c.wt) && c.wt.length) row.push(c.wt);
+    return row;
+  });
 }
 // Runs runtime/amh_styles.py render: "[style] 0.42" progress lines, then one
 // JSON line {ok, out, t0, duration}.

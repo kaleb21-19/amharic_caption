@@ -541,7 +541,10 @@ def _word_times(text, cs, ce, words):
     """The exact times of the words of one cue: the words that start inside
     it, but only when they are exactly the cue's words (one per word of the
     text) - otherwise nothing, and the panel estimates."""
-    wt = [[round(ws, 3), round(we, 3)] for _t, ws, we in words if cs - 1e-6 <= ws < ce + 1e-6]
+    # 1.94.62: a word belongs to the cue that holds its MIDDLE - the next cue's
+    # first word starts at (a hair before) this cue's end and was counted here
+    # too, so the count never matched and 59% of words had no time
+    wt = [[round(ws, 3), round(we, 3)] for _t, ws, we in words if cs - 1e-6 <= (ws + we) / 2.0 < ce + 1e-6]
     return wt if len(wt) == len(str(text).split()) else []
 
 

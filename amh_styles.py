@@ -313,14 +313,54 @@ def _clean(text):
     return str(text).replace("\\", "").replace("{", "(").replace("}", ")").replace("\n", " ").strip()
 
 
+# 1.94.62 (E2): the end time of every caption's last word (rounded) - a
+# phrase never runs from one caption into the next. Set by words_from_cues;
+# _CUE_SIG says which word list it belongs to (build() uses it only then).
+_CUE_ENDS = frozenset()
+_CUE_SIG = None
+
+
+def _words_sig(words):
+    return (len(words), round(float(words[0][1]), 3), round(float(words[-1][2]), 3)) if words else None
+
+
+def _real_times(c, raw, s, e):
+    """The engine's word times of cue c (its 4th item: [[start, end], ...], one
+    per word of the text) on the caption's own words, punctuation-only tokens
+    joined to the word before; None when they do not fit (edited text)."""
+    wt = c[3] if len(c) > 3 else None
+    if not isinstance(wt, (list, tuple)) or len(wt) != len(raw):
+        return None
+    try:
+        tt = [(float(a), float(b)) for a, b in wt]
+    except (TypeError, ValueError):
+        return None
+    out, prev = [], s
+    for i, p in enumerate(raw):
+        a, b = max(s, min(e, tt[i][0])), max(s, min(e, tt[i][1]))
+        if _PUNCT_ONLY.match(p) and out:
+            out[-1][1] = max(out[-1][1], b)
+            continue
+        if a < prev - 0.05 or b < a or tt[i][0] > e + 0.3 or tt[i][1] < s - 0.3:
+            return None
+        out.append([max(a, prev), max(b, a, prev)])
+        prev = out[-1][1]
+    return out
+
+
 def words_from_cues(cues):
     """[(text, start, end)] per word. A cue with several words (grouped
-    captions, or text edited in the review) shares its time by letters."""
+    captions, or text edited in the review) shares its time by letters -
+    1.94.62: unless the cue carries the engine's own word times (4th item)."""
+    global _CUE_ENDS, _CUE_SIG
     out = []
+    ends = set()
     for c in cues:
         text, s, e = c[0], float(c[1]), float(c[2])
+        raw = _clean(text).split()
+        real = _real_times(c, raw, s, e) if e > s else None
         parts = []
-        for p in _clean(text).split():
+        for p in raw:
             # a mark typed as its own word ("ነው ።") belongs to the word before
             # it - also the last word of the caption before
             if _PUNCT_ONLY.match(p) and (parts or out):
@@ -332,13 +372,25 @@ def words_from_cues(cues):
                 parts.append(p)
         if not parts or e <= s:
             continue
-        total = sum(len(p) for p in parts)
-        t = s
-        for i, p in enumerate(parts):
-            end = e if i == len(parts) - 1 else t + (e - s) * len(p) / total
-            out.append((p, t, end))
-            t = end
+        if real is not None and len(real) == len(parts):
+            for i, p in enumerate(parts):
+                # a word is shown until the next one starts (the last: to the caption's end)
+                end = real[i + 1][0] if i + 1 < len(parts) else e
+                out.append((p, real[i][0], max(real[i][0] + 0.04, end)))
+        else:
+            total = sum(len(p) for p in parts)
+            t = s
+            for i, p in enumerate(parts):
+                end = e if i == len(parts) - 1 else t + (e - s) * len(p) / total
+                out.append((p, t, end))
+                t = end
+        ends.add(round(out[-1][2], 3))
+    _CUE_ENDS = frozenset(ends)
+    _CUE_SIG = _words_sig(out)
     return out
+
+
+_SENT_END = re.compile("[\u1362\u1367?!]$")
 
 
 def _phrases(words, size, o=None):
@@ -346,6 +398,9 @@ def _phrases(words, size, o=None):
     lines (o["lines"] == 2, 1.50) hold about twice the words."""
     if o and o.get("lines") == 2 and size >= 2:
         size = min(10, size * 2)
+    ends = (o or {}).get("_ends") or frozenset()
+    if ends and size >= 2:
+        return _phrases_by_caption(words, size, ends)
     out, cur = [], []
     for w in words:
         # 1.94.45: a full group still takes the next word (up to 3 more) when the
@@ -356,6 +411,74 @@ def _phrases(words, size, o=None):
             out.append(cur)
             cur = []
         cur.append(w)
+    if cur:
+        out.append(cur)
+    return out
+
+
+def _even_chunks(g, size):
+    """A caption longer than a phrase, in parts as even as possible (4 words,
+    size 3 -> 2 + 2, never 3 + a lone word), never cut inside a date / time /
+    amount (1.94.45: 500 | ሺህ ብር)."""
+    out, rem = [], list(g)
+    while len(rem) > size:
+        k = -(-len(rem) // size)
+        target = len(rem) / float(k)
+        best = None
+        for i in range(1, size + 1):
+            if len(rem) - i < 1:
+                break
+            cost = (100 if _keep_together(rem[i - 1][0], rem[i][0]) else 0) + abs(i - target)
+            if best is None or cost < best[0]:
+                best = (cost, i)
+        i = best[1]
+        out.append(rem[:i])
+        rem = rem[i:]
+    if rem:
+        out.append(rem)
+    return out
+
+
+def _phrases_by_caption(words, size, ends):
+    """1.94.62 (E2): phrases made of the editor's captions. Whole captions go
+    together while they fit (a look that shows 5 words still shows them); a
+    longer caption is cut in even parts; a phrase never starts inside a caption
+    or runs past a sentence mark (። ? !) or a long pause. Before, a phrase was
+    the next N words: 'እንነጋገራለን በ2018' - one caption's last word with the
+    next one's first - was on screen before '2018' was said."""
+    caps, cur = [], []
+    for w in words:
+        cur.append(w)
+        if round(float(w[2]), 3) in ends:
+            caps.append(cur)
+            cur = []
+    if cur:
+        caps.append(cur)
+    out, ph = [], []
+    for g in caps:
+        if ph and (g[0][1] - ph[-1][2] > GAP_HOLD or _SENT_END.search(ph[-1][0]) or len(ph) + len(g) > size):
+            out.append(ph)
+            ph = []
+        if len(g) > size:
+            parts = []
+            for piece in _split_sentences(g):
+                parts.extend(_even_chunks(piece, size) if len(piece) > size else [piece])
+            out.extend(parts[:-1])
+            ph = list(parts[-1])
+        else:
+            ph.extend(g)
+    if ph:
+        out.append(ph)
+    return out
+
+
+def _split_sentences(g):
+    out, cur = [], []
+    for w in g:
+        cur.append(w)
+        if _SENT_END.search(w[0]):
+            out.append(cur)
+            cur = []
     if cur:
         out.append(cur)
     return out
@@ -643,6 +766,7 @@ def build(words, style, width, height, font=FONT, opts=None):
         font = FONTS[o["font"]]
     K = o["k"] * float((_face(font) or {}).get("scale", 1.0))   # every font looks the same size (1.28.0)
     NW = o["words"]
+    o["_ends"] = _CUE_ENDS if _CUE_SIG is not None and _CUE_SIG == _words_sig(words) else frozenset()
     words = _mark_emphasis([(_clean(w[0]), float(w[1]), float(w[2])) for w in words if _clean(w[0])], o["emph"])
     h = float(height)
     portrait = height > width
@@ -888,6 +1012,7 @@ def _build_template(words, style, width, height, font=FONT, opts=None):
         look = dict(look)
         look["font"] = raw_font
     o = options(opts)
+    o["_ends"] = _CUE_ENDS if _CUE_SIG is not None and _CUE_SIG == _words_sig(words) else frozenset()   # 1.94.62
     look = _look_overrides(look, o)               # 1.94.40 Outline & shadow, Box
     ws = _mark_emphasis([(_clean(w[0]), float(w[1]), float(w[2])) for w in words if _clean(w[0])], o["emph"])
     lines, st = _tpl_script(ws, look, width, height, o)
@@ -940,7 +1065,11 @@ def _two_lines(line):
     v = "".join(vis)
     ok = [p for p in spaces
           if not _keep_together((v[:p[0]].split() or [""])[-1], (v[p[0] + 1:].split() or [""])[0])]
-    k = min(ok or spaces, key=lambda p: abs(n - 1 - 2 * p[0]))[1]
+    if not ok:
+        # 1.94.62: the whole phrase is one date / amount (a caption 'ሰኔ 30 ቀን' is
+        # now its own phrase): one line, never broken inside it
+        return line
+    k = min(ok, key=lambda p: abs(n - 1 - 2 * p[0]))[1]
     return head + sep + text[:k] + "\\N" + text[k + 1:]
 
 IN = "\x02"                    # marks the line where a phrase appears

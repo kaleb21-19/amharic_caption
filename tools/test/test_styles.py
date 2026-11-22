@@ -513,5 +513,39 @@ for _st in sorted(A.STYLES):
 _b = A.build(_w, "bounce", 1080, 1920, opts={"lines": 2, "words": 3})
 check(len(set(re.findall(r"\\pos\(\d+,(\d+)\)", _b))) >= 2, "glide / spotlight / bounce place the words on two rows")
 
+# ── 1.94.62 (E2) the voice-locked word highlight and phrases of the captions ──
+_c = [["ሰላም ውድ ተከታዮቻችን", 0.2, 1.6, [[0.2, 0.5], [0.6, 0.9], [1.0, 1.5]]]]
+_w = A.words_from_cues(_c)
+check([round(x[1], 2) for x in _w] == [0.2, 0.6, 1.0], "the engine's word times are used (was: shared by letters) %s" % ascii([x[1] for x in _w]))
+check([round(x[2], 2) for x in _w] == [0.6, 1.0, 1.6], "a word shows until the next starts, the last to the caption's end")
+_e = A.words_from_cues([["ሰላም ውድ ተከታዮቻችን ሁሉ", 0.2, 1.6, [[0.2, 0.5], [0.6, 0.9], [1.0, 1.5]]]])
+_lens = [len(x[0]) for x in _e]
+check(len(_e) == 4 and abs(_e[1][1] - (0.2 + 1.4 * _lens[0] / sum(_lens))) < 0.01, "edited text (4 words, 3 times): shared by letters as before")
+_p = A.words_from_cues([["ሰላም ።", 0.0, 1.0, [[0.0, 0.6], [0.6, 0.7]]]])
+check(len(_p) == 1 and _p[0][0] == "ሰላም።", "a mark typed as its own word joins the word before, times too")
+_bad = A.words_from_cues([["ሰላም ውድ", 0.0, 1.0, [[0.5, 0.6], [0.1, 0.2]]]])
+check(abs(_bad[1][1] - 0.5) < 0.01 or abs(_bad[1][1] - (1.0 * 3 / 5)) < 0.01, "times going backwards are not trusted")
+check(A.words_from_cues([["ሰላም", 0.0, 1.0]])[0][1:] == (0.0, 1.0), "a 3-item cue (no times) as before")
+
+_cap = [["ሰላም ውድ ተከታዮቻችን", 0.2, 1.6], ["ዛሬ ስለ ቢዝነስ እንነጋገራለን", 1.6, 3.4], ["በ2018 ዓ.ም. 500 ሺህ ብር", 3.4, 5.2], ["ትርፍ አግኝተናል።", 5.2, 6.4]]
+_ww = A.words_from_cues(_cap)
+_o = A.options({}); _o["_ends"] = A._CUE_ENDS
+_ph = [" ".join(x[0] for x in g) for g in A._phrases(_ww, 3, _o)]
+check(_ph == ["ሰላም ውድ ተከታዮቻችን", "ዛሬ ስለ", "ቢዝነስ እንነጋገራለን", "በ2018 ዓ.ም.", "500 ሺህ ብር", "ትርፍ አግኝተናል።"],
+      "phrases never run from one caption into the next; a long caption in even parts; an amount stays whole: %s" % ascii(_ph))
+_o2 = A.options({}); _o2["_ends"] = frozenset()
+check([" ".join(x[0] for x in g) for g in A._phrases(_ww, 3, _o2)][2] == "እንነጋገራለን በ2018 ዓ.ም.", "without caption ends: the old way (the mixed phrase)")
+_one = A.words_from_cues([[w, i * 0.4, i * 0.4 + 0.4] for i, w in enumerate(["የዚህ", "ቪዲዮ", "ትርጉም", "በጣም", "ጥሩ"])])
+_o3 = A.options({}); _o3["_ends"] = A._CUE_ENDS
+check(len(A._phrases(_one, 5, _o3)) == 1, "whole short captions still go together (a look that shows 5 words keeps them)")
+_s = A.words_from_cues([["አንድ። ሁለት ሶስት አራት አምስት", 0.0, 2.0]])
+_o4 = A.options({}); _o4["_ends"] = A._CUE_ENDS
+check([" ".join(x[0] for x in g) for g in A._phrases(_s, 3, _o4)][0] == "አንድ።", "a sentence mark inside a caption ends the phrase")
+# build() uses the caption ends only for the words they were made for
+_ass = A.build(A.words_from_cues(_cap), "bold", 1080, 1920)      # (the caption ends belong to the last words_from_cues)
+check("እንነጋገራለን በ2018" not in re.sub(r"\{[^}]*\}", "", _ass), "a rendered look shows no phrase mixing two captions")
+_stale = A.build([("ሀ", 0.0, 0.3), ("ለ", 0.3, 0.6), ("ሐ", 0.6, 0.9), ("መ", 0.9, 1.2)], "bold", 1080, 1920)
+check("ሀ" in _stale, "words given straight to build() (no captions behind them) still render")
+
 print("\nALL PASS" if not fails else "\nFAILURES: %d" % fails)
 sys.exit(1 if fails else 0)

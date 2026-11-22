@@ -75,7 +75,19 @@ def t_write():
     assert not os.path.exists(srt + ".words.json")
 
 
+def t_boundary():
+    # 1.94.62: the next caption's first word starts AT (or a hair before) this
+    # caption's end - it belongs to the next one (it made every count wrong:
+    # 59% of the words on the fixtures had no time)
+    words = [("በአዲስ", 0.08, 0.56), ("አበባ", 0.56, 1.16), ("የሚገኘው", 1.16, 1.88), ("የፊትዮፕ", 1.8799, 3.04)]
+    cues = [("በአዲስ አበባ የሚገኘው", 0.08, 1.88), ("የፊትዮፕ", 1.88, 3.04)]
+    out = es._attach_doubts(cues, words, [])
+    assert [len(c.wt) for c in out] == [3, 1], [c.wt for c in out]
+    assert out[1].wt == [[1.88, 3.04]], out[1].wt
+
+
 test("every caption carries the exact times of its own words", t_attach)
+test("1.94.62 a word that starts at a caption's end belongs to the next caption", t_boundary)
 test("a caption that does not match its words one to one gets none", t_mismatch)
 test("readable-length captions keep the real word times; batch shifts move them", t_min_duration_and_shift)
 test("the resume journal keeps them (and reads an old journal)", t_journal)

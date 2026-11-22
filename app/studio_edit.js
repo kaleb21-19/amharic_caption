@@ -5057,7 +5057,11 @@
     if (job.part) {
       const { a, b } = job.part;
       job = Object.assign({}, job, { state: Object.assign({}, job.state, E.rangeState(job.state, a, b)), part: null });
-      if (job.caps) job.caps = Object.assign({}, job.caps, { cues: job.caps.cues.filter((q) => q[2] > a && q[1] < b).map((q) => [q[0], Math.max(0, q[1] - a), Math.min(b, q[2]) - a]) });
+      if (job.caps) job.caps = Object.assign({}, job.caps, { cues: job.caps.cues.filter((q) => q[2] > a && q[1] < b).map((q) => {
+        const r = [q[0], Math.max(0, q[1] - a), Math.min(b, q[2]) - a];
+        if (Array.isArray(q[3])) r.push(q[3].map((w) => [w[0] - a, w[1] - a]));     // 1.94.62: the word times move too
+        return r;
+      }) });
     }
     const FPS = [24, 25, 30, 50, 60].indexOf(Number(job.fps)) >= 0 ? Number(job.fps) : 30;
     const lost = missingFiles(job.state);
