@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.49';
+const APP_VERSION = '1.94.50';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3071,6 +3071,17 @@ function updateLicenseUI() {
       }
       if (runBtn) runBtn.disabled = true;
     }
+  }
+  // 1.94.50: one main action at a time - Buy is primary only while Generate cannot run
+  const buyB = document.getElementById('buyBtn');
+  // (not UI_BUSY: it is declared further down and this runs at startup; a
+  // running job shows Cancel and disables Generate - Buy then stays as it is)
+  const cancelEl = document.getElementById('cancelBtn');      // ($ is declared further down too)
+  const cancelShown = !!(cancelEl && cancelEl.style.display && cancelEl.style.display !== 'none');
+  if (buyB && !cancelShown) {
+    const blocked = !LICENSED && !!(runBtn && runBtn.disabled);
+    buyB.classList.toggle('btn-primary', blocked);
+    buyB.classList.toggle('btn-neutral', !blocked);
   }
   const footPrice = document.getElementById('footPrice');
   if (footPrice) footPrice.style.display = LICENSED ? 'none' : '';

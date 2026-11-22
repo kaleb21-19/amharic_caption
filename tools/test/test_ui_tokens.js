@@ -109,6 +109,22 @@ t('1.94.49 control edges use the 3:1 border; Ethiopic in the shipped Noto face; 
   assert.match(css, /#cancelBtn \{[^}]*background: var\(--color-danger-solid\)/);
 });
 
+t('1.94.50 one component layer; notices are a component, not copied inline styles', () => {
+  const at = css.indexOf('1.94.50 component layer');
+  assert.ok(at > 0, 'the component layer');
+  const layer = css.slice(at);
+  for (const c of ['Button · primary', 'Button · secondary', 'Button · ghost', 'Button · add', 'Button · danger', 'Menu item', 'Chip', 'Segmented', 'IconButton', 'Disclosure', 'Notice']) {
+    assert.ok(layer.indexOf(c) >= 0, c);
+  }
+  for (const id of ['zipWarn', 'renewBox', 'trialBanner', 'machineUnsaved', 'machineMismatch']) {
+    const m = new RegExp('<div id="' + id + '"[^>]*>').exec(markup);
+    assert.ok(m, id);
+    assert.match(m[0], /class="notice notice-(warn|danger)/, id + ' is a notice');
+    assert.match(m[0], /style="display:none;"/, id + ': no copied inline look');
+  }
+  assert.ok(!/border:1px solid var\(--(warn|err)\);border-radius/.test(markup), 'no inline banner look left');
+});
+
 // WCAG 2.2: text 4.5:1, a control's edge 3:1 (1.4.11)
 const tok = {};
 tokens.replace(/(--color-[a-z-]+):\s*(#[0-9a-fA-F]{6})/g, (m, k, v) => { tok[k] = v; });
