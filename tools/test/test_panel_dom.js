@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.66');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.67');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1986,10 +1986,8 @@ await t('4f4. 1.94.42 live canvas: drawn while Customize is open, sliders redraw
     assert.ok(p.evalVm("!!LC.frame && LC.frame.tagName === 'IFRAME' && /^http:\\/\\/127\\.0\\.0\\.1:\\d+\\/c\\/live\\.html$/.test(LC.frame.src)"), 'the renderer page');
     assert.ok(p.evalVm('typeof __renders[0][2] === "number"'), 'drawn at a moment of the caption');
     // 1.94.65 (owner: 'it shows one word - let us see the movement'): the caption then plays in a loop
-    const play = JSON.parse(p.evalVm("JSON.stringify(__posts.filter((m) => m.type === 'play').pop() || null)"));
-    assert.ok(play, 'the motion plays after a drawing');
-    // 1.94.66 (owner: 'it blinks'): only the caption itself, its finished look held - no empty gap
-    assert.deepStrictEqual([play.cs, play.ce, play.hold, play.from, play.to], [1, 3, 0.9, undefined, undefined], 'the caption itself, then a hold');
+    // 1.94.67: it blinked in Premiere (1.94.65 and .66) - the still again, no loop
+    assert.strictEqual(p.evalVm("__posts.filter((m) => m.type === 'play').length"), 0, 'no moving loop: the still');
     { const page = p.evalVm('LC_PAGE');
       assert.ok(!/visibility/.test(page), 'the canvas is never hidden (that blinked)');
       assert.ok(/play\.ce - 0\.02/.test(page) && /opacity/.test(page), 'the hold draws the finished caption; a short fade between rounds'); }

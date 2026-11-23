@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.66';
+const APP_VERSION = '1.94.67';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -8346,6 +8346,8 @@ async function lcRender(script, fonts, fr, time) {
   });
 }
 // draw now; while one draw runs the newest request waits (never a queue of old ones)
+// 1.94.67: the moving preview is off (it blinked in Premiere)
+const LIVE_MOTION = false;
 async function lcDraw(override) {
   if (!lcShown()) return false;
   LC.want = Object.assign({}, override || {});
@@ -8367,11 +8369,11 @@ async function lcDraw(override) {
       await lcEnsureCanvas(stage, fr);
       lcFrame(cue);
       await lcRender(r.script, r.fonts, fr, lcTime(cue));
-      // 1.94.65 (owner: 'it shows one word of the caption, hard to customize -
-      // let us see the movement and how it passes'): the caption plays in a
-      // loop; 1.94.66: only the caption itself, its finished look held 0.9 s
-      // (no empty gap - that blinked)
-      if (!LC.want) lcPost({ type: 'play', cs: Number(cue.start), ce: Number(cue.end), hold: 0.9, width: fr.width, height: fr.height });
+      // 1.94.65/66 played the caption in a loop here; in Premiere it blinked
+      // (both versions, owner 2026-11-23) - 1.94.67: the still again (the
+      // look settled), until the motion can be watched inside Premiere.
+      // The page still knows 'play'; nothing sends it.
+      if (LIVE_MOTION && !LC.want) lcPost({ type: 'play', cs: Number(cue.start), ce: Number(cue.end), hold: 0.9, width: fr.width, height: fr.height });
       LC.lastMs = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0);
       LC.draws++;
       stage.style.display = '';
