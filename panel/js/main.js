@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.66';
+const APP_VERSION = '1.94.67';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -8263,6 +8263,20 @@ function lcCue() {
   if (!list.length) return null;
   return list[Math.max(0, Math.min(list.length - 1, LC.i || 0))];
 }
+// 1.94.67: what the moving preview plays - the caption and the ones right after
+// it, up to 3.5 s (at most 12). Watched inside Premiere (remote debugging,
+// owner's project): the captions were ONE WORD each, 0.05-0.15 s long; a loop
+// of one 0.05 s word was a blink every second (1.94.65 and .66). Now the words
+// follow each other like in the video.
+function lcWindow(cue) {
+  const list = reviewCues || [];
+  let k = list.indexOf(cue);
+  if (k < 0) return [cue];
+  const win = [cue];
+  const s0 = Number(cue.start);
+  while (++k < list.length && win.length < 12 && Number(list[k].end) - s0 <= 3.5) win.push(list[k]);
+  return win;
+}
 function lcTime(cue) { return Number(cue.start) + 0.7 * Math.max(0, Number(cue.end) - Number(cue.start)); }   // the look settled, not mid-entrance
 // a still of the editor's footage behind the caption (one ffmpeg grab per caption, kept)
 function lcFrame(cue) {
@@ -8360,18 +8374,20 @@ async function lcDraw(override) {
       if (!cue || !stage) break;
       const fr = previewFrame();
       const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
-      const r = await lcAsk({ cues: styleCues([cue]), style: STYLE, opts: Object.assign(styleOpts(STYLE), ov), width: fr.width, height: fr.height,
-        duration: Number(cue.end) + 1, tag: !LICENSED });
+      const win = lcWindow(cue);
+      const last = win[win.length - 1];
+      const r = await lcAsk({ cues: styleCues(win), style: STYLE, opts: Object.assign(styleOpts(STYLE), ov), width: fr.width, height: fr.height,
+        duration: Number(last.end) + 1, tag: !LICENSED });
       if (!r || !r.ok) throw new Error((r && r.error) || 'no script');
       if (!lcShown()) break;
       await lcEnsureCanvas(stage, fr);
       lcFrame(cue);
       await lcRender(r.script, r.fonts, fr, lcTime(cue));
       // 1.94.65 (owner: 'it shows one word of the caption, hard to customize -
-      // let us see the movement and how it passes'): the caption plays in a
-      // loop; 1.94.66: only the caption itself, its finished look held 0.9 s
-      // (no empty gap - that blinked)
-      if (!LC.want) lcPost({ type: 'play', cs: Number(cue.start), ce: Number(cue.end), hold: 0.9, width: fr.width, height: fr.height });
+      // let us see the movement and how it passes'): the captions play in a
+      // loop; 1.94.66: no empty gap; 1.94.67: this caption and the next ones
+      // (lcWindow), the last one held 0.6 s
+      if (!LC.want) lcPost({ type: 'play', cs: Number(cue.start), ce: Number(last.end), hold: 0.6, width: fr.width, height: fr.height });
       LC.lastMs = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0);
       LC.draws++;
       stage.style.display = '';
