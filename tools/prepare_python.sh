@@ -67,6 +67,11 @@ case "$OS" in
         # keeps libx264 + libass, which the burn-in filter chain needs. The
         # previous Darwin-wide evermeet URL served an x86_64 binary here.
         FFURL_BASE="${AMH_FFURL_MAC_ARM64:-https://www.osxexperts.net/ffmpeg711arm.zip}"
+        # 1.94.68: osxexperts.net was down (2026-11-27: site 503, file 404) and
+        # the release could not be built. The Internet Archive's copy of the
+        # same file is the second source; the pinned SHA-256 below still has
+        # to match, so only these exact bytes are ever accepted.
+        FFURL_MIRROR="${AMH_FFMIRROR_MAC_ARM64:-https://web.archive.org/web/20250719013055id_/https://www.osxexperts.net/ffmpeg711arm.zip}"
         FF_SHA256="${AMH_FFSHA_MAC_ARM64:-59e39a5cec2e5d2307ed079c53227a9181e64b87454ed4de998349e044bfdc70}"
         PY_SHA256_DEFAULT="a84adc050a29e0c7387c885ff13e6ac4b0027f9e841359e200d647313dbb5b03"
         FF_EXPECT_ARCH="arm64";;
@@ -217,7 +222,12 @@ if [[ ! -f "$FF" ]]; then
   fi
   echo "  [step] fetching static ffmpeg for $TARGET"
   TMP="$(mktemp -d)"
-  curl -fL --retry 3 --retry-all-errors --retry-delay 4 --connect-timeout 30 --speed-time 120 --speed-limit 1024 "$FFURL_BASE" -o "$TMP/ff.zip"
+  if ! curl -fL --retry 3 --retry-all-errors --retry-delay 4 --connect-timeout 30 --speed-time 120 --speed-limit 1024 "$FFURL_BASE" -o "$TMP/ff.zip"; then
+    if [[ -z "${FFURL_MIRROR:-}" ]]; then echo "  [FAIL] ffmpeg download failed: $FFURL_BASE" >&2; rm -rf "$TMP"; exit 1; fi
+    echo "  [warn] $FFURL_BASE failed - trying the mirror (same pinned SHA-256)"
+    rm -f "$TMP/ff.zip"
+    curl -fL --retry 3 --retry-all-errors --retry-delay 6 --connect-timeout 30 --speed-time 120 --speed-limit 1024 "$FFURL_MIRROR" -o "$TMP/ff.zip"
+  fi
   unzip -tq "$TMP/ff.zip" >/dev/null   # CRC-check the archive before use
 
   # Authenticity, not just integrity. The CRC above only proves the download
