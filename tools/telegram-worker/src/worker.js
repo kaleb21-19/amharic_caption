@@ -2539,11 +2539,13 @@ async function handleMessage(msg, env) {
     }
     // Fill a new public jobs channel once with the recent real jobs.
     if (/^\/postjobs(?:\s+force)?$/i.test(text)) { await backfillJobsChannel(chatId, /force/i.test(text)); return; }
-    // Free license (partner, tester, reviewer): /givekey MACHINE-ID [name]
-    const gk = text.match(/^\/givekey\s+([0-9a-fA-F]{8}|[0-9a-fA-F]{16})(?:\s+(.{1,60}))?$/);
-    if (gk) { await giveKey(chatId, uid, gk[1], gk[2]); return; }
+    // Free license (partner, tester, reviewer): /givekey MACHINE-ID [name] (1 year);
+    // /givekey-forever MACHINE-ID [name] (no end, for testers)
+    const gk = text.match(/^\/givekey(-forever)?\s+([0-9a-fA-F]{8}|[0-9a-fA-F]{16})(?:\s+(.{1,60}))?$/);
+    if (gk) { await giveKey(chatId, uid, gk[2], gk[3], !!gk[1]); return; }
     if (/^\/givekey\b/i.test(text)) {
-      await sendText(chatId, 'ℹ️ <code>/givekey MACHINE-ID name</code> — e.g. <code>/givekey 1a2b3c4d5e6f7a8b Panda</code>');
+      await sendText(chatId, 'ℹ️ <code>/givekey MACHINE-ID name</code> — a free key for 1 year, e.g. <code>/givekey 1a2b3c4d5e6f7a8b Panda</code>\n' +
+        '<code>/givekey-forever MACHINE-ID name</code> — a key with no end (testers)');
       return;
     }
     // What happens in the program before people buy (opened, errors, …)
@@ -4781,7 +4783,7 @@ async function adminFind(chatId, mid) {
     await sendText(chatId,
       `🔍 Nothing found for <code>${mid}</code>.\n\n` +
       'They may have typed it wrong, or never opened the panel on this machine.',
-      [[{ text: '🎁 Give a free key to this computer', callback_data: `admin:gift:${mid}` }],
+      [[{ text: '🎁 Give a free key (1 year) to this computer', callback_data: `admin:gift:${mid}` }],
        [{ text: '🛠 Admin', callback_data: 'admin:panel' }]]);
     return;
   }
@@ -4815,7 +4817,7 @@ async function adminFind(chatId, mid) {
   } else if (c) {
     kb.push([{ text: c.revoked ? '♻ Restore key' : '🚫 Revoke key', callback_data: `admin:${c.revoked ? 'unrevoke' : 'revoke'}-mid:${mid}` }]);
   }
-  if (!c) kb.push([{ text: '🎁 Give a free key to this computer', callback_data: `admin:gift:${mid}` }]);
+  if (!c) kb.push([{ text: '🎁 Give a free key (1 year) to this computer', callback_data: `admin:gift:${mid}` }]);
   kb.push([{ text: '🛠 Admin', callback_data: 'admin:panel' }]);
   await sendText(chatId, lines.join('\n'), kb);
 }
@@ -4947,32 +4949,39 @@ async function moveLicense(chatId, adminUid, oldMid, newMid) {
 
 // A free license (partner, tester, reviewer, a friend helping with videos).
 // Status 'gift': never counted as a sale or as revenue; revocable like any key.
-async function giveKey(chatId, adminUid, mid, name) {
+// Yearly (2026-11-27, owner: creators get a free year for a video): a gift is
+// 1 year like the plan sold; /givekey-forever keeps the old forever key for
+// testers. An ended gift can be given again (the next year).
+async function giveKey(chatId, adminUid, mid, name, forever = false) {
   mid = String(mid || '').trim().toLowerCase();
   if (!isValidMid(mid)) {
     await sendText(chatId, '⚠️ A Machine ID is 8 or 16 letters/numbers — they copy it from the bottom of the panel.');
     return false;
   }
   if (!(await requireUnlock(adminUid, chatId, null, 'Give a free key'))) return false;
-  const have = await DB.prepare('SELECT key, revoked, status FROM customers WHERE machine_id=?').bind(mid).first();
-  if (have && !have.revoked) {
-    await sendText(chatId, `ℹ️ <code>${mid}</code> already has a license (${esc(have.status)}):\n<code>${esc(have.key)}</code>`);
+  const have = await DB.prepare('SELECT key, revoked, status, expiry FROM customers WHERE machine_id=?').bind(mid).first();
+  const ended = have && isTimedLicense(have) && String(have.expiry) <= ymd(todayEatDate());
+  if (have && !have.revoked && !ended) {
+    await sendText(chatId, `ℹ️ <code>${mid}</code> already has a license (${esc(have.status)}` +
+      (isTimedLicense(have) ? `, until ${lastDay(have.expiry)}` : '') + `):\n<code>${esc(have.key)}</code>`);
     return false;
   }
   if (!(await licenseServicesReady())) {
     await sendText(chatId, '⚠️ License signing is not ready (secrets missing?) — no key was made.');
     return false;
   }
-  const key = await keyFor(mid, '00000000');
+  const expiry = forever ? '00000000' : planExpiry(MAIN_DAYS, null);
+  const key = await keyFor(mid, expiry);
   const who = String(name || '').trim().slice(0, 60) || 'free key';
   await DB.prepare(`INSERT INTO customers (machine_id, name, expiry, key, status, uid)
-    VALUES (?,?,'00000000',?,'gift','') ON CONFLICT(machine_id) DO UPDATE SET
-      key=excluded.key, name=excluded.name, expiry='00000000', status='gift', uid='', revoked=0`)
-    .bind(mid, who, key).run();
-  await audit(adminUid, 'givekey', `${mid} ${who}`);
-  log('info', 'gift_key', { mid });
+    VALUES (?,?,?,?,'gift','') ON CONFLICT(machine_id) DO UPDATE SET
+      key=excluded.key, name=excluded.name, expiry=excluded.expiry, status='gift', uid='', revoked=0`)
+    .bind(mid, who, expiry, key).run();
+  await audit(adminUid, 'givekey', `${mid} ${who} ${forever ? 'forever' : expiry}`);
+  log('info', 'gift_key', { mid, forever });
   await sendText(chatId,
-    `🎁 <b>Free key for ${esc(who)}</b> · <code>${mid}</code>\n\n` +
+    `🎁 <b>Free key for ${esc(who)}</b> · <code>${mid}</code>\n` +
+    (forever ? '♾ Forever\n\n' : `📅 1 year — works until <b>${lastDay(expiry)}</b>\n\n`) +
     `<code>${esc(key)}</code>\n\n` +
     'Tap the key to copy it and send it to them: panel → «የፈቃድ ቁልፍ» → paste → «አግብር».\n' +
     '<i>Not counted as a sale. Revoke any time from /find.</i>',
@@ -4986,7 +4995,8 @@ async function adminHelp(chatId) {
     '<b>Customers</b>\n' +
     '<code>/find MACHINE-ID</code> — everything about a computer, with buttons\n' +
     '<code>/move OLD-ID NEW-ID</code> — new computer / reinstalled Windows\n' +
-    '<code>/givekey MACHINE-ID name</code> — free key (not a sale)\n' +
+    '<code>/givekey MACHINE-ID name</code> — free key for 1 year (not a sale)\n' +
+    '<code>/givekey-forever MACHINE-ID name</code> — free key with no end (testers)\n' +
     '<code>/active MACHINE-ID</code> or <code>/active CODE</code> — did the customer activate?\n' +
     '<code>/funnel</code> or <code>/funnel 30</code> — what happens in the program before people buy\n' +
     '<code>/revoke-mid ID</code> · <code>/unrevoke-mid ID</code> — kill / restore a key\n' +

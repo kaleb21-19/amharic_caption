@@ -2954,8 +2954,8 @@ console.log('\n:: scenario 25 — support: find, move a license to a new compute
   const GIFT = 'abcdef0123456789';
   await say(A, `/givekey ${GIFT} Panda`);
   const g = row(env, 'SELECT * FROM customers WHERE machine_id=?', GIFT);
-  assert.ok(g && g.status === 'gift' && g.name === 'Panda' && g.key === keyFor(GIFT), 'gift key issued');
-  assert.ok(lastTo(A).body.text.includes(g.key) && lastTo(A).body.text.includes('Not counted as a sale'));
+  assert.ok(g && g.status === 'gift' && g.name === 'Panda' && g.expiry === yearEnd() && g.key === keyFor(GIFT, g.expiry), 'gift key issued: 1 year');
+  assert.ok(lastTo(A).body.text.includes(g.key) && lastTo(A).body.text.includes('Not counted as a sale') && lastTo(A).body.text.includes('1 year'));
   assert.equal((await validate(GIFT, g.key, '203.0.113.4')).valid, true, 'gift key validates');
   assert.equal(env.DB.prepare("SELECT COUNT(*) AS n FROM sales").first().n, 1, 'no sale recorded for a gift');
   await say(A, `/givekey ${GIFT} Again`);
@@ -2968,6 +2968,14 @@ console.log('\n:: scenario 25 — support: find, move a license to a new compute
   assert.ok(kbOf(lastTo(A)).includes('admin:gift:0000111122223333'), 'unknown computer → Give a free key button');
   await tap(A, 'admin:gift:0000111122223333');
   assert.equal(row(env, 'SELECT status FROM customers WHERE machine_id=?', '0000111122223333').status, 'gift');
+  // an ended yearly gift can be given again; /givekey-forever has no end (testers)
+  env.DB.prepare("UPDATE customers SET expiry='20200101' WHERE machine_id=?").bind('0000111122223333').run();
+  await say(A, '/givekey 0000111122223333 NextYear');
+  const g2 = row(env, 'SELECT * FROM customers WHERE machine_id=?', '0000111122223333');
+  assert.ok(g2.name === 'NextYear' && g2.expiry === yearEnd(), 'an ended gift: a new year');
+  await say(A, '/givekey-forever 1111222233334444 Tester');
+  const g3 = row(env, 'SELECT * FROM customers WHERE machine_id=?', '1111222233334444');
+  assert.ok(g3.status === 'gift' && g3.expiry === '00000000' && g3.key === keyFor('1111222233334444'), 'forever gift for testers');
   ok('admin: 🎁 free keys (/givekey or button) work, are labelled, never count as sales, and can be revoked');
 
   // 6. Admin /help is the admin cheat sheet; buyers still get the buyer help.
