@@ -349,6 +349,13 @@ if [[ "$LITE" == "1" ]]; then
   rm -f "$UPD"
   RID="$(python3 "$ROOT/amh_update.py" runtime-id "$RT")"
   [[ "$RID" =~ ^[0-9a-f]{16}$ ]] || { echo "[FAIL] runtime id: $RID"; exit 1; }
+  # 1.94.69: the installed programs only take an update built on their runtime
+  WANT_RID="$(awk -v t="$TARGET" '$1 == t { print $2 }' "$ROOT/tools/runtime-ids.txt")"
+  if [[ "$RID" != "$WANT_RID" && "${AMH_RUNTIME_CHANGE:-0}" != "1" ]]; then
+    echo "[FAIL] runtime id $RID, expected $WANT_RID (tools/runtime-ids.txt): a Python package changed" >&2
+    echo "       and one-tap updates would fail for every user. Check tools/runtime-pins/$TARGET.txt." >&2
+    exit 1
+  fi
   UVER="$(grep -o 'ExtensionBundleVersion="[^"]*"' "${BUILD_DIR}/${NAME}/CSXS/manifest.xml" | head -1 | sed 's/[^"]*"//;s/"//')"
   printf '{"version": "%s", "target": "%s", "runtime_id": "%s"}\n' "$UVER" "$TARGET" "$RID" > "${BUILD_DIR}/update.json"
   (

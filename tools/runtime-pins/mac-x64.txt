@@ -1,0 +1,29 @@
+# Every Python package in the mac-x64 runtime, exact versions (1.94.69).
+# Taken from the 1.94.66 release: the one-tap update only installs onto the
+# SAME runtime (amh_update.py runtime_id = every package name-version), so a
+# new version of ANY package here breaks one-tap updates for every user.
+# Change only on purpose, together with tools/runtime-ids.txt.
+bottle==0.13.4
+cffi==1.17.1
+coloredlogs==15.0.1
+ctranslate2==4.8.1
+flatbuffers==25.12.19
+humanfriendly==10.0
+mpmath==1.3.0
+numpy==1.26.4
+onnxruntime==1.20.1
+packaging==26.3
+protobuf==7.36.2
+proxy_tools==0.1.0
+pycparser==2.22
+pyobjc_core==13.0
+pyobjc_framework_cocoa==13.0
+pyobjc_framework_quartz==13.0
+pyobjc_framework_security==13.0
+pyobjc_framework_uniformtypeidentifiers==13.0
+pyobjc_framework_webkit==13.0
+pywebview==6.2.1
+pyyaml==6.0.4
+soundfile==0.13.1
+sympy==1.14.0
+typing_extensions==4.16.0

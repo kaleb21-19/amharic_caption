@@ -162,6 +162,11 @@ PY_DEPS=(
   "pywebview==6.2.1"
 )
 
+# 1.94.69: EVERY package pinned (the direct ones above and what they pull in),
+# so the runtime id stays the same and one-tap updates keep working.
+PY_PINS="$ROOT/tools/runtime-pins/${TARGET}.txt"
+[[ -f "$PY_PINS" ]] || { echo "  [FAIL] no package pins for $TARGET ($PY_PINS)" >&2; exit 1; }
+
 # ---- 3. install the tiny ML runtime ---------------------------------------
 echo "  [step] installing deps (ctranslate2 + numpy + soundfile + onnxruntime, ~100MB)"
 if [[ "$TARGET" == "win-x64" && "$ON_WINDOWS" == "0" ]]; then
@@ -171,7 +176,7 @@ if [[ "$TARGET" == "win-x64" && "$ON_WINDOWS" == "0" ]]; then
   "$ROOT/.venv/bin/python" -m pip download \
       --platform win_amd64 --only-binary=:all: \
       --python-version 311 --implementation cp --abi cp311 \
-      "${PY_DEPS[@]}" \
+      "${PY_DEPS[@]}" -c "$PY_PINS" \
       -d "$XTMP" -q
   SPW="${PYDIR}/Lib/site-packages"
   for w in "$XTMP"/*.whl; do
@@ -180,7 +185,7 @@ if [[ "$TARGET" == "win-x64" && "$ON_WINDOWS" == "0" ]]; then
   rm -rf "$XTMP"
   echo "  [ok] cross-staged win_amd64 wheels (NOT runtime-verified here)"
 else
-  "$PY" -m pip install --quiet "${PY_DEPS[@]}"
+  "$PY" -m pip install --quiet "${PY_DEPS[@]}" -c "$PY_PINS"
   echo "  [ok] deps installed"
 fi
 
