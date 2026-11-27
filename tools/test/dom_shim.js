@@ -196,7 +196,7 @@ const KNOWN = [
   'srcLine', 'wpcSeg', 'wpc1', 'wpc2', 'wpc3', 'wpc4', 'wpc5', 'wpcField', 'capField',
   'reviewSteps', 'fontNote', 'fontNoteText', 'fontNoteBtn', 'fontNoteClose', 'zipWarn', 'customBar', 'customBack', 'customPrev', 'customNext', 'customAt', 'toasts', 'textCutNote', 'textCutUndo', 'textCutMore', 'textCutList', 'revFollow', 'starTip', 'starTipText', 'starTipClose', 'liveToggle', 'liveNote', 'runFix', 'stepText', 'stepStyle', 'stepPlace',
   // next-step card after a free caption
-  'trialCard', 'tcGroup', 'tcBuy', 'tcLater', 'tcLeftText', 'tcCutText', 'tcMore', 'tcMoreTitle', 'tcMoreText', 'freeMinNote', 'updateNow', 'modelTgBox', 'modelTgWhy', 'modelTg',
+  'trialCard', 'tcGroup', 'tcBuy', 'tcLater', 'tcLeftText', 'tcCutText', 'tcLastTitle', 'tcMore', 'tcMoreTitle', 'tcMoreText', 'freeMinNote', 'updateNow', 'modelTgBox', 'modelTgWhy', 'modelTg',
   'freeMinBox', 'freeMinTitle', 'freeMinBtn', 'freeMinWait',
   'styleStrip', 'styleChips', 'styleMore', 'styleNote', 'styleCustom', 'styleCustomToggle', 'styleOpts', 'styleTabs', 'stylePreview', 'stylePreviewNote',
   'trialGate', 'trialGateClose', 'trialGateTitle', 'trialGateBody', 'trialGateBtn', 'trialGateWait', 'trialGateKey',
