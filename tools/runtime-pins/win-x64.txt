@@ -1,0 +1,24 @@
+# Every Python package in the win-x64 runtime, exact versions (1.94.69).
+# Taken from the 1.94.66 release: the one-tap update only installs onto the
+# SAME runtime (amh_update.py runtime_id = every package name-version), so a
+# new version of ANY package here breaks one-tap updates for every user.
+# Change only on purpose, together with tools/runtime-ids.txt.
+bottle==0.13.4
+cffi==1.17.1
+clr_loader==0.3.1
+coloredlogs==15.0.1
+ctranslate2==4.8.1
+flatbuffers==25.12.19
+humanfriendly==10.0
+numpy==1.26.4
+onnxruntime==1.20.1
+packaging==26.3
+protobuf==7.36.2
+proxy_tools==0.1.0
+pycparser==2.22
+pyreadline3==3.5.6
+pythonnet==3.2.1
+pywebview==6.2.1
+pyyaml==6.0.4
+soundfile==0.13.1
+typing_extensions==4.16.0

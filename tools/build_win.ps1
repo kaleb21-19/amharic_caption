@@ -238,6 +238,11 @@ if ($Lite) {
         ForEach-Object { Copy-Item $_.FullName (Join-Path $UPDDIR ("runtime\" + $_.Name)) -Recurse -Force }
     $RID = (& (Join-Path $PYOUT "python.exe") -E -s "$ROOT\amh_update.py" runtime-id (Join-Path $BNAME "runtime")).Trim()
     if ($LASTEXITCODE -ne 0 -or $RID -notmatch '^[0-9a-f]{16}$') { throw "runtime id failed: $RID" }
+    # 1.94.69: the installed programs only take an update built on their runtime
+    $WANT = ((Get-Content (Join-Path $ROOT "tools\runtime-ids.txt")) | Where-Object { $_ -match ("^" + $TARGET + " ") } | ForEach-Object { ($_ -split " ")[1] }) | Select-Object -First 1
+    if ($RID -ne $WANT -and $env:AMH_RUNTIME_CHANGE -ne "1") {
+        throw "runtime id $RID, expected $WANT (tools\runtime-ids.txt): a Python package changed and one-tap updates would fail for every user. Check tools\runtime-pins\$TARGET.txt."
+    }
     $UVER = ([regex]::Match((Get-Content (Join-Path $BNAME "CSXS\manifest.xml") -Raw), 'ExtensionBundleVersion="([^"]+)"')).Groups[1].Value
     Set-Content -Path (Join-Path $UPDDIR "update.json") -Value ('{"version": "' + $UVER + '", "target": "' + $TARGET + '", "runtime_id": "' + $RID + '"}') -Encoding ascii
     $UPD = Join-Path $ROOT "dist\amharic-captions-update-$TARGET.zip"

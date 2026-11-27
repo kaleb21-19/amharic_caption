@@ -1,0 +1,8 @@
+# The runtime id each build must produce (amh_update.py runtime-id), so the
+# installed programs can take the one-tap update. 1.94.68 broke it: packaging
+# 26.3 -> 26.4 and pyobjc 13.0 -> 13.1 came in on their own. A build with a
+# different id fails; to change the runtime on purpose, update this file and
+# tools/runtime-pins/ together (and expect every user to need the full installer).
+win-x64 c32325a2e0c2ca12
+mac-arm64 3131fb96c005a6df
+mac-x64 a9ec35a53c24fa4f
