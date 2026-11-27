@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.69';
+const APP_VERSION = '1.94.70';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -2025,8 +2025,8 @@ function hideBuyQr() {
   if (card) { card.classList.remove('show'); dlgClose(card); }
 }
 // Buy (no license) and Renew (a timed license about to end or ended): the same
-// bot link with this computer and a secret; the bot shows the plans with what
-// was paid deducted from Forever, and this panel picks up the new key itself.
+// bot link with this computer and a secret; the bot shows the plans (the year
+// with what was paid for months deducted), and this panel picks up the new key itself.
 function startPurchase(renew) {
   track(renew ? 'renew_click' : 'buy_click');
   // Reuse the secret of an unfinished purchase so a second tap never
@@ -3112,7 +3112,7 @@ function renderRenewBox() {
   const t = document.getElementById('renewTitle');
   if (t) t.textContent = title;
   const s = document.getElementById('renewSub');
-  if (s) s.textContent = L('Renew in Telegram: 1 month, 2 months, or Forever with what you paid deducted. This panel updates itself.');
+  if (s) s.textContent = L('Renew in Telegram: 1 month, 2 months or 1 year (the lowest price per month). This panel updates itself.');
   const b = document.getElementById('renewBtn');
   if (b) b.textContent = L('🔁 Renew');
 }

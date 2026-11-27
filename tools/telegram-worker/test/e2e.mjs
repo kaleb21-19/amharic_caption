@@ -332,6 +332,12 @@ function keyForWith(secret, mid, expiry = '00000000') {
   const sig = createHmac('sha256', Buffer.from(secret, 'utf8')).update(`${mid}|${expiry}`).digest('hex').slice(0, 16);
   return 'AMH-' + (mid + expiry + sig).match(/.{1,4}/g).join('-');
 }
+// yearly (2026-11-27): a bought license ends 365 days after approval (EAT)
+function yearEnd(days = 365) {
+  const eat = new Date(Date.now() + 3 * 3600 * 1000);
+  const d = new Date(Date.UTC(eat.getUTCFullYear(), eat.getUTCMonth(), eat.getUTCDate()) + days * 86400000);
+  return d.toISOString().slice(0, 10).replace(/-/g, '');
+}
 function keyFor(mid, expiry = '00000000') {
   return keyForWith(SECRET, mid, expiry);
 }
@@ -414,7 +420,8 @@ console.log('\n:: scenario 1 — happy path, full sale, DM only');
   const c = row(env, 'SELECT * FROM customers WHERE machine_id=?', 'a1b2c3d4');
   assert.ok(c, 'customer row created');
   assert.equal(c.uid, BUYER, 'uid stamped on customer');
-  assert.equal(c.key, keyFor('a1b2c3d4'), 'key matches keygen algorithm: ' + c.key);
+  assert.equal(c.expiry, yearEnd(), 'yearly: the key ends 365 days after approval');
+  assert.equal(c.key, keyFor('a1b2c3d4', c.expiry), 'key matches keygen algorithm: ' + c.key);
   assert.equal(row(env, 'SELECT status FROM orders WHERE id=?', o.id).status, 'approved');
   ok('approve stamps customer.uid + key matches algorithm');
 
@@ -426,7 +433,7 @@ console.log('\n:: scenario 1 — happy path, full sale, DM only');
   const edited = OUTBOUND.filter((x) => x.method === 'editMessageText' && String(x.body.chat_id) === BUYER).find((x) => (x.body.text || '').includes('Order approved'));
   assert.ok(edited, 'buyer status edited to Approved');
   assert.ok(edited.body.text.includes('ተረጋግጧል') && edited.body.text.includes('ደረሰኙና'), 'approved status is in Amharic too, points to the receipt');
-  assert.ok(dm.body.text.includes('Receipt') && dm.body.text.includes('Valid until') && dm.body.text.includes('Forever'), 'the key comes with a receipt');
+  assert.ok(dm.body.text.includes('Receipt') && dm.body.text.includes('Valid until') && dm.body.text.includes('1 year'), 'the key comes with a receipt');
   // The panel is Amharic by default: its button reads «አግብር», not "Activate".
   assert.ok(dm.body.text.includes('«አግብር»') && dm.body.text.includes('«የፈቃድ ቁልፍ»'),
     "key message uses the panel's own Amharic labels");
@@ -445,7 +452,7 @@ console.log('\n:: scenario 1 — happy path, full sale, DM only');
   let r = await api(env, '/api/validate', { method: 'POST', body: { mid: 'a1b2c3d4', key: c.key } });
   assert.equal(r.status, 200);
   let j = await r.json();
-  assert.deepEqual({ valid: j.valid, expiry: j.expiry }, { valid: true, expiry: '00000000' });
+  assert.deepEqual({ valid: j.valid, expiry: j.expiry }, { valid: true, expiry: c.expiry });
   assert.match(j.token || '', /^v1\.[0-9a-f]{16}\.[0-9a-f]{128}$/i, 'successful validation returns a signed lease');
   r = await api(env, '/api/validate', { method: 'POST', body: { mid: 'a1b2c3d4', key: 'AMH-' + 'f'.repeat(34) } });
   j = await r.json();
@@ -864,7 +871,7 @@ console.log('\n:: scenario 1g — every buyer message speaks Amharic; /help answ
   OUTBOUND.length = 0;
   await post(env, msg(Number(BUYER), { id: Number(BUYER) }, { text: '/buy' }));
   const buy = OUTBOUND.filter((o) => o.method === 'sendMessage').at(-1);
-  assert.ok(JSON.stringify(buy.body.reply_markup).includes('plan:forever') && buy.body.text.includes('Choose a plan'),
+  assert.ok(JSON.stringify(buy.body.reply_markup).includes('plan:y1') && buy.body.text.includes('Choose a plan') && buy.body.text.includes('1 year'),
     '/buy opens the plan menu directly');
 
   ok('confused-buyer paths all answer in Amharic; /help and /buy work');
@@ -2671,7 +2678,7 @@ console.log('\n:: scenario 23 — simple buying: no Machine ID for the customer'
   assert.ok(allTo(P).includes('activates by itself') && allTo(P).includes('AMH-'), 'key message: activates by itself (key only as fallback)');
   const lic = await apiJ('/api/license', { mid: PMID, nonce: NONCE }, '198.51.100.9');
   assert.equal(lic.status, 'approved');
-  assert.equal(lic.key, keyFor(PMID), 'the panel receives its key');
+  assert.equal(lic.key, keyFor(PMID, yearEnd()), 'the panel receives its key (the 1-year key)');
   const noKey = await apiJ('/api/license', { mid: PMID, nonce: 'WRONGnonce12345' }, '198.51.100.9');
   assert.ok(!noKey.key, 'knowing the Machine ID alone never gets the key');
   const v = await apiJ('/api/validate', { mid: PMID, key: lic.key }, '198.51.100.9');
@@ -2683,8 +2690,8 @@ console.log('\n:: scenario 23 — simple buying: no Machine ID for the customer'
   OUTBOUND.length = 0;
   await say(F, '/start');
   await tap(F, 'menu:pay');
-  await tap(F, 'plan:forever');
-  assert.ok(lastTo(F).body.text.includes('Send the payment screenshot here'), 'pay screen says: send the screenshot here');
+  await tap(F, 'plan:forever');   // an old button from before the yearly switch: the year
+  assert.ok(lastTo(F).body.text.includes('Send the payment screenshot here') && lastTo(F).body.text.includes('1 year (365 days)'), 'pay screen says: send the screenshot here');
   await photo(F, 'AgAC-phone');
   o = row(env, 'SELECT * FROM orders WHERE uid=?', F);
   assert.ok(o && /^code-[a-z2-9]{8}$/.test(o.machine_id), 'phone order books WITHOUT a Machine ID: ' + (o && o.machine_id));
@@ -2701,7 +2708,7 @@ console.log('\n:: scenario 23 — simple buying: no Machine ID for the customer'
   const FMID = 'a0b1c2d3e4f50617';
   assert.equal((await apiJ('/api/redeem', { mid: FMID, code: 'ABCD-EFGH' }, '203.0.113.50')).reason, 'not_found', 'a wrong code is refused');
   const red = await apiJ('/api/redeem', { mid: FMID, code: CODE.toLowerCase().replace('-', ' ') }, '203.0.113.50');
-  assert.ok(red.ok && red.key === keyFor(FMID), 'code (any case / spacing) redeems for THIS computer');
+  assert.ok(red.ok && red.key === keyFor(FMID, yearEnd()), 'code (any case / spacing) redeems for THIS computer');
   assert.ok((await apiJ('/api/validate', { mid: FMID, key: red.key }, '203.0.113.50')).valid, 'and activates normally');
   assert.equal(row(env, 'SELECT machine_id FROM orders WHERE id=?', o.id).machine_id, FMID, 'order now carries the real computer');
   assert.equal(row(env, 'SELECT machine_id FROM sales WHERE order_id=?', o.id).machine_id, FMID, 'sales ledger too');
@@ -2741,7 +2748,7 @@ console.log('\n:: scenario 23 — simple buying: no Machine ID for the customer'
   assert.ok(o.machine_id === LMID && o.nonce === LN, 'the waiting order now points at the computer');
   await approveLatest(L);
   const lic2 = await apiJ('/api/license', { mid: LMID, nonce: LN }, '198.51.100.20');
-  assert.equal(lic2.key, keyFor(LMID), 'approved → that panel activates itself, no code needed');
+  assert.equal(lic2.key, keyFor(LMID, yearEnd()), 'approved → that panel activates itself, no code needed');
   ok('simple buying: paid from the phone, then pressed Buy in the panel → linked → self-activates');
 
   // E. Revoking a phone order before the code is used; restoring it.
@@ -2907,7 +2914,7 @@ console.log('\n:: scenario 25 — support: find, move a license to a new compute
   const moved = row(env, 'SELECT * FROM customers WHERE machine_id=?', NEW);
   assert.ok(moved && moved.revoked === 0 && moved.uid === B && moved.status === 'sold', 'new computer licensed for the same buyer');
   assert.equal(row(env, 'SELECT revoked FROM customers WHERE machine_id=?', OLD).revoked, 1, 'old computer revoked');
-  assert.equal(moved.key, keyFor(NEW), 'the new key is a real key for the new computer');
+  assert.equal(moved.key, keyFor(NEW, moved.expiry), 'the new key is a real key for the new computer');
   assert.equal((await validate(NEW, moved.key, '203.0.113.2')).valid, true, 'new computer validates');
   assert.equal((await validate(OLD, oldKey, '203.0.113.3')).valid, false, 'old computer no longer validates');
   assert.ok(allTo(B).includes('moved to your new computer') && allTo(B).includes(moved.key), 'the buyer got the new key in the bot');
@@ -4080,7 +4087,7 @@ console.log('\n:: 1.10.12 plans: 1 month · 2 months · Forever, renewal, upgrad
   // 1 month from the panel's Buy
   await say(B, `/start m_${MID}_Nonce1234567890`);
   let t = lastTo(B);
-  assert.ok(t.body.text.includes('ETB 2,500') && kbOf(t).includes('plan:m1') && kbOf(t).includes('plan:m2'), 'Forever shown first, 1 and 2 months one tap away');
+  assert.ok(t.body.text.includes('ETB 2,500') && kbOf(t).includes('plan:m1') && kbOf(t).includes('plan:m2'), '1 year shown first, 1 and 2 months one tap away');
   await tap(B, 'plan:m1');
   t = lastTo(B);
   assert.ok(t.body.text.includes('ETB 500') && t.body.text.includes('30 days from confirmation'), '1 month: ETB 500, 30 days');
@@ -4122,7 +4129,7 @@ console.log('\n:: 1.10.12 plans: 1 month · 2 months · Forever, renewal, upgrad
   await worker.scheduled({ cron: '0 */6 * * *' }, env);
   let rem = OUTBOUND.slice(n).filter((x) => String(x.body.chat_id) === B && /Your license ends on/.test(x.body.text || ''));
   assert.equal(rem.length, 1, 'one reminder');
-  assert.ok(kbOf(rem[0]).includes('renew:m1:' + MID) && kbOf(rem[0]).includes('renew:forever:' + MID) && rem[0].body.text.includes(ymd(new Date(today.getTime() + 86400000)).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3')), 'Renew / Forever buttons, the last day');
+  assert.ok(kbOf(rem[0]).includes('renew:m1:' + MID) && kbOf(rem[0]).includes('renew:y1:' + MID) && rem[0].body.text.includes(ymd(new Date(today.getTime() + 86400000)).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3')), 'Renew / Forever buttons, the last day');
   n = OUTBOUND.length;
   await worker.scheduled({ cron: '0 */6 * * *' }, env);
   assert.equal(OUTBOUND.slice(n).filter((x) => String(x.body.chat_id) === B && /license ends/.test(x.body.text || '')).length, 0, 'never twice');
@@ -4131,18 +4138,34 @@ console.log('\n:: 1.10.12 plans: 1 month · 2 months · Forever, renewal, upgrad
   assert.ok(lastTo('973000099').body.text.includes('not bought with this Telegram account'));
   ok('plans: one reminder 3 days before the end, Renew / Forever buttons, only for the owner of that license');
 
-  // upgrade to Forever: what was paid for the timed plans is deducted
-  await tap(B, 'renew:forever:' + MID);
+  // upgrade to the year: what was paid for the months is deducted; the year starts today
+  await tap(B, 'renew:y1:' + MID);
   t = lastTo(B);
-  assert.ok(t.body.text.includes('ETB 1,100') && t.body.text.includes('already paid is deducted'), 'Forever after 500 + 900 → ETB 1,100');
+  assert.ok(t.body.text.includes('ETB 1,100') && t.body.text.includes('already paid is deducted'), '1 year after 500 + 900 → ETB 1,100');
   await photo(B, 'AgAC-plan-up');
   o = await approveLatest();
   c = row(env, 'SELECT * FROM customers WHERE machine_id=?', MID);
-  assert.ok(o.plan === 'forever' && o.amount_etb === 1100 && c.expiry === '00000000' && c.key === keyFor(MID), 'upgrade: ETB 1,100, a forever key');
-  // Forever: no second sale on this computer
+  const expY = plusDays(today, 365);
+  assert.ok(o.plan === 'y1' && o.amount_etb === 1100 && c.expiry === expY && c.key === keyFor(MID, expY), 'upgrade: ETB 1,100, a key for 365 days from today');
+  // renewing the year: full price (the months were before it), added to the end
   await say(B, `/start m_${MID}_Nonce1234567892`);
-  assert.ok(lastTo(B).body.text.includes('already has a license'), 'Forever: no more purchases for this computer');
-  ok('plans: upgrade to Forever pays only the difference; then the computer is licensed for good');
+  assert.ok(!lastTo(B).body.text.includes('already has a license'), 'a yearly license can renew');
+  await tap(B, 'plan:y1');
+  t = lastTo(B);
+  assert.ok(t.body.text.includes('ETB 2,500') && !t.body.text.includes('deducted'), 'renewing the year: ETB 2,500, nothing deducted');
+  await photo(B, 'AgAC-plan-y2');
+  o = await approveLatest();
+  c = row(env, 'SELECT * FROM customers WHERE machine_id=?', MID);
+  const expY2 = plusDays(fromYmd(expY), 365);
+  assert.ok(o.plan === 'y1' && o.amount_etb === 2500 && c.expiry === expY2 && c.key === keyFor(MID, expY2), 'the renewal adds 365 days to the current end');
+  ok('plans: upgrade to the year pays only the difference; renewing the year is ETB 2,500 added to the end');
+
+  // a Forever license sold before the switch stays forever: no more purchases
+  const FM = '3f9a1c7e5b20d847';
+  env.DB.prepare("INSERT INTO customers (machine_id, name, expiry, key, status, uid) VALUES (?, '@old', '00000000', ?, 'sold', ?)").bind(FM, keyFor(FM), B).run();
+  await say(B, `/start m_${FM}_Nonce1234567893`);
+  assert.ok(lastTo(B).body.text.includes('already has a license'), 'an old Forever license: nothing to buy');
+  ok('plans: Forever licenses sold before the yearly switch stay forever');
 
   // from the phone: 2 months → an activation code that carries the end date
   const F = '973000002';
