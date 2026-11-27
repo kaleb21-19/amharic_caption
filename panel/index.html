@@ -386,6 +386,17 @@
   #tcMore { display: none; }
   #trialCard.tc-more #tcMore { display: block; }
   #trialCard.tc-more #tcBuy { display: none; }
+  /* 1.94.72: three tips before the first captions (trial users, once) */
+  #audioTipCard {
+    position: fixed; inset: 0; z-index: var(--z-dialog);
+    display: none; align-items: center; justify-content: center;
+    background: var(--color-scrim); padding: var(--space-6);
+  }
+  #audioTipCard.show { display: flex; }
+  #audioTipCard .btn { width: 100%; }
+  .at-tips { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-3); text-align: left; }
+  .at-tips li { display: flex; gap: var(--space-3); align-items: flex-start; font-size: var(--font-size-sm); line-height: 1.45; }
+  .at-tips li span { flex: none; font-size: var(--font-size-lg); line-height: 1.2; }
   /* 1.94.71: the moment to buy - the plans and why paying is safe */
   #trialCard .tc-offer, #trialCard .tc-trust { display: none; }
   #trialCard.tc-last .tc-offer, #trialCard.tc-cut .tc-offer { display: block; }
@@ -1260,6 +1271,20 @@
     </div>
   </div>
 
+  <!-- 1.94.72: before the first captions on this computer (trial users, once) -->
+  <div id="audioTipCard" role="dialog" aria-modal="true" aria-labelledby="atTitle">
+    <div class="tc-box">
+      <div class="tc-title" id="atTitle" data-i18n="at.title">Before your first captions</div>
+      <div class="tc-sub" data-i18n="at.sub">Three things that make the result much better:</div>
+      <ul class="at-tips">
+        <li><span aria-hidden="true">🎙</span><div data-i18n="at.t1">A clear voice and a close microphone.</div></li>
+        <li><span aria-hidden="true">🎵</span><div data-i18n="at.t2">Loud music under the speech? Mute the music track first.</div></li>
+        <li><span aria-hidden="true">✏️</span><div data-i18n="at.t3">Afterwards the doubtful words light up — check them one by one (Enter = right).</div></li>
+      </ul>
+      <button type="button" id="audioTipGo" class="btn btn-primary" data-i18n="at.go">Got it — make captions</button>
+    </div>
+  </div>
+
   <!-- First-run onboarding overlay -->
   <div id="onboard">
     <div class="ob-brand">
@@ -1562,7 +1587,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.94.71</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.94.72</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
