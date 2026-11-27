@@ -129,7 +129,7 @@ export default function HomePage() {
   const plans = [
     { n: num(PRICE_M1_NUM), am: "1 ወር", en: "1 month", subAm: "30 ቀን", subEn: "30 days" },
     { n: num(PRICE_M2_NUM), am: "2 ወር", en: "2 months", subAm: "60 ቀን", subEn: "60 days" },
-    { n: num(PRICE_NUM), am: "ለዘለቄታው", en: "Forever", subAm: "አንድ ጊዜ ይክፈሉ፣ ለዘላለም ይጠቀሙ", subEn: "pay once, yours for good", best: true },
+    { n: num(PRICE_NUM), am: "1 ዓመት", en: "1 year", subAm: "365 ቀን — በወር ዝቅተኛው ዋጋ", subEn: "365 days — the lowest price per month", best: true },
   ];
 
   // Search engines get the English FAQ; the Amharic copy is on the page itself.
@@ -314,10 +314,10 @@ export default function HomePage() {
           <Reveal>
             <div className="section-head center">
               <p className="eyebrow"><Tx am="ዋጋ" en="Pricing" /></p>
-              <h2><Tx am="አንድ ጊዜ ይክፈሉ — ወይም በወር ይጀምሩ።" en="Pay once — or start monthly." /></h2>
+              <h2><Tx am="በወር ይጀምሩ — ወይም ዓመቱን ይውሰዱ።" en="Start monthly — or take the year." /></h2>
               <p className="section-sub">
-                <Tx am="ሁሉም ባህሪያት በሶስቱም። በወር ጀምረው በኋላ ለዘለቄታው ሲገዙ የከፈሉት ይቀነሳል።"
-                  en="Every feature in all three. Start monthly — go Forever later and what you paid is deducted." />
+                <Tx am="ሁሉም ባህሪያት በሶስቱም። በወር ጀምረው በኋላ ዓመቱን ሲገዙ የከፈሉት ይቀነሳል። በራሳቸው አይታደሱም።"
+                  en="Every feature in all three. Start monthly — take the year later and what you paid is deducted. Nothing renews by itself." />
               </p>
             </div>
           </Reveal>

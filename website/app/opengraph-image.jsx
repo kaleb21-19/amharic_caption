@@ -86,7 +86,7 @@ export default function OgImage() {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          {["No internet needed", "Nothing uploaded", `${PRICE} one-time`].map((t) => (
+          {["No internet needed", "Nothing uploaded", `${PRICE} a year`].map((t) => (
             <div
               key={t}
               style={{

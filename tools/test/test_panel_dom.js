@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.69');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.70');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -2251,7 +2251,7 @@ await t('4s. 1.94.44 V3 renew: 3 days before a timed license ends, an ended one 
     const oldKey = await lic(ymd(2));
     assert.strictEqual(p.els('renewBox').style.display, 'block', 'two days left: the box');
     assert.strictEqual(p.els('renewTitle').textContent, '⏳ Your license ends on ' + p.evalVm(`lastLicenseDay(${JSON.stringify(ymd(2))})`) + ' — 2 days left');
-    has(p.els('renewSub').textContent, 'what you paid deducted');
+    has(p.els('renewSub').textContent, '1 year (the lowest price per month)');   // 1.94.70: yearly, not Forever
     assert.strictEqual(p.evalVm('$("runBtn").disabled'), false, 'still works');
     await lic(ymd(1));
     assert.strictEqual(p.els('renewTitle').textContent, '⏳ Today is the last day of your license');

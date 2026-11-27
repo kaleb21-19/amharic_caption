@@ -13,8 +13,8 @@ export default function Footer() {
           </p>
           <p className="footer-tag">
             <Tx
-              am={`ለAdobe Premiere Pro እና After Effects የአማርኛ ካፕሽን። ሙሉ በሙሉ በኮምፒውተርዎ ላይ ይሰራል — upload የለም፣ ክላውድ የለም። አንድ ጊዜ ብቻ ${PRICE_AM}።`}
-              en={`Amharic speech-to-text captions for Adobe Premiere Pro and After Effects. Runs entirely on your computer — no uploads, no cloud. One-time ${PRICE}.`}
+              am={`ለAdobe Premiere Pro እና After Effects የአማርኛ ካፕሽን። ሙሉ በሙሉ በኮምፒውተርዎ ላይ ይሰራል — upload የለም፣ ክላውድ የለም። ከ500 ብር በወር፣ ወይም ${PRICE_AM} ለ1 ዓመት።`}
+              en={`Amharic speech-to-text captions for Adobe Premiere Pro and After Effects. Runs entirely on your computer — no uploads, no cloud. From ETB 500 a month, or ${PRICE} a year.`}
             />
           </p>
         </div>

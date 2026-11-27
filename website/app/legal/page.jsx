@@ -7,7 +7,7 @@ import {
 export const metadata = {
   title: "ህጋዊ ውሎች · License, Privacy & Refund — Amharic Captions Pro",
   description:
-    "End User License Agreement, privacy policy and refund policy for Amharic Captions Pro. One-time ETB 2,500 license, local transcription, 14-day refund if it does not work.",
+    "End User License Agreement, privacy policy and refund policy for Amharic Captions Pro. ETB 2,500 for 1 year (or 1-2 months), local transcription, 14-day refund if it does not work.",
 };
 
 export default function LegalPage() {
@@ -29,7 +29,7 @@ export default function LegalPage() {
           <div className="legal-summary l-am" lang="am">
             <strong>ማሳሰቢያ፦ ከታች ያሉት ሙሉ ውሎች በእንግሊዝኛ ናቸው፤ የሚጸናውም የእንግሊዝኛው ቅጂ ነው። ዋና ዋና ነጥቦቹ በአጭሩ፦</strong>
             <ul>
-              <li>ፈቃዱ ለአንድ ኮምፒውተር ነው። ለዘለቄታው {PRICE_AM} አንድ ጊዜ ይከፍላሉ፤ ወይም 1 ወር (500 ብር) ወይም 2 ወር (900 ብር)። የወር ፕላኖች በራሳቸው አይታደሱም — ሲያበቁ ይቆማሉ።</li>
+              <li>ፈቃዱ ለአንድ ኮምፒውተር ነው። 1 ዓመት {PRICE_AM}፣ 1 ወር (500 ብር) ወይም 2 ወር (900 ብር)። ፕላኖቹ በራሳቸው አይታደሱም — ሲያበቁ ይቆማሉ። ከኖቬምበር 27፣ 2026 በፊት «ለዘለቄታው» የተገዙ ፈቃዶች ለዘለቄታው እንደሆኑ ይቀጥላሉ።</li>
               <li>ከመግዛትዎ በፊት በቴሌግራም ቦታችን 30 ደቂቃ ነጻ ሙከራ ይቀበላሉ (አንድ ጊዜ ለአንድ የቴሌግራም መለያና ለአንድ ኮምፒውተር)።</li>
               <li>ቪዲዮዎ፣ ድምፅዎና ካፕሽኖችዎ ከኮምፒውተርዎ አይወጡም። ወደ ሰርቨራችን የሚላከው ለፈቃድና ለነጻ ሙከራው የሚያስፈልግ ትንሽ መረጃ (የማሽን መለያ፣ ቁልፍ፣ የፕሮግራሙ ስሪት) ብቻ ነው።</li>
               <li>ቁልፉን ማጋራት፣ እንደገና መሸጥ ወይም በብዙ ኮምፒውተሮች ላይ መጠቀም አይፈቀድም።</li>
@@ -58,13 +58,15 @@ export default function LegalPage() {
           <p>
             The Licensor grants you a non-exclusive, non-transferable, personal
             right to install and use the Software on a single licensed installation, subject
-            to the terms below. You choose the term when you buy: Forever ({PRICE},
-            one payment), 1 month (ETB 500) or 2 months (ETB 900). A 1- or 2-month
-            license ends 30 or 60 days after your payment is approved (a renewal
-            adds to the current end); it never renews or charges by itself. When
-            you buy Forever after a monthly plan, what you paid for the monthly
-            plans is deducted (you pay at least ETB 500). If the seller explicitly
-            issues a dated key before approval, that disclosed expiry applies.
+            to the terms below. You choose the term when you buy: 1 year ({PRICE}),
+            1 month (ETB 500) or 2 months (ETB 900). A license ends 365, 30 or 60
+            days after your payment is approved (a renewal adds to the current
+            end); it never renews or charges by itself. When you buy the year
+            after a monthly plan, what you paid for the monthly plans since your
+            last yearly purchase is deducted (you pay at least ETB 500) and the
+            year starts on approval. Licenses sold as &quot;Forever&quot; before
+            27 November 2026 remain valid without an end date. If the seller
+            explicitly issues a dated key before approval, that disclosed expiry applies.
           </p>
 
           <h3>2. License boundary</h3>

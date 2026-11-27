@@ -47,7 +47,7 @@ def main():
     migs = sorted(os.listdir(os.path.join(ROOT, "tools", "telegram-worker", "migrations")))
     print("version        %s%s" % (ver, "" if ver == app_ver else "  !! main.js says %s (run tools/check_versions.sh)" % app_ver))
     print("branch         %s%s" % (git("rev-parse", "--abbrev-ref", "HEAD"), " (uncommitted changes)" if git("status", "--porcelain") else ""))
-    print("prices (ETB)   forever %s · %s" % (forever.group(1) if forever else "?",
+    print("prices (ETB)   1 year %s · %s" % (forever.group(1) if forever else "?",
           " · ".join("%s %s days %s (partner %s)" % (p, d, e, r) for p, d, e, r in plans)))
     print("styles (%d)     plain + %s" % (len(styles) + 1, ", ".join(styles)))
     print("fonts (%d)      %s" % (len(fonts), ", ".join("%s=%s" % f for f in fonts)))
