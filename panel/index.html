@@ -386,6 +386,21 @@
   #tcMore { display: none; }
   #trialCard.tc-more #tcMore { display: block; }
   #trialCard.tc-more #tcBuy { display: none; }
+  /* 1.94.71: the moment to buy - the plans and why paying is safe */
+  #trialCard .tc-offer, #trialCard .tc-trust { display: none; }
+  #trialCard.tc-last .tc-offer, #trialCard.tc-cut .tc-offer { display: block; }
+  #trialCard.tc-last .tc-trust, #trialCard.tc-cut .tc-trust { display: grid; }
+  #trialCard.tc-last .tc-group, #trialCard.tc-cut .tc-group { display: none; }
+  .tc-offer {
+    margin: 0; padding: var(--space-3) var(--space-4); border-radius: var(--radius-sm);
+    background: var(--accent-soft); font-size: var(--font-size-sm); line-height: 1.5;
+  }
+  .tc-trust {
+    margin: 0; padding: 0; list-style: none; gap: var(--space-2); text-align: left;
+    font-size: var(--font-size-xs); color: var(--text-secondary); line-height: 1.45;
+  }
+  .tc-trust li { padding-left: 1.3em; text-indent: -1.3em; }
+  .tc-trust li::before { content: "\2713\00a0\00a0"; color: var(--accent); font-weight: var(--font-weight-bold); }
   /* Buy with your phone (1.41): the QR is always black on white with a quiet
      zone (phones read it in dark mode too) */
   #buyQrCard {
@@ -1221,16 +1236,22 @@
       <div class="tc-check">✓</div>
       <div class="tc-title" id="tcTitle">
         <span data-tc="left" data-i18n="tc.titleLeft">Your free captions are done</span>
-        <span data-tc="last" data-i18n="tc.titleLast">Your free minutes are used up</span>
+        <span data-tc="last" id="tcLastTitle" data-i18n="tc.titleLast">Your free minutes are used up</span>
         <span data-tc="cut" data-i18n="tc.titleCut">The rest of this video needs a license</span>
         <span data-tc="more" id="tcMoreTitle">Liked it? Get more free minutes</span>
       </div>
       <div class="tc-sub">
         <span data-tc="left" id="tcLeftText">You have free minutes left.</span>
-        <span data-tc="last" data-i18n="tc.last">Buy a license to keep making captions — from ETB 500 a month, or ETB 2,500 for a year.</span>
+        <span data-tc="last" data-i18n="tc.last">Keep making captions with a license — every plan is the full program.</span>
         <span data-tc="more" id="tcMoreText">One tap in our Telegram bot, press START, and come back — it continues by itself.</span>
-        <span data-tc="cut"><span id="tcCutText">Your free minutes covered the first part of this video.</span> <span data-i18n="tc.cut">Buy a license to caption whole videos — from ETB 500 a month, or ETB 2,500 for a year.</span></span>
+        <span data-tc="cut"><span id="tcCutText">Your free minutes covered the first part of this video.</span> <span data-i18n="tc.cut">Buy a license to caption whole videos — every plan is the full program.</span></span>
       </div>
+      <div class="tc-offer" data-i18n-html="tc.plans"><b>1 month</b> ETB 500 · <b>2 months</b> ETB 900 · <b>1 year</b> ETB 2,500</div>
+      <ul class="tc-trust">
+        <li data-i18n="tc.trust1">Doesn't work on your computer and we can't fix it? Full refund within 14 days.</li>
+        <li data-i18n-html="tc.trust2">Pay only <b>KALEB TEGEGEN</b>, through @AmharicCaptionsBot — anyone else is not us.</li>
+        <li data-i18n="tc.trust3">After payment the license turns on by itself — nothing to copy.</li>
+      </ul>
       <div class="tc-group" data-i18n-html="tc.group"><b>Questions or a problem?</b><span>Ask in our Telegram group — we answer fast, and editors share tips there.</span></div>
       <button type="button" id="tcGroup" class="btn" data-i18n="tc.join">Join the Telegram group</button>
       <button type="button" id="tcBuy" class="btn" data-i18n="lic.buy">Buy a license — from ETB 500</button>
@@ -1541,7 +1562,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.94.70</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.94.71</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>

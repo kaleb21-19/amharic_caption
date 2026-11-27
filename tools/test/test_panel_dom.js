@@ -247,7 +247,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.70');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.71');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -3479,6 +3479,29 @@ await t('5c. trial: a charge the server denies stops the engine (no ticket, noth
     try { await off.evalVm('engineAuth(60)'); } catch (e) { err = String(e && e.message); }
     assert.strictEqual(err, 'free caption needs internet', 'offline -> needs internet');
   } finally { off.close(); }
+});
+
+await t('5d2. 1.94.71 Make captions with no free minutes left: the buy offer opens (plans, refund, who to pay, Buy first)', async () => {
+  const p = loadPanel({ fetch: trialServer() });
+  try {
+    await flush(10);
+    p.evalVm("LICENSED = false; TRIAL_MIN = { status: 'used' }; trialRemaining = () => 0; trialMoreMinutes = () => 0;");
+    assert.strictEqual(p.evalVm('assertCanRun(null)'), false, 'nothing runs');
+    const card = p.els('trialCard');
+    assert.ok(card.classList.contains('show') && card.classList.contains('tc-last'), 'the buy card opens at once (it was only a log line)');
+    assert.strictEqual(p.els('tcLastTitle').textContent, 'Your free minutes are used up');
+    assert.ok(/btn-primary/.test(p.els('tcBuy').className), 'Buy is the main button');
+    const html = fs.readFileSync(path.join(REPO, 'panel', 'index.html'), 'utf8').split('id="trialCard"')[1].split('<!-- First-run')[0];
+    assert.ok(/class="tc-offer"[^>]*>.*1 year.*ETB 2,500/.test(html) && /14 days/.test(html) && /KALEB TEGEGEN/.test(html), 'the card has the plans, the refund, who to pay');
+    p.evalVm('hideTrialCard()');
+    p.evalVm("TRIAL_MIN = { status: 'expired' };");
+    p.evalVm('assertCanRun(null)');
+    assert.ok(card.classList.contains('show'), 'again when the trial time ended');
+    assert.strictEqual(p.els('tcLastTitle').textContent, 'Your free trial has ended');
+    p.evalVm('hideTrialCard(); LICENSED = true;');
+    assert.strictEqual(p.evalVm('assertCanRun(null)'), true);
+    assert.ok(!card.classList.contains('show'), 'a license: no card');
+  } finally { p.close(); }
 });
 
 await t('5d. after a free caption: next-step card (group while one is left, Buy after the last); never on a denied charge', async () => {

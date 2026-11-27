@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.70';
+const APP_VERSION = '1.94.71';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -2786,6 +2786,7 @@ function assertCanRun(resume) {
   if (st === 'none') showTrialGate('none', resume);
   else if (st === 'pending') showTrialGate('pending', null);
   else if (!st) showTrialGate('offline', resume);
+  else showBuyOffer(st === 'expired');
   if (!st) {
     log('Connect to the internet for the free trial (a license works offline).');
   } else if (st === 'none') {
@@ -5515,6 +5516,8 @@ function showTrialCardIfDue() {
     'One tap in our Telegram bot, press START, and come back — it continues by itself.');
   const lt = $('tcLeftText');
   if (lt) lt.textContent = L('You have ' + fmtMinSec(due.remaining) + ' free minutes left.');
+  const lst = $('tcLastTitle');
+  if (lst) lst.textContent = L(due.expired ? 'Your free trial has ended' : 'Your free minutes are used up');
   const ct = $('tcCutText');
   if (ct && cut) ct.textContent = L('Your free minutes covered the first ' + fmtMinSec(due.cut) + ' of this video.');
   const buyFirst = last || cut;
@@ -5528,6 +5531,15 @@ function showTrialCardIfDue() {
   log(cut ? 'Free minutes covered part of this video — showing the next-step card (buy).'
     : last ? 'Free trial finished — showing the next-step card (buy / group).'
       : 'Free caption done — showing the next-step card (group).');
+}
+// 1.94.71: Make captions with no free minutes left (used up / the trial time
+// ended) only wrote "Buy a license (below)" in the log - the bot's 'In the
+// program' (7 days): 10 stopped there, 9 pressed Buy all week. Now the card
+// opens at that moment: the plans, the refund, who to pay, Buy first.
+function showBuyOffer(expired) {
+  if (LICENSED) return;
+  TRIAL_CARD_DUE = { remaining: 0, cut: null, expired: !!expired };
+  showTrialCardIfDue();
 }
 function hideTrialCard() {
   const card = $('trialCard');
