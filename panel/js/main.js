@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.71';
+const APP_VERSION = '1.94.72';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -5545,6 +5545,38 @@ function hideTrialCard() {
   const card = $('trialCard');
   if (card) { card.classList.remove('show'); dlgClose(card); }
 }
+// 1.94.72: "it made mistakes" is decided by the first result - and the first
+// job is often a phone recording with music under it. Before the first
+// captions on this computer (trial users only, once) three tips; the button
+// (or Esc) goes on with the job. Paying users never see it.
+const AUDIO_TIP_KEY = 'audioTipSeen';
+let AUDIO_TIP_GO = null;
+function audioTipDue() { return !LICENSED && !loadSettings()[AUDIO_TIP_KEY] && !!$('audioTipCard'); }
+function showAudioTip(go) {
+  AUDIO_TIP_GO = go;
+  const card = $('audioTipCard');
+  card.classList.add('show');
+  dlgOpen(card, audioTipDone);
+}
+function audioTipDone() {
+  saveSettings({ [AUDIO_TIP_KEY]: true });
+  const card = $('audioTipCard');
+  if (card) { card.classList.remove('show'); dlgClose(card); }
+  const go = AUDIO_TIP_GO;
+  AUDIO_TIP_GO = null;
+  if (go) go();
+}
+// the panel's Make captions / a dropped file: show the tips, the button runs it again
+function audioTipFirst(resume) {
+  if (!audioTipDue()) return true;
+  showAudioTip(resume || null);
+  return false;
+}
+// the Studio's job waits for the button
+function audioTipWait() {
+  if (!audioTipDue()) return Promise.resolve();
+  return new Promise((resolve) => showAudioTip(resolve));
+}
 function initTrialCard() {
   const open = (url) => {
     try { window.__adobe_cep__ && window.cep.util.openURLInDefaultBrowser(url); }
@@ -5556,6 +5588,7 @@ function initTrialCard() {
   const mo = $('tcMore');
   if (mo) mo.addEventListener('click', () => { hideTrialCard(); if (TRIAL_CARD_MORE) startFreeMinutes(); });
   const l = $('tcLater'); if (l) l.addEventListener('click', hideTrialCard);
+  const at = $('audioTipGo'); if (at) at.addEventListener('click', audioTipDone);
 }
 
 // 1.89 (Studio): while the caption list is hidden (the script view or Media
@@ -10471,6 +10504,7 @@ async function run() {
   finally { runStartInProgress = false; }
   if (cancelRequested) return;
   if (!assertCanRun(() => run())) return;
+  if (!audioTipFirst(() => run())) return;
   runInProgress = true;
   setBusy(true);
   try {
@@ -11097,6 +11131,7 @@ async function runFile(filePath, fileName) {
   finally { runStartInProgress = false; }
   if (cancelRequested) return;
   if (!assertCanRun(() => runFile(filePath, fileName))) return;
+  if (!audioTipFirst(() => runFile(filePath, fileName))) return;
   runInProgress = true;
   setBusy(true);
   setProgress(0, '');
@@ -11178,6 +11213,7 @@ async function transcribeExtra(filePath, hooks) {
         : st === 'expired' ? 'Your free trial time has ended. Buy a license to keep making captions.'
           : 'No free minutes left — a license makes captions for every video.'));
   }
+  await audioTipWait();
   const keep = { cues: lastCues, srt: lastSrtPath, charged: reviewTrialCharged };
   const outSrt = path.join(os.tmpdir(), 'amh_extra_' + Date.now() + '.srt');
   cancelRequested = false;

@@ -201,6 +201,8 @@ function loadPanel(opts) {
   // 1.94.2: the Customize box is the Studio's only; the tests of its
   // controls switch it on in the panel (opts.realPanel keeps the real panel)
   if (!opts.realPanel) vm.runInContext('PANEL_CUSTOMIZE = true;', ctx);
+  // 1.94.72: the first-captions tips are tested in 5d3; elsewhere a run goes straight on
+  vm.runInContext('saveSettings({ audioTipSeen: true });', ctx);
 
   let mid = null;
   try {
@@ -247,7 +249,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.71');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.72');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -3501,6 +3503,32 @@ await t('5d2. 1.94.71 Make captions with no free minutes left: the buy offer ope
     p.evalVm('hideTrialCard(); LICENSED = true;');
     assert.strictEqual(p.evalVm('assertCanRun(null)'), true);
     assert.ok(!card.classList.contains('show'), 'a license: no card');
+  } finally { p.close(); }
+});
+
+await t('5d3. 1.94.72 before the first captions (trial users, once): three audio tips; the button goes on with the job', async () => {
+  const p = loadPanel({ fetch: trialServer() });
+  try {
+    await flush(10);
+    p.evalVm("LICENSED = false; saveSettings({ audioTipSeen: false }); globalThis.__went = 0;");
+    assert.strictEqual(p.evalVm('audioTipFirst(() => { __went++; })'), false, 'the first time: the tips, the job waits');
+    const card = p.els('audioTipCard');
+    assert.ok(card.classList.contains('show'), 'the tips card shows');
+    p.els('audioTipGo').fire('click');
+    assert.strictEqual(p.evalVm('__went'), 1, 'the button runs the job');
+    assert.ok(!card.classList.contains('show'), 'and closes');
+    assert.strictEqual(p.evalVm('audioTipFirst(() => { __went++; })'), true, 'never again on this computer');
+    p.evalVm("saveSettings({ audioTipSeen: false }); LICENSED = true;");
+    assert.strictEqual(p.evalVm('audioTipFirst(null)'), true, 'a paying user never sees it');
+    // the Studio's job waits for the button
+    p.evalVm("LICENSED = false; globalThis.__done = false; audioTipWait().then(() => { __done = true; });");
+    await flush(3);
+    assert.ok(card.classList.contains('show') && !p.evalVm('__done'), 'the Studio job waits');
+    p.els('audioTipGo').fire('click');
+    await flush(3);
+    assert.ok(p.evalVm('__done'), 'and goes on after the button');
+    const html = fs.readFileSync(path.join(REPO, 'panel', 'index.html'), 'utf8');
+    assert.ok(/Mute the music track first/.test(html) && /Enter = right/.test(html), 'the tips');
   } finally { p.close(); }
 });
 
