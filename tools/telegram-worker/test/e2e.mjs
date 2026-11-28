@@ -4175,6 +4175,30 @@ console.log('\n:: 1.10.12 plans: 1 month · 2 months · Forever, renewal, upgrad
   assert.ok(lastTo(B).body.text.includes('already has a license'), 'an old Forever license: nothing to buy');
   ok('plans: Forever licenses sold before the yearly switch stay forever');
 
+  // /setplan: the year approved by mistake for ETB 500 -> 1 month; the panel takes the new key
+  const SM = '3f9a1c7e5b20d848';
+  await say(B, `/start m_${SM}_Nonce1234567894`);
+  await tap(B, 'plan:y1');
+  await photo(B, 'AgAC-plan-wrong');
+  o = await approveLatest();
+  c = row(env, 'SELECT * FROM customers WHERE machine_id=?', SM);
+  const oldKey = c.key;
+  assert.ok(o.plan === 'y1' && c.expiry === plusDays(today, 365), 'approved as the year');
+  n = OUTBOUND.length;
+  await say(String(A), `/setplan ${o.id} m1`);
+  c = row(env, 'SELECT * FROM customers WHERE machine_id=?', SM);
+  const oo = row(env, 'SELECT * FROM orders WHERE id=?', o.id);
+  const sale = row(env, 'SELECT plan, amount_etb FROM sales WHERE order_id=?', o.id);
+  assert.ok(c.expiry === plusDays(today, 30) && c.key === keyFor(SM, c.expiry), '1 month from the approval: ' + c.expiry);
+  assert.ok(oo.plan === 'm1' && oo.amount_etb === 500 && oo.expiry === c.expiry, 'the order says 1 month, ETB 500');
+  assert.ok(sale.plan === 'm1' && sale.amount_etb === 500, 'the sale counts ETB 500');
+  assert.ok(OUTBOUND.slice(n).some((x) => String(x.body.chat_id) === B && /1 month/.test(x.body.text || '') && (x.body.text || '').includes(c.key)), 'the buyer is told, with the key');
+  const vr = await (await api(env, '/api/validate', { method: 'POST', body: { mid: SM, key: oldKey } })).json();
+  assert.ok(vr.valid === true && canonicalKey(vr.key) === canonicalKey(c.key) && vr.expiry === c.expiry, 'the panel with the year key gets the 1-month key back (not "invalid")');
+  await say(String(A), `/setplan 999999 m1`);
+  assert.ok(lastTo(String(A)).body.text.includes('not found'));
+  ok('plans: /setplan changes an approved order (year -> 1 month): new key from the approval day, ETB 500 counted, the panel takes it');
+
   // from the phone: 2 months → an activation code that carries the end date
   const F = '973000002';
   await say(F, '/start');
