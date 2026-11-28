@@ -742,6 +742,7 @@ const AM_PATTERNS = [
   [/^Plain: (.+)'s own captions — you can edit and restyle them there\.$/, 'መደበኛ፦ የ$1 የራሱ ካፕሽን — እዚያው ማስተካከልና ማስዋብ ይችላሉ።'],
   [/^⏳ (.+) (\d+)%$/, function (m, a, n) { return '⏳ ' + T(a) + ' ' + n + '%'; }],
   [/^until (\d{4}-\d{2}-\d{2})$/, 'እስከ $1'],
+  [/^Removed (\d+) old caption file\(s\) no sequence uses any more$/, 'ምንም ሴኩዌንስ የማይጠቀምባቸው $1 የቆዩ የካፕሽን ፋይሎች ተወግደዋል'],
   [/^First the Amharic model is downloaded \((\d+) MB, one time only\)\.$/, 'መጀመሪያ የአማርኛ ሞዴሉ ይወርዳል ($1 MB፣ አንድ ጊዜ ብቻ)።'],
   [/^Internet connection lost at (\d+) \/ (\d+) MB — trying again in (\d+) s\. Nothing downloaded is lost\.$/,
     'ኢንተርኔት ተቋርጧል ($1 / $2 MB) — በ$3 ሰከንድ ውስጥ እንደገና ይሞከራል። የወረደው አይጠፋም።'],

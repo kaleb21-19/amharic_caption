@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.73';
+const APP_VERSION = '1.94.74';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -3902,6 +3902,71 @@ let activeChild = null;
 // the owner's real Documents/AmharicCaptions and his 🕘 Recent list, 1.16.18).
 const USER_CAPTIONS_DIR = (typeof process !== 'undefined' && process.env && process.env.AMH_CAPTIONS_DIR) ||
   path.join(os.homedir(), 'Documents', 'AmharicCaptions');
+// 1.94.74: the old styled caption files no sequence uses any more, in two
+// steps. (1) An item in the "Amharic Captions" bin that NO sequence of the
+// open project uses (Premiere checks every sequence; fail closed) leaves the
+// bin - harmless: nothing uses it, and the saved project keeps it until the
+// editor saves. (2) Its FILE is deleted only when the SAVED project on disk no
+// longer names it (saved after step 1) - closing without saving keeps every
+// file the saved project needs. A project never saved: nothing on disk can
+// name it, it goes at once. Only amhstyle_*.mov in our captions folder; a file
+// Premiere still holds is tried next time. (Measured in the owner's Premiere:
+// a saved project names every bin item, used or not.)
+let CLEAN_OLD_BUSY = false;
+const STYLED_FILE = /^amhstyle_[^\/:]+\.mov$/i;
+function savedProjectText(pp) {
+  if (!pp) return null;
+  try {
+    const buf = fs.readFileSync(pp);
+    try { return nodeRequire('zlib').gunzipSync(buf).toString('utf8'); } catch (e) { return buf.toString('utf8'); }
+  } catch (e) { return null; }
+}
+function inCaptionsDir(p) {
+  try { return path.resolve(path.dirname(String(p))).toLowerCase() === path.resolve(ensureCaptionsDir()).toLowerCase(); } catch (e) { return false; }
+}
+function oursToDelete(p) {
+  const b = path.basename(String(p || ''));
+  return !!p && inCaptionsDir(p) && STYLED_FILE.test(b) && !/^amhstyle_livepreview/i.test(b);
+}
+async function cleanOldCaptionFiles() {
+  if (IS_AE || IS_APP_MODE() || CLEAN_OLD_BUSY) return 0;
+  CLEAN_OLD_BUSY = true;
+  let n = 0, bytes = 0;
+  // true = gone (or never ours / already gone); false = keep trying
+  const del = (p) => {
+    if (!oursToDelete(p)) return true;
+    try { if (!fs.existsSync(p)) return true; const sz = fs.statSync(p).size; fs.unlinkSync(p); n++; bytes += sz; return true; } catch (e) { return false; }
+  };
+  // a file waits until the saved project (if any) no longer names it
+  const settle = (list) => list.filter((it) => {
+    if (!it || !it.p) return false;
+    if (it.prj) {
+      const saved = savedProjectText(it.prj);
+      if (saved === null || saved.indexOf(path.basename(it.p)) >= 0) return true;    // not saved since / unreadable: wait
+    }
+    return !del(it.p);
+  });
+  try {
+    let pend = settle((loadSettings().oldCaptionsPending || []).filter((it) => it && typeof it === 'object'));
+    const r = await hostCall('amh_unusedStyledItems', {});
+    if (r && r.ok && r.complete && Array.isArray(r.items) && r.items.length) {
+      const names = r.items.filter((it) => it && STYLED_FILE.test(String(it.name)) && oursToDelete(it.path) &&
+        path.basename(String(it.path)) === String(it.name)).map((it) => String(it.name));
+      if (names.length) {
+        const d = await hostCall('amh_dropStyledItems', { names });
+        if (d && d.ok && Array.isArray(d.dropped) && d.dropped.length) {
+          const prj = String(r.projectPath || '');
+          pend = pend.concat(settle(d.dropped.filter((it) => it && it.path).map((it) => ({ p: String(it.path), prj }))));
+        }
+      }
+    }
+    saveSettings({ oldCaptionsPending: pend.slice(-300) });
+    return n;
+  } catch (e) { return n; } finally {
+    CLEAN_OLD_BUSY = false;
+    if (n) log('🧹 ' + L('Removed ' + n + ' old caption file(s) no sequence uses any more') + ' (' + (bytes / 1048576).toFixed(1) + ' MB).');
+  }
+}
 function ensureCaptionsDir() {
   try {
     fs.mkdirSync(USER_CAPTIONS_DIR, { recursive: true, mode: 0o700 });
@@ -5207,6 +5272,7 @@ let REVIEW_NEXT_ID = 0;      // _id for captions made by split / add
 
 async function openReview(outSrt, label, startSeconds, opts) {
   opts = opts || {};
+  if (!IS_AE && !IS_APP_MODE()) setTimeout(() => { cleanOldCaptionFiles(); }, 3000);   // 1.94.74
   // A transcription consumes a trial credit when it is produced, not only
   // when the user chooses to place it. This prevents unlimited discard/retry
   // loops. Licensed users are unaffected.
@@ -9543,6 +9609,7 @@ async function placeReview() {
         track('placed');
         saveHistory(dest);
         closeReview(true);
+        setTimeout(() => { cleanOldCaptionFiles(); }, 1500);     // 1.94.74: the versions this Place replaced
         return;
       } catch (e) {
         log('The style could not be used (' + (e && e.message ? e.message : String(e)) + ') — placing plain captions instead.');
