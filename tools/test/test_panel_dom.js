@@ -2112,7 +2112,7 @@ await t('4f4. 1.94.42 live canvas: drawn while Customize is open, sliders redraw
     await flush(20);                       // the drawing before has finished
     const asksBefore = p.evalVm('__asks.length');
     p.evalVm("__answer = { ok: false, error: 'no WebAssembly here' }; lcDraw();");
-    await flush(20);
+    for (let k = 0; k < 100 && !p.evalVm('LC.failed'); k++) await flush(5);     // both tries done (a busy PC is slower)
     assert.match(p.evalVm('LC.failed'), /WebAssembly/);
     assert.strictEqual(p.evalVm('__asks.length') - asksBefore, 2, '1.94.73: one more try with a fresh renderer before giving up');
     assert.strictEqual(p.evalVm("$('styleCustom').querySelector('.sc-stage').style.display"), 'none', 'hidden on failure');

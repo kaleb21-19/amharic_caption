@@ -2498,6 +2498,18 @@ async function handleMessage(msg, env) {
     }
   }
 
+  // admin: the plan of an APPROVED order (owner 2026-11-28: a buyer chose the
+  // year, paid ETB 500, and was approved by mistake) → /setplan ORDERID m1|m2|y1
+  if (privateChat && isAdmin(user.id)) {
+    const sp = text.match(/^\/setplan\s+(\d+)\s+(m1|m2|y1)$/i);
+    if (sp) { await setOrderPlan(chatId, user.id, sp[1], sp[2].toLowerCase()); return; }
+    if (/^\/setplan\b/i.test(text)) {
+      await sendText(chatId, 'ℹ️ <code>/setplan ORDER m1</code> — change an approved order to 1 month (<code>m2</code> = 2 months, <code>y1</code> = 1 year). ' +
+        'The key gets the new end date (counted from the approval); the buyer\'s panel picks it up by itself.');
+      return;
+    }
+  }
+
   // admin: revoke / unrevoke a sold license → /revoke ORDERID, /unrevoke ORDERID
   if (privateChat && isAdmin(user.id)) {
     const rv = text.match(/^\/(?:revoke|ban)\s+(\d+)$/i);
@@ -4724,6 +4736,58 @@ async function revokeMid(chatId, mid, revoke) {
   return result;
 }
 
+// The plan of an approved order, changed: a new key with the end date of that
+// plan counted from the approval (key_issued_at), the order and the sale say
+// that plan and its price (the sales numbers are right), the buyer is told in
+// the bot. Their panel takes the new key on its next check (validate: an
+// authentic key of THIS computer replaced by another one returns the new key).
+async function setOrderPlan(chatId, adminUid, orderId, plan) {
+  if (!(await requireUnlock(adminUid, chatId, null, 'Change a plan'))) return false;
+  const o = await DB.prepare('SELECT * FROM orders WHERE id=?').bind(orderId).first();
+  if (!o) { await sendText(chatId, `⚠️ Order <b>#${orderId}</b> not found.`); return false; }
+  if (o.status !== 'approved') { await sendText(chatId, `⚠️ Order <b>#${orderId}</b> is ${esc(o.status)} — only an approved order. (Before approving, choose the plan in the bot or use /setexpiry.)`); return false; }
+  if (isCodePlaceholder(o.machine_id)) { await sendText(chatId, `⚠️ Order <b>#${orderId}</b> was paid from the phone (an activation code) — change it after the code is used: /find that computer.`); return false; }
+  const mid = String(o.machine_id || '').toLowerCase();
+  const c = await DB.prepare('SELECT key, expiry, revoked FROM customers WHERE machine_id=?').bind(mid).first();
+  if (!c || c.revoked) { await sendText(chatId, `⚠️ No active license for <code>${esc(mid)}</code>.`); return false; }
+  const days = PLANS[plan] ? PLANS[plan].days : MAIN_DAYS;
+  const price = PLANS[plan] ? PLANS[plan].etb : PRICE_ETB;
+  // the approval day in Ethiopian time (key_issued_at is UTC), like planExpiry
+  const iss = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(String(o.key_issued_at || '')) ? new Date(String(o.key_issued_at).replace(' ', 'T').slice(0, 19) + 'Z') : null;
+  const eat = iss && !isNaN(iss.getTime()) ? new Date(iss.getTime() + 3 * 3600 * 1000) : null;
+  const at = eat ? eat.toISOString().slice(0, 10) : null;
+  const start = eat ? new Date(Date.UTC(eat.getUTCFullYear(), eat.getUTCMonth(), eat.getUTCDate())) : todayEatDate();
+  const expiry = ymd(new Date(start.getTime() + days * 86400000));
+  if (expiry <= ymd(todayEatDate())) { await sendText(chatId, `⚠️ ${planLabel(plan)} from the approval (${at || 'today'}) would already be over — not changed.`); return false; }
+  if (!(await licenseServicesReady())) { await sendText(chatId, '⚠️ License signing is not ready (secrets missing?) — nothing changed.'); return false; }
+  const key = await keyFor(mid, expiry);
+  await DB.prepare('UPDATE customers SET key=?, expiry=? WHERE machine_id=?').bind(key, expiry, mid).run();
+  await DB.prepare('UPDATE orders SET plan=?, expiry=?, amount_etb=? WHERE id=?').bind(plan, expiry, price, orderId).run();
+  try { await DB.prepare('UPDATE sales SET plan=?, amount_etb=? WHERE order_id=?').bind(plan, price, orderId).run(); } catch (e) {}
+  try { await kvDel('val:' + mid + ':' + canonicalLicenseKey(c.key)); } catch (e) {}
+  // the key it replaced may still be in the panel: validate hands it the new one
+  try { await kvPut('swap:' + mid, canonicalLicenseKey(c.key), 400 * 86400); } catch (e) {}
+  await audit(adminUid, 'setplan', `#${orderId} ${mid} ${plan} ${expiry}`);
+  log('info', 'order_setplan', { orderId, mid, plan, expiry });
+  let told = false;
+  if (o.chat_id) {
+    try {
+      const r = await sendText(o.chat_id,
+        `🔄 <b>ፈቃድዎ ወደ ${PLANS[plan] ? PLANS[plan].am : '1 ዓመት'} ተቀይሯል</b> — እስከ <b>${lastDay(expiry)}</b> ይሰራል።\n` +
+        `<i>Your license is now ${PLANS[plan] ? PLANS[plan].en : '1 year'} — it works until ${lastDay(expiry)}.</i>\n\n` +
+        'ፓነሉ አዲሱን ቁልፍ በራሱ ይወስዳል — ምንም ማድረግ አያስፈልግም።\n<i>Your panel takes the new key by itself — nothing to do.</i>\n\n' +
+        `<code>${esc(key)}</code>`);
+      told = !!(r && r.ok);
+    } catch (e) {}
+  }
+  await sendText(chatId,
+    `✅ Order <b>#${orderId}</b> → <b>${planLabel(plan)}</b> · ETB ${money(price)} · until <b>${lastDay(expiry)}</b>\n` +
+    `<code>${esc(mid)}</code> · new key:\n<code>${esc(key)}</code>\n` +
+    (told ? '📨 The buyer was told in the bot.' : '⚠️ Could not message the buyer — send them the key above.') +
+    '\n<i>Their panel picks up the new key on its next check.</i>');
+  return true;
+}
+
 async function revokeOrder(chatId, orderId, revoke) {
   const o = await DB.prepare('SELECT machine_id, chat_id, status_msg_id FROM orders WHERE id=?').bind(orderId).first();
   if (!o) { await sendText(chatId, `⚠️ Order <b>#${orderId}</b> not found.`); return; }
@@ -5001,7 +5065,8 @@ async function adminHelp(chatId) {
     '<code>/funnel</code> or <code>/funnel 30</code> — what happens in the program before people buy\n' +
     '<code>/revoke-mid ID</code> · <code>/unrevoke-mid ID</code> — kill / restore a key\n' +
     '<code>/revoke ORDER</code> · <code>/unrevoke ORDER</code> — same, by order number\n' +
-    '<code>/setexpiry ORDER YYYYMMDD</code> — time-limited key (before approving)\n\n' +
+    '<code>/setexpiry ORDER YYYYMMDD</code> — time-limited key (before approving)\n' +
+    '<code>/setplan ORDER m1</code> — change an APPROVED order to 1 month (m2, y1)\n\n' +
     '<b>Partners</b>\n' +
     '<code>/partner CODE name</code> — new partner · <code>/partners</code> — list\n' +
     '<code>/partnerterms CODE reward discount</code> — their amounts\n' +
@@ -7717,8 +7782,14 @@ export default {
             // by a later one (renewal or Forever upgrade). The panel still holds
             // the old key and used to lose its license on the daily check; it now
             // gets the new key back (bound to this Machine ID like every lease).
+            // 2026-11-28: or exactly the key /setplan replaced with a SHORTER
+            // one (the year approved by mistake for ETB 500 -> 1 month): the
+            // panel takes the new key instead of losing its license. Any other
+            // key later than the row stays refused (never sold).
+            const swapped = row && !row.revoked && row.key && canonicalLicenseKey(row.key) !== clean &&
+              (await kvGet('swap:' + midKey)) === clean;
             const replaced = row && !row.revoked && row.key && canonicalLicenseKey(row.key) !== clean &&
-              kexp !== '00000000' && (row.expiry === '00000000' || String(row.expiry || '') > kexp);
+              kexp !== '00000000' && (swapped || row.expiry === '00000000' || String(row.expiry || '') > kexp);
             if (replaced && row.expiry !== '00000000' &&
                 new Date(row.expiry.slice(0, 4) + '-' + row.expiry.slice(4, 6) + '-' + row.expiry.slice(6, 8)) < new Date()) {
               out = { valid: false, reason: 'expired' };
