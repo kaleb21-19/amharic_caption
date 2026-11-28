@@ -2622,6 +2622,13 @@ def serve(stream_in=None, stream_out=None):
         try:
             req = json.loads(line)
             rid = req.get("id")
+            # 1.94.75: {id, op: "render", job} - the same render() as "render job.json",
+            # in this warm process (no new Python for a one-caption fix)
+            if req.get("op") == "render":
+                res = render(req.get("job") or {})
+                fout.write(json.dumps({"id": rid, "ok": True, "result": res}, ensure_ascii=False) + "\n")
+                fout.flush()
+                continue
             w, h = int(req.get("width") or 1920), int(req.get("height") or 1080)
             words = words_from_cues(req.get("cues") or [])
             if not words:

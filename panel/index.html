@@ -881,6 +881,12 @@
   border-radius: var(--radius-lg); background: var(--color-accent-soft); }
 .sel-cap-bar .sel-cap-btn { flex: 0 0 auto; }
 .sel-cap-bar .sel-cap-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .85; }
+/* 1.94.75 ✎ fix a placed caption in the bar */
+.sel-cap-bar.editing { flex-wrap: wrap; }
+.sel-cap-bar .sel-cap-input { flex: 1 1 160px; min-width: 0; height: var(--control-height-md); padding: 0 var(--space-4); border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-sm); background: var(--color-bg-sunken); color: var(--color-text-primary); font-size: var(--font-size-md); }
+.sel-cap-bar .sel-cap-note { flex: 0 0 100%; font-size: var(--font-size-xs); color: var(--color-text-secondary); }
+.sel-cap-bar .sel-cap-note.bad { color: var(--color-danger); }
 /* Install the Amharic fonts on this PC (1.28.0) */
 .sc-install { margin-top: var(--space-3); padding: var(--space-2) var(--space-4); border: 1px dashed var(--color-border-control); border-radius: var(--radius-md); background: none; color: var(--color-accent);
   font-size: var(--font-size-xs); cursor: pointer; }
@@ -1598,7 +1604,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.94.74</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.94.75</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
