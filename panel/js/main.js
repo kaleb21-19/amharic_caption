@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.72';
+const APP_VERSION = '1.94.73';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -6421,7 +6421,9 @@ function followTick() {
   FOLLOW.timer = setTimeout(followTick, 250);
   const own = HEAR.a && !HEAR.a.paused;                      // the panel's own ▶ is marking already
   const hidden = typeof document !== 'undefined' && document.hidden;
-  if (FOLLOW.busy || EVAL_INFLIGHT > 0 || own || hidden || TEXTCUT.busy || (CLEAN && CLEAN.cutting)) return;
+  // 1.94.73: Customize covers the list - nothing to mark (it asked 4 times a second)
+  const customizing = $('review') && $('review').classList.contains('customizing');
+  if (FOLLOW.busy || EVAL_INFLIGHT > 0 || own || hidden || customizing || TEXTCUT.busy || (CLEAN && CLEAN.cutting)) return;
   FOLLOW.busy = true;
   evalScript('amh_playerPos()', 2000).then((r) => {
     FOLLOW.busy = false;
@@ -8435,9 +8437,21 @@ async function lcDraw(override) {
       if (!LC.want) lcPost({ type: 'play', cs: Number(cue.start), ce: Number(last.end), hold: 0.6, width: fr.width, height: fr.height });
       LC.lastMs = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0);
       LC.draws++;
+      LC.retried = false;
       stage.style.display = '';
     }
   } catch (e) {
+    // 1.94.73: one failed drawing (a slow first load on a weak PC, the renderer
+    // page reloaded) turned the live preview off until Premiere restarted -
+    // seen in the owner's Premiere. Now a fresh renderer gets one more try.
+    if (!LC.retried) {
+      LC.retried = true;
+      try { if (LC.frame && LC.frame.parentNode) LC.frame.parentNode.removeChild(LC.frame); } catch (e2) {}
+      LC.frame = null; LC.frameP = null; LC.still = '';
+      const again = Object.assign({}, override || {});
+      Promise.resolve().then(() => lcDraw(again));     // after this run's finally (LC.busy is free then)
+      return true;
+    }
     LC.failed = String((e && e.message) || e);
     log('The live caption preview is not available here (' + LC.failed + ') \u2014 the Program monitor still shows the look.');
     const stage = lcStage();
@@ -8469,9 +8483,12 @@ if (typeof window !== 'undefined' && window.addEventListener) {
 // header switches it off (nothing is put on the timeline then).
 const LIVE_PREFIX = 'amhstyle_livepreview__';
 const LIVE = { timer: 0, busy: false, again: false, shown: false, key: '' };
+// 1.94.73: off unless the editor switches 📺 on - every change rendered a .mov
+// and put it on the sequence (seconds of Premiere work a click) while the
+// panel's own live preview already shows the same at once
 function liveOn() {
   if (IS_AE || IS_APP_MODE()) return false;
-  try { return loadSettings().liveMonitor !== false; } catch (e) { return true; }
+  try { return loadSettings().liveMonitor === true; } catch (e) { return false; }
 }
 function liveNote(text, bad) {
   const n = $('liveNote');
@@ -9007,6 +9024,7 @@ let STYLE_SECTION = 'text';          // 1.94.39: the open Customize section
 const OUTLINE_COLORS = ['', '#000000', '#FFFFFF', '#1A1A2E'];          // 1.94.40 ('' = the look's own)
 const BOX_COLORS = ['', '#000000', '#FFFFFF', '#FFE500', '#FF2D95', '#2F80ED'];
 const SIZE_PICK = [['s', 'S', 0.8], ['m', 'M', 1], ['l', 'L', 1.25], ['xl', 'XL', 1.5]];
+const AUTO_KEYS = ['outline', 'shadow', 'box_a', 'box_r'];      // 1.94.73: sliders with the look's own value (↺)
 // 1.94.54 the Customize page: the caption list steps aside, the look gets the
 // whole panel; ‹ › shows the look on another caption; ← Captions goes back
 function customPage(open) {
@@ -9015,6 +9033,7 @@ function customPage(open) {
   const was = rv.classList.contains('customizing');
   rv.classList.toggle('customizing', !!open);
   if (!open) {
+    if (was) premiereNow();                            // 1.94.73: Premiere follows once, now
     if (was) {                                         // back at the caption that was being looked at
       const row = $('reviewList') && $('reviewList').children[LC.i || 0];
       if (row && typeof row.scrollIntoView === 'function') { try { row.scrollIntoView({ block: 'nearest' }); } catch (e) {} }
@@ -9140,6 +9159,16 @@ function renderCompactCustom(wrap, opts) {
     r.addEventListener('change', () => onDone(Number(r.value)));     // drawn when the slider is let go
     row.appendChild(r);
     row.appendChild(v);
+    // 1.94.73: back to the look's own value (only "Reset all" did that)
+    if (!autoLabel && liveKey && AUTO_KEYS.indexOf(liveKey) >= 0) {
+      const a = el('button', 'cc-auto', '↺');
+      a.type = 'button';
+      a.dataset.auto = liveKey;
+      a.title = L('Back to the style’s own');
+      a.setAttribute('aria-label', L('Back to the style’s own'));
+      a.addEventListener('click', () => setStyleOpt(liveKey, null));
+      row.appendChild(a);
+    }
     return r;
   };
   const section = (id, label) => {
@@ -9423,8 +9452,19 @@ async function loadStyleFrame() {
   } catch (e) {}
 }
 let PREVIEW_KEY = '';
+// 1.94.73 (owner: "update Premiere when I am done"): while ⚙ Customize is open
+// and its live preview works, a change is drawn in the panel only; Premiere
+// (the caption on the timeline, or 📺) is drawn ONCE when Customize closes.
+let PREMIERE_LATER = false;
+function customizingLive() { return STYLE_CUSTOM_OPEN && !customizeHere() && liveCanvasOn() && !LC.failed; }
+function premiereNow() {
+  if (!PREMIERE_LATER) return;
+  PREMIERE_LATER = false;
+  if (TL.on) tlSchedule(); else liveSchedule();
+}
 function schedulePreview() {
-  if (TL.on) tlSchedule();           // 1.93: the caption on the timeline follows
+  if (customizingLive()) PREMIERE_LATER = true;
+  else if (TL.on) tlSchedule();      // 1.93: the caption on the timeline follows
   else liveSchedule();               // 1.94.39: the live caption on the Program monitor follows
   if (PREVIEW_TIMER) clearTimeout(PREVIEW_TIMER);
   PREVIEW_TIMER = setTimeout(renderPreview, 300);
