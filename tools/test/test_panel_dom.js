@@ -249,7 +249,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.72');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.73');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1875,7 +1875,10 @@ await t('4f3. 1.94.39 Premiere: the caption shows live on the Program monitor (i
     p.evalVm(`LICENSED = true; globalThis.__lj = []; renderStyled = async (job) => { __lj.push(job.cues[0][0] + '|' + JSON.stringify(job.opts.color));
       return { ok: true, out: 'C:/caps/live.mov', t0: 0, duration: 1, spans: [[0, 1]] }; };
       REVIEW = { startSeconds: 0, label: 't' }; STYLE_OK = true; STYLE = 'bold'; reviewOpen = true;
-      reviewCues = [{ text: 'ሰላም እንዴት', start: 0.5, end: 1.2 }, { text: 'ናችሁ', start: 20, end: 21 }]; renderStyleStrip();`);
+      reviewCues = [{ text: 'ሰላም እንዴት', start: 0.5, end: 1.2 }, { text: 'ናችሁ', start: 20, end: 21 }];`);
+    // 1.94.73: 📺 is off until the editor switches it on
+    assert.strictEqual(p.evalVm('liveOn()'), false, 'off by default');
+    p.evalVm('saveSettings({ liveMonitor: true }); renderStyleStrip();');
     assert.notStrictEqual(p.els('liveToggle').style.display, 'none', '📺 is shown for a styled look');
     await p.evalVm('liveDraw()');
     assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(__lj)')), ['ናችሁ|""'], 'the caption under the playhead (20.5 s)');
@@ -1963,6 +1966,41 @@ await t('4q. 1.94.41 V2: a failed run offers the way out; the report carries pri
   } finally { p.close(); }
 });
 
+await t('4f5. 1.94.73 Customize: Premiere is drawn once when it closes (not on every click); no playhead polling meanwhile; ↺ back to Auto', async () => {
+  const p = loadPanel({ realPanel: true });
+  try {
+    await flush(5);
+    p.evalVm(`globalThis.__tl = 0; globalThis.__live = 0; tlSchedule = () => { __tl++; }; liveSchedule = () => { __live++; };
+      lcDraw = async () => true; LC.failed = ''; LICENSED = true; STYLE_OK = true; STYLE = 'bold'; reviewOpen = true;
+      reviewCues = [{ text: 'ሰላም', start: 1, end: 2 }]; TL.on = true; STYLE_CUSTOM_OPEN = false; renderStyleStrip();`);
+    p.evalVm("setStyleOpt('size', 1.2)");
+    assert.strictEqual(p.evalVm('__tl'), 1, 'Customize closed: the timeline caption follows a change as before');
+    p.evalVm('STYLE_CUSTOM_OPEN = true; renderStyleCustom();');
+    assert.ok(p.els('review').classList.contains('customizing'), 'the Customize page');
+    p.evalVm("setStyleOpt('size', 1.3); setStyleOpt('text', '#FFFFFF'); setStyleOpt('outline', 0.1);");
+    assert.strictEqual(p.evalVm('__tl'), 1, 'while Customize is open: nothing drawn in Premiere');
+    assert.strictEqual(p.evalVm('PREMIERE_LATER'), true, 'it is remembered');
+    // no playhead questions while the list is covered
+    p.evalVm(`globalThis.__pos = 0; const ev0 = evalScript; evalScript = (s, t) => { if (/amh_playerPos/.test(s)) __pos++; return ev0(s, t); };
+      FOLLOW.busy = false; EVAL_INFLIGHT = 0; followOn = () => true; cleanupAvailable = () => true; followTick(); followStop();`);
+    assert.strictEqual(p.evalVm('__pos'), 0, 'no playhead polling while Customize is open');
+    // ↺ on a slider set by the editor: back to the look's own value
+    p.evalVm("STYLE_SECTION = 'outline'; renderStyleCustom();");
+    const find = (n, test) => { if (test(n)) return n; for (const c of (n.children || [])) { const x = find(c, test); if (x) return x; } return null; };
+    const auto = find(p.els('styleOpts'), (n) => n.dataset && n.dataset.auto === 'outline');
+    assert.ok(auto, 'a ↺ next to the outline slider the editor set');
+    auto.fire('click');
+    assert.strictEqual(p.evalVm('styleOpts(STYLE).outline'), null, 'back to the style’s own outline');
+    assert.ok(!find(p.els('styleOpts'), (n) => n.dataset && n.dataset.auto === 'outline'), 'no ↺ when it is the style’s own');
+    // closing Customize: Premiere follows once
+    p.evalVm('STYLE_CUSTOM_OPEN = false; renderStyleCustom();');
+    assert.strictEqual(p.evalVm('__tl'), 2, 'closed: the timeline caption is drawn once');
+    assert.strictEqual(p.evalVm('PREMIERE_LATER'), false);
+    const html = fs.readFileSync(path.join(REPO, 'panel', 'index.html'), 'utf8');
+    assert.ok(/\.sc-stage-pin \{ position: sticky/.test(html) && /class="sc-stage-pin"><div class="sc-stage">/.test(html), 'the preview stays pinned at the top');
+  } finally { p.close(); }
+});
+
 await t('4f4. 1.94.42 live canvas: drawn while Customize is open, sliders redraw as they move (newest wins), failure hides it, close stops it', async () => {
   const p = loadPanel({ realPanel: true });
   try {
@@ -2024,9 +2062,12 @@ await t('4f4. 1.94.42 live canvas: drawn while Customize is open, sliders redraw
     await flush(10);
     assert.deepStrictEqual(JSON.parse(p.evalVm('JSON.stringify(__asks[__asks.length - 1].cues)')), [['ናችሁ', 4, 5]]);
     // the renderer fails: the canvas goes, Customize still works
+    await flush(20);                       // the drawing before has finished
+    const asksBefore = p.evalVm('__asks.length');
     p.evalVm("__answer = { ok: false, error: 'no WebAssembly here' }; lcDraw();");
-    await flush(10);
+    await flush(20);
     assert.match(p.evalVm('LC.failed'), /WebAssembly/);
+    assert.strictEqual(p.evalVm('__asks.length') - asksBefore, 2, '1.94.73: one more try with a fresh renderer before giving up');
     assert.strictEqual(p.evalVm("$('styleCustom').querySelector('.sc-stage').style.display"), 'none', 'hidden on failure');
     const n = p.evalVm('__asks.length');
     p.evalVm('renderStyleCustom();');

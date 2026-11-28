@@ -582,6 +582,12 @@
   .cc-pick { flex: 0 0 auto; width: 24px; height: 24px; padding: 0; border: 1px solid var(--color-border-control); border-radius: var(--radius-sm); background: transparent; cursor: pointer; }
   .sc-stage.lc-stage { position: relative; margin: 0 auto var(--space-4); width: 100%; border-radius: var(--radius-md); overflow: hidden; min-height: 0;
     background: linear-gradient(160deg, var(--color-preview-backdrop), var(--color-bg-base)); }
+  /* 1.94.73 (measured in the owner's Premiere: the preview scrolled away while
+     a lower section was open - the caption being changed was out of sight):
+     the live preview stays pinned at the top of Customize; the settings scroll
+     under it, and the strips beside a narrow (9:16) preview are covered too */
+  .sc-stage-pin { position: sticky; top: calc(-1 * var(--space-4)); z-index: var(--z-sticky); background: var(--bg-elev); }
+  .sc-stage-pin > .sc-stage { position: relative; top: 0; }
   .lc-stage .lc-frame, .lc-stage .lc-canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border: 0; background: transparent; }
   .run-fix { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-4); }
   .run-fix .btn { flex: 1 1 auto; min-width: 120px; }
@@ -939,7 +945,12 @@
   .sc-compact .cc-dot.auto { background: conic-gradient(#ffe500, #ff3b30, #2f80ed, #39ff14, #ffe500); }   /* content: caption colours */
   .sc-compact .cc-dot.active { outline: 2px solid var(--accent); outline-offset: 1px; }
   .sc-compact .cc-select { width: auto; flex: 1; max-width: 170px; height: 20px; padding: 0 var(--space-2); font-size: var(--font-size-xs); }
-  .sc-compact .cc-foot { display: flex; justify-content: flex-end; padding-top: var(--space-2); }
+  .sc-compact .cc-foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); padding-top: var(--space-2); }
+  .sc-compact .cc-foot .cc-reset { flex: 0 0 100%; text-align: left; }
+  .sc-compact .cc-foot .cc-name { flex: 1 1 120px; min-width: 0; }
+  .sc-compact .cc-auto { flex: 0 0 auto; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent;
+    color: var(--text-secondary); cursor: pointer; font-size: var(--font-size-sm); }
+  .sc-compact .cc-auto:hover { color: var(--accent); background: var(--color-bg-raised); }
   .sc-compact .cc-reset { border: 0; background: none; color: var(--text-secondary); font-size: var(--font-size-xs); cursor: pointer; padding: var(--space-1) 0; }
   .sc-compact .cc-reset:hover { color: var(--text-primary); }
   /* the status pill never pushes the title: one line, cut with …, the whole text on hover */
@@ -1587,7 +1598,7 @@
   </div>
   <div class="sel-cap-bar" id="selCapBar" style="display:none;"></div>
   <div class="panel-footer">
-    <span>v<span id="panelVersion">1.94.72</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
+    <span>v<span id="panelVersion">1.94.73</span><span id="footPrice"> · <span data-i18n="foot.license">License from ETB 500</span></span><span id="footLicensed" class="foot-licensed" style="display:none;"> · <span data-i18n="foot.licensed">✓ Licensed</span></span></span>
     <span class="foot-links">
       <a href="#" id="recentLink" title="Reopen captions you placed" data-i18n="recent.link" data-i18n-title="recent.linkTitle">🕘 Recent</a>
       <a href="#" id="feedbackLink" title="Send us an idea, a problem or a question" data-i18n="fb.link" data-i18n-title="fb.linkTitle">💡 Ideas</a>
@@ -1683,7 +1694,7 @@
       <!-- 1.94.5 the Studio: 8 good styles first, the rest behind this -->
       <button type="button" class="style-more" id="styleMore" style="display:none;"></button>
       <div class="style-custom" id="styleCustom" style="display:none;">
-        <div class="sc-stage"><img id="stylePreview" alt="" style="display:none;"><span class="sc-pnote" id="stylePreviewNote" style="display:none;"></span></div>
+        <div class="sc-stage-pin"><div class="sc-stage"><img id="stylePreview" alt="" style="display:none;"><span class="sc-pnote" id="stylePreviewNote" style="display:none;"></span></div></div>
         <div class="sc-tabs" id="styleTabs" role="tablist" style="display:none;"></div>
         <div class="sc-opts" id="styleOpts"></div>
       </div>

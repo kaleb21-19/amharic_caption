@@ -263,6 +263,7 @@ const AM_TEXT = {
   'Could not show it on the Program monitor': 'በProgram ማሳያው ላይ ማሳየት አልተቻለም',
   'Today is the last day of your license': 'ዛሬ የፈቃድዎ የመጨረሻ ቀን ነው',
   'Your free minutes are used up': 'ነጻ ደቂቃዎችዎ አልቀዋል',
+  'Back to the style’s own': 'ወደ ስታይሉ የራሱ ይመለሱ',
   'Your free trial has ended': 'የነጻ ሙከራ ጊዜዎ አብቅቷል',
   'Renew in Telegram: 1 month, 2 months or 1 year (the lowest price per month). This panel updates itself.':
     'በቴሌግራም ያድሱ፦ 1 ወር፣ 2 ወር ወይም 1 ዓመት (በወር ዝቅተኛው ዋጋ)። ፓነሉ በራሱ ይታደሳል።',
