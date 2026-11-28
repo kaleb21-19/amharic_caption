@@ -286,6 +286,21 @@ _want = A.build(A.words_from_cues(_req[0]["cues"]), "bold", 1280, 720, opts={"si
 check(_ans[0]["ok"] and _ans[0]["id"] == 1 and _ans[0]["script"] == _want, "serve: the exact script the export draws (with the free tag)")
 check("Lato-Bold.ttf" in (_ans[0]["fonts"] or []), "serve: says which font files the canvas needs")
 check(_ans[1]["ok"] is False and _ans[1]["id"] == 2, "serve: a bad request answers an error, the process keeps going")
+# 1.94.75: the warm process renders too (one caption fixed on the timeline, no new Python)
+_seen = []
+_real_render = A.render
+A.render = lambda job, progress=None: (_seen.append(job), {"t0": 0.75, "duration": 1.85, "out": job.get("out"), "spans": [[0.25, 1.25]]})[1]
+try:
+    _out2 = _io.StringIO()
+    _nl = chr(10)
+    A.serve(_io.StringIO(_json.dumps({"id": 7, "op": "render", "job": {"cues": [[u"ሰላም", 1.0, 2.0]], "style": "bold", "out": "x.mov"}}) + _nl +
+                         _json.dumps({"id": 8, "cues": [[u"ሰላም", 1.0, 2.0]], "style": "bold"}) + _nl), _out2)
+    _a2 = [_json.loads(l) for l in _out2.getvalue().splitlines()]
+    check(_a2[0]["id"] == 7 and _a2[0]["ok"] and _a2[0]["result"]["spans"] == [[0.25, 1.25]] and _seen and _seen[0]["out"] == "x.mov",
+          "serve: op render runs the same render() and answers its result")
+    check(_a2[1]["id"] == 8 and _a2[1]["ok"] and "script" in _a2[1], "serve: the next request still gets its script")
+finally:
+    A.render = _real_render
 check(all(n in shipped for n in ("OFL.txt", "OFL-Menbere.txt", "OFL-NotoSerifEthiopic.txt", "OFL-AbyssinicaSIL.txt",
                                  "OFL-Agbalumo.txt", "OFL-HiburMono.txt", "OFL-Senamirmir.txt", "FONTLOG-Senamirmir.txt")),
       "every font's license is shipped")

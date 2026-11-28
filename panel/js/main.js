@@ -6,7 +6,7 @@
  */
 'use strict';
 
-const APP_VERSION = '1.94.74';
+const APP_VERSION = '1.94.75';
 
 // Panel language (js/i18n.js). L() returns the Amharic for a known English UI
 // string when the panel is in Amharic, else the English; it degrades to a
@@ -8058,6 +8058,7 @@ function findStyledRecent(sel) {
 async function checkSelectedCaption() {
   const bar = $('selCapBar');
   if (!bar || IS_AE || SELCAP_BUSY) return;
+  if ((bar.classList && bar.classList.contains('editing')) || QFIX.busy) return;     // 1.94.75: a quick fix is open
   if (reviewOpen) { bar.style.display = 'none'; return; }
   SELCAP_BUSY = true;
   try {
@@ -8077,9 +8078,12 @@ async function checkSelectedCaption() {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'btn btn-neutral sel-cap-btn';
-    b.textContent = '✎ ' + L('Text');
+    b.id = 'selCapFix';
+    b.textContent = '✎ ' + L('Fix text') + ' (E)';
     b.title = L('Edit the selected caption');
-    b.addEventListener('click', () => editSelectedCaption(rec, t));
+    const qi = rec.cues.indexOf(cue);
+    QFIX.rec = rec; QFIX.i = qi; QFIX.t = t; QFIX.btn = b;
+    b.addEventListener('click', () => { if (rec.placed && rec.placed.mode === 'cut') quickFixOpen(rec, qi); else editSelectedCaption(rec, t); });
     const txt = document.createElement('span');
     txt.className = 'sel-cap-text';
     txt.textContent = '“' + String(cue.text || '').replace(/[*~]/g, '').slice(0, 40) + '”';
@@ -8090,6 +8094,131 @@ async function checkSelectedCaption() {
   } catch (e) {
     bar.style.display = 'none';
   } finally { SELCAP_BUSY = false; }
+}
+// ── 1.94.75 ✎ Fix a placed caption in one move ────────────────────────────
+// Owner's brief: select the caption in Premiere -> a key -> the panel opens
+// that caption with the cursor in it -> Enter redraws ONLY that clip. Before:
+// ✎ reopened the whole review and Place drew every caption again. Now the
+// text opens in the bar (Latin typing works there too), Enter renders that one
+// caption in the warm style process and swaps its clip; the word is learned
+// like a fix in the review and the record keeps the new text. Captions placed
+// as one layer still open the review (their one file has every caption).
+const QFIX = { rec: null, i: -1, t: 0, busy: false, lastMs: 0, note: null, btn: null };
+function quickFixOpen(rec, i) {
+  const bar = $('selCapBar');
+  const cue = rec && rec.cues && rec.cues[i];
+  if (!bar || !cue) return false;
+  QFIX.rec = rec; QFIX.i = i;
+  bar.textContent = '';
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.id = 'selCapInput';
+  inp.className = 'sel-cap-input';
+  inp.value = String(cue.text || '');
+  inp.setAttribute('data-amh-type', '');
+  inp.setAttribute('aria-label', L('Caption text'));
+  const go = document.createElement('button');
+  go.type = 'button';
+  go.id = 'selCapGo';
+  go.className = 'btn btn-primary sel-cap-btn';
+  go.textContent = '✓ ' + L('Fix');
+  go.title = L('Fix on the timeline') + ' (Enter)';
+  const no = document.createElement('button');
+  no.type = 'button';
+  no.className = 'btn btn-neutral sel-cap-btn';
+  no.textContent = '✕';
+  no.title = L('Cancel') + ' (Esc)';
+  no.setAttribute('aria-label', L('Cancel'));
+  const note = document.createElement('div');
+  note.id = 'selCapNote';
+  note.className = 'sel-cap-note';
+  note.textContent = L('Enter = fix on the timeline · Esc = cancel');
+  QFIX.note = note;
+  const apply = () => { quickFixApply(rec, i, inp.value); };
+  go.addEventListener('click', apply);
+  no.addEventListener('click', quickFixClose);
+  inp.addEventListener('keydown', (e) => {
+    if (e && e.key === 'Enter') { if (e.preventDefault) e.preventDefault(); apply(); }
+    else if (e && e.key === 'Escape') { if (e.preventDefault) e.preventDefault(); quickFixClose(); }
+  });
+  bar.classList.add('editing');
+  bar.appendChild(inp); bar.appendChild(go); bar.appendChild(no); bar.appendChild(note);
+  bar.style.display = '';
+  try { inp.focus(); const n = inp.value.length; inp.setSelectionRange(n, n); } catch (e) {}
+  return true;
+}
+function quickFixClose() {
+  const bar = $('selCapBar');
+  if (bar) { bar.classList.remove('editing'); bar.style.display = 'none'; bar.textContent = ''; }
+  QFIX.rec = null; QFIX.i = -1; QFIX.note = null;
+}
+async function quickFixApply(rec, i, value) {
+  const cue = rec && rec.cues && rec.cues[i];
+  const pl = rec && rec.placed;
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  const note = (m, bad) => { const n = QFIX.note || $('selCapNote'); if (n) { n.textContent = m; if (n.classList) n.classList.toggle('bad', !!bad); } };
+  if (!cue || !pl || QFIX.busy) return false;
+  if (!text) { note(L('A caption cannot be empty — delete it in the review instead.'), true); return false; }
+  const was = String(cue.text || '').trim();
+  if (text === was) { quickFixClose(); return true; }
+  QFIX.busy = true;
+  const t0 = Date.now();
+  note('⏳ ' + L('Fixing it on the timeline…'));
+  try {
+    const fr = await evalScript('amharic_getFrame()');
+    if (!fr || !fr.ok) throw new Error((fr && fr.error) || 'could not read the sequence frame size');
+    const base = Number(rec.startSeconds) || 0;
+    const style = pl.style || rec.style;
+    const opts = pl.opts || rec.opts || styleOpts(style);
+    const c2 = { start: Number(cue.start), end: Number(cue.end), text };
+    // the engine's word times stay when the words are the same in number
+    if (Array.isArray(cue.wt) && cue.wt.length === text.split(' ').length) c2.wt = cue.wt;
+    const out = path.join(ensureCaptionsDir(), pl.prefix + style + '_' + Date.now() + '.mov');
+    const r = await renderStyledFast({ cues: styleCues([c2]), style, opts, width: fr.width, height: fr.height, fps: fr.fps, out, mode: 'overlay', tag: !LICENSED });
+    if (!Array.isArray(r.spans) || !r.spans.length) throw new Error('nothing to place');
+    const from = base + c2.start - 0.05, to = base + c2.end + 0.6;
+    const prep = await hostCall('amh_overlayPrepare', { path: r.out, rangeStart: Math.min(from, base + (r.t0 || 0)),
+      rangeEnd: Math.max(to, base + (r.t0 || 0) + (r.duration || 0)), replacePrefix: pl.prefix, preferTrack: pl.track });
+    if (!prep || !prep.ok) throw new Error((prep && prep.error) || HOST_NAME + ' did not take the caption');
+    await placeSpans(r.out, r.spans, base + (r.t0 || 0), prep, null, 0, 0);
+    // learned like a fix in the review: one word changed for one word
+    const a = was.split(' '), b = text.split(' ');
+    if (a.length === b.length) {
+      const diff = a.map((w, k) => [w, b[k]]).filter(([x, y]) => x !== y);
+      if (diff.length === 1) {
+        const clean = (w) => noEmph(String(w || '')).replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+        const [w0, w1] = [clean(diff[0][0]), clean(diff[0][1])];
+        if (w0 && w1 && w0 !== w1) { try { const st = loadFixStore(); rememberFix(st, w0, w1, true); saveFixStore(st); } catch (e) {} }
+      }
+    }
+    // the record keeps the new text (reopening it shows the fix)
+    cue.text = text;
+    if (!c2.wt) delete cue.wt;
+    try { if (rec.file && String(rec.file).endsWith(HISTORY_EXT)) { const keep = Object.assign({}, rec); delete keep.file; fs.writeFileSync(rec.file, JSON.stringify(keep), { encoding: 'utf8', mode: 0o600 }); } } catch (e) {}
+    QFIX.lastMs = Date.now() - t0;
+    log('✎ Fixed on the timeline: “' + was + '” → “' + text + '” (' + (QFIX.lastMs / 1000).toFixed(1) + ' s).');
+    note('✓ ' + L('Fixed on the timeline') + ' (' + (QFIX.lastMs / 1000).toFixed(1) + ' s)');
+    setTimeout(() => { quickFixClose(); }, 1800);
+    setTimeout(() => { cleanOldCaptionFiles(); }, 2500);
+    return true;
+  } catch (e) {
+    note(L('Could not fix it on the timeline') + ': ' + L((e && e.message) || String(e)), true);
+    return false;
+  } finally { QFIX.busy = false; }
+}
+// E (or Enter) in the panel with a styled caption selected: the quick fix
+if (typeof document !== 'undefined' && document.addEventListener) {
+  document.addEventListener('keydown', (e) => {
+    if (!e || !QFIX.rec || QFIX.busy) return;
+    const bar = $('selCapBar');
+    if (!bar || bar.style.display === 'none' || (bar.classList && bar.classList.contains('editing'))) return;
+    const a = document.activeElement;
+    if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName || '')) return;
+    if (e.key !== 'e' && e.key !== 'E' && e.key !== 'Enter') return;
+    if (e.preventDefault) e.preventDefault();
+    const fix = QFIX.btn || $('selCapFix');
+    if (fix) fix.click();
+  });
 }
 async function editSelectedCaption(rec, t) {
   const bar = $('selCapBar');
@@ -8243,16 +8372,23 @@ function lcProcess() {
   LC.child = child;
   return child;
 }
-function lcAsk(req) {
+function lcAsk(req, ms) {
   return new Promise((resolve) => {
     let child;
     try { child = lcProcess(); } catch (e) { resolve({ ok: false, error: String((e && e.message) || e) }); return; }
     const id = ++LC.seq;
-    const timer = setTimeout(() => { if (LC.wait.has(id)) { LC.wait.delete(id); resolve({ ok: false, error: 'the style process did not answer' }); } }, 8000);
+    const timer = setTimeout(() => { if (LC.wait.has(id)) { LC.wait.delete(id); resolve({ ok: false, error: 'the style process did not answer' }); } }, ms || 8000);
     LC.wait.set(id, (r) => { clearTimeout(timer); resolve(r); });
     try { child.stdin.write(JSON.stringify(Object.assign({ id }, req)) + '\n'); }
     catch (e) { LC.wait.delete(id); clearTimeout(timer); resolve({ ok: false, error: String((e && e.message) || e) }); }
   });
+}
+// 1.94.75: one caption rendered in the warm style process (no new Python:
+// ~0.35 s less a fix); the usual renderStyled when that cannot
+async function renderStyledFast(job) {
+  const r = await lcAsk({ op: 'render', job: Object.assign({ ffmpeg: FFMPEG, fonts: runtimePath('fonts') }, job) }, 60000);
+  if (r && r.ok && r.result && r.result.out && Array.isArray(r.result.spans)) return r.result;
+  return renderStyled(job);
 }
 // read-only files for the renderer, on this computer only
 const LC_TYPES = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.wasm': 'application/wasm', '.ttf': 'font/ttf', '.otf': 'font/otf' };
@@ -9663,7 +9799,7 @@ function saveHistory(srtPath) {
       startSeconds: Number(REVIEW.startSeconds) || 0, host: HOST_NAME,
       style: STYLE_OK ? STYLE : 'plain', opts: (STYLE_OK && STYLE !== 'plain') ? styleOpts(STYLE) : null,
       media: PREVIEW_MEDIA.slice(0, 50),
-      cues: (lastCues || []).map((c) => ({ start: c.start, end: c.end, text: c.text })),
+      cues: (lastCues || []).map((c) => Object.assign({ start: c.start, end: c.end, text: c.text }, Array.isArray(c.wt) && c.wt.length ? { wt: c.wt } : {})),
       placed: (STYLED_LAST && STYLE_OK && STYLE === STYLED_LAST.style) ? STYLED_LAST : null,
     };
     fs.writeFileSync(srtPath + HISTORY_EXT, JSON.stringify(rec), { encoding: 'utf8', mode: 0o600 });

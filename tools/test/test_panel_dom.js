@@ -249,7 +249,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.74');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.75');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -2048,6 +2048,57 @@ await t('4u. 1.94.74 old caption files: deleted only when no sequence uses them 
   } finally { p.close(); try { fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(other, { recursive: true, force: true }); } catch (e) {} }
 });
 
+await t('4v. 1.94.75 ✎ fix a placed caption in one move: E opens its text in the bar, Enter redraws ONLY that clip, learns the word, keeps the record', async () => {
+  const dir = process.env.AMH_CAPTIONS_DIR;
+  const recFile = path.join(dir, 'qfix_talk.srt.amh.json');
+  fs.writeFileSync(recFile, JSON.stringify({ v: 1, at: Date.now(), srt: path.join(dir, 'qfix_talk.srt'), label: 'talk', startSeconds: 10,
+    cues: [{ start: 1, end: 2, text: 'ሰላም ውድ', wt: [[1, 1.4], [1.5, 2]] }, { start: 3, end: 4, text: 'ናችሁ' }],
+    placed: { mode: 'cut', prefix: 'amhstyle_qfixtalk__', track: 3, style: 'bold', opts: { size: 1.2 } } }));
+  const H = { prep: null, spans: 0 };
+  const p = loadPanel({ realPanel: true, csiRaw: (jsx) => {
+    const arg = () => JSON.parse(JSON.parse(jsx.slice(jsx.indexOf('(') + 1, jsx.lastIndexOf(')'))));
+    if (/^amh_selectedStyled/.test(jsx)) return JSON.stringify({ ok: true, name: 'amhstyle_qfixtalk__bold_1.mov', start: 11, end: 12 });
+    if (/^amharic_getFrame/.test(jsx)) return JSON.stringify({ ok: true, width: 1080, height: 1920, fps: 30 });
+    if (/^amh_overlayPrepare/.test(jsx)) { H.prep = arg(); return JSON.stringify({ ok: true, itemName: 'x.mov', track: 3, addedTrack: false, replaced: 1 }); }
+    if (/^amh_overlaySpans/.test(jsx)) { H.spans++; return JSON.stringify({ ok: true, placed: 1 }); }
+    if (/^amh_unusedStyledItems/.test(jsx)) return JSON.stringify({ ok: true, complete: true, items: [], projectPath: '' });
+    return JSON.stringify({ ok: true });
+  } });
+  try {
+    await flush(5);
+    p.evalVm(`LICENSED = true; reviewOpen = false; globalThis.__jobs = []; renderStyledFast = async (job) => { __jobs.push(job);
+      return { out: job.out, t0: 0.75, duration: 1.85, spans: [[0.25, 1.25]] }; };`);
+    await p.evalVm('checkSelectedCaption()');
+    assert.strictEqual(p.els('selCapBar').style.display, '', 'the bar shows for the selected styled caption');
+    const kid = (id) => { const b = p.els('selCapBar'); for (const c of (b.children || [])) if (c.id === id) return c; return null; };
+    const fix = kid('selCapFix').textContent;
+    assert.ok(/E\)/.test(fix), 'the button says the key: ' + fix);
+    kid('selCapFix').click();
+    const inp = kid('selCapInput').value;
+    assert.strictEqual(inp, 'ሰላም ውድ', 'the caption text, ready to fix (no review opened)');
+    assert.strictEqual(p.evalVm('reviewOpen'), false, 'the review did not open');
+    const i1 = kid('selCapInput'); i1.value = 'ሰላም ውዴ'; i1.fire('keydown', { key: 'Enter', preventDefault() {} });
+    for (let k = 0; k < 50 && !p.evalVm('QFIX.lastMs'); k++) await flush(5);
+    const jobs = JSON.parse(p.evalVm('JSON.stringify(__jobs)'));
+    assert.strictEqual(jobs.length, 1, 'one render');
+    assert.deepStrictEqual(jobs[0].cues.map((c) => c[0]), ['ሰላም ውዴ'], 'ONLY that caption, with the new text');
+    assert.deepStrictEqual(jobs[0].cues[0][3], [[1, 1.4], [1.5, 2]], 'the engine word times stay (same number of words)');
+    assert.ok(jobs[0].style === 'bold' && jobs[0].opts.size === 1.2, 'in the look it was placed with');
+    assert.ok(H.prep && H.prep.replacePrefix === 'amhstyle_qfixtalk__' && H.prep.rangeStart <= 11 && H.prep.rangeEnd >= 12 && H.prep.rangeEnd < 13.5 && H.prep.preferTrack === 3,
+      'its clip only is replaced, on its own track: ' + JSON.stringify(H.prep));
+    assert.strictEqual(H.spans, 1, 'placed');
+    const rec = JSON.parse(fs.readFileSync(recFile, 'utf8'));
+    assert.strictEqual(rec.cues[0].text, 'ሰላም ውዴ', 'the record keeps the fix');
+    assert.strictEqual(p.evalVm("(loadFixStore().fixes['ውድ'] || {}).to"), 'ውዴ', 'the word is learned');
+    assert.match(kid('selCapNote').textContent, /Fixed on the timeline/);
+    // Esc closes without drawing
+    p.evalVm("quickFixOpen(readHistory().find((h) => h.label === 'talk'), 1);");
+    kid('selCapInput').fire('keydown', { key: 'Escape', preventDefault() {} });
+    assert.strictEqual(p.els('selCapBar').style.display, 'none', 'Esc closes');
+    assert.strictEqual(JSON.parse(p.evalVm('JSON.stringify(__jobs)')).length, 1, 'nothing drawn');
+  } finally { p.close(); try { fs.unlinkSync(recFile); } catch (e) {} }
+});
+
 await t('4f4. 1.94.42 live canvas: drawn while Customize is open, sliders redraw as they move (newest wins), failure hides it, close stops it', async () => {
   const p = loadPanel({ realPanel: true });
   try {
@@ -2979,7 +3030,7 @@ await t('4i2. styled captions you can edit (1.27.0): one clip per caption, an ed
     assert.strictEqual(p.els('selCapBar').style.display, '', 'the bar shows');
     has(p.els('selCapBar').children[2].textContent, 'ተቀይሯል');
     has(p.els('selCapBar').children[0].textContent, 'Style on the timeline');
-    has(p.els('selCapBar').children[1].textContent, 'Text');
+    has(p.els('selCapBar').children[1].textContent, 'Fix text');      // 1.94.75: the quick fix (E)
 
     // 1.93 🎨 style on the timeline: the look controls open on that caption, the
     // playhead goes there, a change redraws ONLY that caption in its place
