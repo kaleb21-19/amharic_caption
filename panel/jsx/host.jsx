@@ -1049,6 +1049,99 @@ function amh_liveClear(argsJSON) {
     });
 }
 
+// -- 1.94.74 old styled caption files -------------------------------------------
+// Every Place / restyle imports a new amhstyle_*.mov into the "Amharic Captions"
+// bin; the clips it replaces come off the timeline but their items (and files)
+// stayed - the owner's Documents folder held 154 of them, 1.4 GB. These two
+// find and drop the items NO sequence of the project uses. Fail closed: when a
+// sequence, track or clip cannot be read, nothing is called unused.
+function amhStyledUsedNames() {
+    var used = {};
+    var seqs = app.project.sequences;
+    if (!seqs || typeof seqs.numSequences !== "number") { return null; }
+    for (var s = 0; s < seqs.numSequences; s++) {
+        var vts = null;
+        try { vts = seqs[s].videoTracks; } catch (e) { return null; }
+        if (!vts || typeof vts.numTracks !== "number") { return null; }
+        for (var t = 0; t < vts.numTracks; t++) {
+            var clips = null;
+            try { clips = vts[t].clips; } catch (e) { return null; }
+            if (!clips || typeof clips.numItems !== "number") { return null; }
+            for (var c = 0; c < clips.numItems; c++) {
+                var nm = "";
+                try { var pj = clips[c].projectItem; nm = pj ? String(pj.name || "") : ""; } catch (e) { return null; }
+                if (nm) { used[nm] = true; }
+            }
+        }
+    }
+    return used;
+}
+function amhCaptionBinIfAny() {
+    var root = app.project.rootItem;
+    for (var i = 0; i < root.children.numItems; i++) {
+        var ch = root.children[i];
+        if (ch && ch.type === 2 && String(ch.name) === AMH_CAPTION_BIN) { return ch; }
+    }
+    return null;
+}
+function amhIsStyledFileName(nm) { return /^amhstyle_[^\/:]+\.mov$/i.test(String(nm || "")) && String(nm).indexOf("amhstyle_livepreview") !== 0; }
+// -> { items: [{ name, path }], complete, projectPath }
+function amh_unusedStyledItems() {
+    return amhGuard(function () {
+        var pp = "";
+        try { pp = String(app.project.path || ""); } catch (e) { pp = ""; }
+        var bin = amhCaptionBinIfAny();
+        if (!bin) { return amhOk({ items: [], complete: true, projectPath: pp }); }
+        var used = amhStyledUsedNames();
+        if (!used) { return amhOk({ items: [], complete: false, projectPath: pp }); }
+        var out = [];
+        for (var i = 0; i < bin.children.numItems; i++) {
+            var ch = bin.children[i];
+            if (!ch || ch.type === 2) { continue; }
+            var nm = String(ch.name || "");
+            if (!amhIsStyledFileName(nm) || used[nm]) { continue; }
+            var mp = "";
+            try { mp = String(ch.getMediaPath() || ""); } catch (e) { mp = ""; }
+            if (mp) { out.push({ name: nm, path: mp }); }
+        }
+        return amhOk({ items: out, complete: true, projectPath: pp });
+    });
+}
+// args: { names: [...] } -> those items (checked again: unused, ours) go into a
+// temporary bin that is then deleted. -> { dropped: [{ name, path }], binDeleted }
+function amh_dropStyledItems(argsJSON) {
+    return amhGuard(function () {
+        var args = JSON.parse(argsJSON || "{}");
+        var want = {};
+        var names = args.names || [];
+        for (var k = 0; k < names.length; k++) { want[String(names[k])] = true; }
+        var bin = amhCaptionBinIfAny();
+        if (!bin) { return amhOk({ dropped: [], binDeleted: false }); }
+        var used = amhStyledUsedNames();
+        if (!used) { return amhOk({ dropped: [], binDeleted: false, complete: false }); }
+        var picked = [];
+        for (var i = bin.children.numItems - 1; i >= 0; i--) {
+            var ch = bin.children[i];
+            if (!ch || ch.type === 2) { continue; }
+            var nm = String(ch.name || "");
+            if (!want[nm] || used[nm] || !amhIsStyledFileName(nm)) { continue; }
+            var mp = "";
+            try { mp = String(ch.getMediaPath() || ""); } catch (e) { mp = ""; }
+            picked.push({ item: ch, name: nm, path: mp });
+        }
+        if (!picked.length) { return amhOk({ dropped: [], binDeleted: false }); }
+        var tmp = app.project.rootItem.createBin(AMH_CAPTION_BIN + " - old");
+        var moved = [];
+        for (var j = 0; j < picked.length; j++) {
+            try { picked[j].item.moveBin(tmp); moved.push({ name: picked[j].name, path: picked[j].path }); } catch (e) {}
+        }
+        var deleted = false;
+        try { tmp.deleteBin(); deleted = true; } catch (e) {}
+        // the bin could not be deleted: its items are still in the project, so their files stay
+        return amhOk({ dropped: deleted ? moved : [], binDeleted: deleted });
+    });
+}
+
 // args: { replacePrefix, rangeStart, rangeEnd } -> our styled clips mostly in
 // that range are taken off (a caption deleted in the panel).
 function amh_removeStyledRange(argsJSON) {

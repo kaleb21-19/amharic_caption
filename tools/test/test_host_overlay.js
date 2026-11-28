@@ -281,4 +281,30 @@ test('live caption cleared: its clip comes off, its bin is deleted; real caption
   assert.deepStrictEqual(pp.vt[1].list.map((c) => c.projectItem.name), [real]);
 });
 
+// -- 1.94.74 old styled caption files
+test('old caption items: only ours, only unused, the bin item goes (then its file can go)', () => {
+  const used = 'amhstyle_talk__bold_2.mov', old = 'amhstyle_talk__bold_1.mov', live = 'amhstyle_livepreview__bold_1.mov';
+  const pp = makePremiere([[[0, 60]], [[10, 11, used]]]);
+  const root = pp.ctx.app.project.rootItem;
+  const bin = root.children[0];
+  const withPath = (nm) => Object.assign(makeItem(nm, 'seconds'), { getMediaPath() { return 'C:/caps/' + nm; }, moveBin(b) { bin._kids.splice(bin._kids.indexOf(this), 1); b._kids.push(this); } });
+  [used, old, live, 'my_own_clip.mov'].forEach((nm) => bin._kids.push(withPath(nm)));
+  let r = pp.call('amh_unusedStyledItems()');
+  assert.ok(r.ok && r.complete, JSON.stringify(r));
+  assert.deepStrictEqual(r.items.map((x) => x.name), [old], 'only our unused caption file (not the used one, the live one or a clip of the editor)');
+  assert.strictEqual(r.items[0].path, 'C:/caps/' + old);
+  // asked to drop the used one too: it is checked again and kept
+  const d = pp.call('amh_dropStyledItems(' + J({ names: [old, used, 'my_own_clip.mov'] }) + ')');
+  assert.ok(d.ok && d.binDeleted, JSON.stringify(d));
+  assert.deepStrictEqual(d.dropped.map((x) => x.name), [old]);
+  assert.deepStrictEqual(bin._kids.map((x) => x.name).sort(), [live, 'my_own_clip.mov', used].sort(), 'only the old one left the project');
+  assert.ok(!Array.from({ length: root.children.numItems }, (_, i) => root.children[i].name).includes('Amharic Captions - old'), 'the temporary bin is gone');
+  // a sequence that cannot be read: nothing is called unused
+  const pp2 = makePremiere([[[0, 60]]]);
+  pp2.ctx.app.project.rootItem.children[0]._kids.push(withPath(old));
+  Object.defineProperty(pp2.ctx.app.project, 'sequences', { get() { return { numSequences: 1, 0: { get videoTracks() { throw new Error('busy'); } } }; } });
+  r = pp2.call('amh_unusedStyledItems()');
+  assert.ok(r.ok && r.complete === false && r.items.length === 0, 'fail closed: ' + JSON.stringify(r));
+});
+
 console.log('\nALL PASS  (' + passed + ' tests)');

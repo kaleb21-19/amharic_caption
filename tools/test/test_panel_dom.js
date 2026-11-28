@@ -249,7 +249,7 @@ await t('1. load: theme, runtime, version, font pill, health rows, onboarding', 
     assert.ok(p.mid && /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/.test(p.mid), 'machine id created');
     assert.strictEqual(p.els('machineIdDisplay').textContent, p.mid);
     assert.strictEqual(p.document.documentElement.getAttribute('data-theme'), 'dark');
-    assert.strictEqual(p.els('panelVersion').textContent, '1.94.73');
+    assert.strictEqual(p.els('panelVersion').textContent, '1.94.74');
     assert.ok(p.els('statusPill').classList.contains('ready'), 'status pill ready');
     assert.match(String(p.els('statusText').textContent), /^ready/);
     assert.strictEqual(p.els('healthList').children.length, 5, '5 health rows');
@@ -1966,7 +1966,7 @@ await t('4q. 1.94.41 V2: a failed run offers the way out; the report carries pri
   } finally { p.close(); }
 });
 
-await t('4f5. 1.94.73 Customize: Premiere is drawn once when it closes (not on every click); no playhead polling meanwhile; ↺ back to Auto', async () => {
+await t('4t. 1.94.73 Customize: Premiere is drawn once when it closes (not on every click); no playhead polling meanwhile; ↺ back to Auto', async () => {
   const p = loadPanel({ realPanel: true });
   try {
     await flush(5);
@@ -1999,6 +1999,53 @@ await t('4f5. 1.94.73 Customize: Premiere is drawn once when it closes (not on e
     const html = fs.readFileSync(path.join(REPO, 'panel', 'index.html'), 'utf8');
     assert.ok(/\.sc-stage-pin \{ position: sticky/.test(html) && /class="sc-stage-pin"><div class="sc-stage">/.test(html), 'the preview stays pinned at the top');
   } finally { p.close(); }
+});
+
+await t('4u. 1.94.74 old caption files: deleted only when no sequence uses them AND the saved project does not name them; ours only', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_oldcaps_'));
+  const other = fs.mkdtempSync(path.join(os.tmpdir(), 'amh_oldother_'));
+  const mk = (d, n) => { const f = path.join(d, n); fs.writeFileSync(f, 'x'.repeat(1000)); return f; };
+  const oldA = mk(dir, 'amhstyle_talk__bold_1.mov');          // unused, not in the saved project: goes
+  const oldB = mk(dir, 'amhstyle_talk__bold_2.mov');          // unused now, but the saved project uses it: stays
+  const elsewhere = mk(other, 'amhstyle_talk__bold_3.mov');   // not in our folder: stays
+  const prj = path.join(other, 'my.prproj');
+  fs.writeFileSync(prj, require('zlib').gzipSync('<Project><Media>amhstyle_talk__bold_2.mov</Media></Project>'));
+  const H = { unused: null, dropped: [] };
+  const p = loadPanel({ realPanel: true, csiRaw: (jsx) => {
+    if (/^amh_unusedStyledItems/.test(jsx)) return JSON.stringify(H.unused);
+    if (/^amh_dropStyledItems/.test(jsx)) {
+      const a = JSON.parse(JSON.parse(jsx.slice(jsx.indexOf('(') + 1, jsx.lastIndexOf(')'))));
+      H.dropped.push(a.names);
+      return JSON.stringify({ ok: true, binDeleted: true, dropped: a.names.map((n) => ({ name: n, path: path.join(dir, n) })) });
+    }
+    return JSON.stringify({ ok: true });
+  } });
+  try {
+    await flush(5);
+    p.evalVm('ensureCaptionsDir = () => ' + JSON.stringify(dir) + ';');
+    H.unused = { ok: true, complete: true, projectPath: prj, items: [
+      { name: 'amhstyle_talk__bold_1.mov', path: oldA }, { name: 'amhstyle_talk__bold_2.mov', path: oldB }, { name: 'amhstyle_talk__bold_3.mov', path: elsewhere }] };
+    assert.strictEqual(await p.evalVm('cleanOldCaptionFiles()'), 1, 'one file removed at once');
+    assert.deepStrictEqual(H.dropped, [['amhstyle_talk__bold_1.mov', 'amhstyle_talk__bold_2.mov']], 'both unused items of our folder leave the bin (the other folder: never)');
+    assert.ok(!fs.existsSync(oldA), 'the saved project does not name it: deleted');
+    assert.ok(fs.existsSync(oldB), 'the saved project still names it: the FILE waits');
+    assert.ok(fs.existsSync(elsewhere), 'outside our folder: kept');
+    // the editor saves (the item is gone from the saved project): the file goes next time
+    H.unused = { ok: true, complete: true, projectPath: prj, items: [] };
+    assert.strictEqual(await p.evalVm('cleanOldCaptionFiles()'), 0, 'not saved yet: still waits');
+    fs.writeFileSync(prj, require('zlib').gzipSync('<Project><Media>other.mov</Media></Project>'));
+    assert.strictEqual(await p.evalVm('cleanOldCaptionFiles()'), 1, 'saved without it: deleted');
+    assert.ok(!fs.existsSync(oldB));
+    // a project never saved: nothing on disk names it - it goes at once
+    const fresh = mk(dir, 'amhstyle_new__bold_1.mov');
+    H.unused = { ok: true, complete: true, projectPath: '', items: [{ name: 'amhstyle_new__bold_1.mov', path: fresh }] };
+    assert.strictEqual(await p.evalVm('cleanOldCaptionFiles()'), 1, 'never saved: goes');
+    // Premiere could not show everything: nothing leaves the bin
+    const n0 = H.dropped.length;
+    H.unused = { ok: true, complete: false, items: [] };
+    assert.strictEqual(await p.evalVm('cleanOldCaptionFiles()'), 0);
+    assert.strictEqual(H.dropped.length, n0, 'nothing asked to leave the bin');
+  } finally { p.close(); try { fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(other, { recursive: true, force: true }); } catch (e) {} }
 });
 
 await t('4f4. 1.94.42 live canvas: drawn while Customize is open, sliders redraw as they move (newest wins), failure hides it, close stops it', async () => {
